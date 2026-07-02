@@ -14,4 +14,7 @@ serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
 day-script = { workspace = true }
+
+# Ctrl-C child cleanup uses POSIX signals only (Windows relies on console propagation).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -75,7 +75,7 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     # Only run the (expensive) build/e2e jobs once the fast checks are green.
-    needs: [fmt, clippy, msrv, deny]
+    needs: [fmt, clippy, msrv]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
