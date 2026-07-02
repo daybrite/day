@@ -42,6 +42,12 @@ pub const TARGETS: &[Target] = &[
         host: "linux",
     },
     Target {
+        name: "windows-winui",
+        toolkit: "winui",
+        kind: TargetKind::Desktop,
+        host: "windows",
+    },
+    Target {
         name: "linux-qt",
         toolkit: "qt",
         kind: TargetKind::Desktop,

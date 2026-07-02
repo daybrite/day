@@ -10,6 +10,7 @@ gtk = ["day/gtk", "day-piece-combobox/gtk"]
 qt = ["day/qt", "day-piece-combobox/qt"]
 uikit = ["day/uikit", "day-piece-combobox/uikit"]
 widget = ["day/widget", "day-piece-combobox/widget"]
+winui = ["day/winui", "day-piece-combobox/winui"]
 mock = ["day/mock"]
 
 [lib]

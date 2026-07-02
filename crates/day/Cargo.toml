@@ -11,6 +11,7 @@ gtk = ["dep:day-gtk"]
 qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit"]
 widget = ["dep:day-android"]
+winui = ["dep:day-winui"]
 mock = ["dep:day-mock"]
 
 [dependencies]
@@ -26,4 +27,5 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
 day-mock = { workspace = true, optional = true }

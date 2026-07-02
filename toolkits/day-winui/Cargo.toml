@@ -1,0 +1,21 @@
+[package]
+name = "day-winui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# day-winui — the Windows backend (target `windows-winui`; DESIGN.md §1, §9), over the
+# day-winui-sys C++/WinRT shim. `Handle = *mut UIElement`; real Windows.UI.Xaml controls
+# (TextBlock / Button / ToggleSwitch / Slider / TextBox / ComboBox / Canvas) hosted via XAML
+# Islands. day owns layout: absolute frames inside XAML Canvases (Canvas.Left/Top + size).
+#
+# System XAML (Windows.UI.Xaml) needs no Windows App SDK / MSIX, so it builds and launches
+# locally with just cargo + MSVC. True WinUI 3 (Microsoft.UI.Xaml) would layer on behind this
+# same shim once the App SDK bootstrap lands (DESIGN §9).
+
+[dependencies]
+day-spec = { workspace = true }
+linkme = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+day-winui-sys = { workspace = true }

@@ -207,6 +207,7 @@ dependencies = [
  "day-script",
  "day-spec",
  "day-uikit",
+ "day-winui",
 ]
 
 [[package]]
@@ -298,6 +299,8 @@ dependencies = [
  "day-reactive",
  "day-spec",
  "day-uikit",
+ "day-winui",
+ "day-winui-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -372,6 +375,22 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-ui-kit",
+]
+
+[[package]]
+name = "day-winui"
+version = "0.1.0"
+dependencies = [
+ "day-spec",
+ "day-winui-sys",
+ "linkme",
+]
+
+[[package]]
+name = "day-winui-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

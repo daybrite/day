@@ -70,6 +70,11 @@ pub fn run() -> i32 {
         have("pkg-config", &["--modversion", "Qt6Widgets"]),
         "brew install qt",
     );
+    check(
+        "winui-msvc",
+        have("bash", &["-c", "rustc -vV | grep -m1 windows-msvc"]),
+        "rustup default stable-msvc + install VS C++ Build Tools (windows-winui)",
+    );
     check("xcode", have("xcodebuild", &["-version"]), "install Xcode");
     check(
         "simulator",

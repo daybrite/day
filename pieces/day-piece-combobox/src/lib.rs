@@ -315,6 +315,72 @@ mod qt_impl {
 }
 
 // ---------------------------------------------------------------------------
+// WinUI renderer: a Windows.UI.Xaml ComboBox via the day-winui-sys shim (parent-routed
+// Win32 notifications don't apply — XAML fires SelectionChanged straight to our callback).
+// ---------------------------------------------------------------------------
+
+#[cfg(all(feature = "winui", windows))]
+mod winui_impl {
+    use super::*;
+    use std::ffi::CString;
+    use std::os::raw::c_int;
+
+    use day_spec::{NodeId, Proposal, Renderer, Size};
+    use day_winui::{WinHandle, WinUi};
+    use linkme::distributed_slice;
+
+    fn cstr(s: &str) -> CString {
+        CString::new(s).unwrap_or_default()
+    }
+    fn joined(items: &[String]) -> CString {
+        cstr(&items.join("\n"))
+    }
+
+    extern "C" fn on_select(id: u64, idx: c_int) {
+        day_winui::emit(NodeId(id), Event::SelectionChanged(idx as i64));
+    }
+
+    fn make(_backend: &mut WinUi, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
+        let p = props.downcast_ref::<ComboProps>().unwrap();
+        let sel = p.selected.map(|i| i as c_int).unwrap_or(-1);
+        WinHandle(unsafe {
+            day_winui_sys::day_winui_combo_new(joined(&p.items).as_ptr(), sel, id.0, on_select)
+        })
+    }
+
+    fn update(_backend: &mut WinUi, h: &WinHandle, patch: &dyn std::any::Any) {
+        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+            unsafe {
+                match p {
+                    ComboPatch::Items(items) => {
+                        day_winui_sys::day_winui_combo_set_items(h.0, joined(items).as_ptr())
+                    }
+                    ComboPatch::Selected(sel) => day_winui_sys::day_winui_combo_set_selected(
+                        h.0,
+                        sel.map(|i| i as c_int).unwrap_or(-1),
+                    ),
+                }
+            }
+        }
+    }
+
+    fn measure(_backend: &mut WinUi, h: &WinHandle, _p: Proposal) -> Size {
+        let mut w = 0.0;
+        let mut hh = 0.0;
+        unsafe { day_winui_sys::day_winui_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+        Size::new(w.max(120.0), hh.max(32.0))
+    }
+
+    #[distributed_slice(day_winui::RENDERERS)]
+    static COMBO_WINUI: fn() -> Renderer<WinUi> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: Some(measure),
+    };
+}
+
+// ---------------------------------------------------------------------------
 // UIKit renderer: UISegmentedControl (a native choice control; a dropdown-menu
 // variant via UIButton+UIMenu is a later refinement — documented divergence)
 // ---------------------------------------------------------------------------

@@ -16,6 +16,8 @@ members = [
     "toolkits/day-qt-sys",
     "toolkits/day-uikit",
     "toolkits/day-android",
+    "toolkits/day-winui",
+    "toolkits/day-winui-sys",
     "apps/showcase",
     "pieces/day-piece-combobox",
     "crates/day-cli",
@@ -54,6 +56,8 @@ day-qt = { path = "toolkits/day-qt" }
 day-qt-sys = { path = "toolkits/day-qt-sys" }
 day-uikit = { path = "toolkits/day-uikit" }
 day-android = { path = "toolkits/day-android" }
+day-winui = { path = "toolkits/day-winui" }
+day-winui-sys = { path = "toolkits/day-winui-sys" }
 slotmap = "1.0"
 linkme = "0.3"
 

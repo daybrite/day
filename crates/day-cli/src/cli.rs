@@ -287,7 +287,10 @@ fn create(name: &str, targets_csv: &str, id: Option<&str>) -> i32 {
         .map(String::from)
         .unwrap_or_else(|| format!("dev.example.{name}"));
     let day = day_home().canonicalize().unwrap_or_else(|_| day_home());
-    let day = day.display();
+    // Cargo accepts forward slashes on every host; normalize separators and strip Windows'
+    // `\\?\` verbatim prefix so the path is a valid (unescaped) TOML basic string.
+    let day = day.to_string_lossy().replace('\\', "/");
+    let day = day.strip_prefix("//?/").unwrap_or(&day);
     let targets_yaml = targets_csv
         .split(',')
         .map(|t| format!("  - {}", t.trim()))
@@ -313,6 +316,7 @@ edition = "2024"
 appkit = ["day/appkit"]
 gtk = ["day/gtk"]
 qt = ["day/qt"]
+winui = ["day/winui"]
 mock = ["day/mock"]
 
 [dependencies]

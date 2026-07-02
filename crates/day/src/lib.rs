@@ -7,6 +7,10 @@
     all(feature = "qt", feature = "appkit"),
     all(feature = "qt", feature = "gtk"),
     all(feature = "qt", feature = "mock"),
+    all(feature = "winui", feature = "appkit"),
+    all(feature = "winui", feature = "gtk"),
+    all(feature = "winui", feature = "qt"),
+    all(feature = "winui", feature = "mock"),
 ))]
 compile_error!("day: enable exactly one backend feature");
 
@@ -42,6 +46,12 @@ pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static)
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
     day_core::launch_with(day_uikit::Uikit::new(), options, root);
+}
+
+#[cfg(all(feature = "winui", windows))]
+pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+    day_script::init();
+    day_core::launch_with(day_winui::WinUi::new(), options, root);
 }
 
 #[cfg(feature = "mock")]

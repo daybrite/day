@@ -268,17 +268,28 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  # windows: host-portable core tests. The winui shim build (setup-winui.ps1
-  # staging, pane's pipeline) joins when the day-winui toolkit lands (§9).
+  # windows: host-portable core tests + the day-winui backend (windows-winui, §9).
+  # day-winui-sys is a C++/WinRT XAML-Islands shim; MSVC + the Windows SDK cppwinrt
+  # headers ship on windows-latest, so no extra staging is needed. Building the
+  # showcase winui cone exercises the shim compile, the manifest-embed path, and the
+  # ComboBox Day Piece renderer end to end.
   # ---------------------------------------------------------------------------
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Core tests
         run: cargo test --locked
+      - name: Build day-winui shim + backend + CLI
+        run: cargo build --locked -p day-winui-sys -p day-winui -p day-cli
+      - name: Clippy (winui backend cone)
+        run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
+      - name: Build showcase (windows-winui)
+        run: cargo build --locked -p showcase --no-default-features --features winui
 
   # ---------------------------------------------------------------------------
   # msrv: the declared minimum supported Rust (workspace rust-version) still

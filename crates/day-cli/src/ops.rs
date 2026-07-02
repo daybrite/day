@@ -44,16 +44,31 @@ pub fn build(
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
-                .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile))
-                .args([
+                .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
+            if target.toolkit == "winui" {
+                // XAML Islands refuses to start unless the app manifest declares
+                // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
+                // embed our own — `cargo rustc -- <link-args>` scopes this to the bin only.
+                let manifest = write_winui_manifest(project, target, profile)?;
+                cmd.args(["rustc", "--bin", &project.manifest.app.name])
+                    .args(["--no-default-features", "--features", "winui"]);
+                if profile == "release" {
+                    cmd.arg("--release");
+                }
+                cmd.arg("--");
+                cmd.arg("-Clink-arg=/MANIFEST:EMBED");
+                cmd.arg(format!("-Clink-arg=/MANIFESTINPUT:{}", manifest.display()));
+            } else {
+                cmd.args([
                     "build",
                     "-p",
                     &project.manifest.app.name,
                     "--no-default-features",
                 ])
                 .args(["--features", target.toolkit]);
-            if profile == "release" {
-                cmd.arg("--release");
+                if profile == "release" {
+                    cmd.arg("--release");
+                }
             }
             status("Building", &format!("{} ({})", target.name, profile));
             let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
@@ -72,6 +87,37 @@ pub fn build(
         TargetKind::IosSim => crate::mobile::build_ios(project, target, profile, start),
         TargetKind::Android => crate::mobile::build_android(project, target, profile, start),
     }
+}
+
+/// Side-by-side manifest that lets an unpackaged app host `Windows.UI.Xaml` islands (§9).
+/// The `maxversiontested` element is the specific thing `WindowsXamlManager` demands.
+const WINUI_MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 and Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <maxversiontested Id="10.0.22621.0"/>
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
+"#;
+
+fn write_winui_manifest(
+    project: &Project,
+    target: &Target,
+    profile: &str,
+) -> Result<PathBuf, String> {
+    let dir = cargo_dir(project, target, profile);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("manifest dir: {e}"))?;
+    let path = dir.join("day-winui.manifest");
+    std::fs::write(&path, WINUI_MANIFEST).map_err(|e| format!("manifest write: {e}"))?;
+    Ok(path)
 }
 
 pub struct LaunchSpec {
