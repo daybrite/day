@@ -14,6 +14,9 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QListWidget>
+#include <QResizeEvent>
+#include <QSplitter>
 #include <QSlider>
 #include <QString>
 #include <QWidget>
@@ -29,11 +32,26 @@ static char *s_argv[] = {s_arg0, nullptr};
 void *day_qt_app_new() { return new QApplication(s_argc, s_argv); }
 void day_qt_app_run(void *app) { static_cast<QApplication *>(app)->exec(); }
 
+// Resizable top-level that reports size changes back to day (docs §7.7).
+class DayWindow : public QWidget {
+public:
+    void (*resize_cb)(int, int) = nullptr;
+
+protected:
+    void resizeEvent(QResizeEvent *e) override {
+        QWidget::resizeEvent(e);
+        if (resize_cb) resize_cb(width(), height());
+    }
+};
+
 void *day_qt_window_new(const char *title, int w, int h) {
-    QWidget *win = new QWidget();
+    auto *win = new DayWindow();
     win->setWindowTitle(QString::fromUtf8(title));
-    win->setFixedSize(w, h);
+    win->resize(w, h);
     return win;
+}
+void day_qt_window_on_resize(void *win, void (*cb)(int, int)) {
+    static_cast<DayWindow *>(win)->resize_cb = cb;
 }
 void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
 
@@ -174,6 +192,68 @@ void day_qt_set_tooltip(void *w, const char *text) {
 }
 
 // --- misc ---
+// --- navigation (docs/navigation.md): QSplitter host with two plain-widget panes ---
+void *day_qt_splitter_new() {
+    auto *s = new QSplitter(Qt::Horizontal);
+    s->setChildrenCollapsible(false);
+    s->addWidget(new QWidget());
+    s->addWidget(new QWidget());
+    s->setStretchFactor(0, 0);
+    s->setStretchFactor(1, 1);
+    s->setSizes({240, 480});
+    return s;
+}
+void *day_qt_splitter_pane(void *w, int index) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    return s ? static_cast<void *>(s->widget(index)) : nullptr;
+}
+void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (s) {
+        QObject::connect(s, &QSplitter::splitterMoved, [s, cb](int, int) { cb(s); });
+    }
+}
+void day_qt_widget_size(void *w, double *out_w, double *out_h) {
+    QWidget *q = static_cast<QWidget *>(w);
+    *out_w = q->width();
+    *out_h = q->height();
+}
+void day_qt_set_visible(void *w, int visible) {
+    static_cast<QWidget *>(w)->setVisible(visible != 0);
+}
+
+// --- navigation menu (docs/navigation.md): QListWidget with a sidebar treatment ---
+void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
+    auto *w = new QListWidget();
+    w->setFrameShape(QFrame::NoFrame);
+    w->setStyleSheet(
+        "QListWidget{background:transparent;outline:0;}"
+        "QListWidget::item{padding:6px 10px;border-radius:6px;margin:1px 4px;}"
+        "QListWidget::item:selected{background:palette(highlight);"
+        "color:palette(highlighted-text);}");
+    QObject::connect(w, &QListWidget::currentRowChanged,
+                     [id, cb](int row) { cb(id, row); });
+    return w;
+}
+void day_qt_navlist_set_items(void *w, const char *joined) {
+    auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    l->blockSignals(true);
+    l->clear();
+    for (const QString &item :
+         QString::fromUtf8(joined).split(QChar(0x1f), Qt::SkipEmptyParts)) {
+        l->addItem(item);
+    }
+    l->blockSignals(false);
+}
+void day_qt_navlist_set_selected(void *w, int idx) {
+    auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    l->blockSignals(true);
+    l->setCurrentRow(idx);
+    l->blockSignals(false);
+}
+
 void day_qt_post(void (*cb)(void *), void *data) {
     QMetaObject::invokeMethod(
         qApp, [cb, data]() { cb(data); }, Qt::QueuedConnection);

@@ -456,6 +456,44 @@ impl Layout for ScrollLayout {
     }
 }
 
+/// Navigation host (docs/navigation.md): page FRAMES are native-owned (splitter panes,
+/// nav-controller views), so `set_frame` on pages is a toolkit no-op; day lays each page's
+/// CONTENT within the size the toolkit last reported via `Event::FrameChanged`, falling
+/// back to a sidebar/detail split (or the full host) of the host bounds.
+pub struct NavLayout {
+    pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
+    pub split: bool,
+}
+
+pub use day_spec::NAV_SIDEBAR_WIDTH;
+
+impl Layout for NavLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        // Greedy: the host owns the window (v1: nav is app-root only).
+        Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        for (i, &page) in children.iter().enumerate() {
+            let reported = self.sizes.borrow().get(&page).copied();
+            let sz = reported.unwrap_or_else(|| {
+                if self.split {
+                    if i == 0 {
+                        Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
+                    } else {
+                        Size::new(
+                            (bounds.size.width - NAV_SIDEBAR_WIDTH - 1.0).max(0.0),
+                            bounds.size.height,
+                        )
+                    }
+                } else {
+                    bounds.size
+                }
+            });
+            cx.place_child(page, Rect::from_size(sz));
+        }
+    }
+}
+
 /// Helper for constructing shared layout Rcs.
 pub fn rc_layout<L: Layout>(l: L) -> Rc<dyn Layout> {
     Rc::new(l)

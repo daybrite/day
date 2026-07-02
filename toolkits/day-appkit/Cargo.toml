@@ -11,13 +11,16 @@ objc2 = "0.6"
 block2 = "0.6"
 dispatch2 = "0.3"
 objc2-foundation = { version = "0.3", features = [
-    "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue",
+    "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
+    "NSObject",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton",
     "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
     "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSAccessibilityProtocols", "NSAccessibilityConstants",
-    "NSGraphicsContext", "NSAppearance",
+    "NSGraphicsContext", "NSAppearance", "NSSplitView", "NSLayoutConstraint",
+    "NSOutlineView", "NSTableView", "NSTableColumn", "NSTableCellView", "NSTableHeaderView",
+    "NSVisualEffectView", "NSUserInterfaceItemIdentification",
     "NSBezierPath", "NSImage", "NSImageView", "NSStringDrawing", "NSAttributedString",
 ] }

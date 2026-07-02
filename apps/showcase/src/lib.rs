@@ -1,6 +1,6 @@
-//! The day showcase (DESIGN.md Appendix A, staged): every implemented piece, with state and
-//! ids throughout. Fluent localization joins at M6; combo_box at M3; canvas gauge at M8a;
-//! image at M8b — exactly the milestone staging of §21.2.
+//! The day showcase (DESIGN.md Appendix A, staged): every implemented piece behind a
+//! native navigation host (docs/navigation.md) — stack presentation on mobile, sidebar +
+//! detail split on desktop. Three destinations: controls, gauge, about.
 
 use day::prelude::*;
 use day_piece_combobox::combo_box;
@@ -13,6 +13,33 @@ pub fn root() -> AnyPiece {
             ("fr", include_str!("../locales/fr/app.ftl")),
         ],
     );
+    nav(tr("app-title"), home_page())
+        .route("controls", tr("nav-controls"), controls_page)
+        .route("gauge", tr("nav-gauge"), gauge_page)
+        .route("about", tr("nav-about"), about_page)
+        .id("nav")
+}
+
+/// Root content: the sidebar on desktop, the first stack page on mobile. The route
+/// list renders NATIVELY via nav_menu() — NSOutlineView source list, GtkListBox
+/// navigation-sidebar, QListWidget, chevroned UITableView rows, Android ripple rows.
+fn home_page() -> AnyPiece {
+    column((
+        row((
+            image("day-logo.png").frame(28.0, 28.0),
+            label(tr("app-title")).font(Font::Headline).id("home-title"),
+        ))
+        .spacing(8.0)
+        .padding(12.0),
+        nav_menu().id("nav-menu"),
+    ))
+    .spacing(4.0)
+    .align(HAlign::Leading)
+    .any()
+}
+
+/// Every interactive control, with stable ids for the walkthrough (§14).
+fn controls_page() -> AnyPiece {
     let count = Signal::new(0i64);
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
@@ -26,21 +53,25 @@ pub fn root() -> AnyPiece {
 
     scroll(
         column((
-            row((
-                image("day-logo.png").frame(28.0, 28.0),
-                label(tr("app-title"))
-                    .font(Font::Title)
-                    .id("controls-title"),
-            ))
-            .spacing(8.0),
+            label(tr("nav-controls"))
+                .font(Font::Title)
+                .id("controls-title"),
             // — state: counter —
             row((
+                // The buttons log to the two standard streams (stderr / stdout) so
+                // `day launch` can demonstrate forwarding both, per platform.
                 button(tr("decrement"))
-                    .action(move || count.update(|c| *c -= 1))
+                    .action(move || {
+                        count.update(|c| *c -= 1);
+                        eprintln!("counter decremented to {}", count.get_untracked());
+                    })
                     .id("decrement-button"),
                 label(tr("counter-value").arg("count", count)).id("counter-label"),
                 button(tr("increment"))
-                    .action(move || count.update(|c| *c += 1))
+                    .action(move || {
+                        count.update(|c| *c += 1);
+                        println!("counter incremented to {}", count.get_untracked());
+                    })
                     .id("increment-button"),
             ))
             .spacing(8.0),
@@ -57,12 +88,12 @@ pub fn root() -> AnyPiece {
             row((
                 label(tr("volume-label")),
                 slider(volume).range(0.0..=100.0).id("volume-slider"),
-                label(move || format!("{:.0}", volume.get())).id("volume-value"),
+                label(move || format!("{:.0}", dbg!(volume.get()))).id("volume-value"),
             ))
             .spacing(8.0),
             toggle(subscribed)
                 .id("subscribe-toggle")
-                .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5 (IntoText a11y)
+                .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5
             // — an EXTERNAL Day Piece, registered like any built-in (§8.2, DP-21) —
             row((
                 label(tr("flavor-label")),
@@ -77,8 +108,6 @@ pub fn root() -> AnyPiece {
                 .id("flavor-value"),
             ))
             .spacing(8.0),
-            // — canvas gauge bound to the slider (§11) —
-            gauge(volume),
             divider(),
             // — keyed collection (watch + monotonic keys, §5.4 / A.1) —
             history(count),
@@ -87,6 +116,35 @@ pub fn root() -> AnyPiece {
         .align(HAlign::Leading)
         .padding(16.0),
     )
+    .any()
+}
+
+/// Canvas gauge (§11) driven by its own slider.
+fn gauge_page() -> AnyPiece {
+    let level = Signal::new(40.0f64);
+    column((
+        row((
+            label(tr("volume-label")),
+            slider(level).range(0.0..=100.0).id("gauge-slider"),
+        ))
+        .spacing(8.0),
+        gauge(level),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+fn about_page() -> AnyPiece {
+    column((
+        image("day-logo.png").frame(96.0, 96.0),
+        label(tr("app-title")).font(Font::Headline),
+        label(tr("about-text")).id("about-text"),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
     .any()
 }
 
@@ -122,9 +180,11 @@ fn gauge(value: Signal<f64>) -> AnyPiece {
         d.text(
             &format!("{:.0}", value.get()),
             Point::new(size.width / 2.0, size.height / 2.0),
-            22.0,
-            accent,
-            true,
+            TextStyle {
+                size: 22.0,
+                color: accent,
+                anchor: TextAnchor::Centered,
+            },
         );
     })
     .frame(110.0, 110.0)

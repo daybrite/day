@@ -11,6 +11,7 @@ unsafe extern "C" {
     pub fn day_winui_window_new(title: *const c_char, w: c_int, h: c_int) -> *mut c_void;
     pub fn day_winui_window_root(win: *mut c_void) -> *mut c_void;
     pub fn day_winui_window_show(win: *mut c_void);
+    pub fn day_winui_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
     pub fn day_winui_run(win: *mut c_void);
     pub fn day_winui_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 

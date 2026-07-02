@@ -9,6 +9,7 @@ unsafe extern "C" {
     pub fn day_qt_app_run(app: *mut c_void);
     pub fn day_qt_window_new(title: *const c_char, w: c_int, h: c_int) -> *mut c_void;
     pub fn day_qt_window_show(win: *mut c_void);
+    pub fn day_qt_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
     pub fn day_qt_container_new() -> *mut c_void;
 
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
@@ -57,6 +58,14 @@ unsafe extern "C" {
         texts_joined: *const c_char,
     );
     pub fn day_qt_image_new(path: *const c_char) -> *mut c_void;
+    pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char);
+    pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
+    pub fn day_qt_splitter_new() -> *mut c_void;
+    pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
+    pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
+    pub fn day_qt_widget_size(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);
+    pub fn day_qt_set_visible(w: *mut c_void, visible: c_int);
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
 }

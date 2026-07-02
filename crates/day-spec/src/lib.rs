@@ -26,11 +26,21 @@ pub mod kinds {
     pub const SCROLL: &str = "day.scroll";
     pub const IMAGE: &str = "day.image";
     pub const CANVAS: &str = "day.canvas";
+    /// Navigation host (docs/navigation.md): stack on mobile, split panes on desktop.
+    pub const NAV: &str = "day.nav";
+    /// One destination's native container inside a NAV host.
+    pub const NAV_PAGE: &str = "day.nav_page";
+    /// Native navigation item list (docs/navigation.md): NSOutlineView source list /
+    /// GtkListBox navigation-sidebar / QListWidget / UITableView rows with chevrons.
+    pub const NAV_MENU: &str = "day.nav_menu";
 }
 
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u64);
+
+/// Default navigation sidebar width (split presentation) until the pane reports its size.
+pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
 
 /// Reserved id for window-level events (resize, lifecycle): day-core routes it to the root.
 pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
@@ -55,8 +65,15 @@ pub enum Event {
     LongPress(Point),
     ContextMenu(Point),
     ScrollChanged(Point),
-    /// A canvas node was re-framed by layout; re-record (§11).
+    /// A canvas node was re-framed by layout; re-record (§11). Nav pane/page containers
+    /// also report their allocated size with this (docs/navigation.md).
     FrameChanged(Size),
+    /// Native back navigation (iOS back button/swipe, Android system back or toolbar up).
+    /// `already_popped` = the toolkit already performed the pop natively (iOS); the nav
+    /// host then syncs its stack WITHOUT re-issuing `NavPatch::Popped`.
+    NavBack {
+        already_popped: bool,
+    },
     Key(KeyEvent),
     Pointer(PointerEvent),
     WindowResized(Size),
@@ -89,6 +106,9 @@ pub enum Cap {
     Lottie,
     NativeSymbols,
     Snapshot,
+    /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
+    /// stacks answer `Unsupported` and get push/pop presentation instead.
+    NavSplit,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -148,6 +168,16 @@ pub enum Shape {
     Polygon(Vec<Point>),
 }
 
+/// How canvas text hangs on its `at` point (style rule: no bare bools in public APIs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextAnchor {
+    /// `at` is the top-leading corner.
+    #[default]
+    Leading,
+    /// `at` is the center.
+    Centered,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawOp {
     Fill(Shape, Color),
@@ -157,7 +187,7 @@ pub enum DrawOp {
         at: Point,
         size: f64,
         color: Color,
-        centered: bool,
+        anchor: TextAnchor,
     },
 }
 
@@ -274,6 +304,46 @@ pub mod props {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CanvasProps {
         pub ops: Vec<DrawOp>,
+    }
+
+    /// Navigation host (docs/navigation.md). `split` = sidebar+detail presentation
+    /// (chosen by the pieces layer from `Cap::NavSplit`); false = stack presentation.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavProps {
+        pub title: String,
+        pub split: bool,
+    }
+    /// Applied to the NAV HOST after a page child is attached / before it is removed;
+    /// the toolkit animates its native presentation accordingly.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum NavPatch {
+        /// The just-attached last page child became the top of the stack.
+        Pushed { title: String },
+        /// The top page is about to be removed; present its predecessor.
+        Popped,
+        /// Current top-of-stack title changed.
+        Title(String),
+    }
+
+    /// One destination's native container. `sidebar` marks the split-mode sidebar pane.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavPageProps {
+        pub title: String,
+        pub sidebar: bool,
+    }
+
+    /// Native navigation item list. `items` are display titles in route order;
+    /// `selected` highlights the active route (split presentation; None on mobile roots).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavMenuProps {
+        pub items: Vec<String>,
+        pub selected: Option<usize>,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum NavMenuPatch {
+        /// Programmatic highlight sync — toolkits apply WITHOUT re-emitting
+        /// SelectionChanged (the TextField from_native echo rule).
+        Selected(Option<usize>),
     }
 }
 
@@ -421,7 +491,7 @@ impl<B: Toolkit> Registry<B> {
 /// 9 numbers [kind, a, b, c, d, e, f, g, rgba-bits]; text payloads ride separately in order.
 /// Kinds: 0 fill-rect, 1 stroke-rect(g=w), 2 fill-rrect(e=r), 3 fill-ellipse,
 /// 4 stroke-ellipse(g=w), 5 stroke-arc(e=start°, f=sweep°, g=w), 6 line(a,b→c,d, g=w),
-/// 7 text(a,b=pos, e=size, f=centered).
+/// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered).
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     fn color_bits(c: Color) -> f64 {
         let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
@@ -517,7 +587,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 at,
                 size,
                 color,
-                centered,
+                anchor,
             } => {
                 push(
                     7.0,
@@ -526,7 +596,10 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     0.0,
                     0.0,
                     *size,
-                    if *centered { 1.0 } else { 0.0 },
+                    match anchor {
+                        TextAnchor::Leading => 0.0,
+                        TextAnchor::Centered => 1.0,
+                    },
                     0.0,
                     *color,
                     &mut nums,

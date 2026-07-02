@@ -10,6 +10,7 @@ mod mobile;
 mod ops;
 mod pack;
 mod script;
+mod signals;
 mod targets;
 
 fn main() {

@@ -2,11 +2,12 @@
 //! project's script phase calls back into `day xcode-backend build` for the Rust staticlib);
 //! android-widget via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
 
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::meta::{Project, find_project};
-use crate::ops::{BuildOutcome, LaunchSpec, status, stream_logs};
+use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status, stream_logs};
 use crate::targets::Target;
 
 fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
@@ -231,7 +232,9 @@ pub fn launch_ios(
     let mut cmd = Command::new("xcrun");
     cmd.args(["simctl", "launch"]);
     if spec.attached {
-        cmd.arg("--console-pty");
+        // `--console` (not `--console-pty`) keeps the app's stdout and stderr on
+        // simctl's separate fds, so we can colour them apart.
+        cmd.arg("--console");
     }
     cmd.args(["booted", &bundle_id]);
     for (k, v) in &spec.envs {
@@ -248,11 +251,13 @@ pub fn launch_ios(
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| format!("simctl launch: {e}"))?;
+        crate::signals::register_child(child.id());
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        let name = outcome.target;
         Ok(std::thread::spawn(move || {
-            let t1 = stdout.map(|s| stream_logs("ios", s));
-            let t2 = stderr.map(|s| stream_logs("ios", s));
+            let t1 = stdout.map(|s| stream_logs(name, LogStream::Out, s));
+            let t2 = stderr.map(|s| stream_logs(name, LogStream::Err, s));
             let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
             if let Some(t) = t1 {
                 let _ = t.join();
@@ -462,24 +467,65 @@ pub fn launch_android(
     );
     run_logged(&mut cmd, "am start")?;
     if spec.attached {
-        // Stream logcat for the app (best effort: filter by app id via pidof retry).
+        // Stream the app's stdout/stderr (redirected into logcat under tag `day` by
+        // day-android). `-v tag` prefixes each line with `<prio>/day:`; we map the
+        // priority to a stream (I→stdout/blue, E→stderr/yellow) and re-prefix.
         let id = app_id.clone();
+        let name = outcome.target;
         Ok(std::thread::spawn(move || {
-            for _ in 0..20 {
-                let pid = Command::new("adb")
-                    .args(["shell", "pidof", "-s", &id])
-                    .output()
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .unwrap_or_default();
-                if !pid.is_empty() {
-                    let _ = Command::new("adb").args(["logcat", "--pid", &pid]).status();
-                    return 0;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(250));
+            let pid = (0..20)
+                .find_map(|_| {
+                    let p = Command::new("adb")
+                        .args(["shell", "pidof", "-s", &id])
+                        .output()
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .unwrap_or_default();
+                    if p.is_empty() {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                        None
+                    } else {
+                        Some(p)
+                    }
+                })
+                .unwrap_or_default();
+            if pid.is_empty() {
+                emit_log(name, LogStream::Err, "app pid not found; logs unavailable");
+                return 1;
             }
-            eprintln!("[android] app pid not found; logs unavailable");
-            1
+            // Clear the backlog so we only stream this run's output.
+            let _ = Command::new("adb").args(["logcat", "-c"]).status();
+            let mut child = match Command::new("adb")
+                .args(["logcat", "--pid", &pid, "-v", "tag", "day:V", "*:S"])
+                .stdout(Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    emit_log(name, LogStream::Err, &format!("adb logcat: {e}"));
+                    return 1;
+                }
+            };
+            crate::signals::register_child(child.id());
+            if let Some(out) = child.stdout.take() {
+                for line in BufReader::new(out).lines().map_while(Result::ok) {
+                    // `-v tag` line: "<P>/day: <message>" (or "<P>/day( pid): ..." on some
+                    // builds); split off the priority and the tag header.
+                    let (prio, msg) = match line.split_once(':') {
+                        Some((head, rest)) => {
+                            (head.trim().chars().next().unwrap_or('I'), rest.trim_start())
+                        }
+                        None => ('I', line.as_str()),
+                    };
+                    let stream = if prio == 'E' || prio == 'F' || prio == 'W' {
+                        LogStream::Err
+                    } else {
+                        LogStream::Out
+                    };
+                    emit_log(name, stream, msg);
+                }
+            }
+            child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
         }))
     } else {
         Ok(std::thread::spawn(|| 0))

@@ -76,6 +76,16 @@ pub enum Step {
     Pause {
         secs: f64,
     },
+    /// Navigate to a registered route (reset-to semantics; "" = root). docs/navigation.md.
+    Navigate {
+        route: String,
+    },
+    /// Pop one navigation level (the native back path, day-initiated).
+    NavBack,
+    /// Assert the current route path ("" = root).
+    AssertRoute {
+        route: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -333,6 +343,35 @@ fn exec(step: Step) -> Reply {
                 // Pausing the MAIN thread would freeze the UI; the runner sleeps instead.
                 let _ = secs;
                 Ok(Reply::ok())
+            }
+            Step::Navigate { route } => {
+                day_reactive::flush_sync();
+                if day_core::navigate(&route) {
+                    day_reactive::flush_sync();
+                    Ok(Reply::ok())
+                } else {
+                    // Retryable: the nav host may not have mounted yet.
+                    Err(Reply::fail(format!("no route {route:?}"), true))
+                }
+            }
+            Step::NavBack => {
+                if day_core::nav_back() {
+                    day_reactive::flush_sync();
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail("nothing to pop", true))
+                }
+            }
+            Step::AssertRoute { route } => {
+                let current = day_core::current_route();
+                if current.as_deref() == Some(route.as_str()) {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!("expected route {route:?}, current {current:?}"),
+                        true,
+                    ))
+                }
             }
         }
     })();

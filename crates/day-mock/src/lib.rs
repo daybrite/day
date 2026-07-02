@@ -185,6 +185,18 @@ impl Toolkit for MockToolkit {
             w.placeholder = p.placeholder.clone();
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
             w.ops = p.ops.clone();
+        } else if let Some(p) = props.downcast_ref::<NavProps>() {
+            w.text = p.title.clone();
+            w.flag = p.split;
+            detail = format!(" title={:?} split={}", p.title, p.split);
+        } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
+            w.text = p.title.clone();
+            w.flag = p.sidebar;
+            detail = format!(" title={:?} sidebar={}", p.title, p.sidebar);
+        } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
+            w.text = p.items.join("|");
+            w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
+            detail = format!(" items={:?} selected={:?}", p.items, p.selected);
         }
         s.log(format!("realize {kind} #{h}{detail}"));
         s.widgets.insert(h, w);
@@ -264,6 +276,21 @@ impl Toolkit for MockToolkit {
             } else if let Some(p) = patch.downcast_ref::<CanvasProps>() {
                 w.ops = p.ops.clone();
                 format!("canvas ops={}", w.ops.len())
+            } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
+                format!("menu selected={sel:?}")
+            } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                match p {
+                    NavPatch::Pushed { title } => {
+                        w.text = title.clone();
+                        format!("nav pushed title={title:?}")
+                    }
+                    NavPatch::Popped => "nav popped".into(),
+                    NavPatch::Title(t) => {
+                        w.text = t.clone();
+                        format!("nav title={t:?}")
+                    }
+                }
             } else {
                 "?".into()
             };

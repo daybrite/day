@@ -8,7 +8,22 @@ use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Event, NodeId, Size, WindowOptions};
 
+/// Serializes boots against env mutation: `launch_with` reads process-global env
+/// (DAY_DEEPLINK), and tests run on parallel threads.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
+    boot_with_env(None, root)
+}
+
+fn boot_with_env(
+    env: Option<(&str, &str)>,
+    root: impl FnOnce() -> AnyPiece + 'static,
+) -> MockProbe {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((k, v)) = env {
+        unsafe { std::env::set_var(k, v) };
+    }
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     let options = WindowOptions {
@@ -17,6 +32,9 @@ fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
         min_size: None,
     };
     day_core::launch_with(mock, options, root);
+    if let Some((k, _)) = env {
+        unsafe { std::env::remove_var(k) };
+    }
     probe
 }
 
@@ -277,4 +295,160 @@ fn ids_land_as_a11y_identifiers() {
     let probe = boot(|| column((button("go").id("go-button"),)).any());
     let buttons = probe.find_by_kind("day.button");
     assert_eq!(buttons[0].1.a11y.identifier.as_deref(), Some("go-button"));
+}
+
+// ---------------------------------------------------------------------------
+// Navigation (docs/navigation.md)
+// ---------------------------------------------------------------------------
+
+fn nav_root() -> AnyPiece {
+    nav(
+        "Home",
+        column((label("root-content"), nav_link("Go", "about"), nav_menu())),
+    )
+    .route("about", "About", || label("about-content"))
+    .route("extra", "Extra", || label("extra-content"))
+    .any()
+}
+
+#[test]
+fn nav_push_builds_lazily_and_pop_disposes() {
+    let probe = boot(nav_root);
+    // Root page only; destinations are unbuilt.
+    assert_eq!(probe.find_by_kind("day.nav").len(), 1);
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "about-content")
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+
+    probe.clear_log();
+    assert!(navigate("about"));
+    assert_eq!(day_core::current_route().as_deref(), Some("about"));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content"),
+        "destination content built on push"
+    );
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("nav pushed title=\"About\"")),
+        "host received Pushed patch: {:?}",
+        probe.log()
+    );
+
+    probe.clear_log();
+    assert!(nav_back());
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "about-content")
+    );
+    assert!(probe.log().iter().any(|l| l.contains("nav popped")));
+    // Nothing left to pop.
+    assert!(!nav_back());
+}
+
+#[test]
+fn navigate_has_reset_semantics_and_rejects_unknown() {
+    let probe = boot(nav_root);
+    assert!(navigate("about"));
+    assert!(navigate("extra"));
+    // Reset-to: the stack is replaced, not deepened.
+    assert_eq!(day_core::current_route().as_deref(), Some("extra"));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert!(!navigate("nope"));
+    assert_eq!(day_core::current_route().as_deref(), Some("extra"));
+    // "" returns to the root.
+    assert!(navigate(""));
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+}
+
+#[test]
+fn nav_link_navigates_through_the_event_path() {
+    let probe = boot(nav_root);
+    let link = probe
+        .find_by_kind("day.button")
+        .into_iter()
+        .find(|(_, w)| w.text == "Go")
+        .expect("nav_link renders a button");
+    probe.emit(NodeId(link.1.node), Event::Pressed);
+    assert_eq!(day_core::current_route().as_deref(), Some("about"));
+}
+
+#[test]
+fn native_back_syncs_without_reissuing_pop_patch() {
+    let probe = boot(nav_root);
+    assert!(navigate("about"));
+    let host = node_id(&probe, "day.nav", 0);
+    probe.clear_log();
+    // iOS-style: the toolkit popped natively already.
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: true,
+        },
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert!(
+        !probe.log().iter().any(|l| l.contains("nav popped")),
+        "already_popped must not re-issue the Popped patch: {:?}",
+        probe.log()
+    );
+    // Android-style: day drives the native pop.
+    assert!(navigate("about"));
+    probe.clear_log();
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert!(probe.log().iter().any(|l| l.contains("nav popped")));
+}
+
+#[test]
+fn deep_link_env_navigates_at_startup() {
+    let probe = boot_with_env(Some(("DAY_DEEPLINK", "about")), nav_root);
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("about"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content")
+    );
+}
+
+#[test]
+fn nav_menu_lists_routes_selects_and_syncs() {
+    let probe = boot(nav_root);
+    let menus = probe.find_by_kind("day.nav_menu");
+    assert_eq!(menus.len(), 1);
+    assert_eq!(menus[0].1.text, "About|Extra");
+    assert_eq!(menus[0].1.value, -1.0, "nothing selected at root");
+
+    // Native selection (row tap) navigates to the route...
+    probe.emit(NodeId(menus[0].1.node), Event::SelectionChanged(1));
+    assert_eq!(day_core::current_route().as_deref(), Some("extra"));
+    // ...and the highlight syncs back to the menu.
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 1.0);
+
+    // Programmatic navigation also highlights; popping to root clears it.
+    assert!(navigate("about"));
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 0.0);
+    assert!(nav_back());
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, -1.0);
 }

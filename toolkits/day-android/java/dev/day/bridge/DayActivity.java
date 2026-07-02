@@ -38,6 +38,11 @@ public class DayActivity extends Activity {
                 }
             }
         }
+        // Cold-start deep link (docs/navigation.md): the launch URI's host+path is the route.
+        android.net.Uri data = getIntent().getData();
+        if (data != null) {
+            blob.append("DAY_DEEPLINK=").append(uriRoute(data)).append('\n');
+        }
         final String envBlob = blob.toString();
         root.post(new Runnable() {
             public void run() {
@@ -45,5 +50,32 @@ public class DayActivity extends Activity {
                         autodrive, locale, envBlob);
             }
         });
+    }
+
+    static String uriRoute(android.net.Uri uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost();
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        return host + path;
+    }
+
+    /** System back: pop the nav stack when there is one; otherwise leave the app. */
+    @Override public void onBackPressed() {
+        DayNavHost nav = DayNavHost.active;
+        if (nav != null && nav.depth() > 0) {
+            DayBridge.nativeOnEvent(nav.hostNode, 5, 0.0, null); // kind 5 = NavBack
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    /** Warm deep link (launchMode=singleTask): route to the running nav host. */
+    @Override protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        android.net.Uri data = intent.getData();
+        DayNavHost nav = DayNavHost.active;
+        if (data != null && nav != null) {
+            // kind 7 = deep link; the nav host piece handles Custom("deeplink").
+            DayBridge.nativeOnEvent(nav.hostNode, 7, 0.0, uriRoute(data));
+        }
     }
 }

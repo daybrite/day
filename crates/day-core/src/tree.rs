@@ -348,9 +348,15 @@ pub trait TreeOps {
     fn find_by_id(&self, id: &str) -> Option<RNode>;
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     fn root_node(&self) -> RNode;
+    /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
+    fn capability(&self, cap: Cap) -> Support;
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
+    fn capability(&self, cap: Cap) -> Support {
+        self.toolkit.capability(cap)
+    }
+
     fn create_node(
         &mut self,
         kind: PieceKind,
@@ -369,6 +375,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             use day_spec::props::*;
             if let Some(p) = props.downcast_ref::<LabelProps>() {
                 probe.text = p.text.clone();
+            } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
+                probe.selected = p.selected.map(|i| i as i64).unwrap_or(-1);
             } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
                 probe.text = p.title.clone();
             } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
@@ -495,6 +503,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         TextFieldPatch::Enabled(e) => n.probe.enabled = *e,
                         _ => {}
                     }
+                } else if let Some(NavMenuPatch::Selected(sel)) =
+                    patch.downcast_ref::<NavMenuPatch>()
+                {
+                    n.probe.selected = sel.map(|i| i as i64).unwrap_or(-1);
                 }
             }
         }
@@ -634,7 +646,10 @@ pub fn enqueue_event(id: NodeId, ev: Event) {
     }
 }
 
-/// Dispatch queued native events: each event is a fresh batch (§3.3 step 1–2).
+/// Dispatch queued native events: each event is a fresh batch (§3.3 step 1–2), and the
+/// pump as a whole is a TURN BOUNDARY: handlers may dirty only tree state (WindowResized,
+/// FrameChanged) without touching any signal, so no write-driven flush would follow —
+/// the closing flush_sync runs the turn-end hooks (layout) unconditionally.
 pub fn pump_events() {
     loop {
         let item = EVENTS.with(|e| e.borrow_mut().pop_front());
@@ -654,4 +669,5 @@ pub fn pump_events() {
             }
         });
     }
+    day_reactive::flush_sync();
 }

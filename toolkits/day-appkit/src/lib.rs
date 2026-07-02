@@ -24,6 +24,7 @@ use objc2_app_kit::{
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSScrollView, NSSlider, NSSwitch,
     NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
+use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate};
 use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use day_spec::props::*;
@@ -179,6 +180,188 @@ impl DayCanvas {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Navigation (docs/navigation.md): NSSplitView host, sidebar + detail panes.
+// Page FRAMES are pane-owned (autoresized); day lays content inside the size each
+// page reports from setFrameSize:. day's set_frame on pages is skipped.
+// ---------------------------------------------------------------------------
+
+struct NavState {
+    sidebar_wrap: Retained<NSView>,
+    detail_wrap: Retained<NSView>,
+    /// Detail pages in stack order (the sidebar page is not in here).
+    pages: Vec<Retained<NSView>>,
+    positioned: bool,
+}
+
+thread_local! {
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// Handles whose frames are native-owned (nav pages): set_frame skips them.
+    static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+}
+
+struct NavPageIvars {
+    node: NodeId,
+}
+
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavPage"]
+    #[ivars = NavPageIvars]
+    struct DayNavPage;
+
+    impl DayNavPage {
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(setFrameSize:))]
+        fn set_frame_size(&self, size: NSSize) {
+            let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
+            // Pane-driven resize (splitter drag, window resize): report the usable size
+            // so NavLayout re-lays this page's content (enqueue-only, §8.3).
+            emit(
+                self.ivars().node,
+                Event::FrameChanged(Size::new(size.width, size.height)),
+            );
+        }
+    }
+);
+
+impl DayNavPage {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DayNavMenuData — flat NSOutlineView source list for nav_menu() (docs/navigation.md)
+// ---------------------------------------------------------------------------
+
+struct NavMenuIvars {
+    node: NodeId,
+    items: RefCell<Vec<Retained<NSString>>>,
+    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    suppress: std::cell::Cell<bool>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavMenuData"]
+    #[ivars = NavMenuIvars]
+    struct DayNavMenuData;
+
+    unsafe impl NSObjectProtocol for DayNavMenuData {}
+
+    unsafe impl NSOutlineViewDataSource for DayNavMenuData {
+        #[unsafe(method(outlineView:numberOfChildrenOfItem:))]
+        fn number_of_children(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: Option<&objc2::runtime::AnyObject>,
+        ) -> isize {
+            if item.is_none() {
+                self.ivars().items.borrow().len() as isize
+            } else {
+                0
+            }
+        }
+
+        #[unsafe(method_id(outlineView:child:ofItem:))]
+        fn child_of_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            index: isize,
+            _item: Option<&objc2::runtime::AnyObject>,
+        ) -> Retained<objc2::runtime::AnyObject> {
+            let items = self.ivars().items.borrow();
+            let ns = items[index as usize].clone();
+            unsafe { objc2::rc::Retained::cast_unchecked(ns) }
+        }
+
+        #[unsafe(method(outlineView:isItemExpandable:))]
+        fn is_expandable(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            _item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            false
+        }
+    }
+
+    unsafe impl NSControlTextEditingDelegate for DayNavMenuData {}
+
+    unsafe impl NSOutlineViewDelegate for DayNavMenuData {
+        #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
+        fn view_for(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            _col: Option<&objc2_app_kit::NSTableColumn>,
+            item: &objc2::runtime::AnyObject,
+        ) -> Option<Retained<NSView>> {
+            let mtm = self.mtm();
+            // No early returns: the method_id macro owns the return conversion.
+            item.downcast_ref::<NSString>().map(|text| {
+                let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
+                let label = unsafe { NSTextField::labelWithString(text, mtm) };
+                unsafe {
+                    label.setFrame(NSRect::new(NSPoint::new(0.0, 3.0), NSSize::new(10.0, 17.0)));
+                    label.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
+                    );
+                    cell.addSubview(&label);
+                    cell.setTextField(Some(&label));
+                }
+                objc2::rc::Retained::into_super(cell)
+            })
+        }
+
+        #[unsafe(method(outlineViewSelectionDidChange:))]
+        fn selection_did_change(&self, notification: &NSNotification) {
+            if self.ivars().suppress.get() {
+                return;
+            }
+            let Some(obj) = (unsafe { notification.object() }) else {
+                return;
+            };
+            let Ok(ov) = obj.downcast::<objc2_app_kit::NSOutlineView>() else {
+                return;
+            };
+            let row = unsafe { ov.selectedRow() };
+            if row >= 0 {
+                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+            }
+        }
+    }
+);
+
+impl DayNavMenuData {
+    fn new(mtm: MainThreadMarker, node: NodeId, items: &[String]) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
+            node,
+            items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+            suppress: std::cell::Cell::new(false),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// A realized NAV_MENU's native outline view paired with its data-source object.
+type NavMenuEntry = (
+    Retained<objc2_app_kit::NSOutlineView>,
+    Retained<DayNavMenuData>,
+);
+
+thread_local! {
+    /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
+    static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
+}
+
 fn ns_rect(r: day_spec::Rect) -> NSRect {
     NSRect::new(
         NSPoint::new(r.origin.x, r.origin.y),
@@ -208,7 +391,7 @@ fn draw_op(op: &DrawOp) {
                 at,
                 size,
                 color,
-                centered,
+                anchor,
             } => {
                 let font = NSFont::systemFontOfSize(*size);
                 let col = nscolor(*color);
@@ -223,7 +406,7 @@ fn draw_op(op: &DrawOp) {
                 let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
                 let ns = NSString::from_str(text);
                 let mut origin = NSPoint::new(at.x, at.y);
-                if *centered {
+                if *anchor == day_spec::TextAnchor::Centered {
                     let sz: NSSize = msg_send![&ns, sizeWithAttributes: &*attrs];
                     origin.x -= sz.width / 2.0;
                     origin.y -= sz.height / 2.0;
@@ -407,7 +590,7 @@ impl Toolkit for AppKit {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NativeSymbols => Support::Native,
+            Cap::Snapshot | Cap::NativeSymbols | Cap::NavSplit => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -503,6 +686,97 @@ impl Toolkit for AppKit {
                 view_of(b)
             }
             kinds::CANVAS => view_of(DayCanvas::new(mtm)),
+            kinds::NAV => {
+                let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
+                unsafe {
+                    split.setVertical(true);
+                    split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
+                }
+                // Sidebar pane rides in an NSVisualEffectView for the standard
+                // translucent source-list treatment.
+                let effect = unsafe { objc2_app_kit::NSVisualEffectView::new(mtm) };
+                unsafe {
+                    effect.setMaterial(objc2_app_kit::NSVisualEffectMaterial::Sidebar);
+                    effect.setBlendingMode(objc2_app_kit::NSVisualEffectBlendingMode::BehindWindow);
+                }
+                let sidebar_wrap = view_of(DayFlipped::new(mtm));
+                unsafe {
+                    sidebar_wrap.setFrame(effect.bounds());
+                    sidebar_wrap.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                    );
+                    effect.addSubview(&sidebar_wrap);
+                }
+                let detail_wrap = view_of(DayFlipped::new(mtm));
+                unsafe {
+                    split.addArrangedSubview(&effect);
+                    split.addArrangedSubview(&detail_wrap);
+                    // (Holding priorities are a no-op when day drives the split's frame
+                    // directly — the sidebar-holds-width behaviour lives in `set_frame`,
+                    // which restores the divider position after each window resize.)
+                    split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
+                    split.setHoldingPriority_forSubviewAtIndex(250.0, 1);
+                }
+                let view = view_of(split);
+                NAV_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        ptr_of(&view),
+                        NavState {
+                            sidebar_wrap,
+                            detail_wrap,
+                            pages: Vec::new(),
+                            positioned: false,
+                        },
+                    )
+                });
+                view
+            }
+            kinds::NAV_PAGE => {
+                let page = view_of(DayNavPage::new(mtm, id));
+                NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
+                page
+            }
+            kinds::NAV_MENU => {
+                let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                let data = DayNavMenuData::new(mtm, id, &p.items);
+                let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
+                let col = unsafe {
+                    objc2_app_kit::NSTableColumn::initWithIdentifier(
+                        objc2_app_kit::NSTableColumn::alloc(mtm),
+                        &NSString::from_str("item"),
+                    )
+                };
+                unsafe {
+                    outline.addTableColumn(&col);
+                    outline.setOutlineTableColumn(Some(&col));
+                    outline.setHeaderView(None);
+                    outline.setStyle(objc2_app_kit::NSTableViewStyle::SourceList);
+                    outline.setIndentationPerLevel(0.0);
+                    outline.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                    outline.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    outline.reloadData();
+                }
+                let scroll = unsafe { NSScrollView::new(mtm) };
+                unsafe {
+                    scroll.setDrawsBackground(false);
+                    scroll.setHasVerticalScroller(true);
+                    scroll.setDocumentView(Some(&outline));
+                }
+                let view = view_of(scroll);
+                if let Some(sel) = p.selected {
+                    data.ivars().suppress.set(true);
+                    unsafe {
+                        outline.selectRowIndexes_byExtendingSelection(
+                            &objc2_foundation::NSIndexSet::indexSetWithIndex(sel),
+                            false,
+                        )
+                    };
+                    data.ivars().suppress.set(false);
+                }
+                NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (outline, data)));
+                view
+            }
             kinds::IMAGE => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
@@ -590,6 +864,58 @@ impl Toolkit for AppKit {
                     }
                 }
             }
+            kinds::NAV_MENU => {
+                if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                    NAV_MENUS.with(|m| {
+                        let m = m.borrow();
+                        let Some((outline, data)) = m.get(&ptr_of(h)) else {
+                            return;
+                        };
+                        data.ivars().suppress.set(true);
+                        unsafe {
+                            match sel {
+                                Some(i) => outline.selectRowIndexes_byExtendingSelection(
+                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                    false,
+                                ),
+                                None => outline.deselectAll(None),
+                            }
+                        }
+                        data.ivars().suppress.set(false);
+                    });
+                }
+            }
+            kinds::NAV => {
+                if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                    NAV_STATE.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let Some(state) = m.get_mut(&ptr_of(h)) else {
+                            return;
+                        };
+                        match p {
+                            NavPatch::Pushed { .. } => {
+                                // Only the new top detail page stays visible.
+                                let last = state.pages.len().saturating_sub(1);
+                                for (i, page) in state.pages.iter().enumerate() {
+                                    page.setHidden(i != last);
+                                }
+                            }
+                            NavPatch::Popped => {
+                                // Hide the outgoing top; reveal its predecessor (day
+                                // removes the popped page right after this patch).
+                                let n = state.pages.len();
+                                if let Some(top) = state.pages.last() {
+                                    top.setHidden(true);
+                                }
+                                if n >= 2 {
+                                    state.pages[n - 2].setHidden(false);
+                                }
+                            }
+                            NavPatch::Title(_) => {}
+                        }
+                    });
+                }
+            }
             kinds::TEXT_FIELD => {
                 if let (Some(p), Ok(tf)) = (
                     patch.downcast_ref::<TextFieldPatch>(),
@@ -621,17 +947,55 @@ impl Toolkit for AppKit {
         TARGETS.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
+        NAV_STATE.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
+        NAV_PAGES.with(|set| {
+            set.borrow_mut().remove(&ptr_of(&h));
+        });
+        NAV_MENUS.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
         unsafe { h.removeFromSuperview() };
     }
 
-    fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
-        // Absolute positioning: z-order is build order; index is irrelevant for non-overlapping
-        // frames (stack_z will need ordered insertion later).
-        unsafe { content_of(parent).addSubview(child) };
+    fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages. Pages fill
+        // their pane via autoresizing — the pane, not day, owns their frames.
+        let handled = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                return false;
+            };
+            let wrap = if index == 0 {
+                &state.sidebar_wrap
+            } else {
+                state.pages.push(child.clone());
+                &state.detail_wrap
+            };
+            unsafe {
+                child.setFrame(wrap.bounds());
+                child.setAutoresizingMask(
+                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                wrap.addSubview(child);
+            }
+            true
+        });
+        if !handled {
+            // Absolute positioning: z-order is build order; index is irrelevant for
+            // non-overlapping frames (stack_z will need ordered insertion later).
+            unsafe { content_of(parent).addSubview(child) };
+        }
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
-        let _ = parent;
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow_mut().get_mut(&ptr_of(parent)) {
+                state.pages.retain(|p| ptr_of(p) != ptr_of(child));
+            }
+        });
         unsafe { child.removeFromSuperview() };
     }
 
@@ -672,6 +1036,18 @@ impl Toolkit for AppKit {
                 )
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 5.0),
+            kinds::NAV_MENU => {
+                let rows = NAV_MENUS.with(|m| {
+                    m.borrow()
+                        .get(&ptr_of(h))
+                        .map(|(_, d)| d.ivars().items.borrow().len())
+                        .unwrap_or(0)
+                });
+                Size::new(
+                    p.width.unwrap_or(220.0),
+                    p.height.unwrap_or(rows as f64 * 32.0 + 12.0),
+                )
+            }
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     measure(self, h, p)
@@ -684,13 +1060,49 @@ impl Toolkit for AppKit {
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+        // Nav pages: the splitter pane / nav container owns the frame (autoresized).
+        if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
+            return;
+        }
         // Every day parent is flipped (DayFlipped containers, flipped scroll document views),
         // so top-left frames apply directly.
         let r = NSRect::new(
             NSPoint::new(frame.origin.x, frame.origin.y),
             NSSize::new(frame.size.width, frame.size.height),
         );
-        unsafe { h.setFrame(r) };
+        // Nav host: the sidebar should HOLD its width when the window resizes, letting the
+        // detail pane absorb the change (the standard Finder/Mail behavior). NSSplitView's
+        // holding priorities don't take effect when day drives the split's frame directly, so
+        // we capture the current sidebar width, resize, then restore the divider to it.
+        if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
+            let first = NAV_STATE.with(|m| {
+                m.borrow_mut()
+                    .get_mut(&ptr_of(h))
+                    .map(|s| !std::mem::replace(&mut s.positioned, true))
+                    .unwrap_or(false)
+            });
+            // Sidebar pane = arranged subview 0; its width is the divider position.
+            let prev_sidebar = {
+                let subs = split.subviews();
+                if subs.count() > 0 {
+                    subs.objectAtIndex(0).frame().size.width
+                } else {
+                    0.0
+                }
+            };
+            unsafe {
+                split.setFrame(r);
+                split.layoutSubtreeIfNeeded();
+                let target = if first || prev_sidebar <= 1.0 {
+                    day_spec::NAV_SIDEBAR_WIDTH
+                } else {
+                    prev_sidebar
+                };
+                split.setPosition_ofDividerAtIndex(target, 0);
+            }
+        } else {
+            unsafe { h.setFrame(r) };
+        }
     }
 
     fn set_scroll_content(&mut self, h: &Handle, content: Size) {

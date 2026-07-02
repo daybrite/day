@@ -12,3 +12,7 @@ subscribe-a11y = S'abonner aux mises à jour
 flavor-label = Parfum
 history-title = Historique
 history-entry = le compteur est passé à { $value }
+nav-controls = Contrôles
+nav-gauge = Jauge
+nav-about = À propos
+about-text = Une application native multiplateforme construite avec day.

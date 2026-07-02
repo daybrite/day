@@ -15,8 +15,70 @@ mod imp {
 
     use std::any::Any;
     use std::cell::{Cell, RefCell};
+    use std::os::raw::{c_char, c_int, c_void};
     use std::rc::Rc;
     use std::sync::OnceLock;
+
+    // liblog is always present in the Android NDK sysroot.
+    #[link(name = "log")]
+    unsafe extern "C" {
+        fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int;
+    }
+    unsafe extern "C" {
+        fn pipe(fds: *mut c_int) -> c_int;
+        fn dup2(oldfd: c_int, newfd: c_int) -> c_int;
+        fn read(fd: c_int, buf: *mut c_void, count: usize) -> isize;
+    }
+
+    const ANDROID_LOG_INFO: c_int = 4;
+    const ANDROID_LOG_ERROR: c_int = 6;
+
+    /// Route the process's stdout (fd 1) and stderr (fd 2) into logcat under the tag
+    /// `day` — Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
+    /// (and Rust panics) would be invisible. stdout logs at INFO, stderr at ERROR, so
+    /// the `day` CLI can colour them apart. Idempotent; safe to call once at startup.
+    pub fn redirect_stdio_to_logcat() {
+        static DONE: OnceLock<()> = OnceLock::new();
+        if DONE.set(()).is_err() {
+            return;
+        }
+        for (target_fd, prio) in [(1, ANDROID_LOG_INFO), (2, ANDROID_LOG_ERROR)] {
+            let mut fds = [0 as c_int; 2];
+            // SAFETY: standard self-pipe + dup2 redirect; fds live for the process.
+            unsafe {
+                if pipe(fds.as_mut_ptr()) != 0 || dup2(fds[1], target_fd) < 0 {
+                    continue;
+                }
+            }
+            let read_fd = fds[0];
+            std::thread::spawn(move || {
+                let tag = c"day";
+                let mut buf = [0u8; 2048];
+                let mut line: Vec<u8> = Vec::new();
+                loop {
+                    let n = unsafe { read(read_fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+                    if n <= 0 {
+                        break;
+                    }
+                    for &b in &buf[..n as usize] {
+                        if b == b'\n' {
+                            line.push(0);
+                            unsafe {
+                                __android_log_write(
+                                    prio,
+                                    tag.as_ptr(),
+                                    line.as_ptr() as *const c_char,
+                                );
+                            }
+                            line.clear();
+                        } else {
+                            line.push(b);
+                        }
+                    }
+                }
+            });
+        }
+    }
 
     use jni::objects::{GlobalRef, JObject, JString, JValue};
     use jni::{JNIEnv, JavaVM};
@@ -128,6 +190,35 @@ mod imp {
             2 => Event::ToggleChanged(num != 0.0),
             3 => Event::ValueChanged(num),
             4 => Event::SelectionChanged(num as i64),
+            // Navigation (docs/navigation.md): system back / toolbar up.
+            5 => Event::NavBack {
+                already_popped: false,
+            },
+            // Nav page size report, "w,h" in px.
+            6 => {
+                let text: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                let Some((w, h)) = text.split_once(',') else {
+                    return;
+                };
+                let d = DENSITY.with(|x| x.get());
+                let (Ok(w), Ok(h)) = (w.parse::<f64>(), h.parse::<f64>()) else {
+                    return;
+                };
+                Event::FrameChanged(Size::new(w / d, h / d))
+            }
+            // Warm deep link: the nav piece handles Custom("deeplink").
+            7 => {
+                let route: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                Event::Custom("deeplink", route)
+            }
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -199,6 +290,39 @@ mod imp {
                 kinds::SCROLL => with_env(|env| {
                     AHandle(make_view(env, "makeScroll", "()Landroid/view/View;", &[]))
                 }),
+                kinds::NAV => {
+                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    with_env(|env| {
+                        let s = jstr(env, &p.title);
+                        AHandle(make_view(
+                            env,
+                            "makeNavHost",
+                            "(JLjava/lang/String;)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Object(&s)],
+                        ))
+                    })
+                }
+                kinds::NAV_PAGE => with_env(|env| {
+                    AHandle(make_view(
+                        env,
+                        "makeNavPage",
+                        "(J)Landroid/view/View;",
+                        &[JValue::Long(idj)],
+                    ))
+                }),
+                kinds::NAV_MENU => {
+                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let joined = p.items.join("\u{1f}");
+                    with_env(|env| {
+                        let s = jstr(env, &joined);
+                        AHandle(make_view(
+                            env,
+                            "makeNavMenu",
+                            "(JLjava/lang/String;)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Object(&s)],
+                        ))
+                    })
+                }
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let (dip, bold) = font_params(p.font);
@@ -318,6 +442,29 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                // Mobile selection is transient (rows ripple, then push) — nothing to sync.
+                kinds::NAV_MENU => {}
+                kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        match p {
+                            NavPatch::Pushed { title } => with_env(|env| {
+                                let s = jstr(env, title);
+                                let _ = env.call_static_method(
+                                    BRIDGE,
+                                    "navPush",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
+                                );
+                            }),
+                            NavPatch::Popped => call_void(
+                                "navPop",
+                                "(Landroid/view/View;)V",
+                                &[JValue::Object(h.0.as_obj())],
+                            ),
+                            NavPatch::Title(_) => {}
+                        }
+                    }
+                }
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
@@ -499,6 +646,11 @@ mod imp {
                         _ => Size::new(natural_w, measure_call(h, "measureHeight") / d),
                     }
                 }
+                kinds::NAV_MENU => Size::new(
+                    p.width.unwrap_or(320.0),
+                    p.height
+                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
+                ),
                 kinds::SLIDER => Size::new(
                     p.width.unwrap_or(180.0),
                     (measure_call(h, "measureHeight") / d).max(24.0),

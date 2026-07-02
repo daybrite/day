@@ -172,16 +172,72 @@ public final class DayBridge {
     }
 
     public static void addChild(View parent, View child) {
+        if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
         View target = contentOf(parent);
         if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
     }
     public static void removeChild(View child) {
         ViewGroup p = (ViewGroup) child.getParent();
+        if (p != null && p.getParent() instanceof DayNavHost) {
+            ((DayNavHost) p.getParent()).removePage(child);
+            return;
+        }
         if (p != null) p.removeView(child);
     }
     public static void setFrame(View v, int x, int y, int w, int h) {
         ViewGroup p = (ViewGroup) v.getParent();
+        // Nav pages are MATCH_PARENT in the host's page frame — their frames are native-owned.
+        if (p != null && p.getParent() instanceof DayNavHost) return;
         if (p instanceof DayFixed) ((DayFixed) p).setChildFrame(v, x, y, w, h);
+    }
+
+    // --- navigation (docs/navigation.md) ---
+    public static View makeNavHost(long id, String title) {
+        return new DayNavHost(ctx, id, title);
+    }
+    public static View makeNavPage(final long id) {
+        DayFixed page = new DayFixed(ctx);
+        page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                    int ol, int ot, int or2, int ob) {
+                int w = r - l, h = b - t;
+                if (w != or2 - ol || h != ob - ot) {
+                    // kind 6 = FrameChanged, "w,h" in px (Rust divides by density).
+                    nativeOnEvent(id, 6, 0.0, w + "," + h);
+                }
+            }
+        });
+        return page;
+    }
+    public static void navPush(View host, String title) { ((DayNavHost) host).push(title); }
+    public static void navPop(View host) { ((DayNavHost) host).pop(); }
+    /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. */
+    public static View makeNavMenu(final long id, String joinedItems) {
+        android.widget.LinearLayout list = new android.widget.LinearLayout(ctx);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
+        android.util.TypedValue tv = new android.util.TypedValue();
+        ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        float d = ctx.getResources().getDisplayMetrics().density;
+        for (int i = 0; i < items.length; i++) {
+            final int index = i;
+            TextView row = new TextView(ctx);
+            row.setText(items[i]);
+            row.setTextSize(16f);
+            row.setMinHeight((int) (48 * d));
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding((int) (16 * d), 0, (int) (16 * d), 0);
+            row.setBackgroundResource(tv.resourceId);
+            row.setClickable(true);
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    nativeOnEvent(id, 4, index, null); // kind 4 = SelectionChanged
+                }
+            });
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        return list;
     }
 
     public static int measureWidth(View v) {

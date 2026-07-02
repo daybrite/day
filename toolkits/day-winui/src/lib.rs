@@ -391,6 +391,15 @@ fn image_uri(source: &str) -> String {
     }
 }
 
+extern "C" fn window_resized(w: c_int, h: c_int) {
+    // Client rect is reported in pixels; day-winui's v1 assumes a 100% scale factor
+    // throughout (same convention as window creation).
+    emit(
+        day_spec::WINDOW_NODE,
+        Event::WindowResized(Size::new(w as f64, h as f64)),
+    );
+}
+
 extern "C" fn run_posted(data: *mut c_void) {
     let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data as *mut _) };
     f();
@@ -414,6 +423,7 @@ impl Platform for WinUi {
             self.window = win;
             let root = ffi::day_winui_window_root(win);
             ready(self, WinHandle(root), options.size);
+            ffi::day_winui_window_on_resize(win, window_resized);
             ffi::day_winui_window_show(win);
             ffi::day_winui_run(win);
         }

@@ -177,6 +177,8 @@ pub mod android {
         env_blob: Option<String>,
         root_piece: impl FnOnce() -> crate::AnyPiece + 'static,
     ) {
+        // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
+        day_android::redirect_stdio_to_logcat();
         if let Some(a) = autodrive {
             unsafe { std::env::set_var("DAY_AUTODRIVE", a) };
         }

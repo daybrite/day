@@ -145,6 +145,9 @@ static AppWindow* g_app = nullptr;
 
 static const UINT WM_DAY_POST = WM_APP + 1;
 struct PostMsg { void (*cb)(void*); void* data; };
+// Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
+// Windows host; mirrors the Qt shim's DayWindow::resizeEvent contract.
+static void (*g_resize_cb)(int, int) = nullptr;
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -152,6 +155,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_app && g_app->island) {
             RECT rc; GetClientRect(hwnd, &rc);
             SetWindowPos(g_app->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+            if (g_resize_cb) g_resize_cb(rc.right, rc.bottom);
         }
         return 0;
     case WM_DAY_POST: {
@@ -198,7 +202,7 @@ void* day_winui_window_new(const char* title, int w, int h) try {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
-    DWORD style = WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX); // fixed size (MVP)
+    DWORD style = WS_OVERLAPPEDWINDOW; // resizable; WM_SIZE reflows the island + day tree
     RECT r{ 0, 0, w, h };
     AdjustWindowRect(&r, style, FALSE);
     HWND host = CreateWindowExW(0, L"day_winui_host", hs(title).c_str(), style,
@@ -266,6 +270,10 @@ void* day_winui_window_root(void* win) {
     return boxh(app->root);
 }
 
+void day_winui_window_on_resize(void* win, void (*cb)(int, int)) {
+    (void)win; // single window (v1)
+    g_resize_cb = cb;
+}
 void day_winui_window_show(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
     ShowWindow(app->host, SW_SHOWNORMAL);

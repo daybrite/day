@@ -123,6 +123,76 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Navigation (docs/navigation.md): GtkPaned host, sidebar + detail GtkFixed panes.
+// day sizes page content from the pane sizes this module reports via FrameChanged
+// (on host set_frame and divider drags).
+// ---------------------------------------------------------------------------
+
+/// Smallest the split sidebar may be dragged (the divider stops here rather than
+/// collapsing the sidebar to nothing).
+const NAV_SIDEBAR_MIN: f64 = 120.0;
+
+struct NavState {
+    paned: gtk4::Paned,
+    sidebar_wrap: gtk4::Fixed,
+    detail_wrap: gtk4::Fixed,
+    /// (page widget, node id); index 0 = sidebar page, the rest are the detail stack.
+    pages: Vec<(Handle, NodeId)>,
+}
+
+struct NavMenuState {
+    listbox: gtk4::ListBox,
+    rows: usize,
+    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    suppress: Rc<std::cell::Cell<bool>>,
+}
+
+thread_local! {
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE widget → its day node id (recorded at realize, joined at insert).
+    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// NAV_MENU widget → its list box + suppression flag.
+    static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
+}
+
+fn widget_key(w: &Handle) -> usize {
+    w.as_ptr() as usize
+}
+
+/// Report both pane sizes so NavLayout re-lays page content (enqueue-only, §8.3).
+fn nav_sync_panes(host_key: usize) {
+    let reports: Vec<(NodeId, Size)> = NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&host_key) else {
+            return Vec::new();
+        };
+        let w = state.paned.width() as f64;
+        let h = state.paned.height() as f64;
+        if w <= 0.0 || h <= 0.0 {
+            return Vec::new();
+        }
+        let pos = state.paned.position() as f64;
+        let detail_w = (w - pos - 8.0).max(0.0);
+        state
+            .pages
+            .iter()
+            .enumerate()
+            .map(|(i, (_, id))| {
+                let size = if i == 0 {
+                    Size::new(pos, h)
+                } else {
+                    Size::new(detail_w, h)
+                };
+                (*id, size)
+            })
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
 /// Renderers registered by external Day Piece crates (§8.2).
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Gtk>];
@@ -195,7 +265,7 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot => Support::Native,
+            Cap::Snapshot | Cap::NavSplit => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -203,6 +273,87 @@ impl Toolkit for Gtk {
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> Handle {
         match kind {
             kinds::CONTAINER => gtk4::Fixed::new().upcast(),
+            kinds::NAV => {
+                let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+                let sidebar_wrap = gtk4::Fixed::new();
+                let detail_wrap = gtk4::Fixed::new();
+                // A bare GtkFixed reports its children's bounding box as its MINIMUM size, so
+                // the divider could never shrink the sidebar below day's content width. An
+                // External-policy ScrolledWindow breaks that propagation (no scrollbars ever
+                // show — day sizes the content to the pane); the size_request is the shrink
+                // floor the divider stops at. Same trick as the resizable window root.
+                let sidebar_scroll = gtk4::ScrolledWindow::new();
+                sidebar_scroll.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
+                sidebar_scroll.set_child(Some(&sidebar_wrap));
+                sidebar_scroll.set_size_request(NAV_SIDEBAR_MIN as i32, -1);
+                paned.set_start_child(Some(&sidebar_scroll));
+                paned.set_end_child(Some(&detail_wrap));
+                paned.set_resize_start_child(false);
+                paned.set_shrink_start_child(false);
+                paned.set_resize_end_child(true);
+                paned.set_position(day_spec::NAV_SIDEBAR_WIDTH as i32);
+                let host: Handle = paned.clone().upcast();
+                let key = widget_key(&host);
+                paned.connect_position_notify(move |_| nav_sync_panes(key));
+                NAV_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        key,
+                        NavState {
+                            paned,
+                            sidebar_wrap,
+                            detail_wrap,
+                            pages: Vec::new(),
+                        },
+                    )
+                });
+                host
+            }
+            kinds::NAV_PAGE => {
+                let page: Handle = gtk4::Fixed::new().upcast();
+                NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(widget_key(&page), id));
+                page
+            }
+            kinds::NAV_MENU => {
+                let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                let listbox = gtk4::ListBox::new();
+                // The standard GNOME sidebar treatment.
+                listbox.add_css_class("navigation-sidebar");
+                listbox.set_selection_mode(gtk4::SelectionMode::Single);
+                for item in &p.items {
+                    let label = gtk4::Label::new(Some(item));
+                    label.set_halign(gtk4::Align::Start);
+                    listbox.append(&label);
+                }
+                let suppress = Rc::new(std::cell::Cell::new(false));
+                {
+                    let suppress = suppress.clone();
+                    listbox.connect_row_selected(move |_, row| {
+                        if suppress.get() {
+                            return;
+                        }
+                        if let Some(row) = row {
+                            emit(id, Event::SelectionChanged(row.index() as i64));
+                        }
+                    });
+                }
+                if let Some(sel) = p.selected {
+                    suppress.set(true);
+                    listbox.select_row(listbox.row_at_index(sel as i32).as_ref());
+                    suppress.set(false);
+                }
+                let handle: Handle = listbox.clone().upcast();
+                NAV_MENUS.with(|m| {
+                    m.borrow_mut().insert(
+                        widget_key(&handle),
+                        NavMenuState {
+                            listbox,
+                            rows: p.items.len(),
+                            suppress,
+                        },
+                    )
+                });
+                handle
+            }
             kinds::SCROLL => {
                 let sw = gtk4::ScrolledWindow::new();
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
@@ -290,6 +441,54 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            kinds::NAV_MENU => {
+                if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                    NAV_MENUS.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&widget_key(h)) else {
+                            return;
+                        };
+                        state.suppress.set(true);
+                        match sel {
+                            Some(i) => state
+                                .listbox
+                                .select_row(state.listbox.row_at_index(*i as i32).as_ref()),
+                            None => state.listbox.unselect_all(),
+                        }
+                        state.suppress.set(false);
+                    });
+                }
+            }
+            kinds::NAV => {
+                if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                    NAV_STATE.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&widget_key(h)) else {
+                            return;
+                        };
+                        // pages[0] is the sidebar; the detail stack starts at 1.
+                        let detail = &state.pages[1..];
+                        match p {
+                            NavPatch::Pushed { .. } => {
+                                let last = detail.len().saturating_sub(1);
+                                for (i, (page, _)) in detail.iter().enumerate() {
+                                    page.set_visible(i == last);
+                                }
+                            }
+                            NavPatch::Popped => {
+                                let n = detail.len();
+                                if let Some((top, _)) = detail.last() {
+                                    top.set_visible(false);
+                                }
+                                if n >= 2 {
+                                    detail[n - 2].0.set_visible(true);
+                                }
+                            }
+                            NavPatch::Title(_) => {}
+                        }
+                    });
+                }
+            }
             kinds::LABEL => {
                 if let (Some(p), Some(label)) = (
                     patch.downcast_ref::<LabelPatch>(),
@@ -372,6 +571,9 @@ impl Toolkit for Gtk {
     }
 
     fn release(&mut self, h: Handle) {
+        NAV_MENUS.with(|m| {
+            m.borrow_mut().remove(&widget_key(&h));
+        });
         if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
@@ -379,14 +581,48 @@ impl Toolkit for Gtk {
         }
     }
 
-    fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
-        if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
+    fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages.
+        let host_key = widget_key(parent);
+        let handled = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&host_key) else {
+                return false;
+            };
+            let id = NAV_PAGE_IDS
+                .with(|ids| ids.borrow().get(&widget_key(child)).copied())
+                .unwrap_or(NodeId(0));
+            let wrap = if index == 0 {
+                &state.sidebar_wrap
+            } else {
+                &state.detail_wrap
+            };
+            wrap.put(child, 0.0, 0.0);
+            state.pages.push((child.clone(), id));
+            true
+        });
+        if handled {
+            nav_sync_panes(host_key);
+        } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
         }
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
-        if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
+        let handled = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&widget_key(parent)) else {
+                return false;
+            };
+            state.pages.retain(|(p, _)| p.as_ptr() != child.as_ptr());
+            if child.parent().as_ref() == Some(state.sidebar_wrap.upcast_ref()) {
+                state.sidebar_wrap.remove(child);
+            } else if child.parent().as_ref() == Some(state.detail_wrap.upcast_ref()) {
+                state.detail_wrap.remove(child);
+            }
+            true
+        });
+        if !handled && let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.remove(child);
         }
     }
@@ -397,6 +633,14 @@ impl Toolkit for Gtk {
 
     fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
         match kind {
+            kinds::NAV_MENU => {
+                let rows =
+                    NAV_MENUS.with(|m| m.borrow().get(&widget_key(h)).map(|s| s.rows).unwrap_or(0));
+                Size::new(
+                    p.width.unwrap_or(220.0),
+                    p.height.unwrap_or(rows as f64 * 36.0 + 8.0),
+                )
+            }
             kinds::LABEL => {
                 // Height-for-width through GTK's measure protocol.
                 let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
@@ -437,6 +681,13 @@ impl Toolkit for Gtk {
             frame.size.width.round() as i32,
             frame.size.height.round() as i32,
         );
+        // Nav host resized (window resize): re-report pane sizes for page relayout.
+        // GTK allocates the paned asynchronously — defer one idle so position/size settle.
+        let key = widget_key(h);
+        let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
+        if is_nav {
+            gtk4::glib::idle_add_local_once(move || nav_sync_panes(key));
+        }
     }
 
     fn set_scroll_content(&mut self, h: &Handle, content: Size) {
@@ -506,11 +757,30 @@ impl Platform for Gtk {
             let window = gtk4::ApplicationWindow::new(app);
             window.set_title(Some(&options.title));
             window.set_default_size(options.size.width as i32, options.size.height as i32);
-            window.set_resizable(false); // live resize needs the custom layout manager (post-MVP)
             let fixed = gtk4::Fixed::new();
-            window.set_child(Some(&fixed));
+            // A GtkFixed reports its children's bounding box as its MINIMUM size, which
+            // would pin the window at the content size. A scroll wrapper with External
+            // policy breaks that propagation (no scrollbars are ever shown — day sizes
+            // the content to the window on every resize).
+            let wrapper = gtk4::ScrolledWindow::new();
+            wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
+            wrapper.set_child(Some(&fixed));
+            window.set_child(Some(&wrapper));
             backend.window_fixed = Some(fixed.clone());
             ready(backend, fixed.upcast(), options.size);
+            // GTK4 keeps default-width/height tracking the live size of a resizable
+            // window — the only public resize signal it offers.
+            let report = |w: &gtk4::ApplicationWindow| {
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::WindowResized(Size::new(
+                        w.default_width() as f64,
+                        w.default_height() as f64,
+                    )),
+                );
+            };
+            window.connect_default_width_notify(report);
+            window.connect_default_height_notify(report);
             window.present();
         });
         app.run_with_args::<&str>(&[]);

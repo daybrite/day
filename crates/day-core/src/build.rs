@@ -11,6 +11,15 @@ use day_spec::{Event, PieceKind};
 use crate::layout::Layout;
 use crate::tree::{Flex, RNode, with_tree};
 
+/// Measure-invalidation boundary (§7.4): `Yes` stops upward needs-measure propagation
+/// (scroll viewports, nav pages). Named enum instead of a bare bool at call sites
+/// (docs/api-style.md).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Boundary {
+    No,
+    Yes,
+}
+
 pub struct BuildCx {
     parent: RNode,
 }
@@ -48,7 +57,7 @@ impl BuildCx {
         props: &dyn Any,
         layout: Rc<dyn Layout>,
         flex: Flex,
-        is_boundary: bool,
+        boundary: Boundary,
     ) -> RNode {
         let n = with_tree(|t| {
             t.create_node(
@@ -57,7 +66,7 @@ impl BuildCx {
                 layout,
                 flex,
                 true,
-                is_boundary,
+                boundary == Boundary::Yes,
                 Scope::current(),
             )
         });
@@ -66,7 +75,7 @@ impl BuildCx {
     }
 
     /// Create + attach a layout-only node (wrappers, groups, spacer).
-    pub fn layout_only(&mut self, layout: Rc<dyn Layout>, flex: Flex, is_boundary: bool) -> RNode {
+    pub fn layout_only(&mut self, layout: Rc<dyn Layout>, flex: Flex, boundary: Boundary) -> RNode {
         let n = with_tree(|t| {
             t.create_node(
                 "day.layout",
@@ -74,7 +83,7 @@ impl BuildCx {
                 layout,
                 flex,
                 false,
-                is_boundary,
+                boundary == Boundary::Yes,
                 Scope::current(),
             )
         });

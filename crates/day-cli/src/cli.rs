@@ -167,6 +167,11 @@ pub fn run() -> i32 {
                     .collect(),
                 attached: !detach && !script_mode,
             };
+            // Ctrl-C during an attached run must take the launched apps and their log
+            // watchers (simctl / adb logcat) down too — not leave them orphaned.
+            if spec.attached {
+                crate::signals::install();
+            }
             let token = crate::script::make_token();
             let mut handles = Vec::new();
             let mut script_failures = 0usize;
@@ -236,6 +241,9 @@ pub fn run() -> i32 {
                 for h in handles {
                     code = code.max(h.join().unwrap_or(1));
                 }
+                // A target that exited on its own leaves its siblings' log watchers (and
+                // any child that outlives its stream) running — reap them before we go.
+                crate::signals::kill_all();
                 code
             } else {
                 0

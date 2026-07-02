@@ -4,10 +4,12 @@
 
 mod build;
 mod layout;
+mod nav;
 mod tree;
 
 pub use build::*;
 pub use layout::*;
+pub use nav::*;
 pub use tree::*;
 
 use day_spec::{Platform, WindowOptions};
@@ -63,6 +65,19 @@ pub fn launch_with<P: Platform>(
                 t.layout_if_needed();
             });
             day_reactive::on_turn_end(|| with_tree(|t| t.layout_if_needed()));
+
+            // Startup deep link (docs/navigation.md): uniform across platforms — desktop
+            // sets the env directly, mobile shells forward the launch URL/intent into it.
+            // Deferred one turn so the first frame mounts before the destination pushes.
+            if let Ok(route) = std::env::var("DAY_DEEPLINK")
+                && !route.is_empty()
+            {
+                day_reactive::on_main(move || {
+                    if !nav::navigate(&route) {
+                        eprintln!("day: DAY_DEEPLINK {route:?} did not match a route");
+                    }
+                });
+            }
 
             // Verification hook (headless CI / no-input environments): drive the app through
             // day's own event path once the native loop starts (delayed past first allocation

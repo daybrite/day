@@ -22,19 +22,22 @@ mod imp {
 
     use linkme::distributed_slice;
     use objc2::rc::Retained;
-    use objc2::runtime::{AnyObject, NSObjectProtocol};
+    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_core_foundation::{CGPoint, CGRect, CGSize};
     use objc2_foundation::{NSObject, NSString};
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
+    use objc2_ui_kit::NSIndexPathUIKitAdditions as _;
     #[allow(deprecated)]
     use objc2_ui_kit::UIApplicationMain;
+    use objc2_ui_kit::UINavigationControllerDelegate;
     use objc2_ui_kit::{
         UIApplication, UIApplicationDelegate, UIButton, UIButtonType, UIColor, UIControl,
         UIControlEvents, UIControlState, UILabel, UIScreen, UIScrollView, UISlider, UISwitch,
         UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
     };
+    use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
 
     use day_spec::props::*;
     use day_spec::{
@@ -114,6 +117,230 @@ mod imp {
     }
 
     // -----------------------------------------------------------------------
+    // Navigation (docs/navigation.md): UINavigationController child-contained in the
+    // root VC. Each page = UIViewController whose view pins a content subview to the
+    // safe area; the content view is day's handle (its frame is native-owned).
+    // -----------------------------------------------------------------------
+
+    struct NavState {
+        nav: Retained<objc2_ui_kit::UINavigationController>,
+        host_node: NodeId,
+        /// Our mirror of the intended VC stack (index 0 = root page).
+        vcs: Vec<Retained<UIViewController>>,
+        /// A day-initiated pop is in flight: the delegate must not re-emit NavBack.
+        expect_pop: std::cell::Cell<bool>,
+        _delegate: Retained<DayNavDelegate>,
+    }
+
+    thread_local! {
+        /// Keyed by the nav host view ptr (the UINavigationController's view).
+        static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+        /// Page CONTENT view ptr → its UIViewController.
+        static PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
+            RefCell::new(HashMap::new());
+        /// Handles whose frames are native-owned (page content views).
+        static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+    }
+
+    struct NavPageIvars {
+        node: NodeId,
+    }
+
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavPageView"]
+        #[ivars = NavPageIvars]
+        struct DayNavPageView;
+
+        impl DayNavPageView {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                // Pin the content subview to the safe area (below the navigation bar)
+                // and report its size so NavLayout re-lays the day content (§8.3).
+                let bounds = self.bounds();
+                let insets = self.safeAreaInsets();
+                let frame = CGRect::new(
+                    CGPoint::new(insets.left, insets.top),
+                    CGSize::new(
+                        (bounds.size.width - insets.left - insets.right).max(0.0),
+                        (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                    ),
+                );
+                if let Some(content) = unsafe { self.subviews() }.firstObject() {
+                    unsafe { content.setFrame(frame) };
+                }
+                emit(
+                    self.ivars().node,
+                    Event::FrameChanged(Size::new(frame.size.width, frame.size.height)),
+                );
+            }
+        }
+    );
+
+    impl DayNavPageView {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
+            let v: Retained<Self> = unsafe { msg_send![super(this), init] };
+            unsafe { v.setBackgroundColor(Some(&UIColor::systemBackgroundColor())) };
+            v
+        }
+    }
+
+    struct NavDelegateIvars {
+        host: std::cell::Cell<usize>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavDelegate"]
+        #[ivars = NavDelegateIvars]
+        struct DayNavDelegate;
+
+        unsafe impl NSObjectProtocol for DayNavDelegate {}
+
+        unsafe impl UINavigationControllerDelegate for DayNavDelegate {
+            #[unsafe(method(navigationController:didShowViewController:animated:))]
+            fn did_show(
+                &self,
+                nav: &objc2_ui_kit::UINavigationController,
+                _vc: &UIViewController,
+                _animated: bool,
+            ) {
+                // Fewer native VCs than our mirror = a pop completed. Day-initiated pops
+                // set expect_pop; anything else is the user's back button / swipe.
+                let host = self.ivars().host.get();
+                let (emit_back, node) = NAV_STATE.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let Some(state) = m.get_mut(&host) else {
+                        return (false, NodeId(0));
+                    };
+                    let native = unsafe { nav.viewControllers() }.count();
+                    if native < state.vcs.len() {
+                        if state.expect_pop.replace(false) {
+                            (false, NodeId(0))
+                        } else {
+                            // Sync the mirror now; day's remove() will find it gone.
+                            state.vcs.truncate(native);
+                            (true, state.host_node)
+                        }
+                    } else {
+                        (false, NodeId(0))
+                    }
+                });
+                if emit_back {
+                    emit(
+                        node,
+                        Event::NavBack {
+                            already_popped: true,
+                        },
+                    );
+                }
+            }
+        }
+    );
+
+    impl DayNavDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // DayNavTableData — nav_menu() as inset-grouped rows with chevrons
+    // -------------------------------------------------------------------
+
+    struct NavTableIvars {
+        node: NodeId,
+        items: RefCell<Vec<Retained<NSString>>>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavTableData"]
+        #[ivars = NavTableIvars]
+        struct DayNavTableData;
+
+        unsafe impl NSObjectProtocol for DayNavTableData {}
+        unsafe impl UIScrollViewDelegate for DayNavTableData {}
+
+        unsafe impl UITableViewDataSource for DayNavTableData {
+            #[unsafe(method(tableView:numberOfRowsInSection:))]
+            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> isize {
+                self.ivars().items.borrow().len() as isize
+            }
+
+            #[unsafe(method_id(tableView:cellForRowAtIndexPath:))]
+            fn cell_for_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UITableViewCell> {
+                let mtm = self.mtm();
+                let cell = unsafe {
+                    objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
+                        objc2_ui_kit::UITableViewCell::alloc(mtm),
+                        objc2_ui_kit::UITableViewCellStyle::Default,
+                        None,
+                    )
+                };
+                let row = unsafe { index_path.row() } as usize;
+                let items = self.ivars().items.borrow();
+                if let Some(title) = items.get(row) {
+                    // textLabel is soft-deprecated for UIListContentConfiguration; the
+                    // classic API keeps this dependency-light and renders identically.
+                    #[allow(deprecated)]
+                    if let Some(label) = unsafe { cell.textLabel() } {
+                        unsafe { label.setText(Some(title)) };
+                    }
+                }
+                unsafe {
+                    cell.setAccessoryType(
+                        objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
+                    )
+                };
+                cell
+            }
+        }
+
+        unsafe impl UITableViewDelegate for DayNavTableData {
+            #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
+            fn did_select(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                let row = unsafe { index_path.row() };
+                unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+            }
+        }
+    );
+
+    impl DayNavTableData {
+        fn new(mtm: MainThreadMarker, node: NodeId, items: &[String]) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavTableIvars {
+                node,
+                items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    thread_local! {
+        /// NAV_MENU table ptr → (data source, row count).
+        static NAV_MENUS: RefCell<HashMap<usize, (Retained<DayNavTableData>, usize)>> =
+            RefCell::new(HashMap::new());
+    }
+
+    // -----------------------------------------------------------------------
     // DayCanvasView — replay in drawRect (§11)
     // -----------------------------------------------------------------------
 
@@ -187,7 +414,7 @@ mod imp {
                     at,
                     size,
                     color,
-                    centered,
+                    anchor,
                 } => {
                     let font = objc2_ui_kit::UIFont::systemFontOfSize(*size);
                     let col = uicolor(*color);
@@ -201,7 +428,7 @@ mod imp {
                         objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
                     let ns = NSString::from_str(text);
                     let mut origin = CGPoint::new(at.x, at.y);
-                    if *centered {
+                    if *anchor == day_spec::TextAnchor::Centered {
                         let sz: CGSize = msg_send![&ns, sizeWithAttributes: &*attrs];
                         origin.x -= sz.width / 2.0;
                         origin.y -= sz.height / 2.0;
@@ -315,6 +542,71 @@ mod imp {
             let mtm = mtm();
             match kind {
                 kinds::CONTAINER => view_of(unsafe { UIView::new(mtm) }),
+                kinds::NAV => {
+                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    let _ = p;
+                    let nav = unsafe { objc2_ui_kit::UINavigationController::new(mtm) };
+                    // Child-VC containment under the window's root VC (v1: app root).
+                    let root_vc = WINDOW
+                        .with(|w| w.borrow().clone())
+                        .and_then(|w| w.rootViewController());
+                    if let Some(root_vc) = root_vc {
+                        unsafe {
+                            root_vc.addChildViewController(&nav);
+                            nav.didMoveToParentViewController(Some(&root_vc));
+                        }
+                    }
+                    let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                    let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
+                    unsafe { nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                    NAV_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            ptr_of(&host),
+                            NavState {
+                                nav,
+                                host_node: id,
+                                vcs: Vec::new(),
+                                expect_pop: std::cell::Cell::new(false),
+                                _delegate: delegate,
+                            },
+                        )
+                    });
+                    host
+                }
+                kinds::NAV_PAGE => {
+                    let p = props.downcast_ref::<NavPageProps>().unwrap();
+                    let outer = DayNavPageView::new(mtm, id);
+                    let content = unsafe { UIView::new(mtm) };
+                    unsafe { outer.addSubview(&content) };
+                    let vc = unsafe { UIViewController::new(mtm) };
+                    unsafe {
+                        vc.setView(Some(&outer));
+                        vc.setTitle(Some(&NSString::from_str(&p.title)));
+                    }
+                    let handle = view_of(content);
+                    PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
+                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    handle
+                }
+                kinds::NAV_MENU => {
+                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let data = DayNavTableData::new(mtm, id, &p.items);
+                    let table = unsafe {
+                        objc2_ui_kit::UITableView::initWithFrame_style(
+                            objc2_ui_kit::UITableView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 400.0)),
+                            objc2_ui_kit::UITableViewStyle::InsetGrouped,
+                        )
+                    };
+                    unsafe {
+                        table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                        table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        table.reloadData();
+                    }
+                    let view = view_of(table);
+                    NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
+                    view
+                }
                 kinds::SCROLL => {
                     let sv = unsafe { UIScrollView::new(mtm) };
                     view_of(sv)
@@ -446,6 +738,47 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
+                        // the delegate synchronously, which re-borrows NAV_STATE.
+                        enum Act {
+                            Push(
+                                Retained<UIViewController>,
+                                Retained<objc2_ui_kit::UINavigationController>,
+                            ),
+                            Pop(Retained<objc2_ui_kit::UINavigationController>),
+                            None,
+                        }
+                        let act = NAV_STATE.with(|m| {
+                            let m = m.borrow();
+                            let Some(state) = m.get(&ptr_of(h)) else {
+                                return Act::None;
+                            };
+                            match p {
+                                NavPatch::Pushed { .. } => state
+                                    .vcs
+                                    .last()
+                                    .map(|vc| Act::Push(vc.clone(), state.nav.clone()))
+                                    .unwrap_or(Act::None),
+                                NavPatch::Popped => {
+                                    state.expect_pop.set(true);
+                                    Act::Pop(state.nav.clone())
+                                }
+                                NavPatch::Title(_) => Act::None,
+                            }
+                        });
+                        match act {
+                            Act::Push(vc, nav) => unsafe {
+                                nav.pushViewController_animated(&vc, true)
+                            },
+                            Act::Pop(nav) => {
+                                let _ = unsafe { nav.popViewControllerAnimated(true) };
+                            }
+                            Act::None => {}
+                        }
+                    }
+                }
                 kinds::LABEL => {
                     if let (Some(p), Some(label)) = (
                         patch.downcast_ref::<LabelPatch>(),
@@ -539,15 +872,56 @@ mod imp {
             TARGETS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            NAV_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            NAV_PAGES.with(|set| {
+                set.borrow_mut().remove(&ptr_of(&h));
+            });
+            PAGE_VCS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            NAV_MENUS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
             unsafe { h.removeFromSuperview() };
         }
 
-        fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
-            unsafe { parent.addSubview(child) };
+        fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            // Nav host: pages join the VC stack; index 0 becomes the root VC now, later
+            // pages are presented by the Pushed patch.
+            // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).
+            let set_root = NAV_STATE.with(|m| {
+                let mut m = m.borrow_mut();
+                let state = m.get_mut(&ptr_of(parent))?;
+                let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
+                state.vcs.push(vc.clone());
+                Some((index == 0).then_some((state.nav.clone(), vc)))
+            });
+            match set_root {
+                Some(Some((nav, vc))) => {
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
+                    unsafe { nav.setViewControllers(&arr) };
+                }
+                Some(None) => {}
+                None => unsafe { parent.addSubview(child) },
+            }
         }
 
-        fn remove(&mut self, _parent: &Handle, child: &Handle) {
-            unsafe { child.removeFromSuperview() };
+        fn remove(&mut self, parent: &Handle, child: &Handle) {
+            let nav_child = NAV_STATE.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                    return false;
+                };
+                if let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned()) {
+                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
+                }
+                true
+            });
+            if !nav_child {
+                unsafe { child.removeFromSuperview() };
+            }
         }
 
         fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
@@ -560,6 +934,14 @@ mod imp {
                 Size::new(s.width.ceil(), s.height.ceil())
             };
             match kind {
+                kinds::NAV_MENU => {
+                    let rows = NAV_MENUS
+                        .with(|m| m.borrow().get(&ptr_of(h)).map(|(_, n)| *n).unwrap_or(0));
+                    Size::new(
+                        p.width.unwrap_or(320.0),
+                        p.height.unwrap_or(rows as f64 * 44.0 + 40.0),
+                    )
+                }
                 kinds::LABEL => {
                     let w = p.width.unwrap_or(1.0e6);
                     let s = fit(w, 1.0e6);
@@ -585,6 +967,10 @@ mod imp {
         }
 
         fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+            // Nav page content: the page view pins it to the safe area (native-owned).
+            if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
+                return;
+            }
             let f = CGRect::new(
                 CGPoint::new(frame.origin.x, frame.origin.y),
                 CGSize::new(frame.size.width, frame.size.height),
@@ -690,6 +1076,30 @@ mod imp {
                 let size = Size::new(inner.size.width, inner.size.height);
                 ready(backend, view_of(root_view), size);
                 true
+            }
+
+            // Custom-scheme deep link (docs/navigation.md): route = URL host + path,
+            // delivered to the active nav host as Custom("deeplink").
+            #[unsafe(method(application:openURL:options:))]
+            fn open_url(
+                &self,
+                _app: &UIApplication,
+                url: &objc2_foundation::NSURL,
+                _options: *mut AnyObject,
+            ) -> bool {
+                let host = unsafe { url.host() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let path = unsafe { url.path() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
+                if let Some(node) = node {
+                    emit(node, Event::Custom("deeplink", format!("{host}{path}")));
+                    true
+                } else {
+                    false
+                }
             }
         }
     );

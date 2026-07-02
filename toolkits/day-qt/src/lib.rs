@@ -110,12 +110,87 @@ fn font_params(f: Font) -> (f64, c_int) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Navigation (docs/navigation.md): QSplitter host, sidebar + detail panes. day sizes
+// page content from the pane sizes reported here via FrameChanged.
+// ---------------------------------------------------------------------------
+
+struct NavState {
+    sidebar_pane: *mut std::os::raw::c_void,
+    detail_pane: *mut std::os::raw::c_void,
+    /// (page, node id); index 0 = sidebar page, the rest are the detail stack.
+    pages: Vec<(QtHandle, NodeId)>,
+}
+
+thread_local! {
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+}
+
+/// Report both pane sizes so NavLayout re-lays page content (enqueue-only, §8.3).
+fn nav_sync_panes(host: *mut std::os::raw::c_void) {
+    let reports: Vec<(NodeId, Size)> = NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        let (mut sw, mut sh, mut dw, mut dh) = (0.0, 0.0, 0.0, 0.0);
+        unsafe {
+            ffi::day_qt_widget_size(state.sidebar_pane, &mut sw, &mut sh);
+            ffi::day_qt_widget_size(state.detail_pane, &mut dw, &mut dh);
+        }
+        if sh <= 0.0 && dh <= 0.0 {
+            return Vec::new();
+        }
+        state
+            .pages
+            .iter()
+            .enumerate()
+            .map(|(i, (_, id))| {
+                let size = if i == 0 {
+                    Size::new(sw, sh)
+                } else {
+                    Size::new(dw, dh)
+                };
+                (*id, size)
+            })
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
+    nav_sync_panes(host);
+}
+
+extern "C" fn window_resized(w: c_int, h: c_int) {
+    emit(
+        day_spec::WINDOW_NODE,
+        Event::WindowResized(Size::new(w as f64, h as f64)),
+    );
+}
+
+thread_local! {
+    /// NAV_MENU widget → row count (for measure).
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+}
+
+extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
+    // -1 = cleared (programmatic unselect fires nothing thanks to blockSignals; a clear
+    // reaching here means the widget emptied — ignore).
+    if row >= 0 {
+        emit(NodeId(id), Event::SelectionChanged(row as i64));
+    }
+}
+
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot => Support::Native,
+            Cap::Snapshot | Cap::NavSplit => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -124,6 +199,40 @@ impl Toolkit for Qt {
         unsafe {
             match kind {
                 kinds::CONTAINER => QtHandle(ffi::day_qt_container_new()),
+                kinds::NAV => {
+                    let host = ffi::day_qt_splitter_new();
+                    let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
+                    let detail_pane = ffi::day_qt_splitter_pane(host, 1);
+                    ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
+                    NAV_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            host as usize,
+                            NavState {
+                                sidebar_pane,
+                                detail_pane,
+                                pages: Vec::new(),
+                            },
+                        )
+                    });
+                    QtHandle(host)
+                }
+                kinds::NAV_PAGE => {
+                    let page = QtHandle(ffi::day_qt_container_new());
+                    NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
+                    page
+                }
+                kinds::NAV_MENU => {
+                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let w = ffi::day_qt_navlist_new(id.0, nav_menu_changed);
+                    let joined = p.items.join("\u{1f}");
+                    ffi::day_qt_navlist_set_items(w, cstr(&joined).as_ptr());
+                    ffi::day_qt_navlist_set_selected(
+                        w,
+                        p.selected.map(|i| i as c_int).unwrap_or(-1),
+                    );
+                    NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
+                    QtHandle(w)
+                }
                 kinds::SCROLL => QtHandle(ffi::day_qt_scroll_new()),
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
@@ -195,6 +304,44 @@ impl Toolkit for Qt {
     ) {
         unsafe {
             match kind {
+                kinds::NAV_MENU => {
+                    if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        ffi::day_qt_navlist_set_selected(
+                            h.0,
+                            sel.map(|i| i as c_int).unwrap_or(-1),
+                        );
+                    }
+                }
+                kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        NAV_STATE.with(|m| {
+                            let m = m.borrow();
+                            let Some(state) = m.get(&(h.0 as usize)) else {
+                                return;
+                            };
+                            let detail = &state.pages[1..];
+                            match p {
+                                NavPatch::Pushed { .. } => {
+                                    let last = detail.len().saturating_sub(1);
+                                    for (i, (page, _)) in detail.iter().enumerate() {
+                                        ffi::day_qt_set_visible(page.0, (i == last) as _);
+                                    }
+                                }
+                                NavPatch::Popped => {
+                                    let n = detail.len();
+                                    if let Some((top, _)) = detail.last() {
+                                        ffi::day_qt_set_visible(top.0, 0);
+                                    }
+                                    if n >= 2 {
+                                        ffi::day_qt_set_visible(detail[n - 2].0.0, 1);
+                                    }
+                                }
+                                NavPatch::Title(_) => {}
+                            }
+                        });
+                    }
+                }
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
@@ -265,17 +412,47 @@ impl Toolkit for Qt {
     }
 
     fn release(&mut self, h: QtHandle) {
+        NAV_MENU_ROWS.with(|m| {
+            m.borrow_mut().remove(&(h.0 as usize));
+        });
         unsafe {
             ffi::day_qt_remove_child(h.0);
             ffi::day_qt_delete(h.0);
         }
     }
 
-    fn insert(&mut self, parent: &QtHandle, child: &QtHandle, _index: usize) {
-        unsafe { ffi::day_qt_add_child(content_of(parent), child.0) };
+    fn insert(&mut self, parent: &QtHandle, child: &QtHandle, index: usize) {
+        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages.
+        let handled = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+                return false;
+            };
+            let id = NAV_PAGE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or(NodeId(0));
+            let pane = if index == 0 {
+                state.sidebar_pane
+            } else {
+                state.detail_pane
+            };
+            unsafe { ffi::day_qt_add_child(pane, child.0) };
+            state.pages.push((*child, id));
+            true
+        });
+        if handled {
+            nav_sync_panes(parent.0);
+        } else {
+            unsafe { ffi::day_qt_add_child(content_of(parent), child.0) };
+        }
     }
 
-    fn remove(&mut self, _parent: &QtHandle, child: &QtHandle) {
+    fn remove(&mut self, parent: &QtHandle, child: &QtHandle) {
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow_mut().get_mut(&(parent.0 as usize)) {
+                state.pages.retain(|(p, _)| p.0 != child.0);
+            }
+        });
         unsafe { ffi::day_qt_remove_child(child.0) };
     }
 
@@ -286,6 +463,14 @@ impl Toolkit for Qt {
         let mut hh = 0.0;
         unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
         match kind {
+            kinds::NAV_MENU => {
+                let rows =
+                    NAV_MENU_ROWS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or(0));
+                return Size::new(
+                    p.width.unwrap_or(220.0),
+                    p.height.unwrap_or(rows as f64 * 34.0 + 8.0),
+                );
+            }
             kinds::LABEL => {
                 let width = match p.width {
                     Some(pw) => w.min(pw),
@@ -322,6 +507,10 @@ impl Toolkit for Qt {
                 frame.size.height.round() as c_int,
             )
         };
+        // Nav host resized (window resize): re-report pane sizes for page relayout.
+        if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            nav_sync_panes(h.0);
+        }
     }
 
     fn set_scroll_content(&mut self, h: &QtHandle, content: Size) {
@@ -398,6 +587,7 @@ impl Platform for Qt {
             );
             self.window = window;
             ready(self, QtHandle(window), options.size);
+            ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_window_show(window);
             ffi::day_qt_app_run(app);
         }

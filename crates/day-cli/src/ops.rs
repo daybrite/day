@@ -151,12 +151,13 @@ pub fn launch(
             }
             status("Launching", target.name);
             let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
+            crate::signals::register_child(child.id());
             let name = target.name;
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
             let h = std::thread::spawn(move || {
-                let t1 = stdout.map(|s| stream_logs(name, s));
-                let t2 = stderr.map(|s| stream_logs(name, s));
+                let t1 = stdout.map(|s| stream_logs(name, LogStream::Out, s));
+                let t2 = stderr.map(|s| stream_logs(name, LogStream::Err, s));
                 let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
                 if let Some(t) = t1 {
                     let _ = t.join();
@@ -173,13 +174,33 @@ pub fn launch(
     }
 }
 
+/// Which standard stream a forwarded line came from — sets its colour and destination.
+#[derive(Clone, Copy)]
+pub enum LogStream {
+    /// App stdout: blue, forwarded to our stdout.
+    Out,
+    /// App stderr: yellow, forwarded to our stderr.
+    Err,
+}
+
+/// Print one already-classified log line with the `[target]` prefix and stream colour.
+/// Public so the mobile log pumps (logcat/simctl) can reuse the exact formatting.
+pub fn emit_log(name: &str, stream: LogStream, line: &str) {
+    match stream {
+        // 34 = blue, 33 = yellow; the whole line is coloured so streams read apart at a glance.
+        LogStream::Out => println!("\x1b[34m[{name}]\x1b[0m {line}"),
+        LogStream::Err => eprintln!("\x1b[33m[{name}]\x1b[0m {line}"),
+    }
+}
+
 pub fn stream_logs(
     name: &'static str,
+    stream: LogStream,
     src: impl std::io::Read + Send + 'static,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(src).lines().map_while(Result::ok) {
-            eprintln!("\x1b[2m[{name}]\x1b[0m {line}");
+            emit_log(name, stream, &line);
         }
     })
 }
