@@ -19,7 +19,11 @@ fn main() {
     let mut build = cc::Build::new();
     build
         .cpp(true)
-        .std("c++17")
+        // C++20 so cppwinrt uses the standard <coroutine> header. Under /std:c++17 newer MSVC
+        // STLs (VS 2022 17.x+ / SDK 26100) make cppwinrt's fallback include of
+        // <experimental/coroutine> a hard error (STL1011).
+        .std("c++20")
+        .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
         .file("src/shim.cpp")
         .include(&cppwinrt)
         .flag("/EHsc") // C++/WinRT uses exceptions
