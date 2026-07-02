@@ -14,7 +14,7 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq};
+pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
 pub use day_spec::WindowOptions;
 
 pub mod prelude {

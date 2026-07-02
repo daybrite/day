@@ -77,6 +77,11 @@ pub enum Event {
     Key(KeyEvent),
     Pointer(PointerEvent),
     WindowResized(Size),
+    /// A native modal answered request `req` (docs/dialogs.md).
+    PresentResult {
+        req: u64,
+        result: present::PresentResult,
+    },
     Custom(&'static str, String),
 }
 
@@ -109,6 +114,8 @@ pub enum Cap {
     /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
+    /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
+    Dialogs,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -348,6 +355,117 @@ pub mod props {
 }
 
 // ---------------------------------------------------------------------------
+// Imperative presentation (docs/dialogs.md)
+// ---------------------------------------------------------------------------
+
+pub mod present {
+    /// A dialog button's semantic role: styling + default/cancel placement on each toolkit.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub enum ButtonRole {
+        #[default]
+        Default,
+        Cancel,
+        Destructive,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct PresentButton {
+        pub label: String,
+        pub role: ButtonRole,
+    }
+
+    /// What a backend should present for a `req`. Kept toolkit-agnostic; the pieces layer
+    /// maps a chosen button index back to a typed payload.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum PresentSpec {
+        /// Alert / confirmation / action sheet: title + optional message + ordered buttons.
+        /// `sheet` = present from the bottom on mobile (desktop falls back to an alert).
+        Dialog {
+            title: String,
+            message: Option<String>,
+            buttons: Vec<PresentButton>,
+            sheet: bool,
+        },
+        /// A dialog with a single text field.
+        Prompt {
+            title: String,
+            message: Option<String>,
+            placeholder: String,
+            initial: String,
+            ok: String,
+            cancel: String,
+        },
+    }
+
+    /// The user's answer to a presentation.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum PresentResult {
+        /// A dialog button at `index` (in spec order) was chosen.
+        Button(i64),
+        /// A prompt was confirmed with `text`.
+        Text(String),
+        /// Dismissed without choosing (tap-outside / Esc / cancel gesture).
+        Dismissed,
+    }
+
+    impl PresentResult {
+        /// Flat wire tag for the C ABI (Qt shim / Android JNI): 0 dismissed, 1 button, 2 text.
+        pub fn decode(tag: i32, index: i64, text: String) -> PresentResult {
+            match tag {
+                1 => PresentResult::Button(index),
+                2 => PresentResult::Text(text),
+                _ => PresentResult::Dismissed,
+            }
+        }
+    }
+
+    impl PresentSpec {
+        /// Backend-facing flattening for the C ABI: `(title, message, button labels, button
+        /// roles as ints, sheet-or-prompt fields)`. Pure-Rust backends read the enum directly.
+        pub fn title(&self) -> &str {
+            match self {
+                PresentSpec::Dialog { title, .. } | PresentSpec::Prompt { title, .. } => title,
+            }
+        }
+        pub fn message(&self) -> Option<&str> {
+            match self {
+                PresentSpec::Dialog { message, .. } | PresentSpec::Prompt { message, .. } => {
+                    message.as_deref()
+                }
+            }
+        }
+        /// Button labels joined with the unit separator (0x1f) — the encoding the nav menu
+        /// and combobox shims already use for string lists.
+        pub fn buttons_joined(&self) -> String {
+            match self {
+                PresentSpec::Dialog { buttons, .. } => buttons
+                    .iter()
+                    .map(|b| b.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\u{1f}"),
+                PresentSpec::Prompt { ok, cancel, .. } => format!("{ok}\u{1f}{cancel}"),
+            }
+        }
+        /// Button roles as ints (0 default, 1 cancel, 2 destructive), joined with commas.
+        pub fn roles_joined(&self) -> String {
+            let roles: Vec<i32> = match self {
+                PresentSpec::Dialog { buttons, .. } => {
+                    buttons.iter().map(|b| b.role as i32).collect()
+                }
+                PresentSpec::Prompt { .. } => {
+                    vec![ButtonRole::Default as i32, ButtonRole::Cancel as i32]
+                }
+            };
+            roles
+                .iter()
+                .map(|r| r.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The Toolkit trait (§8.1)
 // ---------------------------------------------------------------------------
 
@@ -395,6 +513,12 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
+
+    // imperative presentation (docs/dialogs.md): show a native modal for request `req`;
+    // the backend answers by enqueuing `Event::PresentResult { req, .. }`. `dismiss` is
+    // used only when day resolves programmatically (dayscript) while the modal is still up.
+    fn present(&mut self, _req: u64, _spec: &present::PresentSpec) {}
+    fn dismiss(&mut self, _req: u64) {}
 
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}

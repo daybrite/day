@@ -416,6 +416,18 @@ impl Toolkit for MockToolkit {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Ok(vec![0x89, b'P', b'N', b'G'])
     }
+
+    fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+        // No native UI; day-core's PENDING registry holds the spec. Log for op-log asserts;
+        // tests answer via day_core::respond_presentation / pending_presentation.
+        self.state
+            .borrow_mut()
+            .log(format!("present req={req} title={:?}", spec.title()));
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        self.state.borrow_mut().log(format!("dismiss req={req}"));
+    }
 }
 
 impl Platform for MockToolkit {

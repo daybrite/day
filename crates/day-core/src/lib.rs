@@ -5,11 +5,13 @@
 mod build;
 mod layout;
 mod nav;
+mod present;
 mod tree;
 
 pub use build::*;
 pub use layout::*;
 pub use nav::*;
+pub use present::*;
 pub use tree::*;
 
 use day_spec::{Platform, WindowOptions};

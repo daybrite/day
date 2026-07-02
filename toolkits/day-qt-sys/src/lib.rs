@@ -58,6 +58,26 @@ unsafe extern "C" {
         texts_joined: *const c_char,
     );
     pub fn day_qt_image_new(path: *const c_char) -> *mut c_void;
+    pub fn day_qt_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
+    pub fn day_qt_present_dialog(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        buttons_joined: *const c_char,
+        roles_joined: *const c_char,
+        parent: *mut c_void,
+    );
+    pub fn day_qt_present_prompt(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        placeholder: *const c_char,
+        initial: *const c_char,
+        ok: *const c_char,
+        cancel: *const c_char,
+        parent: *mut c_void,
+    );
+    pub fn day_qt_dismiss_present(req: u64);
     pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char);
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);

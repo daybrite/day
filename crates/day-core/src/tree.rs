@@ -350,11 +350,23 @@ pub trait TreeOps {
     fn root_node(&self) -> RNode;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
+    /// Present a native modal for request `req` (docs/dialogs.md).
+    fn present(&mut self, req: u64, spec: &present::PresentSpec);
+    /// Dismiss the modal for `req` (programmatic resolve while it is still up).
+    fn dismiss(&mut self, req: u64);
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
     fn capability(&self, cap: Cap) -> Support {
         self.toolkit.capability(cap)
+    }
+
+    fn present(&mut self, req: u64, spec: &present::PresentSpec) {
+        self.toolkit.present(req, spec);
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        self.toolkit.dismiss(req);
     }
 
     fn create_node(
@@ -654,6 +666,11 @@ pub fn pump_events() {
     loop {
         let item = EVENTS.with(|e| e.borrow_mut().pop_front());
         let Some((id, ev)) = item else { break };
+        // Presentation answers are keyed by request id, not by tree node (docs/dialogs.md).
+        if let Event::PresentResult { req, result } = ev {
+            crate::present::resolve_presentation(req, result);
+            continue;
+        }
         let node = if id == day_spec::WINDOW_NODE {
             with_tree(|t| t.root_node())
         } else {

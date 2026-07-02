@@ -17,6 +17,7 @@ objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 objc2-ui-kit = { version = "0.3", features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch", "UISlider", "UIColor",
+    "UIAlertController",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",
     "UINavigationController", "UINavigationBar", "UINavigationItem",
     "UITableView", "UITableViewCell", "UILabel",

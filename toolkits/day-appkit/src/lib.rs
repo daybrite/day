@@ -27,6 +27,7 @@ use objc2_app_kit::{
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate};
 use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
+use day_spec::present;
 use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
@@ -590,7 +591,7 @@ impl Toolkit for AppKit {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NativeSymbols | Cap::NavSplit => Support::Native,
+            Cap::Snapshot | Cap::NativeSymbols | Cap::NavSplit | Cap::Dialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1175,6 +1176,106 @@ impl Toolkit for AppKit {
         .ok_or("png encode failed")?;
         Ok(data.to_vec())
     }
+
+    fn present(&mut self, req: u64, spec: &present::PresentSpec) {
+        use present::PresentSpec;
+        let mtm = self.mtm;
+        let Some(window) = self.window.clone() else {
+            emit(
+                WINDOW_NODE,
+                Event::PresentResult {
+                    req,
+                    result: present::PresentResult::Dismissed,
+                },
+            );
+            return;
+        };
+        let alert = unsafe { objc2_app_kit::NSAlert::new(mtm) };
+        unsafe { alert.setMessageText(&NSString::from_str(spec.title())) };
+        if let Some(msg) = spec.message() {
+            unsafe { alert.setInformativeText(&NSString::from_str(msg)) };
+        }
+        // The completion handler must outlive this call, so it's a heap (Rc) block.
+        let handler: block2::RcBlock<dyn Fn(isize)> = match spec {
+            PresentSpec::Dialog { buttons, .. } => {
+                if buttons
+                    .iter()
+                    .any(|b| b.role == present::ButtonRole::Destructive)
+                {
+                    unsafe { alert.setAlertStyle(objc2_app_kit::NSAlertStyle::Warning) };
+                }
+                for b in buttons {
+                    unsafe { alert.addButtonWithTitle(&NSString::from_str(&b.label)) };
+                }
+                block2::RcBlock::new(move |resp: isize| {
+                    // NSAlertFirstButtonReturn = 1000; add order == spec order.
+                    let idx = resp - 1000;
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: present::PresentResult::Button(idx as i64),
+                        },
+                    );
+                    PRESENT_ALERTS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                })
+            }
+            PresentSpec::Prompt {
+                placeholder,
+                initial,
+                ok,
+                cancel,
+                ..
+            } => {
+                let tf = unsafe { NSTextField::new(mtm) };
+                unsafe {
+                    tf.setFrame(NSRect::new(
+                        NSPoint::new(0.0, 0.0),
+                        NSSize::new(260.0, 24.0),
+                    ));
+                    tf.setEditable(true);
+                    tf.setBezeled(true);
+                    tf.setStringValue(&NSString::from_str(initial));
+                    tf.setPlaceholderString(Some(&NSString::from_str(placeholder)));
+                    alert.setAccessoryView(Some(&tf));
+                    alert.addButtonWithTitle(&NSString::from_str(ok)); // resp 1000
+                    alert.addButtonWithTitle(&NSString::from_str(cancel)); // resp 1001
+                }
+                block2::RcBlock::new(move |resp: isize| {
+                    let result = if resp == 1000 {
+                        present::PresentResult::Text(unsafe { tf.stringValue() }.to_string())
+                    } else {
+                        present::PresentResult::Dismissed
+                    };
+                    emit(WINDOW_NODE, Event::PresentResult { req, result });
+                    PRESENT_ALERTS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                })
+            }
+        };
+        unsafe {
+            alert.beginSheetModalForWindow_completionHandler(&window, Some(&handler));
+        }
+        PRESENT_ALERTS.with(|m| m.borrow_mut().insert(req, alert));
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        // Close the sheet; its completion handler fires but its (native) result is dropped
+        // because day-core already removed the pending request when it resolved.
+        let alert = PRESENT_ALERTS.with(|m| m.borrow_mut().remove(&req));
+        if let (Some(alert), Some(window)) = (alert, self.window.clone()) {
+            unsafe { window.endSheet(&alert.window()) };
+        }
+    }
+}
+
+thread_local! {
+    /// Live modal sheets keyed by request id (for programmatic dismissal).
+    static PRESENT_ALERTS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSAlert>>> =
+        RefCell::new(HashMap::new());
 }
 
 impl Platform for AppKit {

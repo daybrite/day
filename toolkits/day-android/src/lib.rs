@@ -219,6 +219,26 @@ mod imp {
                     .unwrap_or_default();
                 Event::Custom("deeplink", route)
             }
+            // Presentation answers (docs/dialogs.md): id == request id.
+            8 => Event::PresentResult {
+                req: id as u64,
+                result: day_spec::present::PresentResult::Button(num as i64),
+            },
+            9 => {
+                let text: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                Event::PresentResult {
+                    req: id as u64,
+                    result: day_spec::present::PresentResult::Text(text),
+                }
+            }
+            10 => Event::PresentResult {
+                req: id as u64,
+                result: day_spec::present::PresentResult::Dismissed,
+            },
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -272,8 +292,69 @@ mod imp {
     impl Toolkit for Android {
         type Handle = AHandle;
 
-        fn capability(&self, _cap: Cap) -> Support {
-            Support::Unsupported
+        fn capability(&self, cap: Cap) -> Support {
+            match cap {
+                Cap::Dialogs => Support::Native,
+                _ => Support::Unsupported,
+            }
+        }
+
+        fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+            use day_spec::present::PresentSpec;
+            let reqj = req as i64;
+            match spec {
+                PresentSpec::Dialog { sheet, .. } => with_env(|env| {
+                    let title = jstr(env, spec.title());
+                    let message = jstr(env, spec.message().unwrap_or(""));
+                    let buttons = jstr(env, &spec.buttons_joined());
+                    let roles = jstr(env, &spec.roles_joined());
+                    let _ = env.call_static_method(
+                        BRIDGE,
+                        "present",
+                        "(JZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                        &[
+                            JValue::Long(reqj),
+                            JValue::Bool(*sheet as u8),
+                            JValue::Object(&title),
+                            JValue::Object(&message),
+                            JValue::Object(&buttons),
+                            JValue::Object(&roles),
+                        ],
+                    );
+                }),
+                PresentSpec::Prompt {
+                    placeholder,
+                    initial,
+                    ok,
+                    cancel,
+                    ..
+                } => with_env(|env| {
+                    let title = jstr(env, spec.title());
+                    let message = jstr(env, spec.message().unwrap_or(""));
+                    let ph = jstr(env, placeholder);
+                    let init = jstr(env, initial);
+                    let okj = jstr(env, ok);
+                    let cancelj = jstr(env, cancel);
+                    let _ = env.call_static_method(
+                        BRIDGE,
+                        "presentPrompt",
+                        "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                        &[
+                            JValue::Long(reqj),
+                            JValue::Object(&title),
+                            JValue::Object(&message),
+                            JValue::Object(&ph),
+                            JValue::Object(&init),
+                            JValue::Object(&okj),
+                            JValue::Object(&cancelj),
+                        ],
+                    );
+                }),
+            }
+        }
+
+        fn dismiss(&mut self, req: u64) {
+            call_void("dismissPresent", "(J)V", &[JValue::Long(req as i64)]);
         }
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {

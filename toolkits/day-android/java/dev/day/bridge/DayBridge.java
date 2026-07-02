@@ -240,6 +240,92 @@ public final class DayBridge {
         return list;
     }
 
+    // --- imperative presentation (docs/dialogs.md) ---
+    static final java.util.HashMap<Long, android.app.AlertDialog> presents = new java.util.HashMap<>();
+
+    /** A native alert / confirm / action sheet; onClick reports the spec button index. */
+    public static void present(final long req, boolean sheet, String title, String message,
+            String buttonsJoined, String rolesJoined) {
+        final String[] labels = buttonsJoined.isEmpty() ? new String[0] : buttonsJoined.split("");
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setTitle(title);
+        if (sheet) {
+            // A titled list of choices — the Android idiom for an action sheet.
+            b.setItems(labels, new android.content.DialogInterface.OnClickListener() {
+                @Override public void onClick(android.content.DialogInterface d, int which) {
+                    presents.remove(req);
+                    nativeOnEvent(req, 8, (double) which, null); // 8 = present button
+                }
+            });
+        } else {
+            if (message != null && !message.isEmpty()) b.setMessage(message);
+            String[] roles = rolesJoined.isEmpty() ? new String[0] : rolesJoined.split(",");
+            boolean positiveUsed = false;
+            for (int i = 0; i < labels.length; i++) {
+                final int idx = i;
+                int role = (i < roles.length) ? Integer.parseInt(roles[i]) : 0;
+                android.content.DialogInterface.OnClickListener cb =
+                    new android.content.DialogInterface.OnClickListener() {
+                        @Override public void onClick(android.content.DialogInterface d, int w) {
+                            presents.remove(req);
+                            nativeOnEvent(req, 8, (double) idx, null);
+                        }
+                    };
+                if (role == 1) b.setNegativeButton(labels[i], cb);          // cancel
+                else if (!positiveUsed) { b.setPositiveButton(labels[i], cb); positiveUsed = true; }
+                else b.setNeutralButton(labels[i], cb);
+            }
+        }
+        b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+            @Override public void onCancel(android.content.DialogInterface d) {
+                presents.remove(req);
+                nativeOnEvent(req, 10, 0.0, null); // 10 = dismissed
+            }
+        });
+        android.app.AlertDialog dlg = b.create();
+        presents.put(req, dlg);
+        dlg.show();
+    }
+
+    /** A native text prompt (EditText); OK reports the entered text. */
+    public static void presentPrompt(final long req, String title, String message,
+            String placeholder, String initial, String ok, String cancel) {
+        final android.widget.EditText input = new android.widget.EditText(ctx);
+        input.setHint(placeholder);
+        input.setText(initial);
+        input.setSingleLine(true);
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        b.setTitle(title);
+        if (message != null && !message.isEmpty()) b.setMessage(message);
+        b.setView(input);
+        b.setPositiveButton(ok, new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) {
+                presents.remove(req);
+                nativeOnEvent(req, 9, 0.0, input.getText().toString()); // 9 = present text
+            }
+        });
+        b.setNegativeButton(cancel, new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) {
+                presents.remove(req);
+                nativeOnEvent(req, 10, 0.0, null);
+            }
+        });
+        b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
+            @Override public void onCancel(android.content.DialogInterface d) {
+                presents.remove(req);
+                nativeOnEvent(req, 10, 0.0, null);
+            }
+        });
+        android.app.AlertDialog dlg = b.create();
+        presents.put(req, dlg);
+        dlg.show();
+    }
+
+    public static void dismissPresent(long req) {
+        android.app.AlertDialog dlg = presents.remove(req);
+        if (dlg != null) dlg.dismiss();
+    }
+
     public static int measureWidth(View v) {
         v.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                   View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));

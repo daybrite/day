@@ -452,3 +452,139 @@ fn nav_menu_lists_routes_selects_and_syncs() {
     assert!(nav_back());
     assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, -1.0);
 }
+
+// ---------------------------------------------------------------------------
+// Imperative presentation (docs/dialogs.md)
+// ---------------------------------------------------------------------------
+
+use day_spec::present::PresentResult;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+#[test]
+fn confirm_true_when_confirm_button_chosen() {
+    let out: Rc<RefCell<Option<bool>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("ask")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    let ok = confirm("Quit?").await;
+                    *o2.borrow_mut() = Some(ok);
+                })
+            })
+            .id("ask")
+            .any()
+    });
+    let btn = node_id(&probe, "day.button", 0);
+    probe.emit(btn, Event::Pressed);
+    // A modal is now pending; nothing resolved yet.
+    assert!(out.borrow().is_none());
+    let (req, spec) = day_core::pending_presentation().expect("a modal is pending");
+    assert_eq!(spec.title(), "Quit?");
+    // Answer the confirm button (index 1: [cancel, confirm]).
+    assert!(day_core::respond_presentation(
+        req,
+        PresentResult::Button(1)
+    ));
+    flush_sync();
+    assert_eq!(*out.borrow(), Some(true));
+    assert!(day_core::pending_presentation().is_none());
+}
+
+#[test]
+fn confirm_false_on_dismiss() {
+    let out: Rc<RefCell<Option<bool>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("ask")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    *o2.borrow_mut() = Some(confirm("Q").await);
+                })
+            })
+            .id("ask")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, _) = day_core::pending_presentation().unwrap();
+    assert!(day_core::respond_presentation(
+        req,
+        PresentResult::Dismissed
+    ));
+    flush_sync();
+    assert_eq!(*out.borrow(), Some(false));
+}
+
+#[test]
+fn prompt_returns_text_or_none() {
+    let out: Rc<RefCell<Option<Option<String>>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("ask")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    *o2.borrow_mut() = Some(prompt("Name").await);
+                })
+            })
+            .id("ask")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, _) = day_core::pending_presentation().unwrap();
+    day_core::respond_presentation(req, PresentResult::Text("Ada".into()));
+    flush_sync();
+    assert_eq!(*out.borrow(), Some(Some("Ada".to_string())));
+}
+
+#[test]
+fn alert_returns_typed_payload_and_sequences() {
+    #[derive(PartialEq, Debug, Clone, Copy)]
+    enum Choice {
+        Keep,
+        Delete,
+    }
+    let out: Rc<RefCell<Vec<String>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("go")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    let c = Alert::new("Title")
+                        .button("Keep", Choice::Keep)
+                        .destructive("Delete", Choice::Delete)
+                        .cancel("Cancel")
+                        .present()
+                        .await;
+                    if c == Some(Choice::Delete) {
+                        // a SECOND awaited modal in the same flow
+                        let name = prompt("Confirm name").await;
+                        o2.borrow_mut().push(format!("deleted {name:?}"));
+                    } else {
+                        o2.borrow_mut().push(format!("chose {c:?}"));
+                    }
+                })
+            })
+            .id("go")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    // First modal: [Keep(0), Delete(1), Cancel(2)] — pick Delete.
+    let (req, _) = day_core::pending_presentation().unwrap();
+    day_core::respond_presentation(req, PresentResult::Button(1));
+    flush_sync();
+    // The flow chained into a second modal (the prompt).
+    let (req2, spec2) = day_core::pending_presentation().expect("prompt pending");
+    assert_eq!(spec2.title(), "Confirm name");
+    day_core::respond_presentation(req2, PresentResult::Text("x".into()));
+    flush_sync();
+    assert_eq!(out.borrow().as_slice(), ["deleted Some(\"x\")"]);
+}

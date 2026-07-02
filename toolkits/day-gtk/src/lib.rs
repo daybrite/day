@@ -265,7 +265,7 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit => Support::Native,
+            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -734,6 +734,150 @@ impl Toolkit for Gtk {
         let texture = renderer.render_texture(&node, None);
         Ok(texture.save_to_png_bytes().to_vec())
     }
+
+    fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+        use day_spec::present::{PresentResult, PresentSpec};
+        let parent = self
+            .window_fixed
+            .as_ref()
+            .and_then(|f| f.root())
+            .and_downcast::<gtk4::Window>();
+        match spec {
+            PresentSpec::Dialog {
+                title,
+                message,
+                buttons,
+                ..
+            } => {
+                let dialog = gtk4::AlertDialog::builder().modal(true).build();
+                dialog.set_message(title);
+                if let Some(m) = message {
+                    dialog.set_detail(m);
+                }
+                let labels: Vec<&str> = buttons.iter().map(|b| b.label.as_str()).collect();
+                dialog.set_buttons(&labels);
+                if let Some(i) = buttons
+                    .iter()
+                    .position(|b| b.role == day_spec::present::ButtonRole::Cancel)
+                {
+                    dialog.set_cancel_button(i as i32);
+                }
+                let cancellable = gtk4::gio::Cancellable::new();
+                NAV_DIALOGS.with(|m| {
+                    m.borrow_mut()
+                        .insert(req, DismissHandle::Alert(cancellable.clone()))
+                });
+                dialog.choose(
+                    parent.as_ref(),
+                    Some(&cancellable),
+                    move |res: Result<i32, gtk4::glib::Error>| {
+                        let result = match res {
+                            Ok(i) => PresentResult::Button(i as i64),
+                            Err(_) => PresentResult::Dismissed,
+                        };
+                        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+                        NAV_DIALOGS.with(|m| {
+                            m.borrow_mut().remove(&req);
+                        });
+                    },
+                );
+            }
+            PresentSpec::Prompt {
+                title,
+                message,
+                placeholder,
+                initial,
+                ok,
+                cancel,
+            } => {
+                // GTK has no native text prompt — a small modal window with an entry.
+                let win = gtk4::Window::builder()
+                    .modal(true)
+                    .title(title)
+                    .default_width(320)
+                    .build();
+                if let Some(p) = &parent {
+                    win.set_transient_for(Some(p));
+                }
+                let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
+                vbox.set_margin_top(12);
+                vbox.set_margin_bottom(12);
+                vbox.set_margin_start(12);
+                vbox.set_margin_end(12);
+                if let Some(m) = message {
+                    vbox.append(&gtk4::Label::new(Some(m)));
+                }
+                let entry = gtk4::Entry::new();
+                entry.set_placeholder_text(Some(placeholder));
+                entry.set_text(initial);
+                vbox.append(&entry);
+                let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                hbox.set_halign(gtk4::Align::End);
+                let cancel_btn = gtk4::Button::with_label(cancel);
+                let ok_btn = gtk4::Button::with_label(ok);
+                hbox.append(&cancel_btn);
+                hbox.append(&ok_btn);
+                vbox.append(&hbox);
+                win.set_child(Some(&vbox));
+
+                let answered = Rc::new(std::cell::Cell::new(false));
+                let finish = {
+                    let (win, answered) = (win.clone(), answered.clone());
+                    move |result: PresentResult| {
+                        if answered.replace(true) {
+                            return;
+                        }
+                        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+                        NAV_DIALOGS.with(|m| {
+                            m.borrow_mut().remove(&req);
+                        });
+                        win.close();
+                    }
+                };
+                {
+                    let (finish, entry) = (finish.clone(), entry.clone());
+                    ok_btn.connect_clicked(move |_| {
+                        finish(PresentResult::Text(entry.text().to_string()))
+                    });
+                }
+                {
+                    let finish = finish.clone();
+                    cancel_btn.connect_clicked(move |_| finish(PresentResult::Dismissed));
+                }
+                {
+                    let finish = finish.clone();
+                    win.connect_close_request(move |_| {
+                        finish(PresentResult::Dismissed);
+                        gtk4::glib::Propagation::Proceed
+                    });
+                }
+                NAV_DIALOGS.with(|m| {
+                    m.borrow_mut()
+                        .insert(req, DismissHandle::Prompt(win.clone()))
+                });
+                win.present();
+            }
+        }
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        if let Some(handle) = NAV_DIALOGS.with(|m| m.borrow_mut().remove(&req)) {
+            match handle {
+                DismissHandle::Alert(c) => c.cancel(),
+                DismissHandle::Prompt(w) => w.close(),
+            }
+        }
+    }
+}
+
+enum DismissHandle {
+    Alert(gtk4::gio::Cancellable),
+    Prompt(gtk4::Window),
+}
+
+thread_local! {
+    /// Live modals keyed by request id (for programmatic dismissal).
+    static NAV_DIALOGS: RefCell<HashMap<u64, DismissHandle>> = RefCell::new(HashMap::new());
 }
 
 impl Platform for Gtk {

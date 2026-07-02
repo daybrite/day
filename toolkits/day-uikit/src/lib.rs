@@ -42,7 +42,8 @@ mod imp {
     use day_spec::props::*;
     use day_spec::{
         A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-        Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+        Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE, WindowOptions,
+        kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -534,8 +535,11 @@ mod imp {
     impl Toolkit for Uikit {
         type Handle = Handle;
 
-        fn capability(&self, _cap: Cap) -> Support {
-            Support::Unsupported
+        fn capability(&self, cap: Cap) -> Support {
+            match cap {
+                Cap::Dialogs => Support::Native,
+                _ => Support::Unsupported,
+            }
         }
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
@@ -1009,6 +1013,169 @@ mod imp {
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             Err("use `simctl io booted screenshot` (device-level capture) on ios-uikit".into())
         }
+
+        fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+            use day_spec::present::{ButtonRole, PresentResult, PresentSpec};
+            use objc2_ui_kit::{
+                UIAlertAction, UIAlertActionStyle, UIAlertController, UIAlertControllerStyle,
+            };
+            let m = mtm();
+            let Some(top) = topmost_vc() else {
+                emit(
+                    WINDOW_NODE,
+                    Event::PresentResult {
+                        req,
+                        result: PresentResult::Dismissed,
+                    },
+                );
+                return;
+            };
+            let (title, message) = (
+                NSString::from_str(spec.title()),
+                spec.message().map(NSString::from_str),
+            );
+            match spec {
+                PresentSpec::Dialog { buttons, sheet, .. } => {
+                    let style = if *sheet {
+                        UIAlertControllerStyle::ActionSheet
+                    } else {
+                        UIAlertControllerStyle::Alert
+                    };
+                    let ac = unsafe {
+                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                            Some(&title),
+                            message.as_deref(),
+                            style,
+                            m,
+                        )
+                    };
+                    for (i, b) in buttons.iter().enumerate() {
+                        let astyle = match b.role {
+                            ButtonRole::Cancel => UIAlertActionStyle::Cancel,
+                            ButtonRole::Destructive => UIAlertActionStyle::Destructive,
+                            ButtonRole::Default => UIAlertActionStyle::Default,
+                        };
+                        let idx = i as i64;
+                        let handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                            emit(
+                                WINDOW_NODE,
+                                Event::PresentResult {
+                                    req,
+                                    result: PresentResult::Button(idx),
+                                },
+                            );
+                            PRESENT_VCS.with(|p| {
+                                p.borrow_mut().remove(&req);
+                            });
+                        });
+                        let action = unsafe {
+                            UIAlertAction::actionWithTitle_style_handler(
+                                Some(&NSString::from_str(&b.label)),
+                                astyle,
+                                Some(&handler),
+                                m,
+                            )
+                        };
+                        unsafe { ac.addAction(&action) };
+                    }
+                    PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
+                    unsafe { top.presentViewController_animated_completion(&ac, true, None) };
+                }
+                PresentSpec::Prompt {
+                    placeholder,
+                    initial,
+                    ok,
+                    cancel,
+                    ..
+                } => {
+                    let ac = unsafe {
+                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                            Some(&title),
+                            message.as_deref(),
+                            UIAlertControllerStyle::Alert,
+                            m,
+                        )
+                    };
+                    let (ph, init) = (NSString::from_str(placeholder), NSString::from_str(initial));
+                    let cfg =
+                        block2::RcBlock::new(move |tf: NonNull<objc2_ui_kit::UITextField>| {
+                            let tf = unsafe { tf.as_ref() };
+                            unsafe {
+                                tf.setPlaceholder(Some(&ph));
+                                tf.setText(Some(&init));
+                            }
+                        });
+                    unsafe { ac.addTextFieldWithConfigurationHandler(Some(&cfg)) };
+                    let ac_ok = ac.clone();
+                    let ok_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                        let text = unsafe { ac_ok.textFields() }
+                            .and_then(|fs| fs.firstObject())
+                            .and_then(|f| unsafe { f.text() })
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        emit(
+                            WINDOW_NODE,
+                            Event::PresentResult {
+                                req,
+                                result: PresentResult::Text(text),
+                            },
+                        );
+                        PRESENT_VCS.with(|p| {
+                            p.borrow_mut().remove(&req);
+                        });
+                    });
+                    let cancel_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
+                        emit(
+                            WINDOW_NODE,
+                            Event::PresentResult {
+                                req,
+                                result: PresentResult::Dismissed,
+                            },
+                        );
+                        PRESENT_VCS.with(|p| {
+                            p.borrow_mut().remove(&req);
+                        });
+                    });
+                    unsafe {
+                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                            Some(&NSString::from_str(ok)),
+                            UIAlertActionStyle::Default,
+                            Some(&ok_handler),
+                            m,
+                        ));
+                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                            Some(&NSString::from_str(cancel)),
+                            UIAlertActionStyle::Cancel,
+                            Some(&cancel_handler),
+                            m,
+                        ));
+                    }
+                    PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
+                    unsafe { top.presentViewController_animated_completion(&ac, true, None) };
+                }
+            }
+        }
+
+        fn dismiss(&mut self, req: u64) {
+            if let Some(ac) = PRESENT_VCS.with(|p| p.borrow_mut().remove(&req)) {
+                unsafe { ac.dismissViewControllerAnimated_completion(true, None) };
+            }
+        }
+    }
+
+    thread_local! {
+        /// Live alert controllers keyed by request id (for programmatic dismissal).
+        static PRESENT_VCS: RefCell<HashMap<u64, Retained<objc2_ui_kit::UIAlertController>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// The frontmost view controller (walk past any already-presented modal).
+    fn topmost_vc() -> Option<Retained<UIViewController>> {
+        let mut vc = WINDOW.with(|w| w.borrow().clone())?.rootViewController()?;
+        while let Some(p) = vc.presentedViewController() {
+            vc = p;
+        }
+        Some(vc)
     }
 
     // -----------------------------------------------------------------------

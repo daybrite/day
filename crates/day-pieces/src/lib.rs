@@ -856,9 +856,10 @@ impl A11yBuilder {
 pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
-        A11yBuilder, Decorate, Draw, HAlign, IntoText, ItemSlot, Nav, SignalRw, VAlign, button,
-        canvas, column, divider, each, image, label, nav, nav_back, nav_link, nav_menu, navigate,
-        row, scroll, slider, spacer, text_field, toggle, when,
+        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoText, ItemSlot, Nav, Prompt,
+        SignalRw, VAlign, alert, button, canvas, column, confirm, divider, each, image, label, nav,
+        nav_back, nav_link, nav_menu, navigate, prompt, row, scroll, slider, spacer, text_field,
+        toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Color, Insets, Point, Rect, Size};
@@ -1345,5 +1346,254 @@ impl Piece for Nav {
         });
 
         host
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Imperative presentation (docs/dialogs.md)
+// ---------------------------------------------------------------------------
+
+use std::future::{Future, IntoFuture};
+use std::pin::Pin;
+
+use day_spec::present::{ButtonRole, PresentButton, PresentResult, PresentSpec};
+
+/// Boxed future the awaitable presenters resolve to — one alloc per dialog, negligible.
+type Presenting<T> = Pin<Box<dyn Future<Output = T>>>;
+
+/// A dialog / confirmation / action sheet. Buttons carry a typed payload `T`; `.present()`
+/// awaits and returns the chosen button's payload, or `None` on cancel/dismiss.
+///
+/// ```ignore
+/// let choice = Alert::new(tr("delete-title"))
+///     .message(tr("delete-body"))
+///     .destructive(tr("delete"), Choice::Delete)
+///     .cancel(tr("cancel"))
+///     .present().await;   // Option<Choice>
+/// ```
+pub struct Alert<T> {
+    title: String,
+    message: Option<String>,
+    sheet: bool,
+    /// (label, role, payload) in presentation order; cancel buttons carry `None`.
+    buttons: Vec<(String, ButtonRole, Option<T>)>,
+}
+
+pub fn alert<M>(title: impl IntoText<M>) -> Alert<()> {
+    Alert {
+        title: title.into_text().initial(),
+        message: None,
+        sheet: false,
+        buttons: Vec::new(),
+    }
+}
+
+impl<T> Alert<T> {
+    pub fn new<M>(title: impl IntoText<M>) -> Alert<T> {
+        Alert {
+            title: title.into_text().initial(),
+            message: None,
+            sheet: false,
+            buttons: Vec::new(),
+        }
+    }
+    pub fn message<M>(mut self, m: impl IntoText<M>) -> Self {
+        self.message = Some(m.into_text().initial());
+        self
+    }
+    /// Present as a bottom action sheet on mobile (desktop falls back to an alert).
+    pub fn sheet(mut self) -> Self {
+        self.sheet = true;
+        self
+    }
+    /// A normal choice carrying `value`.
+    pub fn button<M>(mut self, label: impl IntoText<M>, value: T) -> Self {
+        self.buttons.push((
+            label.into_text().initial(),
+            ButtonRole::Default,
+            Some(value),
+        ));
+        self
+    }
+    /// A destructive choice (red on Apple) carrying `value`.
+    pub fn destructive<M>(mut self, label: impl IntoText<M>, value: T) -> Self {
+        self.buttons.push((
+            label.into_text().initial(),
+            ButtonRole::Destructive,
+            Some(value),
+        ));
+        self
+    }
+    /// The cancel affordance; choosing it (or dismissing) resolves to `None`.
+    pub fn cancel<M>(mut self, label: impl IntoText<M>) -> Self {
+        self.buttons
+            .push((label.into_text().initial(), ButtonRole::Cancel, None));
+        self
+    }
+
+    /// Present natively and await the chosen payload (`None` = cancel / dismissed).
+    pub async fn present(self) -> Option<T> {
+        let spec = PresentSpec::Dialog {
+            title: self.title,
+            message: self.message,
+            buttons: self
+                .buttons
+                .iter()
+                .map(|(label, role, _)| PresentButton {
+                    label: label.clone(),
+                    role: *role,
+                })
+                .collect(),
+            sheet: self.sheet,
+        };
+        let mut payloads: Vec<Option<T>> = self.buttons.into_iter().map(|(_, _, v)| v).collect();
+        match day_core::present(spec).await {
+            PresentResult::Button(i) => {
+                let i = i as usize;
+                if i < payloads.len() {
+                    payloads[i].take()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl<T: 'static> IntoFuture for Alert<T> {
+    type Output = Option<T>;
+    type IntoFuture = Presenting<Option<T>>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.present())
+    }
+}
+
+/// A yes/no confirmation. Resolves to `true` only if the confirm button is chosen.
+pub struct Confirm {
+    title: String,
+    message: Option<String>,
+    confirm: String,
+    cancel: String,
+    destructive: bool,
+}
+
+pub fn confirm<M>(title: impl IntoText<M>) -> Confirm {
+    Confirm {
+        title: title.into_text().initial(),
+        message: None,
+        confirm: "OK".into(),
+        cancel: "Cancel".into(),
+        destructive: false,
+    }
+}
+
+impl Confirm {
+    pub fn message<M>(mut self, m: impl IntoText<M>) -> Self {
+        self.message = Some(m.into_text().initial());
+        self
+    }
+    pub fn confirm_label<M>(mut self, label: impl IntoText<M>) -> Self {
+        self.confirm = label.into_text().initial();
+        self
+    }
+    pub fn cancel_label<M>(mut self, label: impl IntoText<M>) -> Self {
+        self.cancel = label.into_text().initial();
+        self
+    }
+    /// Style the confirm button as destructive.
+    pub fn destructive(mut self) -> Self {
+        self.destructive = true;
+        self
+    }
+    pub async fn present(self) -> bool {
+        let confirm_role = if self.destructive {
+            ButtonRole::Destructive
+        } else {
+            ButtonRole::Default
+        };
+        let spec = PresentSpec::Dialog {
+            title: self.title,
+            message: self.message,
+            buttons: vec![
+                PresentButton {
+                    label: self.cancel,
+                    role: ButtonRole::Cancel,
+                },
+                PresentButton {
+                    label: self.confirm,
+                    role: confirm_role,
+                },
+            ],
+            sheet: false,
+        };
+        // index 1 = the confirm button.
+        matches!(day_core::present(spec).await, PresentResult::Button(1))
+    }
+}
+
+impl IntoFuture for Confirm {
+    type Output = bool;
+    type IntoFuture = Presenting<bool>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.present())
+    }
+}
+
+/// A single-line text prompt. Resolves to `Some(text)` on OK, `None` on cancel/dismiss.
+pub struct Prompt {
+    title: String,
+    message: Option<String>,
+    placeholder: String,
+    initial: String,
+    ok: String,
+    cancel: String,
+}
+
+pub fn prompt<M>(title: impl IntoText<M>) -> Prompt {
+    Prompt {
+        title: title.into_text().initial(),
+        message: None,
+        placeholder: String::new(),
+        initial: String::new(),
+        ok: "OK".into(),
+        cancel: "Cancel".into(),
+    }
+}
+
+impl Prompt {
+    pub fn message<M>(mut self, m: impl IntoText<M>) -> Self {
+        self.message = Some(m.into_text().initial());
+        self
+    }
+    pub fn placeholder<M>(mut self, p: impl IntoText<M>) -> Self {
+        self.placeholder = p.into_text().initial();
+        self
+    }
+    pub fn initial<M>(mut self, v: impl IntoText<M>) -> Self {
+        self.initial = v.into_text().initial();
+        self
+    }
+    pub async fn present(self) -> Option<String> {
+        let spec = PresentSpec::Prompt {
+            title: self.title,
+            message: self.message,
+            placeholder: self.placeholder,
+            initial: self.initial,
+            ok: self.ok,
+            cancel: self.cancel,
+        };
+        match day_core::present(spec).await {
+            PresentResult::Text(t) => Some(t),
+            _ => None,
+        }
+    }
+}
+
+impl IntoFuture for Prompt {
+    type Output = Option<String>;
+    type IntoFuture = Presenting<Option<String>>;
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.present())
     }
 }

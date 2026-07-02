@@ -86,6 +86,20 @@ pub enum Step {
     AssertRoute {
         route: String,
     },
+    /// Assert a modal is presented, optionally checking its title (docs/dialogs.md).
+    AssertPresented {
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Answer the open modal: a button `index`, a prompt `text`, or `dismiss`.
+    Respond {
+        #[serde(default)]
+        button: Option<i64>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        dismiss: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -231,6 +245,7 @@ fn norm(s: &str) -> String {
 
 fn exec(step: Step) -> Reply {
     use day_spec::Event;
+    use day_spec::present::PresentResult;
     let result: Result<Reply, Reply> = (|| {
         match step {
             Step::WaitFor { id } => {
@@ -372,6 +387,40 @@ fn exec(step: Step) -> Reply {
                         true,
                     ))
                 }
+            }
+            Step::AssertPresented { title } => match day_core::pending_presentation() {
+                Some((_, spec)) => {
+                    let actual = norm(spec.title());
+                    match title {
+                        Some(want) if norm(&want) != actual => Err(Reply::fail(
+                            format!("modal title {actual:?} != expected {want:?}"),
+                            true,
+                        )),
+                        _ => Ok(Reply::ok()),
+                    }
+                }
+                None => Err(Reply::fail("no modal presented", true)),
+            },
+            Step::Respond {
+                button,
+                text,
+                dismiss,
+            } => {
+                let Some((req, _)) = day_core::pending_presentation() else {
+                    return Err(Reply::fail("no modal to respond to", true));
+                };
+                let result = if dismiss {
+                    PresentResult::Dismissed
+                } else if let Some(t) = text {
+                    PresentResult::Text(t)
+                } else if let Some(i) = button {
+                    PresentResult::Button(i)
+                } else {
+                    PresentResult::Dismissed
+                };
+                day_core::respond_presentation(req, result);
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
             }
         }
     })();

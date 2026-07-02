@@ -10,7 +10,13 @@
 #include <QFrame>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QInputDialog>
+#include <QPushButton>
 #include <QMetaObject>
+#include <cstdint>
+#include <map>
+#include <vector>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
@@ -261,6 +267,82 @@ void day_qt_post(void (*cb)(void *), void *data) {
 int day_qt_snapshot_png(void *widget, const char *path) {
     QPixmap pm = static_cast<QWidget *>(widget)->grab();
     return pm.save(QString::fromUtf8(path), "PNG") ? 0 : 1;
+}
+
+// --- imperative presentation (docs/dialogs.md) ---
+struct DayPresent { QDialog *dialog; std::vector<QAbstractButton *> buttons; };
+static std::map<uint64_t, DayPresent> g_presents;
+static void (*g_present_cb)(uint64_t, int, long long, const char *) = nullptr;
+
+void day_qt_set_present_cb(void (*cb)(uint64_t, int, long long, const char *)) {
+    g_present_cb = cb;
+}
+
+void day_qt_present_dialog(uint64_t req, const char *title, const char *message,
+                           const char *buttons_joined, const char *roles_joined, void *parent) {
+    auto *box = new QMessageBox(static_cast<QWidget *>(parent));
+    box->setWindowTitle(QString::fromUtf8(title));
+    box->setText(QString::fromUtf8(title));
+    if (message && *message) box->setInformativeText(QString::fromUtf8(message));
+    QStringList labels =
+        QString::fromUtf8(buttons_joined).split(QChar(0x1f), Qt::SkipEmptyParts);
+    QStringList roles = QString::fromUtf8(roles_joined).split(QChar(','), Qt::SkipEmptyParts);
+    std::vector<QAbstractButton *> btns;
+    for (int i = 0; i < labels.size(); i++) {
+        int role = (i < roles.size()) ? roles[i].toInt() : 0;
+        QMessageBox::ButtonRole r = QMessageBox::AcceptRole;
+        if (role == 1) r = QMessageBox::RejectRole;
+        else if (role == 2) r = QMessageBox::DestructiveRole;
+        btns.push_back(box->addButton(labels[i], r));
+    }
+    g_presents[req] = {box, btns};
+    QObject::connect(box, &QMessageBox::finished, [req, box](int) {
+        auto it = g_presents.find(req);
+        if (it == g_presents.end()) return;
+        QAbstractButton *clicked = box->clickedButton();
+        int idx = -1;
+        for (size_t i = 0; i < it->second.buttons.size(); i++)
+            if (it->second.buttons[i] == clicked) idx = (int)i;
+        g_presents.erase(it);
+        if (g_present_cb) {
+            if (idx >= 0) g_present_cb(req, 1, idx, "");
+            else g_present_cb(req, 0, 0, "");
+        }
+        box->deleteLater();
+    });
+    box->open();
+}
+
+void day_qt_present_prompt(uint64_t req, const char *title, const char *message,
+                           const char *placeholder, const char *initial, const char *ok,
+                           const char *cancel, void *parent) {
+    auto *dlg = new QInputDialog(static_cast<QWidget *>(parent));
+    dlg->setWindowTitle(QString::fromUtf8(title));
+    dlg->setLabelText(QString::fromUtf8((message && *message) ? message : title));
+    dlg->setTextValue(QString::fromUtf8(initial));
+    dlg->setOkButtonText(QString::fromUtf8(ok));
+    dlg->setCancelButtonText(QString::fromUtf8(cancel));
+    dlg->setInputMode(QInputDialog::TextInput);
+    (void)placeholder; // QInputDialog does not expose the line edit's placeholder portably
+    g_presents[req] = {dlg, {}};
+    QObject::connect(dlg, &QInputDialog::finished, [req, dlg](int result) {
+        g_presents.erase(req);
+        if (g_present_cb) {
+            if (result == QDialog::Accepted) {
+                QByteArray utf8 = dlg->textValue().toUtf8();
+                g_present_cb(req, 2, 0, utf8.constData());
+            } else {
+                g_present_cb(req, 0, 0, "");
+            }
+        }
+        dlg->deleteLater();
+    });
+    dlg->open();
+}
+
+void day_qt_dismiss_present(uint64_t req) {
+    auto it = g_presents.find(req);
+    if (it != g_presents.end()) it->second.dialog->reject();
 }
 
 } // extern "C"

@@ -26,6 +26,26 @@ flow:
   - assert_route: { route: gauge }
   - assert_visible: { id: gauge }
   - screenshot: gauge
+  # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
+  - navigate: { route: modals }
+  - assert_route: { route: modals }
+  - screenshot: modals
+  - tap: { id: btn-confirm }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "confirm-yes" }
+  - tap: { id: btn-delete }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "delete-yes" }
+  - tap: { id: btn-prompt }
+  - assert_presented: {}
+  - respond: { text: "Ada" }
+  - assert_text: { id: modal-result, text: "prompt-Ada" }
+  - tap: { id: btn-sheet }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "sheet-1" }
   - navigate: { route: about }
   - assert_route: { route: about }
   - assert_visible: { id: about-text }

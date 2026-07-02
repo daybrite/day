@@ -165,6 +165,25 @@ extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
     nav_sync_panes(host);
 }
 
+extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
+    let text = if text.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(text) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let result = day_spec::present::PresentResult::decode(tag, index, text);
+    emit_window(Event::PresentResult { req, result });
+}
+
+fn emit_window(ev: Event) {
+    let sink = SINK.with(|s| s.borrow().clone());
+    if let Some(sink) = sink {
+        sink(day_spec::WINDOW_NODE, ev);
+    }
+}
+
 extern "C" fn window_resized(w: c_int, h: c_int) {
     emit(
         day_spec::WINDOW_NODE,
@@ -190,7 +209,7 @@ impl Toolkit for Qt {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit => Support::Native,
+            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -523,6 +542,44 @@ impl Toolkit for Qt {
         };
     }
 
+    fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+        use day_spec::present::PresentSpec;
+        match spec {
+            PresentSpec::Dialog { .. } => unsafe {
+                ffi::day_qt_present_dialog(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(spec.message().unwrap_or("")).as_ptr(),
+                    cstr(&spec.buttons_joined()).as_ptr(),
+                    cstr(&spec.roles_joined()).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::Prompt {
+                placeholder,
+                initial,
+                ok,
+                cancel,
+                ..
+            } => unsafe {
+                ffi::day_qt_present_prompt(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(spec.message().unwrap_or("")).as_ptr(),
+                    cstr(placeholder).as_ptr(),
+                    cstr(initial).as_ptr(),
+                    cstr(ok).as_ptr(),
+                    cstr(cancel).as_ptr(),
+                    self.window,
+                )
+            },
+        }
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        unsafe { ffi::day_qt_dismiss_present(req) };
+    }
+
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
     }
@@ -586,6 +643,7 @@ impl Platform for Qt {
                 options.size.height as c_int,
             );
             self.window = window;
+            ffi::day_qt_set_present_cb(present_cb);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_window_show(window);

@@ -20,7 +20,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
     "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSAccessibilityProtocols", "NSAccessibilityConstants",
     "NSGraphicsContext", "NSAppearance", "NSSplitView", "NSLayoutConstraint",
-    "NSOutlineView", "NSTableView", "NSTableColumn", "NSTableCellView", "NSTableHeaderView",
+    "NSAlert", "NSOutlineView", "NSTableView", "NSTableColumn", "NSTableCellView", "NSTableHeaderView",
     "NSVisualEffectView", "NSUserInterfaceItemIdentification",
     "NSBezierPath", "NSImage", "NSImageView", "NSStringDrawing", "NSAttributedString",
 ] }
