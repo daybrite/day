@@ -74,6 +74,8 @@ jobs:
   # ---------------------------------------------------------------------------
   linux:
     runs-on: ubuntu-24.04
+    # Only run the (expensive) build/e2e jobs once the fast checks are green.
+    needs: [fmt, clippy, msrv, deny]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -131,6 +133,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.1"
+          add-job-summary: "never"
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
@@ -157,6 +160,7 @@ jobs:
   # ---------------------------------------------------------------------------
   macos:
     runs-on: macos-15
+    needs: [fmt, clippy, msrv, deny]
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
@@ -248,6 +252,7 @@ jobs:
   # ---------------------------------------------------------------------------
   linux-android-e2e:
     runs-on: ubuntu-24.04
+    needs: [fmt, clippy, msrv, deny]
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -260,6 +265,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.1"
+          add-job-summary: "never"
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
@@ -307,6 +313,7 @@ jobs:
   # ---------------------------------------------------------------------------
   windows:
     runs-on: windows-latest
+    needs: [fmt, clippy, msrv, deny]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -357,12 +364,14 @@ jobs:
         run: cargo build --locked
 
   # ---------------------------------------------------------------------------
-  # deny: dependency advisories + duplicate-version bans (§20.5). Advisory
-  # drift shouldn't block unrelated PRs, so this job is informational.
+  # deny: dependency advisories + duplicate-version bans (§20.5). A required gate
+  # for the build jobs, so it blocks (no continue-on-error). Note: a newly
+  # published RUSTSEC advisory against an existing dependency can fail this even
+  # on an unrelated PR — downgrade advisories to warnings via a deny.toml if that
+  # becomes disruptive.
   # ---------------------------------------------------------------------------
   deny:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2

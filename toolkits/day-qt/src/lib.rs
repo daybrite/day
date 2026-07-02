@@ -466,10 +466,10 @@ impl Toolkit for Qt {
             kinds::NAV_MENU => {
                 let rows =
                     NAV_MENU_ROWS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or(0));
-                return Size::new(
+                Size::new(
                     p.width.unwrap_or(220.0),
                     p.height.unwrap_or(rows as f64 * 34.0 + 8.0),
-                );
+                )
             }
             kinds::LABEL => {
                 let width = match p.width {
