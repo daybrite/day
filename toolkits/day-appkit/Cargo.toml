@@ -1,0 +1,23 @@
+[package]
+name = "day-appkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-spec = { workspace = true }
+linkme = { workspace = true }
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-foundation = { version = "0.3", features = [
+    "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton",
+    "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
+    "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
+    "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSAccessibilityProtocols", "NSAccessibilityConstants",
+    "NSGraphicsContext", "NSAppearance",
+    "NSBezierPath", "NSImage", "NSImageView", "NSStringDrawing", "NSAttributedString",
+] }

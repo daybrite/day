@@ -1,0 +1,357 @@
+//! day-mock — the headless toolkit (DESIGN.md §3.2, §21.2 M0–M1).
+//!
+//! Records every toolkit call into a compact op log (golden-diffable), performs deterministic
+//! measurement (8pt/char × 16pt line labels, fixed control sizes), and lets tests inject
+//! native events through the real sink. The op log is the contract for the fine-grained
+//! guarantees: "exactly one op per state change" and "bounded measure calls" are assertions
+//! over this log.
+
+use std::any::Any;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use day_spec::props::*;
+use day_spec::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct MockHandle(pub u64);
+
+#[derive(Default, Debug, Clone)]
+pub struct MockWidget {
+    pub kind: &'static str,
+    pub node: u64,
+    pub text: String,
+    pub placeholder: String,
+    pub value: f64,
+    pub flag: bool,
+    pub enabled: bool,
+    pub children: Vec<u64>,
+    pub frame: Rect,
+    pub a11y: A11yProps,
+    pub scroll_content: Size,
+    pub ops: Vec<DrawOp>,
+}
+
+#[derive(Default)]
+pub struct MockState {
+    next: u64,
+    pub widgets: HashMap<u64, MockWidget>,
+    pub log: Vec<String>,
+    pub sink: Option<EventSink>,
+    /// (kind, proposal) measure-call counter for the M1 bounded-measure tests.
+    pub measure_calls: usize,
+}
+
+impl MockState {
+    fn log(&mut self, s: String) {
+        self.log.push(s);
+    }
+}
+
+/// The mock backend. Cloneable observer half: construct with [`MockToolkit::new`] and keep the
+/// returned [`MockProbe`] to inspect state after day-core takes ownership of the toolkit.
+pub struct MockToolkit {
+    pub state: Rc<RefCell<MockState>>,
+}
+
+#[derive(Clone)]
+pub struct MockProbe {
+    pub state: Rc<RefCell<MockState>>,
+}
+
+impl MockToolkit {
+    pub fn new() -> (Self, MockProbe) {
+        let state = Rc::new(RefCell::new(MockState::default()));
+        (MockToolkit { state: state.clone() }, MockProbe { state })
+    }
+}
+
+impl MockProbe {
+    pub fn log(&self) -> Vec<String> {
+        self.state.borrow().log.clone()
+    }
+    pub fn clear_log(&self) {
+        let mut s = self.state.borrow_mut();
+        s.log.clear();
+        s.measure_calls = 0;
+    }
+    pub fn measure_calls(&self) -> usize {
+        self.state.borrow().measure_calls
+    }
+    /// Ops excluding measures (mutation ops only).
+    pub fn mutations(&self) -> Vec<String> {
+        self.state.borrow().log.iter().filter(|l| !l.starts_with("measure")).cloned().collect()
+    }
+    pub fn widget(&self, h: MockHandle) -> MockWidget {
+        self.state.borrow().widgets.get(&h.0).cloned().unwrap_or_default()
+    }
+    pub fn find_by_kind(&self, kind: &str) -> Vec<(MockHandle, MockWidget)> {
+        let mut v: Vec<_> = self
+            .state
+            .borrow()
+            .widgets
+            .iter()
+            .filter(|(_, w)| w.kind == kind)
+            .map(|(k, w)| (MockHandle(*k), w.clone()))
+            .collect();
+        v.sort_by_key(|(h, _)| h.0);
+        v
+    }
+    /// Inject a native event through the real sink (as the toolkit trampoline would).
+    pub fn emit(&self, node: NodeId, event: Event) {
+        let sink = self.state.borrow_mut().sink.take();
+        if let Some(sink) = sink {
+            sink(node, event);
+            self.state.borrow_mut().sink.get_or_insert(sink);
+        } else {
+            panic!("day-mock: no event sink installed");
+        }
+    }
+}
+
+fn fmt_size(s: Size) -> String {
+    format!("{}x{}", s.width, s.height)
+}
+fn fmt_rect(r: Rect) -> String {
+    format!("({},{} {}x{})", r.origin.x, r.origin.y, r.size.width, r.size.height)
+}
+
+/// Deterministic text metrics: 8pt per char, 16pt line height, greedy wrap.
+pub fn text_size(text: &str, proposal: Proposal, wraps: bool) -> Size {
+    let needed = 8.0 * text.chars().count() as f64;
+    match (proposal.width, wraps) {
+        (Some(w), true) if needed > w && w > 0.0 => {
+            let lines = (needed / w).ceil();
+            Size::new(w, 16.0 * lines)
+        }
+        _ => Size::new(needed, 16.0),
+    }
+}
+
+impl Toolkit for MockToolkit {
+    type Handle = MockHandle;
+
+    fn capability(&self, cap: Cap) -> Support {
+        match cap {
+            Cap::Snapshot => Support::Native,
+            _ => Support::Unsupported,
+        }
+    }
+
+    fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> MockHandle {
+        let mut s = self.state.borrow_mut();
+        s.next += 1;
+        let h = s.next;
+        let mut w = MockWidget { kind, node: id.0, enabled: true, ..Default::default() };
+        let mut detail = String::new();
+        if let Some(p) = props.downcast_ref::<LabelProps>() {
+            w.text = p.text.clone();
+            detail = format!(" text={:?}", p.text);
+        } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
+            w.text = p.title.clone();
+            w.enabled = p.enabled;
+            detail = format!(" title={:?}", p.title);
+        } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
+            w.flag = p.on;
+        } else if let Some(p) = props.downcast_ref::<SliderProps>() {
+            w.value = p.value;
+        } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
+            w.text = p.text.clone();
+            w.placeholder = p.placeholder.clone();
+        } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
+            w.ops = p.ops.clone();
+        }
+        s.log(format!("realize {kind} #{h}{detail}"));
+        s.widgets.insert(h, w);
+        MockHandle(h)
+    }
+
+    fn update(&mut self, h: &MockHandle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
+        let mut s = self.state.borrow_mut();
+        let detail;
+        {
+            let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
+            detail = if let Some(p) = patch.downcast_ref::<LabelPatch>() {
+                match p {
+                    LabelPatch::Text(t) => {
+                        w.text = t.clone();
+                        format!("text={t:?}")
+                    }
+                    LabelPatch::Color(_) => "color".into(),
+                    LabelPatch::Font(_) => "font".into(),
+                }
+            } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
+                match p {
+                    ButtonPatch::Title(t) => {
+                        w.text = t.clone();
+                        format!("title={t:?}")
+                    }
+                    ButtonPatch::Enabled(e) => {
+                        w.enabled = *e;
+                        format!("enabled={e}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<TogglePatch>() {
+                match p {
+                    TogglePatch::On(v) => {
+                        w.flag = *v;
+                        format!("on={v}")
+                    }
+                    TogglePatch::Enabled(e) => {
+                        w.enabled = *e;
+                        format!("enabled={e}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<SliderPatch>() {
+                match p {
+                    SliderPatch::Value(v) => {
+                        w.value = *v;
+                        format!("value={v}")
+                    }
+                    SliderPatch::Enabled(e) => {
+                        w.enabled = *e;
+                        format!("enabled={e}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
+                match p {
+                    TextFieldPatch::Text { text, from_native } => {
+                        if !*from_native {
+                            w.text = text.clone();
+                        }
+                        format!("text={text:?} from_native={from_native}")
+                    }
+                    TextFieldPatch::Placeholder(t) => {
+                        w.placeholder = t.clone();
+                        format!("placeholder={t:?}")
+                    }
+                    TextFieldPatch::Enabled(e) => {
+                        w.enabled = *e;
+                        format!("enabled={e}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<CanvasProps>() {
+                w.ops = p.ops.clone();
+                format!("canvas ops={}", w.ops.len())
+            } else {
+                "?".into()
+            };
+        }
+        s.log(format!("update {kind} #{} {detail}", h.0));
+    }
+
+    fn release(&mut self, h: MockHandle) {
+        let mut s = self.state.borrow_mut();
+        s.widgets.remove(&h.0);
+        s.log(format!("release #{}", h.0));
+    }
+
+    fn insert(&mut self, parent: &MockHandle, child: &MockHandle, index: usize) {
+        let mut s = self.state.borrow_mut();
+        {
+            let p = s.widgets.get_mut(&parent.0).expect("insert into unknown parent");
+            let idx = index.min(p.children.len());
+            p.children.insert(idx, child.0);
+        }
+        s.log(format!("insert #{} into #{} at {}", child.0, parent.0, index));
+    }
+
+    fn remove(&mut self, parent: &MockHandle, child: &MockHandle) {
+        let mut s = self.state.borrow_mut();
+        {
+            let p = s.widgets.get_mut(&parent.0).expect("remove from unknown parent");
+            p.children.retain(|&c| c != child.0);
+        }
+        s.log(format!("remove #{} from #{}", child.0, parent.0));
+    }
+
+    fn move_child(&mut self, parent: &MockHandle, child: &MockHandle, to: usize) {
+        let mut s = self.state.borrow_mut();
+        {
+            let p = s.widgets.get_mut(&parent.0).expect("move in unknown parent");
+            p.children.retain(|&c| c != child.0);
+            let idx = to.min(p.children.len());
+            p.children.insert(idx, child.0);
+        }
+        s.log(format!("move #{} in #{} to {}", child.0, parent.0, to));
+    }
+
+    fn measure(&mut self, h: &MockHandle, kind: PieceKind, p: Proposal) -> Size {
+        let mut s = self.state.borrow_mut();
+        s.measure_calls += 1;
+        let w = s.widgets.get(&h.0).cloned().unwrap_or_default();
+        let size = match kind {
+            kinds::LABEL => text_size(&w.text, p, true),
+            kinds::BUTTON => {
+                let t = text_size(&w.text, Proposal::UNCONSTRAINED, false);
+                Size::new(t.width + 16.0, 24.0)
+            }
+            kinds::TOGGLE => Size::new(51.0, 31.0),
+            kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 24.0),
+            kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 24.0),
+            kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            kinds::IMAGE => Size::new(32.0, 32.0),
+            _ => Size::new(p.width.unwrap_or(10.0), p.height.unwrap_or(10.0)),
+        };
+        s.log(format!("measure {kind} #{} {:?} -> {}", h.0, p.cache_key(), fmt_size(size)));
+        size
+    }
+
+    fn set_frame(&mut self, h: &MockHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.frame = frame;
+        }
+        s.log(format!("set_frame #{} {}", h.0, fmt_rect(frame)));
+    }
+
+    fn set_scroll_content(&mut self, h: &MockHandle, content: Size) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.scroll_content = content;
+        }
+        s.log(format!("set_scroll_content #{} {}", h.0, fmt_size(content)));
+    }
+
+    fn set_event_sink(&mut self, sink: EventSink) {
+        self.state.borrow_mut().sink = Some(sink);
+    }
+
+    fn set_a11y(&mut self, h: &MockHandle, a11y: &A11yProps) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.a11y = a11y.clone();
+        }
+        s.log(format!("a11y #{} id={:?}", h.0, a11y.identifier));
+    }
+
+    fn replay(&mut self, h: &MockHandle, ops: &[DrawOp], size: Size) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.ops = ops.to_vec();
+        }
+        s.log(format!("replay #{} {} ops in {}", h.0, ops.len(), fmt_size(size)));
+    }
+
+    fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
+        Ok(vec![0x89, b'P', b'N', b'G'])
+    }
+}
+
+impl Platform for MockToolkit {
+    const TARGET: &'static str = "mock-mock";
+    const TOOLKIT: &'static str = "mock";
+
+    fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, MockHandle, Size)>) {
+        // No native loop: create the root container, hand off, return. Tests drive via
+        // MockProbe::emit + day_reactive::flush_sync.
+        let root = self.realize(kinds::CONTAINER, &ContainerProps::default(), NodeId(0));
+        ready(self, root, options.size);
+    }
+
+    fn post(f: Box<dyn FnOnce() + Send>) {
+        // No loop to defer to: run immediately (tests are synchronous).
+        f();
+    }
+}

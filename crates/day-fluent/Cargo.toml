@@ -1,0 +1,11 @@
+[package]
+name = "day-fluent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-reactive = { workspace = true }
+day-pieces = { workspace = true }
+fluent-bundle = "0.16"
+unic-langid = "0.9"

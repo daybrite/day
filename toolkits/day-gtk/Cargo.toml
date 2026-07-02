@@ -1,0 +1,10 @@
+[package]
+name = "day-gtk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-spec = { workspace = true }
+linkme = { workspace = true }
+gtk4 = { version = "0.11", features = ["v4_10"] }

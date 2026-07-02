@@ -1,0 +1,24 @@
+[package]
+name = "showcase"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+appkit = ["day/appkit", "day-piece-combobox/appkit"]
+gtk = ["day/gtk", "day-piece-combobox/gtk"]
+qt = ["day/qt", "day-piece-combobox/qt"]
+uikit = ["day/uikit", "day-piece-combobox/uikit"]
+widget = ["day/widget", "day-piece-combobox/widget"]
+mock = ["day/mock"]
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+day = { workspace = true }
+day-piece-combobox = { workspace = true }
+
+[[bin]]
+name = "showcase"
+path = "src/main.rs"

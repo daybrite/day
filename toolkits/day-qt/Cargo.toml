@@ -1,0 +1,10 @@
+[package]
+name = "day-qt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-spec = { workspace = true }
+day-qt-sys = { workspace = true }
+linkme = { workspace = true }

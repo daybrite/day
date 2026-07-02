@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required even for the localhost dayscript engine socket (§14.5). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="Day Showcase"
+        android:theme="@android:style/Theme.Material.Light">
+        <activity
+            android:name="dev.day.bridge.DayActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
+            <meta-data android:name="day.lib" android:value="showcase" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

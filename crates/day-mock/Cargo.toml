@@ -1,0 +1,8 @@
+[package]
+name = "day-mock"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-spec = { workspace = true }

@@ -1,0 +1,17 @@
+name: showcase-walkthrough
+description: Exercise every control and take localized screenshots (DESIGN.md §14.1, staged).
+flow:
+  - wait_for: { id: controls-title }
+  - screenshot: home
+  - input: { id: name-field, text: "Ada" }
+  - assert_visible: { id: greeting-label }
+  - assert_text: { id: greeting-label, key: greeting, args: { name: "Ada" } }
+  - set_value: { id: volume-slider, value: 80 }
+  - assert_text: { id: volume-value, text: "80" }
+  - toggle: { id: subscribe-toggle, value: true }
+  - assert_value: { id: subscribe-toggle, value: true }
+  - tap: { id: increment-button, repeat: 3 }
+  - assert_text: { id: counter-label, key: counter-value, args: { count: 3 } }
+  - select: { id: flavor-combo, index: 2 }
+  - assert_text: { id: flavor-value, text: "pistachio" }
+  - screenshot: after-actions

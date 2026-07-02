@@ -1,0 +1,14 @@
+[package]
+name = "day-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-geometry = { workspace = true }
+day-reactive = { workspace = true }
+day-spec = { workspace = true }
+slotmap = { workspace = true }
+
+[dev-dependencies]
+day-mock = { workspace = true }

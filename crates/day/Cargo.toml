@@ -1,0 +1,29 @@
+[package]
+name = "day"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+# Exactly one backend feature per binary (§3.2).
+appkit = ["dep:day-appkit"]
+gtk = ["dep:day-gtk"]
+qt = ["dep:day-qt"]
+uikit = ["dep:day-uikit"]
+widget = ["dep:day-android"]
+mock = ["dep:day-mock"]
+
+[dependencies]
+day-geometry = { workspace = true }
+day-reactive = { workspace = true }
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-fluent = { workspace = true }
+day-script = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+day-mock = { workspace = true, optional = true }

@@ -1,0 +1,16 @@
+day: 1
+app:
+  name: showcase
+  id: dev.day.showcase
+  title: Day Showcase
+  version: 0.1.0
+  build: 1
+targets:
+  - macos-appkit
+  - macos-gtk
+  - macos-qt
+  - ios-uikit
+  - android-widget
+window:
+  width: 480
+  height: 640
