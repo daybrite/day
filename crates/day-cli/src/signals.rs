@@ -50,9 +50,10 @@ pub fn install() {
     let _ = WAKE_WRITE_FD.set(write_fd);
 
     // SAFETY: install async-signal-safe handler (only writes a byte to the pipe).
+    let handler = handle_signal as *const () as usize;
     unsafe {
-        libc::signal(libc::SIGINT, handle_signal as usize);
-        libc::signal(libc::SIGTERM, handle_signal as usize);
+        libc::signal(libc::SIGINT, handler);
+        libc::signal(libc::SIGTERM, handler);
     }
 
     std::thread::spawn(move || {
