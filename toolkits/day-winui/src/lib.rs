@@ -123,9 +123,11 @@ fn natural(h: *mut c_void) -> Size {
 impl Toolkit for WinUi {
     type Handle = WinHandle;
 
-    fn capability(&self, _cap: Cap) -> Support {
-        // Snapshot (RenderTargetBitmap → PNG) is a follow-up; keep the honest default.
-        Support::Unsupported
+    fn capability(&self, cap: Cap) -> Support {
+        match cap {
+            Cap::Snapshot => Support::Native,
+            _ => Support::Unsupported,
+        }
     }
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
@@ -351,6 +353,21 @@ impl Toolkit for WinUi {
         if let Some(id) = &a11y.identifier {
             unsafe { ffi::day_winui_set_name(h.0, cstr(id).as_ptr()) };
         }
+    }
+
+    fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
+        if self.window.is_null() {
+            return Err("no window".into());
+        }
+        let path = std::env::temp_dir().join(format!("day-winui-snap-{}.png", std::process::id()));
+        let cpath = cstr(&path.to_string_lossy());
+        let rc = unsafe { ffi::day_winui_snapshot_png(self.window, cpath.as_ptr()) };
+        if rc != 0 {
+            return Err(format!("snapshot failed (rc={rc})"));
+        }
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&path);
+        Ok(bytes)
     }
 }
 

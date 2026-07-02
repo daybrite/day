@@ -9,6 +9,7 @@
 #define _UNICODE
 #include <windows.h>
 #undef GetCurrentTime // windows.h macro clashes with Windows.UI.Xaml.Media.Animation
+#include <gdiplus.h>  // PNG encoding for window snapshots
 
 #include <string>
 #include <limits>
@@ -17,6 +18,7 @@
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
@@ -32,6 +34,7 @@
 
 #include <windows.ui.xaml.hosting.desktopwindowxamlsource.h>
 #include <DispatcherQueue.h>
+#include <robuffer.h> // IBufferByteAccess — raw pixels out of a WinRT IBuffer
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
@@ -75,6 +78,25 @@ struct Node {
 };
 static void* boxh(UIElement const& e) { return new Node(e); }
 static UIElement& elem(void* h) { return reinterpret_cast<Node*>(h)->e; }
+
+// Pump the message loop until a WinRT async op completes (bounded). RenderTargetBitmap's async
+// work runs on this UI thread, so a blocking .get() would deadlock — we must pump. (Templates
+// can't live in the extern "C" block, hence file scope here.)
+template <typename TOp>
+static void pump_until_complete(TOp const& op) {
+    auto done = std::make_shared<bool>(false);
+    op.Completed([done](auto&&, auto&&) { *done = true; });
+    MSG msg{};
+    ULONGLONG start = GetTickCount64();
+    while (!*done && GetTickCount64() - start < 5000) {
+        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        } else {
+            Sleep(1);
+        }
+    }
+}
 
 static WUI::Color color_argb(unsigned int argb) {
     WUI::Color c{};
@@ -475,6 +497,78 @@ void day_winui_set_enabled(void* h, int enabled) {
 
 void day_winui_set_name(void* h, const char* name) {
     WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name));
+}
+
+// ---- snapshot (PrintWindow → Gdiplus PNG) ----
+
+static int png_encoder_clsid(CLSID* clsid) {
+    UINT num = 0, size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+    auto info = reinterpret_cast<Gdiplus::ImageCodecInfo*>(malloc(size));
+    if (!info) return -1;
+    Gdiplus::GetImageEncoders(num, size, info);
+    int result = -1;
+    for (UINT i = 0; i < num; ++i) {
+        if (wcscmp(info[i].MimeType, L"image/png") == 0) {
+            *clsid = info[i].Clsid;
+            result = static_cast<int>(i);
+            break;
+        }
+    }
+    free(info);
+    return result;
+}
+
+// Snapshot via RenderTargetBitmap: renders the XAML visual tree straight to a bitmap,
+// independent of whether the host window is visible/foreground/composed (so it works for a
+// background-launched app and on headless CI, unlike PrintWindow). Pixels are BGRA8 — which is
+// exactly Gdiplus PixelFormat32bppARGB's in-memory byte order. Returns 0 on success.
+int day_winui_snapshot_png(void* win, const char* path) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) return 1;
+
+    WUXM::Imaging::RenderTargetBitmap rtb;
+    pump_until_complete(rtb.RenderAsync(app->root));
+    int pw = rtb.PixelWidth(), ph = rtb.PixelHeight();
+    if (pw <= 0 || ph <= 0) return 2;
+
+    auto pixelsOp = rtb.GetPixelsAsync();
+    pump_until_complete(pixelsOp);
+    auto buffer = pixelsOp.GetResults();
+
+    auto access = buffer.as<::Windows::Storage::Streams::IBufferByteAccess>();
+    uint8_t* bytes = nullptr;
+    access->Buffer(&bytes);
+    if (!bytes || buffer.Length() < static_cast<uint32_t>(pw) * ph * 4) return 5;
+
+    int rc_out = 3;
+    ULONG_PTR token = 0;
+    Gdiplus::GdiplusStartupInput si;
+    if (Gdiplus::GdiplusStartup(&token, &si, nullptr) == Gdiplus::Ok) {
+        {
+            Gdiplus::Bitmap bitmap(pw, ph, PixelFormat32bppARGB);
+            Gdiplus::Rect rect(0, 0, pw, ph);
+            Gdiplus::BitmapData bd;
+            if (bitmap.LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bd) ==
+                Gdiplus::Ok) {
+                for (int y = 0; y < ph; ++y) {
+                    memcpy(static_cast<uint8_t*>(bd.Scan0) + y * bd.Stride,
+                           bytes + static_cast<size_t>(y) * pw * 4, static_cast<size_t>(pw) * 4);
+                }
+                bitmap.UnlockBits(&bd);
+                CLSID clsid;
+                if (png_encoder_clsid(&clsid) >= 0) {
+                    std::wstring wpath = hs(path).c_str();
+                    if (bitmap.Save(wpath.c_str(), &clsid, nullptr) == Gdiplus::Ok) rc_out = 0;
+                }
+            }
+        } // bitmap destroyed before GdiplusShutdown
+        Gdiplus::GdiplusShutdown(token);
+    }
+    return rc_out;
+} catch (...) {
+    return 9;
 }
 
 } // extern "C"

@@ -107,12 +107,20 @@ jobs:
       - name: Validate screenshots (blank-capture check + summary gallery)
         run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots
 
-      - name: Upload screenshots
+      # One archive per target (os-toolkit), e.g. screenshots-linux-gtk.zip.
+      - name: Upload screenshots (linux-gtk)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-linux
-          path: apps/showcase/build/day/screenshots
+          name: screenshots-linux-gtk
+          path: apps/showcase/build/day/screenshots/linux-gtk
+          if-no-files-found: warn
+      - name: Upload screenshots (linux-qt)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-linux-qt
+          path: apps/showcase/build/day/screenshots/linux-qt
           if-no-files-found: warn
 
       # Android cross-build: cargo-ndk (arm64-v8a) + gradle assembleDebug.
@@ -202,12 +210,34 @@ jobs:
       - name: Validate screenshots (blank-capture check + summary gallery)
         run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots
 
-      - name: Upload screenshots
+      # One archive per target (os-toolkit), incl. the iOS Simulator leg.
+      - name: Upload screenshots (macos-appkit)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-macos
-          path: apps/showcase/build/day/screenshots
+          name: screenshots-macos-appkit
+          path: apps/showcase/build/day/screenshots/macos-appkit
+          if-no-files-found: warn
+      - name: Upload screenshots (macos-gtk)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-macos-gtk
+          path: apps/showcase/build/day/screenshots/macos-gtk
+          if-no-files-found: warn
+      - name: Upload screenshots (macos-qt)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-macos-qt
+          path: apps/showcase/build/day/screenshots/macos-qt
+          if-no-files-found: warn
+      - name: Upload screenshots (ios-uikit)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-ios-uikit
+          path: apps/showcase/build/day/screenshots/ios-uikit
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
@@ -259,20 +289,21 @@ jobs:
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           script: cd apps/showcase && ../../target/debug/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr
 
-      - name: Upload screenshots
+      - name: Upload screenshots (android-widget)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-android
-          path: apps/showcase/build/day/screenshots
+          name: screenshots-android-widget
+          path: apps/showcase/build/day/screenshots/android-widget
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  # windows: host-portable core tests + the day-winui backend (windows-winui, §9).
-  # day-winui-sys is a C++/WinRT XAML-Islands shim; MSVC + the Windows SDK cppwinrt
-  # headers ship on windows-latest, so no extra staging is needed. Building the
-  # showcase winui cone exercises the shim compile, the manifest-embed path, and the
-  # ComboBox Day Piece renderer end to end.
+  # windows: host-portable core tests + the day-winui backend (windows-winui, §9),
+  # then a headless showcase walkthrough with screenshots. day-winui-sys is a
+  # C++/WinRT XAML-Islands shim; MSVC + the Windows SDK cppwinrt headers ship on
+  # windows-latest, so no extra staging is needed. The walkthrough exercises the shim
+  # compile, the manifest-embed path, the ComboBox Day Piece renderer, and
+  # RenderTargetBitmap capture end to end.
   # ---------------------------------------------------------------------------
   windows:
     runs-on: windows-latest
@@ -288,8 +319,27 @@ jobs:
         run: cargo build --locked -p day-winui-sys -p day-winui -p day-cli
       - name: Clippy (winui backend cone)
         run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
-      - name: Build showcase (windows-winui)
-        run: cargo build --locked -p showcase --no-default-features --features winui
+
+      # e2e: drive the showcase on windows-winui and capture screenshots. `day launch` builds
+      # the app (with the maxversiontested manifest embedded), runs the walkthrough over the
+      # dayscript engine, and snapshots via RenderTargetBitmap (visibility-independent, so it
+      # works headless). Git Bash ships on the runner, and `day` resolves to day.exe there.
+      - name: Windows-winui walkthrough (screenshots)
+        shell: bash
+        working-directory: apps/showcase
+        run: ../../target/debug/day launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
+
+      - name: Validate screenshots (blank-capture check + summary gallery)
+        shell: bash
+        run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots
+
+      - name: Upload screenshots (windows-winui)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-windows-winui
+          path: apps/showcase/build/day/screenshots/windows-winui
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
   # msrv: the declared minimum supported Rust (workspace rust-version) still

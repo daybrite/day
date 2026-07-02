@@ -230,6 +230,12 @@ pub fn run_scripts(
 
 fn terminate(project: &Project, target: &Target) {
     match target.kind {
+        TargetKind::Desktop if cfg!(windows) => {
+            // No pkill on Windows; kill the app by image name (taskkill is on every runner).
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", &format!("{}.exe", project.manifest.app.name)])
+                .status();
+        }
         TargetKind::Desktop => {
             let _ = Command::new("pkill")
                 .args([

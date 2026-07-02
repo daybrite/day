@@ -19,6 +19,9 @@ while IFS= read -r png; do
     found=1
     if [[ "$(uname)" == "Darwin" ]]; then
         stats="$(swift "$here/imgstat.swift" "$png")"
+    elif command -v magick >/dev/null 2>&1; then
+        # ImageMagick 7 (e.g. Windows runners) — the legacy `identify` may be absent.
+        stats="$(magick identify -format '%w %h %k' "$png")"
     else
         stats="$(identify -format '%w %h %k' "$png")"
     fi

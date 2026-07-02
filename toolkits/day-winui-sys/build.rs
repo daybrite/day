@@ -35,6 +35,7 @@ fn main() {
     println!("cargo:rustc-link-lib=WindowsApp");
     println!("cargo:rustc-link-lib=user32");
     println!("cargo:rustc-link-lib=gdi32");
+    println!("cargo:rustc-link-lib=gdiplus"); // window snapshot PNG encoding
     println!("cargo:rerun-if-changed=src/shim.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 }

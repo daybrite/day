@@ -77,4 +77,6 @@ unsafe extern "C" {
     );
     pub fn day_winui_set_enabled(w: *mut c_void, enabled: c_int);
     pub fn day_winui_set_name(w: *mut c_void, name: *const c_char);
+    /// Capture the window's client area to a PNG file. Returns 0 on success.
+    pub fn day_winui_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
 }
