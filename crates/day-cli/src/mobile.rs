@@ -230,10 +230,17 @@ pub fn gradle_backend_build() -> i32 {
     build_android_so(&project, &profile, &out).map(|_| 0).unwrap_or(4)
 }
 
+/// Android ABI to build (`DAY_ANDROID_ABI` override; default arm64-v8a). CI's KVM emulator
+/// runners are x86_64-only, so the e2e leg exports `DAY_ANDROID_ABI=x86_64` (§20).
+fn android_abi() -> String {
+    std::env::var("DAY_ANDROID_ABI").unwrap_or_else(|_| "arm64-v8a".into())
+}
+
 fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<PathBuf, String> {
     let (cargo, bin) = rustup_cargo()?;
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
+    let abi = android_abi();
     let target_dir = project.root.join("build/day/cargo/android-widget").join(profile);
     let mut cmd = Command::new(&cargo);
     cmd.current_dir(&project.root)
@@ -248,7 +255,7 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         )
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("ANDROID_NDK_HOME", &ndk_home)
-        .args(["ndk", "-t", "arm64-v8a", "-o"])
+        .args(["ndk", "-t", &abi, "-o"])
         .arg(out)
         .arg("build")
         .args(["-p", &name, "--lib", "--no-default-features", "--features", "widget"]);
@@ -256,7 +263,7 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         cmd.arg("--release");
     }
     run_logged(&mut cmd, "cargo ndk")?;
-    Ok(out.join("arm64-v8a").join(format!("lib{name}.so")))
+    Ok(out.join(&abi).join(format!("lib{name}.so")))
 }
 
 fn find_ndk() -> Result<PathBuf, String> {
@@ -293,11 +300,18 @@ pub fn build_android(
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = Command::new("gradle");
     cmd.current_dir(project.root.join("platform/android"))
-        .env("JAVA_HOME", "/opt/homebrew/opt/openjdk@21")
         .env("DAY_BIN", &day_bin)
         .env("DAY_PROJECT_ROOT", &project.root)
         .env("DAY_PROFILE", profile)
         .args([task, "-q", "--console=plain"]);
+    // Gradle 9 + AGP 9 need JDK 17–21 (newer JDKs break the AGP jdk-image transform). Respect
+    // the caller's JAVA_HOME (CI pins 21 via setup-java); default to Homebrew's 21 when unset.
+    if std::env::var_os("JAVA_HOME").is_none() {
+        let brew_jdk = Path::new("/opt/homebrew/opt/openjdk@21");
+        if brew_jdk.exists() {
+            cmd.env("JAVA_HOME", brew_jdk);
+        }
+    }
     let out = cmd.output().map_err(|e| format!("gradle: {e}"))?;
     if !out.status.success() {
         let text = String::from_utf8_lossy(&out.stderr);

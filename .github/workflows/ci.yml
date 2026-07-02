@@ -1,0 +1,254 @@
+# CI (DESIGN.md §20.1) — per-OS jobs, patterns lifted from pane's per-OS matrix and hop's
+# screenshot pipeline. Banked toolchain knowledge encoded here from day one: JDK pinned to 21
+# (never newer — the AGP jdk-image transform breaks), rustup toolchains for cross-std,
+# GSK_RENDERER=cairo for headless GTK (set by `day launch` itself), `--locked` everywhere,
+# emulator boot handled by the runner action's polling.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # linux: host-portable core tests, gtk + qt backend builds, headless e2e
+  # walkthroughs (xvfb / Qt offscreen), android cross-build + gradle assemble
+  # (configuration cache on via gradle.properties), lint self-check.
+  # ---------------------------------------------------------------------------
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install GTK 4, Qt 6, xvfb, ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev qt6-base-dev pkg-config xvfb imagemagick
+
+      - name: Core tests (host-portable crates incl. day-mock e2e)
+        run: cargo test --locked
+
+      - name: Build day CLI
+        run: cargo build --locked -p day-cli
+
+      - name: Headless e2e — linux-gtk walkthrough (xvfb + cairo renderer)
+        working-directory: apps/showcase
+        run: |
+          xvfb-run -a ../../target/debug/day launch -p linux-gtk \
+            --script scripts/walkthrough.yaml --locale fr
+
+      - name: Headless e2e — linux-qt walkthrough (offscreen platform)
+        working-directory: apps/showcase
+        run: |
+          ../../target/debug/day launch -p linux-qt \
+            --script scripts/walkthrough.yaml --locale fr \
+            --env QT_QPA_PLATFORM=offscreen
+
+      - name: Validate screenshots (blank-capture check + summary gallery)
+        run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-linux
+          path: apps/showcase/build/day/screenshots
+          if-no-files-found: warn
+
+      # Android cross-build: cargo-ndk (arm64-v8a) + gradle assembleDebug.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.1"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Android cross-build (cargo-ndk + gradle, configuration cache)
+        working-directory: apps/showcase
+        run: |
+          rustup target add aarch64-linux-android
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          ../../target/debug/day build -p android-widget
+
+      # Non-strict: the showcase keeps one intentional unused-key finding as demo evidence.
+      - name: Lint self-check
+        working-directory: apps/showcase
+        run: ../../target/debug/day lint
+
+  # ---------------------------------------------------------------------------
+  # macos: core tests, then launch the showcase on macos-appkit + macos-gtk +
+  # macos-qt and the iOS Simulator, running the walkthrough per locale
+  # (en, fr, en-XA) with content-validated screenshots, plus a release+LTO
+  # ios-uikit leg whose flavor-combo steps assert the externally-registered
+  # day-piece-combobox actually rendered (§8.2).
+  # TODO(§14.2): add the a11y_audit step on apple targets once day-script grows it.
+  # ---------------------------------------------------------------------------
+  macos:
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install GTK 4 and Qt 6
+        run: brew install gtk4 qt pkg-config
+
+      - name: Core tests
+        run: cargo test --locked
+
+      - name: Build day CLI
+        run: cargo build --locked -p day-cli
+
+      - name: Boot an iOS Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[] | .[] | select(.name | test("^iPhone"))][0].udid')
+          echo "booting $UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Walkthrough on appkit + gtk + qt + iOS Simulator (en, fr, en-XA)
+        working-directory: apps/showcase
+        run: |
+          for locale in en fr en-XA; do
+            ../../target/debug/day launch \
+              -p macos-appkit -p macos-gtk -p macos-qt -p ios-uikit \
+              --script scripts/walkthrough.yaml --locale "$locale"
+          done
+
+      - name: Release+LTO ios-uikit walkthrough (external combobox piece)
+        working-directory: apps/showcase
+        run: |
+          ../../target/debug/day launch -p ios-uikit --profile release \
+            --script scripts/walkthrough.yaml --locale fr
+
+      - name: Validate screenshots (blank-capture check + summary gallery)
+        run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-macos
+          path: apps/showcase/build/day/screenshots
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # linux-android-e2e: real emulator via KVM (reactivecircus). The Linux
+  # emulator is x86_64-only, so this leg cross-builds the .so for x86_64 via
+  # DAY_ANDROID_ABI. continue-on-error while the known postMain flake
+  # (intermittent "main thread did not respond") is being chased.
+  # ---------------------------------------------------------------------------
+  linux-android-e2e:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.1"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build day CLI
+        run: |
+          rustup target add x86_64-linux-android
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          cargo build --locked -p day-cli
+
+      - name: Emulator walkthrough (android-widget)
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          DAY_ANDROID_ABI: x86_64
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            cd apps/showcase
+            ../../target/debug/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-android
+          path: apps/showcase/build/day/screenshots
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # windows: host-portable core tests. The winui shim build (setup-winui.ps1
+  # staging, pane's pipeline) joins when the day-winui toolkit lands (§9).
+  # ---------------------------------------------------------------------------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Core tests
+        run: cargo test --locked
+
+  # ---------------------------------------------------------------------------
+  # msrv: the declared minimum supported Rust (workspace rust-version) still
+  # builds the host-portable crates (§20.5).
+  # ---------------------------------------------------------------------------
+  msrv:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.89.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Build at MSRV
+        run: cargo build --locked
+
+  # ---------------------------------------------------------------------------
+  # deny: dependency advisories + duplicate-version bans (§20.5). Advisory
+  # drift shouldn't block unrelated PRs, so this job is informational.
+  # ---------------------------------------------------------------------------
+  deny:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans
