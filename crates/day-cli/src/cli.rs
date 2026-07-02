@@ -329,8 +329,11 @@ widget = ["day/widget"]
 winui = ["day/winui"]
 mock = ["day/mock"]
 
+# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
+# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
+# export cap).
 [lib]
-crate-type = ["rlib", "staticlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 day = {{ path = "{day}/crates/day" }}

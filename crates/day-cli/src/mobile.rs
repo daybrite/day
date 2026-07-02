@@ -105,11 +105,15 @@ pub fn xcode_backend_build() -> i32 {
             ),
         )
         .env("CARGO_TARGET_DIR", &target_dir)
+        // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see the
+        // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this expects.
         .args([
-            "build",
+            "rustc",
             "-p",
             &name,
             "--lib",
+            "--crate-type",
+            "staticlib",
             "--no-default-features",
             "--features",
             "uikit",
@@ -332,11 +336,15 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         .env("ANDROID_NDK_HOME", &ndk_home)
         .args(["ndk", "-t", &abi, "-o"])
         .arg(out)
-        .arg("build")
+        // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
+        // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
+        .arg("rustc")
         .args([
             "-p",
             &name,
             "--lib",
+            "--crate-type",
+            "cdylib",
             "--no-default-features",
             "--features",
             "widget",

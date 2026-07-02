@@ -13,8 +13,12 @@ widget = ["day/widget", "day-piece-combobox/widget"]
 winui = ["day/winui", "day-piece-combobox/winui"]
 mock = ["day/mock"]
 
+# rlib for the desktop bin; the iOS staticlib and Android cdylib are requested explicitly by
+# the mobile pipeline via `cargo rustc --crate-type` (day-cli mobile.rs). Keeping cdylib here
+# would make every desktop build emit it too — and a Rust cdylib blows past the PE export cap
+# on the windows-gnu ABI (windows-gtk / windows-qt): "too many exported symbols, max 65535".
 [lib]
-crate-type = ["rlib", "staticlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 day = { workspace = true }

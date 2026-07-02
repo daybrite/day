@@ -262,9 +262,11 @@ jobs:
 
   # --- Windows desktop: winui / qt / gtk ------------------------------------
   # winui uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
-  # captures via RenderTargetBitmap. windows-qt / windows-gtk are UNVERIFIED (no
-  # local Windows): they use the gnu toolchain + MSYS2's GTK4/Qt6 + pkgconf, so
-  # they run continue-on-error until confirmed on a real Windows host.
+  # captures via RenderTargetBitmap. windows-qt / windows-gtk use the gnu toolchain +
+  # MSYS2's MINGW64 GTK4/Qt6 + pkgconf, built and run inside the msys2 shell (so
+  # pkg-config and the runtime DLLs resolve). windows-gtk's Rust build was confirmed
+  # locally against MSYS2 GTK 4.22 (clangarm64/gnullvm); both stay experimental
+  # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
   windows:
     name: ${{ matrix.combo }}
     runs-on: windows-latest
@@ -281,11 +283,13 @@ jobs:
             toolkit: qt
             rust: stable-x86_64-pc-windows-gnu
             msys_pkgs: mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
+            shell: msys2 {0}
             experimental: true
           - combo: windows-gtk
             toolkit: gtk
             rust: stable-x86_64-pc-windows-gnu
             msys_pkgs: mingw-w64-x86_64-gtk4 mingw-w64-x86_64-pkgconf
+            shell: msys2 {0}
             experimental: true
     defaults:
       run:
@@ -297,27 +301,30 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # MSYS2 GTK4/Qt6 + pkgconf for the gnu combos (UNVERIFIED).
+      # MSYS2 GTK4/Qt6 + pkgconf for the gnu combos. `path-type: inherit` keeps the Windows
+      # PATH (rustup's cargo, the built day.exe) visible inside the msys2 shell while adding
+      # /mingw64/bin — so pkg-config, the GTK/Qt .pc files, and the runtime DLLs are all found.
+      # Steps that build/run Rust for these combos use `shell: msys2 {0}` (see matrix.shell); the
+      # MINGW64 shell puts pkgconf's default prefix on the search path (no PKG_CONFIG_PATH hack).
       - name: Set up MSYS2 (qt/gtk)
         if: matrix.msys_pkgs
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
+          path-type: inherit
           install: ${{ matrix.msys_pkgs }}
-      - name: Expose MSYS2 mingw libs to the build
-        if: matrix.msys_pkgs
-        run: |
-          echo "C:/msys64/mingw64/bin" >> "$GITHUB_PATH"
-          echo "PKG_CONFIG_PATH=C:/msys64/mingw64/lib/pkgconfig" >> "$GITHUB_ENV"
       - name: Test host-portable crates
+        shell: ${{ matrix.shell || 'bash' }}
         run: cargo test --locked
       - name: Clippy (winui backend)
         if: matrix.toolkit == 'winui'
         run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
       - name: Build day CLI
+        shell: ${{ matrix.shell || 'bash' }}
         run: cargo build --locked -p day-cli
       - name: Walkthrough (${{ matrix.combo }})
+        shell: ${{ matrix.shell || 'bash' }}
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
