@@ -48,6 +48,18 @@ pub const TARGETS: &[Target] = &[
         host: "windows",
     },
     Target {
+        name: "windows-qt",
+        toolkit: "qt",
+        kind: TargetKind::Desktop,
+        host: "windows",
+    },
+    Target {
+        name: "windows-gtk",
+        toolkit: "gtk",
+        kind: TargetKind::Desktop,
+        host: "windows",
+    },
+    Target {
         name: "linux-qt",
         toolkit: "qt",
         kind: TargetKind::Desktop,
