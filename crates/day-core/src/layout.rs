@@ -44,16 +44,25 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         self.tree.node(child).map(|n| n.flex).unwrap_or_default()
     }
     fn children_of(&self, node: RNode) -> Vec<RNode> {
-        self.tree.node(node).map(|n| n.children.clone()).unwrap_or_default()
+        self.tree
+            .node(node)
+            .map(|n| n.children.clone())
+            .unwrap_or_default()
     }
     fn measure_leaf(&mut self, p: Proposal) -> Size {
-        let Some(n) = self.tree.node(self.current) else { return Size::ZERO };
+        let Some(n) = self.tree.node(self.current) else {
+            return Size::ZERO;
+        };
         let kind = n.kind;
-        let Some(h) = n.handle.clone() else { return Size::ZERO };
+        let Some(h) = n.handle.clone() else {
+            return Size::ZERO;
+        };
         self.tree.toolkit.measure(&h, kind, p)
     }
     fn set_scroll_content(&mut self, content: Size) {
-        let Some(n) = self.tree.node(self.current) else { return };
+        let Some(n) = self.tree.node(self.current) else {
+            return;
+        };
         let Some(h) = n.handle.clone() else { return };
         self.tree.toolkit.set_scroll_content(&h, content);
     }
@@ -62,15 +71,20 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
 pub(crate) fn measure_node<B: Toolkit>(tree: &mut Tree<B>, node: RNode, p: Proposal) -> Size {
     let key = p.cache_key();
     let (layout, children) = {
-        let Some(n) = tree.node(node) else { return Size::ZERO };
-        if !n.needs_measure {
-            if let Some(&(_, s)) = n.cache.iter().find(|(k, _)| *k == key) {
+        let Some(n) = tree.node(node) else {
+            return Size::ZERO;
+        };
+        if !n.needs_measure
+            && let Some(&(_, s)) = n.cache.iter().find(|(k, _)| *k == key) {
                 return s;
             }
-        }
         (n.layout.clone(), n.children.clone())
     };
-    let mut cx = EngineCx { tree, offset: Point::ZERO, current: node };
+    let mut cx = EngineCx {
+        tree,
+        offset: Point::ZERO,
+        current: node,
+    };
     let size = layout.measure(&mut cx, &children, p);
     if let Some(n) = tree.node_mut(node) {
         n.needs_measure = false;
@@ -91,7 +105,10 @@ pub(crate) fn place_node<B: Toolkit>(
     offset: Point,
     is_root: bool,
 ) {
-    let abs = Rect { origin: rect.origin.offset(offset.x, offset.y), size: rect.size };
+    let abs = Rect {
+        origin: rect.origin.offset(offset.x, offset.y),
+        size: rect.size,
+    };
     let (layout, children, has_handle) = {
         let Some(n) = tree.node(node) else { return };
         (n.layout.clone(), n.children.clone(), n.handle.is_some())
@@ -100,14 +117,22 @@ pub(crate) fn place_node<B: Toolkit>(
         if !is_root {
             let changed = tree
                 .node(node)
-                .map(|n| n.last_native_frame.map(|f| !f.approx_eq(&abs, 0.25)).unwrap_or(true))
+                .map(|n| {
+                    n.last_native_frame
+                        .map(|f| !f.approx_eq(&abs, 0.25))
+                        .unwrap_or(true)
+                })
                 .unwrap_or(false);
             if changed {
                 let h = tree.node(node).and_then(|n| n.handle.clone());
                 if let Some(h) = h {
                     tree.toolkit.set_frame(&h, abs, None);
                 }
-                if tree.node(node).map(|n| n.kind == day_spec::kinds::CANVAS).unwrap_or(false) {
+                if tree
+                    .node(node)
+                    .map(|n| n.kind == day_spec::kinds::CANVAS)
+                    .unwrap_or(false)
+                {
                     // Queue-only (§8.3): canvases re-record against the new size after layout.
                     crate::tree::enqueue_event(
                         crate::tree::rnode_to_id(node),
@@ -123,7 +148,11 @@ pub(crate) fn place_node<B: Toolkit>(
     if let Some(n) = tree.node_mut(node) {
         n.last_native_frame = Some(abs);
     }
-    let mut cx = EngineCx { tree, offset: child_offset, current: node };
+    let mut cx = EngineCx {
+        tree,
+        offset: child_offset,
+        current: node,
+    };
     layout.place(&mut cx, &children, Rect::from_size(rect.size));
 }
 
@@ -294,16 +323,14 @@ impl Layout for StackLayout {
         let sizes = self.negotiate(cx, &kids, p);
         let spacing_total = self.spacing * (kids.len() - 1) as f64;
         let has_flex = kids.iter().any(|&k| self.grows_main(cx.flex_of(k)));
-        let main_total = if has_flex && main_p.is_some() {
-            main_p.unwrap()
-        } else {
-            sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total
+        let main_total = match main_p {
+            Some(mp) if has_flex => mp,
+            _ => sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total,
         };
         let grows_cross = kids.iter().any(|&k| self.grows_cross(cx.flex_of(k)));
-        let cross_total = if grows_cross && cross_p.is_some() {
-            cross_p.unwrap()
-        } else {
-            sizes.iter().map(|&s| self.cross(s)).fold(0.0, f64::max)
+        let cross_total = match cross_p {
+            Some(cp) if grows_cross => cp,
+            _ => sizes.iter().map(|&s| self.cross(s)).fold(0.0, f64::max),
         };
         self.mk(main_total, cross_total)
     }
@@ -348,13 +375,22 @@ impl Layout for PaddingLayout {
             Some(&c) => cx.measure_child(c, inner),
             None => Size::ZERO,
         };
-        Size::new(s.width + self.insets.horizontal(), s.height + self.insets.vertical())
+        Size::new(
+            s.width + self.insets.horizontal(),
+            s.height + self.insets.vertical(),
+        )
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
             let inner = bounds.inset_by(self.insets);
             let s = cx.measure_child(c, Proposal::exact(inner.size));
-            cx.place_child(c, Rect { origin: inner.origin, size: s });
+            cx.place_child(
+                c,
+                Rect {
+                    origin: inner.origin,
+                    size: s,
+                },
+            );
         }
     }
 }
@@ -371,7 +407,10 @@ impl Layout for FrameLayout {
             Some(&c) => cx.measure_child(c, child_p),
             None => Size::ZERO,
         };
-        Size::new(self.width.unwrap_or(s.width), self.height.unwrap_or(s.height))
+        Size::new(
+            self.width.unwrap_or(s.width),
+            self.height.unwrap_or(s.height),
+        )
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {

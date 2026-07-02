@@ -115,8 +115,11 @@ mod imp {
         let ev = match kind {
             0 => Event::Pressed,
             1 => {
-                let text =
-                    env.get_string(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
                 Event::TextChanged(text)
             }
             2 => Event::ToggleChanged(num != 0.0),
@@ -183,7 +186,12 @@ mod imp {
             let idj = id.0 as i64;
             match kind {
                 kinds::CONTAINER => with_env(|env| {
-                    AHandle(make_view(env, "makeContainer", "()Landroid/view/View;", &[]))
+                    AHandle(make_view(
+                        env,
+                        "makeContainer",
+                        "()Landroid/view/View;",
+                        &[],
+                    ))
                 }),
                 kinds::SCROLL => with_env(|env| {
                     AHandle(make_view(env, "makeScroll", "()Landroid/view/View;", &[]))
@@ -203,7 +211,11 @@ mod imp {
                             BRIDGE,
                             "setLabelFont",
                             "(Landroid/view/View;FZ)V",
-                            &[JValue::Object(view.as_obj()), JValue::Float(dip), JValue::Bool(bold as u8)],
+                            &[
+                                JValue::Object(view.as_obj()),
+                                JValue::Float(dip),
+                                JValue::Bool(bold as u8),
+                            ],
                         );
                         AHandle(view)
                     })
@@ -295,7 +307,13 @@ mod imp {
             }
         }
 
-        fn update(&mut self, h: &AHandle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
+        fn update(
+            &mut self,
+            h: &AHandle,
+            kind: PieceKind,
+            patch: &dyn Any,
+            _anim: Option<&AnimSpec>,
+        ) {
             match kind {
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
@@ -434,7 +452,10 @@ mod imp {
             call_void(
                 "addChild",
                 "(Landroid/view/View;Landroid/view/View;)V",
-                &[JValue::Object(parent.0.as_obj()), JValue::Object(child.0.as_obj())],
+                &[
+                    JValue::Object(parent.0.as_obj()),
+                    JValue::Object(child.0.as_obj()),
+                ],
             );
         }
 
@@ -545,8 +566,11 @@ mod imp {
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             let (nums, texts) = day_spec::encode_ops(ops);
             with_env(|env| {
-                let arr = env.new_double_array(nums.len() as i32).expect("double array");
-                env.set_double_array_region(&arr, 0, &nums).expect("fill array");
+                let arr = env
+                    .new_double_array(nums.len() as i32)
+                    .expect("double array");
+                env.set_double_array_region(&arr, 0, &nums)
+                    .expect("fill array");
                 let joined = jstr(env, &texts.join("\n"));
                 let _ = env.call_static_method(
                     BRIDGE,
@@ -572,8 +596,9 @@ mod imp {
 
         fn run(self, _options: WindowOptions, ready: Box<dyn FnOnce(Self, AHandle, Size)>) {
             // The ActivityThread owns the loop; init() already registered the root.
-            let (root, size) =
-                ROOT.with(|r| r.borrow_mut().take()).expect("day-android: init() not called");
+            let (root, size) = ROOT
+                .with(|r| r.borrow_mut().take())
+                .expect("day-android: init() not called");
             ready(self, root, size);
         }
 
@@ -581,7 +606,9 @@ mod imp {
             let token = Box::into_raw(Box::new(f)) as i64;
             let vm = JAVA_VM.get().expect("day-android: init() not called");
             let mut env = vm.attach_current_thread().expect("attach");
-            let cls = BRIDGE_CLASS.get().expect("day-android: bridge class not cached");
+            let cls = BRIDGE_CLASS
+                .get()
+                .expect("day-android: bridge class not cached");
             let jcls: &jni::objects::JClass = cls.as_obj().into();
             let res = env.call_static_method(jcls, "postMain", "(J)V", &[JValue::Long(token)]);
             if res.is_err() {

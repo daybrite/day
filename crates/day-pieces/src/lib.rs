@@ -12,7 +12,9 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{Scope, Signal, bind_seeded, watch};
 use day_spec::props::*;
-use day_spec::{A11yProps, Color, DrawOp, Event, Font, Insets, Point, Rect, Role, Shape, Size, kinds};
+use day_spec::{
+    A11yProps, Color, DrawOp, Event, Font, Insets, Point, Role, Shape, Size, kinds,
+};
 
 // ---------------------------------------------------------------------------
 // Text sources (§12.2's IntoText, M1 subset — Fluent joins at M6)
@@ -31,13 +33,22 @@ impl TextSource {
         }
     }
     /// Install the text binding for a realized node (no-op for static text).
-    fn bind_to(self, node: RNode, make_patch: impl Fn(String) -> Box<dyn std::any::Any> + 'static, affects_size: bool) {
+    fn bind_to(
+        self,
+        node: RNode,
+        make_patch: impl Fn(String) -> Box<dyn std::any::Any> + 'static,
+        affects_size: bool,
+    ) {
         if let TextSource::Dyn(f) = self {
             let seed = day_reactive::untrack(|| f());
-            bind_seeded(seed, move || f(), move |t: &String| {
-                let patch = make_patch(t.clone());
-                with_tree(|tr| tr.patch(node, patch, affects_size));
-            });
+            bind_seeded(
+                seed,
+                move || f(),
+                move |t: &String| {
+                    let patch = make_patch(t.clone());
+                    with_tree(|tr| tr.patch(node, patch, affects_size));
+                },
+            );
         }
     }
 }
@@ -111,7 +122,11 @@ pub struct Label {
 }
 
 pub fn label<M>(text: impl IntoText<M>) -> Label {
-    Label { text: text.into_text(), font: Font::Body, color: None }
+    Label {
+        text: text.into_text(),
+        font: Font::Body,
+        color: None,
+    }
 }
 
 impl Label {
@@ -130,10 +145,16 @@ impl Piece for Label {
         let initial = self.text.initial();
         let node = cx.leaf(
             kinds::LABEL,
-            &LabelProps { text: initial, font: self.font, color: self.color, wraps: true },
+            &LabelProps {
+                text: initial,
+                font: self.font,
+                color: self.color,
+                wraps: true,
+            },
             Flex::default(),
         );
-        self.text.bind_to(node, |t| Box::new(LabelPatch::Text(t)), true);
+        self.text
+            .bind_to(node, |t| Box::new(LabelPatch::Text(t)), true);
         node
     }
 }
@@ -144,7 +165,10 @@ pub struct Button {
 }
 
 pub fn button<M>(title: impl IntoText<M>) -> Button {
-    Button { title: title.into_text(), action: None }
+    Button {
+        title: title.into_text(),
+        action: None,
+    }
 }
 
 impl Button {
@@ -159,7 +183,10 @@ impl Piece for Button {
         let initial = self.title.initial();
         let node = cx.leaf(
             kinds::BUTTON,
-            &ButtonProps { title: initial, enabled: true },
+            &ButtonProps {
+                title: initial,
+                enabled: true,
+            },
             Flex::default(),
         );
         if let Some(action) = self.action {
@@ -169,7 +196,8 @@ impl Piece for Button {
                 }
             });
         }
-        self.title.bind_to(node, |t| Box::new(ButtonPatch::Title(t)), true);
+        self.title
+            .bind_to(node, |t| Box::new(ButtonPatch::Title(t)), true);
         node
     }
 }
@@ -185,11 +213,22 @@ pub fn toggle<S: SignalRw<bool>>(value: S) -> Toggle<S> {
 impl<S: SignalRw<bool>> Piece for Toggle<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let initial = self.value.get_untracked_rw();
-        let node = cx.leaf(kinds::TOGGLE, &ToggleProps { on: initial, enabled: true }, Flex::default());
+        let node = cx.leaf(
+            kinds::TOGGLE,
+            &ToggleProps {
+                on: initial,
+                enabled: true,
+            },
+            Flex::default(),
+        );
         let v = self.value.clone();
-        bind_seeded(initial, move || v.get_rw(), move |on: &bool| {
-            with_tree(|t| t.patch(node, Box::new(TogglePatch::On(*on)), false));
-        });
+        bind_seeded(
+            initial,
+            move || v.get_rw(),
+            move |on: &bool| {
+                with_tree(|t| t.patch(node, Box::new(TogglePatch::On(*on)), false));
+            },
+        );
         let v = self.value;
         cx.on(node, move |ev| {
             if let Event::ToggleChanged(on) = ev {
@@ -208,7 +247,12 @@ pub struct Slider<S: SignalRw<f64>> {
 }
 
 pub fn slider<S: SignalRw<f64>>(value: S) -> Slider<S> {
-    Slider { value, min: 0.0, max: 1.0, step: None }
+    Slider {
+        value,
+        min: 0.0,
+        max: 1.0,
+        step: None,
+    }
 }
 
 impl<S: SignalRw<f64>> Slider<S> {
@@ -228,13 +272,26 @@ impl<S: SignalRw<f64>> Piece for Slider<S> {
         let initial = self.value.get_untracked_rw();
         let node = cx.leaf(
             kinds::SLIDER,
-            &SliderProps { value: initial, min: self.min, max: self.max, step: self.step, enabled: true },
-            Flex { grow_w: true, ..Default::default() },
+            &SliderProps {
+                value: initial,
+                min: self.min,
+                max: self.max,
+                step: self.step,
+                enabled: true,
+            },
+            Flex {
+                grow_w: true,
+                ..Default::default()
+            },
         );
         let v = self.value.clone();
-        bind_seeded(initial, move || v.get_rw(), move |val: &f64| {
-            with_tree(|t| t.patch(node, Box::new(SliderPatch::Value(*val)), false));
-        });
+        bind_seeded(
+            initial,
+            move || v.get_rw(),
+            move |val: &f64| {
+                with_tree(|t| t.patch(node, Box::new(SliderPatch::Value(*val)), false));
+            },
+        );
         let v = self.value;
         cx.on(node, move |ev| {
             if let Event::ValueChanged(val) = ev {
@@ -251,7 +308,10 @@ pub struct TextField<S: SignalRw<String>> {
 }
 
 pub fn text_field<S: SignalRw<String>>(value: S) -> TextField<S> {
-    TextField { value, placeholder: None }
+    TextField {
+        value,
+        placeholder: None,
+    }
 }
 
 impl<S: SignalRw<String>> TextField<S> {
@@ -264,27 +324,45 @@ impl<S: SignalRw<String>> TextField<S> {
 impl<S: SignalRw<String>> Piece for TextField<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let initial = self.value.get_untracked_rw();
-        let ph = self.placeholder.as_ref().map(|p| p.initial()).unwrap_or_default();
+        let ph = self
+            .placeholder
+            .as_ref()
+            .map(|p| p.initial())
+            .unwrap_or_default();
         let node = cx.leaf(
             kinds::TEXT_FIELD,
-            &TextFieldProps { text: initial.clone(), placeholder: ph, enabled: true },
-            Flex { grow_w: true, ..Default::default() },
+            &TextFieldProps {
+                text: initial.clone(),
+                placeholder: ph,
+                enabled: true,
+            },
+            Flex {
+                grow_w: true,
+                ..Default::default()
+            },
         );
         // Controlled input with origin-tagged writes (§4.4): the echo guard remembers the
         // last value that came FROM the native widget so its own change is not written back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let v = self.value.clone();
         let g = guard.clone();
-        bind_seeded(initial, move || v.get_rw(), move |t: &String| {
-            let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
-            with_tree(|tr| {
-                tr.patch(
-                    node,
-                    Box::new(TextFieldPatch::Text { text: t.clone(), from_native }),
-                    false,
-                )
-            });
-        });
+        bind_seeded(
+            initial,
+            move || v.get_rw(),
+            move |t: &String| {
+                let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
+                with_tree(|tr| {
+                    tr.patch(
+                        node,
+                        Box::new(TextFieldPatch::Text {
+                            text: t.clone(),
+                            from_native,
+                        }),
+                        false,
+                    )
+                });
+            },
+        );
         let v = self.value;
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
@@ -309,7 +387,14 @@ pub fn divider() -> Divider {
 
 impl Piece for Divider {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        cx.leaf(kinds::DIVIDER, &(), Flex { grow_w: true, ..Default::default() })
+        cx.leaf(
+            kinds::DIVIDER,
+            &(),
+            Flex {
+                grow_w: true,
+                ..Default::default()
+            },
+        )
     }
 }
 
@@ -321,7 +406,14 @@ pub fn spacer() -> Spacer {
 
 impl Piece for Spacer {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        cx.layout_only(Rc::new(PassThrough), Flex { is_spacer: true, ..Default::default() }, false)
+        cx.layout_only(
+            Rc::new(PassThrough),
+            Flex {
+                is_spacer: true,
+                ..Default::default()
+            },
+            false,
+        )
     }
 }
 
@@ -351,7 +443,11 @@ pub struct Column<C: PieceSeq> {
 }
 
 pub fn column<C: PieceSeq>(children: C) -> Column<C> {
-    Column { children, spacing: 0.0, align: CrossAlign::Center }
+    Column {
+        children,
+        spacing: 0.0,
+        align: CrossAlign::Center,
+    }
 }
 
 impl<C: PieceSeq> Column<C> {
@@ -374,7 +470,11 @@ impl<C: PieceSeq> Piece for Column<C> {
         let node = cx.native(
             kinds::CONTAINER,
             &ContainerProps::default(),
-            Rc::new(StackLayout { axis: Axis::Vertical, spacing: self.spacing, align: self.align }),
+            Rc::new(StackLayout {
+                axis: Axis::Vertical,
+                spacing: self.spacing,
+                align: self.align,
+            }),
             Flex::default(),
             false,
         );
@@ -390,7 +490,11 @@ pub struct Row<C: PieceSeq> {
 }
 
 pub fn row<C: PieceSeq>(children: C) -> Row<C> {
-    Row { children, spacing: 0.0, align: CrossAlign::Center }
+    Row {
+        children,
+        spacing: 0.0,
+        align: CrossAlign::Center,
+    }
 }
 
 impl<C: PieceSeq> Row<C> {
@@ -413,7 +517,11 @@ impl<C: PieceSeq> Piece for Row<C> {
         let node = cx.native(
             kinds::CONTAINER,
             &ContainerProps::default(),
-            Rc::new(StackLayout { axis: Axis::Horizontal, spacing: self.spacing, align: self.align }),
+            Rc::new(StackLayout {
+                axis: Axis::Horizontal,
+                spacing: self.spacing,
+                align: self.align,
+            }),
             Flex::default(),
             false,
         );
@@ -428,7 +536,10 @@ pub struct Scroll<P: Piece> {
 }
 
 pub fn scroll<P: Piece>(child: P) -> Scroll<P> {
-    Scroll { child, axis: Axis::Vertical }
+    Scroll {
+        child,
+        axis: Axis::Vertical,
+    }
 }
 
 impl<P: Piece> Piece for Scroll<P> {
@@ -437,7 +548,11 @@ impl<P: Piece> Piece for Scroll<P> {
             kinds::SCROLL,
             &ContainerProps::default(),
             Rc::new(ScrollLayout { axis: self.axis }),
-            Flex { grow_w: true, grow_h: true, ..Default::default() },
+            Flex {
+                grow_w: true,
+                grow_h: true,
+                ..Default::default()
+            },
             true, // scroll viewports are layout boundaries (§7.4)
         );
         cx.under(node, |cx| {
@@ -460,7 +575,10 @@ pub fn when<P: Piece>(
     piece_fn(move |cx| {
         let anchor = cx.layout_only(
             Rc::new(PassThrough),
-            Flex { is_group: true, ..Default::default() },
+            Flex {
+                is_group: true,
+                ..Default::default()
+            },
             false,
         );
         let state: Rc<RefCell<Option<Scope>>> = Rc::new(RefCell::new(None));
@@ -491,13 +609,16 @@ pub fn when<P: Piece>(
             }
         };
 
-        let initial = day_reactive::untrack(|| cond());
+        let initial = day_reactive::untrack(&cond);
         mount(initial);
-        watch(move || cond(), move |now, old| {
-            if Some(now) != old {
-                mount(*now);
-            }
-        });
+        watch(
+            cond,
+            move |now, old| {
+                if Some(now) != old {
+                    mount(*now);
+                }
+            },
+        );
         anchor
     })
 }
@@ -532,11 +653,14 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     }
 }
 
+/// Type-erased slot writer: feeds a surviving row's `ItemSlot` signal a new `&T` (§5.4).
+type SlotWriter = Box<dyn Fn(&dyn std::any::Any)>;
+
 struct EachRow<K> {
     key: K,
     scope: Scope,
     root: RNode,
-    sig_set: Box<dyn Fn(&dyn std::any::Any)>,
+    sig_set: SlotWriter,
 }
 
 /// Reactive keyed collection (§5.4): keyed diff, per-key child scopes, slot writes for
@@ -554,7 +678,10 @@ where
     piece_fn(move |cx| {
         let anchor = cx.layout_only(
             Rc::new(PassThrough),
-            Flex { is_group: true, ..Default::default() },
+            Flex {
+                is_group: true,
+                ..Default::default()
+            },
             false,
         );
         let rows: Rc<RefCell<Vec<EachRow<K>>>> = Rc::new(RefCell::new(Vec::new()));
@@ -614,9 +741,9 @@ where
             }
         };
 
-        let initial = day_reactive::untrack(|| items());
+        let initial = day_reactive::untrack(&items);
         sync(&initial);
-        watch(move || items(), move |new, _| sync(new));
+        watch(items, move |new, _| sync(new));
         anchor
     })
 }
@@ -670,7 +797,10 @@ pub trait Decorate: Piece + Sized {
     fn frame(self, width: f64, height: f64) -> AnyPiece {
         piece_fn(move |cx| {
             let w = cx.layout_only(
-                Rc::new(FrameLayout { width: Some(width), height: Some(height) }),
+                Rc::new(FrameLayout {
+                    width: Some(width),
+                    height: Some(height),
+                }),
                 Flex::default(),
                 true, // two-axis fixed frame = layout boundary (§7.4)
             );
@@ -726,16 +856,15 @@ impl A11yBuilder {
 
 pub mod prelude {
     pub use crate::{
-        A11yBuilder, Decorate, Draw, HAlign, IntoText, ItemSlot, SignalRw, VAlign, button,
-        canvas, column, divider, each, image, label, row, scroll, slider, spacer, text_field,
-        toggle, when,
+        A11yBuilder, Decorate, Draw, HAlign, IntoText, ItemSlot, SignalRw, VAlign, button, canvas,
+        column, divider, each, image, label, row, scroll, slider, spacer, text_field, toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Color, Insets, Point, Rect, Size};
-    pub use day_spec::{DrawOp, Shape};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
+    pub use day_spec::{DrawOp, Shape};
     pub use day_spec::{Font, Role};
 }
 
@@ -755,7 +884,13 @@ impl Draw {
         self.ops.push(DrawOp::Stroke(shape, color, width));
     }
     pub fn text(&mut self, text: &str, at: Point, size: f64, color: Color, centered: bool) {
-        self.ops.push(DrawOp::Text { text: text.to_owned(), at, size, color, centered });
+        self.ops.push(DrawOp::Text {
+            text: text.to_owned(),
+            at,
+            size,
+            color,
+            centered,
+        });
     }
 }
 
@@ -801,7 +936,10 @@ pub fn image(asset_name: &str) -> AnyPiece {
     piece_fn(move |cx| {
         cx.leaf(
             kinds::IMAGE,
-            &ImageProps { source: name, decorative: false },
+            &ImageProps {
+                source: name,
+                decorative: false,
+            },
             Flex::default(),
         )
     })

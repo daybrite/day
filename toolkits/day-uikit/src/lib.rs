@@ -152,7 +152,10 @@ mod imp {
     }
 
     fn cg(r: day_spec::Rect) -> CGRect {
-        CGRect::new(CGPoint::new(r.origin.x, r.origin.y), CGSize::new(r.size.width, r.size.height))
+        CGRect::new(
+            CGPoint::new(r.origin.x, r.origin.y),
+            CGSize::new(r.size.width, r.size.height),
+        )
     }
 
     fn draw_op(op: &day_spec::DrawOp) {
@@ -173,17 +176,21 @@ mod imp {
                         p.stroke();
                     }
                 }
-                DrawOp::Text { text, at, size, color, centered } => {
+                DrawOp::Text {
+                    text,
+                    at,
+                    size,
+                    color,
+                    centered,
+                } => {
                     let font = objc2_ui_kit::UIFont::systemFontOfSize(*size);
                     let col = uicolor(*color);
                     let keys: [&NSString; 2] = [
                         objc2_ui_kit::NSFontAttributeName,
                         objc2_ui_kit::NSForegroundColorAttributeName,
                     ];
-                    let objs: [&AnyObject; 2] = [
-                        font.as_ref() as &AnyObject,
-                        col.as_ref() as &AnyObject,
-                    ];
+                    let objs: [&AnyObject; 2] =
+                        [font.as_ref() as &AnyObject, col.as_ref() as &AnyObject];
                     let attrs =
                         objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
                     let ns = NSString::from_str(text);
@@ -209,7 +216,11 @@ mod imp {
                     UIBezierPath::bezierPathWithRoundedRect_cornerRadius(cg(*r), *rad)
                 }
                 Shape::Ellipse(r) => UIBezierPath::bezierPathWithOvalInRect(cg(*r)),
-                Shape::Arc { rect, start_deg, sweep_deg } => {
+                Shape::Arc {
+                    rect,
+                    start_deg,
+                    sweep_deg,
+                } => {
                     let center = CGPoint::new(
                         rect.origin.x + rect.size.width / 2.0,
                         rect.origin.y + rect.size.height / 2.0,
@@ -421,12 +432,19 @@ mod imp {
             }
         }
 
-        fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
+        fn update(
+            &mut self,
+            h: &Handle,
+            kind: PieceKind,
+            patch: &dyn Any,
+            _anim: Option<&AnimSpec>,
+        ) {
             match kind {
                 kinds::LABEL => {
-                    if let (Some(p), Some(label)) =
-                        (patch.downcast_ref::<LabelPatch>(), (**h).downcast_ref::<UILabel>())
-                    {
+                    if let (Some(p), Some(label)) = (
+                        patch.downcast_ref::<LabelPatch>(),
+                        (**h).downcast_ref::<UILabel>(),
+                    ) {
                         match p {
                             LabelPatch::Text(t) => unsafe {
                                 label.setText(Some(&NSString::from_str(t)))
@@ -437,9 +455,10 @@ mod imp {
                     }
                 }
                 kinds::BUTTON => {
-                    if let (Some(p), Some(btn)) =
-                        (patch.downcast_ref::<ButtonPatch>(), (**h).downcast_ref::<UIButton>())
-                    {
+                    if let (Some(p), Some(btn)) = (
+                        patch.downcast_ref::<ButtonPatch>(),
+                        (**h).downcast_ref::<UIButton>(),
+                    ) {
                         match p {
                             ButtonPatch::Title(t) => unsafe {
                                 btn.setTitle_forState(
@@ -452,9 +471,10 @@ mod imp {
                     }
                 }
                 kinds::TOGGLE => {
-                    if let (Some(p), Some(sw)) =
-                        (patch.downcast_ref::<TogglePatch>(), (**h).downcast_ref::<UISwitch>())
-                    {
+                    if let (Some(p), Some(sw)) = (
+                        patch.downcast_ref::<TogglePatch>(),
+                        (**h).downcast_ref::<UISwitch>(),
+                    ) {
                         match p {
                             TogglePatch::On(on) => {
                                 if unsafe { sw.isOn() } != *on {
@@ -466,9 +486,10 @@ mod imp {
                     }
                 }
                 kinds::SLIDER => {
-                    if let (Some(p), Some(sl)) =
-                        (patch.downcast_ref::<SliderPatch>(), (**h).downcast_ref::<UISlider>())
-                    {
+                    if let (Some(p), Some(sl)) = (
+                        patch.downcast_ref::<SliderPatch>(),
+                        (**h).downcast_ref::<UISlider>(),
+                    ) {
                         match p {
                             SliderPatch::Value(v) => {
                                 if (unsafe { sl.value() } as f64 - v).abs() > 0.001 {
@@ -539,7 +560,9 @@ mod imp {
                     Size::new(s.width.min(w), s.height)
                 }
                 kinds::BUTTON | kinds::TOGGLE => fit(1.0e6, 1.0e6),
-                kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(31.0)),
+                kinds::SLIDER => {
+                    Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(31.0))
+                }
                 kinds::TEXT_FIELD => {
                     Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(34.0))
                 }
@@ -653,8 +676,9 @@ mod imp {
                 );
                 unsafe { root_view.setFrame(inner) };
 
-                let (backend, _options, ready) =
-                    PENDING.with(|p| p.borrow_mut().take()).expect("day-uikit: run() not called");
+                let (backend, _options, ready) = PENDING
+                    .with(|p| p.borrow_mut().take())
+                    .expect("day-uikit: run() not called");
                 let size = Size::new(inner.size.width, inner.size.height);
                 ready(backend, view_of(root_view), size);
                 true

@@ -16,21 +16,41 @@ pub struct BuildOutcome {
 }
 
 fn cargo_dir(project: &Project, target: &Target, profile: &str) -> PathBuf {
-    project.root.join("build/day/cargo").join(target.name).join(profile)
+    project
+        .root
+        .join("build/day/cargo")
+        .join(target.name)
+        .join(profile)
 }
 
 pub fn status(prefix: &str, msg: &str) {
     eprintln!("\x1b[1;32m{prefix:>12}\x1b[0m {msg}");
 }
 
-pub fn build(project: &Project, target: &'static Target, profile: &str) -> Result<BuildOutcome, String> {
+pub fn build(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+) -> Result<BuildOutcome, String> {
+    let host = crate::targets::host_os();
+    if target.host != "any" && target.host != host {
+        return Err(format!(
+            "target {} builds on a {} host (this is {})",
+            target.name, target.host, host
+        ));
+    }
     let start = std::time::Instant::now();
     match target.kind {
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile))
-                .args(["build", "-p", &project.manifest.app.name, "--no-default-features"])
+                .args([
+                    "build",
+                    "-p",
+                    &project.manifest.app.name,
+                    "--no-default-features",
+                ])
                 .args(["--features", target.toolkit]);
             if profile == "release" {
                 cmd.arg("--release");

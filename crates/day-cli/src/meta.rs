@@ -9,9 +9,13 @@ use serde::Deserialize;
 pub struct Manifest {
     pub day: u32,
     pub app: App,
+    // Parsed for schema validation (deny_unknown_fields); the app scaffold consumes these,
+    // the CLI does not yet (§17.3).
     #[serde(default)]
+    #[allow(dead_code)]
     pub targets: Vec<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub window: Window,
 }
 
@@ -37,6 +41,7 @@ fn default_build() -> u64 {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)] // see Manifest::window
 pub struct Window {
     #[serde(default = "default_w")]
     pub width: f64,
@@ -46,7 +51,10 @@ pub struct Window {
 
 impl Default for Window {
     fn default() -> Self {
-        Window { width: default_w(), height: default_h() }
+        Window {
+            width: default_w(),
+            height: default_h(),
+        }
     }
 }
 
@@ -72,12 +80,18 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
         let candidate = dir.join("day.yaml");
         if candidate.exists() {
             let text = std::fs::read_to_string(&candidate).map_err(|e| e.to_string())?;
-            let manifest: Manifest = serde_norway::from_str(&text)
-                .map_err(|e| format!("day.yaml: {e}"))?;
+            let manifest: Manifest =
+                serde_norway::from_str(&text).map_err(|e| format!("day.yaml: {e}"))?;
             if manifest.day != 1 {
-                return Err(format!("day.yaml: unsupported schema version {}", manifest.day));
+                return Err(format!(
+                    "day.yaml: unsupported schema version {}",
+                    manifest.day
+                ));
             }
-            return Ok(Project { root: dir, manifest });
+            return Ok(Project {
+                root: dir,
+                manifest,
+            });
         }
         if !dir.pop() {
             return Err("no day.yaml found in this directory or any ancestor".into());

@@ -10,7 +10,11 @@ use crate::ops;
 use crate::targets;
 
 #[derive(Parser)]
-#[command(name = "day", version, about = "day — cross-platform apps in Rust with native toolkits")]
+#[command(
+    name = "day",
+    version,
+    about = "day — cross-platform apps in Rust with native toolkits"
+)]
 struct Cli {
     /// Project directory (default: nearest ancestor with day.yaml)
     #[arg(long, global = true)]
@@ -93,143 +97,150 @@ pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
         Cmd::Doctor => crate::doctor::run(),
-        Cmd::Pack { platforms, profile } => {
-            with_project(cli.project.as_deref(), |project| {
-                for p in &platforms {
-                    let Some(target) = targets::find(p) else {
+        Cmd::Pack { platforms, profile } => with_project(cli.project.as_deref(), |project| {
+            for p in &platforms {
+                let Some(target) = targets::find(p) else {
+                    eprintln!("error: unknown target {p:?}");
+                    return 2;
+                };
+                if let Err(e) = crate::pack::run(project, target, &profile) {
+                    eprintln!("error: {e}");
+                    return 4;
+                }
+            }
+            0
+        }),
+        Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
+            crate::lint::run(project, strict)
+        }),
+        Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
+        Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
+        Cmd::Create { name, targets, id } => create(&name, &targets, id.as_deref()),
+        Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
+            let mut results = Vec::new();
+            for p in &platforms {
+                let target = match targets::find(p) {
+                    Some(t) => t,
+                    None => {
                         eprintln!("error: unknown target {p:?}");
                         return 2;
-                    };
-                    if let Err(e) = crate::pack::run(project, target, &profile) {
+                    }
+                };
+                match ops::build(project, target, &profile) {
+                    Ok(o) => {
+                        ops::status(
+                            "Built",
+                            &format!(
+                                "{} → {} ({:.1}s)",
+                                o.target,
+                                o.artifact.display(),
+                                o.seconds
+                            ),
+                        );
+                        results.push(o);
+                    }
+                    Err(e) => {
                         eprintln!("error: {e}");
                         return 4;
                     }
                 }
-                0
-            })
-        }
-        Cmd::Lint { strict } => {
-            with_project(cli.project.as_deref(), |project| crate::lint::run(project, strict))
-        }
-        Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
-        Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
-        Cmd::Create { name, targets, id } => create(&name, &targets, id.as_deref()),
-        Cmd::Build { platforms, profile } => {
-            with_project(cli.project.as_deref(), |project| {
-                let mut results = Vec::new();
-                for p in &platforms {
-                    let target = match targets::find(p) {
-                        Some(t) => t,
-                        None => {
-                            eprintln!("error: unknown target {p:?}");
-                            return 2;
-                        }
-                    };
-                    match ops::build(project, target, &profile) {
-                        Ok(o) => {
-                            ops::status(
-                                "Built",
-                                &format!("{} → {} ({:.1}s)", o.target, o.artifact.display(), o.seconds),
-                            );
-                            results.push(o);
-                        }
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            return 4;
-                        }
+            }
+            if cli.format == "json" {
+                print_result_json("build", &results);
+            }
+            0
+        }),
+        Cmd::Launch {
+            platforms,
+            profile,
+            locale,
+            envs,
+            detach,
+            scripts,
+        } => with_project(cli.project.as_deref(), |project| {
+            let script_mode = !scripts.is_empty();
+            let mut spec = ops::LaunchSpec {
+                locale: locale.clone(),
+                envs: envs
+                    .iter()
+                    .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
+                    .collect(),
+                attached: !detach && !script_mode,
+            };
+            let token = crate::script::make_token();
+            let mut handles = Vec::new();
+            let mut script_failures = 0usize;
+            for (ti, p) in platforms.iter().enumerate() {
+                let port = crate::script::pick_port(ti);
+                if script_mode {
+                    spec.envs
+                        .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
+                    spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
+                    spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
+                }
+                let target = match targets::find(p) {
+                    Some(t) => t,
+                    None => {
+                        eprintln!("error: unknown target {p:?}");
+                        return 2;
                     }
-                }
-                if cli.format == "json" {
-                    print_result_json("build", &results);
-                }
-                0
-            })
-        }
-        Cmd::Launch { platforms, profile, locale, envs, detach, scripts } => {
-            with_project(cli.project.as_deref(), |project| {
-                let script_mode = !scripts.is_empty();
-                let mut spec = ops::LaunchSpec {
-                    locale: locale.clone(),
-                    envs: envs
-                        .iter()
-                        .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
-                        .collect(),
-                    attached: !detach && !script_mode,
                 };
-                let token = crate::script::make_token();
-                let mut handles = Vec::new();
-                let mut script_failures = 0usize;
-                for (ti, p) in platforms.iter().enumerate() {
-                    let port = crate::script::pick_port(ti);
-                    if script_mode {
-                        spec.envs.retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
-                        spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
-                        spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
+                let outcome = match ops::build(project, target, &profile) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 4;
                     }
-                    let target = match targets::find(p) {
-                        Some(t) => t,
-                        None => {
-                            eprintln!("error: unknown target {p:?}");
-                            return 2;
-                        }
-                    };
-                    let outcome = match ops::build(project, target, &profile) {
-                        Ok(o) => o,
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            return 4;
-                        }
-                    };
-                    match ops::launch(project, target, &outcome, &spec) {
-                        Ok(h) => handles.push(h),
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            return 1;
-                        }
-                    }
-                    if script_mode {
-                        match crate::script::run_scripts(
-                            project,
-                            target,
-                            port,
-                            &token,
-                            &scripts,
-                            locale.as_deref(),
-                        ) {
-                            Ok(run) => {
-                                script_failures += run.steps_failed;
-                                ops::status(
-                                    "Script",
-                                    &format!(
-                                        "{}: {}/{} steps passed · {} screenshot(s)",
-                                        target.name,
-                                        run.steps_total - run.steps_failed,
-                                        run.steps_total,
-                                        run.screenshots.len()
-                                    ),
-                                );
-                            }
-                            Err(e) => {
-                                eprintln!("error: {e}");
-                                return 5;
-                            }
-                        }
+                };
+                match ops::launch(project, target, &outcome, &spec) {
+                    Ok(h) => handles.push(h),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 1;
                     }
                 }
                 if script_mode {
-                    return if script_failures > 0 { 5 } else { 0 };
-                }
-                if spec.attached {
-                    let mut code = 0;
-                    for h in handles {
-                        code = code.max(h.join().unwrap_or(1));
+                    match crate::script::run_scripts(
+                        project,
+                        target,
+                        port,
+                        &token,
+                        &scripts,
+                        locale.as_deref(),
+                    ) {
+                        Ok(run) => {
+                            script_failures += run.steps_failed;
+                            ops::status(
+                                "Script",
+                                &format!(
+                                    "{}: {}/{} steps passed · {} screenshot(s)",
+                                    target.name,
+                                    run.steps_total - run.steps_failed,
+                                    run.steps_total,
+                                    run.screenshots.len()
+                                ),
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("error: {e}");
+                            return 5;
+                        }
                     }
-                    code
-                } else {
-                    0
                 }
-            })
-        }
+            }
+            if script_mode {
+                return if script_failures > 0 { 5 } else { 0 };
+            }
+            if spec.attached {
+                let mut code = 0;
+                for h in handles {
+                    code = code.max(h.join().unwrap_or(1));
+                }
+                code
+            } else {
+                0
+            }
+        }),
     }
 }
 
@@ -272,7 +283,9 @@ fn create(name: &str, targets_csv: &str, id: Option<&str>) -> i32 {
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let id = id.map(String::from).unwrap_or_else(|| format!("dev.example.{name}"));
+    let id = id
+        .map(String::from)
+        .unwrap_or_else(|| format!("dev.example.{name}"));
     let day = day_home().canonicalize().unwrap_or_else(|_| day_home());
     let day = day.display();
     let targets_yaml = targets_csv

@@ -21,7 +21,8 @@ fn ftl_keys(src: &str) -> BTreeSet<String> {
             let (k, _) = l.split_once('=')?;
             let k = k.trim();
             if !k.is_empty()
-                && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                && k.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
                 && !k.starts_with('-')
             {
                 Some(k.to_string())
@@ -33,13 +34,15 @@ fn ftl_keys(src: &str) -> BTreeSet<String> {
 }
 
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
             scan_sources(&p, pat, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            if let Ok(src) = std::fs::read_to_string(&p) {
+        } else if p.extension().is_some_and(|x| x == "rs")
+            && let Ok(src) = std::fs::read_to_string(&p) {
                 let mut rest = src.as_str();
                 while let Some(i) = rest.find(pat) {
                     rest = &rest[i + pat.len()..];
@@ -49,7 +52,6 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
                     }
                 }
             }
-        }
     }
 }
 
@@ -66,11 +68,10 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                 let mut keys = BTreeSet::new();
                 if let Ok(files) = std::fs::read_dir(e.path()) {
                     for f in files.flatten() {
-                        if f.path().extension().is_some_and(|x| x == "ftl") {
-                            if let Ok(src) = std::fs::read_to_string(f.path()) {
+                        if f.path().extension().is_some_and(|x| x == "ftl")
+                            && let Ok(src) = std::fs::read_to_string(f.path()) {
                                 keys.extend(ftl_keys(&src));
                             }
-                        }
                     }
                 }
                 locales.insert(name, keys);
@@ -82,8 +83,11 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     let used: BTreeSet<String> = used_keys.into_iter().collect();
 
     // Default = "en" if present, else first.
-    let default_name =
-        if locales.contains_key("en") { "en".to_string() } else { locales.keys().next().cloned().unwrap_or_default() };
+    let default_name = if locales.contains_key("en") {
+        "en".to_string()
+    } else {
+        locales.keys().next().cloned().unwrap_or_default()
+    };
     if let Some(default_keys) = locales.get(&default_name).cloned() {
         for k in &used {
             if !default_keys.contains(k) {

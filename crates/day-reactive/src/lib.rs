@@ -45,13 +45,16 @@ enum NodeKind {
     Reaction,
 }
 
+/// Type-erased memo comparator (a monomorphized `PartialEq::eq`).
+type MemoEq = fn(&dyn Any, &dyn Any) -> bool;
+
 struct Node {
     kind: NodeKind,
     state: NodeState,
     value: Option<Box<dyn Any>>,
     /// Memo recompute (returns boxed new value) — compared with `eq`.
     memo_compute: Option<Rc<dyn Fn() -> Box<dyn Any>>>,
-    memo_eq: Option<fn(&dyn Any, &dyn Any) -> bool>,
+    memo_eq: Option<MemoEq>,
     /// Reaction closure (effect/bind/watch body).
     reaction: Option<Rc<dyn Fn()>>,
     sources: Vec<NodeKey>,
@@ -186,11 +189,10 @@ fn track_read(rt: &mut Runtime, source: NodeKey) {
 fn clear_sources(rt: &mut Runtime, key: NodeKey) {
     let sources = std::mem::take(&mut rt.nodes[key].sources);
     for s in sources {
-        if let Some(n) = rt.nodes.get_mut(s) {
-            if let Some(pos) = n.observers.iter().position(|&o| o == key) {
+        if let Some(n) = rt.nodes.get_mut(s)
+            && let Some(pos) = n.observers.iter().position(|&o| o == key) {
                 n.observers.swap_remove(pos);
             }
-        }
     }
 }
 
@@ -198,10 +200,15 @@ fn clear_sources(rt: &mut Runtime, key: NodeKey) {
 /// (through memos) get `Check`. Reactions are enqueued.
 fn mark_observers(rt: &mut Runtime, source: NodeKey, level: NodeState) {
     // Small explicit stack to avoid recursion borrow issues.
-    let mut stack: Vec<(NodeKey, NodeState)> =
-        rt.nodes[source].observers.iter().map(|&o| (o, level)).collect();
+    let mut stack: Vec<(NodeKey, NodeState)> = rt.nodes[source]
+        .observers
+        .iter()
+        .map(|&o| (o, level))
+        .collect();
     while let Some((key, level)) = stack.pop() {
-        let Some(node) = rt.nodes.get_mut(key) else { continue };
+        let Some(node) = rt.nodes.get_mut(key) else {
+            continue;
+        };
         if node.state >= level {
             continue; // already at least this dirty
         }
@@ -239,7 +246,12 @@ fn refresh_memo(key: NodeKey) {
         let mut any_changed = false;
         for s in sources {
             refresh_memo(s);
-            if with_rt(|rt| rt.nodes.get(s).map(|n| n.last_changed > last_run).unwrap_or(false)) {
+            if with_rt(|rt| {
+                rt.nodes
+                    .get(s)
+                    .map(|n| n.last_changed > last_run)
+                    .unwrap_or(false)
+            }) {
                 any_changed = true;
             }
         }
@@ -286,7 +298,9 @@ fn run_reaction(key: NodeKey) {
             (n.state, n.sources.clone(), n.last_run)
         })
     });
-    let Some((state, sources, last_run)) = info else { return };
+    let Some((state, sources, last_run)) = info else {
+        return;
+    };
     if state == NodeState::Clean {
         return;
     }
@@ -294,7 +308,12 @@ fn run_reaction(key: NodeKey) {
         let mut any_changed = false;
         for s in &sources {
             refresh_memo(*s);
-            if with_rt(|rt| rt.nodes.get(*s).map(|n| n.last_changed > last_run).unwrap_or(false)) {
+            if with_rt(|rt| {
+                rt.nodes
+                    .get(*s)
+                    .map(|n| n.last_changed > last_run)
+                    .unwrap_or(false)
+            }) {
                 any_changed = true;
                 break;
             }
@@ -349,7 +368,10 @@ pub fn flush_sync() {
         // (priority, scope-depth, creation-seq) — owners before descendants.
         with_rt(|rt| {
             batch.sort_by_key(|&k| {
-                rt.nodes.get(k).map(|n| (n.priority, n.depth, n.seq)).unwrap_or((u8::MAX, u32::MAX, u64::MAX))
+                rt.nodes
+                    .get(k)
+                    .map(|n| (n.priority, n.depth, n.seq))
+                    .unwrap_or((u8::MAX, u32::MAX, u64::MAX))
             })
         });
         for key in batch {
@@ -359,9 +381,13 @@ pub fn flush_sync() {
                 let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
                 if let Some(loc) = loc {
                     if cfg!(debug_assertions) {
-                        panic!("day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)");
+                        panic!(
+                            "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
+                        );
                     } else {
-                        eprintln!("day-reactive: effect created at {loc} exceeded the re-run cap; deferring");
+                        eprintln!(
+                            "day-reactive: effect created at {loc} exceeded the re-run cap; deferring"
+                        );
                     }
                 }
                 continue;
@@ -394,8 +420,8 @@ fn schedule_after_write(rt: &mut Runtime) -> Option<Rc<dyn Fn()>> {
 
 fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> bool) {
     let poster = with_rt(|rt| {
-        let Some(node) = rt.nodes.get_mut(key) else { return None };
-        let Some(value) = node.value.as_mut() else { return None };
+        let node = rt.nodes.get_mut(key)?;
+        let value = node.value.as_mut()?;
         let changed = apply(value);
         if !changed {
             return None;
@@ -481,11 +507,17 @@ pub struct Scope {
 
 impl Scope {
     pub fn current() -> Scope {
-        Scope { key: with_rt(|rt| rt.current_scope), _not_send: PhantomData }
+        Scope {
+            key: with_rt(|rt| rt.current_scope),
+            _not_send: PhantomData,
+        }
     }
 
     pub fn root() -> Scope {
-        Scope { key: with_rt(|rt| rt.root_scope), _not_send: PhantomData }
+        Scope {
+            key: with_rt(|rt| rt.root_scope),
+            _not_send: PhantomData,
+        }
     }
 
     /// Create a child of the current scope.
@@ -509,7 +541,10 @@ impl Scope {
             }
             child
         });
-        Scope { key, _not_send: PhantomData }
+        Scope {
+            key,
+            _not_send: PhantomData,
+        }
     }
 
     /// A scope owned by nobody — dispose it manually.
@@ -524,7 +559,10 @@ impl Scope {
                 depth: 0,
             })
         });
-        Scope { key, _not_send: PhantomData }
+        Scope {
+            key,
+            _not_send: PhantomData,
+        }
     }
 
     /// Run `f` with `self` as the current scope.
@@ -554,31 +592,35 @@ impl Scope {
             None => return,
         };
         for c in children {
-            (Scope { key: c, _not_send: PhantomData }).dispose();
+            (Scope {
+                key: c,
+                _not_send: PhantomData,
+            })
+            .dispose();
         }
         let (nodes, cleanups, parent) = match with_rt(|rt| {
-            rt.scopes.remove(self.key).map(|s| (s.nodes, s.cleanups, s.parent))
+            rt.scopes
+                .remove(self.key)
+                .map(|s| (s.nodes, s.cleanups, s.parent))
         }) {
             Some(v) => v,
             None => return,
         };
         with_rt(|rt| {
-            if let Some(p) = rt.scopes.get_mut(parent) {
-                if let Some(pos) = p.children.iter().position(|&c| c == self.key) {
+            if let Some(p) = rt.scopes.get_mut(parent)
+                && let Some(pos) = p.children.iter().position(|&c| c == self.key) {
                     p.children.swap_remove(pos);
                 }
-            }
             for key in nodes {
                 clear_sources(rt, key);
                 // Detach us from downstream observers too.
                 if let Some(node) = rt.nodes.get_mut(key) {
                     let observers = std::mem::take(&mut node.observers);
                     for o in observers {
-                        if let Some(on) = rt.nodes.get_mut(o) {
-                            if let Some(pos) = on.sources.iter().position(|&s| s == key) {
+                        if let Some(on) = rt.nodes.get_mut(o)
+                            && let Some(pos) = on.sources.iter().position(|&s| s == key) {
                                 on.sources.swap_remove(pos);
                             }
-                        }
                     }
                 }
                 rt.nodes.remove(key);
@@ -653,7 +695,11 @@ impl<T: 'static> Signal<T> {
             rt.nodes[k].created_at = created_at;
             k
         });
-        Signal { key, created_at, _m: PhantomData }
+        Signal {
+            key,
+            created_at,
+            _m: PhantomData,
+        }
     }
 
     /// Tracked read by reference.
@@ -758,7 +804,10 @@ impl<T: 'static> Signal<T> {
             let loc = Location::caller();
             let first = with_rt(|rt| rt.warned_writes.insert(loc as *const _));
             if first && cfg!(debug_assertions) {
-                eprintln!("day-reactive: write at {loc} to a disposed signal (created at {}) ignored", self.created_at);
+                eprintln!(
+                    "day-reactive: write at {loc} to a disposed signal (created at {}) ignored",
+                    self.created_at
+                );
             }
             return;
         }
@@ -773,7 +822,10 @@ impl<T: 'static> Signal<T> {
     where
         T: Send,
     {
-        Setter { key: self.key, _m: PhantomData }
+        Setter {
+            key: self.key,
+            _m: PhantomData,
+        }
     }
 }
 
@@ -796,7 +848,7 @@ impl<T: Send + 'static> Setter<T> {
         let key = self.key;
         on_main(move || {
             let poster = with_rt(|rt| {
-                let Some(node) = rt.nodes.get_mut(key) else { return None };
+                let node = rt.nodes.get_mut(key)?;
                 if let Some(slot) = node.value.as_mut().and_then(|b| b.downcast_mut::<T>()) {
                     *slot = value;
                 } else {
@@ -859,7 +911,11 @@ impl<T: 'static> Memo<T> {
             node.state = NodeState::Dirty; // lazy: computed on first read
             node.created_at = created_at;
         });
-        Memo { key, created_at, _m: PhantomData }
+        Memo {
+            key,
+            created_at,
+            _m: PhantomData,
+        }
     }
 
     #[track_caller]
@@ -882,7 +938,10 @@ impl<T: 'static> Memo<T> {
                 });
                 r
             }
-            None => panic!("day-reactive: read of disposed Memo created at {}", self.created_at),
+            None => panic!(
+                "day-reactive: read of disposed Memo created at {}",
+                self.created_at
+            ),
         }
     }
 
@@ -916,6 +975,9 @@ fn eqbox_eq<T: 'static>(a: &dyn Any, b: &dyn Any) -> bool {
 pub struct Effect;
 
 impl Effect {
+    // Constructor-style registration: the reaction is owned by the current Scope (disposed
+    // with it), so there is no handle value to return.
+    #[allow(clippy::new_ret_no_self)]
     #[track_caller]
     pub fn new(f: impl Fn() + 'static) {
         create_reaction(Rc::new(f), 1);
@@ -1033,7 +1095,9 @@ pub struct Trigger {
 impl Trigger {
     #[track_caller]
     pub fn new() -> Self {
-        Trigger { signal: Signal::new(0) }
+        Trigger {
+            signal: Signal::new(0),
+        }
     }
     pub fn track(self) {
         self.signal.track();
@@ -1150,7 +1214,10 @@ mod tests {
         let s = Signal::new(1);
         let applied: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let a2 = applied.clone();
-        bind(move || s.get().to_string(), move |v| a2.borrow_mut().push(v.clone()));
+        bind(
+            move || s.get().to_string(),
+            move |v| a2.borrow_mut().push(v.clone()),
+        );
         assert_eq!(*applied.borrow(), vec!["1"]);
         batch(|| s.set(2));
         assert_eq!(*applied.borrow(), vec!["1", "2"]);
@@ -1161,9 +1228,13 @@ mod tests {
     #[test]
     fn watch_skips_initial_and_passes_old() {
         let s = Signal::new(10);
-        let log: Rc<RefCell<Vec<(i32, Option<i32>)>>> = Rc::new(RefCell::new(Vec::new()));
+        type Log = Rc<RefCell<Vec<(i32, Option<i32>)>>>;
+        let log: Log = Rc::new(RefCell::new(Vec::new()));
         let l2 = log.clone();
-        watch(move || s.get(), move |new, old| l2.borrow_mut().push((*new, old.copied())));
+        watch(
+            move || s.get(),
+            move |new, old| l2.borrow_mut().push((*new, old.copied())),
+        );
         assert!(log.borrow().is_empty());
         batch(|| s.set(11));
         assert_eq!(*log.borrow(), vec![(11, Some(10))]);
@@ -1201,11 +1272,10 @@ mod tests {
         let scope_cell = Rc::new(StdCell::new(Some(scope)));
         let sc = scope_cell.clone();
         Effect::new(move || {
-            if s.get() == 1 {
-                if let Some(scope) = sc.take() {
+            if s.get() == 1
+                && let Some(scope) = sc.take() {
                     scope.dispose();
                 }
-            }
         });
         scope.enter(|| {
             Effect::new(move || {

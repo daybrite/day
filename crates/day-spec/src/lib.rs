@@ -139,7 +139,11 @@ pub enum Shape {
     RoundedRect(Rect, f64),
     Ellipse(Rect),
     /// Arc within `rect`'s inscribed ellipse; angles in degrees, 0 = +x axis, clockwise.
-    Arc { rect: Rect, start_deg: f64, sweep_deg: f64 },
+    Arc {
+        rect: Rect,
+        start_deg: f64,
+        sweep_deg: f64,
+    },
     Line(Point, Point),
     Polygon(Vec<Point>),
 }
@@ -148,7 +152,13 @@ pub enum Shape {
 pub enum DrawOp {
     Fill(Shape, Color),
     Stroke(Shape, Color, f64),
-    Text { text: String, at: Point, size: f64, color: Color, centered: bool },
+    Text {
+        text: String,
+        at: Point,
+        size: f64,
+        color: Color,
+        centered: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +232,13 @@ pub mod props {
     }
     impl Default for SliderProps {
         fn default() -> Self {
-            SliderProps { value: 0.0, min: 0.0, max: 1.0, step: None, enabled: true }
+            SliderProps {
+                value: 0.0,
+                min: 0.0,
+                max: 1.0,
+                step: None,
+                enabled: true,
+            }
         }
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -240,7 +256,10 @@ pub mod props {
     #[derive(Clone, Debug, PartialEq)]
     pub enum TextFieldPatch {
         /// Origin-tagged write (§4.4): `from_native` suppresses the echo back into the widget.
-        Text { text: String, from_native: bool },
+        Text {
+            text: String,
+            from_native: bool,
+        },
         Placeholder(String),
         Enabled(bool),
     }
@@ -271,7 +290,13 @@ pub trait Toolkit: Sized + 'static {
 
     // node lifecycle
     fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Self::Handle;
-    fn update(&mut self, h: &Self::Handle, kind: PieceKind, patch: &dyn Any, anim: Option<&AnimSpec>);
+    fn update(
+        &mut self,
+        h: &Self::Handle,
+        kind: PieceKind,
+        patch: &dyn Any,
+        anim: Option<&AnimSpec>,
+    );
     /// Called from the turn-boundary release queue; backends may defer destruction further.
     fn release(&mut self, h: Self::Handle);
 
@@ -321,7 +346,11 @@ pub struct WindowOptions {
 
 impl Default for WindowOptions {
     fn default() -> Self {
-        WindowOptions { title: "day".into(), size: Size::new(480.0, 640.0), min_size: None }
+        WindowOptions {
+            title: "day".into(),
+            size: Size::new(480.0, 640.0),
+            min_size: None,
+        }
     }
 }
 
@@ -352,13 +381,16 @@ pub trait Platform: Toolkit {
 // Open renderer registry (§8.2)
 // ---------------------------------------------------------------------------
 
+/// Optional custom measure for a third-party piece (§8.2).
+pub type MeasureFn<B> = fn(&mut B, &<B as Toolkit>::Handle, Proposal) -> Size;
+
 /// A third-party piece's per-toolkit implementation. `make` receives the concrete backend
 /// (public helper surface) and returns a native handle the backend then owns like any built-in.
 pub struct Renderer<B: Toolkit> {
     pub kind: PieceKind,
     pub make: fn(&mut B, &dyn Any, NodeId) -> B::Handle,
     pub update: fn(&mut B, &B::Handle, &dyn Any),
-    pub measure: Option<fn(&mut B, &B::Handle, Proposal) -> Size>,
+    pub measure: Option<MeasureFn<B>>,
 }
 
 pub struct Registry<B: Toolkit> {
@@ -367,7 +399,9 @@ pub struct Registry<B: Toolkit> {
 
 impl<B: Toolkit> Default for Registry<B> {
     fn default() -> Self {
-        Registry { map: HashMap::new() }
+        Registry {
+            map: HashMap::new(),
+        }
     }
 }
 
@@ -398,25 +432,105 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     }
     let mut nums = Vec::with_capacity(ops.len() * 9);
     let mut texts = Vec::new();
-    let mut push = |k: f64, a: f64, b: f64, c: f64, d: f64, e: f64, f: f64, g: f64, col: Color, nums: &mut Vec<f64>| {
+    let push = |k: f64,
+                    a: f64,
+                    b: f64,
+                    c: f64,
+                    d: f64,
+                    e: f64,
+                    f: f64,
+                    g: f64,
+                    col: Color,
+                    nums: &mut Vec<f64>| {
         nums.extend_from_slice(&[k, a, b, c, d, e, f, g, color_bits(col)]);
     };
     for op in ops {
         match op {
             DrawOp::Fill(shape, col) | DrawOp::Stroke(shape, col, _) => {
-                let w = if let DrawOp::Stroke(_, _, w) = op { *w } else { 0.0 };
+                let w = if let DrawOp::Stroke(_, _, w) = op {
+                    *w
+                } else {
+                    0.0
+                };
                 let stroke = matches!(op, DrawOp::Stroke(..));
                 match shape {
-                    Shape::Rect(r) => push(if stroke { 1.0 } else { 0.0 }, r.origin.x, r.origin.y, r.size.width, r.size.height, 0.0, 0.0, w, *col, &mut nums),
-                    Shape::RoundedRect(r, rad) => push(2.0, r.origin.x, r.origin.y, r.size.width, r.size.height, *rad, 0.0, w, *col, &mut nums),
-                    Shape::Ellipse(r) => push(if stroke { 4.0 } else { 3.0 }, r.origin.x, r.origin.y, r.size.width, r.size.height, 0.0, 0.0, w, *col, &mut nums),
-                    Shape::Arc { rect, start_deg, sweep_deg } => push(5.0, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height, *start_deg, *sweep_deg, w, *col, &mut nums),
-                    Shape::Line(p1, p2) => push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, *col, &mut nums),
+                    Shape::Rect(r) => push(
+                        if stroke { 1.0 } else { 0.0 },
+                        r.origin.x,
+                        r.origin.y,
+                        r.size.width,
+                        r.size.height,
+                        0.0,
+                        0.0,
+                        w,
+                        *col,
+                        &mut nums,
+                    ),
+                    Shape::RoundedRect(r, rad) => push(
+                        2.0,
+                        r.origin.x,
+                        r.origin.y,
+                        r.size.width,
+                        r.size.height,
+                        *rad,
+                        0.0,
+                        w,
+                        *col,
+                        &mut nums,
+                    ),
+                    Shape::Ellipse(r) => push(
+                        if stroke { 4.0 } else { 3.0 },
+                        r.origin.x,
+                        r.origin.y,
+                        r.size.width,
+                        r.size.height,
+                        0.0,
+                        0.0,
+                        w,
+                        *col,
+                        &mut nums,
+                    ),
+                    Shape::Arc {
+                        rect,
+                        start_deg,
+                        sweep_deg,
+                    } => push(
+                        5.0,
+                        rect.origin.x,
+                        rect.origin.y,
+                        rect.size.width,
+                        rect.size.height,
+                        *start_deg,
+                        *sweep_deg,
+                        w,
+                        *col,
+                        &mut nums,
+                    ),
+                    Shape::Line(p1, p2) => {
+                        push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, *col, &mut nums)
+                    }
                     Shape::Polygon(_) => {} // post-MVP
                 }
             }
-            DrawOp::Text { text, at, size, color, centered } => {
-                push(7.0, at.x, at.y, 0.0, 0.0, *size, if *centered { 1.0 } else { 0.0 }, 0.0, *color, &mut nums);
+            DrawOp::Text {
+                text,
+                at,
+                size,
+                color,
+                centered,
+            } => {
+                push(
+                    7.0,
+                    at.x,
+                    at.y,
+                    0.0,
+                    0.0,
+                    *size,
+                    if *centered { 1.0 } else { 0.0 },
+                    0.0,
+                    *color,
+                    &mut nums,
+                );
                 texts.push(text.clone());
             }
         }

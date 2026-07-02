@@ -22,8 +22,11 @@ pub struct QtHandle(pub *mut c_void);
 
 pub type Handle = QtHandle;
 
+/// The day-core event sink (node-id keyed).
+type Sink = Rc<dyn Fn(NodeId, Event)>;
+
 thread_local! {
-    static SINK: RefCell<Option<Rc<dyn Fn(NodeId, Event)>>> = const { RefCell::new(None) };
+    static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Slider f64 range, keyed by node id (event callbacks) AND widget ptr (patch application).
     static RANGES: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
     static RANGES_BY_PTR: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
@@ -78,7 +81,10 @@ impl Qt {
         for f in RENDERERS {
             registry.register(f());
         }
-        Qt { registry, window: std::ptr::null_mut() }
+        Qt {
+            registry,
+            window: std::ptr::null_mut(),
+        }
     }
 }
 
@@ -128,7 +134,11 @@ impl Toolkit for Qt {
                 }
                 kinds::BUTTON => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
-                    QtHandle(ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press))
+                    QtHandle(ffi::day_qt_button_new(
+                        cstr(&p.title).as_ptr(),
+                        id.0,
+                        on_press,
+                    ))
                 }
                 kinds::TOGGLE => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
@@ -176,7 +186,13 @@ impl Toolkit for Qt {
         }
     }
 
-    fn update(&mut self, h: &QtHandle, kind: PieceKind, patch: &dyn std::any::Any, _anim: Option<&AnimSpec>) {
+    fn update(
+        &mut self,
+        h: &QtHandle,
+        kind: PieceKind,
+        patch: &dyn std::any::Any,
+        _anim: Option<&AnimSpec>,
+    ) {
         unsafe {
             match kind {
                 kinds::LABEL => {

@@ -65,13 +65,16 @@ pub struct NodeData<H> {
     pub is_boundary: bool,
 }
 
+/// An event handler registered on a realized node.
+pub type EventHandler = Rc<dyn Fn(&Event)>;
+
 pub struct Tree<B: Toolkit> {
     pub toolkit: B,
     nodes: SlotMap<RNode, NodeData<B::Handle>>,
     root: RNode,
     window_size: Size,
     layout_dirty: bool,
-    handlers: HashMap<RNode, Vec<Rc<dyn Fn(&Event)>>>,
+    handlers: HashMap<RNode, Vec<EventHandler>>,
     release_queue: Vec<B::Handle>,
 }
 
@@ -118,7 +121,9 @@ impl<B: Toolkit> Tree<B> {
     /// Nearest ancestor (or self) with a native handle.
     fn native_ancestor(&self, mut n: RNode) -> RNode {
         loop {
-            let Some(node) = self.nodes.get(n) else { return self.root };
+            let Some(node) = self.nodes.get(n) else {
+                return self.root;
+            };
             if node.handle.is_some() {
                 return n;
             }
@@ -128,7 +133,9 @@ impl<B: Toolkit> Tree<B> {
 
     /// In-order native descendants of `container` (its native children, not descending into them).
     fn native_descendants(&self, container: RNode, out: &mut Vec<RNode>) {
-        let Some(node) = self.nodes.get(container) else { return };
+        let Some(node) = self.nodes.get(container) else {
+            return;
+        };
         for &c in &node.children {
             match self.nodes.get(c) {
                 Some(cd) if cd.handle.is_some() => out.push(c),
@@ -145,7 +152,9 @@ impl<B: Toolkit> Tree<B> {
             if n == target {
                 return true;
             }
-            let Some(node) = tree.nodes.get(n) else { return false };
+            let Some(node) = tree.nodes.get(n) else {
+                return false;
+            };
             if node.handle.is_some() && n != target {
                 // A native node counts as one slot; do not descend (its children are inside it).
                 *count += 1;
@@ -159,7 +168,9 @@ impl<B: Toolkit> Tree<B> {
             false
         }
         let mut count = 0;
-        let Some(anc) = self.nodes.get(ancestor) else { return 0 };
+        let Some(anc) = self.nodes.get(ancestor) else {
+            return 0;
+        };
         for &c in &anc.children {
             if c == target || self.subtree_contains(c, target) {
                 // Count native roots in this subtree BEFORE target.
@@ -184,22 +195,35 @@ impl<B: Toolkit> Tree<B> {
         if root == target {
             return true;
         }
-        let Some(node) = self.nodes.get(root) else { return false };
-        node.children.iter().any(|&c| self.subtree_contains(c, target))
+        let Some(node) = self.nodes.get(root) else {
+            return false;
+        };
+        node.children
+            .iter()
+            .any(|&c| self.subtree_contains(c, target))
     }
 
     /// Attach `child` under `parent` at child-list `index`, wiring native insertion.
     fn attach_impl(&mut self, parent: RNode, child: RNode, index: usize) {
         {
-            let p = self.nodes.get_mut(parent).expect("attach to missing parent");
+            let p = self
+                .nodes
+                .get_mut(parent)
+                .expect("attach to missing parent");
             let idx = index.min(p.children.len());
             p.children.insert(idx, child);
         }
-        self.nodes.get_mut(child).expect("attach missing child").parent = parent;
+        self.nodes
+            .get_mut(child)
+            .expect("attach missing child")
+            .parent = parent;
         // Native wiring: every native root inside `child`'s subtree inserts under the nearest
         // native ancestor at its in-order position.
         let ancestor = self.native_ancestor(parent);
-        let anc_handle = self.nodes[ancestor].handle.clone().expect("native ancestor");
+        let anc_handle = self.nodes[ancestor]
+            .handle
+            .clone()
+            .expect("native ancestor");
         let mut roots = Vec::new();
         match self.nodes.get(child) {
             Some(cd) if cd.handle.is_some() => roots.push(child),
@@ -217,7 +241,11 @@ impl<B: Toolkit> Tree<B> {
     fn remove_subtree_impl(&mut self, node: RNode) {
         // Detach native roots from their native ancestor, queue every handle for release,
         // drop handler entries, then remove the node records.
-        let parent = self.nodes.get(node).map(|n| n.parent).unwrap_or(RNode::null());
+        let parent = self
+            .nodes
+            .get(node)
+            .map(|n| n.parent)
+            .unwrap_or(RNode::null());
         if let Some(p) = self.nodes.get_mut(parent) {
             p.children.retain(|&c| c != node);
         }
@@ -238,7 +266,9 @@ impl<B: Toolkit> Tree<B> {
         // Collect the whole subtree.
         let mut stack = vec![node];
         while let Some(n) = stack.pop() {
-            let Some(data) = self.nodes.remove(n) else { continue };
+            let Some(data) = self.nodes.remove(n) else {
+                continue;
+            };
             self.handlers.remove(&n);
             if let Some(h) = data.handle {
                 self.release_queue.push(h);
@@ -254,8 +284,7 @@ impl<B: Toolkit> Tree<B> {
 
     fn mark_needs_measure_impl(&mut self, node: RNode) {
         let mut cur = node;
-        loop {
-            let Some(n) = self.nodes.get_mut(cur) else { break };
+        while let Some(n) = self.nodes.get_mut(cur) {
             n.needs_measure = true;
             n.cache.clear();
             if n.is_boundary || n.parent.is_null() {
@@ -284,6 +313,9 @@ impl<B: Toolkit> Tree<B> {
 // ---------------------------------------------------------------------------
 
 pub trait TreeOps {
+    // The object-safe seam mirrors NodeData's fields one-to-one; grouping them into a
+    // params struct would just move the same list behind a constructor.
+    #[allow(clippy::too_many_arguments)]
     fn create_node(
         &mut self,
         kind: PieceKind,
@@ -298,8 +330,8 @@ pub trait TreeOps {
     fn attach_at(&mut self, parent: RNode, child: RNode, index: usize);
     fn reorder_children(&mut self, parent: RNode, order: Vec<RNode>);
     fn remove_subtree(&mut self, node: RNode);
-    fn on_event(&mut self, node: RNode, h: Rc<dyn Fn(&Event)>);
-    fn handlers_for(&self, node: RNode) -> Vec<Rc<dyn Fn(&Event)>>;
+    fn on_event(&mut self, node: RNode, h: EventHandler);
+    fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
@@ -329,7 +361,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         is_boundary: bool,
         scope: Scope,
     ) -> RNode {
-        let mut probe = NodeProbe { enabled: true, ..Default::default() };
+        let mut probe = NodeProbe {
+            enabled: true,
+            ..Default::default()
+        };
         {
             use day_spec::props::*;
             if let Some(p) = props.downcast_ref::<LabelProps>() {
@@ -367,7 +402,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn attach(&mut self, parent: RNode, child: RNode) {
-        let index = self.nodes.get(parent).map(|p| p.children.len()).unwrap_or(0);
+        let index = self
+            .nodes
+            .get(parent)
+            .map(|p| p.children.len())
+            .unwrap_or(0);
         self.attach_impl(parent, child, index);
     }
 
@@ -381,7 +420,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
         // Full native resync of the nearest native ancestor: rebuild in-order positions.
         let ancestor = self.native_ancestor(parent);
-        let anc_handle = self.nodes[ancestor].handle.clone().expect("native ancestor");
+        let anc_handle = self.nodes[ancestor]
+            .handle
+            .clone()
+            .expect("native ancestor");
         let mut desired = Vec::new();
         self.native_descendants(ancestor, &mut desired);
         for (i, r) in desired.iter().enumerate() {
@@ -395,11 +437,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.remove_subtree_impl(node);
     }
 
-    fn on_event(&mut self, node: RNode, h: Rc<dyn Fn(&Event)>) {
+    fn on_event(&mut self, node: RNode, h: EventHandler) {
         self.handlers.entry(node).or_default().push(h);
     }
 
-    fn handlers_for(&self, node: RNode) -> Vec<Rc<dyn Fn(&Event)>> {
+    fn handlers_for(&self, node: RNode) -> Vec<EventHandler> {
         self.handlers.get(&node).cloned().unwrap_or_default()
     }
 
@@ -407,18 +449,20 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(n) = self.nodes.get_mut(node) {
             n.id = Some(id.clone());
             if let Some(h) = n.handle.clone() {
-                let a11y = A11yProps { identifier: Some(id), ..Default::default() };
+                let a11y = A11yProps {
+                    identifier: Some(id),
+                    ..Default::default()
+                };
                 self.toolkit.set_a11y(&h, &a11y);
             }
         }
     }
 
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps) {
-        if let Some(n) = self.nodes.get(node) {
-            if let Some(h) = n.handle.clone() {
+        if let Some(n) = self.nodes.get(node)
+            && let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &a11y);
             }
-        }
     }
 
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool) {
@@ -453,7 +497,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 }
             }
         }
-        let Some(n) = self.nodes.get(node) else { return };
+        let Some(n) = self.nodes.get(node) else {
+            return;
+        };
         let kind = n.kind;
         if let Some(h) = n.handle.clone() {
             self.toolkit.update(&h, kind, patch.as_ref(), None);
@@ -464,7 +510,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>) {
-        let Some(n) = self.nodes.get(node) else { return };
+        let Some(n) = self.nodes.get(node) else {
+            return;
+        };
         let size = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
         if let Some(h) = n.handle.clone() {
             self.toolkit.replay(&h, &ops, size);
@@ -500,7 +548,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn first_child(&self, node: RNode) -> Option<RNode> {
-        self.nodes.get(node).and_then(|n| n.children.first().copied())
+        self.nodes
+            .get(node)
+            .and_then(|n| n.children.first().copied())
     }
 
     fn node_kind(&self, node: RNode) -> Option<PieceKind> {
@@ -516,7 +566,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn find_by_id(&self, id: &str) -> Option<RNode> {
-        self.nodes.iter().find(|(_, n)| n.id.as_deref() == Some(id)).map(|(k, _)| k)
+        self.nodes
+            .iter()
+            .find(|(_, n)| n.id.as_deref() == Some(id))
+            .map(|(k, _)| k)
     }
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {

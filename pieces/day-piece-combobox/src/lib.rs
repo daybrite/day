@@ -2,7 +2,6 @@
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with
 //! **zero edits** to day or its toolkit crates. The Qt renderer even carries its own C++ shim.
 
-use std::rc::Rc;
 
 use day_core::{AnyPiece, piece_fn, with_tree};
 use day_pieces::SignalRw;
@@ -33,15 +32,23 @@ pub fn combo_box(items: Signal<Vec<String>>, selected: Signal<Option<usize>>) ->
         };
         let node = cx.leaf(KIND, &initial, day_core::Flex::default());
         let seed_items = initial.items.clone();
-        bind_seeded(seed_items, move || items.get(), move |v: &Vec<String>| {
-            let patch = ComboPatch::Items(v.clone());
-            with_tree(|t| t.patch(node, Box::new(patch), true));
-        });
+        bind_seeded(
+            seed_items,
+            move || items.get(),
+            move |v: &Vec<String>| {
+                let patch = ComboPatch::Items(v.clone());
+                with_tree(|t| t.patch(node, Box::new(patch), true));
+            },
+        );
         let seed_sel = initial.selected;
-        bind_seeded(seed_sel, move || selected.get(), move |v: &Option<usize>| {
-            let patch = ComboPatch::Selected(*v);
-            with_tree(|t| t.patch(node, Box::new(patch), false));
-        });
+        bind_seeded(
+            seed_sel,
+            move || selected.get(),
+            move |v: &Option<usize>| {
+                let patch = ComboPatch::Selected(*v);
+                with_tree(|t| t.patch(node, Box::new(patch), false));
+            },
+        );
         cx.on(node, move |ev| {
             if let Event::SelectionChanged(i) = ev {
                 let v = if *i < 0 { None } else { Some(*i as usize) };
@@ -87,7 +94,7 @@ mod appkit_impl {
         impl ComboTarget {
             #[unsafe(method(action:))]
             fn action(&self, sender: &NSPopUpButton) {
-                let idx = unsafe { sender.indexOfSelectedItem() };
+                let idx = sender.indexOfSelectedItem();
                 day_appkit::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
             }
         }
@@ -106,14 +113,12 @@ mod appkit_impl {
     }
 
     fn apply_items(popup: &NSPopUpButton, items: &[String], selected: Option<usize>) {
-        unsafe {
-            popup.removeAllItems();
-            for item in items {
-                popup.addItemWithTitle(&NSString::from_str(item));
-            }
-            if let Some(i) = selected {
-                popup.selectItemAtIndex(i as isize);
-            }
+        popup.removeAllItems();
+        for item in items {
+            popup.addItemWithTitle(&NSString::from_str(item));
+        }
+        if let Some(i) = selected {
+            popup.selectItemAtIndex(i as isize);
         }
     }
 
@@ -125,48 +130,53 @@ mod appkit_impl {
             objc2_foundation::NSPoint::new(0.0, 0.0),
             objc2_foundation::NSSize::new(0.0, 0.0),
         );
-        let popup = unsafe {
-            NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero, false)
-        };
+        let popup =
+            NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero, false);
         apply_items(&popup, &p.items, p.selected);
         unsafe {
             popup.setTarget(Some(&*target));
             popup.setAction(Some(sel!(action:)));
         }
-        let view: Retained<NSView> = Retained::from(<NSPopUpButton as AsRef<NSView>>::as_ref(&popup));
+        let view: Retained<NSView> =
+            Retained::from(<NSPopUpButton as AsRef<NSView>>::as_ref(&popup));
         TARGETS.with(|m| {
-            m.borrow_mut().insert((view.as_ref() as *const NSView) as usize, target)
+            m.borrow_mut()
+                .insert((view.as_ref() as *const NSView) as usize, target)
         });
         view
     }
 
     fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &dyn std::any::Any) {
-        let Some(popup) = h.downcast_ref::<NSPopUpButton>() else { return };
+        let Some(popup) = h.downcast_ref::<NSPopUpButton>() else {
+            return;
+        };
         if let Some(p) = patch.downcast_ref::<ComboPatch>() {
             match p {
                 ComboPatch::Items(items) => apply_items(popup, items, None),
-                ComboPatch::Selected(sel) => unsafe {
-                    match sel {
-                        Some(i) => {
-                            if popup.indexOfSelectedItem() != *i as isize {
-                                popup.selectItemAtIndex(*i as isize);
-                            }
+                ComboPatch::Selected(sel) => match sel {
+                    Some(i) => {
+                        if popup.indexOfSelectedItem() != *i as isize {
+                            popup.selectItemAtIndex(*i as isize);
                         }
-                        None => popup.selectItemAtIndex(-1),
                     }
+                    None => popup.selectItemAtIndex(-1),
                 },
             }
         }
     }
 
     fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
-        let s = unsafe { h.fittingSize() };
+        let s = h.fittingSize();
         Size::new(s.width.ceil().max(80.0), s.height.ceil())
     }
 
     #[distributed_slice(day_appkit::RENDERERS)]
-    static COMBO_APPKIT: fn() -> Renderer<AppKit> =
-        || Renderer { kind: KIND, make, update, measure: Some(measure) };
+    static COMBO_APPKIT: fn() -> Renderer<AppKit> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: Some(measure),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -194,14 +204,20 @@ mod gtk_impl {
         }
         dd.connect_selected_notify(move |d| {
             let sel = d.selected();
-            let idx = if sel == gtk4::INVALID_LIST_POSITION { -1 } else { sel as i64 };
+            let idx = if sel == gtk4::INVALID_LIST_POSITION {
+                -1
+            } else {
+                sel as i64
+            };
             day_gtk::emit(id, Event::SelectionChanged(idx));
         });
         dd.upcast()
     }
 
     fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &dyn std::any::Any) {
-        let Some(dd) = h.downcast_ref::<gtk4::DropDown>() else { return };
+        let Some(dd) = h.downcast_ref::<gtk4::DropDown>() else {
+            return;
+        };
         if let Some(p) = patch.downcast_ref::<ComboPatch>() {
             match p {
                 ComboPatch::Items(items) => dd.set_model(Some(&strings(items))),
@@ -222,8 +238,12 @@ mod gtk_impl {
     }
 
     #[distributed_slice(day_gtk::RENDERERS)]
-    static COMBO_GTK: fn() -> Renderer<Gtk> =
-        || Renderer { kind: KIND, make, update, measure: Some(measure) };
+    static COMBO_GTK: fn() -> Renderer<Gtk> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: Some(measure),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +308,12 @@ mod qt_impl {
     }
 
     #[distributed_slice(day_qt::RENDERERS)]
-    static COMBO_QT: fn() -> Renderer<Qt> =
-        || Renderer { kind: KIND, make, update, measure: Some(measure) };
+    static COMBO_QT: fn() -> Renderer<Qt> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: Some(measure),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -371,13 +395,19 @@ mod uikit_impl {
                 UIControlEvents::ValueChanged,
             );
         }
-        let view: Retained<UIView> = Retained::from(<UISegmentedControl as AsRef<UIView>>::as_ref(&seg));
-        TARGETS.with(|m| m.borrow_mut().insert((view.as_ref() as *const UIView) as usize, target));
+        let view: Retained<UIView> =
+            Retained::from(<UISegmentedControl as AsRef<UIView>>::as_ref(&seg));
+        TARGETS.with(|m| {
+            m.borrow_mut()
+                .insert((view.as_ref() as *const UIView) as usize, target)
+        });
         view
     }
 
     fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &dyn std::any::Any) {
-        let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() else { return };
+        let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() else {
+            return;
+        };
         if let Some(p) = patch.downcast_ref::<ComboPatch>() {
             match p {
                 ComboPatch::Items(items) => apply(seg, items, None),
@@ -394,8 +424,12 @@ mod uikit_impl {
     }
 
     #[distributed_slice(day_uikit::RENDERERS)]
-    static COMBO_UIKIT: fn() -> Renderer<Uikit> =
-        || Renderer { kind: KIND, make, update, measure: Some(measure) };
+    static COMBO_UIKIT: fn() -> Renderer<Uikit> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: Some(measure),
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -421,7 +455,11 @@ mod android_impl {
                 env,
                 "makeSpinner",
                 "(JLjava/lang/String;I)Landroid/view/View;",
-                &[JValue::Long(id.0 as i64), JValue::Object(&s), JValue::Int(sel)],
+                &[
+                    JValue::Long(id.0 as i64),
+                    JValue::Object(&s),
+                    JValue::Int(sel),
+                ],
             ))
         })
     }
@@ -443,6 +481,10 @@ mod android_impl {
     }
 
     #[distributed_slice(day_android::RENDERERS)]
-    static COMBO_ANDROID: fn() -> Renderer<Android> =
-        || Renderer { kind: KIND, make, update, measure: None };
+    static COMBO_ANDROID: fn() -> Renderer<Android> = || Renderer {
+        kind: KIND,
+        make,
+        update,
+        measure: None,
+    };
 }

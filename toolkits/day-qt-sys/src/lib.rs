@@ -16,18 +16,13 @@ unsafe extern "C" {
     pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, bold: c_int);
     pub fn day_qt_label_height_for_width(w: *mut c_void, width: c_int) -> c_int;
 
-    pub fn day_qt_button_new(
-        title: *const c_char,
-        id: u64,
-        cb: extern "C" fn(u64),
-    ) -> *mut c_void;
+    pub fn day_qt_button_new(title: *const c_char, id: u64, cb: extern "C" fn(u64)) -> *mut c_void;
     pub fn day_qt_button_set_title(w: *mut c_void, title: *const c_char);
 
     pub fn day_qt_checkbox_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_checkbox_set(w: *mut c_void, on: c_int);
 
-    pub fn day_qt_slider_new(value: c_int, id: u64, cb: extern "C" fn(u64, c_int))
-    -> *mut c_void;
+    pub fn day_qt_slider_new(value: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_slider_set(w: *mut c_void, value: c_int);
 
     pub fn day_qt_lineedit_new(
@@ -55,7 +50,12 @@ unsafe extern "C" {
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);
 
     pub fn day_qt_canvas_new() -> *mut c_void;
-    pub fn day_qt_canvas_set_ops(w: *mut c_void, nums: *const c_double, n: c_int, texts_joined: *const c_char);
+    pub fn day_qt_canvas_set_ops(
+        w: *mut c_void,
+        nums: *const c_double,
+        n: c_int,
+        texts_joined: *const c_char,
+    );
     pub fn day_qt_image_new(path: *const c_char) -> *mut c_void;
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;

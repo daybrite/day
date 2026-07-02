@@ -26,7 +26,10 @@ pub struct Size {
 }
 
 impl Size {
-    pub const ZERO: Size = Size { width: 0.0, height: 0.0 };
+    pub const ZERO: Size = Size {
+        width: 0.0,
+        height: 0.0,
+    };
     #[inline]
     pub const fn new(width: f64, height: f64) -> Self {
         Size { width, height }
@@ -49,14 +52,23 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const ZERO: Rect = Rect { origin: Point::ZERO, size: Size::ZERO };
+    pub const ZERO: Rect = Rect {
+        origin: Point::ZERO,
+        size: Size::ZERO,
+    };
     #[inline]
     pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Rect { origin: Point::new(x, y), size: Size::new(width, height) }
+        Rect {
+            origin: Point::new(x, y),
+            size: Size::new(width, height),
+        }
     }
     #[inline]
     pub fn from_size(size: Size) -> Self {
-        Rect { origin: Point::ZERO, size }
+        Rect {
+            origin: Point::ZERO,
+            size,
+        }
     }
     #[inline]
     pub fn min_x(&self) -> f64 {
@@ -76,7 +88,10 @@ impl Rect {
     }
     #[inline]
     pub fn center(&self) -> Point {
-        Point::new(self.origin.x + self.size.width / 2.0, self.origin.y + self.size.height / 2.0)
+        Point::new(
+            self.origin.x + self.size.width / 2.0,
+            self.origin.y + self.size.height / 2.0,
+        )
     }
     #[inline]
     pub fn inset(&self, d: f64) -> Rect {
@@ -114,14 +129,29 @@ pub struct Insets {
 }
 
 impl Insets {
-    pub const ZERO: Insets = Insets { top: 0.0, leading: 0.0, bottom: 0.0, trailing: 0.0 };
+    pub const ZERO: Insets = Insets {
+        top: 0.0,
+        leading: 0.0,
+        bottom: 0.0,
+        trailing: 0.0,
+    };
     #[inline]
     pub const fn all(d: f64) -> Self {
-        Insets { top: d, leading: d, bottom: d, trailing: d }
+        Insets {
+            top: d,
+            leading: d,
+            bottom: d,
+            trailing: d,
+        }
     }
     #[inline]
     pub const fn symmetric(horizontal: f64, vertical: f64) -> Self {
-        Insets { top: vertical, leading: horizontal, bottom: vertical, trailing: horizontal }
+        Insets {
+            top: vertical,
+            leading: horizontal,
+            bottom: vertical,
+            trailing: horizontal,
+        }
     }
     #[inline]
     pub fn horizontal(&self) -> f64 {
@@ -170,14 +200,20 @@ pub struct Proposal {
 }
 
 impl Proposal {
-    pub const UNCONSTRAINED: Proposal = Proposal { width: None, height: None };
+    pub const UNCONSTRAINED: Proposal = Proposal {
+        width: None,
+        height: None,
+    };
     #[inline]
     pub const fn new(width: Option<f64>, height: Option<f64>) -> Self {
         Proposal { width, height }
     }
     #[inline]
     pub const fn exact(size: Size) -> Self {
-        Proposal { width: Some(size.width), height: Some(size.height) }
+        Proposal {
+            width: Some(size.width),
+            height: Some(size.height),
+        }
     }
     /// Quantized key for the measurement cache (§7.4): tenth-of-a-point buckets.
     pub fn cache_key(&self) -> (u64, u64) {

@@ -10,7 +10,6 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::meta::Project;
-use crate::ops;
 use crate::targets::{Target, TargetKind};
 
 pub struct ScriptRun {
@@ -30,7 +29,9 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
         .ok_or("script has no `flow:` sequence")?;
     let mut steps = Vec::new();
     for entry in flow {
-        let obj = entry.as_object().ok_or("flow entries must be single-key mappings")?;
+        let obj = entry
+            .as_object()
+            .ok_or("flow entries must be single-key mappings")?;
         let (op, params) = obj.iter().next().ok_or("empty flow entry")?;
         let mut step = serde_json::Map::new();
         step.insert("op".into(), serde_json::Value::String(op.clone()));
@@ -64,7 +65,9 @@ fn connect(port: u16) -> Result<TcpStream, String> {
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    Err(format!("could not connect to the dayscript engine on 127.0.0.1:{port}"))
+    Err(format!(
+        "could not connect to the dayscript engine on 127.0.0.1:{port}"
+    ))
 }
 
 fn shot_dir(project: &Project, target: &Target, locale: Option<&str>) -> PathBuf {
@@ -85,7 +88,11 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
-            if ok { Ok(()) } else { Err("simctl screenshot failed".into()) }
+            if ok {
+                Ok(())
+            } else {
+                Err("simctl screenshot failed".into())
+            }
         }
         TargetKind::Android => {
             let out = Command::new("adb")
@@ -116,14 +123,16 @@ pub fn run_scripts(
 
     // adb-forwarded ports accept host connections BEFORE the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
-    let mut roundtrip = |stream: &mut TcpStream,
+    let roundtrip = |stream: &mut TcpStream,
                          reader: &mut BufReader<TcpStream>,
                          line: &str|
      -> Result<String, String> {
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         loop {
             let attempt = (|| -> Result<String, String> {
-                stream.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+                stream
+                    .write_all(line.as_bytes())
+                    .map_err(|e| e.to_string())?;
                 let mut reply = String::new();
                 let n = reader.read_line(&mut reply).map_err(|e| e.to_string())?;
                 if n == 0 {
@@ -150,7 +159,11 @@ pub fn run_scripts(
     let dir = shot_dir(project, target, locale);
     let _ = std::fs::create_dir_all(&dir);
 
-    let mut run = ScriptRun { steps_total: 0, steps_failed: 0, screenshots: Vec::new() };
+    let mut run = ScriptRun {
+        steps_total: 0,
+        steps_failed: 0,
+        screenshots: Vec::new(),
+    };
     for script in scripts {
         let steps = parse_flow(script)?;
         eprintln!(
@@ -184,7 +197,10 @@ pub fn run_scripts(
                 eprintln!("  \x1b[32m✓\x1b[0m {op} {detail}");
             } else {
                 run.steps_failed += 1;
-                let err = reply.get("error").and_then(|v| v.as_str()).unwrap_or("failed");
+                let err = reply
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("failed");
                 eprintln!("  \x1b[31m✗\x1b[0m {op} {detail} — {err}");
             }
             if op == "screenshot" && ok {
@@ -216,7 +232,10 @@ fn terminate(project: &Project, target: &Target) {
     match target.kind {
         TargetKind::Desktop => {
             let _ = Command::new("pkill")
-                .args(["-f", &format!("cargo/{}.*{}", target.name, project.manifest.app.name)])
+                .args([
+                    "-f",
+                    &format!("cargo/{}.*{}", target.name, project.manifest.app.name),
+                ])
                 .status();
         }
         TargetKind::IosSim => {
@@ -237,7 +256,14 @@ pub fn pick_port(index: usize) -> u16 {
 }
 
 pub fn make_token() -> String {
-    format!("{:x}-{:x}", std::process::id(), std::time::UNIX_EPOCH.elapsed().map(|d| d.as_millis()).unwrap_or(0))
+    format!(
+        "{:x}-{:x}",
+        std::process::id(),
+        std::time::UNIX_EPOCH
+            .elapsed()
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    )
 }
 
 /// Local re-export point so this module owns no base64 logic.

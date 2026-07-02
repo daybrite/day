@@ -31,8 +31,7 @@ thread_local! {
 pub fn install(default: &str, locales: &[(&str, &str)]) {
     let mut bundles = HashMap::new();
     for (name, src) in locales {
-        let langid: LanguageIdentifier =
-            name.parse().unwrap_or_else(|_| "en".parse().unwrap());
+        let langid: LanguageIdentifier = name.parse().unwrap_or_else(|_| "en".parse().unwrap());
         let mut bundle = FluentBundle::new(vec![langid]);
         match FluentResource::try_new((*src).to_string()) {
             Ok(res) => {
@@ -52,7 +51,11 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         .unwrap_or_else(|| default.to_string());
     let locale = Signal::new(initial);
     STATE.with(|s| {
-        *s.borrow_mut() = Some(State { bundles, default: default.to_string(), locale })
+        *s.borrow_mut() = Some(State {
+            bundles,
+            default: default.to_string(),
+            locale,
+        })
     });
 }
 
@@ -63,7 +66,12 @@ fn normalize(l: String) -> String {
 
 /// The current locale (tracked read inside bindings).
 pub fn locale() -> Signal<String> {
-    STATE.with(|s| s.borrow().as_ref().expect("day_fluent::install not called").locale)
+    STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .expect("day_fluent::install not called")
+            .locale
+    })
 }
 
 /// Switch the locale at runtime — every `tr` binding re-runs.
@@ -143,7 +151,10 @@ pub struct LocalizedText {
 }
 
 pub fn tr(key: &str) -> LocalizedText {
-    LocalizedText { key: key.to_owned(), args: Vec::new() }
+    LocalizedText {
+        key: key.to_owned(),
+        args: Vec::new(),
+    }
 }
 
 impl LocalizedText {
@@ -172,20 +183,39 @@ pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> Strin
             fargs.set(k.clone(), v.resolve());
         }
         let pseudo = locale_name == "en-XA";
-        let lookup = if pseudo { state.default.as_str() } else { locale_name };
+        let lookup = if pseudo {
+            state.default.as_str()
+        } else {
+            locale_name
+        };
         let bundle = state
             .bundles
             .get(lookup)
-            .or_else(|| state.bundles.get(lookup.split('-').next().unwrap_or(lookup)))
+            .or_else(|| {
+                state
+                    .bundles
+                    .get(lookup.split('-').next().unwrap_or(lookup))
+            })
             .or_else(|| state.bundles.get(&state.default));
-        let Some(bundle) = bundle else { return format!("⟨{key}⟩") };
-        let msg = bundle
-            .get_message(key)
-            .or_else(|| state.bundles.get(&state.default).and_then(|b| b.get_message(key)));
-        let Some(msg) = msg else { return format!("⟨{key}⟩") };
-        let Some(pattern) = msg.value() else { return format!("⟨{key}⟩") };
+        let Some(bundle) = bundle else {
+            return format!("⟨{key}⟩");
+        };
+        let msg = bundle.get_message(key).or_else(|| {
+            state
+                .bundles
+                .get(&state.default)
+                .and_then(|b| b.get_message(key))
+        });
+        let Some(msg) = msg else {
+            return format!("⟨{key}⟩");
+        };
+        let Some(pattern) = msg.value() else {
+            return format!("⟨{key}⟩");
+        };
         let mut errs = Vec::new();
-        let out = bundle.format_pattern(pattern, Some(&fargs), &mut errs).into_owned();
+        let out = bundle
+            .format_pattern(pattern, Some(&fargs), &mut errs)
+            .into_owned();
         if pseudo { pseudolocalize(&out) } else { out }
     })
 }
@@ -195,8 +225,18 @@ fn pseudolocalize(s: &str) -> String {
     let mut out: String = s
         .chars()
         .map(|c| match c {
-            'a' => 'á', 'e' => 'é', 'i' => 'í', 'o' => 'ó', 'u' => 'ú', 'y' => 'ý',
-            'A' => 'Á', 'E' => 'É', 'I' => 'Í', 'O' => 'Ó', 'U' => 'Ú', 'Y' => 'Ý',
+            'a' => 'á',
+            'e' => 'é',
+            'i' => 'í',
+            'o' => 'ó',
+            'u' => 'ú',
+            'y' => 'ý',
+            'A' => 'Á',
+            'E' => 'É',
+            'I' => 'Í',
+            'O' => 'Ó',
+            'U' => 'Ú',
+            'Y' => 'Ý',
             other => other,
         })
         .collect();
@@ -206,7 +246,9 @@ fn pseudolocalize(s: &str) -> String {
 
 /// Strip Fluent's FSI/PDI isolation marks (dayscript text comparison, §14.3).
 pub fn strip_isolates(s: &str) -> String {
-    s.chars().filter(|c| !matches!(c, '\u{2068}' | '\u{2069}')).collect()
+    s.chars()
+        .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
+        .collect()
 }
 
 pub struct LocalizedMark;

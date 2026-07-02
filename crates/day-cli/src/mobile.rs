@@ -23,7 +23,11 @@ fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
 
 fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
     let out = cmd.status().map_err(|e| format!("{what}: {e}"))?;
-    if out.success() { Ok(()) } else { Err(format!("{what} failed")) }
+    if out.success() {
+        Ok(())
+    } else {
+        Err(format!("{what} failed"))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -36,7 +40,9 @@ pub fn xcode_backend_build() -> i32 {
     let built_products = match get("BUILT_PRODUCTS_DIR") {
         Some(v) => PathBuf::from(v),
         None => {
-            eprintln!("day xcode-backend: must run inside an Xcode build (BUILT_PRODUCTS_DIR unset)");
+            eprintln!(
+                "day xcode-backend: must run inside an Xcode build (BUILT_PRODUCTS_DIR unset)"
+            );
             return 2;
         }
     };
@@ -52,7 +58,11 @@ pub fn xcode_backend_build() -> i32 {
             return 2;
         }
     };
-    let profile = if configuration.to_lowercase().contains("release") { "release" } else { "debug" };
+    let profile = if configuration.to_lowercase().contains("release") {
+        "release"
+    } else {
+        "debug"
+    };
     let triple = match platform.as_str() {
         "iphonesimulator" => "aarch64-apple-ios-sim",
         "iphoneos" => "aarch64-apple-ios",
@@ -75,17 +85,34 @@ pub fn xcode_backend_build() -> i32 {
     // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
     // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an SDK
     // (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via xcrun.
-    for var in ["SDKROOT", "LIBRARY_PATH", "CPATH", "IPHONEOS_DEPLOYMENT_TARGET", "MACOSX_DEPLOYMENT_TARGET"] {
+    for var in [
+        "SDKROOT",
+        "LIBRARY_PATH",
+        "CPATH",
+        "IPHONEOS_DEPLOYMENT_TARGET",
+        "MACOSX_DEPLOYMENT_TARGET",
+    ] {
         cmd.env_remove(var);
     }
     let home = std::env::var("HOME").unwrap_or_default();
     cmd.current_dir(&project.root)
         .env(
             "PATH",
-            format!("{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin", bin.display()),
+            format!(
+                "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                bin.display()
+            ),
         )
         .env("CARGO_TARGET_DIR", &target_dir)
-        .args(["build", "-p", &name, "--lib", "--no-default-features", "--features", "uikit"])
+        .args([
+            "build",
+            "-p",
+            &name,
+            "--lib",
+            "--no-default-features",
+            "--features",
+            "uikit",
+        ])
         .args(["--target", triple]);
     if profile == "release" {
         cmd.arg("--release");
@@ -93,7 +120,10 @@ pub fn xcode_backend_build() -> i32 {
     if run_logged(&mut cmd, "cargo (ios)").is_err() {
         return 4;
     }
-    let lib = target_dir.join(triple).join(profile).join(format!("lib{name}.a"));
+    let lib = target_dir
+        .join(triple)
+        .join(profile)
+        .join(format!("lib{name}.a"));
     let out_dir = built_products.join("day");
     if std::fs::create_dir_all(&out_dir).is_err() {
         eprintln!("day xcode-backend: cannot create {}", out_dir.display());
@@ -101,13 +131,18 @@ pub fn xcode_backend_build() -> i32 {
     }
     let dest = out_dir.join(format!("lib{name}.a"));
     if let Err(e) = std::fs::copy(&lib, &dest) {
-        eprintln!("day xcode-backend: copy {} → {}: {e}", lib.display(), dest.display());
+        eprintln!(
+            "day xcode-backend: copy {} → {}: {e}",
+            lib.display(),
+            dest.display()
+        );
         return 4;
     }
     // Stage assets/ into the app bundle (§18.1's copy-phase mechanism).
-    if let (Some(tbd), Some(res)) =
-        (get("TARGET_BUILD_DIR"), get("UNLOCALIZED_RESOURCES_FOLDER_PATH"))
-    {
+    if let (Some(tbd), Some(res)) = (
+        get("TARGET_BUILD_DIR"),
+        get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
+    ) {
         let src = project.root.join("assets");
         if src.exists() {
             let dst = PathBuf::from(tbd).join(res).join("assets");
@@ -133,14 +168,28 @@ pub fn build_ios(
     profile: &str,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    let configuration = if profile == "release" { "Release" } else { "Debug" };
+    let configuration = if profile == "release" {
+        "Release"
+    } else {
+        "Debug"
+    };
     let symroot = project.root.join("build/day/ios-uikit");
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    status("Building", &format!("{} (xcodebuild {configuration})", target.name));
+    status(
+        "Building",
+        &format!("{} (xcodebuild {configuration})", target.name),
+    );
     let mut cmd = Command::new("xcodebuild");
     cmd.current_dir(project.root.join("platform/ios"))
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
-        .args(["-configuration", configuration, "-sdk", "iphonesimulator", "-arch", "arm64"])
+        .args([
+            "-configuration",
+            configuration,
+            "-sdk",
+            "iphonesimulator",
+            "-arch",
+            "arm64",
+        ])
         .arg(format!("SYMROOT={}", symroot.display()))
         .arg(format!("DAY_BIN={}", day_bin.display()))
         .arg("build")
@@ -154,8 +203,14 @@ pub fn build_ios(
             tail.into_iter().rev().collect::<Vec<_>>().join("\n")
         ));
     }
-    let app = symroot.join(format!("{configuration}-iphonesimulator")).join("Showcase.app");
-    Ok(BuildOutcome { target: target.name, artifact: app, seconds: start.elapsed().as_secs_f64() })
+    let app = symroot
+        .join(format!("{configuration}-iphonesimulator"))
+        .join("Showcase.app");
+    Ok(BuildOutcome {
+        target: target.name,
+        artifact: app,
+        seconds: start.elapsed().as_secs_f64(),
+    })
 }
 
 pub fn launch_ios(
@@ -165,10 +220,14 @@ pub fn launch_ios(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle_id = project.manifest.app.id.clone();
     run_logged(
-        Command::new("xcrun").args(["simctl", "install", "booted"]).arg(&outcome.artifact),
+        Command::new("xcrun")
+            .args(["simctl", "install", "booted"])
+            .arg(&outcome.artifact),
         "simctl install",
     )?;
-    let _ = Command::new("xcrun").args(["simctl", "terminate", "booted", &bundle_id]).status();
+    let _ = Command::new("xcrun")
+        .args(["simctl", "terminate", "booted", &bundle_id])
+        .status();
     let mut cmd = Command::new("xcrun");
     cmd.args(["simctl", "launch"]);
     if spec.attached {
@@ -181,9 +240,13 @@ pub fn launch_ios(
     if let Some(locale) = &spec.locale {
         cmd.env("SIMCTL_CHILD_DAY_LOCALE", locale);
     }
-    status("Launching", &format!("ios-uikit ({bundle_id}) on the booted simulator"));
+    status(
+        "Launching",
+        &format!("ios-uikit ({bundle_id}) on the booted simulator"),
+    );
     if spec.attached {
-        cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
         let mut child = cmd.spawn().map_err(|e| format!("simctl launch: {e}"))?;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -219,7 +282,9 @@ pub fn gradle_backend_build() -> i32 {
         }
     };
     let profile = std::env::var("DAY_PROFILE").unwrap_or_else(|_| "debug".into());
-    let out = std::env::var("DAY_OUT").map(PathBuf::from).unwrap_or_else(|_| root.join("build/day/jniLibs"));
+    let out = std::env::var("DAY_OUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| root.join("build/day/jniLibs"));
     let project = match find_project(Some(&root)) {
         Ok(p) => p,
         Err(e) => {
@@ -227,7 +292,9 @@ pub fn gradle_backend_build() -> i32 {
             return 2;
         }
     };
-    build_android_so(&project, &profile, &out).map(|_| 0).unwrap_or(4)
+    build_android_so(&project, &profile, &out)
+        .map(|_| 0)
+        .unwrap_or(4)
 }
 
 /// Android ABI to build (`DAY_ANDROID_ABI` override; default arm64-v8a). CI's KVM emulator
@@ -241,7 +308,10 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
     let abi = android_abi();
-    let target_dir = project.root.join("build/day/cargo/android-widget").join(profile);
+    let target_dir = project
+        .root
+        .join("build/day/cargo/android-widget")
+        .join(profile);
     let mut cmd = Command::new(&cargo);
     cmd.current_dir(&project.root)
         .env(
@@ -258,7 +328,14 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         .args(["ndk", "-t", &abi, "-o"])
         .arg(out)
         .arg("build")
-        .args(["-p", &name, "--lib", "--no-default-features", "--features", "widget"]);
+        .args([
+            "-p",
+            &name,
+            "--lib",
+            "--no-default-features",
+            "--features",
+            "widget",
+        ]);
     if profile == "release" {
         cmd.arg("--release");
     }
@@ -272,7 +349,9 @@ fn find_ndk() -> Result<PathBuf, String> {
     }
     let sdk = std::env::var("ANDROID_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Android/sdk"));
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Android/sdk")
+        });
     let ndk_dir = sdk.join("ndk");
     let mut versions: Vec<_> = std::fs::read_dir(&ndk_dir)
         .map_err(|_| "no Android NDK found (set ANDROID_NDK_HOME)")?
@@ -291,11 +370,18 @@ pub fn build_android(
 ) -> Result<BuildOutcome, String> {
     // 1) Rust .so (also invoked by gradle's callback; building here keeps `day build` primary).
     let jni_out = project.root.join("build/day/jniLibs");
-    status("Building", &format!("{} (cargo-ndk arm64-v8a)", target.name));
+    status(
+        "Building",
+        &format!("{} (cargo-ndk arm64-v8a)", target.name),
+    );
     build_android_so(project, profile, &jni_out)?;
 
     // 2) Gradle assemble.
-    let task = if profile == "release" { "assembleRelease" } else { "assembleDebug" };
+    let task = if profile == "release" {
+        "assembleRelease"
+    } else {
+        "assembleDebug"
+    };
     status("Building", &format!("{} (gradle {task})", target.name));
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = Command::new("gradle");
@@ -321,13 +407,21 @@ pub fn build_android(
             tail.into_iter().rev().collect::<Vec<_>>().join("\n")
         ));
     }
-    let apk_name = if profile == "release" { "app-release.apk" } else { "app-debug.apk" };
+    let apk_name = if profile == "release" {
+        "app-release.apk"
+    } else {
+        "app-debug.apk"
+    };
     let apk = project
         .root
         .join("platform/android/app/build/outputs/apk")
         .join(profile)
         .join(apk_name);
-    Ok(BuildOutcome { target: target.name, artifact: apk, seconds: start.elapsed().as_secs_f64() })
+    Ok(BuildOutcome {
+        target: target.name,
+        artifact: apk,
+        seconds: start.elapsed().as_secs_f64(),
+    })
 }
 
 pub fn launch_android(
@@ -337,12 +431,20 @@ pub fn launch_android(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let app_id = project.manifest.app.id.clone();
     run_logged(
-        Command::new("adb").args(["install", "-r"]).arg(&outcome.artifact),
+        Command::new("adb")
+            .args(["install", "-r"])
+            .arg(&outcome.artifact),
         "adb install",
     )?;
     // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.
     let mut cmd = Command::new("adb");
-    cmd.args(["shell", "am", "start", "-n", &format!("{app_id}/dev.day.bridge.DayActivity")]);
+    cmd.args([
+        "shell",
+        "am",
+        "start",
+        "-n",
+        &format!("{app_id}/dev.day.bridge.DayActivity"),
+    ]);
     for (k, v) in &spec.envs {
         let quoted = format!("'{}'", v.replace('\'', ""));
         if k == "AUTODRIVE" {
@@ -354,7 +456,10 @@ pub fn launch_android(
     if let Some(locale) = &spec.locale {
         cmd.args(["--es", "day.locale", &format!("'{locale}'")]);
     }
-    status("Launching", &format!("android-widget ({app_id}) on the connected device"));
+    status(
+        "Launching",
+        &format!("android-widget ({app_id}) on the connected device"),
+    );
     run_logged(&mut cmd, "am start")?;
     if spec.attached {
         // Stream logcat for the app (best effort: filter by app id via pidof retry).
@@ -368,9 +473,7 @@ pub fn launch_android(
                     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                     .unwrap_or_default();
                 if !pid.is_empty() {
-                    let _ = Command::new("adb")
-                        .args(["logcat", "--pid", &pid])
-                        .status();
+                    let _ = Command::new("adb").args(["logcat", "--pid", &pid]).status();
                     return 0;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(250));

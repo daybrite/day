@@ -19,20 +19,17 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
-    NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
+    NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSScrollView, NSSlider, NSSwitch,
     NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
-use objc2_foundation::{
-    NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString,
-};
+use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE, WindowOptions,
-    kinds,
+    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE, WindowOptions, kinds,
 };
 
 pub type Handle = Retained<NSView>;
@@ -41,8 +38,11 @@ pub type Handle = Retained<NSView>;
 // Event plumbing: node-id keyed sink, thread-local (single UI thread)
 // ---------------------------------------------------------------------------
 
+/// The day-core event sink (node-id keyed).
+type Sink = Rc<dyn Fn(NodeId, Event)>;
+
 thread_local! {
-    static SINK: RefCell<Option<Rc<dyn Fn(NodeId, Event)>>> = const { RefCell::new(None) };
+    static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Keeps each control's `DayTarget` alive (target/action holds it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
 }
@@ -95,11 +95,10 @@ define_class!(
         #[unsafe(method(controlTextDidChange:))]
         fn control_text_did_change(&self, notification: &NSNotification) {
             let node = self.ivars().node;
-            if let Some(obj) = unsafe { notification.object() } {
-                if let Ok(tf) = obj.downcast::<NSTextField>() {
+            if let Some(obj) = unsafe { notification.object() }
+                && let Ok(tf) = obj.downcast::<NSTextField>() {
                     emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
                 }
-            }
         }
     }
 );
@@ -181,11 +180,14 @@ impl DayCanvas {
 }
 
 fn ns_rect(r: day_spec::Rect) -> NSRect {
-    NSRect::new(NSPoint::new(r.origin.x, r.origin.y), NSSize::new(r.size.width, r.size.height))
+    NSRect::new(
+        NSPoint::new(r.origin.x, r.origin.y),
+        NSSize::new(r.size.width, r.size.height),
+    )
 }
 
 fn draw_op(op: &DrawOp) {
-    use objc2_app_kit::NSBezierPath;
+    
     unsafe {
         match op {
             DrawOp::Fill(shape, color) => {
@@ -202,7 +204,13 @@ fn draw_op(op: &DrawOp) {
                     p.stroke();
                 }
             }
-            DrawOp::Text { text, at, size, color, centered } => {
+            DrawOp::Text {
+                text,
+                at,
+                size,
+                color,
+                centered,
+            } => {
                 let font = NSFont::systemFontOfSize(*size);
                 let col = nscolor(*color);
                 let keys: [&NSString; 2] = [
@@ -237,7 +245,11 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(ns_rect(*r), *rad, *rad)
             }
             Shape::Ellipse(r) => NSBezierPath::bezierPathWithOvalInRect(ns_rect(*r)),
-            Shape::Arc { rect, start_deg, sweep_deg } => {
+            Shape::Arc {
+                rect,
+                start_deg,
+                sweep_deg,
+            } => {
                 let p = NSBezierPath::new();
                 let center = NSPoint::new(
                     rect.origin.x + rect.size.width / 2.0,
@@ -282,14 +294,15 @@ define_class!(
     unsafe impl NSWindowDelegate for DayWinDelegate {
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, notification: &NSNotification) {
-            if let Some(obj) = unsafe { notification.object() } {
-                if let Ok(win) = obj.downcast::<NSWindow>() {
-                    if let Some(content) = win.contentView() {
+            if let Some(obj) = unsafe { notification.object() }
+                && let Ok(win) = obj.downcast::<NSWindow>()
+                    && let Some(content) = win.contentView() {
                         let b = content.bounds();
-                        emit(WINDOW_NODE, Event::WindowResized(Size::new(b.size.width, b.size.height)));
+                        emit(
+                            WINDOW_NODE,
+                            Event::WindowResized(Size::new(b.size.width, b.size.height)),
+                        );
                     }
-                }
-            }
         }
 
         #[unsafe(method(windowWillClose:))]
@@ -329,7 +342,12 @@ impl AppKit {
         for f in RENDERERS {
             registry.register(f());
         }
-        AppKit { mtm, registry, window: None, content: None }
+        AppKit {
+            mtm,
+            registry,
+            window: None,
+            content: None,
+        }
     }
 
     /// Public helper for external renderers.
@@ -376,11 +394,10 @@ fn configure_label_cell(tf: &NSTextField) {
 
 /// If `parent` is a scroll view, children go into its (flipped) document view.
 fn content_of(parent: &Handle) -> Retained<NSView> {
-    if let Some(sv) = parent.downcast_ref::<NSScrollView>() {
-        if let Some(doc) = unsafe { sv.documentView() } {
+    if let Some(sv) = parent.downcast_ref::<NSScrollView>()
+        && let Some(doc) = unsafe { sv.documentView() } {
             return doc;
         }
-    }
     parent.clone()
 }
 
@@ -410,8 +427,7 @@ impl Toolkit for AppKit {
             }
             kinds::LABEL => {
                 let p = props.downcast_ref::<LabelProps>().unwrap();
-                let tf =
-                    unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
+                let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
                 configure_label_cell(&tf);
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
                 if let Some(c) = p.color {
@@ -518,13 +534,12 @@ impl Toolkit for AppKit {
     fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
         match kind {
             kinds::LABEL => {
-                if let (Some(p), Ok(tf)) =
-                    (patch.downcast_ref::<LabelPatch>(), h.clone().downcast::<NSTextField>())
-                {
+                if let (Some(p), Ok(tf)) = (
+                    patch.downcast_ref::<LabelPatch>(),
+                    h.clone().downcast::<NSTextField>(),
+                ) {
                     match p {
-                        LabelPatch::Text(t) => unsafe {
-                            tf.setStringValue(&NSString::from_str(t))
-                        },
+                        LabelPatch::Text(t) => unsafe { tf.setStringValue(&NSString::from_str(t)) },
                         LabelPatch::Color(c) => unsafe {
                             tf.setTextColor(c.map(nscolor).as_deref())
                         },
@@ -533,21 +548,21 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::BUTTON => {
-                if let (Some(p), Ok(btn)) =
-                    (patch.downcast_ref::<ButtonPatch>(), h.clone().downcast::<NSButton>())
-                {
+                if let (Some(p), Ok(btn)) = (
+                    patch.downcast_ref::<ButtonPatch>(),
+                    h.clone().downcast::<NSButton>(),
+                ) {
                     match p {
-                        ButtonPatch::Title(t) => unsafe {
-                            btn.setTitle(&NSString::from_str(t))
-                        },
+                        ButtonPatch::Title(t) => unsafe { btn.setTitle(&NSString::from_str(t)) },
                         ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
                     }
                 }
             }
             kinds::TOGGLE => {
-                if let (Some(p), Ok(sw)) =
-                    (patch.downcast_ref::<TogglePatch>(), h.clone().downcast::<NSSwitch>())
-                {
+                if let (Some(p), Ok(sw)) = (
+                    patch.downcast_ref::<TogglePatch>(),
+                    h.clone().downcast::<NSSwitch>(),
+                ) {
                     match p {
                         TogglePatch::On(on) => {
                             let want = if *on { 1 } else { 0 };
@@ -560,9 +575,10 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::SLIDER => {
-                if let (Some(p), Ok(sl)) =
-                    (patch.downcast_ref::<SliderPatch>(), h.clone().downcast::<NSSlider>())
-                {
+                if let (Some(p), Ok(sl)) = (
+                    patch.downcast_ref::<SliderPatch>(),
+                    h.clone().downcast::<NSSlider>(),
+                ) {
                     match p {
                         SliderPatch::Value(v) => {
                             if (unsafe { sl.doubleValue() } - v).abs() > 0.001 {
@@ -574,15 +590,14 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::TEXT_FIELD => {
-                if let (Some(p), Ok(tf)) =
-                    (patch.downcast_ref::<TextFieldPatch>(), h.clone().downcast::<NSTextField>())
-                {
+                if let (Some(p), Ok(tf)) = (
+                    patch.downcast_ref::<TextFieldPatch>(),
+                    h.clone().downcast::<NSTextField>(),
+                ) {
                     match p {
                         TextFieldPatch::Text { text, from_native } => {
                             // Origin-tagged echo suppression (§4.4).
-                            if !*from_native
-                                && unsafe { tf.stringValue() }.to_string() != *text
-                            {
+                            if !*from_native && unsafe { tf.stringValue() }.to_string() != *text {
                                 unsafe { tf.setStringValue(&NSString::from_str(text)) };
                             }
                         }
@@ -626,8 +641,8 @@ impl Toolkit for AppKit {
     fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
         match kind {
             kinds::LABEL => {
-                if let Some(tf) = h.downcast_ref::<NSTextField>() {
-                    if let Some(cell) = unsafe { tf.cell() } {
+                if let Some(tf) = h.downcast_ref::<NSTextField>()
+                    && let Some(cell) = unsafe { tf.cell() } {
                         let w = p.width.unwrap_or(1.0e6);
                         let s = unsafe {
                             cell.cellSizeForBounds(NSRect::new(
@@ -637,7 +652,6 @@ impl Toolkit for AppKit {
                         };
                         return Size::new(s.width.ceil().min(w), s.height.ceil());
                     }
-                }
                 Size::ZERO
             }
             kinds::BUTTON | kinds::TOGGLE => {
@@ -650,7 +664,10 @@ impl Toolkit for AppKit {
             }
             kinds::TEXT_FIELD => {
                 let s = unsafe { h.fittingSize() };
-                Size::new(p.width.unwrap_or(s.width.max(160.0)), s.height.max(22.0).ceil())
+                Size::new(
+                    p.width.unwrap_or(s.width.max(160.0)),
+                    s.height.max(22.0).ceil(),
+                )
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 5.0),
             _ => {
@@ -675,16 +692,15 @@ impl Toolkit for AppKit {
     }
 
     fn set_scroll_content(&mut self, h: &Handle, content: Size) {
-        if let Some(sv) = h.downcast_ref::<NSScrollView>() {
-            if let Some(doc) = unsafe { sv.documentView() } {
+        if let Some(sv) = h.downcast_ref::<NSScrollView>()
+            && let Some(doc) = unsafe { sv.documentView() } {
                 unsafe { doc.setFrameSize(NSSize::new(content.width, content.height)) };
             }
-        }
     }
 
     fn scroll_to(&mut self, h: &Handle, target: Rect, _animated: bool) {
-        if let Some(sv) = h.downcast_ref::<NSScrollView>() {
-            if let Some(doc) = unsafe { sv.documentView() } {
+        if let Some(sv) = h.downcast_ref::<NSScrollView>()
+            && let Some(doc) = unsafe { sv.documentView() } {
                 unsafe {
                     doc.scrollRectToVisible(NSRect::new(
                         NSPoint::new(target.origin.x, target.origin.y),
@@ -692,7 +708,6 @@ impl Toolkit for AppKit {
                     ))
                 };
             }
-        }
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
@@ -730,19 +745,16 @@ impl Toolkit for AppKit {
             .ok_or("no graphics context")?;
         NSGraphicsContext::saveGraphicsState_class();
         NSGraphicsContext::setCurrentContext(Some(&ctx));
-        content.effectiveAppearance().performAsCurrentDrawingAppearance(&block2::StackBlock::new(
-            || unsafe {
+        content
+            .effectiveAppearance()
+            .performAsCurrentDrawingAppearance(&block2::StackBlock::new(|| unsafe {
                 NSColor::windowBackgroundColor().setFill();
                 objc2_app_kit::NSRectFill(bounds);
-            },
-        ));
+            }));
         NSGraphicsContext::restoreGraphicsState_class();
         unsafe { content.cacheDisplayInRect_toBitmapImageRep(bounds, &rep) };
         let data = unsafe {
-            rep.representationUsingType_properties(
-                NSBitmapImageFileType::PNG,
-                &NSDictionary::new(),
-            )
+            rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
         }
         .ok_or("png encode failed")?;
         Ok(data.to_vec())
@@ -790,7 +802,11 @@ impl Platform for AppKit {
         self.window = Some(window.clone());
         self.content = Some(content.clone());
 
-        ready(self, content, Size::new(options.size.width, options.size.height));
+        ready(
+            self,
+            content,
+            Size::new(options.size.width, options.size.height),
+        );
 
         window.center();
         window.makeKeyAndOrderFront(None);
@@ -808,13 +824,12 @@ impl Platform for AppKit {
                 Self::post(Box::new(|| {
                     let mtm = MainThreadMarker::new().unwrap();
                     let app = NSApplication::sharedApplication(mtm);
-                    if let Some(win) = app.windows().firstObject() {
-                        if let Some(content) = win.contentView() {
+                    if let Some(win) = app.windows().firstObject()
+                        && let Some(content) = win.contentView() {
                             let desc: Retained<NSString> =
                                 unsafe { msg_send![&*content, _subtreeDescription] };
                             eprintln!("{desc}");
                         }
-                    }
                 }));
             });
         }
@@ -861,10 +876,9 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     menubar.addItem(&app_item);
 
     let edit_item = NSMenuItem::new(mtm);
-    let edit_menu = unsafe {
-        NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit"))
-    };
-    let mut add = |label: &str, action: objc2::runtime::Sel, key: &str| {
+    let edit_menu =
+        unsafe { NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit")) };
+    let add = |label: &str, action: objc2::runtime::Sel, key: &str| {
         let item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
@@ -898,5 +912,9 @@ fn resolve_asset(name: &str) -> Option<String> {
     }
     let exe = std::env::current_exe().ok()?;
     let res = exe.parent()?.parent()?.join("Resources/assets").join(name);
-    if res.exists() { Some(res.to_string_lossy().into_owned()) } else { None }
+    if res.exists() {
+        Some(res.to_string_lossy().into_owned())
+    } else {
+        None
+    }
 }

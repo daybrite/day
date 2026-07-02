@@ -17,26 +17,38 @@ pub fn root() -> AnyPiece {
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
-    let flavors = Signal::new(vec!["vanilla".to_string(), "chocolate".into(), "pistachio".into()]);
+    let flavors = Signal::new(vec![
+        "vanilla".to_string(),
+        "chocolate".into(),
+        "pistachio".into(),
+    ]);
     let flavor = Signal::new(Some(0usize));
 
     scroll(
         column((
             row((
                 image("day-logo.png").frame(28.0, 28.0),
-                label(tr("app-title")).font(Font::Title).id("controls-title"),
+                label(tr("app-title"))
+                    .font(Font::Title)
+                    .id("controls-title"),
             ))
             .spacing(8.0),
             // — state: counter —
             row((
-                button(tr("decrement")).action(move || count.update(|c| *c -= 1)).id("decrement-button"),
+                button(tr("decrement"))
+                    .action(move || count.update(|c| *c -= 1))
+                    .id("decrement-button"),
                 label(tr("counter-value").arg("count", count)).id("counter-label"),
-                button(tr("increment")).action(move || count.update(|c| *c += 1)).id("increment-button"),
+                button(tr("increment"))
+                    .action(move || count.update(|c| *c += 1))
+                    .id("increment-button"),
             ))
             .spacing(8.0),
             divider(),
             // — text input + conditional —
-            text_field(name).placeholder(tr("name-placeholder")).id("name-field"),
+            text_field(name)
+                .placeholder(tr("name-placeholder"))
+                .id("name-field"),
             when(
                 move || !name.with(|s| s.is_empty()),
                 move || label(tr("greeting").arg("name", name)).id("greeting-label"),
@@ -57,7 +69,10 @@ pub fn root() -> AnyPiece {
                 combo_box(flavors, flavor).id("flavor-combo"),
                 label(move || {
                     let names = flavors.get();
-                    flavor.get().and_then(|i| names.get(i).cloned()).unwrap_or_default()
+                    flavor
+                        .get()
+                        .and_then(|i| names.get(i).cloned())
+                        .unwrap_or_default()
                 })
                 .id("flavor-value"),
             ))
@@ -83,11 +98,23 @@ fn gauge(value: Signal<f64>) -> AnyPiece {
         let r = Rect::from_size(size).inset(8.0);
         let track = Color::rgba(0.5, 0.5, 0.55, 0.35);
         let accent = Color::hex(0x2F6FDE);
-        d.stroke(Shape::Arc { rect: r, start_deg: 135.0, sweep_deg: 270.0 }, track, 6.0);
+        d.stroke(
+            Shape::Arc {
+                rect: r,
+                start_deg: 135.0,
+                sweep_deg: 270.0,
+            },
+            track,
+            6.0,
+        );
         let frac = (value.get() / 100.0).clamp(0.0, 1.0);
         if frac > 0.0 {
             d.stroke(
-                Shape::Arc { rect: r, start_deg: 135.0, sweep_deg: 270.0 * frac },
+                Shape::Arc {
+                    rect: r,
+                    start_deg: 135.0,
+                    sweep_deg: 270.0 * frac,
+                },
                 accent,
                 6.0,
             );
@@ -128,7 +155,9 @@ fn history(count: Signal<i64>) -> AnyPiece {
             |e| e.0,
             move |slot: ItemSlot<(u64, i64), u64>| {
                 label(move || {
-                    tr("history-entry").arg("value", slot.field(|t| t.1)).format()
+                    tr("history-entry")
+                        .arg("value", slot.field(|t| t.1))
+                        .format()
                 })
             },
         ),
@@ -160,7 +189,11 @@ mod android_glue {
     use day::android::jni::sys::{jdouble, jfloat, jint, jlong};
 
     fn opt_string(env: &mut JNIEnv, s: &JString) -> Option<String> {
-        if s.is_null() { None } else { env.get_string(s).ok().map(|v| v.into()) }
+        if s.is_null() {
+            None
+        } else {
+            env.get_string(s).ok().map(|v| v.into())
+        }
     }
 
     #[unsafe(no_mangle)]

@@ -19,8 +19,11 @@ use day_spec::{
 
 pub type Handle = gtk4::Widget;
 
+/// The day-core event sink (node-id keyed).
+type Sink = Rc<dyn Fn(NodeId, Event)>;
+
 thread_local! {
-    static SINK: RefCell<Option<Rc<dyn Fn(NodeId, Event)>>> = const { RefCell::new(None) };
+    static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     static OPS: RefCell<HashMap<usize, Vec<DrawOp>>> = RefCell::new(HashMap::new());
 }
 
@@ -38,13 +41,27 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
     let (nums, texts) = day_spec::encode_ops(ops);
     let mut ti = 0;
     for chunk in nums.chunks(9) {
-        let (k, a, b, c, d, e, f, g, col) =
-            (chunk[0] as i32, chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7], chunk[8]);
+        let (k, a, b, c, d, e, f, g, col) = (
+            chunk[0] as i32,
+            chunk[1],
+            chunk[2],
+            chunk[3],
+            chunk[4],
+            chunk[5],
+            chunk[6],
+            chunk[7],
+            chunk[8],
+        );
         cairo_set_color(cr, col);
         match k {
             0 | 1 => {
                 cr.rectangle(a, b, c, d);
-                if k == 0 { let _ = cr.fill(); } else { cr.set_line_width(g); let _ = cr.stroke(); }
+                if k == 0 {
+                    let _ = cr.fill();
+                } else {
+                    cr.set_line_width(g);
+                    let _ = cr.stroke();
+                }
             }
             2 => {
                 cr.rectangle(a, b, c, d); // rounded post-MVP refinement
@@ -56,7 +73,12 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.scale(c / 2.0, d / 2.0);
                 cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
                 cr.restore().ok();
-                if k == 3 { let _ = cr.fill(); } else { cr.set_line_width(g); let _ = cr.stroke(); }
+                if k == 3 {
+                    let _ = cr.fill();
+                } else {
+                    cr.set_line_width(g);
+                    let _ = cr.stroke();
+                }
             }
             5 => {
                 let (cx_, cy) = (a + c / 2.0, b + d / 2.0);
@@ -79,12 +101,11 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 ti += 1;
                 cr.set_font_size(e);
                 let (mut x, mut y) = (a, b);
-                if f > 0.5 {
-                    if let Ok(ext) = cr.text_extents(&text) {
+                if f > 0.5
+                    && let Ok(ext) = cr.text_extents(&text) {
                         x -= ext.width() / 2.0;
                         y += ext.height() / 2.0;
                     }
-                }
                 cr.move_to(x, y);
                 let _ = cr.show_text(&text); // toy API; PangoCairo refinement is a TODO (§11)
             }
@@ -116,7 +137,10 @@ impl Gtk {
         for f in RENDERERS {
             registry.register(f());
         }
-        Gtk { registry, window_fixed: None }
+        Gtk {
+            registry,
+            window_fixed: None,
+        }
     }
 }
 
@@ -152,16 +176,14 @@ fn apply_font(label: &gtk4::Label, font: Font) {
 /// If `parent` is a scrolled window, children go into its content fixed. NOTE: GTK4 auto-wraps
 /// non-scrollable children in a GtkViewport, so `sw.child()` is the viewport, not our Fixed.
 fn content_of(parent: &Handle) -> Handle {
-    if let Some(sw) = parent.downcast_ref::<gtk4::ScrolledWindow>() {
-        if let Some(child) = sw.child() {
-            if let Some(vp) = child.downcast_ref::<gtk4::Viewport>() {
-                if let Some(inner) = vp.child() {
+    if let Some(sw) = parent.downcast_ref::<gtk4::ScrolledWindow>()
+        && let Some(child) = sw.child() {
+            if let Some(vp) = child.downcast_ref::<gtk4::Viewport>()
+                && let Some(inner) = vp.child() {
                     return inner;
                 }
-            }
             return child;
         }
-    }
     parent.clone()
 }
 
@@ -222,9 +244,7 @@ impl Toolkit for Gtk {
                 let entry = gtk4::Entry::new();
                 entry.set_text(&p.text);
                 entry.set_placeholder_text(Some(&p.placeholder));
-                entry.connect_changed(move |e| {
-                    emit(id, Event::TextChanged(e.text().to_string()))
-                });
+                entry.connect_changed(move |e| emit(id, Event::TextChanged(e.text().to_string())));
                 entry.upcast()
             }
             kinds::DIVIDER => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
@@ -232,7 +252,9 @@ impl Toolkit for Gtk {
                 let area = gtk4::DrawingArea::new();
                 area.set_draw_func(|area, cr, _w, _h| {
                     let ptr = area.as_ptr() as usize;
-                    let ops = OPS.with(|m| m.borrow().get(&ptr).cloned()).unwrap_or_default();
+                    let ops = OPS
+                        .with(|m| m.borrow().get(&ptr).cloned())
+                        .unwrap_or_default();
                     cairo_draw(cr, &ops);
                 });
                 area.upcast()
@@ -257,12 +279,19 @@ impl Toolkit for Gtk {
         }
     }
 
-    fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn std::any::Any, _anim: Option<&AnimSpec>) {
+    fn update(
+        &mut self,
+        h: &Handle,
+        kind: PieceKind,
+        patch: &dyn std::any::Any,
+        _anim: Option<&AnimSpec>,
+    ) {
         match kind {
             kinds::LABEL => {
-                if let (Some(p), Some(label)) =
-                    (patch.downcast_ref::<LabelPatch>(), h.downcast_ref::<gtk4::Label>())
-                {
+                if let (Some(p), Some(label)) = (
+                    patch.downcast_ref::<LabelPatch>(),
+                    h.downcast_ref::<gtk4::Label>(),
+                ) {
                     match p {
                         LabelPatch::Text(t) => {
                             if label.text() != t.as_str() {
@@ -275,9 +304,10 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::BUTTON => {
-                if let (Some(p), Some(btn)) =
-                    (patch.downcast_ref::<ButtonPatch>(), h.downcast_ref::<gtk4::Button>())
-                {
+                if let (Some(p), Some(btn)) = (
+                    patch.downcast_ref::<ButtonPatch>(),
+                    h.downcast_ref::<gtk4::Button>(),
+                ) {
                     match p {
                         ButtonPatch::Title(t) => btn.set_label(t),
                         ButtonPatch::Enabled(e) => btn.set_sensitive(*e),
@@ -285,9 +315,10 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::TOGGLE => {
-                if let (Some(p), Some(sw)) =
-                    (patch.downcast_ref::<TogglePatch>(), h.downcast_ref::<gtk4::Switch>())
-                {
+                if let (Some(p), Some(sw)) = (
+                    patch.downcast_ref::<TogglePatch>(),
+                    h.downcast_ref::<gtk4::Switch>(),
+                ) {
                     match p {
                         TogglePatch::On(on) => {
                             if sw.is_active() != *on {
@@ -299,9 +330,10 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::SLIDER => {
-                if let (Some(p), Some(scale)) =
-                    (patch.downcast_ref::<SliderPatch>(), h.downcast_ref::<gtk4::Scale>())
-                {
+                if let (Some(p), Some(scale)) = (
+                    patch.downcast_ref::<SliderPatch>(),
+                    h.downcast_ref::<gtk4::Scale>(),
+                ) {
                     match p {
                         SliderPatch::Value(v) => {
                             if (scale.value() - v).abs() > 0.001 {
@@ -313,9 +345,10 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::TEXT_FIELD => {
-                if let (Some(p), Some(entry)) =
-                    (patch.downcast_ref::<TextFieldPatch>(), h.downcast_ref::<gtk4::Entry>())
-                {
+                if let (Some(p), Some(entry)) = (
+                    patch.downcast_ref::<TextFieldPatch>(),
+                    h.downcast_ref::<gtk4::Entry>(),
+                ) {
                     match p {
                         TextFieldPatch::Text { text, from_native } => {
                             if !*from_native && entry.text() != text.as_str() {
@@ -336,11 +369,10 @@ impl Toolkit for Gtk {
     }
 
     fn release(&mut self, h: Handle) {
-        if let Some(parent) = h.parent() {
-            if let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
+        if let Some(parent) = h.parent()
+            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
                 fixed.remove(&h);
             }
-        }
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
@@ -392,12 +424,14 @@ impl Toolkit for Gtk {
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
-        if let Some(parent) = h.parent() {
-            if let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
+        if let Some(parent) = h.parent()
+            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
                 fixed.move_(h, frame.origin.x, frame.origin.y);
             }
-        }
-        h.set_size_request(frame.size.width.round() as i32, frame.size.height.round() as i32);
+        h.set_size_request(
+            frame.size.width.round() as i32,
+            frame.size.height.round() as i32,
+        );
     }
 
     fn set_scroll_content(&mut self, h: &Handle, content: Size) {
@@ -447,19 +481,26 @@ impl Toolkit for Gtk {
 }
 
 impl Platform for Gtk {
-    const TARGET: &'static str = if cfg!(target_os = "macos") { "macos-gtk" } else { "linux-gtk" };
+    const TARGET: &'static str = if cfg!(target_os = "macos") {
+        "macos-gtk"
+    } else {
+        "linux-gtk"
+    };
     const TOOLKIT: &'static str = "gtk";
 
-    fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
-        let app = gtk4::Application::builder().application_id("dev.day.app").build();
+    fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
+        let app = gtk4::Application::builder()
+            .application_id("dev.day.app")
+            .build();
         let state = RefCell::new(Some((self, ready, options)));
         // Take on first activate (FnOnce payload inside an Fn handler).
         app.connect_activate(move |app| {
-            let Some((mut backend, ready, options)) = state.borrow_mut().take() else { return };
+            let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
+                return;
+            };
             let window = gtk4::ApplicationWindow::new(app);
             window.set_title(Some(&options.title));
-            window
-                .set_default_size(options.size.width as i32, options.size.height as i32);
+            window.set_default_size(options.size.width as i32, options.size.height as i32);
             window.set_resizable(false); // live resize needs the custom layout manager (post-MVP)
             let fixed = gtk4::Fixed::new();
             window.set_child(Some(&fixed));

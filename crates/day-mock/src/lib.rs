@@ -63,7 +63,12 @@ pub struct MockProbe {
 impl MockToolkit {
     pub fn new() -> (Self, MockProbe) {
         let state = Rc::new(RefCell::new(MockState::default()));
-        (MockToolkit { state: state.clone() }, MockProbe { state })
+        (
+            MockToolkit {
+                state: state.clone(),
+            },
+            MockProbe { state },
+        )
     }
 }
 
@@ -81,10 +86,21 @@ impl MockProbe {
     }
     /// Ops excluding measures (mutation ops only).
     pub fn mutations(&self) -> Vec<String> {
-        self.state.borrow().log.iter().filter(|l| !l.starts_with("measure")).cloned().collect()
+        self.state
+            .borrow()
+            .log
+            .iter()
+            .filter(|l| !l.starts_with("measure"))
+            .cloned()
+            .collect()
     }
     pub fn widget(&self, h: MockHandle) -> MockWidget {
-        self.state.borrow().widgets.get(&h.0).cloned().unwrap_or_default()
+        self.state
+            .borrow()
+            .widgets
+            .get(&h.0)
+            .cloned()
+            .unwrap_or_default()
     }
     pub fn find_by_kind(&self, kind: &str) -> Vec<(MockHandle, MockWidget)> {
         let mut v: Vec<_> = self
@@ -114,7 +130,10 @@ fn fmt_size(s: Size) -> String {
     format!("{}x{}", s.width, s.height)
 }
 fn fmt_rect(r: Rect) -> String {
-    format!("({},{} {}x{})", r.origin.x, r.origin.y, r.size.width, r.size.height)
+    format!(
+        "({},{} {}x{})",
+        r.origin.x, r.origin.y, r.size.width, r.size.height
+    )
 }
 
 /// Deterministic text metrics: 8pt per char, 16pt line height, greedy wrap.
@@ -143,7 +162,12 @@ impl Toolkit for MockToolkit {
         let mut s = self.state.borrow_mut();
         s.next += 1;
         let h = s.next;
-        let mut w = MockWidget { kind, node: id.0, enabled: true, ..Default::default() };
+        let mut w = MockWidget {
+            kind,
+            node: id.0,
+            enabled: true,
+            ..Default::default()
+        };
         let mut detail = String::new();
         if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
@@ -167,7 +191,13 @@ impl Toolkit for MockToolkit {
         MockHandle(h)
     }
 
-    fn update(&mut self, h: &MockHandle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
+    fn update(
+        &mut self,
+        h: &MockHandle,
+        kind: PieceKind,
+        patch: &dyn Any,
+        _anim: Option<&AnimSpec>,
+    ) {
         let mut s = self.state.borrow_mut();
         let detail;
         {
@@ -250,17 +280,26 @@ impl Toolkit for MockToolkit {
     fn insert(&mut self, parent: &MockHandle, child: &MockHandle, index: usize) {
         let mut s = self.state.borrow_mut();
         {
-            let p = s.widgets.get_mut(&parent.0).expect("insert into unknown parent");
+            let p = s
+                .widgets
+                .get_mut(&parent.0)
+                .expect("insert into unknown parent");
             let idx = index.min(p.children.len());
             p.children.insert(idx, child.0);
         }
-        s.log(format!("insert #{} into #{} at {}", child.0, parent.0, index));
+        s.log(format!(
+            "insert #{} into #{} at {}",
+            child.0, parent.0, index
+        ));
     }
 
     fn remove(&mut self, parent: &MockHandle, child: &MockHandle) {
         let mut s = self.state.borrow_mut();
         {
-            let p = s.widgets.get_mut(&parent.0).expect("remove from unknown parent");
+            let p = s
+                .widgets
+                .get_mut(&parent.0)
+                .expect("remove from unknown parent");
             p.children.retain(|&c| c != child.0);
         }
         s.log(format!("remove #{} from #{}", child.0, parent.0));
@@ -269,7 +308,10 @@ impl Toolkit for MockToolkit {
     fn move_child(&mut self, parent: &MockHandle, child: &MockHandle, to: usize) {
         let mut s = self.state.borrow_mut();
         {
-            let p = s.widgets.get_mut(&parent.0).expect("move in unknown parent");
+            let p = s
+                .widgets
+                .get_mut(&parent.0)
+                .expect("move in unknown parent");
             p.children.retain(|&c| c != child.0);
             let idx = to.min(p.children.len());
             p.children.insert(idx, child.0);
@@ -294,7 +336,12 @@ impl Toolkit for MockToolkit {
             kinds::IMAGE => Size::new(32.0, 32.0),
             _ => Size::new(p.width.unwrap_or(10.0), p.height.unwrap_or(10.0)),
         };
-        s.log(format!("measure {kind} #{} {:?} -> {}", h.0, p.cache_key(), fmt_size(size)));
+        s.log(format!(
+            "measure {kind} #{} {:?} -> {}",
+            h.0,
+            p.cache_key(),
+            fmt_size(size)
+        ));
         size
     }
 
@@ -331,7 +378,12 @@ impl Toolkit for MockToolkit {
         if let Some(w) = s.widgets.get_mut(&h.0) {
             w.ops = ops.to_vec();
         }
-        s.log(format!("replay #{} {} ops in {}", h.0, ops.len(), fmt_size(size)));
+        s.log(format!(
+            "replay #{} {} ops in {}",
+            h.0,
+            ops.len(),
+            fmt_size(size)
+        ));
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

@@ -27,7 +27,15 @@ impl BuildCx {
     /// Create + attach a native leaf.
     pub fn leaf(&mut self, kind: PieceKind, props: &dyn Any, flex: Flex) -> RNode {
         let n = with_tree(|t| {
-            t.create_node(kind, props, Rc::new(crate::layout::LeafLayout), flex, true, false, Scope::current())
+            t.create_node(
+                kind,
+                props,
+                Rc::new(crate::layout::LeafLayout),
+                flex,
+                true,
+                false,
+                Scope::current(),
+            )
         });
         with_tree(|t| t.attach(self.parent, n));
         n
@@ -43,7 +51,15 @@ impl BuildCx {
         is_boundary: bool,
     ) -> RNode {
         let n = with_tree(|t| {
-            t.create_node(kind, props, layout, flex, true, is_boundary, Scope::current())
+            t.create_node(
+                kind,
+                props,
+                layout,
+                flex,
+                true,
+                is_boundary,
+                Scope::current(),
+            )
         });
         with_tree(|t| t.attach(self.parent, n));
         n
@@ -52,7 +68,15 @@ impl BuildCx {
     /// Create + attach a layout-only node (wrappers, groups, spacer).
     pub fn layout_only(&mut self, layout: Rc<dyn Layout>, flex: Flex, is_boundary: bool) -> RNode {
         let n = with_tree(|t| {
-            t.create_node("day.layout", &(), layout, flex, false, is_boundary, Scope::current())
+            t.create_node(
+                "day.layout",
+                &(),
+                layout,
+                flex,
+                false,
+                is_boundary,
+                Scope::current(),
+            )
         });
         with_tree(|t| t.attach(self.parent, n));
         n

@@ -17,12 +17,42 @@ pub struct Target {
 }
 
 pub const TARGETS: &[Target] = &[
-    Target { name: "macos-appkit", toolkit: "appkit", kind: TargetKind::Desktop, host: "macos" },
-    Target { name: "macos-gtk", toolkit: "gtk", kind: TargetKind::Desktop, host: "macos" },
-    Target { name: "macos-qt", toolkit: "qt", kind: TargetKind::Desktop, host: "macos" },
-    Target { name: "linux-gtk", toolkit: "gtk", kind: TargetKind::Desktop, host: "linux" },
-    Target { name: "linux-qt", toolkit: "qt", kind: TargetKind::Desktop, host: "linux" },
-    Target { name: "ios-uikit", toolkit: "uikit", kind: TargetKind::IosSim, host: "macos" },
+    Target {
+        name: "macos-appkit",
+        toolkit: "appkit",
+        kind: TargetKind::Desktop,
+        host: "macos",
+    },
+    Target {
+        name: "macos-gtk",
+        toolkit: "gtk",
+        kind: TargetKind::Desktop,
+        host: "macos",
+    },
+    Target {
+        name: "macos-qt",
+        toolkit: "qt",
+        kind: TargetKind::Desktop,
+        host: "macos",
+    },
+    Target {
+        name: "linux-gtk",
+        toolkit: "gtk",
+        kind: TargetKind::Desktop,
+        host: "linux",
+    },
+    Target {
+        name: "linux-qt",
+        toolkit: "qt",
+        kind: TargetKind::Desktop,
+        host: "linux",
+    },
+    Target {
+        name: "ios-uikit",
+        toolkit: "uikit",
+        kind: TargetKind::IosSim,
+        host: "macos",
+    },
     Target {
         name: "android-widget",
         toolkit: "widget",

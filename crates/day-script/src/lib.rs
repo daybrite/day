@@ -28,23 +28,54 @@ pub struct Request {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Step {
-    WaitFor { id: String },
+    WaitFor {
+        id: String,
+    },
     WaitIdle,
-    Tap { id: String, #[serde(default)] repeat: Option<u32> },
-    Input { id: String, text: String },
-    SetValue { id: String, value: f64 },
-    Toggle { id: String, #[serde(default)] value: Option<bool> },
-    Select { id: String, index: i64 },
-    AssertVisible { id: String },
+    Tap {
+        id: String,
+        #[serde(default)]
+        repeat: Option<u32>,
+    },
+    Input {
+        id: String,
+        text: String,
+    },
+    SetValue {
+        id: String,
+        value: f64,
+    },
+    Toggle {
+        id: String,
+        #[serde(default)]
+        value: Option<bool>,
+    },
+    Select {
+        id: String,
+        index: i64,
+    },
+    AssertVisible {
+        id: String,
+    },
     AssertText {
         id: String,
-        #[serde(default)] text: Option<String>,
-        #[serde(default)] key: Option<String>,
-        #[serde(default)] args: Option<BTreeMap<String, serde_json::Value>>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        args: Option<BTreeMap<String, serde_json::Value>>,
     },
-    AssertValue { id: String, value: serde_json::Value },
-    Screenshot { name: String },
-    Pause { secs: f64 },
+    AssertValue {
+        id: String,
+        value: serde_json::Value,
+    },
+    Screenshot {
+        name: String,
+    },
+    Pause {
+        secs: f64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -63,10 +94,18 @@ pub struct Reply {
 
 impl Reply {
     fn ok() -> Self {
-        Reply { ok: true, ..Default::default() }
+        Reply {
+            ok: true,
+            ..Default::default()
+        }
     }
     fn fail(msg: impl Into<String>, retryable: bool) -> Self {
-        Reply { ok: false, error: Some(msg.into()), retryable, ..Default::default() }
+        Reply {
+            ok: false,
+            error: Some(msg.into()),
+            retryable,
+            ..Default::default()
+        }
     }
 }
 
@@ -76,12 +115,15 @@ impl Reply {
 
 /// Start the engine iff invited via env (call before `launch_with`; inert otherwise).
 pub fn init() {
-    let (Ok(port), Ok(token)) =
-        (std::env::var("DAYSCRIPT_PORT"), std::env::var("DAYSCRIPT_TOKEN"))
-    else {
+    let (Ok(port), Ok(token)) = (
+        std::env::var("DAYSCRIPT_PORT"),
+        std::env::var("DAYSCRIPT_TOKEN"),
+    ) else {
         return;
     };
-    let Ok(port) = port.parse::<u16>() else { return };
+    let Ok(port) = port.parse::<u16>() else {
+        return;
+    };
     std::thread::spawn(move || serve(port, token));
 }
 
@@ -219,7 +261,12 @@ fn exec(step: Step) -> Reply {
                 visible(&id)?;
                 Ok(Reply::ok())
             }
-            Step::AssertText { id, text, key, args } => {
+            Step::AssertText {
+                id,
+                text,
+                key,
+                args,
+            } => {
                 let actual = norm(&probe(&id)?.text);
                 let expected = if let Some(k) = key {
                     let mut lt = day_fluent::tr(&k);
@@ -301,12 +348,24 @@ const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 pub fn b64encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { B64[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { B64[n as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            B64[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     out
 }

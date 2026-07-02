@@ -2,7 +2,7 @@
 //! macos-appkit → .app + ad-hoc codesign + .dmg (hdiutil); android-widget → debug-signed .apk;
 //! ios-uikit → zipped Simulator .app (there is no "simulator .ipa" — §16.5).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::meta::Project;
@@ -35,16 +35,28 @@ pub fn run(project: &Project, target: &'static Target, profile: &str) -> Result<
             if !ok {
                 return Err("ditto zip failed".into());
             }
-            status("Packed", &format!("{} (installable via simctl)", out.display()));
+            status(
+                "Packed",
+                &format!("{} (installable via simctl)", out.display()),
+            );
             Ok(out)
         }
         _ => Err(format!("pack for {} lands post-MVP (§16.5)", target.name)),
     }
 }
 
-fn pack_macos(project: &Project, outcome: &BuildOutcome, dist: &PathBuf) -> Result<PathBuf, String> {
+fn pack_macos(
+    project: &Project,
+    outcome: &BuildOutcome,
+    dist: &Path,
+) -> Result<PathBuf, String> {
     let name = &project.manifest.app.name;
-    let title = project.manifest.app.title.clone().unwrap_or_else(|| name.clone());
+    let title = project
+        .manifest
+        .app
+        .title
+        .clone()
+        .unwrap_or_else(|| name.clone());
     let version = &project.manifest.app.version;
     let stage = project.root.join("build/day/pack/macos-appkit");
     let app = stage.join(format!("{title}.app"));
