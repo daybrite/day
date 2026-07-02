@@ -26,10 +26,14 @@ mod imp {
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_core_foundation::{CGPoint, CGRect, CGSize};
     use objc2_foundation::{NSObject, NSString};
+    // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
+    // `UIApplication::__main` binding; the classic entry point is what we want.
+    #[allow(deprecated)]
+    use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::{
-        UIApplication, UIApplicationDelegate, UIApplicationMain, UIButton, UIButtonType, UIColor,
-        UIControl, UIControlEvents, UIControlState, UILabel, UIScreen, UIScrollView, UISlider,
-        UISwitch, UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
+        UIApplication, UIApplicationDelegate, UIButton, UIButtonType, UIColor, UIControl,
+        UIControlEvents, UIControlState, UILabel, UIScreen, UIScrollView, UISlider, UISwitch,
+        UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
     };
 
     use day_spec::props::*;
@@ -40,8 +44,11 @@ mod imp {
 
     pub type Handle = Retained<UIView>;
 
+    /// The day-core event sink (node-id keyed).
+    type Sink = Rc<dyn Fn(NodeId, Event)>;
+
     thread_local! {
-        static SINK: RefCell<Option<Rc<dyn Fn(NodeId, Event)>>> = const { RefCell::new(None) };
+        static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
         static WINDOW: RefCell<Option<Retained<UIWindow>>> = const { RefCell::new(None) };
         #[allow(clippy::type_complexity)]
@@ -159,8 +166,7 @@ mod imp {
     }
 
     fn draw_op(op: &day_spec::DrawOp) {
-        use day_spec::{DrawOp, Shape};
-        use objc2_ui_kit::UIBezierPath;
+        use day_spec::DrawOp;
         unsafe {
             match op {
                 DrawOp::Fill(shape, color) => {
@@ -648,6 +654,8 @@ mod imp {
                 WINDOW.with(|w| *w.borrow_mut() = retained);
             }
 
+            // Classic (pre-UIScene) window setup: fine for day's single-window shell.
+            #[allow(deprecated)]
             #[unsafe(method(application:didFinishLaunchingWithOptions:))]
             fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
                 let mtm = MainThreadMarker::new().unwrap();
@@ -699,6 +707,7 @@ mod imp {
             let mut argv = [arg0];
             let argv_ptr = NonNull::new(argv.as_mut_ptr()).unwrap();
             let delegate = NSString::from_str("DayAppDelegate");
+            #[allow(deprecated)]
             unsafe {
                 UIApplicationMain(1 as c_int, argv_ptr, None, Some(&delegate));
             }

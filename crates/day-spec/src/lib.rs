@@ -433,15 +433,15 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     let mut nums = Vec::with_capacity(ops.len() * 9);
     let mut texts = Vec::new();
     let push = |k: f64,
-                    a: f64,
-                    b: f64,
-                    c: f64,
-                    d: f64,
-                    e: f64,
-                    f: f64,
-                    g: f64,
-                    col: Color,
-                    nums: &mut Vec<f64>| {
+                a: f64,
+                b: f64,
+                c: f64,
+                d: f64,
+                e: f64,
+                f: f64,
+                g: f64,
+                col: Color,
+                nums: &mut Vec<f64>| {
         nums.extend_from_slice(&[k, a, b, c, d, e, f, g, color_bits(col)]);
     };
     for op in ops {

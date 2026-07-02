@@ -45,11 +45,7 @@ pub fn run(project: &Project, target: &'static Target, profile: &str) -> Result<
     }
 }
 
-fn pack_macos(
-    project: &Project,
-    outcome: &BuildOutcome,
-    dist: &Path,
-) -> Result<PathBuf, String> {
+fn pack_macos(project: &Project, outcome: &BuildOutcome, dist: &Path) -> Result<PathBuf, String> {
     let name = &project.manifest.app.name;
     let title = project
         .manifest

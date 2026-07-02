@@ -2,7 +2,6 @@
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with
 //! **zero edits** to day or its toolkit crates. The Qt renderer even carries its own C++ shim.
 
-
 use day_core::{AnyPiece, piece_fn, with_tree};
 use day_pieces::SignalRw;
 use day_reactive::{Signal, bind_seeded};
@@ -130,8 +129,7 @@ mod appkit_impl {
             objc2_foundation::NSPoint::new(0.0, 0.0),
             objc2_foundation::NSSize::new(0.0, 0.0),
         );
-        let popup =
-            NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero, false);
+        let popup = NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero, false);
         apply_items(&popup, &p.items, p.selected);
         unsafe {
             popup.setTarget(Some(&*target));
@@ -350,7 +348,7 @@ mod uikit_impl {
         impl SegTarget {
             #[unsafe(method(fire:))]
             fn fire(&self, sender: &UISegmentedControl) {
-                let idx = unsafe { sender.selectedSegmentIndex() };
+                let idx = sender.selectedSegmentIndex();
                 day_uikit::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
             }
         }
@@ -369,15 +367,13 @@ mod uikit_impl {
     }
 
     fn apply(seg: &UISegmentedControl, items: &[String], selected: Option<usize>) {
-        unsafe {
-            seg.removeAllSegments();
-            for (i, item) in items.iter().enumerate() {
-                let title = NSString::from_str(item);
-                seg.insertSegmentWithTitle_atIndex_animated(Some(&title), i as usize, false);
-            }
-            if let Some(i) = selected {
-                seg.setSelectedSegmentIndex(i as isize);
-            }
+        seg.removeAllSegments();
+        for (i, item) in items.iter().enumerate() {
+            let title = NSString::from_str(item);
+            seg.insertSegmentWithTitle_atIndex_animated(Some(&title), i, false);
+        }
+        if let Some(i) = selected {
+            seg.setSelectedSegmentIndex(i as isize);
         }
     }
 
@@ -385,7 +381,7 @@ mod uikit_impl {
         let p = props.downcast_ref::<ComboProps>().unwrap();
         let mtm = MainThreadMarker::new().unwrap();
         let target = SegTarget::new(mtm, id);
-        let seg = unsafe { UISegmentedControl::new(mtm) };
+        let seg = UISegmentedControl::new(mtm);
         apply(&seg, &p.items, p.selected);
         unsafe {
             let tobj: &AnyObject = target.as_ref();
@@ -411,15 +407,15 @@ mod uikit_impl {
         if let Some(p) = patch.downcast_ref::<ComboPatch>() {
             match p {
                 ComboPatch::Items(items) => apply(seg, items, None),
-                ComboPatch::Selected(sel) => unsafe {
+                ComboPatch::Selected(sel) => {
                     seg.setSelectedSegmentIndex(sel.map(|i| i as isize).unwrap_or(-1));
-                },
+                }
             }
         }
     }
 
     fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
-        let s = unsafe { h.sizeThatFits(CGSize::new(1.0e6, 1.0e6)) };
+        let s = h.sizeThatFits(CGSize::new(1.0e6, 1.0e6));
         Size::new(s.width.ceil().max(80.0), s.height.ceil().max(28.0))
     }
 

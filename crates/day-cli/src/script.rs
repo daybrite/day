@@ -124,8 +124,8 @@ pub fn run_scripts(
     // adb-forwarded ports accept host connections BEFORE the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
     let roundtrip = |stream: &mut TcpStream,
-                         reader: &mut BufReader<TcpStream>,
-                         line: &str|
+                     reader: &mut BufReader<TcpStream>,
+                     line: &str|
      -> Result<String, String> {
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         loop {

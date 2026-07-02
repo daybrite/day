@@ -460,9 +460,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps) {
         if let Some(n) = self.nodes.get(node)
-            && let Some(h) = n.handle.clone() {
-                self.toolkit.set_a11y(&h, &a11y);
-            }
+            && let Some(h) = n.handle.clone()
+        {
+            self.toolkit.set_a11y(&h, &a11y);
+        }
     }
 
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool) {

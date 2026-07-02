@@ -42,16 +42,17 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
         if p.is_dir() {
             scan_sources(&p, pat, out);
         } else if p.extension().is_some_and(|x| x == "rs")
-            && let Ok(src) = std::fs::read_to_string(&p) {
-                let mut rest = src.as_str();
-                while let Some(i) = rest.find(pat) {
-                    rest = &rest[i + pat.len()..];
-                    if let Some(end) = rest.find('"') {
-                        out.push(rest[..end].to_string());
-                        rest = &rest[end..];
-                    }
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find(pat) {
+                rest = &rest[i + pat.len()..];
+                if let Some(end) = rest.find('"') {
+                    out.push(rest[..end].to_string());
+                    rest = &rest[end..];
                 }
             }
+        }
     }
 }
 
@@ -69,9 +70,10 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                 if let Ok(files) = std::fs::read_dir(e.path()) {
                     for f in files.flatten() {
                         if f.path().extension().is_some_and(|x| x == "ftl")
-                            && let Ok(src) = std::fs::read_to_string(f.path()) {
-                                keys.extend(ftl_keys(&src));
-                            }
+                            && let Ok(src) = std::fs::read_to_string(f.path())
+                        {
+                            keys.extend(ftl_keys(&src));
+                        }
                     }
                 }
                 locales.insert(name, keys);

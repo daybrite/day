@@ -38,8 +38,11 @@ mod imp {
     /// class loader and cannot see app classes — cache the class on the main thread at init.
     static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
+    /// The day-core event sink (node-id keyed).
+    type Sink = Rc<dyn Fn(NodeId, Event)>;
+
     thread_local! {
-        static SINK: RefCell<Option<Rc<dyn Fn(NodeId, Event)>>> = const { RefCell::new(None) };
+        static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static DENSITY: Cell<f64> = const { Cell::new(1.0) };
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
     }
@@ -97,10 +100,10 @@ mod imp {
         if let Ok(vm) = env.get_java_vm() {
             let _ = JAVA_VM.set(vm);
         }
-        if let Ok(cls) = env.find_class(BRIDGE) {
-            if let Ok(global) = env.new_global_ref(cls) {
-                let _ = BRIDGE_CLASS.set(global);
-            }
+        if let Ok(cls) = env.find_class(BRIDGE)
+            && let Ok(global) = env.new_global_ref(cls)
+        {
+            let _ = BRIDGE_CLASS.set(global);
         }
         let d = density_ as f64;
         DENSITY.with(|x| x.set(d));

@@ -12,9 +12,7 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{Scope, Signal, bind_seeded, watch};
 use day_spec::props::*;
-use day_spec::{
-    A11yProps, Color, DrawOp, Event, Font, Insets, Point, Role, Shape, Size, kinds,
-};
+use day_spec::{A11yProps, Color, DrawOp, Event, Font, Insets, Point, Role, Shape, Size, kinds};
 
 // ---------------------------------------------------------------------------
 // Text sources (§12.2's IntoText, M1 subset — Fluent joins at M6)
@@ -611,14 +609,11 @@ pub fn when<P: Piece>(
 
         let initial = day_reactive::untrack(&cond);
         mount(initial);
-        watch(
-            cond,
-            move |now, old| {
-                if Some(now) != old {
-                    mount(*now);
-                }
-            },
-        );
+        watch(cond, move |now, old| {
+            if Some(now) != old {
+                mount(*now);
+            }
+        });
         anchor
     })
 }

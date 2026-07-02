@@ -190,9 +190,10 @@ fn clear_sources(rt: &mut Runtime, key: NodeKey) {
     let sources = std::mem::take(&mut rt.nodes[key].sources);
     for s in sources {
         if let Some(n) = rt.nodes.get_mut(s)
-            && let Some(pos) = n.observers.iter().position(|&o| o == key) {
-                n.observers.swap_remove(pos);
-            }
+            && let Some(pos) = n.observers.iter().position(|&o| o == key)
+        {
+            n.observers.swap_remove(pos);
+        }
     }
 }
 
@@ -608,9 +609,10 @@ impl Scope {
         };
         with_rt(|rt| {
             if let Some(p) = rt.scopes.get_mut(parent)
-                && let Some(pos) = p.children.iter().position(|&c| c == self.key) {
-                    p.children.swap_remove(pos);
-                }
+                && let Some(pos) = p.children.iter().position(|&c| c == self.key)
+            {
+                p.children.swap_remove(pos);
+            }
             for key in nodes {
                 clear_sources(rt, key);
                 // Detach us from downstream observers too.
@@ -618,9 +620,10 @@ impl Scope {
                     let observers = std::mem::take(&mut node.observers);
                     for o in observers {
                         if let Some(on) = rt.nodes.get_mut(o)
-                            && let Some(pos) = on.sources.iter().position(|&s| s == key) {
-                                on.sources.swap_remove(pos);
-                            }
+                            && let Some(pos) = on.sources.iter().position(|&s| s == key)
+                        {
+                            on.sources.swap_remove(pos);
+                        }
                     }
                 }
                 rt.nodes.remove(key);
@@ -1273,9 +1276,10 @@ mod tests {
         let sc = scope_cell.clone();
         Effect::new(move || {
             if s.get() == 1
-                && let Some(scope) = sc.take() {
-                    scope.dispose();
-                }
+                && let Some(scope) = sc.take()
+            {
+                scope.dispose();
+            }
         });
         scope.enter(|| {
             Effect::new(move || {

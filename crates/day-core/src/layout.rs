@@ -75,9 +75,10 @@ pub(crate) fn measure_node<B: Toolkit>(tree: &mut Tree<B>, node: RNode, p: Propo
             return Size::ZERO;
         };
         if !n.needs_measure
-            && let Some(&(_, s)) = n.cache.iter().find(|(k, _)| *k == key) {
-                return s;
-            }
+            && let Some(&(_, s)) = n.cache.iter().find(|(k, _)| *k == key)
+        {
+            return s;
+        }
         (n.layout.clone(), n.children.clone())
     };
     let mut cx = EngineCx {

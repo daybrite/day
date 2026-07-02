@@ -34,6 +34,11 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  # `--workspace` cannot compile here: cargo feature unification would enable several `day`
+  # backend features at once and trip the one-backend-per-binary compile_error! guard (§3).
+  # Instead clippy enumerates the feature cones; together they cover every workspace crate
+  # that compiles on Linux (day-appkit/day-uikit are cfg-empty off their platforms — the
+  # macos job's -D warnings builds cover their rustc lints).
   clippy:
     name: clippy
     runs-on: ubuntu-latest
@@ -42,8 +47,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets
+      - name: Install GTK 4 and Qt 6 dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev qt6-base-dev pkg-config
+      - name: Clippy (host-portable crates)
+        run: cargo clippy --locked --all-targets
+      - name: Clippy (day CLI + dayscript)
+        run: cargo clippy --locked -p day-cli -p day-script --all-targets
+      - name: Clippy (gtk / qt / mock backend cones)
+        run: |
+          for feature in gtk qt mock; do
+            cargo clippy --locked -p showcase --no-default-features --features "$feature" --all-targets
+          done
+      - name: Clippy (android cone, cross-check)
+        run: |
+          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
+            --no-default-features --features widget
 
   # ---------------------------------------------------------------------------
   # linux: host-portable core tests, gtk + qt backend builds, headless e2e
@@ -135,6 +157,7 @@ jobs:
         with:
           # The ios-uikit legs cross-compile via the Xcode script phase (§17.4).
           targets: aarch64-apple-ios-sim
+          components: clippy
       - uses: Swatinem/rust-cache@v2
 
       - name: Install GTK 4 and Qt 6
@@ -142,6 +165,13 @@ jobs:
 
       - name: Core tests
         run: cargo test --locked
+
+      # The apple cones are cfg-empty on the ubuntu clippy job — lint them here.
+      - name: Clippy (appkit + uikit cones)
+        run: |
+          cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
+          cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \
+            --no-default-features --features uikit
 
       - name: Build day CLI
         run: cargo build --locked -p day-cli

@@ -187,7 +187,6 @@ fn ns_rect(r: day_spec::Rect) -> NSRect {
 }
 
 fn draw_op(op: &DrawOp) {
-    
     unsafe {
         match op {
             DrawOp::Fill(shape, color) => {
@@ -296,13 +295,14 @@ define_class!(
         fn window_did_resize(&self, notification: &NSNotification) {
             if let Some(obj) = unsafe { notification.object() }
                 && let Ok(win) = obj.downcast::<NSWindow>()
-                    && let Some(content) = win.contentView() {
-                        let b = content.bounds();
-                        emit(
-                            WINDOW_NODE,
-                            Event::WindowResized(Size::new(b.size.width, b.size.height)),
-                        );
-                    }
+                && let Some(content) = win.contentView()
+            {
+                let b = content.bounds();
+                emit(
+                    WINDOW_NODE,
+                    Event::WindowResized(Size::new(b.size.width, b.size.height)),
+                );
+            }
         }
 
         #[unsafe(method(windowWillClose:))]
@@ -395,9 +395,10 @@ fn configure_label_cell(tf: &NSTextField) {
 /// If `parent` is a scroll view, children go into its (flipped) document view.
 fn content_of(parent: &Handle) -> Retained<NSView> {
     if let Some(sv) = parent.downcast_ref::<NSScrollView>()
-        && let Some(doc) = unsafe { sv.documentView() } {
-            return doc;
-        }
+        && let Some(doc) = unsafe { sv.documentView() }
+    {
+        return doc;
+    }
     parent.clone()
 }
 
@@ -642,16 +643,17 @@ impl Toolkit for AppKit {
         match kind {
             kinds::LABEL => {
                 if let Some(tf) = h.downcast_ref::<NSTextField>()
-                    && let Some(cell) = unsafe { tf.cell() } {
-                        let w = p.width.unwrap_or(1.0e6);
-                        let s = unsafe {
-                            cell.cellSizeForBounds(NSRect::new(
-                                NSPoint::new(0.0, 0.0),
-                                NSSize::new(w, 1.0e6),
-                            ))
-                        };
-                        return Size::new(s.width.ceil().min(w), s.height.ceil());
-                    }
+                    && let Some(cell) = unsafe { tf.cell() }
+                {
+                    let w = p.width.unwrap_or(1.0e6);
+                    let s = unsafe {
+                        cell.cellSizeForBounds(NSRect::new(
+                            NSPoint::new(0.0, 0.0),
+                            NSSize::new(w, 1.0e6),
+                        ))
+                    };
+                    return Size::new(s.width.ceil().min(w), s.height.ceil());
+                }
                 Size::ZERO
             }
             kinds::BUTTON | kinds::TOGGLE => {
@@ -693,21 +695,23 @@ impl Toolkit for AppKit {
 
     fn set_scroll_content(&mut self, h: &Handle, content: Size) {
         if let Some(sv) = h.downcast_ref::<NSScrollView>()
-            && let Some(doc) = unsafe { sv.documentView() } {
-                unsafe { doc.setFrameSize(NSSize::new(content.width, content.height)) };
-            }
+            && let Some(doc) = unsafe { sv.documentView() }
+        {
+            unsafe { doc.setFrameSize(NSSize::new(content.width, content.height)) };
+        }
     }
 
     fn scroll_to(&mut self, h: &Handle, target: Rect, _animated: bool) {
         if let Some(sv) = h.downcast_ref::<NSScrollView>()
-            && let Some(doc) = unsafe { sv.documentView() } {
-                unsafe {
-                    doc.scrollRectToVisible(NSRect::new(
-                        NSPoint::new(target.origin.x, target.origin.y),
-                        NSSize::new(target.size.width, target.size.height),
-                    ))
-                };
-            }
+            && let Some(doc) = unsafe { sv.documentView() }
+        {
+            unsafe {
+                doc.scrollRectToVisible(NSRect::new(
+                    NSPoint::new(target.origin.x, target.origin.y),
+                    NSSize::new(target.size.width, target.size.height),
+                ))
+            };
+        }
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
@@ -825,11 +829,12 @@ impl Platform for AppKit {
                     let mtm = MainThreadMarker::new().unwrap();
                     let app = NSApplication::sharedApplication(mtm);
                     if let Some(win) = app.windows().firstObject()
-                        && let Some(content) = win.contentView() {
-                            let desc: Retained<NSString> =
-                                unsafe { msg_send![&*content, _subtreeDescription] };
-                            eprintln!("{desc}");
-                        }
+                        && let Some(content) = win.contentView()
+                    {
+                        let desc: Retained<NSString> =
+                            unsafe { msg_send![&*content, _subtreeDescription] };
+                        eprintln!("{desc}");
+                    }
                 }));
             });
         }

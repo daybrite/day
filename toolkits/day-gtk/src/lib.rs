@@ -102,10 +102,11 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.set_font_size(e);
                 let (mut x, mut y) = (a, b);
                 if f > 0.5
-                    && let Ok(ext) = cr.text_extents(&text) {
-                        x -= ext.width() / 2.0;
-                        y += ext.height() / 2.0;
-                    }
+                    && let Ok(ext) = cr.text_extents(&text)
+                {
+                    x -= ext.width() / 2.0;
+                    y += ext.height() / 2.0;
+                }
                 cr.move_to(x, y);
                 let _ = cr.show_text(&text); // toy API; PangoCairo refinement is a TODO (§11)
             }
@@ -177,13 +178,15 @@ fn apply_font(label: &gtk4::Label, font: Font) {
 /// non-scrollable children in a GtkViewport, so `sw.child()` is the viewport, not our Fixed.
 fn content_of(parent: &Handle) -> Handle {
     if let Some(sw) = parent.downcast_ref::<gtk4::ScrolledWindow>()
-        && let Some(child) = sw.child() {
-            if let Some(vp) = child.downcast_ref::<gtk4::Viewport>()
-                && let Some(inner) = vp.child() {
-                    return inner;
-                }
-            return child;
+        && let Some(child) = sw.child()
+    {
+        if let Some(vp) = child.downcast_ref::<gtk4::Viewport>()
+            && let Some(inner) = vp.child()
+        {
+            return inner;
         }
+        return child;
+    }
     parent.clone()
 }
 
@@ -370,9 +373,10 @@ impl Toolkit for Gtk {
 
     fn release(&mut self, h: Handle) {
         if let Some(parent) = h.parent()
-            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
-                fixed.remove(&h);
-            }
+            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
+        {
+            fixed.remove(&h);
+        }
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
@@ -425,9 +429,10 @@ impl Toolkit for Gtk {
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
         if let Some(parent) = h.parent()
-            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
-                fixed.move_(h, frame.origin.x, frame.origin.y);
-            }
+            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
+        {
+            fixed.move_(h, frame.origin.x, frame.origin.y);
+        }
         h.set_size_request(
             frame.size.width.round() as i32,
             frame.size.height.round() as i32,
