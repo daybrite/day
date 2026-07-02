@@ -14,9 +14,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+#concurrency:
+#  group: ci-${{ github.ref }}
+#  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,9 +36,9 @@ jobs:
 
   # `--workspace` cannot compile here: cargo feature unification would enable several `day`
   # backend features at once and trip the one-backend-per-binary compile_error! guard (§3).
-  # Instead clippy enumerates the feature cones; together they cover every workspace crate
-  # that compiles on Linux (day-appkit/day-uikit are cfg-empty off their platforms — the
-  # macos job's -D warnings builds cover their rustc lints).
+  # Instead clippy runs once per backend feature selection; together the runs cover every
+  # workspace crate that compiles on Linux (day-appkit/day-uikit are cfg-empty off their
+  # platforms; the macos job lints those).
   clippy:
     name: clippy
     runs-on: ubuntu-latest
@@ -57,12 +57,12 @@ jobs:
         run: cargo clippy --locked --all-targets
       - name: Clippy (day CLI + dayscript)
         run: cargo clippy --locked -p day-cli -p day-script --all-targets
-      - name: Clippy (gtk / qt / mock backend cones)
+      - name: Clippy (gtk / qt / mock backends)
         run: |
           for feature in gtk qt mock; do
             cargo clippy --locked -p showcase --no-default-features --features "$feature" --all-targets
           done
-      - name: Clippy (android cone, cross-check)
+      - name: Clippy (android backend, cross-check)
         run: |
           cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
             --no-default-features --features widget
@@ -166,8 +166,8 @@ jobs:
       - name: Core tests
         run: cargo test --locked
 
-      # The apple cones are cfg-empty on the ubuntu clippy job — lint them here.
-      - name: Clippy (appkit + uikit cones)
+      # The apple backends are cfg-empty on the ubuntu clippy job — lint them here.
+      - name: Clippy (appkit + uikit backends)
         run: |
           cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
           cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \

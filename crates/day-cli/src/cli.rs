@@ -316,8 +316,13 @@ edition = "2024"
 appkit = ["day/appkit"]
 gtk = ["day/gtk"]
 qt = ["day/qt"]
+uikit = ["day/uikit"]
+widget = ["day/widget"]
 winui = ["day/winui"]
 mock = ["day/mock"]
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 day = {{ path = "{day}/crates/day" }}
@@ -349,6 +354,10 @@ pub fn root() -> AnyPiece {
     .padding(16.0)
     .any()
 }
+
+// Mobile entries (no-ops off iOS/Android; the platform scaffolds bind these symbols).
+day::ios_main!(root);
+day::android_main!(root);
 "#
             .to_string(),
         ),

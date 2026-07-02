@@ -167,71 +167,7 @@ fn history(count: Signal<i64>) -> AnyPiece {
     .any()
 }
 
-/// iOS entry: the Runner's main.swift calls this from the staticlib (DESIGN.md §17.4).
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[unsafe(no_mangle)]
-pub extern "C" fn day_main() {
-    day::launch(
-        day::WindowOptions {
-            title: "Day Showcase".into(),
-            size: day::prelude::Size::new(0.0, 0.0), // ignored: iOS uses the screen bounds
-            min_size: None,
-        },
-        root,
-    );
-}
-
-/// Android entries: DayBridge's natives resolve to these exports from the app cdylib.
-#[cfg(all(feature = "widget", target_os = "android"))]
-mod android_glue {
-    use day::android::jni::JNIEnv;
-    use day::android::jni::objects::{JClass, JObject, JString};
-    use day::android::jni::sys::{jdouble, jfloat, jint, jlong};
-
-    fn opt_string(env: &mut JNIEnv, s: &JString) -> Option<String> {
-        if s.is_null() {
-            None
-        } else {
-            env.get_string(s).ok().map(|v| v.into())
-        }
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeStart(
-        mut env: JNIEnv,
-        _class: JClass,
-        root: JObject,
-        density: jfloat,
-        w: jint,
-        h: jint,
-        autodrive: JString,
-        locale: JString,
-        env_blob: JString,
-    ) {
-        let a = opt_string(&mut env, &autodrive);
-        let l = opt_string(&mut env, &locale);
-        let e = opt_string(&mut env, &env_blob);
-        day::android::start(&mut env, root, density, w, h, a, l, e, crate::root);
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeOnEvent(
-        mut env: JNIEnv,
-        _class: JClass,
-        id: jlong,
-        kind: jint,
-        num: jdouble,
-        s: JString,
-    ) {
-        day::android::dispatch_event(&mut env, id, kind, num, &s);
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeRunPosted(
-        _env: JNIEnv,
-        _class: JClass,
-        token: jlong,
-    ) {
-        day::android::run_posted(token);
-    }
-}
+// Mobile entries (DESIGN.md §17.4): the iOS Runner binds `day_main`, DayBridge binds the
+// `Java_…` natives. Both macros emit nothing off their target OS.
+day::ios_main!("Day Showcase", root);
+day::android_main!(root);
