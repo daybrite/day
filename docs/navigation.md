@@ -30,7 +30,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 | Style | Native container |
 |-------|------------------|
 | `Sidebar` | a **NavigationSplitView**: macOS `NSSplitView` source-list + detail; **GTK `AdwNavigationSplitView`** (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android toolbar+pages). |
-| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `GtkNotebook` / `QTabWidget` / Android tab strip / WinUI `Pivot` (docs/tabs.md). |
+| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android tab strip / WinUI `Pivot` (docs/tabs.md). |
 
 `selector(sel).style(Tabs)` is exactly what used to be `tabs()`; `selector(sel).style(Sidebar)`
 is the old `nav()`. They are one primitive — a selection-bound switcher — differing only in
@@ -85,11 +85,14 @@ drills down. Each owns its signal; day reconciles each native container independ
 
 ## Backend notes
 
-- **GTK adopts libadwaita** (`adw::Application` loads the Adwaita stylesheet): `Sidebar` →
-  `AdwNavigationSplitView` with `AdwNavigationPage` sidebar/content; `stack` →
+- **GTK adopts libadwaita throughout** (`adw::Application` loads the Adwaita stylesheet). The
+  window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
+  supplies the title, window controls, and drag; day's content sits below it). Navigation:
+  `Sidebar` → `AdwNavigationSplitView` with `AdwNavigationPage` sidebar/content; `stack` →
   `AdwNavigationView` (push/pop + back gesture; its `popped` signal writes native back into the
   path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; day sizes it from the
-  host width (sidebar is a fixed width, detail fills the rest).
+  host width (sidebar is a fixed width, detail fills the rest). Tabs use an `AdwViewStack` with a
+  `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
 - **macOS `NSSplitView` / Qt `QSplitter`** honor a `split` flag: `Sidebar` shows both panes; a
   `stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane.
 - **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `stack`.

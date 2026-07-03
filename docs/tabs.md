@@ -54,14 +54,15 @@ the tab widget reports via `Event::FrameChanged`.
 
 ## Native mapping
 
-The widget owns page content on every backend (the user-visible choice: native tab widgets, not
-a segmented control):
+The widget owns page content on every backend (the user-visible choice is a native tab widget
+per platform; GTK, having adopted libadwaita, uses the Adwaita segmented switcher — a `.linked`
+toggle group — over an `AdwViewStack`, since Adwaita has no icon-free tab widget):
 
 | Backend | Widget | Notes |
 |---------|--------|-------|
 | AppKit  | `NSTabView` (`NSTabViewItem` per page) | `NSTabViewDelegate` reports selection |
 | UIKit   | `UITabBarController` | bottom tab bar; each page is a child `UIViewController` |
-| GTK 4   | `GtkNotebook` | `switch-page` reports selection |
+| GTK 4   | `AdwViewStack` + a `.linked` grouped-toggle switcher | libadwaita; label-only segmented control drives the stack |
 | Qt      | `QTabWidget` (shim) | `currentChanged` reports selection |
 | Android | custom `DayTabs` strip | top tab bar + content `FrameLayout` (dependency-free; Material's TabLayout/BottomNavigationView aren't required) |
 | WinUI 3 | `Pivot` (shim) | `SelectionChanged` reports selection |

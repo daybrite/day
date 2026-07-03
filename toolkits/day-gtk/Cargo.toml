@@ -8,6 +8,8 @@ rust-version.workspace = true
 day-spec = { workspace = true }
 linkme = { workspace = true }
 gtk4 = { version = "0.11", features = ["v4_10"] }
-# libadwaita for the desktop navigation paradigm: AdwNavigationSplitView (sidebar+detail)
-# and AdwNavigationView (push/pop stack). v1_4 gates the navigation-view widgets.
-libadwaita = { version = "0.9", features = ["v1_4"] }
+# libadwaita: the desktop navigation paradigm (AdwNavigationSplitView / AdwNavigationView),
+# AdwApplicationWindow + AdwToolbarView chrome, AdwViewStack/AdwViewSwitcher tabs, and
+# AdwAlertDialog. v1_5 gates AdwAlertDialog; it is the version shipped by Ubuntu 24.04, so CI
+# stays green (AdwSpinner would need v1_7, which 24.04 lacks — GtkSpinner is kept instead).
+libadwaita = { version = "0.9", features = ["v1_5"] }

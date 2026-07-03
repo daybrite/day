@@ -10,6 +10,9 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use libadwaita as adw;
+// AdwApplicationWindow / AdwToolbarView / AdwAlertDialog / AdwDialog / AdwViewStack methods live
+// on extension traits (unlike the final Adw*Navigation* widgets, whose methods are inherent).
+use adw::prelude::*;
 use linkme::distributed_slice;
 
 use day_spec::props::*;
@@ -209,17 +212,24 @@ fn nav_report(host_key: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Tabs (docs/tabs.md): a GtkNotebook host holding GtkFixed page containers.
+// Tabs (docs/tabs.md): the Adwaita view-switching pattern — an AdwViewSwitcher above
+// an AdwViewStack (the libadwaita counterpart to a stock GtkNotebook), wrapped in a box.
+// day's tabs are label-only, so the switcher is a `.linked` row of grouped toggle buttons —
+// the Adwaita segmented-control idiom — rather than an icon-oriented AdwViewSwitcher.
 // ---------------------------------------------------------------------------
 
-/// Approximate GtkNotebook tab-strip height, subtracted from the host to size page content.
-const TAB_BAR_H: f64 = 40.0;
-
 struct TabsState {
-    notebook: gtk4::Notebook,
+    /// The AdwViewStack holding the page containers (the box also carries the switcher above it).
+    stack: adw::ViewStack,
+    /// The `.linked` box of grouped toggle buttons above the stack (the segmented switcher).
+    switcher: gtk4::Box,
+    /// One grouped toggle button per tab, in tab order (drives + reflects the selection).
+    toggles: Vec<gtk4::ToggleButton>,
+    /// The tabs host node id (a toggle emits SelectionChanged against it).
+    host_id: NodeId,
     /// (page widget, node id) in tab order.
     pages: Vec<(Handle, NodeId)>,
-    /// Tab to select once its page exists (GtkNotebook shows the first page by default).
+    /// Tab to select once its page exists (the stack shows the first added page by default).
     initial: usize,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: Rc<std::cell::Cell<bool>>,
@@ -231,7 +241,7 @@ thread_local! {
     static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// TABS_PAGE widget → its tab label.
     static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE widget keys (set_frame skips them — the notebook owns their layout).
+    /// TABS_PAGE widget keys (set_frame skips them — the view stack owns their layout).
     static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
 }
@@ -243,16 +253,17 @@ fn tabs_sync(host_key: usize) {
         let Some(state) = m.get(&host_key) else {
             return Vec::new();
         };
-        let w = state.notebook.width() as f64;
-        let h = state.notebook.height() as f64;
+        // The switcher sits above the stack in the box, so the stack's own allocation is
+        // already the content area — no tab-strip height to subtract (unlike GtkNotebook).
+        let w = state.stack.width() as f64;
+        let h = state.stack.height() as f64;
         if w <= 0.0 || h <= 0.0 {
             return Vec::new();
         }
-        let content_h = (h - TAB_BAR_H).max(0.0);
         state
             .pages
             .iter()
-            .map(|(_, id)| (*id, Size::new(w, content_h)))
+            .map(|(_, id)| (*id, Size::new(w, h)))
             .collect()
     });
     for (id, size) in reports {
@@ -396,24 +407,29 @@ impl Toolkit for Gtk {
             }
             kinds::TABS => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
-                let notebook = gtk4::Notebook::new();
-                notebook.set_scrollable(true);
-                let host: Handle = notebook.clone().upcast();
+                // Adwaita segmented switcher: a `.linked` row of grouped toggle buttons above an
+                // AdwViewStack. Toggle buttons are wired per page in `insert`.
+                let stack = adw::ViewStack::new();
+                stack.set_vexpand(true);
+                let switcher = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+                switcher.add_css_class("linked");
+                switcher.set_halign(gtk4::Align::Center);
+                switcher.set_margin_top(6);
+                switcher.set_margin_bottom(6);
+                let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                container.append(&switcher);
+                container.append(&stack);
+                let host: Handle = container.upcast();
                 let key = widget_key(&host);
                 let suppress = Rc::new(std::cell::Cell::new(false));
-                {
-                    let suppress = suppress.clone();
-                    notebook.connect_switch_page(move |_, _, page_num| {
-                        if !suppress.get() {
-                            emit(id, Event::SelectionChanged(page_num as i64));
-                        }
-                    });
-                }
                 TABS_STATE.with(|m| {
                     m.borrow_mut().insert(
                         key,
                         TabsState {
-                            notebook,
+                            stack,
+                            switcher,
+                            toggles: Vec::new(),
+                            host_id: id,
                             pages: Vec::new(),
                             initial: p.selected,
                             suppress,
@@ -595,9 +611,13 @@ impl Toolkit for Gtk {
             kinds::TABS => {
                 if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                     TABS_STATE.with(|m| {
-                        if let Some(state) = m.borrow().get(&widget_key(h)) {
+                        if let Some(state) = m.borrow().get(&widget_key(h))
+                            && let Some(toggle) = state.toggles.get(*i)
+                            && let Some((w, _)) = state.pages.get(*i)
+                        {
                             state.suppress.set(true);
-                            state.notebook.set_current_page(Some(*i as u32));
+                            toggle.set_active(true);
+                            state.stack.set_visible_child(w);
                             state.suppress.set(false);
                         }
                     });
@@ -735,12 +755,10 @@ impl Toolkit for Gtk {
         NAV_PAGE_TITLES.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        // A tab page detaches from its notebook; a nav page is owned by its AdwNavigationPage
+        // A tab page detaches from its AdwViewStack; a nav page is owned by its AdwNavigationPage
         // (already detached in `remove`); everything else lives in a GtkFixed parent.
-        if let Some(notebook) = h.parent().and_then(|p| p.downcast::<gtk4::Notebook>().ok()) {
-            if let Some(n) = notebook.page_num(&h) {
-                notebook.remove_page(Some(n));
-            }
+        if let Some(stack) = h.parent().and_then(|p| p.downcast::<adw::ViewStack>().ok()) {
+            stack.remove(&h);
         } else if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
@@ -750,8 +768,8 @@ impl Toolkit for Gtk {
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
         let host_key = widget_key(parent);
-        // Tabs host: insert the page into the notebook with its label; the notebook owns the
-        // page's layout, so day sizes the page content from tabs_sync's FrameChanged reports.
+        // Tabs host: insert the page into the view stack + a toggle into the switcher; the stack
+        // owns the page's layout, so day sizes the page content from tabs_sync's FrameChanged reports.
         let tabs_handled = TABS_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&host_key) else {
@@ -763,15 +781,44 @@ impl Toolkit for Gtk {
             let title = TABS_PAGE_TITLES
                 .with(|t| t.borrow().get(&widget_key(child)).cloned())
                 .unwrap_or_default();
-            let label = gtk4::Label::new(Some(&title));
-            state
-                .notebook
-                .insert_page(child, Some(&label), Some(index as u32));
             let at = index.min(state.pages.len());
+            // The page content lives in the view stack…
+            state
+                .stack
+                .add_titled(child, Some(&format!("tab{index}")), &title);
             state.pages.insert(at, (child.clone(), id));
+            // …and a grouped toggle button (radio behaviour) into the `.linked` switcher.
+            let toggle = gtk4::ToggleButton::with_label(&title);
+            if let Some(first) = state.toggles.first() {
+                toggle.set_group(Some(first));
+            }
+            {
+                let suppress = state.suppress.clone();
+                let key = host_key;
+                toggle.connect_toggled(move |t| {
+                    if !t.is_active() || suppress.get() {
+                        return;
+                    }
+                    // Resolve this toggle's index, show its page, and report the selection.
+                    let hit = TABS_STATE.with(|m| {
+                        let m = m.borrow();
+                        let s = m.get(&key)?;
+                        let i = s.toggles.iter().position(|x| x == t)?;
+                        s.stack.set_visible_child(&s.pages[i].0);
+                        Some((s.host_id, i))
+                    });
+                    if let Some((host_id, i)) = hit {
+                        emit(host_id, Event::SelectionChanged(i as i64));
+                    }
+                });
+            }
+            state.switcher.append(&toggle);
+            state.toggles.insert(at, toggle.clone());
             if index == state.initial {
+                // Suppress the echo: activating the initial toggle must not write back.
                 state.suppress.set(true);
-                state.notebook.set_current_page(Some(index as u32));
+                toggle.set_active(true);
+                state.stack.set_visible_child(child);
                 state.suppress.set(false);
             }
             true
@@ -972,12 +1019,9 @@ impl Toolkit for Gtk {
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
-        use day_spec::present::{PresentResult, PresentSpec};
-        let parent = self
-            .window_fixed
-            .as_ref()
-            .and_then(|f| f.root())
-            .and_downcast::<gtk4::Window>();
+        use day_spec::present::{ButtonRole, PresentResult, PresentSpec};
+        // AdwDialog presents relative to any widget inside its AdwApplicationWindow.
+        let parent = self.window_fixed.clone();
         match spec {
             PresentSpec::Dialog {
                 title,
@@ -985,38 +1029,35 @@ impl Toolkit for Gtk {
                 buttons,
                 ..
             } => {
-                let dialog = gtk4::AlertDialog::builder().modal(true).build();
-                dialog.set_message(title);
-                if let Some(m) = message {
-                    dialog.set_detail(m);
+                let dialog = adw::AlertDialog::new(Some(title), message.as_deref());
+                for (i, b) in buttons.iter().enumerate() {
+                    let rid = i.to_string();
+                    dialog.add_response(&rid, &b.label);
+                    match b.role {
+                        ButtonRole::Destructive => dialog
+                            .set_response_appearance(&rid, adw::ResponseAppearance::Destructive),
+                        ButtonRole::Default => {
+                            dialog
+                                .set_response_appearance(&rid, adw::ResponseAppearance::Suggested);
+                            dialog.set_default_response(Some(&rid));
+                        }
+                        // Esc / tap-outside resolves to the cancel button (as on the other backends).
+                        ButtonRole::Cancel => dialog.set_close_response(&rid),
+                    }
                 }
-                let labels: Vec<&str> = buttons.iter().map(|b| b.label.as_str()).collect();
-                dialog.set_buttons(&labels);
-                if let Some(i) = buttons
-                    .iter()
-                    .position(|b| b.role == day_spec::present::ButtonRole::Cancel)
+                let finish = dialog_finisher(req, dialog.clone());
                 {
-                    dialog.set_cancel_button(i as i32);
+                    let finish = finish.clone();
+                    dialog.connect_response(None, move |_, resp| {
+                        let result = resp
+                            .parse::<i64>()
+                            .map(PresentResult::Button)
+                            .unwrap_or(PresentResult::Dismissed);
+                        finish(result);
+                    });
                 }
-                let cancellable = gtk4::gio::Cancellable::new();
-                NAV_DIALOGS.with(|m| {
-                    m.borrow_mut()
-                        .insert(req, DismissHandle::Alert(cancellable.clone()))
-                });
-                dialog.choose(
-                    parent.as_ref(),
-                    Some(&cancellable),
-                    move |res: Result<i32, gtk4::glib::Error>| {
-                        let result = match res {
-                            Ok(i) => PresentResult::Button(i as i64),
-                            Err(_) => PresentResult::Dismissed,
-                        };
-                        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
-                        NAV_DIALOGS.with(|m| {
-                            m.borrow_mut().remove(&req);
-                        });
-                    },
-                );
+                NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
+                dialog.present(parent.as_ref());
             }
             PresentSpec::Prompt {
                 title,
@@ -1026,94 +1067,90 @@ impl Toolkit for Gtk {
                 ok,
                 cancel,
             } => {
-                // GTK has no native text prompt — a small modal window with an entry.
-                let win = gtk4::Window::builder()
-                    .modal(true)
-                    .title(title)
-                    .default_width(320)
-                    .build();
-                if let Some(p) = &parent {
-                    win.set_transient_for(Some(p));
-                }
-                let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
-                vbox.set_margin_top(12);
-                vbox.set_margin_bottom(12);
-                vbox.set_margin_start(12);
-                vbox.set_margin_end(12);
-                if let Some(m) = message {
-                    vbox.append(&gtk4::Label::new(Some(m)));
-                }
+                // The Adwaita text prompt: an AdwAlertDialog with the entry as its extra child.
+                let dialog = adw::AlertDialog::new(Some(title), message.as_deref());
                 let entry = gtk4::Entry::new();
                 entry.set_placeholder_text(Some(placeholder));
                 entry.set_text(initial);
-                vbox.append(&entry);
-                let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-                hbox.set_halign(gtk4::Align::End);
-                let cancel_btn = gtk4::Button::with_label(cancel);
-                let ok_btn = gtk4::Button::with_label(ok);
-                hbox.append(&cancel_btn);
-                hbox.append(&ok_btn);
-                vbox.append(&hbox);
-                win.set_child(Some(&vbox));
-
-                let answered = Rc::new(std::cell::Cell::new(false));
-                let finish = {
-                    let (win, answered) = (win.clone(), answered.clone());
-                    move |result: PresentResult| {
-                        if answered.replace(true) {
-                            return;
-                        }
-                        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
-                        NAV_DIALOGS.with(|m| {
-                            m.borrow_mut().remove(&req);
-                        });
-                        win.close();
-                    }
-                };
-                {
-                    let (finish, entry) = (finish.clone(), entry.clone());
-                    ok_btn.connect_clicked(move |_| {
-                        finish(PresentResult::Text(entry.text().to_string()))
-                    });
-                }
+                entry.set_activates_default(true);
+                dialog.set_extra_child(Some(&entry));
+                dialog.add_response("cancel", cancel);
+                dialog.set_close_response("cancel");
+                dialog.add_response("ok", ok);
+                dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+                dialog.set_default_response(Some("ok"));
+                let finish = dialog_finisher(req, dialog.clone());
                 {
                     let finish = finish.clone();
-                    cancel_btn.connect_clicked(move |_| finish(PresentResult::Dismissed));
-                }
-                {
-                    let finish = finish.clone();
-                    win.connect_close_request(move |_| {
-                        finish(PresentResult::Dismissed);
-                        gtk4::glib::Propagation::Proceed
+                    let entry = entry.clone();
+                    dialog.connect_response(None, move |_, resp| {
+                        let result = if resp == "ok" {
+                            PresentResult::Text(entry.text().to_string())
+                        } else {
+                            PresentResult::Dismissed
+                        };
+                        finish(result);
                     });
                 }
-                NAV_DIALOGS.with(|m| {
-                    m.borrow_mut()
-                        .insert(req, DismissHandle::Prompt(win.clone()))
-                });
-                win.present();
+                NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
+                dialog.present(parent.as_ref());
             }
         }
     }
 
     fn dismiss(&mut self, req: u64) {
-        if let Some(handle) = NAV_DIALOGS.with(|m| m.borrow_mut().remove(&req)) {
-            match handle {
-                DismissHandle::Alert(c) => c.cancel(),
-                DismissHandle::Prompt(w) => w.close(),
-            }
+        // Programmatic dismissal yields `Dismissed`; the finisher's guard makes the AdwDialog's
+        // own close-response (fired by `close()`) a no-op, so no button result leaks out.
+        let handle = NAV_DIALOGS.with(|m| m.borrow_mut().remove(&req));
+        if let Some(handle) = handle {
+            (handle.finish)(day_spec::present::PresentResult::Dismissed);
         }
     }
 }
 
-enum DismissHandle {
-    Alert(gtk4::gio::Cancellable),
-    Prompt(gtk4::Window),
+/// A live modal's resolver: emits the first result only, then closes the AdwDialog (whose
+/// close-response re-enters the finisher guarded, and no-ops).
+struct DialogHandle {
+    finish: Rc<dyn Fn(day_spec::present::PresentResult)>,
+}
+
+fn dialog_finisher(
+    req: u64,
+    dialog: adw::AlertDialog,
+) -> Rc<dyn Fn(day_spec::present::PresentResult)> {
+    let answered = Rc::new(std::cell::Cell::new(false));
+    Rc::new(move |result| {
+        if answered.replace(true) {
+            return;
+        }
+        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+        NAV_DIALOGS.with(|m| {
+            m.borrow_mut().remove(&req);
+        });
+        dialog.close();
+    })
 }
 
 thread_local! {
     /// Live modals keyed by request id (for programmatic dismissal).
-    static NAV_DIALOGS: RefCell<HashMap<u64, DismissHandle>> = RefCell::new(HashMap::new());
+    static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
+}
+
+/// Adwaita's default header-bar height, used to size day's content area before the header is
+/// first allocated (`report_content_size` reads the real height thereafter).
+const HEADER_H: f64 = 47.0;
+
+/// Report day's content area (the window minus its AdwHeaderBar) on every window resize.
+fn report_content_size(w: &adw::ApplicationWindow, header: &adw::HeaderBar) {
+    let hb = header.height();
+    let hb = if hb > 0 { hb as f64 } else { HEADER_H };
+    emit(
+        day_spec::WINDOW_NODE,
+        Event::WindowResized(Size::new(
+            w.default_width() as f64,
+            (w.default_height() as f64 - hb).max(0.0),
+        )),
+    );
 }
 
 impl Platform for Gtk {
@@ -1136,7 +1173,7 @@ impl Platform for Gtk {
             let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                 return;
             };
-            let window = gtk4::ApplicationWindow::new(app);
+            let window = adw::ApplicationWindow::new(app);
             window.set_title(Some(&options.title));
             window.set_default_size(options.size.width as i32, options.size.height as i32);
             let fixed = gtk4::Fixed::new();
@@ -1147,22 +1184,36 @@ impl Platform for Gtk {
             let wrapper = gtk4::ScrolledWindow::new();
             wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
             wrapper.set_child(Some(&fixed));
-            window.set_child(Some(&wrapper));
+            // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies
+            // an AdwHeaderBar (window controls, drag handle, and the window title) above day's
+            // content — the standard Adwaita window structure, and the AdwDialog host that
+            // AdwAlertDialog needs.
+            let header = adw::HeaderBar::new();
+            let toolbar = adw::ToolbarView::new();
+            toolbar.add_top_bar(&header);
+            toolbar.set_content(Some(&wrapper));
+            window.set_content(Some(&toolbar));
             backend.window_fixed = Some(fixed.clone());
-            ready(backend, fixed.upcast(), options.size);
-            // GTK4 keeps default-width/height tracking the live size of a resizable
-            // window — the only public resize signal it offers.
-            let report = |w: &gtk4::ApplicationWindow| {
-                emit(
-                    day_spec::WINDOW_NODE,
-                    Event::WindowResized(Size::new(
-                        w.default_width() as f64,
-                        w.default_height() as f64,
-                    )),
-                );
-            };
-            window.connect_default_width_notify(report);
-            window.connect_default_height_notify(report);
+            // day's content area is the window height minus the header bar; estimate it until
+            // the header is allocated (report_content_size reads the real height thereafter).
+            ready(
+                backend,
+                fixed.upcast(),
+                Size::new(
+                    options.size.width,
+                    (options.size.height - HEADER_H).max(0.0),
+                ),
+            );
+            // GTK4 keeps default-width/height tracking the live size of a resizable window —
+            // the only public resize signal it offers.
+            {
+                let header = header.clone();
+                window.connect_default_width_notify(move |w| report_content_size(w, &header));
+            }
+            {
+                let header = header.clone();
+                window.connect_default_height_notify(move |w| report_content_size(w, &header));
+            }
             window.present();
         });
         app.run_with_args::<&str>(&[]);
