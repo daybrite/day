@@ -1,0 +1,100 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ShotTile from '../components/ShotTile.astro';
+import manifest from '../data/gallery-manifest.json';
+
+// The manifest is assembled before every build by the gallery integration: from CI screenshot
+// artifacts on GitHub Actions, or as placeholders locally. See integrations/gallery.mjs.
+const generated = manifest.generatedAt
+  ? new Date(manifest.generatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  : null;
+
+// Group each suite's platforms by OS for display.
+function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
+  const groups: Record<string, typeof platforms> = {};
+  for (const p of platforms) (groups[p.os] ??= []).push(p);
+  return Object.entries(groups);
+}
+---
+<BaseLayout title="Gallery" description="The Day Showcase app, running on real native widgets across every target — screenshots straight from CI." active="gallery">
+  <section class="section gal-hero">
+    <div class="container">
+      <p class="eyebrow">Screenshot gallery</p>
+      <h1 class="gal-title">The same Rust program, <span class="grad-text">native on every platform</span>.</h1>
+      <p class="lead">
+        Every screenshot below is captured in CI by the dayscript walkthrough and assembled here
+        automatically. Each platform shows the latest captures it produced on the most recent run.
+      </p>
+      {generated
+        ? <p class="gen">Latest run · {generated}</p>
+        : <p class="gen preview">Preview build — placeholders shown. On the live site these fill in from CI artifacts.</p>}
+    </div>
+  </section>
+
+  {manifest.suites.map((suite) => (
+    <section class="section suite">
+      <div class="container">
+        <h2 class="suite-title">{suite.label}</h2>
+        <p class="lead suite-blurb">{suite.blurb}</p>
+
+        {byOs(suite.platforms).map(([os, list]) => (
+          <div class="os-block">
+            <h3 class="os-h">{os}</h3>
+            <div class="platforms">
+              {list.map((platform) => (
+                <article class="platform">
+                  <header class="platform-head">
+                    <span class="pf-name">{platform.toolkit}</span>
+                    <span class:list={['pf-tag', { on: platform.captured }]}>
+                      {platform.captured ? `${platform.shotCount} shots` : 'preview'}
+                    </span>
+                  </header>
+                  <div class="shots">
+                    {platform.shots.map((shot) => <ShotTile shot={shot} os={os} />)}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  ))}
+</BaseLayout>
+
+<style>
+  .gal-hero { padding-block: 56px 24px; }
+  .gal-title { font-size: clamp(2rem, 4.6vw, 3rem); margin: 0 0 16px; }
+  .gen { color: var(--faint); font-size: 0.9rem; margin-top: 16px; }
+  .gen.preview { color: var(--sun); }
+
+  .suite { padding-block: 24px 40px; }
+  .suite-title { font-size: 1.7rem; margin: 0 0 6px; }
+  .suite-blurb { margin: 0 0 12px; }
+
+  .os-block { margin-top: 34px; }
+  .os-h {
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--sun); margin: 0 0 16px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+  }
+  .platforms { display: grid; gap: 24px; }
+  .platform {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    padding: 18px 18px 20px;
+  }
+  .platform-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .pf-name { font-weight: 700; }
+  .pf-tag {
+    font-size: 0.76rem; font-weight: 650; padding: 3px 10px; border-radius: 999px;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--faint);
+  }
+  .pf-tag.on { color: #8ce39a; border-color: rgba(140,227,154,0.35); background: rgba(140,227,154,0.1); }
+  .shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 16px;
+  }
+</style>

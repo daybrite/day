@@ -395,3 +395,61 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans
+
+  # ---------------------------------------------------------------------------
+  # website: build the Astro site (website/) and deploy it to GitHub Pages at
+  # https://daybrite.github.io/day/. Runs AFTER every screenshot-producing job so
+  # it can download their `screenshots-<combo>` artifacts and assemble the gallery
+  # from the latest captures. `!cancelled()` (not `success()`) means a platform
+  # that failed to produce screenshots does not block the deploy — the gallery
+  # simply shows whatever platforms succeeded (the assembly emits placeholders for
+  # the rest). Builds on every push/PR (validation); a separate job deploys only
+  # from main so PRs never publish. Enable Pages via Settings → Pages → Source:
+  # "GitHub Actions".
+  # ---------------------------------------------------------------------------
+  website:
+    name: website (build)
+    needs: [macos, ios-uikit, linux, android-widget, windows-winui, windows-msys2]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Download every platform's screenshots
+        # Each screenshot job uploads `screenshots-<combo>`; grab them all into
+        # website/artifacts/screenshots-<combo>/… where the assembly expects them.
+        # continue-on-error: a run where no platform produced screenshots still deploys.
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: screenshots-*
+          path: website/artifacts
+      - name: Build the site (assembles the gallery from the artifacts)
+        working-directory: website
+        run: |
+          npm ci
+          npm run build
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+
+  deploy-website:
+    name: website (deploy)
+    needs: website
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

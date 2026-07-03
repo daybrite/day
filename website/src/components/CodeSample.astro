@@ -1,0 +1,46 @@
+---
+import { Code } from 'astro:components';
+interface Props { code: string; lang?: string; title?: string }
+const { code, lang = 'rust', title } = Astro.props;
+---
+<figure class="codewin">
+  <figcaption class="codewin-bar">
+    <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    {title && <span class="fname">{title}</span>}
+  </figcaption>
+  <div class="codewin-body">
+    <Code code={code.trim()} lang={lang} theme="night-owl" />
+  </div>
+</figure>
+
+<style>
+  .codewin {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #011627; /* night-owl bg */
+    box-shadow: var(--shadow);
+  }
+  .codewin-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #010f1c;
+    border-bottom: 1px solid #0b2740;
+  }
+  .dots { display: inline-flex; gap: 6px; }
+  .dots i { width: 11px; height: 11px; border-radius: 50%; background: #26415a; }
+  .dots i:nth-child(1) { background: #ff5f57; }
+  .dots i:nth-child(2) { background: #febc2e; }
+  .dots i:nth-child(3) { background: #28c840; }
+  .fname { color: var(--faint); font-family: var(--mono); font-size: 0.8rem; }
+  .codewin-body :global(pre) {
+    margin: 0;
+    padding: 18px 20px;
+    font-size: 0.85rem;
+    line-height: 1.65;
+    overflow-x: auto;
+  }
+</style>

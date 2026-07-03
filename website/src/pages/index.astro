@@ -1,0 +1,243 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CodeSample from '../components/CodeSample.astro';
+import Logo from '../components/Logo.astro';
+import { url, site } from '../lib/site';
+import { platforms } from '../../gallery.config.mjs';
+
+// Group the ten CI targets by OS for the "runs on" grid.
+const byOs = platforms.reduce((acc, p) => {
+  (acc[p.os] ??= []).push(p);
+  return acc;
+}, {} as Record<string, typeof platforms>);
+
+const heroCode = `use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        row((
+            button("–").action(move || count.update(|c| *c -= 1)),
+            button("+").action(move || count.update(|c| *c += 1)),
+        )).spacing(8.0),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}`;
+
+const navCode = `let section = Signal::new(String::new());
+selector(section)
+    .style(SelectorStyle::Sidebar)   // native split view / tabs / pushing list
+    .item("home",     "Home",     home_page)
+    .item("settings", "Settings", settings_page)`;
+
+const features = [
+  {
+    icon: '◉',
+    title: 'Real native widgets',
+    body: 'Every Piece is an actual NSTextField, UILabel, GtkEntry, QSlider, or WinUI control — not a look-alike. Native text, scrolling, and accessibility come for free.',
+  },
+  {
+    icon: '↯',
+    title: 'Build once, bind forever',
+    body: 'No virtual tree, no diffing. day builds the widget tree once and binds Signals straight to native attributes; a change updates only what read it.',
+  },
+  {
+    icon: '⬢',
+    title: 'One binary per target',
+    body: 'Exactly one toolkit is compiled into each build. No runtime abstraction to pay for — the compiler monomorphizes to AppKit, or GTK, or the Android bridge.',
+  },
+  {
+    icon: '✦',
+    title: 'Four pillars, built in',
+    body: 'Fluent localization, a real accessibility tree, dayscript UI automation, and dayffi polyglot Day Pieces — first-class, not bolted on.',
+  },
+  {
+    icon: '⌘',
+    title: 'A tool for humans & agents',
+    body: 'A flutter_tools-style CLI: create, build, launch, pack, lint. Stable ids and routes make apps scriptable and testable identically everywhere.',
+  },
+  {
+    icon: '◱',
+    title: 'Screenshot-validated CI',
+    body: 'Every push builds the showcase on all ten targets and captures screenshots. The gallery on this site is assembled from those exact artifacts.',
+  },
+];
+---
+<BaseLayout>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <p class="pill hero-pill"><Logo size={15} /> industry-strength · Rust · native</p>
+        <h1 class="hero-title">
+          One Rust codebase.<br />
+          <span class="grad-text">Real native widgets</span><br />
+          on every platform.
+        </h1>
+        <p class="lead hero-lead">{site.description}</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href={url('docs/overview')}>Read the docs</a>
+          <a class="btn btn-ghost" href={url('gallery')}>See it running →</a>
+        </div>
+        <p class="hero-sub">
+          SwiftUI-like Pieces · fine-grained reactivity · AppKit · UIKit · GTK · Qt · WinUI · Android
+        </p>
+      </div>
+      <div class="hero-code">
+        <CodeSample code={heroCode} title="counter.rs" />
+        <p class="hero-code-note">↑ compiles to native widgets on all ten targets below.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- RUNS ON -->
+  <section class="section runs">
+    <div class="container">
+      <p class="eyebrow">Runs natively on</p>
+      <div class="os-grid">
+        {Object.entries(byOs).map(([os, list]) => (
+          <div class="os-card">
+            <h3>{os}</h3>
+            <ul>
+              {list.map((p) => <li><span class="tick">◆</span>{p.toolkit}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section features">
+    <div class="container">
+      <p class="eyebrow">Why day</p>
+      <h2 class="sec-title">Native fidelity <span class="grad-text">and</span> a single codebase.</h2>
+      <p class="lead">day removes the usual trade-off: you write one Rust program and ship genuinely native apps.</p>
+      <div class="feat-grid">
+        {features.map((f) => (
+          <div class="card feat">
+            <div class="feat-icon" aria-hidden="true">{f.icon}</div>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="section how">
+    <div class="container how-grid">
+      <div>
+        <p class="eyebrow">How it works</p>
+        <h2 class="sec-title">Signals bind straight to native attributes.</h2>
+        <p class="lead">
+          A <code>Signal&lt;T&gt;</code> is a cheap, <code>Copy</code> reactive cell. Any closure that
+          reads it becomes reactive — when it changes, day updates precisely those native attributes
+          and nothing else. No component re-render, no reconciliation on the hot path.
+        </p>
+        <ul class="how-list">
+          <li><b>Declarative to write</b> — plain functions and builder methods, no required macros.</li>
+          <li><b>Native to run</b> — the profile of hand-written platform code.</li>
+          <li><b>Composable navigation</b> — <code>selector</code> and <code>stack</code> are just projections of app-owned signals.</li>
+        </ul>
+        <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
+      </div>
+      <div class="how-code">
+        <CodeSample code={navCode} title="navigation.rs" />
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="section cta">
+    <div class="container cta-inner">
+      <Logo size={40} />
+      <h2>Build one app. Ship it everywhere, natively.</h2>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href={url('docs/overview')}>Get started</a>
+        <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  /* HERO */
+  .hero { position: relative; overflow: hidden; padding-block: 72px 40px; }
+  .hero-glow {
+    position: absolute;
+    top: -280px; left: 50%;
+    width: 1100px; height: 700px;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(255, 150, 90, 0.22), rgba(106, 164, 255, 0.14) 55%, transparent 72%);
+    filter: blur(6px);
+    pointer-events: none;
+  }
+  .hero-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 52px;
+    align-items: center;
+  }
+  .hero-pill { margin-bottom: 22px; }
+  .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; }
+  .hero-lead { margin: 0 0 28px; }
+  .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .hero-sub { margin-top: 22px; color: var(--faint); font-size: 0.86rem; }
+  .hero-code-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
+
+  /* RUNS ON */
+  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 8px; }
+  .os-card { border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 18px 20px; background: var(--surface); }
+  .os-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
+  .os-card ul { list-style: none; margin: 0; padding: 0; }
+  .os-card li { color: var(--muted); font-size: 0.92rem; padding: 4px 0; display: flex; align-items: center; gap: 8px; }
+  .tick { color: var(--sun); font-size: 0.7rem; }
+
+  /* section headers */
+  .sec-title { font-size: clamp(1.7rem, 3.6vw, 2.4rem); margin: 0 0 14px; }
+
+  /* FEATURES */
+  .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 18px; margin-top: 34px; }
+  .feat { transition: border-color 0.15s ease, transform 0.12s ease; }
+  .feat:hover { border-color: var(--border); transform: translateY(-3px); }
+  .feat-icon {
+    width: 42px; height: 42px; display: grid; place-items: center;
+    border-radius: 11px; margin-bottom: 14px; font-size: 1.15rem;
+    background: rgba(106, 164, 255, 0.12); color: var(--brand);
+  }
+  .feat h3 { margin: 0 0 8px; font-size: 1.12rem; }
+  .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+  /* HOW */
+  .how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+  .how-list { list-style: none; padding: 0; margin: 20px 0 26px; }
+  .how-list li { color: var(--muted); padding: 8px 0 8px 26px; position: relative; }
+  .how-list li::before { content: '◆'; color: var(--sun); position: absolute; left: 0; font-size: 0.72rem; top: 12px; }
+  .how-list b { color: var(--text); }
+
+  /* CTA */
+  .cta-inner {
+    text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 18px;
+    padding: 56px 28px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(closest-side at 50% 0%, rgba(255, 150, 90, 0.12), transparent 70%),
+      var(--surface);
+  }
+  .cta-inner h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0; max-width: 20ch; }
+
+  @media (max-width: 880px) {
+    .hero-grid, .how-grid { grid-template-columns: 1fr; }
+    .hero { padding-top: 40px; }
+    .how-code { order: 2; }
+  }
+</style>

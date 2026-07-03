@@ -1,0 +1,52 @@
+---
+import Logo from './Logo.astro';
+import { url, site } from '../lib/site';
+interface Props { active?: string }
+const { active } = Astro.props;
+const links = [
+  { href: url('docs/overview'), label: 'Docs', key: 'docs' },
+  { href: url('gallery'), label: 'Gallery', key: 'gallery' },
+];
+---
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href={url()} aria-label="day home">
+      <Logo size={26} />
+      <span class="brand-name">day</span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      {links.map((l) => (
+        <a href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
+      ))}
+      <a class="nav-link" href={site.repo} rel="noopener">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(150%) blur(12px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 62px;
+  }
+  .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); }
+  .brand:hover { color: var(--text); }
+  .brand-name { font-weight: 750; font-size: 1.12rem; letter-spacing: -0.02em; }
+  .nav-links { display: flex; align-items: center; gap: 24px; }
+  .nav-link { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+  .nav-link:hover { color: var(--text); }
+  .nav-link.on { color: var(--text); }
+  @media (max-width: 560px) {
+    .nav-links { gap: 16px; }
+    .brand-name { display: none; }
+  }
+</style>

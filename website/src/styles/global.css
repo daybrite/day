@@ -1,0 +1,177 @@
+/* day — design system. Dark, modern, with a warm "sunrise" brand gradient over a cool blue.
+   No external fonts or CSS deps: a strong system stack + spacing/colour do the work. */
+
+:root {
+  --bg: #090c15;
+  --bg-2: #0c1020;
+  --surface: #121829;
+  --surface-2: #172038;
+  --border: #232c46;
+  --border-soft: #1b2338;
+
+  --text: #eef2ff;
+  --muted: #aab3cf;
+  --faint: #737d9c;
+
+  --brand: #6aa4ff;
+  --brand-strong: #3b82f6;
+  --sun: #ffc24b;
+  --sun-2: #ff8f5e;
+
+  --grad-day: linear-gradient(115deg, #ffc861 0%, #ff8f5e 38%, #6aa4ff 100%);
+  --grad-text: linear-gradient(115deg, #ffd07a 0%, #ff9e73 42%, #7fb2ff 100%);
+
+  --radius: 14px;
+  --radius-lg: 22px;
+  --maxw: 1080px;
+  --shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
+
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', Menlo, monospace;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 17px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--brand); text-decoration: none; }
+a:hover { color: #9cc2ff; }
+
+h1, h2, h3, h4 { line-height: 1.15; letter-spacing: -0.02em; font-weight: 700; }
+
+img { max-width: 100%; display: block; }
+
+code, pre { font-family: var(--mono); }
+
+::selection { background: rgba(106, 164, 255, 0.28); }
+
+/* ---- layout primitives ---- */
+.container { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: 24px; }
+.section { padding-block: 84px; }
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--sun);
+  margin: 0 0 14px;
+}
+.lead { color: var(--muted); font-size: 1.12rem; max-width: 62ch; }
+
+.grad-text {
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---- buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-weight: 650;
+  font-size: 0.98rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+  white-space: nowrap;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn-primary {
+  background: var(--grad-day);
+  color: #14120c;
+  box-shadow: 0 12px 30px -12px rgba(255, 160, 90, 0.6);
+}
+.btn-primary:hover { color: #14120c; box-shadow: 0 16px 40px -12px rgba(255, 160, 90, 0.75); }
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+
+/* ---- cards ---- */
+.card {
+  background: linear-gradient(180deg, var(--surface), var(--bg-2));
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 22px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* ---- code blocks ---- */
+pre.code {
+  background: #0b1020;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  overflow-x: auto;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: #d7e0f5;
+  box-shadow: var(--shadow);
+}
+pre.code code { color: inherit; background: none; padding: 0; }
+:not(pre) > code {
+  background: rgba(127, 178, 255, 0.12);
+  color: #cfe0ff;
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  font-size: 0.88em;
+}
+
+/* very light syntax tint (token classes emitted by the CodeSample component) */
+.tok-kw { color: #ff9e73; }
+.tok-fn { color: #7fb2ff; }
+.tok-str { color: #9fe0a6; }
+.tok-com { color: var(--faint); font-style: italic; }
+.tok-punct { color: #93a0c2; }
+.tok-num { color: #ffce7a; }
+
+/* ---- misc ---- */
+.hr { height: 1px; background: var(--border-soft); border: 0; margin: 0; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 720px) {
+  body { font-size: 16px; }
+  .section { padding-block: 60px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; }
+}
