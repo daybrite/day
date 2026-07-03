@@ -52,5 +52,13 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{framework_dir}");
     }
 
+    // `pkg-config --libs` omits `-L` when the libdir is the host's default (e.g. MSYS2's
+    // /mingw64/lib), but a mismatched linker won't search it — emit it explicitly.
+    let libdir = pkg_config(&["--variable=libdir", "Qt6Widgets"]);
+    let libdir = libdir.trim();
+    if !libdir.is_empty() {
+        println!("cargo:rustc-link-search=native={libdir}");
+    }
+
     println!("cargo:rerun-if-changed=src/shim.cpp");
 }

@@ -340,6 +340,18 @@ jobs:
           update: true
           path-type: inherit
           install: ${{ matrix.msys_pkgs }}
+      # rustup's windows-gnu toolchain links via whatever `x86_64-w64-mingw32-gcc` is first on
+      # PATH — on the runner that resolves to a *different* mingw (C:\mingw64) which lacks the
+      # MSYS2 Qt6/GTK4/glib import libs, so `-lQt6Widgets` / `-lglib-2.0` fail to link. Force
+      # MSYS2's mingw to the front of PATH and pin the linker + the `cc` crate's compiler (for the
+      # C++ shims) to MSYS2's own gcc, so /mingw64/lib is searched. Forward-slash paths link cleanly.
+      - name: Pin the MSYS2 mingw toolchain (finds MSYS2 Qt6/GTK4 libs)
+        run: |
+          cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
+          GCC="$(cygpath -m "$MINGW_PREFIX/bin/gcc.exe")"
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
+          echo "CC=$GCC" >> "$GITHUB_ENV"
+          echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
       - name: Test host-portable crates
         run: cargo test --locked
       - name: Build day CLI

@@ -39,6 +39,17 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+/// Deliver an event to day-core on the next event-loop turn — a genuine "safe point" (§8.3) —
+/// instead of inline. A native list selection rebuilds the sidebar detail *synchronously*
+/// (dispose old widgets, create new ones); doing that inside the QListWidget's own key/click
+/// dispatch reparents widgets mid-event and reads freed memory (`QWidget::setParent` SIGSEGV).
+/// Only `Send` data (id + event) is captured; the thread-local sink runs on the main thread.
+fn emit_deferred(id: NodeId, ev: Event) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || emit(id, ev));
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_qt_post(run_posted, data) };
+}
+
 fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
@@ -252,9 +263,10 @@ thread_local! {
 
 extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
     // -1 = cleared (programmatic unselect fires nothing thanks to blockSignals; a clear
-    // reaching here means the widget emptied — ignore).
+    // reaching here means the widget emptied — ignore). Deferred: selecting a sidebar item
+    // rebuilds the detail, which must not run inside the list's own event dispatch.
     if row >= 0 {
-        emit(NodeId(id), Event::SelectionChanged(row as i64));
+        emit_deferred(NodeId(id), Event::SelectionChanged(row as i64));
     }
 }
 
@@ -547,6 +559,15 @@ impl Toolkit for Qt {
 
     fn release(&mut self, h: QtHandle) {
         let key = h.0 as usize;
+        // A disposed nav host / page MUST drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
+        // later widget that reuses the freed address is mistaken for a nav host in `set_frame`,
+        // and `nav_sync_panes` reads its freed panes (a use-after-free SIGSEGV).
+        NAV_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        NAV_PAGE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         NAV_MENU_ROWS.with(|m| {
             m.borrow_mut().remove(&key);
         });
