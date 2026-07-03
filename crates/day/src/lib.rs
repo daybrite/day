@@ -156,6 +156,28 @@ macro_rules! android_main {
         ) {
             $crate::android::run_posted(token);
         }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeListLen(
+            _env: $crate::android::jni::JNIEnv,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+        ) -> $crate::android::jni::sys::jint {
+            $crate::android::list_len(host_id) as $crate::android::jni::sys::jint
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeListBind<'a>(
+            mut env: $crate::android::jni::JNIEnv<'a>,
+            _class: $crate::android::jni::objects::JClass<'a>,
+            host_id: $crate::android::jni::sys::jlong,
+            position: $crate::android::jni::sys::jint,
+            cell: $crate::android::jni::objects::JObject<'a>,
+        ) {
+            $crate::android::list_bind(&mut env, host_id, position, cell);
+        }
     };
 }
 
@@ -163,7 +185,7 @@ macro_rules! android_main {
 #[cfg(all(feature = "widget", target_os = "android"))]
 pub mod android {
     pub use day_android::jni;
-    pub use day_android::{dispatch_event, run_posted};
+    pub use day_android::{dispatch_event, list_bind, list_len, run_posted};
 
     #[allow(clippy::too_many_arguments)]
     pub fn start(

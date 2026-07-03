@@ -86,9 +86,47 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-        Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
+        Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
+        WindowOptions, kinds,
     };
+
+    thread_local! {
+        /// Recycling list (docs/list.md): row-pull sources keyed by LIST node id (Java passes it
+        /// back in nativeListBind), and a stable GlobalRef per physical cell (by identityHashCode)
+        /// so day-core's cell map keys consistently across ListView recycling.
+        static LIST_SOURCES: std::cell::RefCell<std::collections::HashMap<i64, ListSource>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+        static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+        static LIST_CELLS: std::cell::RefCell<std::collections::HashMap<i32, GlobalRef>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+
+    /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
+    pub fn list_len(host_id: i64) -> usize {
+        LIST_SOURCES.with(|m| m.borrow().get(&host_id).map(|s| (s.len)()).unwrap_or(0))
+    }
+
+    /// Fill a recycled cell — the Java adapter's getView calls this. A stable GlobalRef per
+    /// physical cell (keyed by identityHashCode) gives day-core a consistent cell key.
+    pub fn list_bind(env: &mut JNIEnv, host_id: i64, position: i32, cell: JObject) {
+        let hash = env
+            .call_method(&cell, "hashCode", "()I", &[])
+            .and_then(|v| v.i())
+            .unwrap_or(0);
+        let gref = LIST_CELLS.with(|m| {
+            m.borrow_mut()
+                .entry(hash)
+                .or_insert_with(|| env.new_global_ref(&cell).expect("global ref"))
+                .clone()
+        });
+        let raw = gref.as_obj().as_raw() as RawHandle;
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        if let Some(source) = source {
+            (source.bind_row)(position as usize, raw);
+        }
+    }
 
     pub const BRIDGE: &str = "dev/day/bridge/DayBridge";
 
@@ -371,6 +409,31 @@ mod imp {
                 kinds::SCROLL => with_env(|env| {
                     AHandle(make_view(env, "makeScroll", "()Landroid/view/View;", &[]))
                 }),
+                kinds::LIST => {
+                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let d = DENSITY.with(|x| x.get());
+                    let rowh = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let handle = with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeList",
+                            "(JIZ)Landroid/view/View;",
+                            &[
+                                JValue::Long(id.0 as i64),
+                                JValue::Int((rowh * d).round() as i32),
+                                JValue::Bool(p.selectable as u8),
+                            ],
+                        ))
+                    });
+                    LIST_NODE.with(|m| {
+                        m.borrow_mut()
+                            .insert(handle.0.as_obj().as_raw() as usize, id.0 as i64)
+                    });
+                    handle
+                }
                 kinds::NAV => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     with_env(|env| {
@@ -720,6 +783,17 @@ mod imp {
                         }
                     }
                 }
+                kinds::LIST => {
+                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                        // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
+                        // the next layout — safe inside a with_tree borrow.
+                        call_void(
+                            "listReload",
+                            "(Landroid/view/View;)V",
+                            &[JValue::Object(h.0.as_obj())],
+                        );
+                    }
+                }
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);
@@ -729,6 +803,12 @@ mod imp {
         }
 
         fn release(&mut self, h: AHandle) {
+            let key = h.0.as_obj().as_raw() as usize;
+            if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                LIST_SOURCES.with(|m| {
+                    m.borrow_mut().remove(&nid);
+                });
+            }
             call_void(
                 "removeChild",
                 "(Landroid/view/View;)V",
@@ -798,6 +878,7 @@ mod imp {
                     (measure_call(h, "measureHeight") / d).max(40.0),
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
                 kinds::PROGRESS => {
                     // Determinate bar fills the proposed width (grow_w); the circular spinner
                     // keeps its natural square size (grow_w is false, so the engine uses it).
@@ -847,6 +928,28 @@ mod imp {
 
         fn set_event_sink(&mut self, sink: EventSink) {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        }
+
+        fn attach_list(&mut self, host: &AHandle, source: ListSource) {
+            let key = host.0.as_obj().as_raw() as usize;
+            if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&key).copied()) {
+                LIST_SOURCES.with(|m| {
+                    m.borrow_mut().insert(nid, source);
+                });
+            }
+            call_void(
+                "listReload",
+                "(Landroid/view/View;)V",
+                &[JValue::Object(host.0.as_obj())],
+            );
+        }
+
+        fn adopt(&mut self, raw: RawHandle) -> AHandle {
+            // A recycling ListView cell (a DayFixed) — day fills/rebinds its row content in place.
+            with_env(|env| {
+                let obj = unsafe { JObject::from_raw(raw as jni::sys::jobject) };
+                AHandle(env.new_global_ref(&obj).expect("adopt: global ref"))
+            })
         }
 
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {

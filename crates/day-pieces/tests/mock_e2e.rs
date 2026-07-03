@@ -3,7 +3,7 @@
 //! "bounded measure calls" are assertions, not aspirations.
 
 use day_core::AnyPiece;
-use day_mock::{MockProbe, MockToolkit};
+use day_mock::{MockHandle, MockProbe, MockToolkit};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Event, NodeId, Size, WindowOptions};
@@ -764,4 +764,95 @@ fn alert_returns_typed_payload_and_sequences() {
     day_core::respond_presentation(req2, PresentResult::Text("x".into()));
     flush_sync();
     assert_eq!(out.borrow().as_slice(), ["deleted Some(\"x\")"]);
+}
+
+// ---------------------------------------------------------------------------
+// Native recycling `list` (docs/list.md, §10): the mock drives a simulated viewport through
+// the real day-core driver, so these assert the whole build-once/rebind-on-recycle path.
+// ---------------------------------------------------------------------------
+
+fn five_item_list() -> AnyPiece {
+    let items = Signal::new(
+        ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+    );
+    list(
+        move || items.get(),
+        |s: &String| s.clone(),
+        |row: ItemSlot<String, String>| label(move || row.get()),
+    )
+    .row_height(RowHeight::Uniform(20.0))
+    .any()
+}
+
+#[test]
+fn list_builds_only_visible_rows() {
+    let probe = boot(five_item_list);
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    // The data-source sees all five rows…
+    assert_eq!(probe.list_len(host), 5);
+    // …but nothing is built until the native list pulls a cell (virtualization).
+    assert_eq!(probe.find_by_kind("day.label").len(), 0);
+
+    // A viewport of two physical cells shows rows 0 and 1.
+    probe.list_bind(host, 0, MockHandle(9001));
+    probe.list_bind(host, 1, MockHandle(9002));
+
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "only the visible rows are built");
+    assert_eq!(labels[0].1.text, "a");
+    assert_eq!(labels[1].1.text, "b");
+}
+
+#[test]
+fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
+    let probe = boot(five_item_list);
+    let host = probe.find_by_kind("day.list")[0].0;
+    let (cell_a, cell_b) = (MockHandle(9001), MockHandle(9002));
+
+    probe.list_bind(host, 0, cell_a); // "a"
+    probe.list_bind(host, 1, cell_b); // "b"
+    assert_eq!(probe.find_by_kind("day.label").len(), 2);
+
+    // Scroll: cell_a recycles to show row 2. This must REBIND (slot-write), not build a new row.
+    probe.list_bind(host, 2, cell_a);
+
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(
+        labels.len(),
+        2,
+        "recycling rebinds the existing cell — no new widget"
+    );
+    // The recycled cell's own label (lowest handle, built first) now shows row 2's content.
+    assert_eq!(labels[0].1.text, "c");
+    assert_eq!(labels[1].1.text, "b");
+
+    // Scroll further: cell_b recycles to row 3.
+    probe.list_bind(host, 3, cell_b);
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2);
+    assert_eq!(labels[1].1.text, "d");
+}
+
+#[test]
+fn list_reports_selection_by_key() {
+    let picks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let sink = picks.clone();
+    let probe = boot(move || {
+        let items = Signal::new(vec!["a".to_string(), "b".into(), "c".into()]);
+        list(
+            move || items.get(),
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .on_select(move |k| sink.borrow_mut().push(k))
+        .any()
+    });
+    let list_node = node_id(&probe, "day.list", 0);
+    probe.emit(list_node, Event::SelectionChanged(1));
+    flush_sync();
+    assert_eq!(picks.borrow().as_slice(), ["b".to_string()]);
 }

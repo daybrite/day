@@ -18,6 +18,7 @@ use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
+use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
     NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
@@ -26,13 +27,15 @@ use objc2_app_kit::{
     NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
+use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use day_spec::present;
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE, WindowOptions, kinds,
+    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
+    Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE,
+    WindowOptions, kinds,
 };
 
 pub type Handle = Retained<NSView>;
@@ -408,6 +411,108 @@ impl DayNavMenuData {
         });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+// ---------------------------------------------------------------------------
+// DayListData — NSTableView data-source + delegate for the recycling list (docs/list.md, §10)
+// ---------------------------------------------------------------------------
+
+struct ListIvars {
+    node: NodeId,
+    /// Injected by `attach_list` once day-core wires the driver.
+    source: RefCell<Option<ListSource>>,
+    selectable: std::cell::Cell<bool>,
+    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    suppress: std::cell::Cell<bool>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayListData"]
+    #[ivars = ListIvars]
+    struct DayListData;
+
+    unsafe impl NSObjectProtocol for DayListData {}
+    unsafe impl NSControlTextEditingDelegate for DayListData {}
+
+    unsafe impl NSTableViewDataSource for DayListData {
+        #[unsafe(method(numberOfRowsInTableView:))]
+        fn number_of_rows(&self, _tv: &NSTableView) -> isize {
+            // Reads the piece's snapshot only (no tree access) — safe even when called
+            // synchronously from reloadData inside a with_tree borrow.
+            self.ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .map(|s| (s.len)() as isize)
+                .unwrap_or(0)
+        }
+    }
+
+    unsafe impl NSTableViewDelegate for DayListData {
+        #[unsafe(method_id(tableView:viewForTableColumn:row:))]
+        fn view_for_row(
+            &self,
+            tv: &NSTableView,
+            _col: Option<&NSTableColumn>,
+            row: isize,
+        ) -> Option<Retained<NSView>> {
+            let mtm = self.mtm();
+            let ident = NSString::from_str("day.cell");
+            // Recycle a cell view if one is free; else make a fresh flipped container.
+            let cell: Retained<NSView> = unsafe { tv.makeViewWithIdentifier_owner(&ident, None) }
+                .unwrap_or_else(|| {
+                    let v: Retained<NSView> = Retained::into_super(DayFlipped::new(mtm));
+                    unsafe { v.setIdentifier(Some(&ident)) };
+                    v
+                });
+            // day builds row content the first time it sees this cell, and rebinds (slot-write)
+            // when the cell is recycled. NSTableView calls this outside reloadData's stack, so the
+            // re-entry into with_tree is safe.
+            if let Some(source) = self.ivars().source.borrow().as_ref() {
+                let raw = Retained::as_ptr(&cell) as RawHandle;
+                (source.bind_row)(row as usize, raw);
+            }
+            Some(cell)
+        }
+
+        #[unsafe(method(tableViewSelectionDidChange:))]
+        fn selection_did_change(&self, notification: &NSNotification) {
+            if self.ivars().suppress.get() || !self.ivars().selectable.get() {
+                return;
+            }
+            let Some(obj) = (unsafe { notification.object() }) else {
+                return;
+            };
+            let Ok(tv) = obj.downcast::<NSTableView>() else {
+                return;
+            };
+            let row = unsafe { tv.selectedRow() };
+            if row >= 0 {
+                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+            }
+        }
+    }
+);
+
+impl DayListData {
+    fn new(mtm: MainThreadMarker, node: NodeId, selectable: bool) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ListIvars {
+            node,
+            source: RefCell::new(None),
+            selectable: std::cell::Cell::new(selectable),
+            suppress: std::cell::Cell::new(false),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// A realized LIST's scroll view ptr → (table, data source) for attach_list / update / measure.
+type ListEntry = (Retained<NSTableView>, Retained<DayListData>);
+
+thread_local! {
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
 }
 
 /// A realized NAV_MENU's native outline view paired with its data-source object.
@@ -888,6 +993,44 @@ impl Toolkit for AppKit {
                 NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (outline, data)));
                 view
             }
+            kinds::LIST => {
+                let p = props.downcast_ref::<ListProps>().unwrap();
+                let table = unsafe { NSTableView::new(mtm) };
+                let col = unsafe {
+                    NSTableColumn::initWithIdentifier(
+                        NSTableColumn::alloc(mtm),
+                        &NSString::from_str("day.list.col"),
+                    )
+                };
+                let data = DayListData::new(mtm, id, p.selectable);
+                unsafe {
+                    table.addTableColumn(&col);
+                    table.setHeaderView(None);
+                    table.setColumnAutoresizingStyle(
+                        objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
+                    );
+                    match p.row_height {
+                        RowHeight::Uniform(h) => table.setRowHeight(h),
+                        RowHeight::Automatic => table.setRowHeight(44.0),
+                    }
+                    if !p.selectable {
+                        table.setSelectionHighlightStyle(
+                            objc2_app_kit::NSTableViewSelectionHighlightStyle::None,
+                        );
+                    }
+                    table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                    table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                }
+                let scroll = unsafe { NSScrollView::new(mtm) };
+                unsafe {
+                    scroll.setDrawsBackground(false);
+                    scroll.setHasVerticalScroller(true);
+                    scroll.setDocumentView(Some(&table));
+                }
+                let view = view_of(scroll);
+                LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
+                view
+            }
             kinds::IMAGE => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
@@ -1087,6 +1230,17 @@ impl Toolkit for AppKit {
                     }
                 }
             }
+            kinds::LIST => {
+                if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                    LIST_STATE.with(|m| {
+                        if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
+                            // reloadData queries numberOfRows synchronously (snapshot only, no
+                            // tree) and defers viewForRow, so this is safe inside with_tree.
+                            unsafe { table.reloadData() };
+                        }
+                    });
+                }
+            }
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);
@@ -1097,6 +1251,9 @@ impl Toolkit for AppKit {
 
     fn release(&mut self, h: Handle) {
         TARGETS.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
+        LIST_STATE.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
         NAV_STATE.with(|m| {
@@ -1252,6 +1409,8 @@ impl Toolkit for AppKit {
                     p.height.unwrap_or(rows as f64 * 32.0 + 12.0),
                 )
             }
+            // The recycling list fills the space it is offered (its native scroll owns overflow).
+            kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     measure(self, h, p)
@@ -1335,6 +1494,22 @@ impl Toolkit for AppKit {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn attach_list(&mut self, host: &Handle, source: ListSource) {
+        LIST_STATE.with(|m| {
+            if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
+                data.ivars().source.replace(Some(source));
+                // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
+                unsafe { table.reloadData() };
+            }
+        });
+    }
+
+    fn adopt(&mut self, raw: RawHandle) -> Handle {
+        // A recycling NSTableView cell view — day builds/rebinds its row content in place.
+        let ptr = raw as *mut NSView;
+        unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {

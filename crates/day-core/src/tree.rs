@@ -76,6 +76,8 @@ pub struct Tree<B: Toolkit> {
     layout_dirty: bool,
     handlers: HashMap<RNode, Vec<EventHandler>>,
     release_queue: Vec<B::Handle>,
+    /// Recycling-list state keyed by LIST node (docs/list.md, §10).
+    lists: HashMap<RNode, crate::list::ListState>,
 }
 
 impl<B: Toolkit> Tree<B> {
@@ -104,7 +106,28 @@ impl<B: Toolkit> Tree<B> {
             layout_dirty: true,
             handlers: HashMap::new(),
             release_queue: Vec::new(),
+            lists: HashMap::new(),
         }
+    }
+
+    /// Create a node whose native handle is a foreign cell adopted from a recycling list host —
+    /// the same "wrap an externally-owned handle" trick the window root uses (docs/list.md).
+    pub(crate) fn create_cell_anchor(&mut self, handle: B::Handle, scope: Scope) -> RNode {
+        self.nodes.insert(NodeData {
+            kind: kinds::LIST_CELL,
+            handle: Some(handle),
+            parent: RNode::null(),
+            children: Vec::new(),
+            layout: Rc::new(PassThrough),
+            flex: Flex::default(),
+            scope,
+            id: None,
+            cache: Vec::new(),
+            probe: NodeProbe::default(),
+            needs_measure: true,
+            last_native_frame: None,
+            is_boundary: true,
+        })
     }
 
     pub fn root(&self) -> RNode {
@@ -354,6 +377,30 @@ pub trait TreeOps {
     fn present(&mut self, req: u64, spec: &present::PresentSpec);
     /// Dismiss the modal for `req` (programmatic resolve while it is still up).
     fn dismiss(&mut self, req: u64);
+
+    // Recycling list seam (docs/list.md, §10). Called by day-core's own `ListSource` closures
+    // (via `with_tree`) when the native list pulls rows; never nested inside another borrow.
+    // (`len`/`token_at` read the piece's snapshot directly and don't need the tree.)
+    fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver);
+    /// Decide whether row `key`'s cell must be built (returns a fresh anchor) or rebound.
+    fn list_prepare_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        cell: RawHandle,
+    ) -> crate::list::CellStep;
+    /// Record a freshly built row for a cell.
+    fn list_store_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        anchor: RNode,
+        built: crate::list::BuiltRow,
+    );
+    /// Lay the row out inside its cell bounds (row content width × the RowHeight).
+    fn list_layout_cell(&mut self, node: RNode, key: usize);
+    /// Apply a data change: the native host re-queries the source.
+    fn list_reload(&mut self, node: RNode);
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -615,6 +662,103 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn root_node(&self) -> RNode {
         self.root
+    }
+
+    fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver) {
+        let driver = Rc::new(driver);
+        self.lists.insert(
+            node,
+            crate::list::ListState {
+                driver: driver.clone(),
+                cells: HashMap::new(),
+            },
+        );
+        let source = crate::list::make_source(node, driver);
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.attach_list(&handle, source);
+        }
+    }
+
+    fn list_prepare_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        cell: RawHandle,
+    ) -> crate::list::CellStep {
+        if let Some(state) = self.lists.get(&node)
+            && let Some(bound) = state.cells.get(&key)
+        {
+            return crate::list::CellStep::Rebind {
+                rebind: bound.rebind.clone(),
+                anchor: bound.anchor,
+            };
+        }
+        // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
+        let handle = self.toolkit.adopt(cell);
+        let anchor = self.create_cell_anchor(handle, Scope::child());
+        crate::list::CellStep::Build { anchor }
+    }
+
+    fn list_store_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        anchor: RNode,
+        built: crate::list::BuiltRow,
+    ) {
+        if let Some(state) = self.lists.get_mut(&node) {
+            state.cells.insert(
+                key,
+                crate::list::BoundCell {
+                    anchor,
+                    _scope: built.scope,
+                    rebind: built.rebind,
+                },
+            );
+        }
+    }
+
+    fn list_layout_cell(&mut self, node: RNode, key: usize) {
+        let Some(state) = self.lists.get(&node) else {
+            return;
+        };
+        let anchor = match state.cells.get(&key) {
+            Some(b) => b.anchor,
+            None => return,
+        };
+        let row_height = state.driver.row_height;
+        // The row's width is the list's content width; its height is the RowHeight policy.
+        let width = self
+            .nodes
+            .get(node)
+            .and_then(|n| n.last_native_frame)
+            .map(|f| f.size.width)
+            .unwrap_or(self.window_size.width);
+        let height = match row_height {
+            day_spec::props::RowHeight::Uniform(h) => h,
+            day_spec::props::RowHeight::Automatic => {
+                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
+            }
+        };
+        self.nodes[anchor].needs_measure = true;
+        crate::layout::place_node(
+            self,
+            anchor,
+            Rect::new(0.0, 0.0, width, height),
+            Point::ZERO,
+            true,
+        );
+    }
+
+    fn list_reload(&mut self, node: RNode) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::Reload as &dyn Any,
+                None,
+            );
+        }
     }
 }
 

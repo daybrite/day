@@ -846,6 +846,161 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// `list` — native recycling list (docs/list.md, §10)
+// ---------------------------------------------------------------------------
+
+/// Stable u64 identity token for a key, for the native list's diffing.
+fn key_token<K: Hash>(k: &K) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    k.hash(&mut h);
+    h.finish()
+}
+
+/// Applies a fresh items snapshot (refresh the data-source view + tell the native host to reload).
+type RefreshFn<T> = Rc<dyn Fn(&Vec<T>)>;
+
+/// A native recycling list: the platform widget owns scrolling + cell reuse; day builds each
+/// visible row once and *rebinds* it (a slot-write into its `ItemSlot`) as cells recycle.
+/// Shares the `ItemSlot` row contract with [`each`]; migrating is a one-word change.
+pub struct List<T: 'static, K: 'static> {
+    items: Rc<dyn Fn() -> Vec<T>>,
+    key_of: Rc<dyn Fn(&T) -> K>,
+    build_row: Rc<dyn Fn(ItemSlot<T, K>) -> AnyPiece>,
+    row_height: RowHeight,
+    on_select: Option<Rc<dyn Fn(K)>>,
+}
+
+/// Build a recycling list from a reactive items closure, a key function, and a row builder.
+pub fn list<T, K, P>(
+    items: impl Fn() -> Vec<T> + 'static,
+    key_of: impl Fn(&T) -> K + 'static,
+    build_row: impl Fn(ItemSlot<T, K>) -> P + 'static,
+) -> List<T, K>
+where
+    T: Clone + 'static,
+    K: Clone + Hash + 'static,
+    P: Piece,
+{
+    List {
+        items: Rc::new(items),
+        key_of: Rc::new(key_of),
+        build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
+        row_height: RowHeight::Automatic,
+        on_select: None,
+    }
+}
+
+impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
+    /// Row sizing: `Uniform(h)` (fastest) or `Automatic` (self-sizing).
+    pub fn row_height(mut self, h: RowHeight) -> Self {
+        self.row_height = h;
+        self
+    }
+    /// Called with the selected row's key when the native list reports a selection.
+    pub fn on_select(mut self, f: impl Fn(K) + 'static) -> Self {
+        self.on_select = Some(Rc::new(f));
+        self
+    }
+}
+
+impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let props = ListProps {
+            row_height: self.row_height,
+            selectable: self.on_select.is_some(),
+        };
+        let node = cx.leaf(
+            kinds::LIST,
+            &props,
+            Flex {
+                grow_w: true,
+                grow_h: true,
+                ..Default::default()
+            },
+        );
+
+        // The data-source's view of the world: the current items + their tokens, refreshed by a
+        // bind on the items closure. The native host queries these synchronously; the driver's
+        // build/rebind closures read the same snapshot.
+        let snapshot: Rc<RefCell<Vec<T>>> = Rc::new(RefCell::new(Vec::new()));
+        let tokens: Rc<RefCell<Vec<u64>>> = Rc::new(RefCell::new(Vec::new()));
+
+        // Selection → key (translate the native row index through the snapshot).
+        if let Some(on_select) = self.on_select.clone() {
+            let (snap, key_of) = (snapshot.clone(), self.key_of.clone());
+            cx.on(node, move |ev| {
+                if let Event::SelectionChanged(i) = ev
+                    && let Some(item) = snap.borrow().get(*i as usize)
+                {
+                    on_select(key_of(item));
+                }
+            });
+        }
+
+        // The type-erased driver day-core drives on cell pulls.
+        let driver = ListDriver {
+            row_height: self.row_height,
+            len: {
+                let s = snapshot.clone();
+                Box::new(move || s.borrow().len())
+            },
+            token_at: {
+                let t = tokens.clone();
+                Box::new(move |i| t.borrow().get(i).copied().unwrap_or(0))
+            },
+            build: {
+                let (snapshot, key_of, build_row) = (
+                    snapshot.clone(),
+                    self.key_of.clone(),
+                    self.build_row.clone(),
+                );
+                Box::new(move |index, anchor| {
+                    let scope = Scope::child();
+                    let rebind = scope.enter(|| {
+                        let item = snapshot.borrow()[index].clone();
+                        let sig = Signal::new(item.clone());
+                        let keysig = Signal::new(key_of(&item));
+                        let slot = ItemSlot { sig, key: keysig };
+                        let mut rowcx = BuildCx::new(anchor);
+                        build_row(slot).build(&mut rowcx);
+                        // Rebind on recycle: one slot-write of the new row's item + key.
+                        let (snap, key_of) = (snapshot.clone(), key_of.clone());
+                        Rc::new(move |i: usize| {
+                            let it = snap.borrow()[i].clone();
+                            keysig.set(key_of(&it));
+                            sig.set(it);
+                        }) as Rc<dyn Fn(usize)>
+                    });
+                    BuiltRow { scope, rebind }
+                })
+            },
+        };
+        install_list(node, driver);
+
+        // Keep the snapshot current and tell the native host to re-query on every change.
+        // `watch` (not `bind`) so `T` need not be `PartialEq` — matching `each`; run once eagerly.
+        let refresh: RefreshFn<T> = {
+            let (snapshot, tokens, key_of) =
+                (snapshot.clone(), tokens.clone(), self.key_of.clone());
+            Rc::new(move |its: &Vec<T>| {
+                *tokens.borrow_mut() = its.iter().map(|t| key_token(&key_of(t))).collect();
+                *snapshot.borrow_mut() = its.clone();
+                list_reload(node);
+            })
+        };
+        let items = self.items.clone();
+        let initial = day_reactive::untrack(|| items());
+        refresh(&initial);
+        {
+            let (refresh, items) = (refresh.clone(), items.clone());
+            watch(move || items(), move |new: &Vec<T>, _| refresh(new));
+        }
+        node
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Decorators (§5.2 Decorate)
 // ---------------------------------------------------------------------------
 
@@ -959,15 +1114,16 @@ pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
         A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoFraction, IntoText, ItemSlot,
-        Prompt, Selector, SelectorStyle, SignalRw, Stack, VAlign, alert, button, canvas, column,
-        confirm, divider, each, image, label, nav_back, nav_link, navigate, progress, prompt, row,
-        scroll, selector, slider, spacer, spinner, stack, text_field, toggle, when,
+        List, Prompt, Selector, SelectorStyle, SignalRw, Stack, VAlign, alert, button, canvas,
+        column, confirm, divider, each, image, label, list, nav_back, nav_link, navigate, progress,
+        prompt, row, scroll, selector, slider, spacer, spinner, stack, text_field, toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Color, Insets, Point, Rect, Size};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
+    pub use day_spec::props::RowHeight;
     pub use day_spec::{DrawOp, Shape, TextAnchor};
     pub use day_spec::{Font, Role};
 }

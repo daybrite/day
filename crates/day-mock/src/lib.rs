@@ -41,6 +41,9 @@ pub struct MockState {
     pub sink: Option<EventSink>,
     /// (kind, proposal) measure-call counter for the M1 bounded-measure tests.
     pub measure_calls: usize,
+    /// Recycling-list row-pull sources, keyed by LIST host handle (docs/list.md). A test drives
+    /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
+    pub list_sources: HashMap<u64, ListSource>,
 }
 
 impl MockState {
@@ -114,6 +117,33 @@ impl MockProbe {
         v.sort_by_key(|(h, _)| h.0);
         v
     }
+    /// Row count a `LIST` host would query from its data-source.
+    pub fn list_len(&self, host: MockHandle) -> usize {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .map(|s| s.len.clone());
+        f.map(|f| f()).unwrap_or(0)
+    }
+
+    /// Simulate the native list binding row `index` into a physical `cell` — day builds the row
+    /// the first time a cell is used and rebinds (slot-write) when it is recycled. Drives the real
+    /// day-core driver, so tests exercise the whole recycling path. (The source Rc is cloned out
+    /// before the call so the re-entrant `with_tree`/toolkit work holds no MockState borrow.)
+    pub fn list_bind(&self, host: MockHandle, index: usize, cell: MockHandle) {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .map(|s| s.bind_row.clone());
+        if let Some(f) = f {
+            f(index, cell.0 as RawHandle);
+        }
+    }
+
     /// Inject a native event through the real sink (as the toolkit trampoline would).
     pub fn emit(&self, node: NodeId, event: Event) {
         let sink = self.state.borrow_mut().sink.take();
@@ -412,6 +442,25 @@ impl Toolkit for MockToolkit {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         self.state.borrow_mut().sink = Some(sink);
+    }
+
+    fn attach_list(&mut self, host: &MockHandle, source: ListSource) {
+        let mut s = self.state.borrow_mut();
+        s.list_sources.insert(host.0, source);
+        s.log(format!("attach_list #{}", host.0));
+    }
+
+    fn adopt(&mut self, raw: RawHandle) -> MockHandle {
+        // A recycling list's cell: register a container widget so row content can attach to it.
+        let h = raw as u64;
+        let mut s = self.state.borrow_mut();
+        s.widgets.entry(h).or_insert_with(|| MockWidget {
+            kind: kinds::LIST_CELL,
+            node: h,
+            enabled: true,
+            ..Default::default()
+        });
+        MockHandle(h)
     }
 
     fn set_a11y(&mut self, h: &MockHandle, a11y: &A11yProps) {

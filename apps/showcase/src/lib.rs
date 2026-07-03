@@ -26,8 +26,45 @@ pub fn root() -> AnyPiece {
         .item("modals", tr("nav-modals"), modals_page)
         .item("tabs", tr("nav-tabs"), tabs_page)
         .item("stack", tr("nav-stack"), stack_page)
+        .item("list", tr("nav-list"), list_page)
         .item("about", tr("nav-about"), about_page)
         .id("nav")
+}
+
+/// A native recycling list (docs/list.md): 500 rows, but only the visible cells are ever built —
+/// the platform's NSTableView / RecyclerView / GtkListView / QListView owns scrolling + reuse.
+fn list_page() -> AnyPiece {
+    let count = Signal::new(500i64);
+    column((
+        row((
+            label(tr("nav-list")).font(Font::Title).id("list-title"),
+            spacer(),
+            button(tr("list-add"))
+                .action(move || count.update(|c| *c += 100))
+                .id("list-add"),
+        )),
+        label(tr("list-caption").arg("count", count)).id("list-caption"),
+        list(
+            move || {
+                (1..=count.get())
+                    .map(|i| format!("Row {i}"))
+                    .collect::<Vec<_>>()
+            },
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| {
+                label(move || row.get())
+                    .padding(Insets::symmetric(12.0, 8.0))
+                    .id_keyed("list-row", row.key())
+            },
+        )
+        .row_height(RowHeight::Uniform(36.0))
+        .on_select(|k| println!("selected {k}"))
+        .id("demo-list"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
 }
 
 /// The sidebar's header (logo + app name); the `selector` renders the item list below it as

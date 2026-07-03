@@ -9,9 +9,12 @@ import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ProgressBar;
@@ -35,6 +38,9 @@ public final class DayBridge {
                                           String autodrive, String locale, String envBlob);
     public static native void nativeOnEvent(long id, int kind, double num, String str);
     public static native void nativeRunPosted(long token);
+    /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
+    public static native int nativeListLen(long hostId);
+    public static native void nativeListBind(long hostId, int position, View cell);
 
     /** Cross-thread → main-thread door for day's scheduler/Setter (§3.3). */
     public static void postMain(final long token) {
@@ -45,6 +51,42 @@ public final class DayBridge {
 
     // --- factories + setters (called from Rust over JNI) ---
     public static View makeContainer() { return new DayFixed(ctx); }
+
+    /** A native recycling list (docs/list.md): a framework ListView whose BaseAdapter reuses
+     *  DayFixed cell views (convertView) and lets day fill each via nativeListBind. */
+    public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable) {
+        final ListView lv = new ListView(ctx);
+        lv.setDivider(null);
+        lv.setDividerHeight(0);
+        lv.setAdapter(new BaseAdapter() {
+            public int getCount() { return nativeListLen(hostId); }
+            public Object getItem(int p) { return null; }
+            public long getItemId(int p) { return p; }
+            public View getView(int position, View convertView, ViewGroup parent) {
+                DayFixed cell = (convertView instanceof DayFixed) ? (DayFixed) convertView : null;
+                if (cell == null) {
+                    cell = new DayFixed(ctx);
+                    cell.setLayoutParams(new AbsListView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+                }
+                nativeListBind(hostId, position, cell);
+                return cell;
+            }
+        });
+        if (selectable) {
+            lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+                public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
+                    nativeOnEvent(hostId, 4, pos, ""); // kind 4 = select
+                }
+            });
+        }
+        return lv;
+    }
+    public static void listReload(View lv) {
+        if (lv instanceof ListView && ((ListView) lv).getAdapter() instanceof BaseAdapter) {
+            ((BaseAdapter) ((ListView) lv).getAdapter()).notifyDataSetChanged();
+        }
+    }
 
     public static View makeScroll() {
         ScrollView sv = new ScrollView(ctx);

@@ -54,6 +54,81 @@ fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
 
+// ---------------------------------------------------------------------------
+// Recycling list (docs/list.md, §10). Qt's item views are paint-based, so a widget list can't
+// recycle natively — day emulates it (DP-19): a QScrollArea whose content holds one absolutely
+// positioned cell widget per row, each filled through the same `bind_row` seam. Cells are reused
+// across reloads (append-only), so day-core's cell map never dangles.
+// ---------------------------------------------------------------------------
+
+struct ListEntry {
+    host: *mut c_void,
+    row_height: f64,
+    source: Rc<RefCell<Option<day_spec::ListSource>>>,
+    cells: Vec<*mut c_void>,
+    /// Last host width a populate ran at — so `set_frame` only repopulates on a real width change
+    /// (a populate's own child `set_frame`s must not schedule another, or it loops forever).
+    last_width: c_int,
+}
+
+thread_local! {
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+}
+
+/// Populate/refresh a list's cells on the next event-loop turn — NOT inline: a reload runs inside
+/// a `with_tree` borrow, and `bind_row` re-enters `with_tree`, which would panic.
+fn schedule_list_populate(host_key: usize) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || list_populate(host_key));
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_qt_post(run_posted, data) };
+}
+
+fn list_populate(host_key: usize) {
+    // Phase 1 — under the LIST_STATE borrow: grow the cell pool + snapshot what we need.
+    let Some((host, rowh, source, cells, n, width)) = LIST_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let st = m.get_mut(&host_key)?;
+        let source = st.source.borrow().clone()?;
+        let content = unsafe { ffi::day_qt_scroll_content(st.host) };
+        if content.is_null() {
+            return None;
+        }
+        let (mut w, mut h) = (0.0_f64, 0.0_f64);
+        unsafe { ffi::day_qt_widget_size(st.host, &mut w, &mut h) };
+        let width = w.max(1.0) as c_int;
+        let n = (source.len)();
+        while st.cells.len() < n {
+            let cell = unsafe { ffi::day_qt_container_new() };
+            unsafe { ffi::day_qt_add_child(content, cell) };
+            st.cells.push(cell);
+        }
+        st.last_width = width;
+        Some((
+            st.host,
+            st.row_height.max(1.0),
+            source,
+            st.cells.clone(),
+            n,
+            width,
+        ))
+    }) else {
+        return;
+    };
+    // Phase 2 — no borrow held (bind_row re-enters with_tree, which may lay out + set_frame the
+    // list host, taking LIST_STATE again).
+    for (i, &cell) in cells.iter().enumerate().take(n) {
+        unsafe {
+            ffi::day_qt_set_geometry(cell, 0, (i as f64 * rowh) as c_int, width, rowh as c_int);
+            ffi::day_qt_set_visible(cell, 1);
+        }
+        (source.bind_row)(i, cell);
+    }
+    for &cell in cells.iter().skip(n) {
+        unsafe { ffi::day_qt_set_visible(cell, 0) };
+    }
+    unsafe { ffi::day_qt_scroll_set_content_size(host, width, (n as f64 * rowh) as c_int) };
+}
+
 extern "C" fn on_press(id: u64) {
     emit(NodeId(id), Event::Pressed);
 }
@@ -409,6 +484,27 @@ impl Toolkit for Qt {
                         .unwrap_or_default();
                     QtHandle(ffi::day_qt_image_new(cstr(&path).as_ptr()))
                 }
+                kinds::LIST => {
+                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let host = ffi::day_qt_scroll_new();
+                    let row_height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    LIST_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            host as usize,
+                            ListEntry {
+                                host,
+                                row_height,
+                                source: Rc::new(RefCell::new(None)),
+                                cells: Vec::new(),
+                                last_width: -1,
+                            },
+                        )
+                    });
+                    QtHandle(host)
+                }
                 _ => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
@@ -548,6 +644,11 @@ impl Toolkit for Qt {
                         }
                     }
                 }
+                kinds::LIST => {
+                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                        schedule_list_populate(h.0 as usize);
+                    }
+                }
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);
@@ -559,6 +660,9 @@ impl Toolkit for Qt {
 
     fn release(&mut self, h: QtHandle) {
         let key = h.0 as usize;
+        LIST_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         // A disposed nav host / page MUST drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
         // later widget that reuses the freed address is mistaken for a nav host in `set_frame`,
         // and `nav_sync_panes` reads its freed panes (a use-after-free SIGSEGV).
@@ -685,6 +789,7 @@ impl Toolkit for Qt {
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), hh.max(24.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 2.0),
             kinds::PROGRESS => Size::new(p.width.unwrap_or(180.0), hh.max(16.0)),
+            kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     measure(self, h, p)
@@ -715,6 +820,17 @@ impl Toolkit for Qt {
         }
         if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             tabs_sync(h.0);
+        }
+        // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
+        // set_frame calls a populate itself makes (on row content) don't schedule another forever.
+        let width_changed = LIST_STATE.with(|m| {
+            m.borrow()
+                .get(&(h.0 as usize))
+                .map(|st| st.last_width != frame.size.width.round() as c_int)
+                .unwrap_or(false)
+        });
+        if width_changed {
+            schedule_list_populate(h.0 as usize);
         }
     }
 
@@ -768,6 +884,21 @@ impl Toolkit for Qt {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn attach_list(&mut self, host: &QtHandle, source: day_spec::ListSource) {
+        LIST_STATE.with(|m| {
+            if let Some(st) = m.borrow().get(&(host.0 as usize)) {
+                *st.source.borrow_mut() = Some(source);
+            }
+        });
+        // Deferred (see schedule_list_populate): populating re-enters with_tree via bind_row.
+        schedule_list_populate(host.0 as usize);
+    }
+
+    fn adopt(&mut self, raw: day_spec::RawHandle) -> QtHandle {
+        // A recycling list cell (a plain QWidget) — day fills/rebinds its row content in place.
+        QtHandle(raw)
     }
 
     fn set_a11y(&mut self, h: &QtHandle, a11y: &A11yProps) {

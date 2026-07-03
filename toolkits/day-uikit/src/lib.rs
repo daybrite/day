@@ -24,7 +24,7 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-    use objc2_core_foundation::{CGPoint, CGRect, CGSize};
+    use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
     use objc2_foundation::{NSObject, NSString};
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
@@ -43,9 +43,9 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-        Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE, WindowOptions,
-        kinds,
+        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
+        Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
+        WINDOW_NODE, WindowOptions, kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -396,6 +396,115 @@ mod imp {
     }
 
     // -----------------------------------------------------------------------
+    // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
+    // -----------------------------------------------------------------------
+
+    struct ListIvars {
+        node: NodeId,
+        source: RefCell<Option<ListSource>>,
+        row_height: std::cell::Cell<f64>,
+        selectable: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListData"]
+        #[ivars = ListIvars]
+        struct DayListData;
+
+        unsafe impl NSObjectProtocol for DayListData {}
+        unsafe impl UIScrollViewDelegate for DayListData {}
+
+        unsafe impl UITableViewDataSource for DayListData {
+            #[unsafe(method(tableView:numberOfRowsInSection:))]
+            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> isize {
+                // Snapshot-only read (no tree) — safe during reloadData inside a with_tree borrow.
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.len)() as isize)
+                    .unwrap_or(0)
+            }
+
+            #[unsafe(method_id(tableView:cellForRowAtIndexPath:))]
+            fn cell_for_row(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UITableViewCell> {
+                let mtm = self.mtm();
+                let ident = NSString::from_str("day.cell");
+                let cell = unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }.unwrap_or_else(
+                    || unsafe {
+                        objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
+                            objc2_ui_kit::UITableViewCell::alloc(mtm),
+                            objc2_ui_kit::UITableViewCellStyle::Default,
+                            Some(&ident),
+                        )
+                    },
+                );
+                // day builds/rebinds its row content inside the cell's contentView.
+                let content = cell.contentView();
+                let row = unsafe { index_path.row() } as usize;
+                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                    let raw = Retained::as_ptr(&content) as RawHandle;
+                    (source.bind_row)(row, raw);
+                }
+                cell
+            }
+        }
+
+        unsafe impl UITableViewDelegate for DayListData {
+            #[unsafe(method(tableView:heightForRowAtIndexPath:))]
+            fn height_for_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                _index_path: &objc2_foundation::NSIndexPath,
+            ) -> CGFloat {
+                self.ivars().row_height.get()
+            }
+
+            #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
+            fn did_select(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                let row = unsafe { index_path.row() };
+                unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                if self.ivars().selectable.get() {
+                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                }
+            }
+        }
+    );
+
+    impl DayListData {
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            selectable: bool,
+            row_height: f64,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListIvars {
+                node,
+                source: RefCell::new(None),
+                row_height: std::cell::Cell::new(row_height),
+                selectable: std::cell::Cell::new(selectable),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    thread_local! {
+        /// LIST table ptr → (table, data source).
+        static LIST_STATE: RefCell<HashMap<usize, (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>)>> =
+            RefCell::new(HashMap::new());
+    }
+
+    // -----------------------------------------------------------------------
     // DayCanvasView — replay in drawRect (§11)
     // -----------------------------------------------------------------------
 
@@ -709,6 +818,32 @@ mod imp {
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     view
                 }
+                kinds::LIST => {
+                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let row_height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let table = unsafe {
+                        objc2_ui_kit::UITableView::initWithFrame_style(
+                            objc2_ui_kit::UITableView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                            objc2_ui_kit::UITableViewStyle::Plain,
+                        )
+                    };
+                    let data = DayListData::new(mtm, id, p.selectable, row_height);
+                    unsafe {
+                        table.setRowHeight(row_height);
+                        table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                        table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        if !p.selectable {
+                            table.setAllowsSelection(false);
+                        }
+                    }
+                    let view = view_of(table.clone());
+                    LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
+                    view
+                }
                 kinds::SCROLL => {
                     let sv = unsafe { UIScrollView::new(mtm) };
                     view_of(sv)
@@ -998,6 +1133,17 @@ mod imp {
                         }
                     }
                 }
+                kinds::LIST => {
+                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                        LIST_STATE.with(|m| {
+                            if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
+                                // reloadData: numberOfRows reads the snapshot only, cellForRow is
+                                // deferred — safe inside a with_tree borrow.
+                                unsafe { table.reloadData() };
+                            }
+                        });
+                    }
+                }
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);
@@ -1008,6 +1154,9 @@ mod imp {
 
         fn release(&mut self, h: Handle) {
             TARGETS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            LIST_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
             NAV_STATE.with(|m| {
@@ -1123,6 +1272,7 @@ mod imp {
                         Size::new(p.width.unwrap_or(180.0), 4.0)
                     }
                 }
+                kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         measure(self, h, p)
@@ -1154,6 +1304,21 @@ mod imp {
 
         fn set_event_sink(&mut self, sink: EventSink) {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        }
+
+        fn attach_list(&mut self, host: &Handle, source: ListSource) {
+            LIST_STATE.with(|m| {
+                if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
+                    data.ivars().source.replace(Some(source));
+                    unsafe { table.reloadData() };
+                }
+            });
+        }
+
+        fn adopt(&mut self, raw: RawHandle) -> Handle {
+            // A recycling UITableViewCell's contentView — day fills/rebinds its row content there.
+            let ptr = raw as *mut UIView;
+            unsafe { Retained::retain(ptr) }.expect("adopt: null list cell content")
         }
 
         fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {

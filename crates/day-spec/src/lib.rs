@@ -40,6 +40,11 @@ pub mod kinds {
     pub const TABS: &str = "day.tabs";
     /// One tab's content container inside a `TABS` host; its frame is native-owned.
     pub const TABS_PAGE: &str = "day.tabs_page";
+    /// Native recycling list (docs/list.md): NSTableView / UITableView / RecyclerView /
+    /// GtkListView / QListView. Owns scrolling + cell reuse; day binds row content on demand.
+    pub const LIST: &str = "day.list";
+    /// A recycled row's content anchor inside a `LIST`; day adopts the native cell as its handle.
+    pub const LIST_CELL: &str = "day.list_cell";
 }
 
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
@@ -107,6 +112,23 @@ pub struct PointerEvent {
 /// The event sink: enqueue-only — may be invoked re-entrantly from inside any Toolkit method;
 /// day-core drains queued events at safe points, each as a fresh batch (§3.3).
 pub type EventSink = Box<dyn Fn(NodeId, Event)>;
+
+/// The synchronous row-pull seam for recycling lists (docs/list.md, §10). day-core injects one
+/// per `LIST` host via [`Toolkit::attach_list`]; a recycling backend stores it and calls it from
+/// its native data-source (on the UI thread, outside any day-core borrow). Each closure re-enters
+/// day-core, so — unlike [`EventSink`] — these run to completion synchronously (`bind_row` even
+/// flushes + lays out the row before returning, so the host can measure the cell immediately).
+#[derive(Clone)]
+pub struct ListSource {
+    /// Current row count.
+    pub len: std::rc::Rc<dyn Fn() -> usize>,
+    /// Stable identity token for the row at `index` (for native diffing / animation).
+    pub token_at: std::rc::Rc<dyn Fn(usize) -> u64>,
+    /// Build (first use of this cell) or rebind (recycled cell) row `index` into the native cell.
+    pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
+    /// The native cell left the viewport — day may drop per-cell bookkeeping (optional).
+    pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
+}
 
 // ---------------------------------------------------------------------------
 // Capabilities, animation, a11y
@@ -393,6 +415,33 @@ pub mod props {
     pub struct TabsPageProps {
         pub title: String,
     }
+
+    /// How a recycling list sizes its rows (docs/list.md).
+    #[derive(Clone, Copy, Debug, PartialEq, Default)]
+    pub enum RowHeight {
+        /// Every row is this tall — a true layout boundary; the fastest path.
+        Uniform(f64),
+        /// Rows self-size from their content (host re-measures on change; slower).
+        #[default]
+        Automatic,
+    }
+
+    /// Native recycling list (docs/list.md). The host owns scrolling + cell reuse; day supplies
+    /// row content on demand through the injected `ListSource` (see `Toolkit::attach_list`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListProps {
+        pub row_height: RowHeight,
+        /// Whether the native list reports row selection (`Event::SelectionChanged` with the row).
+        pub selectable: bool,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ListPatch {
+        /// The row set changed (count/order/content): the host re-queries its `ListSource`.
+        Reload,
+        /// An `Automatic`-height row's content size changed; the host re-measures just that row.
+        RowSizeInvalidated(usize),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +596,11 @@ pub trait Toolkit: Sized + 'static {
 
     // events: one trampoline, node-id keyed; ENQUEUE-ONLY contract (§8.3).
     fn set_event_sink(&mut self, sink: EventSink);
+
+    // recycling list (docs/list.md, §10): day-core hands the `LIST` host its row-pull `source`
+    // once, right after realize. A recycling backend stores it and calls it from its native
+    // data-source; the default no-op means a backend without list support simply renders nothing.
+    fn attach_list(&mut self, _host: &Self::Handle, _source: ListSource) {}
 
     // pillars
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}

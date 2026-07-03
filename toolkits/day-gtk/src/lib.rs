@@ -17,8 +17,8 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, kinds,
+    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
+    Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit, kinds,
 };
 
 pub type Handle = gtk4::Widget;
@@ -244,6 +244,41 @@ thread_local! {
     /// TABS_PAGE widget keys (set_frame skips them — the view stack owns their layout).
     static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
+}
+
+// ---------------------------------------------------------------------------
+// Native recycling list (docs/list.md, §10): GtkListView + GtkSignalListItemFactory. The model
+// (a GtkStringList) supplies only the row COUNT; day fills each recycled cell's content on bind.
+// ---------------------------------------------------------------------------
+
+struct ListEntry {
+    /// Backing model — sized to the row count; content comes from `bind_row`, not the strings.
+    model: gtk4::StringList,
+    /// The row-pull source, injected by `attach_list` and read by the factory's `bind` handler.
+    source: Rc<RefCell<Option<ListSource>>>,
+}
+
+thread_local! {
+    /// LIST scrolled-window key → its model + source holder.
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+}
+
+/// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
+fn list_resize(model: &gtk4::StringList, n: usize) {
+    let cur = model.n_items();
+    let blanks: Vec<&str> = vec![""; n];
+    model.splice(0, cur, &blanks);
+}
+
+/// Resize the model on the next main-loop turn. CRUCIAL: `splice` makes GtkListView bind visible
+/// cells SYNCHRONOUSLY (unlike NSTableView's deferred reloadData), and a reload is driven from
+/// inside a `with_tree` borrow — so resizing inline would re-enter `with_tree` (bind_row) and
+/// panic. Deferring to an idle runs the bind after the borrow is released.
+fn schedule_list_resize(model: gtk4::StringList, source: Rc<RefCell<Option<ListSource>>>) {
+    gtk4::glib::idle_add_local_once(move || {
+        let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+        list_resize(&model, n);
+    });
 }
 
 /// Report each tab page's content size (host minus the tab strip) so NavLayout re-lays it.
@@ -562,6 +597,61 @@ impl Toolkit for Gtk {
                 });
                 area.upcast()
             }
+            kinds::LIST => {
+                let p = props.downcast_ref::<ListProps>().unwrap();
+                let model = gtk4::StringList::new(&[]);
+                let factory = gtk4::SignalListItemFactory::new();
+                factory.connect_setup(|_, item| {
+                    if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
+                        // Each physical cell is a GtkFixed; day fills it via bind_row.
+                        let cell = gtk4::Fixed::new();
+                        cell.set_overflow(gtk4::Overflow::Visible);
+                        li.set_child(Some(&cell));
+                    }
+                });
+                let source: Rc<RefCell<Option<ListSource>>> = Rc::new(RefCell::new(None));
+                factory.connect_bind({
+                    let source = source.clone();
+                    move |_, item| {
+                        let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
+                            return;
+                        };
+                        let pos = li.position() as usize;
+                        if let Some(cell) = li.child()
+                            && let Some(src) = source.borrow().as_ref()
+                        {
+                            (src.bind_row)(pos, cell.as_ptr() as RawHandle);
+                        }
+                    }
+                });
+                let listview = if p.selectable {
+                    let sel = gtk4::SingleSelection::new(Some(model.clone()));
+                    sel.set_autoselect(false);
+                    sel.set_can_unselect(true);
+                    sel.connect_selected_notify(move |s| {
+                        let i = s.selected();
+                        if i != gtk4::INVALID_LIST_POSITION {
+                            emit(id, Event::SelectionChanged(i as i64));
+                        }
+                    });
+                    gtk4::ListView::new(Some(sel), Some(factory))
+                } else {
+                    gtk4::ListView::new(
+                        Some(gtk4::NoSelection::new(Some(model.clone()))),
+                        Some(factory),
+                    )
+                };
+                let sw = gtk4::ScrolledWindow::new();
+                sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                sw.set_child(Some(&listview));
+                sw.set_vexpand(true);
+                let host: Handle = sw.upcast();
+                LIST_STATE.with(|m| {
+                    m.borrow_mut()
+                        .insert(widget_key(&host), ListEntry { model, source })
+                });
+                host
+            }
             kinds::IMAGE => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let pic = gtk4::Picture::new();
@@ -721,6 +811,16 @@ impl Toolkit for Gtk {
                     }
                 }
             }
+            kinds::LIST => {
+                if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                    LIST_STATE.with(|m| {
+                        if let Some(e) = m.borrow().get(&widget_key(h)) {
+                            // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).
+                            schedule_list_resize(e.model.clone(), e.source.clone());
+                        }
+                    });
+                }
+            }
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);
@@ -731,6 +831,9 @@ impl Toolkit for Gtk {
 
     fn release(&mut self, h: Handle) {
         let key = widget_key(&h);
+        LIST_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         NAV_MENUS.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -925,6 +1028,8 @@ impl Toolkit for Gtk {
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            // The recycling list fills the space it is offered (its scroll owns overflow).
+            kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             kinds::PROGRESS => {
                 if h.downcast_ref::<gtk4::Spinner>().is_some() {
                     Size::new(20.0, 20.0)
@@ -982,6 +1087,22 @@ impl Toolkit for Gtk {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn attach_list(&mut self, host: &Handle, source: ListSource) {
+        LIST_STATE.with(|m| {
+            if let Some(e) = m.borrow().get(&widget_key(host)) {
+                *e.source.borrow_mut() = Some(source);
+                // Deferred off this with_tree borrow: splice binds cells synchronously (see
+                // schedule_list_resize), which would otherwise re-enter with_tree via bind_row.
+                schedule_list_resize(e.model.clone(), e.source.clone());
+            }
+        });
+    }
+
+    fn adopt(&mut self, raw: RawHandle) -> Handle {
+        // A recycling GtkListView cell (a GtkFixed) — day fills/rebinds its row content in place.
+        unsafe { gtk4::glib::translate::from_glib_none(raw as *mut gtk4::ffi::GtkWidget) }
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
