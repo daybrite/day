@@ -260,37 +260,16 @@ jobs:
           path: apps/showcase/build/day/screenshots/android-widget
           if-no-files-found: warn
 
-  # --- Windows desktop: winui / qt / gtk ------------------------------------
+  # --- Windows desktop: winui (MSVC) ----------------------------------------
   # winui uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
-  # captures via RenderTargetBitmap. windows-qt / windows-gtk use the gnu toolchain +
-  # MSYS2's MINGW64 GTK4/Qt6 + pkgconf, built and run inside the msys2 shell (so
-  # pkg-config and the runtime DLLs resolve). windows-gtk's Rust build was confirmed
-  # locally against MSYS2 GTK 4.22 (clangarm64/gnullvm); both stay experimental
-  # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
-  windows:
-    name: ${{ matrix.combo }}
+  # captures via RenderTargetBitmap. It runs on the default `bash` shell. It is a
+  # SEPARATE job from windows-qt / windows-gtk because those need the msys2 shell:
+  # the `matrix` context is not available in a step's `shell:` field, so a single
+  # matrix cannot switch shells per combo — the toolchains are split into two jobs.
+  windows-winui:
+    name: windows-winui
     runs-on: windows-latest
     needs: [fmt, clippy, msrv]
-    continue-on-error: ${{ matrix.experimental || false }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - combo: windows-winui
-            toolkit: winui
-            rust: stable
-          - combo: windows-qt
-            toolkit: qt
-            rust: stable-x86_64-pc-windows-gnu
-            msys_pkgs: mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
-            shell: msys2 {0}
-            experimental: true
-          - combo: windows-gtk
-            toolkit: gtk
-            rust: stable-x86_64-pc-windows-gnu
-            msys_pkgs: mingw-w64-x86_64-gtk4 mingw-w64-x86_64-pkgconf
-            shell: msys2 {0}
-            experimental: true
     defaults:
       run:
         shell: bash
@@ -298,16 +277,63 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # MSYS2 GTK4/Qt6 + pkgconf for the gnu combos. `path-type: inherit` keeps the Windows
-      # PATH (rustup's cargo, the built day.exe) visible inside the msys2 shell while adding
-      # /mingw64/bin — so pkg-config, the GTK/Qt .pc files, and the runtime DLLs are all found.
-      # Steps that build/run Rust for these combos use `shell: msys2 {0}` (see matrix.shell); the
-      # MINGW64 shell puts pkgconf's default prefix on the search path (no PKG_CONFIG_PATH hack).
+      - name: Test host-portable crates
+        run: cargo test --locked
+      - name: Clippy (winui backend)
+        run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
+      - name: Build day CLI
+        run: cargo build --locked -p day-cli
+      - name: Walkthrough (windows-winui)
+        working-directory: apps/showcase
+        run: ../../target/debug/day launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-windows-winui
+          path: apps/showcase/build/day/screenshots/windows-winui
+          if-no-files-found: warn
+
+  # --- Windows desktop: qt / gtk (gnu toolchain + MSYS2) --------------------
+  # windows-qt / windows-gtk use the gnu toolchain + MSYS2's MINGW64 GTK4/Qt6 +
+  # pkgconf, built and run inside the msys2 shell (so pkg-config and the runtime
+  # DLLs resolve). The whole job defaults to `msys2 {0}` — every `run:` step here is
+  # a cargo build/test that must see MINGW64's pkgconf; the action-only setup steps
+  # (checkout/toolchain/cache/setup-msys2) don't use the job shell, and setup-msys2
+  # runs before the first `run:` step, so the shell exists when it's first needed.
+  # `path-type: inherit` keeps the Windows PATH (rustup's cargo, the built day.exe)
+  # visible while adding /mingw64/bin. windows-gtk's Rust build was confirmed locally
+  # against MSYS2 GTK 4.22 (clangarm64/gnullvm); both stay experimental
+  # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
+  windows-msys2:
+    name: ${{ matrix.combo }}
+    runs-on: windows-latest
+    needs: [fmt, clippy, msrv]
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - combo: windows-qt
+            toolkit: qt
+            msys_pkgs: mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
+          - combo: windows-gtk
+            toolkit: gtk
+            msys_pkgs: mingw-w64-x86_64-gtk4 mingw-w64-x86_64-pkgconf
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable-x86_64-pc-windows-gnu
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Set up MSYS2 (qt/gtk)
-        if: matrix.msys_pkgs
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -315,16 +341,10 @@ jobs:
           path-type: inherit
           install: ${{ matrix.msys_pkgs }}
       - name: Test host-portable crates
-        shell: ${{ matrix.shell || 'bash' }}
         run: cargo test --locked
-      - name: Clippy (winui backend)
-        if: matrix.toolkit == 'winui'
-        run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
       - name: Build day CLI
-        shell: ${{ matrix.shell || 'bash' }}
         run: cargo build --locked -p day-cli
       - name: Walkthrough (${{ matrix.combo }})
-        shell: ${{ matrix.shell || 'bash' }}
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
