@@ -23,4 +23,5 @@ objc2-app-kit = { version = "0.3", features = [
     "NSAlert", "NSOutlineView", "NSTableView", "NSTableColumn", "NSTableCellView", "NSTableHeaderView",
     "NSVisualEffectView", "NSUserInterfaceItemIdentification",
     "NSBezierPath", "NSImage", "NSImageView", "NSStringDrawing", "NSAttributedString",
+    "NSProgressIndicator",
 ] }

@@ -92,6 +92,15 @@ fn controls_page() -> AnyPiece {
                 label(move || format!("{:.0}", dbg!(volume.get()))).id("volume-value"),
             ))
             .spacing(8.0),
+            // — a determinate progress bar tracking the slider live, and a spinner —
+            row((
+                label(tr("progress-label")),
+                progress(move || volume.get() / 100.0)
+                    .id("volume-progress")
+                    .a11y(|a| a.role(Role::Meter).label("Volume level")),
+            ))
+            .spacing(8.0),
+            row((label(tr("busy-label")), spinner().id("busy-spinner"))).spacing(8.0),
             toggle(subscribed)
                 .id("subscribe-toggle")
                 .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5

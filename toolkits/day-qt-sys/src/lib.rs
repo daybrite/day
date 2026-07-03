@@ -37,6 +37,9 @@ unsafe extern "C" {
 
     pub fn day_qt_separator_new() -> *mut c_void;
 
+    pub fn day_qt_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
+    pub fn day_qt_progress_set(w: *mut c_void, value: c_int);
+
     pub fn day_qt_scroll_new() -> *mut c_void;
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);

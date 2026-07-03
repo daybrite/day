@@ -14,6 +14,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
@@ -146,6 +147,29 @@ public final class DayBridge {
         View v = new View(ctx);
         v.setBackgroundColor(0x33888888);
         return v;
+    }
+
+    // Progress: a horizontal determinate bar (0..1000), or a circular indeterminate spinner.
+    public static View makeProgress(boolean determinate, double fraction) {
+        ProgressBar pb;
+        if (determinate) {
+            pb = new ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal);
+            pb.setMax(1000);
+            pb.setIndeterminate(false);
+            pb.setProgress(progressTicks(fraction));
+        } else {
+            pb = new ProgressBar(ctx); // default style is a circular indeterminate spinner
+            pb.setIndeterminate(true);
+        }
+        return pb;
+    }
+    public static void setProgress(View v, double fraction) {
+        ProgressBar pb = (ProgressBar) v;
+        int p = progressTicks(fraction);
+        if (pb.getProgress() != p) pb.setProgress(p);
+    }
+    private static int progressTicks(double fraction) {
+        return (int) Math.round(Math.max(0.0, Math.min(1.0, fraction)) * 1000);
     }
 
     public static View makeSpinner(final long id, String joinedItems, int selected) {

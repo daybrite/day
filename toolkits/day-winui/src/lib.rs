@@ -73,6 +73,11 @@ fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
     (((value - min) / (max - min)) * 1000.0).round() as c_int
 }
 
+/// A `0.0..=1.0` fraction as ProgressBar ticks (0..1000), clamped.
+fn progress_ticks(fraction: f64) -> c_int {
+    (fraction.clamp(0.0, 1.0) * 1000.0).round() as c_int
+}
+
 /// Renderers registered by external Day Piece crates (§8.2).
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<WinUi>];
@@ -187,6 +192,13 @@ impl Toolkit for WinUi {
                     WinHandle(h)
                 }
                 kinds::DIVIDER => WinHandle(ffi::day_winui_divider_new()),
+                kinds::PROGRESS => {
+                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    match p.value {
+                        Some(v) => WinHandle(ffi::day_winui_progress_new(1, progress_ticks(v))),
+                        None => WinHandle(ffi::day_winui_progress_new(0, 0)),
+                    }
+                }
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     WinHandle(ffi::day_winui_image_new(
@@ -259,6 +271,13 @@ impl Toolkit for WinUi {
                         }
                     }
                 }
+                kinds::PROGRESS => {
+                    if let Some(ProgressPatch::Value(Some(v))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        ffi::day_winui_progress_set(h.0, progress_ticks(*v));
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -320,6 +339,11 @@ impl Toolkit for WinUi {
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(24.0)),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(28.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            kinds::PROGRESS => {
+                // Determinate bar fills the proposed width; the indeterminate ring is square.
+                let nat = natural(h.0);
+                Size::new(p.width.unwrap_or(nat.width.max(20.0)), nat.height.max(6.0))
+            }
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     return measure(self, h, p);

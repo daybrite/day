@@ -43,6 +43,9 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_winui_slider_set(w: *mut c_void, value: c_int);
 
+    pub fn day_winui_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
+    pub fn day_winui_progress_set(w: *mut c_void, value: c_int);
+
     pub fn day_winui_textbox_new(
         text: *const c_char,
         placeholder: *const c_char,

@@ -21,8 +21,9 @@ use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
     NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
-    NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSScrollView, NSSlider, NSSwitch,
-    NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSScrollView, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate,
+    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate};
 use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
@@ -686,6 +687,27 @@ impl Toolkit for AppKit {
                 unsafe { b.setBoxType(NSBoxType::Separator) };
                 view_of(b)
             }
+            kinds::PROGRESS => {
+                let p = props.downcast_ref::<ProgressProps>().unwrap();
+                let pi = unsafe { NSProgressIndicator::new(mtm) };
+                unsafe {
+                    match p.value {
+                        Some(v) => {
+                            pi.setStyle(NSProgressIndicatorStyle::Bar);
+                            pi.setIndeterminate(false);
+                            pi.setMinValue(0.0);
+                            pi.setMaxValue(1.0);
+                            pi.setDoubleValue(v);
+                        }
+                        None => {
+                            pi.setStyle(NSProgressIndicatorStyle::Spinning);
+                            pi.setIndeterminate(true);
+                            pi.startAnimation(None);
+                        }
+                    }
+                }
+                view_of(pi)
+            }
             kinds::CANVAS => view_of(DayCanvas::new(mtm)),
             kinds::NAV => {
                 let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
@@ -865,6 +887,34 @@ impl Toolkit for AppKit {
                     }
                 }
             }
+            kinds::PROGRESS => {
+                if let (Some(ProgressPatch::Value(v)), Ok(pi)) = (
+                    patch.downcast_ref::<ProgressPatch>(),
+                    h.clone().downcast::<NSProgressIndicator>(),
+                ) {
+                    unsafe {
+                        match v {
+                            Some(val) => {
+                                if pi.isIndeterminate() {
+                                    pi.stopAnimation(None);
+                                    pi.setIndeterminate(false);
+                                    pi.setStyle(NSProgressIndicatorStyle::Bar);
+                                    pi.setMinValue(0.0);
+                                    pi.setMaxValue(1.0);
+                                }
+                                if (pi.doubleValue() - val).abs() > 0.0001 {
+                                    pi.setDoubleValue(*val);
+                                }
+                            }
+                            None => {
+                                pi.setIndeterminate(true);
+                                pi.setStyle(NSProgressIndicatorStyle::Spinning);
+                                pi.startAnimation(None);
+                            }
+                        }
+                    }
+                }
+            }
             kinds::NAV_MENU => {
                 if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                     NAV_MENUS.with(|m| {
@@ -1037,6 +1087,19 @@ impl Toolkit for AppKit {
                 )
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 5.0),
+            kinds::PROGRESS => {
+                // Indeterminate spinner is a fixed square; determinate bar fills width.
+                let indeterminate = h
+                    .clone()
+                    .downcast::<NSProgressIndicator>()
+                    .map(|pi| unsafe { pi.isIndeterminate() })
+                    .unwrap_or(false);
+                if indeterminate {
+                    Size::new(20.0, 20.0)
+                } else {
+                    Size::new(p.width.unwrap_or(180.0), 20.0)
+                }
+            }
             kinds::NAV_MENU => {
                 let rows = NAV_MENUS.with(|m| {
                     m.borrow()

@@ -483,6 +483,20 @@ mod imp {
                 kinds::DIVIDER => with_env(|env| {
                     AHandle(make_view(env, "makeDivider", "()Landroid/view/View;", &[]))
                 }),
+                kinds::PROGRESS => {
+                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeProgress",
+                            "(ZD)Landroid/view/View;",
+                            &[
+                                JValue::Bool(p.value.is_some() as u8),
+                                JValue::Double(p.value.unwrap_or(0.0)),
+                            ],
+                        ))
+                    })
+                }
                 kinds::CANVAS => with_env(|env| {
                     AHandle(make_view(env, "makeCanvas", "()Landroid/view/View;", &[]))
                 }),
@@ -630,6 +644,17 @@ mod imp {
                         }
                     }
                 }
+                kinds::PROGRESS => {
+                    if let Some(ProgressPatch::Value(Some(v))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        call_void(
+                            "setProgress",
+                            "(Landroid/view/View;D)V",
+                            &[JValue::Object(h.0.as_obj()), JValue::Double(*v)],
+                        );
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -741,6 +766,13 @@ mod imp {
                     (measure_call(h, "measureHeight") / d).max(40.0),
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                kinds::PROGRESS => {
+                    // Determinate bar fills the proposed width (grow_w); the circular spinner
+                    // keeps its natural square size (grow_w is false, so the engine uses it).
+                    let nh = (measure_call(h, "measureHeight") / d).max(4.0);
+                    let nw = (measure_call(h, "measureWidth") / d).max(20.0);
+                    Size::new(p.width.unwrap_or(nw), nh)
+                }
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         return measure(self, h, p);

@@ -402,6 +402,21 @@ impl Toolkit for Gtk {
                 entry.upcast()
             }
             kinds::DIVIDER => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
+            kinds::PROGRESS => {
+                let p = props.downcast_ref::<ProgressProps>().unwrap();
+                match p.value {
+                    Some(v) => {
+                        let bar = gtk4::ProgressBar::new();
+                        bar.set_fraction(v);
+                        bar.upcast()
+                    }
+                    None => {
+                        let spin = gtk4::Spinner::new();
+                        spin.start();
+                        spin.upcast()
+                    }
+                }
+            }
             kinds::CANVAS => {
                 let area = gtk4::DrawingArea::new();
                 area.set_draw_func(|area, cr, _w, _h| {
@@ -546,6 +561,14 @@ impl Toolkit for Gtk {
                     }
                 }
             }
+            kinds::PROGRESS => {
+                if let Some(ProgressPatch::Value(Some(v))) = patch.downcast_ref::<ProgressPatch>()
+                    && let Some(bar) = h.downcast_ref::<gtk4::ProgressBar>()
+                    && (bar.fraction() - v).abs() > 0.0001
+                {
+                    bar.set_fraction(*v);
+                }
+            }
             kinds::TEXT_FIELD => {
                 if let (Some(p), Some(entry)) = (
                     patch.downcast_ref::<TextFieldPatch>(),
@@ -660,6 +683,14 @@ impl Toolkit for Gtk {
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            kinds::PROGRESS => {
+                if h.downcast_ref::<gtk4::Spinner>().is_some() {
+                    Size::new(20.0, 20.0)
+                } else {
+                    let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
+                    Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(6.0))
+                }
+            }
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     return measure(self, h, p);

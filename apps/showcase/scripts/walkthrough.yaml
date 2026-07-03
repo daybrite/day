@@ -15,6 +15,8 @@ flow:
   - assert_text: { id: greeting-label, key: greeting, args: { name: "Ada" } }
   - set_value: { id: volume-slider, value: 80 }
   - assert_text: { id: volume-value, text: "80" }
+  # The determinate progress bar tracks the slider reactively: 80/100 = 0.8.
+  - assert_value: { id: volume-progress, value: 0.8 }
   - toggle: { id: subscribe-toggle, value: true }
   - assert_value: { id: subscribe-toggle, value: true }
   - tap: { id: increment-button, repeat: 3 }

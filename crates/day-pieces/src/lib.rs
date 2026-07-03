@@ -87,6 +87,65 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// Fraction sources — the read-only numeric analogue of TextSource, for `progress`.
+// ---------------------------------------------------------------------------
+
+pub enum FractionSource {
+    Static(f64),
+    Dyn(Rc<dyn Fn() -> f64>),
+}
+
+impl FractionSource {
+    /// Untracked seed value, clamped to `0.0..=1.0`.
+    pub fn initial(&self) -> f64 {
+        let v = match self {
+            FractionSource::Static(v) => *v,
+            FractionSource::Dyn(f) => day_reactive::untrack(|| f()),
+        };
+        v.clamp(0.0, 1.0)
+    }
+    /// Install the fraction binding (no-op for static values). Writes are clamped so a
+    /// backend never sees an out-of-range fraction.
+    fn bind_to(self, node: RNode) {
+        if let FractionSource::Dyn(f) = self {
+            let seed = day_reactive::untrack(|| f()).clamp(0.0, 1.0);
+            bind_seeded(
+                seed,
+                move || f().clamp(0.0, 1.0),
+                move |v: &f64| {
+                    with_tree(|tr| tr.patch(node, Box::new(ProgressPatch::Value(Some(*v))), false));
+                },
+            );
+        }
+    }
+}
+
+/// Disjoint-marker conversion (like [`IntoText`]) so `progress(_)` accepts a constant `f64`,
+/// a `Signal<f64>`, or a closure. Reuses the same marker types.
+pub trait IntoFraction<M> {
+    fn into_fraction(self) -> FractionSource;
+}
+
+impl IntoFraction<StaticMark> for f64 {
+    fn into_fraction(self) -> FractionSource {
+        FractionSource::Static(self)
+    }
+}
+impl IntoFraction<SignalMark> for Signal<f64> {
+    fn into_fraction(self) -> FractionSource {
+        FractionSource::Dyn(Rc::new(move || self.get()))
+    }
+}
+impl<F> IntoFraction<FnMark> for F
+where
+    F: Fn() -> f64 + 'static,
+{
+    fn into_fraction(self) -> FractionSource {
+        FractionSource::Dyn(Rc::new(self))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Two-way binding surface (§5.3)
 // ---------------------------------------------------------------------------
 
@@ -372,6 +431,49 @@ impl<S: SignalRw<String>> Piece for TextField<S> {
         });
         if let Some(p) = self.placeholder {
             p.bind_to(node, |t| Box::new(TextFieldPatch::Placeholder(t)), false);
+        }
+        node
+    }
+}
+
+/// A progress indicator: a determinate bar (from [`progress`]) or an indeterminate spinner
+/// (from [`spinner`]). See docs/progress.md.
+pub struct Progress {
+    /// `None` = indeterminate (spinner); `Some` = a determinate fraction source.
+    value: Option<FractionSource>,
+}
+
+/// An indeterminate, animated progress indicator (a spinner / busy bar) for work with no
+/// known extent.
+pub fn spinner() -> Progress {
+    Progress { value: None }
+}
+
+/// A determinate progress bar. `fraction` is the completed portion in `0.0..=1.0`; pass a
+/// constant, a `Signal<f64>`, or a closure and it tracks reactively (out-of-range values are
+/// clamped).
+pub fn progress<M>(fraction: impl IntoFraction<M>) -> Progress {
+    Progress {
+        value: Some(fraction.into_fraction()),
+    }
+}
+
+impl Piece for Progress {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let determinate = self.value.is_some();
+        let initial = self.value.as_ref().map(|f| f.initial());
+        let node = cx.leaf(
+            kinds::PROGRESS,
+            &ProgressProps { value: initial },
+            // A determinate bar fills the available width (like a slider); a spinner keeps its
+            // fixed intrinsic size.
+            Flex {
+                grow_w: determinate,
+                ..Default::default()
+            },
+        );
+        if let Some(src) = self.value {
+            src.bind_to(node);
         }
         node
     }
@@ -856,10 +958,10 @@ impl A11yBuilder {
 pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
-        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoText, ItemSlot, Nav, Prompt,
-        SignalRw, VAlign, alert, button, canvas, column, confirm, divider, each, image, label, nav,
-        nav_back, nav_link, nav_menu, navigate, prompt, row, scroll, slider, spacer, text_field,
-        toggle, when,
+        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoFraction, IntoText, ItemSlot, Nav,
+        Prompt, SignalRw, VAlign, alert, button, canvas, column, confirm, divider, each, image,
+        label, nav, nav_back, nav_link, nav_menu, navigate, progress, prompt, row, scroll, slider,
+        spacer, spinner, text_field, toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Color, Insets, Point, Rect, Size};

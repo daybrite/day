@@ -177,6 +177,70 @@ fn slider_value_flows_both_ways() {
 }
 
 #[test]
+fn progress_tracks_signal_with_one_op_per_change() {
+    let frac = Signal::new(0.25f64);
+    let probe = boot(move || column((progress(move || frac.get()),)).any());
+
+    let bars = probe.find_by_kind("day.progress");
+    assert_eq!(bars.len(), 1);
+    assert!(!bars[0].1.flag, "determinate bar is not indeterminate");
+    assert_eq!(bars[0].1.value, 0.25);
+
+    // One reactive write = exactly one native value patch (the fine-grained guarantee).
+    probe.clear_log();
+    batch(|| frac.set(0.75));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.progress")[0].1.value, 0.75);
+    let value_ops: Vec<String> = probe
+        .mutations()
+        .into_iter()
+        .filter(|m| m.starts_with("update day.progress"))
+        .collect();
+    assert_eq!(value_ops.len(), 1, "exactly one value patch: {value_ops:?}");
+    assert!(value_ops[0].ends_with("value=Some(0.75)"));
+}
+
+#[test]
+fn progress_clamps_out_of_range_fractions() {
+    let frac = Signal::new(2.0f64); // above 1.0
+    let probe = boot(move || column((progress(move || frac.get()),)).any());
+    assert_eq!(probe.find_by_kind("day.progress")[0].1.value, 1.0);
+    batch(|| frac.set(-3.0)); // below 0.0
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.progress")[0].1.value, 0.0);
+}
+
+#[test]
+fn spinner_is_indeterminate_and_static() {
+    let probe = boot(|| column((spinner(),)).any());
+    let bars = probe.find_by_kind("day.progress");
+    assert_eq!(bars.len(), 1);
+    assert!(bars[0].1.flag, "spinner is indeterminate");
+    // An indeterminate spinner has no bound value, so no value patch is ever emitted.
+    assert!(
+        !probe
+            .log()
+            .iter()
+            .any(|l| l.contains("day.progress") && l.contains("value=") && l.starts_with("update")),
+        "spinner emits no value updates"
+    );
+}
+
+#[test]
+fn constant_progress_emits_no_updates() {
+    let probe = boot(|| column((progress(0.5f64),)).any());
+    assert_eq!(probe.find_by_kind("day.progress")[0].1.value, 0.5);
+    // A constant fraction installs no binding: nothing to update after build.
+    assert!(
+        !probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("update day.progress")),
+        "constant progress never updates"
+    );
+}
+
+#[test]
 fn when_builds_and_disposes() {
     let show = Signal::new(false);
     let probe = boot(move || {

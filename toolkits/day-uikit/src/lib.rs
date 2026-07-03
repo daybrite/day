@@ -33,9 +33,10 @@ mod imp {
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
     use objc2_ui_kit::{
-        UIApplication, UIApplicationDelegate, UIButton, UIButtonType, UIColor, UIControl,
-        UIControlEvents, UIControlState, UILabel, UIScreen, UIScrollView, UISlider, UISwitch,
-        UITextBorderStyle, UITextField, UIView, UIViewController, UIWindow,
+        UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
+        UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIProgressView, UIScreen,
+        UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView, UIViewController,
+        UIWindow,
     };
     use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
 
@@ -705,6 +706,21 @@ mod imp {
                     unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
                     view_of(v)
                 }
+                kinds::PROGRESS => {
+                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    match p.value {
+                        Some(v) => {
+                            let pv = unsafe { UIProgressView::new(mtm) };
+                            unsafe { pv.setProgress(v as f32) };
+                            view_of(pv)
+                        }
+                        None => {
+                            let ai = unsafe { UIActivityIndicatorView::new(mtm) };
+                            unsafe { ai.startAnimating() };
+                            view_of(ai)
+                        }
+                    }
+                }
                 kinds::CANVAS => view_of(DayCanvasView::new(mtm)),
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
@@ -843,6 +859,15 @@ mod imp {
                         }
                     }
                 }
+                kinds::PROGRESS => {
+                    if let Some(ProgressPatch::Value(Some(val))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                        && let Some(pv) = (**h).downcast_ref::<UIProgressView>()
+                        && (unsafe { pv.progress() } as f64 - val).abs() > 0.0001
+                    {
+                        unsafe { pv.setProgress(*val as f32) };
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let (Some(p), Some(tf)) = (
                         patch.downcast_ref::<TextFieldPatch>(),
@@ -959,6 +984,13 @@ mod imp {
                     Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(34.0))
                 }
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                kinds::PROGRESS => {
+                    if (**h).downcast_ref::<UIActivityIndicatorView>().is_some() {
+                        Size::new(20.0, 20.0)
+                    } else {
+                        Size::new(p.width.unwrap_or(180.0), 4.0)
+                    }
+                }
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         measure(self, h, p)

@@ -25,6 +25,8 @@ pub mod kinds {
     pub const DIVIDER: &str = "day.divider";
     pub const SCROLL: &str = "day.scroll";
     pub const IMAGE: &str = "day.image";
+    /// Progress indicator: determinate bar (fraction) or indeterminate spinner.
+    pub const PROGRESS: &str = "day.progress";
     pub const CANVAS: &str = "day.canvas";
     /// Navigation host (docs/navigation.md): stack on mobile, split panes on desktop.
     pub const NAV: &str = "day.nav";
@@ -311,6 +313,19 @@ pub mod props {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CanvasProps {
         pub ops: Vec<DrawOp>,
+    }
+
+    /// Progress indicator. `value` is the completed fraction in `0.0..=1.0`; `None` means
+    /// indeterminate (an animated spinner / busy bar — no known extent). Backends map this to
+    /// their native determinate/indeterminate widgets (docs/progress.md).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ProgressProps {
+        pub value: Option<f64>,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ProgressPatch {
+        /// New completed fraction, or `None` to switch to indeterminate.
+        Value(Option<f64>),
     }
 
     /// Navigation host (docs/navigation.md). `split` = sidebar+detail presentation

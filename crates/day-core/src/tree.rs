@@ -397,6 +397,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 probe.value = p.value;
             } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
                 probe.text = p.text.clone();
+            } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
+                // `flag` marks indeterminate; `value` holds the determinate fraction.
+                probe.flag = p.value.is_none();
+                probe.value = p.value.unwrap_or(0.0);
             }
         }
         let node = self.nodes.insert(NodeData {
@@ -509,6 +513,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         SliderPatch::Value(v) => n.probe.value = *v,
                         SliderPatch::Enabled(e) => n.probe.enabled = *e,
                     }
+                } else if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>()
+                {
+                    n.probe.flag = v.is_none();
+                    n.probe.value = v.unwrap_or(0.0);
                 } else if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                     match p {
                         TextFieldPatch::Text { text, .. } => n.probe.text = text.clone(),

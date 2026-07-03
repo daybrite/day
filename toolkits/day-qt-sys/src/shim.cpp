@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QMetaObject>
 #include <cstdint>
@@ -146,6 +147,25 @@ void *day_qt_separator_new() {
     f->setFrameShape(QFrame::HLine);
     f->setFrameShadow(QFrame::Sunken);
     return f;
+}
+
+// --- progress (QProgressBar: determinate 0..1000, or busy/indeterminate range 0..0) ---
+// Qt has no native spinner widget; the idiomatic indeterminate indicator is a busy
+// progress bar (min==max==0), so both variants use QProgressBar (docs/progress.md).
+void *day_qt_progress_new(int determinate, int value) {
+    QProgressBar *b = new QProgressBar();
+    b->setTextVisible(false);
+    if (determinate) {
+        b->setRange(0, 1000);
+        b->setValue(value);
+    } else {
+        b->setRange(0, 0); // busy animation
+    }
+    return b;
+}
+void day_qt_progress_set(void *w, int value) {
+    QProgressBar *b = static_cast<QProgressBar *>(w);
+    if (b->value() != value) b->setValue(value);
 }
 
 // --- scroll ---

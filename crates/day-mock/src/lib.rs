@@ -185,6 +185,11 @@ impl Toolkit for MockToolkit {
             w.placeholder = p.placeholder.clone();
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
             w.ops = p.ops.clone();
+        } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
+            // `flag` records indeterminate-ness; `value` the determinate fraction.
+            w.flag = p.value.is_none();
+            w.value = p.value.unwrap_or(0.0);
+            detail = format!(" value={:?}", p.value);
         } else if let Some(p) = props.downcast_ref::<NavProps>() {
             w.text = p.title.clone();
             w.flag = p.split;
@@ -276,6 +281,10 @@ impl Toolkit for MockToolkit {
             } else if let Some(p) = patch.downcast_ref::<CanvasProps>() {
                 w.ops = p.ops.clone();
                 format!("canvas ops={}", w.ops.len())
+            } else if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>() {
+                w.flag = v.is_none();
+                w.value = v.unwrap_or(0.0);
+                format!("value={v:?}")
             } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                 w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
                 format!("menu selected={sel:?}")
@@ -361,6 +370,9 @@ impl Toolkit for MockToolkit {
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 24.0),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             kinds::IMAGE => Size::new(32.0, 32.0),
+            // Indeterminate spinner is a fixed square; determinate bar fills width.
+            kinds::PROGRESS if w.flag => Size::new(20.0, 20.0),
+            kinds::PROGRESS => Size::new(p.width.unwrap_or(200.0), 4.0),
             _ => Size::new(p.width.unwrap_or(10.0), p.height.unwrap_or(10.0)),
         };
         s.log(format!(

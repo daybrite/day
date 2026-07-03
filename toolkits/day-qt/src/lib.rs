@@ -66,6 +66,11 @@ fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
     (((value - min) / (max - min)) * 1000.0).round() as c_int
 }
 
+/// A `0.0..=1.0` fraction as QProgressBar ticks (0..1000), clamped.
+fn progress_ticks(fraction: f64) -> c_int {
+    (fraction.clamp(0.0, 1.0) * 1000.0).round() as c_int
+}
+
 /// Renderers registered by external Day Piece crates (§8.2).
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Qt>];
@@ -293,6 +298,13 @@ impl Toolkit for Qt {
                     ))
                 }
                 kinds::DIVIDER => QtHandle(ffi::day_qt_separator_new()),
+                kinds::PROGRESS => {
+                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    match p.value {
+                        Some(v) => QtHandle(ffi::day_qt_progress_new(1, progress_ticks(v))),
+                        None => QtHandle(ffi::day_qt_progress_new(0, 0)),
+                    }
+                }
                 kinds::CANVAS => QtHandle(ffi::day_qt_canvas_new()),
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
@@ -406,6 +418,13 @@ impl Toolkit for Qt {
                         }
                     }
                 }
+                kinds::PROGRESS => {
+                    if let Some(ProgressPatch::Value(Some(v))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        ffi::day_qt_progress_set(h.0, progress_ticks(*v));
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -506,6 +525,7 @@ impl Toolkit for Qt {
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), hh.max(20.0)),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), hh.max(24.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 2.0),
+            kinds::PROGRESS => Size::new(p.width.unwrap_or(180.0), hh.max(16.0)),
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     measure(self, h, p)

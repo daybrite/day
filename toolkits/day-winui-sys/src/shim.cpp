@@ -377,6 +377,26 @@ void day_winui_slider_set(void* h, int value) {
         if (static_cast<int>(s.Value()) != value) s.Value(value);
 }
 
+// ---- progress (determinate ProgressBar 0..1000, or indeterminate ProgressRing) ----
+
+void* day_winui_progress_new(int determinate, int value) {
+    if (determinate) {
+        WUXC::ProgressBar b;
+        b.Minimum(0);
+        b.Maximum(1000);
+        b.IsIndeterminate(false);
+        b.Value(value);
+        return boxh(b);
+    }
+    WUXC::ProgressRing r;
+    r.IsActive(true);
+    return boxh(r);
+}
+void day_winui_progress_set(void* h, int value) {
+    if (auto b = elem(h).try_as<WUXC::ProgressBar>())
+        if (static_cast<int>(b.Value()) != value) b.Value(value);
+}
+
 // ---- textbox ----
 
 void* day_winui_textbox_new(const char* text, const char* placeholder, unsigned long long id,
