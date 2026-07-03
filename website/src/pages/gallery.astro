@@ -40,7 +40,7 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
         {byOs(suite.platforms).map(([os, list]) => (
           <div class="os-block">
             <h3 class="os-h">{os}</h3>
-            <div class="platforms">
+            <div class="platforms" data-pagefind-ignore>
               {list.map((platform) => (
                 <article class="platform">
                   <header class="platform-head">
@@ -89,7 +89,7 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
   .pf-name { font-weight: 700; }
   .pf-tag {
     font-size: 0.76rem; font-weight: 650; padding: 3px 10px; border-radius: 999px;
-    background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--faint);
+    background: var(--hover); border: 1px solid var(--border); color: var(--faint);
   }
   .pf-tag.on { color: #8ce39a; border-color: rgba(140,227,154,0.35); background: rgba(140,227,154,0.1); }
   .shots {

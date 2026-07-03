@@ -1,8 +1,9 @@
 ---
 import Logo from './Logo.astro';
+import ThemeToggle from './ThemeToggle.astro';
 import { url, site } from '../lib/site';
 ---
-<footer class="footer">
+<footer class="footer" data-pagefind-ignore>
   <div class="container foot-inner">
     <div class="foot-brand">
       <a class="brand" href={url()} aria-label="day home"><Logo size={22} /><span>day</span></a>
@@ -25,6 +26,10 @@ import { url, site } from '../lib/site';
   </div>
   <div class="container foot-legal">
     <span>Built with Astro. Native everywhere.</span>
+    <div class="foot-theme">
+      <span class="foot-theme-label">Theme</span>
+      <ThemeToggle />
+    </div>
   </div>
 </footer>
 
@@ -37,6 +42,22 @@ import { url, site } from '../lib/site';
   .foot-cols h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); margin: 0 0 12px; }
   .foot-cols a { display: block; color: var(--muted); font-size: 0.94rem; margin-bottom: 8px; }
   .foot-cols a:hover { color: var(--text); }
-  .foot-legal { margin-top: 34px; color: var(--faint); font-size: 0.84rem; }
+  .foot-legal {
+    margin-top: 34px;
+    color: var(--faint);
+    font-size: 0.84rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .foot-theme { display: inline-flex; align-items: center; gap: 10px; }
+  .foot-theme-label {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
   @media (max-width: 560px) { .foot-cols { gap: 36px; } }
 </style>

@@ -18,6 +18,10 @@
   --sun: #ffc24b;
   --sun-2: #ff8f5e;
 
+  /* theme-adaptive overlays (used for hover/segment fills instead of hardcoded white) */
+  --hover: rgba(255, 255, 255, 0.05);
+  --hover-strong: rgba(255, 255, 255, 0.09);
+
   --grad-day: linear-gradient(115deg, #ffc861 0%, #ff8f5e 38%, #6aa4ff 100%);
   --grad-text: linear-gradient(115deg, #ffd07a 0%, #ff9e73 42%, #7fb2ff 100%);
 
@@ -30,6 +34,35 @@
   --mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', Menlo, monospace;
 
   color-scheme: dark;
+}
+
+/* Light palette. The applied theme (light/dark) is set on <html data-theme> before paint by the
+   inline script in BaseLayout; the footer's three-way selector chooses light / system / dark and
+   remembers it in localStorage. "system" resolves to light or dark at runtime. */
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-2: #f5f7fc;
+  --surface: #ffffff;
+  --surface-2: #eef2f9;
+  --border: #dce3ef;
+  --border-soft: #e8edf5;
+
+  --text: #0d1526;
+  --muted: #47546d;
+  --faint: #74809b;
+
+  --brand: #2f6fde;
+  --brand-strong: #2563eb;
+  --sun: #c17512; /* deeper amber, readable on white */
+  --sun-2: #ff8f5e;
+
+  --hover: rgba(15, 25, 48, 0.05);
+  --hover-strong: rgba(15, 25, 48, 0.09);
+
+  --grad-text: linear-gradient(115deg, #e08a00 0%, #f9703e 42%, #2f6fde 100%);
+  --shadow: 0 18px 46px -22px rgba(20, 33, 66, 0.26);
+
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -48,6 +81,7 @@ body {
   font-size: 17px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 a { color: var(--brand); text-decoration: none; }
@@ -103,11 +137,11 @@ code, pre { font-family: var(--mono); }
 }
 .btn-primary:hover { color: #14120c; box-shadow: 0 16px 40px -12px rgba(255, 160, 90, 0.75); }
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--hover);
   border-color: var(--border);
   color: var(--text);
 }
-.btn-ghost:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+.btn-ghost:hover { background: var(--hover-strong); color: var(--text); }
 
 /* ---- cards ---- */
 .card {
@@ -123,7 +157,7 @@ code, pre { font-family: var(--mono); }
   gap: 7px;
   padding: 5px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover);
   border: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.82rem;
@@ -144,8 +178,8 @@ pre.code {
 }
 pre.code code { color: inherit; background: none; padding: 0; }
 :not(pre) > code {
-  background: rgba(127, 178, 255, 0.12);
-  color: #cfe0ff;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand-strong);
   padding: 0.12em 0.4em;
   border-radius: 6px;
   font-size: 0.88em;

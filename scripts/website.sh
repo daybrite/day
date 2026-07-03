@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and launch the day website (website/) locally.
 #
-#   scripts/website.sh            # install deps + start the dev server (http://localhost:4321/day)
+#   scripts/website.sh            # install deps + start the dev server (http://localhost:4321/)
 #   scripts/website.sh dev        # same as above
 #   scripts/website.sh build      # production build into website/dist
 #   scripts/website.sh preview     # build, then serve the production output
@@ -35,7 +35,7 @@ fi
 
 case "$cmd" in
   dev)
-    echo "==> starting dev server (http://localhost:4321/day/) — Ctrl-C to stop"
+    echo "==> starting dev server (http://localhost:4321/) — Ctrl-C to stop"
     exec npm run dev
     ;;
   build)

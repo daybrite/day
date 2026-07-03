@@ -13,7 +13,7 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
 ---
 <BaseLayout title={title} description={description} active="docs">
   <div class="docs container">
-    <aside class="sidebar">
+    <aside class="sidebar" data-pagefind-ignore>
       <nav aria-label="Documentation">
         <p class="side-h">Documentation</p>
         {docs.map((d) => (
@@ -27,7 +27,7 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
     <article class="doc-body">
       <slot />
       {(prev || next) && (
-        <nav class="prevnext" aria-label="Pagination">
+        <nav class="prevnext" aria-label="Pagination" data-pagefind-ignore>
           {prev ? (
             <a href={url(`docs/${prev.id}`)} class="pn"><span>← Previous</span><b>{prev.data.title}</b></a>
           ) : <span />}
@@ -70,7 +70,7 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
     font-size: 0.95rem;
     border-left: 2px solid transparent;
   }
-  .side-link:hover { background: rgba(255, 255, 255, 0.04); color: var(--text); }
+  .side-link:hover { background: var(--hover); color: var(--text); }
   .side-link.on {
     color: var(--text);
     background: rgba(106, 164, 255, 0.1);

@@ -18,6 +18,18 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* Apply the stored theme before first paint (no flash). Mirrors ThemeToggle's resolve logic. */}
+    <script is:inline>
+      (() => {
+        try {
+          const p = localStorage.getItem('day-theme') || 'system';
+          const dark = p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />
@@ -31,7 +43,9 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <Nav active={active} />
-    <main id="main">
+    {/* data-pagefind-body scopes the search index to page content; chrome (nav/footer/sidebar/
+        gallery grids) is excluded with data-pagefind-ignore where it lives. */}
+    <main id="main" data-pagefind-body>
       <slot />
     </main>
     <Footer />

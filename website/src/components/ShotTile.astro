@@ -30,7 +30,7 @@ const mobile = os === 'iOS' || os === 'Android';
     height: 300px;
     display: grid;
     place-items: center;
-    background: #0b1020;
+    background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
@@ -44,7 +44,7 @@ const mobile = os === 'iOS' || os === 'Android';
     color: var(--faint);
     border-radius: 8px;
     background:
-      repeating-linear-gradient(-45deg, rgba(255,255,255,0.02) 0 12px, transparent 12px 24px),
+      repeating-linear-gradient(-45deg, var(--hover) 0 12px, transparent 12px 24px),
       radial-gradient(closest-side at 50% 40%, rgba(106,164,255,0.08), transparent);
   }
   .ph-mark { font-size: 1.7rem; opacity: 0.7; }

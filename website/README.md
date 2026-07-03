@@ -1,14 +1,14 @@
 # day website
 
 The marketing + documentation site for **day**, built with [Astro](https://astro.build). Deployed
-to GitHub Pages at <https://daybrite.github.io/day/>.
+to GitHub Pages at <https://daybrite.dev>.
 
 ## Local development
 
 From the repository root:
 
 ```sh
-scripts/website.sh          # install deps + dev server at http://localhost:4321/day/
+scripts/website.sh          # install deps + dev server at http://localhost:4321/
 scripts/website.sh build    # production build into website/dist
 scripts/website.sh preview  # build, then serve the production output
 ```

@@ -397,8 +397,8 @@ jobs:
           command: check advisories bans
 
   # ---------------------------------------------------------------------------
-  # website: build the Astro site (website/) and deploy it to GitHub Pages at
-  # https://daybrite.github.io/day/. Runs AFTER every screenshot-producing job so
+  # website: build the Astro site (website/) and deploy it to GitHub Pages at the custom
+  # domain https://daybrite.dev (public/CNAME pins it). Runs AFTER every screenshot-producing job so
   # it can download their `screenshots-<combo>` artifacts and assemble the gallery
   # from the latest captures. `!cancelled()` (not `success()`) means a platform
   # that failed to produce screenshots does not block the deploy — the gallery
