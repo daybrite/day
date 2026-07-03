@@ -1,14 +1,13 @@
 name: showcase-walkthrough
 description: Navigate every destination, exercise every control, take localized screenshots
-  (DESIGN.md §14.1, docs/navigation.md).
+  (DESIGN.md §14.1, docs/navigation.md). Top-level nav is a selector(Sidebar); tabs a
+  selector(Tabs); the stack section is a genuine push/pop stack bound to a path signal.
 flow:
-  - wait_for: { id: nav-menu }
+  - wait_for: { id: home-title }
   - screenshot: home
-  # Drive the NATIVE menu row (SelectionChanged through the toolkit path)...
-  - select: { id: nav-menu, index: 0 }
+  # navigate() addresses the section selector by key (the string-route shim over its signal).
+  - navigate: { route: controls }
   - assert_route: { route: controls }
-  # ...and verify the highlight synced back into the menu (split presentation).
-  - assert_value: { id: nav-menu, value: 0 }
   - assert_visible: { id: controls-title }
   - input: { id: name-field, text: "Ada" }
   - assert_visible: { id: greeting-label }
@@ -48,6 +47,37 @@ flow:
   - assert_presented: {}
   - respond: { button: 1 }
   - assert_text: { id: modal-result, text: "sheet-1" }
+  # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
+  # navigate/assert_route select the active tab; the inner selector reports the innermost route.
+  - navigate: { route: tabs }
+  - assert_route: { route: one }
+  - assert_visible: { id: tab-one-content }
+  - assert_value: { id: demo-tabs, value: 0 }
+  - screenshot: tabs-one
+  - navigate: { route: two }
+  - assert_route: { route: two }
+  - assert_value: { id: demo-tabs, value: 1 }
+  - screenshot: tabs-two
+  - navigate: { route: three }
+  - assert_route: { route: three }
+  - assert_value: { id: demo-tabs, value: 2 }
+  - screenshot: tabs-three
+  # Genuine push/pop stack (docs/navigation.md): tapping pushes onto the path signal; the
+  # native back button writes the pop back into it. current_route reports the stack's top.
+  - navigate: { route: stack }
+  - assert_visible: { id: stack-root }
+  - screenshot: stack-root
+  - tap: { id: stack-push }
+  - assert_visible: { id: stack-detail }
+  - assert_route: { route: "1" }
+  - screenshot: stack-detail
+  - tap: { id: stack-deeper }
+  - assert_route: { route: "2" }
+  - nav_back:
+  - assert_route: { route: "1" }
+  - nav_back:
+  - assert_route: { route: "" }
+  # Leaving via a route the stack doesn't own falls through to the enclosing selector.
   - navigate: { route: about }
   - assert_route: { route: about }
   - assert_visible: { id: about-text }

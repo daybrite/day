@@ -46,6 +46,16 @@ unsafe extern "C" {
     pub fn day_winui_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
     pub fn day_winui_progress_set(w: *mut c_void, value: c_int);
 
+    pub fn day_winui_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_winui_tabs_add_page(
+        tabs: *mut c_void,
+        page: *mut c_void,
+        title: *const c_char,
+        index: c_int,
+    );
+    pub fn day_winui_tabs_set_current(tabs: *mut c_void, index: c_int);
+    pub fn day_winui_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
+
     pub fn day_winui_textbox_new(
         text: *const c_char,
         placeholder: *const c_char,

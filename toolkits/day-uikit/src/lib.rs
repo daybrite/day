@@ -39,6 +39,7 @@ mod imp {
         UIWindow,
     };
     use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
+    use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
 
     use day_spec::props::*;
     use day_spec::{
@@ -250,6 +251,58 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
                 host: std::cell::Cell::new(host),
             });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Tabs (docs/tabs.md): UITabBarController child-contained in the root VC.
+    // Each tab page is a UIViewController wrapping a DayNavPageView (safe-area
+    // pinned content + FrameChanged), identical to a nav page.
+    // -------------------------------------------------------------------
+
+    struct TabsState {
+        tabbar: Retained<UITabBarController>,
+        /// Our mirror of the tab VC order.
+        vcs: Vec<Retained<UIViewController>>,
+        /// Tab to select once the VCs are installed.
+        initial: usize,
+        _delegate: Retained<DayTabDelegate>,
+    }
+
+    thread_local! {
+        static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
+        /// TABS_PAGE content view ptr → its UIViewController.
+        static TABS_PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    struct TabDelegateIvars {
+        node: NodeId,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayTabDelegate"]
+        #[ivars = TabDelegateIvars]
+        struct DayTabDelegate;
+
+        unsafe impl NSObjectProtocol for DayTabDelegate {}
+
+        unsafe impl UITabBarControllerDelegate for DayTabDelegate {
+            #[unsafe(method(tabBarController:didSelectViewController:))]
+            fn did_select(&self, tabbar: &UITabBarController, _vc: &UIViewController) {
+                // UIKit calls this only for user taps, not programmatic selection — no guard.
+                let idx = unsafe { tabbar.selectedIndex() };
+                emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+            }
+        }
+    );
+
+    impl DayTabDelegate {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(TabDelegateIvars { node });
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -593,6 +646,50 @@ mod imp {
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     handle
                 }
+                kinds::TABS => {
+                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let tabbar = unsafe { UITabBarController::new(mtm) };
+                    let root_vc = WINDOW
+                        .with(|w| w.borrow().clone())
+                        .and_then(|w| w.rootViewController());
+                    if let Some(root_vc) = root_vc {
+                        unsafe {
+                            root_vc.addChildViewController(&tabbar);
+                            tabbar.didMoveToParentViewController(Some(&root_vc));
+                        }
+                    }
+                    let host = view_of(unsafe { tabbar.view() }.expect("tabbar view"));
+                    let delegate = DayTabDelegate::new(mtm, id);
+                    unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                    TABS_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            ptr_of(&host),
+                            TabsState {
+                                tabbar,
+                                vcs: Vec::new(),
+                                initial: p.selected,
+                                _delegate: delegate,
+                            },
+                        )
+                    });
+                    host
+                }
+                kinds::TABS_PAGE => {
+                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let outer = DayNavPageView::new(mtm, id);
+                    let content = unsafe { UIView::new(mtm) };
+                    unsafe { outer.addSubview(&content) };
+                    let vc = unsafe { UIViewController::new(mtm) };
+                    unsafe {
+                        vc.setView(Some(&outer));
+                        // The VC title becomes its tab bar item's label.
+                        vc.setTitle(Some(&NSString::from_str(&p.title)));
+                    }
+                    let handle = view_of(content);
+                    TABS_PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
+                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    handle
+                }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let data = DayNavTableData::new(mtm, id, &p.items);
@@ -758,6 +855,18 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::TABS => {
+                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                        let tabbar = TABS_STATE.with(|m| {
+                            m.borrow()
+                                .get(&ptr_of(h))
+                                .and_then(|s| (*i < s.vcs.len()).then(|| s.tabbar.clone()))
+                        });
+                        if let Some(tabbar) = tabbar {
+                            unsafe { tabbar.setSelectedIndex(*i) };
+                        }
+                    }
+                }
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
@@ -913,10 +1022,33 @@ mod imp {
             NAV_MENUS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            TABS_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            TABS_PAGE_VCS.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
             unsafe { h.removeFromSuperview() };
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            // Tabs host: the page's VC joins the tab bar controller. All tabs are resident, so
+            // rebuild the VC array on each insert and select the requested initial tab.
+            let tabs_install = TABS_STATE.with(|m| {
+                let mut m = m.borrow_mut();
+                let state = m.get_mut(&ptr_of(parent))?;
+                let vc = TABS_PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
+                let at = index.min(state.vcs.len());
+                state.vcs.insert(at, vc);
+                Some((state.tabbar.clone(), state.vcs.clone(), state.initial))
+            });
+            if let Some((tabbar, vcs, initial)) = tabs_install {
+                let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
+                unsafe { tabbar.setViewControllers(Some(&arr)) };
+                let sel = initial.min(vcs.len().saturating_sub(1));
+                unsafe { tabbar.setSelectedIndex(sel) };
+                return;
+            }
             // Nav host: pages join the VC stack; index 0 becomes the root VC now, later
             // pages are presented by the Pushed patch.
             // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).

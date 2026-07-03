@@ -13,29 +13,32 @@ pub fn root() -> AnyPiece {
             ("fr", include_str!("../locales/fr/app.ftl")),
         ],
     );
-    nav(tr("app-title"), home_page())
-        .route("controls", tr("nav-controls"), controls_page)
-        .route("gauge", tr("nav-gauge"), gauge_page)
-        .route("modals", tr("nav-modals"), modals_page)
-        .route("about", tr("nav-about"), about_page)
+    // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound
+    // to an app-owned `Signal<String>` of the active section. Desktop shows sidebar + detail
+    // (an AdwNavigationSplitView on GTK); mobile collapses to a list that pushes the detail.
+    let section = Signal::new(String::new());
+    selector(section)
+        .style(SelectorStyle::Sidebar)
+        .title(tr("app-title"))
+        .header(sidebar_header)
+        .item("controls", tr("nav-controls"), controls_page)
+        .item("gauge", tr("nav-gauge"), gauge_page)
+        .item("modals", tr("nav-modals"), modals_page)
+        .item("tabs", tr("nav-tabs"), tabs_page)
+        .item("stack", tr("nav-stack"), stack_page)
+        .item("about", tr("nav-about"), about_page)
         .id("nav")
 }
 
-/// Root content: the sidebar on desktop, the first stack page on mobile. The route
-/// list renders NATIVELY via nav_menu() — NSOutlineView source list, GtkListBox
-/// navigation-sidebar, QListWidget, chevroned UITableView rows, Android ripple rows.
-fn home_page() -> AnyPiece {
-    column((
-        row((
-            image("day-logo.png").frame(28.0, 28.0),
-            label(tr("app-title")).font(Font::Headline).id("home-title"),
-        ))
-        .spacing(8.0)
-        .padding(12.0),
-        nav_menu().id("nav-menu"),
+/// The sidebar's header (logo + app name); the `selector` renders the item list below it as
+/// the native source list / navigation-sidebar / bottom list.
+fn sidebar_header() -> AnyPiece {
+    row((
+        image("day-logo.png").frame(28.0, 28.0),
+        label(tr("app-title")).font(Font::Headline).id("home-title"),
     ))
-    .spacing(4.0)
-    .align(HAlign::Leading)
+    .spacing(8.0)
+    .padding(12.0)
     .any()
 }
 
@@ -222,6 +225,71 @@ fn modals_page() -> AnyPiece {
     .align(HAlign::Leading)
     .padding(16.0)
     .any()
+}
+
+/// Native tabbed container (docs/tabs.md): a `selector` with `SelectorStyle::Tabs`, bound to a
+/// `Signal<String>` of the active tab key. NSTabView / UITabBarController / GtkNotebook /
+/// QTabWidget / Android tab strip. Keys are routes, so deep links and dayscript select tabs.
+fn tabs_page() -> AnyPiece {
+    fn pane(title: LocalizedText, body: LocalizedText, content_id: &'static str) -> AnyPiece {
+        column((label(title).font(Font::Title), label(body).id(content_id)))
+            .spacing(10.0)
+            .align(HAlign::Leading)
+            .padding(16.0)
+            .any()
+    }
+    let tab = Signal::new("one".to_string());
+    selector(tab)
+        .style(SelectorStyle::Tabs)
+        .item("one", tr("tab-one"), || {
+            pane(tr("tab-one"), tr("tab-one-body"), "tab-one-content")
+        })
+        .item("two", tr("tab-two"), || {
+            pane(tr("tab-two"), tr("tab-two-body"), "tab-two-content")
+        })
+        .item("three", tr("tab-three"), || {
+            pane(tr("tab-three"), tr("tab-three-body"), "tab-three-content")
+        })
+        .id("demo-tabs")
+}
+
+/// Genuine push/pop navigation (docs/navigation.md): `stack` bound to a `Signal<Vec<String>>`
+/// path. Pushing a detail appends to the path; day reconciles the native UINavigationController
+/// / AdwNavigationView / back-stack; the native back button writes the pop back into the path.
+fn stack_page() -> AnyPiece {
+    fn push(path: Signal<Vec<String>>) {
+        let mut v = path.get_untracked();
+        let n = v.len() + 1;
+        v.push(format!("{n}"));
+        path.set(v);
+    }
+    let path = Signal::new(Vec::<String>::new());
+    let root = column((
+        label(tr("stack-root-body")).id("stack-root"),
+        button(tr("stack-push"))
+            .action(move || push(path))
+            .id("stack-push"),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0);
+    stack(path, root)
+        .destination(move |key| {
+            let depth = key.to_string();
+            column((
+                label(tr("stack-detail-title").arg("depth", depth))
+                    .font(Font::Title)
+                    .id("stack-detail"),
+                label(tr("stack-detail-body")),
+                button(tr("stack-push"))
+                    .action(move || push(path))
+                    .id("stack-deeper"),
+            ))
+            .spacing(12.0)
+            .align(HAlign::Leading)
+            .padding(16.0)
+        })
+        .id("demo-stack")
 }
 
 fn about_page() -> AnyPiece {

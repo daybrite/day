@@ -40,6 +40,16 @@ unsafe extern "C" {
     pub fn day_qt_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
     pub fn day_qt_progress_set(w: *mut c_void, value: c_int);
 
+    pub fn day_qt_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_qt_tabs_add_page(
+        tabs: *mut c_void,
+        page: *mut c_void,
+        title: *const c_char,
+        index: c_int,
+    );
+    pub fn day_qt_tabs_set_current(tabs: *mut c_void, index: c_int);
+    pub fn day_qt_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
+
     pub fn day_qt_scroll_new() -> *mut c_void;
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);

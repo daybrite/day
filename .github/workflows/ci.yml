@@ -52,7 +52,7 @@ jobs:
       - name: Install GTK 4 and Qt 6 dev libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-4-dev qt6-base-dev pkg-config
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev qt6-base-dev pkg-config
       - name: Clippy (host-portable crates)
         run: cargo clippy --locked --all-targets
       - name: Clippy (day CLI + dayscript)
@@ -98,7 +98,7 @@ jobs:
         run: |
           case "${{ matrix.toolkit }}" in
             qt) brew install qt pkg-config ;;
-            gtk) brew install gtk4 pkg-config ;;
+            gtk) brew install gtk4 libadwaita pkg-config ;;
           esac
       - name: Test host-portable crates
         run: cargo test --locked
@@ -177,7 +177,7 @@ jobs:
           sudo apt-get update
           case "${{ matrix.toolkit }}" in
             qt) sudo apt-get install -y --no-install-recommends qt6-base-dev pkg-config ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev pkg-config xvfb ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev pkg-config xvfb ;;
           esac
       - name: Test host-portable crates
         run: cargo test --locked
@@ -322,7 +322,7 @@ jobs:
             msys_pkgs: mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
           - combo: windows-gtk
             toolkit: gtk
-            msys_pkgs: mingw-w64-x86_64-gtk4 mingw-w64-x86_64-pkgconf
+            msys_pkgs: mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-pkgconf
     defaults:
       run:
         shell: msys2 {0}

@@ -123,8 +123,11 @@ fn font_params(f: Font) -> (f64, c_int) {
 struct NavState {
     sidebar_pane: *mut std::os::raw::c_void,
     detail_pane: *mut std::os::raw::c_void,
-    /// (page, node id); index 0 = sidebar page, the rest are the detail stack.
+    /// (page, node id); split: index 0 = sidebar page, rest = detail stack. Stack
+    /// (`split == false`): every page (incl. root) is in the detail pane and the stack.
     pages: Vec<(QtHandle, NodeId)>,
+    /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
+    split: bool,
 }
 
 thread_local! {
@@ -152,7 +155,8 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
             .iter()
             .enumerate()
             .map(|(i, (_, id))| {
-                let size = if i == 0 {
+                // Split: page 0 is the sidebar. Stack: every page fills the detail pane.
+                let size = if state.split && i == 0 {
                     Size::new(sw, sh)
                 } else {
                     Size::new(dw, dh)
@@ -168,6 +172,51 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
 
 extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
     nav_sync_panes(host);
+}
+
+// ---------------------------------------------------------------------------
+// Tabs (docs/tabs.md): a QTabWidget host that owns its page widgets.
+// ---------------------------------------------------------------------------
+
+struct TabsState {
+    tabs: *mut std::os::raw::c_void,
+    /// (page, node id) in tab order.
+    pages: Vec<(QtHandle, NodeId)>,
+    /// Tab to select once its page exists (QTabWidget shows the first by default).
+    initial: usize,
+}
+
+thread_local! {
+    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
+    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+}
+
+extern "C" fn tabs_changed(id: u64, index: c_int) {
+    emit(NodeId(id), Event::SelectionChanged(index as i64));
+}
+
+/// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
+fn tabs_sync(host: *mut std::os::raw::c_void) {
+    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        let (mut w, mut h) = (0.0, 0.0);
+        unsafe { ffi::day_qt_tabs_content_size(state.tabs, &mut w, &mut h) };
+        if w <= 0.0 || h <= 0.0 {
+            return Vec::new();
+        }
+        state
+            .pages
+            .iter()
+            .map(|(_, id)| (*id, Size::new(w, h)))
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
 }
 
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
@@ -224,10 +273,18 @@ impl Toolkit for Qt {
             match kind {
                 kinds::CONTAINER => QtHandle(ffi::day_qt_container_new()),
                 kinds::NAV => {
+                    let is_split = props
+                        .downcast_ref::<NavProps>()
+                        .map(|p| p.split)
+                        .unwrap_or(true);
                     let host = ffi::day_qt_splitter_new();
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
                     let detail_pane = ffi::day_qt_splitter_pane(host, 1);
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
+                    if !is_split {
+                        // A stack has no sidebar: hide the empty pane so the detail is full-width.
+                        ffi::day_qt_set_visible(sidebar_pane, 0);
+                    }
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
                             host as usize,
@@ -235,6 +292,7 @@ impl Toolkit for Qt {
                                 sidebar_pane,
                                 detail_pane,
                                 pages: Vec::new(),
+                                split: is_split,
                             },
                         )
                     });
@@ -243,6 +301,29 @@ impl Toolkit for Qt {
                 kinds::NAV_PAGE => {
                     let page = QtHandle(ffi::day_qt_container_new());
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
+                    page
+                }
+                kinds::TABS => {
+                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let w = ffi::day_qt_tabs_new(id.0, tabs_changed);
+                    TABS_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            w as usize,
+                            TabsState {
+                                tabs: w,
+                                pages: Vec::new(),
+                                initial: p.selected,
+                            },
+                        )
+                    });
+                    QtHandle(w)
+                }
+                kinds::TABS_PAGE => {
+                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let page = QtHandle(ffi::day_qt_container_new());
+                    TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
+                    TABS_PAGE_TITLES
+                        .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
                     page
                 }
                 kinds::NAV_MENU => {
@@ -344,6 +425,15 @@ impl Toolkit for Qt {
                         );
                     }
                 }
+                kinds::TABS => {
+                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                        TABS_STATE.with(|m| {
+                            if let Some(state) = m.borrow().get(&(h.0 as usize)) {
+                                ffi::day_qt_tabs_set_current(state.tabs, *i as c_int);
+                            }
+                        });
+                    }
+                }
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         NAV_STATE.with(|m| {
@@ -351,7 +441,13 @@ impl Toolkit for Qt {
                             let Some(state) = m.get(&(h.0 as usize)) else {
                                 return;
                             };
-                            let detail = &state.pages[1..];
+                            // Split: detail stack is pages[1..] (page 0 is the sidebar).
+                            // Stack: every page participates.
+                            let detail = if state.split {
+                                &state.pages[1..]
+                            } else {
+                                &state.pages[..]
+                            };
                             match p {
                                 NavPatch::Pushed { .. } => {
                                     let last = detail.len().saturating_sub(1);
@@ -450,8 +546,18 @@ impl Toolkit for Qt {
     }
 
     fn release(&mut self, h: QtHandle) {
+        let key = h.0 as usize;
         NAV_MENU_ROWS.with(|m| {
-            m.borrow_mut().remove(&(h.0 as usize));
+            m.borrow_mut().remove(&key);
+        });
+        TABS_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TABS_PAGE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TABS_PAGE_TITLES.with(|m| {
+            m.borrow_mut().remove(&key);
         });
         unsafe {
             ffi::day_qt_remove_child(h.0);
@@ -460,6 +566,38 @@ impl Toolkit for Qt {
     }
 
     fn insert(&mut self, parent: &QtHandle, child: &QtHandle, index: usize) {
+        // Tabs host: add the page to the QTabWidget with its label. The tab widget owns the
+        // page's geometry; day sizes the page content from tabs_sync's FrameChanged reports.
+        let tabs_handled = TABS_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+                return false;
+            };
+            let id = TABS_PAGE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or(NodeId(0));
+            let title = TABS_PAGE_TITLES
+                .with(|t| t.borrow().get(&(child.0 as usize)).cloned())
+                .unwrap_or_default();
+            unsafe {
+                ffi::day_qt_tabs_add_page(
+                    state.tabs,
+                    child.0,
+                    cstr(&title).as_ptr(),
+                    index as c_int,
+                )
+            };
+            let at = index.min(state.pages.len());
+            state.pages.insert(at, (*child, id));
+            if index == state.initial {
+                unsafe { ffi::day_qt_tabs_set_current(state.tabs, index as c_int) };
+            }
+            true
+        });
+        if tabs_handled {
+            tabs_sync(parent.0);
+            return;
+        }
         // Nav host: index 0 = sidebar page, the rest are detail (stack) pages.
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
@@ -469,7 +607,7 @@ impl Toolkit for Qt {
             let id = NAV_PAGE_IDS
                 .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
                 .unwrap_or(NodeId(0));
-            let pane = if index == 0 {
+            let pane = if state.split && index == 0 {
                 state.sidebar_pane
             } else {
                 state.detail_pane
@@ -537,6 +675,10 @@ impl Toolkit for Qt {
     }
 
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+        // Tab pages are laid out by the QTabWidget, not by day; skip them.
+        if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            return;
+        }
         unsafe {
             ffi::day_qt_set_geometry(
                 h.0,
@@ -546,9 +688,12 @@ impl Toolkit for Qt {
                 frame.size.height.round() as c_int,
             )
         };
-        // Nav host resized (window resize): re-report pane sizes for page relayout.
+        // Nav / tabs host resized (window resize): re-report page sizes for relayout.
         if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             nav_sync_panes(h.0);
+        }
+        if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            tabs_sync(h.0);
         }
     }
 

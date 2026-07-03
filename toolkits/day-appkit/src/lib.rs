@@ -22,10 +22,10 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
     NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSScrollView, NSSlider, NSSwitch, NSTextField, NSTextFieldDelegate,
-    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSProgressIndicatorStyle, NSScrollView, NSSlider, NSSwitch, NSTabView, NSTabViewItem,
+    NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
-use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate};
+use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
 use day_spec::present;
@@ -191,9 +191,12 @@ impl DayCanvas {
 struct NavState {
     sidebar_wrap: Retained<NSView>,
     detail_wrap: Retained<NSView>,
-    /// Detail pages in stack order (the sidebar page is not in here).
+    /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
+    /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
     positioned: bool,
+    /// Sidebar+detail split (a selector Sidebar) vs. a pure push/pop stack (a `stack`).
+    split: bool,
 }
 
 thread_local! {
@@ -238,6 +241,60 @@ impl DayNavPage {
         let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tabs (docs/tabs.md): NSTabView host + DayTabDelegate for selection.
+// ---------------------------------------------------------------------------
+
+struct TabDelegateIvars {
+    node: NodeId,
+    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    suppress: std::cell::Cell<bool>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTabDelegate"]
+    #[ivars = TabDelegateIvars]
+    struct DayTabDelegate;
+
+    unsafe impl NSObjectProtocol for DayTabDelegate {}
+
+    unsafe impl NSTabViewDelegate for DayTabDelegate {
+        #[unsafe(method(tabView:didSelectTabViewItem:))]
+        fn did_select(&self, tabview: &NSTabView, item: &NSTabViewItem) {
+            if self.ivars().suppress.get() {
+                return;
+            }
+            let idx = unsafe { tabview.indexOfTabViewItem(item) };
+            emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+        }
+    }
+);
+
+impl DayTabDelegate {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(TabDelegateIvars {
+            node,
+            suppress: std::cell::Cell::new(false),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+struct TabState {
+    delegate: Retained<DayTabDelegate>,
+    /// Tab to select once its item has been inserted (NSTabView selects the first by default).
+    initial: usize,
+}
+
+thread_local! {
+    /// TABS host view ptr → its delegate + initial selection.
+    static TAB_STATE: RefCell<HashMap<usize, TabState>> = RefCell::new(HashMap::new());
+    /// TABS_PAGE view ptr → its tab label (read by the host on insert).
+    static TAB_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -710,6 +767,10 @@ impl Toolkit for AppKit {
             }
             kinds::CANVAS => view_of(DayCanvas::new(mtm)),
             kinds::NAV => {
+                let is_split = props
+                    .downcast_ref::<NavProps>()
+                    .map(|p| p.split)
+                    .unwrap_or(true);
                 let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
                 unsafe {
                     split.setVertical(true);
@@ -750,6 +811,7 @@ impl Toolkit for AppKit {
                             detail_wrap,
                             pages: Vec::new(),
                             positioned: false,
+                            split: is_split,
                         },
                     )
                 });
@@ -758,6 +820,32 @@ impl Toolkit for AppKit {
             kinds::NAV_PAGE => {
                 let page = view_of(DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
+                page
+            }
+            kinds::TABS => {
+                let p = props.downcast_ref::<TabsProps>().unwrap();
+                let tabview = unsafe { NSTabView::new(mtm) };
+                let delegate = DayTabDelegate::new(mtm, id);
+                unsafe { tabview.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                let view = view_of(tabview);
+                TAB_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        ptr_of(&view),
+                        TabState {
+                            delegate,
+                            initial: p.selected,
+                        },
+                    )
+                });
+                view
+            }
+            kinds::TABS_PAGE => {
+                let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                // A tab page is a native-owned content view (like a nav page: reports its
+                // allocated size via FrameChanged), tagged so set_frame skips it.
+                let page = view_of(DayNavPage::new(mtm, id));
+                NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
+                TAB_TITLES.with(|m| m.borrow_mut().insert(ptr_of(&page), p.title.clone()));
                 page
             }
             kinds::NAV_MENU => {
@@ -915,6 +1003,19 @@ impl Toolkit for AppKit {
                     }
                 }
             }
+            kinds::TABS => {
+                if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>()
+                    && let Some(tabview) = h.downcast_ref::<NSTabView>()
+                {
+                    TAB_STATE.with(|m| {
+                        if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                            state.delegate.ivars().suppress.set(true);
+                            unsafe { tabview.selectTabViewItemAtIndex(*i as isize) };
+                            state.delegate.ivars().suppress.set(false);
+                        }
+                    });
+                }
+            }
             kinds::NAV_MENU => {
                 if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                     NAV_MENUS.with(|m| {
@@ -1007,10 +1108,46 @@ impl Toolkit for AppKit {
         NAV_MENUS.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
+        TAB_STATE.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
+        TAB_TITLES.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
         unsafe { h.removeFromSuperview() };
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+        // Tabs host: wrap the page in an NSTabViewItem with its label, then insert. NSTabView
+        // owns the item view's frame; the page reports its content size via FrameChanged.
+        let handled_tab = TAB_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                return false;
+            };
+            let Some(tabview) = parent.downcast_ref::<NSTabView>() else {
+                return false;
+            };
+            let title = TAB_TITLES
+                .with(|t| t.borrow().get(&ptr_of(child)).cloned())
+                .unwrap_or_default();
+            let item = unsafe { NSTabViewItem::new() };
+            unsafe {
+                item.setLabel(&NSString::from_str(&title));
+                item.setView(Some(child));
+                tabview.insertTabViewItem_atIndex(&item, index as isize);
+            }
+            // Select the requested initial tab once its item exists (suppress the echo).
+            if index == state.initial {
+                state.delegate.ivars().suppress.set(true);
+                unsafe { tabview.selectTabViewItemAtIndex(index as isize) };
+                state.delegate.ivars().suppress.set(false);
+            }
+            true
+        });
+        if handled_tab {
+            return;
+        }
         // Nav host: index 0 = sidebar page, the rest are detail (stack) pages. Pages fill
         // their pane via autoresizing — the pane, not day, owns their frames.
         let handled = NAV_STATE.with(|m| {
@@ -1018,7 +1155,10 @@ impl Toolkit for AppKit {
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
                 return false;
             };
-            let wrap = if index == 0 {
+            // Split (selector Sidebar): index 0 is the sidebar; the rest are detail pages.
+            // Stack (`split == false`): every page — including the root — lives in the detail
+            // pane so push/pop visibility covers them all.
+            let wrap = if state.split && index == 0 {
                 &state.sidebar_wrap
             } else {
                 state.pages.push(child.clone());
@@ -1139,11 +1279,11 @@ impl Toolkit for AppKit {
         // holding priorities don't take effect when day drives the split's frame directly, so
         // we capture the current sidebar width, resize, then restore the divider to it.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
-            let first = NAV_STATE.with(|m| {
+            let (first, is_split) = NAV_STATE.with(|m| {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
-                    .map(|s| !std::mem::replace(&mut s.positioned, true))
-                    .unwrap_or(false)
+                    .map(|s| (!std::mem::replace(&mut s.positioned, true), s.split))
+                    .unwrap_or((false, true))
             });
             // Sidebar pane = arranged subview 0; its width is the divider position.
             let prev_sidebar = {
@@ -1157,7 +1297,10 @@ impl Toolkit for AppKit {
             unsafe {
                 split.setFrame(r);
                 split.layoutSubtreeIfNeeded();
-                let target = if first || prev_sidebar <= 1.0 {
+                // A stack collapses the (empty) sidebar so the detail is full-width.
+                let target = if !is_split {
+                    0.0
+                } else if first || prev_sidebar <= 1.0 {
                     day_spec::NAV_SIDEBAR_WIDTH
                 } else {
                     prev_sidebar

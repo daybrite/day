@@ -4,13 +4,13 @@
 //! `build` runs once. Dynamic attributes become seeded bindings writing sparse typed patches
 //! through the thread-local tree.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, Signal, bind_seeded, watch};
+use day_reactive::{Scope, Signal, bind, bind_seeded, watch};
 use day_spec::props::*;
 use day_spec::{A11yProps, Color, DrawOp, Event, Font, Insets, Point, Role, Shape, Size, kinds};
 
@@ -958,10 +958,10 @@ impl A11yBuilder {
 pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
-        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoFraction, IntoText, ItemSlot, Nav,
-        Prompt, SignalRw, VAlign, alert, button, canvas, column, confirm, divider, each, image,
-        label, nav, nav_back, nav_link, nav_menu, navigate, progress, prompt, row, scroll, slider,
-        spacer, spinner, text_field, toggle, when,
+        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoFraction, IntoText, ItemSlot,
+        Prompt, Selector, SelectorStyle, SignalRw, Stack, VAlign, alert, button, canvas, column,
+        confirm, divider, each, image, label, nav_back, nav_link, navigate, progress, prompt, row,
+        scroll, selector, slider, spacer, spinner, stack, text_field, toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Color, Insets, Point, Rect, Size};
@@ -1058,16 +1058,18 @@ pub fn image(asset_name: &str) -> AnyPiece {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md)
+// Navigation & tabs (docs/navigation.md, docs/tabs.md) — selector + stack, each a
+// projection of an app-owned Signal.
 // ---------------------------------------------------------------------------
 
-/// Navigate to a registered route ("" returns to the root). SwiftUI-reset semantics:
-/// the stack is replaced so `path` becomes the top. False = no host / unknown route.
+/// Navigate to a registered route ("" = the surface's root). Reaches the innermost route
+/// surface first (docs/navigation.md); for a `selector` this sets the active key, for a
+/// `stack` it pushes. False = no surface / unknown key.
 pub fn navigate(path: &str) -> bool {
     day_core::navigate(path)
 }
 
-/// Pop one navigation level. False = already at the root.
+/// Pop one navigation level. False = nothing to pop.
 pub fn nav_back() -> bool {
     day_core::nav_back()
 }
@@ -1080,107 +1082,8 @@ pub fn nav_link<M>(label: impl IntoText<M>, path: &str) -> Button {
     })
 }
 
-struct RouteDef {
-    path: String,
-    title: TextSource,
-    build: Box<dyn Fn() -> AnyPiece>,
-}
-
-/// Native navigation host. Mobile toolkits present a stack (UINavigationController /
-/// toolbar+pages) with native back; desktop toolkits present sidebar+detail split panes,
-/// with the root content as the sidebar. v1: must be the app root.
-pub struct Nav {
-    title: TextSource,
-    root: AnyPiece,
-    routes: Vec<RouteDef>,
-}
-
-pub fn nav<M>(title: impl IntoText<M>, root: impl Piece) -> Nav {
-    Nav {
-        title: title.into_text(),
-        root: AnyPiece::new(root),
-        routes: Vec::new(),
-    }
-}
-
-impl Nav {
-    /// Register a destination: `path` is its route string (dayscript / deep links /
-    /// `nav_link` all address it); `title` its navigation title; `build` runs lazily
-    /// on each push, in a scope disposed on pop.
-    pub fn route<M, P: Piece>(
-        mut self,
-        path: &str,
-        title: impl IntoText<M>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        self.routes.push(RouteDef {
-            path: path.to_string(),
-            title: title.into_text(),
-            build: Box::new(move || AnyPiece::new(build())),
-        });
-        self
-    }
-}
-
-/// Build-time context linking `nav_menu()` pieces to the enclosing `nav()`'s routes.
-#[derive(Clone)]
-struct NavBuildCtx {
-    /// (path, title) in registration order.
-    route_meta: Rc<Vec<(String, String)>>,
-    /// Menu nodes registered during the root build (selection-synced on push/pop).
-    menus: Rc<RefCell<Vec<RNode>>>,
-}
-
-thread_local! {
-    static NAV_BUILD: RefCell<Option<NavBuildCtx>> = const { RefCell::new(None) };
-}
-
-/// The enclosing `nav()`'s routes as a NATIVE navigation list: NSOutlineView source list
-/// (macOS), `navigation-sidebar` GtkListBox, QListWidget, inset-grouped chevron rows
-/// (iOS), ripple list rows (Android). Selecting an item navigates to its route; the
-/// active route is highlighted in split presentation. Build it inside `nav()`'s root.
-pub fn nav_menu() -> AnyPiece {
-    use day_spec::props::NavMenuProps;
-    piece_fn(|cx| {
-        let Some(ctx) = NAV_BUILD.with(|c| c.borrow().clone()) else {
-            eprintln!("day: nav_menu() built outside a nav() root — rendering nothing");
-            return cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No);
-        };
-        let items: Vec<String> = ctx.route_meta.iter().map(|(_, t)| t.clone()).collect();
-        let node = cx.native(
-            kinds::NAV_MENU,
-            &NavMenuProps {
-                items,
-                selected: None,
-            },
-            Rc::new(LeafLayout),
-            Flex {
-                grow_w: true,
-                grow_h: true,
-                ..Default::default()
-            },
-            Boundary::No,
-        );
-        ctx.menus.borrow_mut().push(node);
-        let meta = ctx.route_meta.clone();
-        cx.on(node, move |ev| {
-            if let Event::SelectionChanged(i) = ev
-                && let Some((path, _)) = meta.get(*i as usize)
-            {
-                let _ = day_core::navigate(path);
-            }
-        });
-        node
-    })
-}
-
-struct NavEntry {
-    path: String,
-    scope: Scope,
-    page: RNode,
-}
-
-/// Create a NAV_PAGE under `host` and wire its FrameChanged size reports into `sizes`.
+/// Create a NAV_PAGE under `host` and wire its FrameChanged size reports into `sizes`
+/// (the native container owns each page's frame; day lays content out at the reported size).
 fn nav_page(
     host: RNode,
     props: &day_spec::props::NavPageProps,
@@ -1192,7 +1095,7 @@ fn nav_page(
         props,
         Rc::new(PassThrough),
         Flex::default(),
-        Boundary::Yes, // pages are layout boundaries: their size is native-owned
+        Boundary::Yes,
     );
     let sizes = sizes.clone();
     cx.on(page, move |ev| {
@@ -1211,23 +1114,527 @@ fn nav_page(
     page
 }
 
-impl Piece for Nav {
+/// Create a TABS_PAGE under `host`, wiring its FrameChanged reports into `sizes`.
+fn tabs_page(
+    host: RNode,
+    props: &day_spec::props::TabsPageProps,
+    sizes: &Rc<RefCell<std::collections::HashMap<RNode, Size>>>,
+) -> RNode {
+    let mut cx = BuildCx::new(host);
+    let page = cx.native(
+        kinds::TABS_PAGE,
+        props,
+        Rc::new(PassThrough),
+        Flex::default(),
+        Boundary::Yes,
+    );
+    let sizes = sizes.clone();
+    cx.on(page, move |ev| {
+        if let Event::FrameChanged(sz) = ev {
+            let changed = sizes.borrow().get(&page) != Some(sz);
+            if changed {
+                sizes.borrow_mut().insert(page, *sz);
+                with_tree(|t| {
+                    t.mark_needs_measure(page);
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+            }
+        }
+    });
+    page
+}
+
+/// Register a string-route adapter over a route surface's own signal, so `navigate()` /
+/// deep links / dayscript keep working by key. This is a *convenience layer* — the surface
+/// itself is driven by the signal, not by this registry (docs/navigation.md).
+fn register_route_surface(
+    push: impl Fn(&str) -> bool + 'static,
+    pop: impl Fn(bool) -> bool + 'static,
+    current: impl Fn() -> String + 'static,
+) {
+    let token = day_core::register_nav(day_core::NavController {
+        push: Box::new(push),
+        pop: Box::new(pop),
+        current: Box::new(current),
+    });
+    Scope::current().on_cleanup(move || day_core::unregister_nav(token));
+}
+
+// ===========================================================================
+// Selector — one-of-N, bound to a Signal<String> of the active key.
+// ===========================================================================
+
+/// How a [`selector`] presents its one-of-N choice.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SelectorStyle {
+    /// A native tab widget: NSTabView / UITabBarController / GtkNotebook / QTabWidget /
+    /// Android tab strip. All pages resident; each keeps its state.
+    Tabs,
+    /// A NavigationSplitView: a sidebar list + a detail. Desktop shows both panes (on GTK an
+    /// `AdwNavigationSplitView`); mobile collapses to a list that pushes the detail.
+    Sidebar,
+}
+
+struct SelItem {
+    key: String,
+    title: TextSource,
+    build: Box<dyn Fn() -> AnyPiece>,
+}
+
+/// A sidebar item resolved for the detail switcher: (key, resolved title, lazy builder).
+type ResolvedItems = Rc<Vec<(String, String, Box<dyn Fn() -> AnyPiece>)>>;
+
+/// A one-of-N selector whose active key is an app-owned `Signal<String>` (two-way, exactly
+/// like `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
+///
+/// ```ignore
+/// let section = Signal::new("home".to_string());
+/// selector(section).style(SelectorStyle::Sidebar)
+///     .item("home", tr("home"), home_page)
+///     .item("settings", tr("settings"), settings_page)
+/// ```
+pub struct Selector<S: SignalRw<String>> {
+    selection: S,
+    style: SelectorStyle,
+    title: TextSource,
+    header: Option<Box<dyn FnOnce() -> AnyPiece>>,
+    items: Vec<SelItem>,
+}
+
+pub fn selector<S: SignalRw<String>>(selection: S) -> Selector<S> {
+    Selector {
+        selection,
+        style: SelectorStyle::Sidebar,
+        title: TextSource::Static(String::new()),
+        header: None,
+        items: Vec::new(),
+    }
+}
+
+impl<S: SignalRw<String>> Selector<S> {
+    pub fn style(mut self, style: SelectorStyle) -> Self {
+        self.style = style;
+        self
+    }
+    /// The sidebar / window title (Sidebar style).
+    pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.title = t.into_text();
+        self
+    }
+    /// An optional piece shown above the sidebar list (a logo, app name…).
+    pub fn header<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
+        self.header = Some(Box::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
+    /// its label; `build` runs when the item is first shown.
+    pub fn item<M, P: Piece>(
+        mut self,
+        key: &str,
+        title: impl IntoText<M>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        self.items.push(SelItem {
+            key: key.to_string(),
+            title: title.into_text(),
+            build: Box::new(move || AnyPiece::new(build())),
+        });
+        self
+    }
+}
+
+impl<S: SignalRw<String>> Piece for Selector<S> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        match self.style {
+            SelectorStyle::Tabs => build_tabs(self, cx),
+            SelectorStyle::Sidebar => build_sidebar(self, cx),
+        }
+    }
+}
+
+fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode {
+    use day_spec::props::{TabsPageProps, TabsPatch, TabsProps};
+    let selection = sel.selection;
+    let metas: Vec<(String, String)> = sel
+        .items
+        .iter()
+        .map(|it| (it.key.clone(), it.title.initial()))
+        .collect();
+    let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
+    let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
+    let initial = selection.get_untracked_rw();
+    let initial_idx = keys.iter().position(|k| *k == initial).unwrap_or(0);
+
+    let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
+    let host = cx.native(
+        kinds::TABS,
+        &TabsProps {
+            titles,
+            selected: initial_idx,
+        },
+        Rc::new(NavLayout {
+            sizes: sizes.clone(),
+            split: false,
+        }),
+        Flex {
+            grow_w: true,
+            grow_h: true,
+            ..Default::default()
+        },
+        Boundary::Yes,
+    );
+    for (i, it) in sel.items.into_iter().enumerate() {
+        let page = tabs_page(
+            host,
+            &TabsPageProps {
+                title: metas[i].1.clone(),
+            },
+            &sizes,
+        );
+        let content = (it.build)();
+        let mut pcx = BuildCx::new(page);
+        let _ = content.build(&mut pcx);
+    }
+
+    // Two-way: signal → native selection (skip the echo of a native tap).
+    let echo: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+    {
+        let (keys, echo, s) = (keys.clone(), echo.clone(), selection.clone());
+        bind_seeded(
+            initial_idx,
+            move || keys.iter().position(|k| *k == s.get_rw()).unwrap_or(0),
+            move |idx: &usize| {
+                if echo.replace(None) == Some(*idx) {
+                    return;
+                }
+                with_tree(|t| t.patch(host, Box::new(TabsPatch::Selected(*idx)), false));
+            },
+        );
+    }
+    // native selection → signal
+    {
+        let (keys, echo, s) = (keys.clone(), echo.clone(), selection.clone());
+        cx.on(host, move |ev| match ev {
+            Event::SelectionChanged(i) if *i >= 0 => {
+                let idx = *i as usize;
+                if let Some(k) = keys.get(idx) {
+                    echo.set(Some(idx));
+                    s.set_rw(k.clone());
+                }
+            }
+            Event::Custom("deeplink", route) => {
+                let _ = day_core::navigate(route);
+            }
+            _ => {}
+        });
+    }
+    // string-route adapter
+    let (ks_push, s_push) = (keys.clone(), selection.clone());
+    let s_cur = selection.clone();
+    register_route_surface(
+        move |k| {
+            if ks_push.iter().any(|x| x == k) {
+                s_push.set_rw(k.to_string());
+                true
+            } else {
+                false
+            }
+        },
+        |_| false,
+        move || s_cur.get_untracked_rw(),
+    );
+    host
+}
+
+fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode {
+    use day_spec::props::{NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavProps};
+    let split = with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
+    let selection = sel.selection;
+    let title_s = sel.title.initial();
+    let metas: Vec<(String, String)> = sel
+        .items
+        .iter()
+        .map(|it| (it.key.clone(), it.title.initial()))
+        .collect();
+    let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
+    let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
+    let builders: ResolvedItems = Rc::new(
+        sel.items
+            .into_iter()
+            .enumerate()
+            .map(|(i, it)| (it.key, metas[i].1.clone(), it.build))
+            .collect(),
+    );
+
+    let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
+    let host = cx.native(
+        kinds::NAV,
+        &NavProps {
+            title: title_s.clone(),
+            split,
+        },
+        Rc::new(NavLayout {
+            sizes: sizes.clone(),
+            split,
+        }),
+        Flex {
+            grow_w: true,
+            grow_h: true,
+            ..Default::default()
+        },
+        Boundary::Yes,
+    );
+
+    // Sidebar / root page: optional header + native item list.
+    let root_page = nav_page(
+        host,
+        &NavPageProps {
+            title: title_s.clone(),
+            sidebar: split,
+        },
+        &sizes,
+    );
+    let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
+    {
+        let (mh, ks, s, titles2) = (
+            menu_holder.clone(),
+            keys.clone(),
+            selection.clone(),
+            titles.clone(),
+        );
+        let menu_piece = piece_fn(move |mcx| {
+            let node = mcx.native(
+                kinds::NAV_MENU,
+                &NavMenuProps {
+                    items: titles2,
+                    selected: None,
+                },
+                Rc::new(LeafLayout),
+                Flex {
+                    grow_w: true,
+                    grow_h: true,
+                    ..Default::default()
+                },
+                Boundary::No,
+            );
+            mh.set(Some(node));
+            mcx.on(node, move |ev| {
+                if let Event::SelectionChanged(i) = ev
+                    && let Some(k) = ks.get(*i as usize)
+                {
+                    s.set_rw(k.clone());
+                }
+            });
+            node
+        });
+        let content: AnyPiece = match sel.header {
+            Some(h) => column((h(), menu_piece))
+                .spacing(4.0)
+                .align(HAlign::Leading)
+                .any(),
+            None => column((menu_piece,))
+                .spacing(4.0)
+                .align(HAlign::Leading)
+                .any(),
+        };
+        let mut pcx = BuildCx::new(root_page);
+        let _ = content.build(&mut pcx);
+    }
+
+    let sync_menu = {
+        let mh = menu_holder.clone();
+        move |idx: Option<usize>| {
+            if let Some(m) = mh.get() {
+                with_tree(|t| t.patch(m, Box::new(NavMenuPatch::Selected(idx)), false));
+            }
+        }
+    };
+
+    // Detail: `selection` drives which item's page is shown (reset-to; depth ≤ 1).
+    let current: Rc<RefCell<Option<(String, Scope, RNode)>>> = Rc::default();
+    let nav_scope = Scope::current();
+    let show = {
+        let (builders, current, sizes, keys, sync_menu) = (
+            builders.clone(),
+            current.clone(),
+            sizes.clone(),
+            keys.clone(),
+            sync_menu.clone(),
+        );
+        move |key: &str| {
+            if current.borrow().as_ref().map(|(k, _, _)| k.as_str()) == Some(key) {
+                return;
+            }
+            if let Some((_, scope, page)) = current.borrow_mut().take() {
+                with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                scope.dispose();
+                sizes.borrow_mut().remove(&page);
+                with_tree(|t| {
+                    t.remove_subtree(page);
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+            }
+            if key.is_empty() {
+                sync_menu(None);
+                return;
+            }
+            let Some((_, page_title, build)) = builders.iter().find(|(k, _, _)| k == key) else {
+                sync_menu(None);
+                return;
+            };
+            let page = nav_page(
+                host,
+                &NavPageProps {
+                    title: page_title.clone(),
+                    sidebar: false,
+                },
+                &sizes,
+            );
+            let scope = nav_scope.enter(Scope::child);
+            let content = build();
+            scope.enter(|| {
+                let mut c = BuildCx::new(page);
+                let _ = content.build(&mut c);
+            });
+            with_tree(|t| {
+                t.patch(
+                    host,
+                    Box::new(NavPatch::Pushed {
+                        title: page_title.clone(),
+                    }),
+                    false,
+                );
+                t.mark_layout_dirty();
+                t.layout_if_needed();
+            });
+            *current.borrow_mut() = Some((key.to_string(), scope, page));
+            sync_menu(keys.iter().position(|k| k == key));
+        }
+    };
+
+    // Desktop split never shows an empty detail: default to the first item.
+    if split
+        && selection.get_untracked_rw().is_empty()
+        && let Some(k) = keys.first()
+    {
+        selection.set_rw(k.clone());
+    }
+    {
+        let s = selection.clone();
+        bind(move || s.get_rw(), move |key: &String| show(key));
+    }
+
+    // Native back (mobile up-arrow / system back) returns to the list; warm deep links.
+    {
+        let s = selection.clone();
+        cx.on(host, move |ev| match ev {
+            Event::NavBack { .. } => s.set_rw(String::new()),
+            Event::Custom("deeplink", route) => {
+                let _ = day_core::navigate(route);
+            }
+            _ => {}
+        });
+    }
+
+    // string-route adapter over `selection`
+    let (ks_push, s_push) = (keys.clone(), selection.clone());
+    let s_pop = selection.clone();
+    let s_cur = selection.clone();
+    register_route_surface(
+        move |k| {
+            if k.is_empty() {
+                s_push.set_rw(String::new());
+                true
+            } else if ks_push.iter().any(|x| x == k) {
+                s_push.set_rw(k.to_string());
+                true
+            } else {
+                false
+            }
+        },
+        move |_| {
+            if s_pop.get_untracked_rw().is_empty() {
+                false
+            } else {
+                s_pop.set_rw(String::new());
+                true
+            }
+        },
+        move || s_cur.get_untracked_rw(),
+    );
+    host
+}
+
+// ===========================================================================
+// Stack — a genuine push/pop navigation stack bound to a Signal<Vec<String>>.
+// The native UINavigationController / AdwNavigationView / back-stack is reconciled
+// to the path; the back button writes the pop back into the path.
+// ===========================================================================
+
+struct StackEntry {
+    key: String,
+    scope: Scope,
+    page: RNode,
+}
+
+/// A push/pop navigation stack whose contents are an app-owned `Signal<Vec<String>>` (the
+/// path above the root). day reconciles the native stack to the path; the native back button
+/// writes the pop back into it (docs/navigation.md).
+///
+/// ```ignore
+/// let path = Signal::new(Vec::<String>::new());
+/// stack(path.clone(), home_view).destination(|key| detail_view(key))
+/// // push:  path.update(|p| p.push("item-42".into()));
+/// ```
+pub struct Stack<S: SignalRw<Vec<String>>> {
+    path: S,
+    title: TextSource,
+    root: AnyPiece,
+    destination: Rc<dyn Fn(&str) -> AnyPiece>,
+}
+
+pub fn stack<S: SignalRw<Vec<String>>>(path: S, root: impl Piece) -> Stack<S> {
+    Stack {
+        path,
+        title: TextSource::Static(String::new()),
+        root: AnyPiece::new(root),
+        destination: Rc::new(|_| {
+            piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No))
+        }),
+    }
+}
+
+impl<S: SignalRw<Vec<String>>> Stack<S> {
+    pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.title = t.into_text();
+        self
+    }
+    /// Build the view for a pushed `key`.
+    pub fn destination<P: Piece>(mut self, build: impl Fn(&str) -> P + 'static) -> Self {
+        self.destination = Rc::new(move |k| AnyPiece::new(build(k)));
+        self
+    }
+}
+
+impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{NavPageProps, NavPatch, NavProps};
-        let split =
-            with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
-        let title = self.title.initial();
-        let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
+        let path = self.path;
+        let title_s = self.title.initial();
+        let dest = self.destination;
 
+        let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
         let host = cx.native(
             kinds::NAV,
             &NavProps {
-                title: title.clone(),
-                split,
+                title: title_s.clone(),
+                split: false, // a stack is a stack (no sidebar)
             },
             Rc::new(NavLayout {
                 sizes: sizes.clone(),
-                split,
+                split: false,
             }),
             Flex {
                 grow_w: true,
@@ -1236,217 +1643,145 @@ impl Piece for Nav {
             },
             Boundary::Yes,
         );
-
-        // Route table with build-time-resolved titles (dynamic titles are post-v1):
-        // (path, title, lazy builder).
-        type RouteTable = Rc<Vec<(String, String, Box<dyn Fn() -> AnyPiece>)>>;
-        let routes: RouteTable = Rc::new(
-            self.routes
-                .into_iter()
-                .map(|r| (r.path, r.title.initial(), r.build))
-                .collect(),
-        );
-        let route_meta: Rc<Vec<(String, String)>> = Rc::new(
-            routes
-                .iter()
-                .map(|(p, t, _)| (p.clone(), t.clone()))
-                .collect(),
-        );
-        let menus: Rc<RefCell<Vec<RNode>>> = Rc::default();
-
-        // Root page: the sidebar in split mode, the first stack page otherwise. Built with
-        // the nav context installed so nav_menu() can pick up the routes.
         let root_page = nav_page(
             host,
             &NavPageProps {
-                title: title.clone(),
-                sidebar: split,
+                title: title_s,
+                sidebar: false,
             },
             &sizes,
         );
-        NAV_BUILD.with(|c| {
-            *c.borrow_mut() = Some(NavBuildCtx {
-                route_meta: route_meta.clone(),
-                menus: menus.clone(),
-            })
-        });
-        cx.under(root_page, |cx| {
-            let _ = self.root.build(cx);
-        });
-        NAV_BUILD.with(|c| c.borrow_mut().take());
+        {
+            let mut pcx = BuildCx::new(root_page);
+            let _ = self.root.build(&mut pcx);
+        }
 
-        let stack: Rc<RefCell<Vec<NavEntry>>> = Rc::default();
+        let entries: Rc<RefCell<Vec<StackEntry>>> = Rc::default();
+        let native_popped: Rc<Cell<usize>> = Rc::new(Cell::new(0));
         let nav_scope = Scope::current();
 
-        // Highlight the active route in every registered menu (split presentation keeps
-        // the selection; mobile roots clear it when the stack empties).
-        let sync_menus = {
-            let (stack, menus, route_meta) = (stack.clone(), menus.clone(), route_meta.clone());
-            move || {
-                let top = stack.borrow().last().map(|e| e.path.clone());
-                let sel = top.and_then(|p| route_meta.iter().position(|(path, _)| *path == p));
-                for &m in menus.borrow().iter() {
+        // Reconcile the native stack to `want`: keep the common prefix, pop the rest, push
+        // the new suffix. A pop the native already performed (iOS back) is not re-issued.
+        let reconcile = {
+            let (entries, sizes, dest, native_popped) = (
+                entries.clone(),
+                sizes.clone(),
+                dest.clone(),
+                native_popped.clone(),
+            );
+            move |want: &Vec<String>| {
+                let common = {
+                    let ents = entries.borrow();
+                    let mut i = 0;
+                    while i < ents.len() && i < want.len() && ents[i].key == want[i] {
+                        i += 1;
+                    }
+                    i
+                };
+                while entries.borrow().len() > common {
+                    let e = entries.borrow_mut().pop().unwrap();
+                    if native_popped.get() > 0 {
+                        native_popped.set(native_popped.get() - 1);
+                    } else {
+                        with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                    }
+                    e.scope.dispose();
+                    sizes.borrow_mut().remove(&e.page);
+                    with_tree(|t| t.remove_subtree(e.page));
+                }
+                for key in want.iter().skip(common) {
+                    let page = nav_page(
+                        host,
+                        &NavPageProps {
+                            title: key.clone(),
+                            sidebar: false,
+                        },
+                        &sizes,
+                    );
+                    let scope = nav_scope.enter(Scope::child);
+                    let content = (dest)(key);
+                    scope.enter(|| {
+                        let mut c = BuildCx::new(page);
+                        let _ = content.build(&mut c);
+                    });
                     with_tree(|t| {
                         t.patch(
-                            m,
-                            Box::new(day_spec::props::NavMenuPatch::Selected(sel)),
+                            host,
+                            Box::new(NavPatch::Pushed { title: key.clone() }),
                             false,
                         )
                     });
+                    entries.borrow_mut().push(StackEntry {
+                        key: key.clone(),
+                        scope,
+                        page,
+                    });
                 }
-            }
-        };
-
-        // One-level push: build the destination page, then present it.
-        let do_push = {
-            let (routes, stack, sizes) = (routes.clone(), stack.clone(), sizes.clone());
-            let sync_menus = sync_menus.clone();
-            move |path: &str| -> bool {
-                let Some((_, page_title, build)) = routes.iter().find(|(p, _, _)| p == path) else {
-                    return false;
-                };
-                let depth = stack.borrow().len() + 1;
-                let page = nav_page(
-                    host,
-                    &NavPageProps {
-                        title: page_title.clone(),
-                        sidebar: false,
-                    },
-                    &sizes,
-                );
-                let scope = nav_scope.enter(Scope::child);
-                let (content, header_title) = (build(), page_title.clone());
-                scope.enter(|| {
-                    let mut cx = BuildCx::new(page);
-                    if split {
-                        // Desktop detail header: title + back affordance below depth 1
-                        // (the sidebar handles first-level selection).
-                        let header: AnyPiece = if depth > 1 {
-                            AnyPiece::new(
-                                row((
-                                    button("←")
-                                        .action(|| {
-                                            let _ = day_core::nav_back();
-                                        })
-                                        .id("nav-back"),
-                                    label(header_title).font(Font::Headline),
-                                ))
-                                .spacing(8.0),
-                            )
-                        } else {
-                            AnyPiece::new(
-                                row((label(header_title).font(Font::Headline),)).spacing(8.0),
-                            )
-                        };
-                        let _ = column((header, divider(), content))
-                            .spacing(8.0)
-                            .align(HAlign::Leading)
-                            .padding(12.0)
-                            .build(&mut cx);
-                    } else {
-                        let _ = content.build(&mut cx);
-                    }
-                });
-                stack.borrow_mut().push(NavEntry {
-                    path: path.to_string(),
-                    scope,
-                    page,
-                });
                 with_tree(|t| {
-                    t.patch(
-                        host,
-                        Box::new(NavPatch::Pushed {
-                            title: page_title.clone(),
-                        }),
-                        false,
-                    );
                     t.mark_layout_dirty();
                     t.layout_if_needed();
                 });
-                sync_menus();
-                true
             }
         };
-
-        // One-level pop. `already_popped` = the native side presented the pop already
-        // (iOS back button/swipe) — sync the stack without re-issuing the patch.
-        let do_pop = {
-            let (stack, sizes) = (stack.clone(), sizes.clone());
-            let sync_menus = sync_menus.clone();
-            move |already_popped: bool| -> bool {
-                let Some(entry) = stack.borrow_mut().pop() else {
-                    return false;
-                };
-                if !already_popped {
-                    with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
-                }
-                entry.scope.dispose();
-                sizes.borrow_mut().remove(&entry.page);
-                with_tree(|t| {
-                    t.remove_subtree(entry.page);
-                    t.mark_layout_dirty();
-                    t.layout_if_needed();
-                });
-                sync_menus();
-                true
-            }
-        };
-
-        // navigate(path) = reset-to semantics (sidebar selection replaces the detail).
-        let reset_to = {
-            let (stack, do_push, do_pop) = (stack.clone(), do_push.clone(), do_pop.clone());
-            move |path: &str| -> bool {
-                let current = stack.borrow().last().map(|e| e.path.clone());
-                if current.as_deref() == Some(path) {
-                    return true;
-                }
-                if path.is_empty() {
-                    while do_pop(false) {}
-                    return true;
-                }
-                if !routes.iter().any(|(p, _, _)| p == path) {
-                    return false;
-                }
-                while do_pop(false) {}
-                do_push(path)
-            }
-        };
-
-        day_core::register_nav(day_core::NavController {
-            push: Box::new(reset_to),
-            pop: Box::new(do_pop.clone()),
-            current: Box::new({
-                let stack = stack.clone();
-                move || {
-                    stack
-                        .borrow()
-                        .last()
-                        .map(|e| e.path.clone())
-                        .unwrap_or_default()
-                }
-            }),
-        });
-
-        // Idiomatic split default: select the first route at launch — desktop sidebars
-        // don't present empty detail panes. (Startup deep links still win: they dispatch
-        // after mount and replace the stack.)
-        if split && let Some((first, _)) = route_meta.first() {
-            let _ = do_push(first);
-            sync_menus();
+        {
+            let p = path.clone();
+            bind(
+                move || p.get_rw(),
+                move |want: &Vec<String>| reconcile(want),
+            );
         }
 
-        // Native back (iOS back button/swipe, Android system back / toolbar up) and warm
-        // deep links (Android onNewIntent routes them here as Custom("deeplink")).
-        cx.on(host, move |ev| match ev {
-            Event::NavBack { already_popped } => {
-                let _ = do_pop(*already_popped);
-            }
-            Event::Custom("deeplink", route) => {
-                let _ = day_core::navigate(route);
-            }
-            _ => {}
-        });
+        // Native back → pop the path (origin-tagged so reconcile doesn't re-issue it).
+        {
+            let (p, native_popped) = (path.clone(), native_popped.clone());
+            cx.on(host, move |ev| match ev {
+                Event::NavBack { already_popped } => {
+                    if *already_popped {
+                        native_popped.set(native_popped.get() + 1);
+                    }
+                    let mut v = p.get_untracked_rw();
+                    if v.pop().is_some() {
+                        p.set_rw(v);
+                    }
+                }
+                Event::Custom("deeplink", route) => {
+                    let _ = day_core::navigate(route);
+                }
+                _ => {}
+            });
+        }
 
+        // string-route adapter. A stack is driven by its `path` (app state / buttons), not by
+        // magic navigate-strings: only "" (pop to root) is claimed, so `navigate("<sibling>")`
+        // falls through to the enclosing surface. `pop` falls through once the stack is empty.
+        let p_push = path.clone();
+        let p_pop = path.clone();
+        let p_cur = path.clone();
+        register_route_surface(
+            move |k| {
+                if k.is_empty() {
+                    let mut v = p_push.get_untracked_rw();
+                    if v.is_empty() {
+                        return false; // already at root — let the parent handle ""
+                    }
+                    v.clear();
+                    p_push.set_rw(v);
+                    true
+                } else {
+                    false
+                }
+            },
+            move |_| {
+                let mut v = p_pop.get_untracked_rw();
+                if v.pop().is_some() {
+                    p_pop.set_rw(v);
+                    true
+                } else {
+                    false
+                }
+            },
+            move || p_cur.get_untracked_rw().last().cloned().unwrap_or_default(),
+        );
         host
     }
 }

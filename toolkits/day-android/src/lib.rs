@@ -391,6 +391,29 @@ mod imp {
                         &[JValue::Long(idj)],
                     ))
                 }),
+                kinds::TABS => {
+                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeTabs",
+                            "(JI)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Int(p.selected as i32)],
+                        ))
+                    })
+                }
+                kinds::TABS_PAGE => {
+                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    with_env(|env| {
+                        let title = jstr(env, &p.title);
+                        AHandle(make_view(
+                            env,
+                            "makeTabPage",
+                            "(JLjava/lang/String;)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Object(&title)],
+                        ))
+                    })
+                }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let joined = p.items.join("\u{1f}");
@@ -539,6 +562,15 @@ mod imp {
             match kind {
                 // Mobile selection is transient (rows ripple, then push) — nothing to sync.
                 kinds::NAV_MENU => {}
+                kinds::TABS => {
+                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                        call_void(
+                            "setTabsSelected",
+                            "(Landroid/view/View;I)V",
+                            &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
+                        );
+                    }
+                }
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {

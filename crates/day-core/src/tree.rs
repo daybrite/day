@@ -401,6 +401,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 // `flag` marks indeterminate; `value` holds the determinate fraction.
                 probe.flag = p.value.is_none();
                 probe.value = p.value.unwrap_or(0.0);
+            } else if let Some(p) = props.downcast_ref::<TabsProps>() {
+                probe.value = p.selected as f64;
             }
         }
         let node = self.nodes.insert(NodeData {
@@ -527,6 +529,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     patch.downcast_ref::<NavMenuPatch>()
                 {
                     n.probe.selected = sel.map(|i| i as i64).unwrap_or(-1);
+                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                    n.probe.value = *i as f64;
                 }
             }
         }
@@ -625,11 +629,14 @@ thread_local! {
 }
 
 pub fn install_tree(tree: Box<dyn TreeOps>) {
+    // A fresh mount starts with no route hosts; nav()/tabs() re-register during build.
+    crate::nav::clear_controllers();
     TREE.with(|t| *t.borrow_mut() = Some(tree));
 }
 
 /// Reset the thread-local tree + queues (tests).
 pub fn uninstall_tree() {
+    crate::nav::clear_controllers();
     TREE.with(|t| *t.borrow_mut() = None);
     EVENTS.with(|e| e.borrow_mut().clear());
     PUMP_PENDING.set(false);

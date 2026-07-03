@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
+use libadwaita as adw;
 use linkme::distributed_slice;
 
 use day_spec::props::*;
@@ -124,21 +125,28 @@ pub fn emit(id: NodeId, ev: Event) {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md): GtkPaned host, sidebar + detail GtkFixed panes.
-// day sizes page content from the pane sizes this module reports via FrameChanged
-// (on host set_frame and divider drags).
+// Navigation (docs/navigation.md): libadwaita. selector(Sidebar) → AdwNavigationSplitView;
+// stack → AdwNavigationView (push/pop). Each page's GtkFixed is wrapped in an
+// AdwNavigationPage; day sizes content from the host width via FrameChanged (nav_report).
 // ---------------------------------------------------------------------------
 
-/// Smallest the split sidebar may be dragged (the divider stops here rather than
-/// collapsing the sidebar to nothing).
-const NAV_SIDEBAR_MIN: f64 = 120.0;
+/// The sidebar's fixed width in the split view (day sizes detail content = host − this).
+const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
+
+/// selector(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
+enum NavPresent {
+    Split(adw::NavigationSplitView),
+    Stack(adw::NavigationView),
+}
 
 struct NavState {
-    paned: gtk4::Paned,
-    sidebar_wrap: gtk4::Fixed,
-    detail_wrap: gtk4::Fixed,
-    /// (page widget, node id); index 0 = sidebar page, the rest are the detail stack.
-    pages: Vec<(Handle, NodeId)>,
+    present: NavPresent,
+    /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
+    split: bool,
+    /// (page GtkFixed key, node id, its AdwNavigationPage) in order (index 0 = sidebar/root).
+    pages: Vec<(usize, NodeId, adw::NavigationPage)>,
+    /// A programmatic pop is in flight: the `popped` handler must not re-emit NavBack.
+    suppress: Rc<std::cell::Cell<bool>>,
 }
 
 struct NavMenuState {
@@ -152,6 +160,8 @@ thread_local! {
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
     /// NAV_PAGE widget → its day node id (recorded at realize, joined at insert).
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE widget → its title (for the AdwNavigationPage).
+    static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     /// NAV_MENU widget → its list box + suppression flag.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
 }
@@ -160,32 +170,89 @@ fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
 
-/// Report both pane sizes so NavLayout re-lays page content (enqueue-only, §8.3).
-fn nav_sync_panes(host_key: usize) {
+/// Emit each page's content size so NavLayout re-lays it (enqueue-only, §8.3). Split: the
+/// sidebar is a fixed width and the detail fills the rest; stack: every page fills the host.
+fn nav_report(host_key: usize) {
     let reports: Vec<(NodeId, Size)> = NAV_STATE.with(|m| {
         let m = m.borrow();
         let Some(state) = m.get(&host_key) else {
             return Vec::new();
         };
-        let w = state.paned.width() as f64;
-        let h = state.paned.height() as f64;
-        if w <= 0.0 || h <= 0.0 {
+        let (hw, hh) = match &state.present {
+            NavPresent::Split(sv) => (sv.width() as f64, sv.height() as f64),
+            NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
+        };
+        if hw <= 0.0 || hh <= 0.0 {
             return Vec::new();
         }
-        let pos = state.paned.position() as f64;
-        let detail_w = (w - pos - 8.0).max(0.0);
         state
             .pages
             .iter()
             .enumerate()
-            .map(|(i, (_, id))| {
-                let size = if i == 0 {
-                    Size::new(pos, h)
+            .map(|(i, (_, id, _))| {
+                let size = if state.split {
+                    if i == 0 {
+                        Size::new(NAV_SIDEBAR_W, hh)
+                    } else {
+                        Size::new((hw - NAV_SIDEBAR_W).max(0.0), hh)
+                    }
                 } else {
-                    Size::new(detail_w, h)
+                    Size::new(hw, hh)
                 };
                 (*id, size)
             })
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tabs (docs/tabs.md): a GtkNotebook host holding GtkFixed page containers.
+// ---------------------------------------------------------------------------
+
+/// Approximate GtkNotebook tab-strip height, subtracted from the host to size page content.
+const TAB_BAR_H: f64 = 40.0;
+
+struct TabsState {
+    notebook: gtk4::Notebook,
+    /// (page widget, node id) in tab order.
+    pages: Vec<(Handle, NodeId)>,
+    /// Tab to select once its page exists (GtkNotebook shows the first page by default).
+    initial: usize,
+    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    suppress: Rc<std::cell::Cell<bool>>,
+}
+
+thread_local! {
+    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
+    /// TABS_PAGE widget → its day node id (recorded at realize, joined at insert).
+    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// TABS_PAGE widget → its tab label.
+    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// TABS_PAGE widget keys (set_frame skips them — the notebook owns their layout).
+    static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+}
+
+/// Report each tab page's content size (host minus the tab strip) so NavLayout re-lays it.
+fn tabs_sync(host_key: usize) {
+    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&host_key) else {
+            return Vec::new();
+        };
+        let w = state.notebook.width() as f64;
+        let h = state.notebook.height() as f64;
+        if w <= 0.0 || h <= 0.0 {
+            return Vec::new();
+        }
+        let content_h = (h - TAB_BAR_H).max(0.0);
+        state
+            .pages
+            .iter()
+            .map(|(_, id)| (*id, Size::new(w, content_h)))
             .collect()
     });
     for (id, size) in reports {
@@ -274,43 +341,94 @@ impl Toolkit for Gtk {
         match kind {
             kinds::CONTAINER => gtk4::Fixed::new().upcast(),
             kinds::NAV => {
-                let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-                let sidebar_wrap = gtk4::Fixed::new();
-                let detail_wrap = gtk4::Fixed::new();
-                // A bare GtkFixed reports its children's bounding box as its MINIMUM size, so
-                // the divider could never shrink the sidebar below day's content width. An
-                // External-policy ScrolledWindow breaks that propagation (no scrollbars ever
-                // show — day sizes the content to the pane); the size_request is the shrink
-                // floor the divider stops at. Same trick as the resizable window root.
-                let sidebar_scroll = gtk4::ScrolledWindow::new();
-                sidebar_scroll.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-                sidebar_scroll.set_child(Some(&sidebar_wrap));
-                sidebar_scroll.set_size_request(NAV_SIDEBAR_MIN as i32, -1);
-                paned.set_start_child(Some(&sidebar_scroll));
-                paned.set_end_child(Some(&detail_wrap));
-                paned.set_resize_start_child(false);
-                paned.set_shrink_start_child(false);
-                paned.set_resize_end_child(true);
-                paned.set_position(day_spec::NAV_SIDEBAR_WIDTH as i32);
-                let host: Handle = paned.clone().upcast();
+                let is_split = props
+                    .downcast_ref::<NavProps>()
+                    .map(|p| p.split)
+                    .unwrap_or(true);
+                let suppress = Rc::new(std::cell::Cell::new(false));
+                let (host, present): (Handle, NavPresent) = if is_split {
+                    // AdwNavigationSplitView: sidebar + detail, the idiomatic GNOME paradigm.
+                    let sv = adw::NavigationSplitView::new();
+                    sv.set_min_sidebar_width(NAV_SIDEBAR_W);
+                    sv.set_max_sidebar_width(NAV_SIDEBAR_W);
+                    (sv.clone().upcast(), NavPresent::Split(sv))
+                } else {
+                    // AdwNavigationView: a genuine push/pop stack with back gesture.
+                    let nv = adw::NavigationView::new();
+                    let s = suppress.clone();
+                    nv.connect_popped(move |_view, _page| {
+                        // A native back gesture / Escape popped a page (not a day-driven pop).
+                        if !s.get() {
+                            emit(
+                                id,
+                                Event::NavBack {
+                                    already_popped: true,
+                                },
+                            );
+                        }
+                    });
+                    (nv.clone().upcast(), NavPresent::Stack(nv))
+                };
                 let key = widget_key(&host);
-                paned.connect_position_notify(move |_| nav_sync_panes(key));
                 NAV_STATE.with(|m| {
                     m.borrow_mut().insert(
                         key,
                         NavState {
-                            paned,
-                            sidebar_wrap,
-                            detail_wrap,
+                            present,
+                            split: is_split,
                             pages: Vec::new(),
+                            suppress,
                         },
                     )
                 });
                 host
             }
             kinds::NAV_PAGE => {
+                let title = props
+                    .downcast_ref::<NavPageProps>()
+                    .map(|p| p.title.clone())
+                    .unwrap_or_default();
                 let page: Handle = gtk4::Fixed::new().upcast();
-                NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(widget_key(&page), id));
+                let key = widget_key(&page);
+                NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));
+                NAV_PAGE_TITLES.with(|m| m.borrow_mut().insert(key, title));
+                page
+            }
+            kinds::TABS => {
+                let p = props.downcast_ref::<TabsProps>().unwrap();
+                let notebook = gtk4::Notebook::new();
+                notebook.set_scrollable(true);
+                let host: Handle = notebook.clone().upcast();
+                let key = widget_key(&host);
+                let suppress = Rc::new(std::cell::Cell::new(false));
+                {
+                    let suppress = suppress.clone();
+                    notebook.connect_switch_page(move |_, _, page_num| {
+                        if !suppress.get() {
+                            emit(id, Event::SelectionChanged(page_num as i64));
+                        }
+                    });
+                }
+                TABS_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        key,
+                        TabsState {
+                            notebook,
+                            pages: Vec::new(),
+                            initial: p.selected,
+                            suppress,
+                        },
+                    )
+                });
+                host
+            }
+            kinds::TABS_PAGE => {
+                let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                let page: Handle = gtk4::Fixed::new().upcast();
+                let key = widget_key(&page);
+                TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));
+                TABS_PAGE_TITLES.with(|m| m.borrow_mut().insert(key, p.title.clone()));
+                TABS_PAGES.with(|s| s.borrow_mut().insert(key));
                 page
             }
             kinds::NAV_MENU => {
@@ -474,6 +592,17 @@ impl Toolkit for Gtk {
                     });
                 }
             }
+            kinds::TABS => {
+                if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                    TABS_STATE.with(|m| {
+                        if let Some(state) = m.borrow().get(&widget_key(h)) {
+                            state.suppress.set(true);
+                            state.notebook.set_current_page(Some(*i as u32));
+                            state.suppress.set(false);
+                        }
+                    });
+                }
+            }
             kinds::NAV => {
                 if let Some(p) = patch.downcast_ref::<NavPatch>() {
                     NAV_STATE.with(|m| {
@@ -481,25 +610,12 @@ impl Toolkit for Gtk {
                         let Some(state) = m.get(&widget_key(h)) else {
                             return;
                         };
-                        // pages[0] is the sidebar; the detail stack starts at 1.
-                        let detail = &state.pages[1..];
-                        match p {
-                            NavPatch::Pushed { .. } => {
-                                let last = detail.len().saturating_sub(1);
-                                for (i, (page, _)) in detail.iter().enumerate() {
-                                    page.set_visible(i == last);
-                                }
-                            }
-                            NavPatch::Popped => {
-                                let n = detail.len();
-                                if let Some((top, _)) = detail.last() {
-                                    top.set_visible(false);
-                                }
-                                if n >= 2 {
-                                    detail[n - 2].0.set_visible(true);
-                                }
-                            }
-                            NavPatch::Title(_) => {}
+                        // Structure (sidebar / content / push) is driven from insert & remove;
+                        // Popped drives the stack's day-initiated pop (suppressing its echo).
+                        if let (NavPatch::Popped, NavPresent::Stack(nv)) = (p, &state.present) {
+                            state.suppress.set(true);
+                            nv.pop();
+                            state.suppress.set(false);
                         }
                     });
                 }
@@ -594,10 +710,38 @@ impl Toolkit for Gtk {
     }
 
     fn release(&mut self, h: Handle) {
+        let key = widget_key(&h);
         NAV_MENUS.with(|m| {
-            m.borrow_mut().remove(&widget_key(&h));
+            m.borrow_mut().remove(&key);
         });
-        if let Some(parent) = h.parent()
+        TABS_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TABS_PAGE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TABS_PAGE_TITLES.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TABS_PAGES.with(|s| {
+            s.borrow_mut().remove(&key);
+        });
+        NAV_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        NAV_PAGE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        NAV_PAGE_TITLES.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        // A tab page detaches from its notebook; a nav page is owned by its AdwNavigationPage
+        // (already detached in `remove`); everything else lives in a GtkFixed parent.
+        if let Some(notebook) = h.parent().and_then(|p| p.downcast::<gtk4::Notebook>().ok()) {
+            if let Some(n) = notebook.page_num(&h) {
+                notebook.remove_page(Some(n));
+            }
+        } else if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
             fixed.remove(&h);
@@ -605,8 +749,39 @@ impl Toolkit for Gtk {
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
-        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages.
         let host_key = widget_key(parent);
+        // Tabs host: insert the page into the notebook with its label; the notebook owns the
+        // page's layout, so day sizes the page content from tabs_sync's FrameChanged reports.
+        let tabs_handled = TABS_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&host_key) else {
+                return false;
+            };
+            let id = TABS_PAGE_IDS
+                .with(|ids| ids.borrow().get(&widget_key(child)).copied())
+                .unwrap_or(NodeId(0));
+            let title = TABS_PAGE_TITLES
+                .with(|t| t.borrow().get(&widget_key(child)).cloned())
+                .unwrap_or_default();
+            let label = gtk4::Label::new(Some(&title));
+            state
+                .notebook
+                .insert_page(child, Some(&label), Some(index as u32));
+            let at = index.min(state.pages.len());
+            state.pages.insert(at, (child.clone(), id));
+            if index == state.initial {
+                state.suppress.set(true);
+                state.notebook.set_current_page(Some(index as u32));
+                state.suppress.set(false);
+            }
+            true
+        });
+        if tabs_handled {
+            gtk4::glib::idle_add_local_once(move || tabs_sync(host_key));
+            return;
+        }
+        // Nav host: wrap the page's GtkFixed in an AdwNavigationPage. Split → set sidebar
+        // (index 0) / content; stack → push onto the navigation view.
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&host_key) else {
@@ -615,17 +790,30 @@ impl Toolkit for Gtk {
             let id = NAV_PAGE_IDS
                 .with(|ids| ids.borrow().get(&widget_key(child)).copied())
                 .unwrap_or(NodeId(0));
-            let wrap = if index == 0 {
-                &state.sidebar_wrap
-            } else {
-                &state.detail_wrap
-            };
-            wrap.put(child, 0.0, 0.0);
-            state.pages.push((child.clone(), id));
+            let title = NAV_PAGE_TITLES
+                .with(|t| t.borrow().get(&widget_key(child)).cloned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "day".to_string());
+            let nav_page = adw::NavigationPage::new(child, &title);
+            match &state.present {
+                NavPresent::Split(sv) => {
+                    if state.split && index == 0 {
+                        sv.set_sidebar(Some(&nav_page));
+                    } else {
+                        sv.set_content(Some(&nav_page));
+                    }
+                }
+                NavPresent::Stack(nv) => {
+                    state.suppress.set(true);
+                    nv.push(&nav_page);
+                    state.suppress.set(false);
+                }
+            }
+            state.pages.push((widget_key(child), id, nav_page));
             true
         });
         if handled {
-            nav_sync_panes(host_key);
+            gtk4::glib::idle_add_local_once(move || nav_report(host_key));
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
         }
@@ -637,11 +825,18 @@ impl Toolkit for Gtk {
             let Some(state) = m.get_mut(&widget_key(parent)) else {
                 return false;
             };
-            state.pages.retain(|(p, _)| p.as_ptr() != child.as_ptr());
-            if child.parent().as_ref() == Some(state.sidebar_wrap.upcast_ref()) {
-                state.sidebar_wrap.remove(child);
-            } else if child.parent().as_ref() == Some(state.detail_wrap.upcast_ref()) {
-                state.detail_wrap.remove(child);
+            let key = widget_key(child);
+            if let Some(pos) = state.pages.iter().position(|(k, _, _)| *k == key) {
+                let (_, _, nav_page) = state.pages.remove(pos);
+                match &state.present {
+                    // The content page is being replaced; clear it (a new one follows).
+                    NavPresent::Split(sv) => sv.set_content(None::<&adw::NavigationPage>),
+                    // The stack pop already removed it (day-driven pop or native gesture);
+                    // dropping our ref is enough.
+                    NavPresent::Stack(_) => {
+                        let _ = nav_page;
+                    }
+                }
             }
             true
         });
@@ -703,6 +898,13 @@ impl Toolkit for Gtk {
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+        let key = widget_key(h);
+        // Tab pages / nav pages are laid out by their native container, not by day; skip them.
+        if TABS_PAGES.with(|s| s.borrow().contains(&key))
+            || NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key))
+        {
+            return;
+        }
         if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
@@ -712,12 +914,15 @@ impl Toolkit for Gtk {
             frame.size.width.round() as i32,
             frame.size.height.round() as i32,
         );
-        // Nav host resized (window resize): re-report pane sizes for page relayout.
-        // GTK allocates the paned asynchronously — defer one idle so position/size settle.
-        let key = widget_key(h);
+        // Nav / tabs host resized (window resize): re-report page sizes for relayout.
+        // GTK allocates asynchronously — defer one idle so size/position settle.
         let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
         if is_nav {
-            gtk4::glib::idle_add_local_once(move || nav_sync_panes(key));
+            gtk4::glib::idle_add_local_once(move || nav_report(key));
+        }
+        let is_tabs = TABS_STATE.with(|m| m.borrow().contains_key(&key));
+        if is_tabs {
+            gtk4::glib::idle_add_local_once(move || tabs_sync(key));
         }
     }
 
@@ -920,7 +1125,9 @@ impl Platform for Gtk {
     const TOOLKIT: &'static str = "gtk";
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
-        let app = gtk4::Application::builder()
+        // AdwApplication initialises libadwaita and loads the Adwaita stylesheet, so
+        // AdwNavigationSplitView / AdwNavigationView render with the GNOME treatment.
+        let app = adw::Application::builder()
             .application_id("dev.day.app")
             .build();
         let state = RefCell::new(Some((self, ready, options)));

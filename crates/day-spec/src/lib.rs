@@ -35,6 +35,11 @@ pub mod kinds {
     /// Native navigation item list (docs/navigation.md): NSOutlineView source list /
     /// GtkListBox navigation-sidebar / QListWidget / UITableView rows with chevrons.
     pub const NAV_MENU: &str = "day.nav_menu";
+    /// Native tabbed container (docs/tabs.md): NSTabView / GtkNotebook / QTabWidget /
+    /// UITabBarController / Android tab strip. Holds `TABS_PAGE` children, one visible.
+    pub const TABS: &str = "day.tabs";
+    /// One tab's content container inside a `TABS` host; its frame is native-owned.
+    pub const TABS_PAGE: &str = "day.tabs_page";
 }
 
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
@@ -366,6 +371,27 @@ pub mod props {
         /// Programmatic highlight sync — toolkits apply WITHOUT re-emitting
         /// SelectionChanged (the TextField from_native echo rule).
         Selected(Option<usize>),
+    }
+
+    /// Native tabbed container (docs/tabs.md). `titles` are the tab labels in page order;
+    /// `selected` is the active tab index. Toolkits present a native tab widget and show the
+    /// selected page.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TabsProps {
+        pub titles: Vec<String>,
+        pub selected: usize,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum TabsPatch {
+        /// Programmatic selection sync — toolkits apply WITHOUT re-emitting SelectionChanged
+        /// (the TextField from_native echo rule).
+        Selected(usize),
+    }
+
+    /// One tab's content container. `title` is its tab label (read by the host on insert).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TabsPageProps {
+        pub title: String,
     }
 }
 

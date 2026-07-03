@@ -197,6 +197,10 @@ public final class DayBridge {
 
     public static void addChild(View parent, View child) {
         if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
+        if (parent instanceof DayTabs) {
+            ((DayTabs) parent).addTab(child, (String) child.getTag());
+            return;
+        }
         View target = contentOf(parent);
         if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
     }
@@ -210,8 +214,9 @@ public final class DayBridge {
     }
     public static void setFrame(View v, int x, int y, int w, int h) {
         ViewGroup p = (ViewGroup) v.getParent();
-        // Nav pages are MATCH_PARENT in the host's page frame — their frames are native-owned.
+        // Nav / tab pages fill the host's page frame — their frames are native-owned.
         if (p != null && p.getParent() instanceof DayNavHost) return;
+        if (p != null && p.getParent() instanceof DayTabs) return;
         if (p instanceof DayFixed) ((DayFixed) p).setChildFrame(v, x, y, w, h);
     }
 
@@ -235,6 +240,24 @@ public final class DayBridge {
     }
     public static void navPush(View host, String title) { ((DayNavHost) host).push(title); }
     public static void navPop(View host) { ((DayNavHost) host).pop(); }
+
+    // Tabs (docs/tabs.md): a DayTabs strip; each page is a DayFixed carrying its title as a tag.
+    public static View makeTabs(long id, int initial) { return new DayTabs(ctx, id, initial); }
+    public static View makeTabPage(final long id, String title) {
+        DayFixed page = new DayFixed(ctx);
+        page.setTag(title);
+        page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                    int ol, int ot, int or2, int ob) {
+                int w = r - l, h = b - t;
+                if (w != or2 - ol || h != ob - ot) {
+                    nativeOnEvent(id, 6, 0.0, w + "," + h); // kind 6 = FrameChanged
+                }
+            }
+        });
+        return page;
+    }
+    public static void setTabsSelected(View tabs, int index) { ((DayTabs) tabs).select(index); }
     /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. */
     public static View makeNavMenu(final long id, String joinedItems) {
         android.widget.LinearLayout list = new android.widget.LinearLayout(ctx);

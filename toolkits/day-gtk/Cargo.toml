@@ -8,3 +8,6 @@ rust-version.workspace = true
 day-spec = { workspace = true }
 linkme = { workspace = true }
 gtk4 = { version = "0.11", features = ["v4_10"] }
+# libadwaita for the desktop navigation paradigm: AdwNavigationSplitView (sidebar+detail)
+# and AdwNavigationView (push/pop stack). v1_4 gates the navigation-view widgets.
+libadwaita = { version = "0.9", features = ["v1_4"] }

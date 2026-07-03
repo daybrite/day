@@ -202,6 +202,13 @@ impl Toolkit for MockToolkit {
             w.text = p.items.join("|");
             w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
             detail = format!(" items={:?} selected={:?}", p.items, p.selected);
+        } else if let Some(p) = props.downcast_ref::<TabsProps>() {
+            w.text = p.titles.join("|");
+            w.value = p.selected as f64;
+            detail = format!(" titles={:?} selected={}", p.titles, p.selected);
+        } else if let Some(p) = props.downcast_ref::<TabsPageProps>() {
+            w.text = p.title.clone();
+            detail = format!(" title={:?}", p.title);
         }
         s.log(format!("realize {kind} #{h}{detail}"));
         s.widgets.insert(h, w);
@@ -288,6 +295,9 @@ impl Toolkit for MockToolkit {
             } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                 w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
                 format!("menu selected={sel:?}")
+            } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                w.value = *i as f64;
+                format!("tab selected={i}")
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
                 match p {
                     NavPatch::Pushed { title } => {

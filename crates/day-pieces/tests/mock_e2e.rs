@@ -362,130 +362,94 @@ fn ids_land_as_a11y_identifiers() {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md)
+// Navigation & tabs (docs/navigation.md, docs/tabs.md) — selector + stack
 // ---------------------------------------------------------------------------
 
-fn nav_root() -> AnyPiece {
-    nav(
-        "Home",
-        column((label("root-content"), nav_link("Go", "about"), nav_menu())),
-    )
-    .route("about", "About", || label("about-content"))
-    .route("extra", "Extra", || label("extra-content"))
-    .any()
+fn tabs_selector(sel: Signal<String>) -> AnyPiece {
+    selector(sel)
+        .style(SelectorStyle::Tabs)
+        .item("one", "One", || label("one-content"))
+        .item("two", "Two", || label("two-content"))
+        .item("three", "Three", || label("three-content"))
+        .id("main-tabs")
 }
 
 #[test]
-fn nav_push_builds_lazily_and_pop_disposes() {
-    let probe = boot(nav_root);
-    // Root page only; destinations are unbuilt.
-    assert_eq!(probe.find_by_kind("day.nav").len(), 1);
-    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
-    assert!(
-        probe
-            .find_by_kind("day.label")
-            .iter()
-            .all(|(_, w)| w.text != "about-content")
-    );
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
+fn selector_tabs_builds_all_pages_and_binds_selection() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot(move || tabs_selector(sel));
+    let hosts = probe.find_by_kind("day.tabs");
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].1.value, 0.0);
+    assert_eq!(probe.find_by_kind("day.tabs_page").len(), 3);
+    for t in ["one-content", "two-content", "three-content"] {
+        assert!(
+            probe
+                .find_by_kind("day.label")
+                .iter()
+                .any(|(_, w)| w.text == t),
+            "{t} built eagerly"
+        );
+    }
+    assert_eq!(day_core::current_route().as_deref(), Some("one"));
 
-    probe.clear_log();
-    assert!(navigate("about"));
-    assert_eq!(day_core::current_route().as_deref(), Some("about"));
-    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
-    assert!(
-        probe
-            .find_by_kind("day.label")
-            .iter()
-            .any(|(_, w)| w.text == "about-content"),
-        "destination content built on push"
-    );
-    assert!(
-        probe
-            .log()
-            .iter()
-            .any(|l| l.contains("nav pushed title=\"About\"")),
-        "host received Pushed patch: {:?}",
-        probe.log()
-    );
+    // signal → native
+    batch(|| sel.set("three".into()));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 2.0);
 
-    probe.clear_log();
-    assert!(nav_back());
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
-    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
-    assert!(
-        probe
-            .find_by_kind("day.label")
-            .iter()
-            .all(|(_, w)| w.text != "about-content")
-    );
-    assert!(probe.log().iter().any(|l| l.contains("nav popped")));
-    // Nothing left to pop.
-    assert!(!nav_back());
-}
+    // route (string shim) → native + signal
+    assert!(navigate("two"));
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "two");
+    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 1.0);
 
-#[test]
-fn navigate_has_reset_semantics_and_rejects_unknown() {
-    let probe = boot(nav_root);
-    assert!(navigate("about"));
-    assert!(navigate("extra"));
-    // Reset-to: the stack is replaced, not deepened.
-    assert_eq!(day_core::current_route().as_deref(), Some("extra"));
-    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    // native tap → signal
+    probe.emit(node_id(&probe, "day.tabs", 0), Event::SelectionChanged(0));
+    assert_eq!(sel.get_untracked(), "one");
     assert!(!navigate("nope"));
+}
+
+fn sidebar_selector(sel: Signal<String>) -> AnyPiece {
+    selector(sel)
+        .title("Home")
+        .item("about", "About", || label("about-content"))
+        .item("extra", "Extra", || label("extra-content"))
+        .any()
+}
+
+#[test]
+fn selector_sidebar_lists_items_and_navigates() {
+    // Mock reports NavSplit=Unsupported → stack (mobile) presentation.
+    let sel = Signal::new(String::new());
+    let probe = boot(move || sidebar_selector(sel));
+    assert_eq!(probe.find_by_kind("day.nav").len(), 1);
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        1,
+        "root/list only"
+    );
+    let menus = probe.find_by_kind("day.nav_menu");
+    assert_eq!(menus.len(), 1);
+    assert_eq!(menus[0].1.text, "About|Extra");
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+
+    // native list tap → signal → detail shown + highlight synced
+    probe.emit(NodeId(menus[0].1.node), Event::SelectionChanged(1));
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "extra");
     assert_eq!(day_core::current_route().as_deref(), Some("extra"));
-    // "" returns to the root.
-    assert!(navigate(""));
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
-}
-
-#[test]
-fn nav_link_navigates_through_the_event_path() {
-    let probe = boot(nav_root);
-    let link = probe
-        .find_by_kind("day.button")
-        .into_iter()
-        .find(|(_, w)| w.text == "Go")
-        .expect("nav_link renders a button");
-    probe.emit(NodeId(link.1.node), Event::Pressed);
-    assert_eq!(day_core::current_route().as_deref(), Some("about"));
-}
-
-#[test]
-fn native_back_syncs_without_reissuing_pop_patch() {
-    let probe = boot(nav_root);
-    assert!(navigate("about"));
-    let host = node_id(&probe, "day.nav", 0);
-    probe.clear_log();
-    // iOS-style: the toolkit popped natively already.
-    probe.emit(
-        host,
-        Event::NavBack {
-            already_popped: true,
-        },
-    );
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
     assert!(
-        !probe.log().iter().any(|l| l.contains("nav popped")),
-        "already_popped must not re-issue the Popped patch: {:?}",
-        probe.log()
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "extra-content")
     );
-    // Android-style: day drives the native pop.
-    assert!(navigate("about"));
-    probe.clear_log();
-    probe.emit(
-        host,
-        Event::NavBack {
-            already_popped: false,
-        },
-    );
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
-    assert!(probe.log().iter().any(|l| l.contains("nav popped")));
-}
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 1.0);
 
-#[test]
-fn deep_link_env_navigates_at_startup() {
-    let probe = boot_with_env(Some(("DAY_DEEPLINK", "about")), nav_root);
+    // programmatic navigate resets the detail
+    assert!(navigate("about"));
     flush_sync();
     assert_eq!(day_core::current_route().as_deref(), Some("about"));
     assert!(
@@ -494,27 +458,176 @@ fn deep_link_env_navigates_at_startup() {
             .iter()
             .any(|(_, w)| w.text == "about-content")
     );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "extra-content")
+    );
+
+    // signal → detail directly
+    batch(|| sel.set("extra".into()));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "extra-content")
+    );
+
+    // back to root
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+    assert!(!nav_back());
 }
 
 #[test]
-fn nav_menu_lists_routes_selects_and_syncs() {
-    let probe = boot(nav_root);
-    let menus = probe.find_by_kind("day.nav_menu");
-    assert_eq!(menus.len(), 1);
-    assert_eq!(menus[0].1.text, "About|Extra");
-    assert_eq!(menus[0].1.value, -1.0, "nothing selected at root");
-
-    // Native selection (row tap) navigates to the route...
-    probe.emit(NodeId(menus[0].1.node), Event::SelectionChanged(1));
+fn selector_sidebar_deep_link_at_startup() {
+    let sel = Signal::new(String::new());
+    let probe = boot_with_env(Some(("DAY_DEEPLINK", "extra")), move || {
+        sidebar_selector(sel)
+    });
+    flush_sync();
     assert_eq!(day_core::current_route().as_deref(), Some("extra"));
-    // ...and the highlight syncs back to the menu.
-    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 1.0);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "extra-content")
+    );
+}
 
-    // Programmatic navigation also highlights; popping to root clears it.
-    assert!(navigate("about"));
-    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 0.0);
+fn stack_root(path: Signal<Vec<String>>) -> AnyPiece {
+    stack(path, label("home-content"))
+        .destination(|key| label(format!("detail:{key}")))
+        .id("nav-stack")
+}
+
+#[test]
+fn stack_pushes_pops_and_reconciles_to_path() {
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || stack_root(path));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1, "root only");
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "home-content")
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+
+    // push two levels through the path signal
+    batch(|| path.set(vec!["a".into(), "b".into()]));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "detail:b")
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some("b"));
+
+    // nav_back pops one (through the string shim → path)
     assert!(nav_back());
-    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, -1.0);
+    flush_sync();
+    assert_eq!(path.get_untracked(), vec!["a".to_string()]);
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+
+    // divergent path: keep common prefix (none), pop the rest, push the new suffix
+    batch(|| path.set(vec!["x".into()]));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "detail:x")
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "detail:a")
+    );
+}
+
+#[test]
+fn stack_native_back_writes_into_path() {
+    let path = Signal::new(vec!["a".to_string()]);
+    let probe = boot(move || stack_root(path));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    let host = node_id(&probe, "day.nav", 0);
+
+    // iOS-style: the toolkit already popped natively.
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: true,
+        },
+    );
+    flush_sync();
+    assert_eq!(path.get_untracked(), Vec::<String>::new());
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+}
+
+#[test]
+fn nested_stack_in_selector_falls_through() {
+    let section = Signal::new(String::new());
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        selector(section)
+            .title("Root")
+            .item("plain", "Plain", || label("plain-content"))
+            .item("drill", "Drill", move || {
+                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+            })
+            .any()
+    });
+
+    // Enter the drill section: the selector shows it and its inner stack registers on top.
+    assert!(navigate("drill"));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill-root")
+    );
+    // Innermost surface (the stack) is at its root.
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+
+    // Push onto the inner stack via its path (app state).
+    batch(|| path.set(vec!["deep".into()]));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("deep"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill:deep")
+    );
+
+    // navigate a sibling section key: the stack doesn't own it, so it FALLS THROUGH to the
+    // enclosing selector — which switches sections (disposing the stack).
+    assert!(navigate("plain"));
+    flush_sync();
+    assert_eq!(section.get_untracked(), "plain");
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "plain-content")
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "drill:deep")
+    );
 }
 
 // ---------------------------------------------------------------------------

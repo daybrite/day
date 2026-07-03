@@ -14,6 +14,7 @@
 #include <QInputDialog>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QMetaObject>
 #include <cstdint>
 #include <map>
@@ -278,6 +279,37 @@ void day_qt_navlist_set_selected(void *w, int idx) {
     l->blockSignals(true);
     l->setCurrentRow(idx);
     l->blockSignals(false);
+}
+
+// --- tabs (docs/tabs.md): QTabWidget owns its page widgets ---
+void *day_qt_tabs_new(uint64_t id, void (*cb)(uint64_t, int)) {
+    auto *t = new QTabWidget();
+    QObject::connect(t, &QTabWidget::currentChanged,
+                     [id, cb](int index) { cb(id, index); });
+    return t;
+}
+void day_qt_tabs_add_page(void *tabs, void *page, const char *title, int index) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    // Block signals during setup so insertion / initial selection do not echo back.
+    bool b = t->blockSignals(true);
+    t->insertTab(index, static_cast<QWidget *>(page), QString::fromUtf8(title));
+    t->blockSignals(b);
+}
+void day_qt_tabs_set_current(void *tabs, int index) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    bool b = t->blockSignals(true);
+    t->setCurrentIndex(index);
+    t->blockSignals(b);
+}
+void day_qt_tabs_content_size(void *tabs, double *w, double *h) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    if (QWidget *cur = t->currentWidget()) {
+        *w = cur->width();
+        *h = cur->height();
+    } else {
+        *w = 0;
+        *h = 0;
+    }
 }
 
 void day_qt_post(void (*cb)(void *), void *data) {

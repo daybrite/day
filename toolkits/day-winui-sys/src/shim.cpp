@@ -397,6 +397,35 @@ void day_winui_progress_set(void* h, int value) {
         if (static_cast<int>(b.Value()) != value) b.Value(value);
 }
 
+// ---- tabs (docs/tabs.md): a Pivot owns its page content ----
+
+void* day_winui_tabs_new(unsigned long long id, void (*cb)(unsigned long long, int)) {
+    WUXC::Pivot p;
+    p.SelectionChanged([id, cb](winrt::Windows::Foundation::IInspectable const& s,
+                                WUXC::SelectionChangedEventArgs const&) {
+        cb(id, s.as<WUXC::Pivot>().SelectedIndex());
+    });
+    return boxh(p);
+}
+void day_winui_tabs_add_page(void* tabs, void* page, const char* title, int index) {
+    auto p = elem(tabs).as<WUXC::Pivot>();
+    WUXC::PivotItem item;
+    item.Header(winrt::box_value(hs(title)));
+    item.Content(elem(page));
+    auto items = p.Items();
+    if (index < 0 || static_cast<uint32_t>(index) >= items.Size()) items.Append(item);
+    else items.InsertAt(static_cast<uint32_t>(index), item);
+}
+void day_winui_tabs_set_current(void* tabs, int index) {
+    elem(tabs).as<WUXC::Pivot>().SelectedIndex(index);
+}
+void day_winui_tabs_content_size(void* tabs, double* w, double* h) {
+    auto p = elem(tabs).as<WUXC::Pivot>();
+    *w = p.ActualWidth();
+    double ah = p.ActualHeight();
+    *h = ah > 48 ? ah - 48 : ah; // subtract the header strip
+}
+
 // ---- textbox ----
 
 void* day_winui_textbox_new(const char* text, const char* placeholder, unsigned long long id,

@@ -36,6 +36,42 @@ thread_local! {
     /// Slider f64 range, keyed by node id (event callbacks) and handle ptr (patch application).
     static RANGES: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
     static RANGES_BY_PTR: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+    /// Tabs host ptr → (Pivot ptr, pages, initial). Pages reuse day.container.
+    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
+    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+}
+
+struct TabsState {
+    tabs: *mut c_void,
+    pages: Vec<(WinHandle, NodeId)>,
+    initial: usize,
+}
+
+extern "C" fn tabs_changed(id: u64, index: c_int) {
+    emit(NodeId(id), Event::SelectionChanged(index as i64));
+}
+
+fn tabs_sync(host: *mut c_void) {
+    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        let (mut w, mut h) = (0.0, 0.0);
+        unsafe { ffi::day_winui_tabs_content_size(state.tabs, &mut w, &mut h) };
+        if w <= 0.0 || h <= 0.0 {
+            return Vec::new();
+        }
+        state
+            .pages
+            .iter()
+            .map(|(_, id)| (*id, Size::new(w, h)))
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
 }
 
 /// Emit an event into day-core's queue (public for external Day Piece renderers).
@@ -199,6 +235,29 @@ impl Toolkit for WinUi {
                         None => WinHandle(ffi::day_winui_progress_new(0, 0)),
                     }
                 }
+                kinds::TABS => {
+                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let w = ffi::day_winui_tabs_new(id.0, tabs_changed);
+                    TABS_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            w as usize,
+                            TabsState {
+                                tabs: w,
+                                pages: Vec::new(),
+                                initial: p.selected,
+                            },
+                        )
+                    });
+                    WinHandle(w)
+                }
+                kinds::TABS_PAGE => {
+                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let page = WinHandle(ffi::day_winui_container_new());
+                    TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
+                    TABS_PAGE_TITLES
+                        .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
+                    page
+                }
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     WinHandle(ffi::day_winui_image_new(
@@ -278,6 +337,15 @@ impl Toolkit for WinUi {
                         ffi::day_winui_progress_set(h.0, progress_ticks(*v));
                     }
                 }
+                kinds::TABS => {
+                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                        TABS_STATE.with(|m| {
+                            if let Some(state) = m.borrow().get(&(h.0 as usize)) {
+                                ffi::day_winui_tabs_set_current(state.tabs, *i as c_int);
+                            }
+                        });
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -305,11 +373,46 @@ impl Toolkit for WinUi {
     }
 
     fn release(&mut self, h: WinHandle) {
-        RANGES_BY_PTR.with(|r| r.borrow_mut().remove(&(h.0 as usize)));
+        let key = h.0 as usize;
+        RANGES_BY_PTR.with(|r| r.borrow_mut().remove(&key));
+        TABS_STATE.with(|m| m.borrow_mut().remove(&key));
+        TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
+        TABS_PAGE_TITLES.with(|m| m.borrow_mut().remove(&key));
         unsafe { ffi::day_winui_delete(h.0) };
     }
 
-    fn insert(&mut self, parent: &WinHandle, child: &WinHandle, _index: usize) {
+    fn insert(&mut self, parent: &WinHandle, child: &WinHandle, index: usize) {
+        // Tabs host: add the page to the Pivot with its label; the Pivot owns page layout.
+        let tabs_handled = TABS_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+                return false;
+            };
+            let id = TABS_PAGE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or(NodeId(0));
+            let title = TABS_PAGE_TITLES
+                .with(|t| t.borrow().get(&(child.0 as usize)).cloned())
+                .unwrap_or_default();
+            unsafe {
+                ffi::day_winui_tabs_add_page(
+                    state.tabs,
+                    child.0,
+                    cstr(&title).as_ptr(),
+                    index as c_int,
+                )
+            };
+            let at = index.min(state.pages.len());
+            state.pages.insert(at, (*child, id));
+            if index == state.initial {
+                unsafe { ffi::day_winui_tabs_set_current(state.tabs, index as c_int) };
+            }
+            true
+        });
+        if tabs_handled {
+            tabs_sync(parent.0);
+            return;
+        }
         unsafe { ffi::day_winui_add_child(parent.0, child.0) };
     }
 
@@ -358,6 +461,10 @@ impl Toolkit for WinUi {
     }
 
     fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+        // Tab pages are laid out by the Pivot, not by day; skip them.
+        if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            return;
+        }
         unsafe {
             ffi::day_winui_set_geometry(
                 h.0,
@@ -367,6 +474,9 @@ impl Toolkit for WinUi {
                 frame.size.height.round() as c_int,
             )
         };
+        if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            tabs_sync(h.0);
+        }
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
