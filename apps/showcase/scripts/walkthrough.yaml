@@ -40,6 +40,18 @@ flow:
   - set_value: { id: shapes-angle-slider, value: 45 }
   - tap: { id: shapes-tap-circle }
   - screenshot: shapes
+  # Picker pieces (docs/picker.md): three native stylings bound two-way to a Signal<usize>. Select
+  # an option in each and assert the bound value label follows (the selection round-trips the signal).
+  - navigate: { route: pickers }
+  - assert_route: { route: pickers }
+  - assert_visible: { id: pickers-title }
+  - select: { id: picker-segmented, index: 2 }
+  - assert_text: { id: picker-segmented-value, text: "Large" }
+  - select: { id: picker-menu, index: 2 }
+  - assert_text: { id: picker-menu-value, text: "Blue" }
+  - select: { id: picker-inline, index: 1 }
+  - assert_text: { id: picker-inline-value, text: "Pro" }
+  - screenshot: pickers
   # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
   - navigate: { route: modals }
   - assert_route: { route: modals }

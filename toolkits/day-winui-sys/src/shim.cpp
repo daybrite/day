@@ -798,6 +798,19 @@ void day_winui_remove_child(void* parent, void* child) {
 }
 void day_winui_delete(void* h) { delete reinterpret_cast<Node*>(h); }
 
+// External-piece handle seam (docs/picker.md): box any WinRT UI element into a day handle, and
+// borrow it back — so an external piece can carry its OWN native WinUI shim (like the Qt shims)
+// without duplicating the private `Node` wrapper. The element crosses as a WinRT ABI pointer
+// (`get_abi`, a stable COM interface pointer), which day-winui-sys owns the boxing for.
+void* day_winui_box(void* iinspectable_abi) {
+    WF::IInspectable insp{ nullptr };
+    winrt::copy_from_abi(insp, iinspectable_abi); // AddRefs the incoming element
+    return boxh(insp.as<UIElement>());
+}
+void* day_winui_unbox(void* handle) {
+    return winrt::get_abi(elem(handle)); // borrowed IUIElement* (piece copy_from_abi's to own a ref)
+}
+
 void day_winui_set_geometry(void* h, int x, int y, int width, int height) {
     auto& e = elem(h);
     WUXC::Canvas::SetLeft(e, static_cast<double>(x));

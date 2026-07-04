@@ -1,0 +1,41 @@
+[package]
+name = "day-piece-picker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+qt = ["dep:day-qt"]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:block2"]
+widget = ["dep:day-android"]
+winui = ["dep:day-winui", "dep:day-winui-sys"]
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
+day-winui-sys = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true }
+objc2 = { version = "0.6", optional = true }
+block2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSPopUpButton", "NSSegmentedControl", "NSButton", "NSControl", "NSView", "NSResponder", "NSStackView", "NSUserInterfaceLayout", "NSMenu", "NSLayoutConstraint"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSArray"] }
+objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UISegmentedControl", "UIButton", "UIControl", "UIView", "UIResponder", "UIStackView", "UIMenu", "UIMenuElement", "UIAction", "UIImage", "NSLayoutConstraint"] }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }

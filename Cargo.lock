@@ -313,6 +313,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-picker"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "day-uikit",
+ "day-winui",
+ "day-winui-sys",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-pieces"
 version = "0.1.0"
 dependencies = [
@@ -1355,6 +1382,7 @@ version = "0.1.0"
 dependencies = [
  "day",
  "day-piece-combobox",
+ "day-piece-picker",
 ]
 
 [[package]]
