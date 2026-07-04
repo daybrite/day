@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QInputDialog>
 #include <QProgressBar>
 #include <QPushButton>
@@ -448,6 +449,13 @@ protected:
                     p.drawText(pos, t);
                     break;
                 }
+                case 8: p.save(); break;
+                case 9: p.restore(); break;
+                case 10:
+                    // Packed affine (a,b,c,d,tx,ty); QTransform(m11,m12,m21,m22,dx,dy) has the same
+                    // row-vector meaning. combine=true concatenates onto the current world transform.
+                    p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
+                    break;
             }
         }
     }
@@ -467,6 +475,57 @@ void *day_qt_image_new(const char *path) {
     QPixmap pm(QString::fromUtf8(path));
     if (!pm.isNull()) { l->setPixmap(pm); l->setScaledContents(true); }
     return l;
+}
+
+// --- gestures (tap / drag) ---
+// phase: 0 = tap, 1 = drag began, 2 = drag changed, 3 = drag ended.
+typedef void (*DayGestureCb)(uint64_t node, int phase, double x, double y, double tx, double ty);
+
+class DayGestureFilter : public QObject {
+public:
+    uint64_t node; bool is_drag; DayGestureCb cb;
+    bool pressed = false; QPointF start;
+    DayGestureFilter(uint64_t n, bool d, DayGestureCb c) : node(n), is_drag(d), cb(c) {}
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        switch (ev->type()) {
+            case QEvent::MouseButtonPress: {
+                QMouseEvent *me = static_cast<QMouseEvent *>(ev);
+                start = me->position();
+                pressed = true;
+                if (is_drag) cb(node, 1, start.x(), start.y(), 0.0, 0.0);
+                break;
+            }
+            case QEvent::MouseMove: {
+                if (is_drag && pressed) {
+                    QPointF p = static_cast<QMouseEvent *>(ev)->position();
+                    cb(node, 2, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
+                }
+                break;
+            }
+            case QEvent::MouseButtonRelease: {
+                QMouseEvent *me = static_cast<QMouseEvent *>(ev);
+                QPointF p = me->position();
+                if (is_drag && pressed) {
+                    cb(node, 3, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
+                } else if (!is_drag && pressed) {
+                    QWidget *w = qobject_cast<QWidget *>(obj);
+                    if (!w || w->rect().contains(p.toPoint())) cb(node, 0, p.x(), p.y(), 0.0, 0.0);
+                }
+                pressed = false;
+                break;
+            }
+            default: break;
+        }
+        return false; // never consume: let normal widget behavior proceed
+    }
+};
+
+void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    DayGestureFilter *f = new DayGestureFilter(node, is_drag != 0, cb);
+    f->setParent(widget); // freed with the widget
+    widget->installEventFilter(f);
 }
 
 } // extern "C"

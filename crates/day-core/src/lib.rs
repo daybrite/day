@@ -96,10 +96,10 @@ pub fn launch_with<P: Platform>(
     );
 }
 
-/// `DAY_AUTODRIVE="<id>:press;<id>:text:Ada;<id>:value:80;<id>:toggle:true;shot:/tmp/x.png"` —
-/// synthesized day events by element id, plus window snapshots.
+/// `DAY_AUTODRIVE="<id>:press;<id>:text:Ada;<id>:value:80;<id>:toggle:true;<id>:tap;
+/// <id>:drag:40:60;shot:/tmp/x.png"` — synthesized day events by element id, plus snapshots.
 fn autodrive(spec: &str) {
-    use day_spec::Event;
+    use day_spec::{DragPhase, Event, Point};
     for step in spec.split(';').filter(|s| !s.is_empty()) {
         let parts: Vec<&str> = step.splitn(3, ':').collect();
         if parts[0] == "shot" {
@@ -118,6 +118,53 @@ fn autodrive(spec: &str) {
             eprintln!("day autodrive: id {:?} not found", parts[0]);
             continue;
         };
+        // Gesture drivers (docs/shapes.md): tap fires at the node's local centre; drag runs a
+        // Began→Changed→Ended sequence translated by dx,dy — exercising `.on_tap`/`.on_drag`
+        // hit-testing through day's own event path (the native recognizers deliver the same events).
+        if parts.get(1) == Some(&"tap") {
+            if let Some(f) = with_tree(|t| t.node_frame(node)) {
+                let c = Point::new(f.size.width / 2.0, f.size.height / 2.0);
+                tree::enqueue_event(tree::rnode_to_id(node), Event::Tap(c));
+            }
+            continue;
+        }
+        if parts.get(1) == Some(&"drag") {
+            if let Some(f) = with_tree(|t| t.node_frame(node)) {
+                let c = Point::new(f.size.width / 2.0, f.size.height / 2.0);
+                let (dx, dy) = parts
+                    .get(2)
+                    .and_then(|s| s.split_once(':'))
+                    .and_then(|(a, b)| Some((a.parse::<f64>().ok()?, b.parse::<f64>().ok()?)))
+                    .unwrap_or((0.0, 0.0));
+                let end = Point::new(c.x + dx, c.y + dy);
+                let id = tree::rnode_to_id(node);
+                tree::enqueue_event(
+                    id,
+                    Event::Drag {
+                        phase: DragPhase::Began,
+                        location: c,
+                        translation: Point::ZERO,
+                    },
+                );
+                tree::enqueue_event(
+                    id,
+                    Event::Drag {
+                        phase: DragPhase::Changed,
+                        location: end,
+                        translation: Point::new(dx, dy),
+                    },
+                );
+                tree::enqueue_event(
+                    id,
+                    Event::Drag {
+                        phase: DragPhase::Ended,
+                        location: end,
+                        translation: Point::new(dx, dy),
+                    },
+                );
+            }
+            continue;
+        }
         let ev = match (parts.get(1).copied(), parts.get(2).copied()) {
             (Some("press"), _) => Event::Pressed,
             (Some("text"), Some(v)) => Event::TextChanged(v.to_string()),

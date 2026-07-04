@@ -30,6 +30,9 @@ thread_local! {
     /// Slider f64 range, keyed by node id (event callbacks) AND widget ptr (patch application).
     static RANGES: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
     static RANGES_BY_PTR: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+    /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
+    static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
+        RefCell::new(std::collections::HashSet::new());
 }
 
 pub fn emit(id: NodeId, ev: Event) {
@@ -143,6 +146,31 @@ extern "C" fn on_slider(id: u64, v: c_int) {
     let (min, max) = RANGES.with(|r| r.borrow().get(&id).copied().unwrap_or((0.0, 1.0)));
     let value = min + (v as f64 / 1000.0) * (max - min);
     emit(NodeId(id), Event::ValueChanged(value));
+}
+
+/// Gesture callback from the C++ event filter. phase: 0=tap, 1=drag began, 2=changed, 3=ended.
+extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
+    use day_spec::{DragPhase, Point};
+    let at = Point::new(x, y);
+    let ev = match phase {
+        0 => Event::Tap(at),
+        1 => Event::Drag {
+            phase: DragPhase::Began,
+            location: at,
+            translation: Point::ZERO,
+        },
+        3 => Event::Drag {
+            phase: DragPhase::Ended,
+            location: at,
+            translation: Point::new(tx, ty),
+        },
+        _ => Event::Drag {
+            phase: DragPhase::Changed,
+            location: at,
+            translation: Point::new(tx, ty),
+        },
+    };
+    emit(NodeId(id), ev);
 }
 
 fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
@@ -684,6 +712,11 @@ impl Toolkit for Qt {
         TABS_PAGE_TITLES.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        GESTURES.with(|g| {
+            let mut g = g.borrow_mut();
+            g.remove(&(key, false));
+            g.remove(&(key, true));
+        });
         unsafe {
             ffi::day_qt_remove_child(h.0);
             ffi::day_qt_delete(h.0);
@@ -884,6 +917,15 @@ impl Toolkit for Qt {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn enable_gesture(&mut self, h: &QtHandle, node: NodeId, kind: day_spec::GestureKind) {
+        let is_drag = matches!(kind, day_spec::GestureKind::Drag);
+        let key = (h.0 as usize, is_drag);
+        if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
+            return; // already wired
+        }
+        unsafe { ffi::day_qt_enable_gesture(h.0, node.0, is_drag as c_int, on_gesture) };
     }
 
     fn attach_list(&mut self, host: &QtHandle, source: day_spec::ListSource) {

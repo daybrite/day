@@ -856,3 +856,104 @@ fn list_reports_selection_by_key() {
     flush_sync();
     assert_eq!(picks.borrow().as_slice(), ["b".to_string()]);
 }
+
+// ---------------------------------------------------------------------------
+// Shapes (docs/shapes.md): canvas-backed shape pieces, transforms, gestures.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shape_records_fill_then_stroke() {
+    let probe = boot(|| {
+        circle()
+            .fill(Color::hex(0xff0000))
+            .stroke(Color::hex(0x0000ff), 2.0)
+            .frame(100.0, 100.0)
+            .any()
+    });
+    let canvases = probe.find_by_kind("day.canvas");
+    assert_eq!(canvases.len(), 1);
+    let ops = &canvases[0].1.ops;
+    // A circle inscribes its frame → an Ellipse; fill records before stroke.
+    assert!(
+        matches!(ops[0], DrawOp::Fill(Shape::Ellipse(_), _)),
+        "{ops:?}"
+    );
+    assert!(
+        matches!(ops[1], DrawOp::Stroke(Shape::Ellipse(_), _, _)),
+        "{ops:?}"
+    );
+}
+
+#[test]
+fn shape_rotate_wraps_geometry_in_a_transform() {
+    let probe = boot(|| {
+        rectangle()
+            .fill(Color::hex(0x00ff00))
+            .rotate(45.0)
+            .frame(80.0, 80.0)
+            .any()
+    });
+    let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
+    assert!(matches!(ops[0], DrawOp::Save), "{ops:?}");
+    assert!(matches!(ops[1], DrawOp::Concat(_)), "{ops:?}");
+    assert!(matches!(ops[2], DrawOp::Fill(Shape::Rect(_), _)), "{ops:?}");
+    assert!(matches!(ops[3], DrawOp::Restore), "{ops:?}");
+}
+
+#[test]
+fn shape_tap_enables_gesture_and_hit_tests_the_path() {
+    let taps = std::rc::Rc::new(std::cell::Cell::new(0));
+    let t2 = taps.clone();
+    let probe = boot(move || {
+        circle()
+            .fill(Color::WHITE)
+            .on_tap(move || t2.set(t2.get() + 1))
+            .frame(100.0, 100.0)
+            .any()
+    });
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("enable_gesture") && l.contains("Tap")),
+        "shape must enable the Tap gesture"
+    );
+    let node = node_id(&probe, "day.canvas", 0);
+    // Centre of the 100×100 frame is inside the inscribed circle → fires.
+    probe.emit(node, Event::Tap(Point::new(50.0, 50.0)));
+    flush_sync();
+    assert_eq!(taps.get(), 1);
+    // A corner is outside the circle → path-precise test rejects it.
+    probe.emit(node, Event::Tap(Point::new(3.0, 3.0)));
+    flush_sync();
+    assert_eq!(taps.get(), 1, "corner tap must miss the circle");
+}
+
+#[test]
+fn shape_fill_rebinds_reactively() {
+    let on = Signal::new(false);
+    let probe = boot(move || {
+        circle()
+            .fill(move || {
+                if on.get() {
+                    Color::hex(0xff0000)
+                } else {
+                    Color::hex(0x222222)
+                }
+            })
+            .frame(60.0, 60.0)
+            .any()
+    });
+    let node = probe.find_by_kind("day.canvas")[0].0;
+    let red = |p: &MockProbe| {
+        matches!(p.widget(node).ops.first(),
+        Some(DrawOp::Fill(_, c)) if c.r > 0.5)
+    };
+    assert!(!red(&probe));
+    batch(|| on.set(true));
+    flush_sync();
+    assert!(
+        red(&probe),
+        "fill colour must re-record when its signal flips"
+    );
+}

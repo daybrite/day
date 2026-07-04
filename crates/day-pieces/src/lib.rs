@@ -12,7 +12,9 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{Scope, Signal, bind, bind_seeded, watch};
 use day_spec::props::*;
-use day_spec::{A11yProps, Color, DrawOp, Event, Font, Insets, Point, Role, Shape, Size, kinds};
+use day_spec::{
+    A11yProps, Color, DrawOp, Event, Font, Insets, Point, Rect, Role, Shape, Size, kinds,
+};
 
 // ---------------------------------------------------------------------------
 // Text sources (§12.2's IntoText, M1 subset — Fluent joins at M6)
@@ -1076,6 +1078,43 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Fire when this piece is tapped (bounding-box; shapes override with path-precise testing).
+    fn on_tap(self, f: impl Fn() + 'static) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Tap));
+            cx.on(n, move |ev| {
+                if matches!(ev, Event::Tap(_)) {
+                    f();
+                }
+            });
+            n
+        })
+    }
+
+    /// Fire on each phase of a drag over this piece.
+    fn on_drag(self, f: impl Fn(Drag) + 'static) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Drag));
+            cx.on(n, move |ev| {
+                if let Event::Drag {
+                    phase,
+                    location,
+                    translation,
+                } = ev
+                {
+                    f(Drag {
+                        phase: *phase,
+                        location: *location,
+                        translation: *translation,
+                    });
+                }
+            });
+            n
+        })
+    }
+
     fn any(self) -> AnyPiece {
         AnyPiece::new(self)
     }
@@ -1113,17 +1152,20 @@ impl A11yBuilder {
 pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
-        A11yBuilder, Alert, Confirm, Decorate, Draw, HAlign, IntoFraction, IntoText, ItemSlot,
-        List, Prompt, Selector, SelectorStyle, SignalRw, Stack, VAlign, alert, button, canvas,
-        column, confirm, divider, each, image, label, list, nav_back, nav_link, navigate, progress,
-        prompt, row, scroll, selector, slider, spacer, spinner, stack, text_field, toggle, when,
+        A11yBuilder, Alert, Confirm, Corner, Decorate, Drag, Draw, HAlign, IntoFraction,
+        IntoReactive, IntoText, ItemSlot, List, Prompt, Reactive, Selector, SelectorStyle,
+        ShapeKind, ShapePiece, SignalRw, Stack, VAlign, alert, arc, button, canvas, capsule,
+        circle, column, confirm, divider, each, ellipse, image, label, list, nav_back, nav_link,
+        navigate, progress, prompt, rectangle, rounded_rectangle, row, scroll, selector, shape,
+        slider, spacer, spinner, stack, text_field, toggle, when,
     };
     pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
-    pub use day_geometry::{Color, Insets, Point, Rect, Size};
+    pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
     pub use day_spec::props::RowHeight;
+    pub use day_spec::{DragPhase, GestureKind};
     pub use day_spec::{DrawOp, Shape, TextAnchor};
     pub use day_spec::{Font, Role};
 }
@@ -1160,38 +1202,432 @@ impl Draw {
             anchor: style.anchor,
         });
     }
+    /// Save the current transform/clip; pair with [`Draw::restore`].
+    pub fn save(&mut self) {
+        self.ops.push(DrawOp::Save);
+    }
+    /// Restore the transform/clip saved by the matching [`Draw::save`].
+    pub fn restore(&mut self) {
+        self.ops.push(DrawOp::Restore);
+    }
+    /// Multiply an affine onto the current transform (shape rotate/scale/offset, §11).
+    pub fn concat(&mut self, m: day_geometry::Affine) {
+        self.ops.push(DrawOp::Concat(m));
+    }
+    /// Draw within `m` applied to the CTM, restoring afterwards.
+    pub fn transformed(&mut self, m: day_geometry::Affine, f: impl FnOnce(&mut Draw)) {
+        self.save();
+        self.concat(m);
+        f(self);
+        self.restore();
+    }
+}
+
+/// Create + wire a reactive canvas leaf with a given flex: the draw closure re-records on any
+/// tracked read and on `FrameChanged`; replay is equality-gated by `DrawOp: PartialEq` (§4.2).
+/// Shared by [`canvas`] (intrinsic) and [`shape`] (grows to fill, §shapes).
+pub(crate) fn canvas_leaf(
+    cx: &mut BuildCx,
+    flex: Flex,
+    draw: impl Fn(&mut Draw, Size) + 'static,
+) -> RNode {
+    use day_reactive::{Trigger, bind};
+    let node = cx.leaf(kinds::CANVAS, &CanvasProps::default(), flex);
+    let trig = Trigger::new();
+    cx.on(node, move |ev| {
+        if matches!(ev, Event::FrameChanged(_)) {
+            trig.notify();
+        }
+    });
+    let draw = std::rc::Rc::new(draw);
+    let d2 = draw.clone();
+    bind(
+        move || {
+            trig.track();
+            let size = with_tree(|t| t.node_frame(node))
+                .map(|f| f.size)
+                .unwrap_or(Size::new(0.0, 0.0));
+            let mut d = Draw { ops: Vec::new() };
+            (d2)(&mut d, size);
+            d.ops
+        },
+        move |ops: &Vec<DrawOp>| {
+            with_tree(|t| t.replay(node, ops.clone()));
+        },
+    );
+    node
 }
 
 /// The drawing closure is a binding: signal reads re-record; layout size changes re-record
 /// (via FrameChanged); replay is equality-gated by DrawOp's PartialEq (§4.2).
 pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> AnyPiece {
-    use day_reactive::{Trigger, bind};
-    piece_fn(move |cx| {
-        let node = cx.leaf(kinds::CANVAS, &CanvasProps::default(), Flex::default());
-        let trig = Trigger::new();
-        cx.on(node, move |ev| {
-            if matches!(ev, Event::FrameChanged(_)) {
-                trig.notify();
+    piece_fn(move |cx| canvas_leaf(cx, Flex::default(), draw))
+}
+
+// ---------------------------------------------------------------------------
+// Reactive<T>: a value, a Signal, or a closure — the generalisation of IntoText/IntoFraction.
+// ---------------------------------------------------------------------------
+
+/// A parameter that is either a constant or a reactive source. `get()` is a tracked read, so any
+/// `Reactive` used inside a canvas draw closure makes that shape re-record when the source changes.
+pub enum Reactive<T: Clone + 'static> {
+    Const(T),
+    Dyn(Rc<dyn Fn() -> T>),
+}
+impl<T: Clone + 'static> Clone for Reactive<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Reactive::Const(v) => Reactive::Const(v.clone()),
+            Reactive::Dyn(f) => Reactive::Dyn(f.clone()),
+        }
+    }
+}
+impl<T: Clone + 'static> Reactive<T> {
+    pub fn get(&self) -> T {
+        match self {
+            Reactive::Const(v) => v.clone(),
+            Reactive::Dyn(f) => f(),
+        }
+    }
+    pub fn get_untracked(&self) -> T {
+        match self {
+            Reactive::Const(v) => v.clone(),
+            Reactive::Dyn(f) => day_reactive::untrack(|| f()),
+        }
+    }
+}
+/// Disjoint-marker conversion (like [`IntoText`]): accepts `T`, `Signal<T>`, or `Fn() -> T`.
+pub trait IntoReactive<T: Clone + 'static, M> {
+    fn into_reactive(self) -> Reactive<T>;
+}
+impl<T: Clone + 'static> IntoReactive<T, StaticMark> for T {
+    fn into_reactive(self) -> Reactive<T> {
+        Reactive::Const(self)
+    }
+}
+impl<T: Clone + 'static> IntoReactive<T, SignalMark> for Signal<T> {
+    fn into_reactive(self) -> Reactive<T> {
+        Reactive::Dyn(Rc::new(move || self.get()))
+    }
+}
+impl<T: Clone + 'static, F: Fn() -> T + 'static> IntoReactive<T, FnMark> for F {
+    fn into_reactive(self) -> Reactive<T> {
+        Reactive::Dyn(Rc::new(self))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shapes (docs/shapes.md): high-level shape pieces atop the canvas display list. Frame-relative
+// geometry, reactive fill/stroke, rotate/scale/offset transforms, and tap/drag gestures.
+// ---------------------------------------------------------------------------
+
+use day_geometry::Affine;
+pub use day_spec::{DragPhase, GestureKind};
+
+/// A shape's geometry, resolved against the rect layout assigns it (frame-relative, SwiftUI-style).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShapeKind {
+    Rectangle,
+    RoundedRectangle {
+        corner: Corner,
+    },
+    Circle,
+    Ellipse,
+    Capsule,
+    /// A stroked arc of the inscribed ellipse; degrees, 0 = +x, clockwise.
+    Arc {
+        start_deg: f64,
+        sweep_deg: f64,
+    },
+}
+
+/// A corner radius: absolute points, or a 0..1 fraction of `min(width, height)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Corner {
+    Fixed(f64),
+    Fraction(f64),
+}
+impl From<f64> for Corner {
+    fn from(v: f64) -> Self {
+        Corner::Fixed(v)
+    }
+}
+impl Corner {
+    fn resolve(self, rect: Rect) -> f64 {
+        let cap = rect.size.width.min(rect.size.height) / 2.0;
+        match self {
+            Corner::Fixed(v) => v.clamp(0.0, cap),
+            Corner::Fraction(f) => f.clamp(0.0, 1.0) * cap,
+        }
+    }
+}
+impl ShapeKind {
+    /// Lower to a drawable geometry within `rect`.
+    fn geometry(self, rect: Rect) -> Shape {
+        match self {
+            ShapeKind::Rectangle => Shape::Rect(rect),
+            ShapeKind::RoundedRectangle { corner } => {
+                Shape::RoundedRect(rect, corner.resolve(rect))
+            }
+            ShapeKind::Ellipse => Shape::Ellipse(rect),
+            ShapeKind::Capsule => {
+                Shape::RoundedRect(rect, rect.size.width.min(rect.size.height) / 2.0)
+            }
+            ShapeKind::Circle => {
+                let d = rect.size.width.min(rect.size.height);
+                let c = rect.center();
+                Shape::Ellipse(Rect::new(c.x - d / 2.0, c.y - d / 2.0, d, d))
+            }
+            ShapeKind::Arc {
+                start_deg,
+                sweep_deg,
+            } => Shape::Arc {
+                rect,
+                start_deg,
+                sweep_deg,
+            },
+        }
+    }
+    /// Point-in-shape test (in the shape's own, untransformed coordinates).
+    fn contains(self, rect: Rect, p: Point) -> bool {
+        fn in_rect(r: Rect, p: Point) -> bool {
+            p.x >= r.min_x() && p.x <= r.max_x() && p.y >= r.min_y() && p.y <= r.max_y()
+        }
+        fn in_ellipse(r: Rect, p: Point) -> bool {
+            if r.size.width <= 0.0 || r.size.height <= 0.0 {
+                return false;
+            }
+            let c = r.center();
+            let dx = (p.x - c.x) / (r.size.width / 2.0);
+            let dy = (p.y - c.y) / (r.size.height / 2.0);
+            dx * dx + dy * dy <= 1.0
+        }
+        match self.geometry(rect) {
+            Shape::Ellipse(r) => in_ellipse(r, p),
+            Shape::Rect(r) | Shape::RoundedRect(r, _) => in_rect(r, p),
+            _ => in_rect(rect, p), // arc / line / polygon: bounding-box fallback
+        }
+    }
+}
+
+/// Drag info delivered to a shape's `.on_drag` handler.
+#[derive(Clone, Copy, Debug)]
+pub struct Drag {
+    pub phase: DragPhase,
+    pub location: Point,
+    pub translation: Point,
+}
+
+/// A shape piece — one data-oriented piece parameterised by `ShapeKind`, rendered atop the canvas.
+pub struct ShapePiece {
+    kind: Reactive<ShapeKind>,
+    fill: Option<Reactive<Color>>,
+    stroke: Option<(Reactive<Color>, Reactive<f64>)>,
+    inset: Reactive<f64>,
+    rotate: Reactive<f64>,
+    scale: Reactive<f64>,
+    offset: (Reactive<f64>, Reactive<f64>),
+    on_tap: Option<Rc<dyn Fn()>>,
+    on_drag: Option<Rc<dyn Fn(Drag)>>,
+}
+
+/// The unified constructor: `shape(ShapeKind::RoundedRectangle { corner: 12.0.into() })`.
+pub fn shape<M>(kind: impl IntoReactive<ShapeKind, M>) -> ShapePiece {
+    ShapePiece {
+        kind: kind.into_reactive(),
+        fill: None,
+        stroke: None,
+        inset: Reactive::Const(0.0),
+        rotate: Reactive::Const(0.0),
+        scale: Reactive::Const(1.0),
+        offset: (Reactive::Const(0.0), Reactive::Const(0.0)),
+        on_tap: None,
+        on_drag: None,
+    }
+}
+/// SwiftUI-ergonomic sugar — all build the same `ShapePiece`.
+pub fn rectangle() -> ShapePiece {
+    shape(ShapeKind::Rectangle)
+}
+pub fn circle() -> ShapePiece {
+    shape(ShapeKind::Circle)
+}
+pub fn ellipse() -> ShapePiece {
+    shape(ShapeKind::Ellipse)
+}
+pub fn capsule() -> ShapePiece {
+    shape(ShapeKind::Capsule)
+}
+pub fn rounded_rectangle(corner: impl Into<Corner>) -> ShapePiece {
+    shape(ShapeKind::RoundedRectangle {
+        corner: corner.into(),
+    })
+}
+pub fn arc(start_deg: f64, sweep_deg: f64) -> ShapePiece {
+    shape(ShapeKind::Arc {
+        start_deg,
+        sweep_deg,
+    })
+}
+
+impl ShapePiece {
+    pub fn fill<M>(mut self, p: impl IntoReactive<Color, M>) -> Self {
+        self.fill = Some(p.into_reactive());
+        self
+    }
+    pub fn stroke<M1, M2>(
+        mut self,
+        color: impl IntoReactive<Color, M1>,
+        width: impl IntoReactive<f64, M2>,
+    ) -> Self {
+        self.stroke = Some((color.into_reactive(), width.into_reactive()));
+        self
+    }
+    /// Uniform inset applied before resolving geometry (keeps strokes inside the frame).
+    pub fn inset<M>(mut self, v: impl IntoReactive<f64, M>) -> Self {
+        self.inset = v.into_reactive();
+        self
+    }
+    /// Rotate the drawn shape about its centre, in degrees.
+    pub fn rotate<M>(mut self, deg: impl IntoReactive<f64, M>) -> Self {
+        self.rotate = deg.into_reactive();
+        self
+    }
+    /// Scale the drawn shape about its centre (uniform).
+    pub fn scale<M>(mut self, s: impl IntoReactive<f64, M>) -> Self {
+        self.scale = s.into_reactive();
+        self
+    }
+    /// Translate the drawn shape within its frame.
+    pub fn offset<M1, M2>(
+        mut self,
+        x: impl IntoReactive<f64, M1>,
+        y: impl IntoReactive<f64, M2>,
+    ) -> Self {
+        self.offset = (x.into_reactive(), y.into_reactive());
+        self
+    }
+    /// Fire when the shape is tapped (path-precise — the tap is tested against the resolved path).
+    pub fn on_tap(mut self, f: impl Fn() + 'static) -> Self {
+        self.on_tap = Some(Rc::new(f));
+        self
+    }
+    /// Fire on each phase of a drag over the shape.
+    pub fn on_drag(mut self, f: impl Fn(Drag) + 'static) -> Self {
+        self.on_drag = Some(Rc::new(f));
+        self
+    }
+}
+
+/// Compose the shape's rotate/scale (about its centre) + offset into one affine.
+fn shape_transform(rect: Rect, rot_deg: f64, scale: f64, ox: f64, oy: f64) -> Affine {
+    let c = rect.center();
+    Affine::translate(-c.x, -c.y)
+        .then(Affine::scale(scale, scale))
+        .then(Affine::rotate(rot_deg.to_radians()))
+        .then(Affine::translate(c.x, c.y))
+        .then(Affine::translate(ox, oy))
+}
+
+impl Piece for ShapePiece {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let ShapePiece {
+            kind,
+            fill,
+            stroke,
+            inset,
+            rotate,
+            scale,
+            offset,
+            on_tap,
+            on_drag,
+        } = self;
+
+        // A shape greedily fills its proposed size (SwiftUI semantics).
+        let grow = Flex {
+            grow_w: true,
+            grow_h: true,
+            ..Default::default()
+        };
+        let (dk, di, dr, ds, dox, doy) = (
+            kind.clone(),
+            inset.clone(),
+            rotate.clone(),
+            scale.clone(),
+            offset.0.clone(),
+            offset.1.clone(),
+        );
+        let node = canvas_leaf(cx, grow, move |d, size| {
+            let rect = Rect::from_size(size).inset(di.get());
+            if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+                return;
+            }
+            let geom = dk.get().geometry(rect);
+            let m = shape_transform(rect, dr.get(), ds.get(), dox.get(), doy.get());
+            let transformed = !m.is_identity();
+            if transformed {
+                d.save();
+                d.concat(m);
+            }
+            if let Some(fill) = &fill {
+                d.fill(geom.clone(), fill.get());
+            }
+            if let Some((c, w)) = &stroke {
+                d.stroke(geom, c.get(), w.get());
+            }
+            if transformed {
+                d.restore();
             }
         });
-        let draw = std::rc::Rc::new(draw);
-        let d2 = draw.clone();
-        bind(
-            move || {
-                trig.track();
-                let size = with_tree(|t| t.node_frame(node))
-                    .map(|f| f.size)
-                    .unwrap_or(Size::new(0.0, 0.0));
-                let mut d = Draw { ops: Vec::new() };
-                (d2)(&mut d, size);
-                d.ops
-            },
-            move |ops: &Vec<DrawOp>| {
-                with_tree(|t| t.replay(node, ops.clone()));
-            },
-        );
+
+        // Path-precise tap: inverse-transform the point, then test against the resolved geometry.
+        if let Some(on_tap) = on_tap {
+            with_tree(|t| t.enable_gesture(node, GestureKind::Tap));
+            let (kind, inset, rotate, scale, offset) = (
+                kind,
+                inset,
+                rotate,
+                scale,
+                (offset.0.clone(), offset.1.clone()),
+            );
+            cx.on(node, move |ev| {
+                if let Event::Tap(p) = ev
+                    && let Some(f) = with_tree(|t| t.node_frame(node))
+                {
+                    let rect = Rect::from_size(f.size).inset(inset.get_untracked());
+                    let m = shape_transform(
+                        rect,
+                        rotate.get_untracked(),
+                        scale.get_untracked(),
+                        offset.0.get_untracked(),
+                        offset.1.get_untracked(),
+                    );
+                    let local = m.invert_apply(*p).unwrap_or(*p);
+                    if kind.get_untracked().contains(rect, local) {
+                        on_tap();
+                    }
+                }
+            });
+        }
+        if let Some(on_drag) = on_drag {
+            with_tree(|t| t.enable_gesture(node, GestureKind::Drag));
+            cx.on(node, move |ev| {
+                if let Event::Drag {
+                    phase,
+                    location,
+                    translation,
+                } = ev
+                {
+                    on_drag(Drag {
+                        phase: *phase,
+                        location: *location,
+                        translation: *translation,
+                    });
+                }
+            });
+        }
         node
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,10 @@ use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
+    NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
+    NSGestureRecognizerState, NSPanGestureRecognizer,
+};
+use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
     NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
@@ -28,14 +32,17 @@ use objc2_app_kit::{
 };
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
-use objc2_foundation::{NSDictionary, NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    NSAffineTransform, NSAffineTransformStruct, NSDictionary, NSNotification, NSObject, NSPoint,
+    NSRect, NSSize, NSString,
+};
 
 use day_spec::present;
 use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-    Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit, WINDOW_NODE,
-    WindowOptions, kinds,
+    Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
+    WINDOW_NODE, WindowOptions, kinds,
 };
 
 pub type Handle = Retained<NSView>;
@@ -181,6 +188,67 @@ define_class!(
 impl DayCanvas {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(CanvasIvars);
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DayGesture — tap/drag recognizer target, node-id keyed (docs/shapes.md)
+// ---------------------------------------------------------------------------
+
+struct GestureIvars {
+    node: NodeId,
+    is_drag: bool,
+}
+
+thread_local! {
+    /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
+    static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
+        RefCell::new(HashMap::new());
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayGesture"]
+    #[ivars = GestureIvars]
+    struct DayGesture;
+
+    unsafe impl NSObjectProtocol for DayGesture {}
+
+    impl DayGesture {
+        #[unsafe(method(fire:))]
+        fn fire(&self, g: &NSGestureRecognizer) {
+            let node = self.ivars().node;
+            let view = g.view();
+            let loc = g.locationInView(view.as_deref());
+            let at = Point::new(loc.x, loc.y);
+            if self.ivars().is_drag {
+                let obj: &objc2::runtime::AnyObject = g.as_ref();
+                let (translation, phase) = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
+                    let t = unsafe { pan.translationInView(view.as_deref()) };
+                    let phase = match g.state() {
+                        NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                        NSGestureRecognizerState::Ended
+                        | NSGestureRecognizerState::Cancelled
+                        | NSGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                        _ => day_spec::DragPhase::Changed,
+                    };
+                    (Point::new(t.x, t.y), phase)
+                } else {
+                    (Point::ZERO, day_spec::DragPhase::Changed)
+                };
+                emit(node, Event::Drag { phase, location: at, translation });
+            } else {
+                emit(node, Event::Tap(at));
+            }
+        }
+    }
+);
+
+impl DayGesture {
+    fn new(mtm: MainThreadMarker, node: NodeId, is_drag: bool) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(GestureIvars { node, is_drag });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -576,6 +644,20 @@ fn draw_op(op: &DrawOp) {
                     origin.y -= sz.height / 2.0;
                 }
                 let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
+            }
+            DrawOp::Save => NSGraphicsContext::saveGraphicsState_class(),
+            DrawOp::Restore => NSGraphicsContext::restoreGraphicsState_class(),
+            DrawOp::Concat(m) => {
+                let t = NSAffineTransform::new();
+                t.setTransformStruct(NSAffineTransformStruct {
+                    m11: m.a,
+                    m12: m.b,
+                    m21: m.c,
+                    m22: m.d,
+                    tX: m.tx,
+                    tY: m.ty,
+                });
+                t.concat();
             }
         }
     }
@@ -1256,6 +1338,9 @@ impl Toolkit for AppKit {
         LIST_STATE.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
+        GESTURES.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
         NAV_STATE.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
@@ -1510,6 +1595,41 @@ impl Toolkit for AppKit {
         // A recycling NSTableView cell view — day builds/rebinds its row content in place.
         let ptr = raw as *mut NSView;
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
+    }
+
+    fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
+        let key = ptr_of(h);
+        // Idempotent: attach each kind at most once per view.
+        let already = GESTURES.with(|m| {
+            m.borrow().get(&key).is_some_and(|v| {
+                v.iter()
+                    .any(|t| t.ivars().is_drag == matches!(kind, day_spec::GestureKind::Drag))
+            })
+        });
+        if already {
+            return;
+        }
+        let mtm = self.mtm;
+        let is_drag = matches!(kind, day_spec::GestureKind::Drag);
+        let target = DayGesture::new(mtm, node, is_drag);
+        let recognizer: Retained<NSGestureRecognizer> = unsafe {
+            match kind {
+                day_spec::GestureKind::Drag => {
+                    Retained::into_super(NSPanGestureRecognizer::initWithTarget_action(
+                        NSPanGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    ))
+                }
+                _ => Retained::into_super(NSClickGestureRecognizer::initWithTarget_action(
+                    NSClickGestureRecognizer::alloc(mtm),
+                    Some(&target),
+                    Some(sel!(fire:)),
+                )),
+            }
+        };
+        unsafe { h.addGestureRecognizer(&recognizer) };
+        GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {

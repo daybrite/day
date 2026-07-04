@@ -2,6 +2,7 @@ package dev.day.bridge;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.view.View;
@@ -52,6 +53,16 @@ public class DayCanvasView extends View {
                                 - paint.getFontMetrics().descent;
                     }
                     cv.drawText(t, x, y, paint);
+                    break;
+                }
+                case 8: cv.save(); break;
+                case 9: cv.restore(); break;
+                case 10: {
+                    // Packed affine (a,b,c,d,tx,ty) → Android Matrix (row-major 3x3); same
+                    // row-vector meaning. Applied within the density-scaled space (dp units).
+                    Matrix m = new Matrix();
+                    m.setValues(new float[]{a, c, e, b, d, f, 0f, 0f, 1f});
+                    cv.concat(m);
                     break;
                 }
             }

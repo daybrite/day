@@ -16,10 +16,17 @@ history-title = History
 history-entry = count became { $value }
 nav-controls = Controls
 nav-gauge = Gauge
+nav-shapes = Shapes
 nav-tabs = Tabs
 nav-stack = Stack
 nav-list = List
 nav-about = About
+
+shapes-kinds = Kinds
+shapes-transform = Transform
+shapes-angle = Angle
+shapes-tap = Tap to recolor
+shapes-drag = Drag to move
 list-add = Add 100
 list-caption = { $count } rows — only the visible cells are built
 stack-root-body = A genuine push/pop stack. Its path is an app-owned signal.

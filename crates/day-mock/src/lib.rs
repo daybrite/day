@@ -440,6 +440,12 @@ impl Toolkit for MockToolkit {
         s.log(format!("set_scroll_content #{} {}", h.0, fmt_size(content)));
     }
 
+    fn enable_gesture(&mut self, h: &MockHandle, _node: NodeId, kind: GestureKind) {
+        self.state
+            .borrow_mut()
+            .log(format!("enable_gesture #{} {:?}", h.0, kind));
+    }
+
     fn set_event_sink(&mut self, sink: EventSink) {
         self.state.borrow_mut().sink = Some(sink);
     }

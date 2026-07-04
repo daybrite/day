@@ -14,6 +14,7 @@ block2 = "0.6"
 dispatch2 = "0.3"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath"] }
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", features = ["CGContext"] }
 objc2-ui-kit = { version = "0.3", features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch", "UISlider", "UIColor",
@@ -23,4 +24,6 @@ objc2-ui-kit = { version = "0.3", features = [
     "UINavigationController", "UINavigationBar", "UINavigationItem",
     "UITabBarController", "UITabBar", "UITabBarItem",
     "UITableView", "UITableViewCell", "UILabel",
+    "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
+    "objc2-core-foundation", "objc2-core-graphics",
 ] }

@@ -76,6 +76,13 @@ pub enum Event {
     Tap(Point),
     LongPress(Point),
     ContextMenu(Point),
+    /// A drag/pan gesture (docs/shapes.md). `location` is in the node's local coordinates;
+    /// `translation` is the cumulative movement since `Began`.
+    Drag {
+        phase: DragPhase,
+        location: Point,
+        translation: Point,
+    },
     ScrollChanged(Point),
     /// A canvas node was re-framed by layout; re-record (§11). Nav pane/page containers
     /// also report their allocated size with this (docs/navigation.md).
@@ -95,6 +102,23 @@ pub enum Event {
         result: present::PresentResult,
     },
     Custom(&'static str, String),
+}
+
+/// The phase of a drag gesture (docs/shapes.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DragPhase {
+    Began,
+    Changed,
+    Ended,
+}
+
+/// A gesture a node wants delivered. Backends attach the matching native recognizer when day-core
+/// calls [`Toolkit::enable_gesture`]; the default is no gesture (recognizers cost, so opt-in).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GestureKind {
+    Tap,
+    LongPress,
+    Drag,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -225,6 +249,11 @@ pub enum DrawOp {
         color: Color,
         anchor: TextAnchor,
     },
+    /// Push the current transform + clip (§11, shapes). Backends map to save/restore of the
+    /// native 2-D context; `Concat` multiplies an affine onto the CTM (shape rotate/scale/offset).
+    Save,
+    Restore,
+    Concat(day_geometry::Affine),
 }
 
 // ---------------------------------------------------------------------------
@@ -597,6 +626,11 @@ pub trait Toolkit: Sized + 'static {
     // events: one trampoline, node-id keyed; ENQUEUE-ONLY contract (§8.3).
     fn set_event_sink(&mut self, sink: EventSink);
 
+    // gestures (docs/shapes.md): attach a native recognizer for `kind` to `h`, emitting
+    // `Event::Tap/LongPress/Drag` for `node` (enqueue-only). Default no gesture; a piece opts in
+    // when it has a handler. Idempotent per (handle, kind).
+    fn enable_gesture(&mut self, _h: &Self::Handle, _node: NodeId, _kind: GestureKind) {}
+
     // recycling list (docs/list.md, §10): day-core hands the `LIST` host its row-pull `source`
     // once, right after realize. A recycling backend stores it and calls it from its native
     // data-source; the default no-op means a backend without list support simply renders nothing.
@@ -825,6 +859,42 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 );
                 texts.push(text.clone());
             }
+            DrawOp::Save => push(
+                8.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                Color::CLEAR,
+                &mut nums,
+            ),
+            DrawOp::Restore => push(
+                9.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                Color::CLEAR,
+                &mut nums,
+            ),
+            DrawOp::Concat(m) => push(
+                10.0,
+                m.a,
+                m.b,
+                m.c,
+                m.d,
+                m.tx,
+                m.ty,
+                0.0,
+                Color::CLEAR,
+                &mut nums,
+            ),
         }
     }
     (nums, texts)

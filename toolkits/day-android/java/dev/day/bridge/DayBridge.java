@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
@@ -125,6 +126,38 @@ public final class DayBridge {
             public void onClick(View x) { nativeOnEvent(id, 0, 0, null); }
         });
         return b;
+    }
+
+    /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
+     *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
+    public static void enableGesture(View v, final long id, final boolean isDrag) {
+        v.setOnTouchListener(new View.OnTouchListener() {
+            float sx, sy;
+            public boolean onTouch(View view, MotionEvent ev) {
+                float x = ev.getX(), y = ev.getY();
+                switch (ev.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        sx = x; sy = y;
+                        if (isDrag) nativeOnEvent(id, 11, 1, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        if (isDrag) nativeOnEvent(id, 11, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                        if (isDrag) {
+                            nativeOnEvent(id, 11, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        } else if (Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
+                            nativeOnEvent(id, 11, 0, x + "," + y + ",0,0");
+                            view.performClick();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        if (isDrag) nativeOnEvent(id, 11, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        return true;
+                }
+                return false;
+            }
+        });
     }
 
     public static View makeTextField(final long id, String value, String placeholder) {

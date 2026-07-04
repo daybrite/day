@@ -357,6 +357,9 @@ pub trait TreeOps {
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
+    /// Attach a native gesture recognizer to `node` (docs/shapes.md): the backend then emits
+    /// `Event::Tap/LongPress/Drag` for it. The node must have a native handle.
+    fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind);
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>);
     fn mark_needs_measure(&mut self, node: RNode);
@@ -536,6 +539,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(h) = n.handle.clone()
         {
             self.toolkit.set_a11y(&h, &a11y);
+        }
+    }
+
+    fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind) {
+        if let Some(n) = self.nodes.get(node)
+            && let Some(h) = n.handle.clone()
+        {
+            self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
         }
     }
 

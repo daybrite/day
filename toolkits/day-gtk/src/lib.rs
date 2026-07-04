@@ -29,6 +29,9 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     static OPS: RefCell<HashMap<usize, Vec<DrawOp>>> = RefCell::new(HashMap::new());
+    /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
+    static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
+        RefCell::new(std::collections::HashSet::new());
 }
 
 fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
@@ -113,6 +116,18 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 }
                 cr.move_to(x, y);
                 let _ = cr.show_text(&text); // toy API; PangoCairo refinement is a TODO (§11)
+            }
+            8 => {
+                cr.save().ok();
+            }
+            9 => {
+                cr.restore().ok();
+            }
+            10 => {
+                // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
+                // same row-vector meaning as day_geometry::Affine.
+                let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
+                cr.transform(m);
             }
             _ => {}
         }
@@ -858,6 +873,11 @@ impl Toolkit for Gtk {
         NAV_PAGE_TITLES.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        GESTURES.with(|g| {
+            let mut g = g.borrow_mut();
+            g.remove(&(key, false));
+            g.remove(&(key, true));
+        });
         // A tab page detaches from its AdwViewStack; a nav page is owned by its AdwNavigationPage
         // (already detached in `remove`); everything else lives in a GtkFixed parent.
         if let Some(stack) = h.parent().and_then(|p| p.downcast::<adw::ViewStack>().ok()) {
@@ -1087,6 +1107,71 @@ impl Toolkit for Gtk {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
+        use day_spec::{DragPhase, GestureKind, Point};
+        let is_drag = matches!(kind, GestureKind::Drag);
+        let key = (h.as_ptr() as usize, is_drag);
+        if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
+            return; // already wired
+        }
+        match kind {
+            GestureKind::Drag => {
+                let drag = gtk4::GestureDrag::new();
+                let start = Rc::new(std::cell::Cell::new((0.0f64, 0.0f64)));
+                drag.connect_drag_begin({
+                    let start = start.clone();
+                    move |_, x, y| {
+                        start.set((x, y));
+                        emit(
+                            node,
+                            Event::Drag {
+                                phase: DragPhase::Began,
+                                location: Point::new(x, y),
+                                translation: Point::ZERO,
+                            },
+                        );
+                    }
+                });
+                drag.connect_drag_update({
+                    let start = start.clone();
+                    move |_, ox, oy| {
+                        let (sx, sy) = start.get();
+                        emit(
+                            node,
+                            Event::Drag {
+                                phase: DragPhase::Changed,
+                                location: Point::new(sx + ox, sy + oy),
+                                translation: Point::new(ox, oy),
+                            },
+                        );
+                    }
+                });
+                drag.connect_drag_end({
+                    let start = start.clone();
+                    move |_, ox, oy| {
+                        let (sx, sy) = start.get();
+                        emit(
+                            node,
+                            Event::Drag {
+                                phase: DragPhase::Ended,
+                                location: Point::new(sx + ox, sy + oy),
+                                translation: Point::new(ox, oy),
+                            },
+                        );
+                    }
+                });
+                h.add_controller(drag);
+            }
+            _ => {
+                let click = gtk4::GestureClick::new();
+                click.connect_released(move |_, _n, x, y| {
+                    emit(node, Event::Tap(Point::new(x, y)));
+                });
+                h.add_controller(click);
+            }
+        }
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {

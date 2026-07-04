@@ -87,7 +87,7 @@ mod imp {
     use day_spec::props::*;
     use day_spec::{
         A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-        Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
+        Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
         WindowOptions, kinds,
     };
 
@@ -277,6 +277,40 @@ mod imp {
                 req: id as u64,
                 result: day_spec::present::PresentResult::Dismissed,
             },
+            // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
+            // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
+            11 => {
+                let text: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
+                if p.len() < 4 {
+                    return;
+                }
+                let d = DENSITY.with(|x| x.get());
+                let at = Point::new(p[0] / d, p[1] / d);
+                let tr = Point::new(p[2] / d, p[3] / d);
+                match num as i32 {
+                    0 => Event::Tap(at),
+                    1 => Event::Drag {
+                        phase: day_spec::DragPhase::Began,
+                        location: at,
+                        translation: Point::ZERO,
+                    },
+                    3 => Event::Drag {
+                        phase: day_spec::DragPhase::Ended,
+                        location: at,
+                        translation: tr,
+                    },
+                    _ => Event::Drag {
+                        phase: day_spec::DragPhase::Changed,
+                        location: at,
+                        translation: tr,
+                    },
+                }
+            }
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -928,6 +962,19 @@ mod imp {
 
         fn set_event_sink(&mut self, sink: EventSink) {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        }
+
+        fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: day_spec::GestureKind) {
+            let is_drag = matches!(kind, day_spec::GestureKind::Drag);
+            call_void(
+                "enableGesture",
+                "(Landroid/view/View;JZ)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Long(node.0 as i64),
+                    JValue::Bool(is_drag as u8),
+                ],
+            );
         }
 
         fn attach_list(&mut self, host: &AHandle, source: ListSource) {

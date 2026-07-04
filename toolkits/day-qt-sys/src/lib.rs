@@ -71,6 +71,12 @@ unsafe extern "C" {
         texts_joined: *const c_char,
     );
     pub fn day_qt_image_new(path: *const c_char) -> *mut c_void;
+    pub fn day_qt_enable_gesture(
+        w: *mut c_void,
+        node: u64,
+        is_drag: c_int,
+        cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
+    );
     pub fn day_qt_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
     pub fn day_qt_present_dialog(
         req: u64,

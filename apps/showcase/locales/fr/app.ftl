@@ -16,10 +16,17 @@ history-title = Historique
 history-entry = le compteur est passé à { $value }
 nav-controls = Contrôles
 nav-gauge = Jauge
+nav-shapes = Formes
 nav-tabs = Onglets
 nav-stack = Pile
 nav-list = Liste
 nav-about = À propos
+
+shapes-kinds = Types
+shapes-transform = Transformation
+shapes-angle = Angle
+shapes-tap = Toucher pour recolorer
+shapes-drag = Glisser pour déplacer
 list-add = Ajouter 100
 list-caption = { $count } lignes — seules les cellules visibles sont créées
 stack-root-body = Une vraie pile push/pop. Son chemin est un signal de l'application.

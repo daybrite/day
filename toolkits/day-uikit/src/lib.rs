@@ -24,7 +24,8 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-    use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
+    use objc2_core_foundation::{CGAffineTransform, CGFloat, CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::CGContext;
     use objc2_foundation::{NSObject, NSString};
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
@@ -37,6 +38,10 @@ mod imp {
         UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIProgressView, UIScreen,
         UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView, UIViewController,
         UIWindow,
+    };
+    use objc2_ui_kit::{
+        UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
+        UITapGestureRecognizer,
     };
     use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
     use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
@@ -115,6 +120,76 @@ mod imp {
     impl DayTarget {
         fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DayGesture — tap/pan recognizer target, node-id keyed (docs/shapes.md)
+    // -----------------------------------------------------------------------
+
+    struct GestureIvars {
+        node: NodeId,
+        is_drag: bool,
+    }
+
+    thread_local! {
+        /// Keeps each view's gesture targets alive + records which are attached (idempotent).
+        static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitGesture"]
+        #[ivars = GestureIvars]
+        struct DayGesture;
+
+        unsafe impl NSObjectProtocol for DayGesture {}
+
+        impl DayGesture {
+            #[unsafe(method(fire:))]
+            fn fire(&self, g: &UIGestureRecognizer) {
+                let node = self.ivars().node;
+                let view = unsafe { g.view() };
+                let loc = unsafe { g.locationInView(view.as_deref()) };
+                let at = day_spec::Point::new(loc.x, loc.y);
+                if self.ivars().is_drag {
+                    let obj: &AnyObject = g.as_ref();
+                    let (translation, phase) = if let Some(pan) =
+                        obj.downcast_ref::<UIPanGestureRecognizer>()
+                    {
+                        let t = unsafe { pan.translationInView(view.as_deref()) };
+                        let phase = match unsafe { g.state() } {
+                            UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                            UIGestureRecognizerState::Ended
+                            | UIGestureRecognizerState::Cancelled
+                            | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        };
+                        (day_spec::Point::new(t.x, t.y), phase)
+                    } else {
+                        (day_spec::Point::ZERO, day_spec::DragPhase::Changed)
+                    };
+                    emit(
+                        node,
+                        Event::Drag {
+                            phase,
+                            location: at,
+                            translation,
+                        },
+                    );
+                } else {
+                    emit(node, Event::Tap(at));
+                }
+            }
+        }
+    );
+
+    impl DayGesture {
+        fn new(mtm: MainThreadMarker, node: NodeId, is_drag: bool) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(GestureIvars { node, is_drag });
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -598,6 +673,27 @@ mod imp {
                         origin.y -= sz.height / 2.0;
                     }
                     let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
+                }
+                DrawOp::Save => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    CGContext::save_g_state(ctx.as_deref());
+                }
+                DrawOp::Restore => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    CGContext::restore_g_state(ctx.as_deref());
+                }
+                DrawOp::Concat(m) => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    // CGAffineTransform shares day_geometry::Affine's row-vector convention.
+                    let t = CGAffineTransform {
+                        a: m.a,
+                        b: m.b,
+                        c: m.c,
+                        d: m.d,
+                        tx: m.tx,
+                        ty: m.ty,
+                    };
+                    CGContext::concat_ctm(ctx.as_deref(), t);
                 }
             }
         }
@@ -1177,6 +1273,9 @@ mod imp {
             TABS_PAGE_VCS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            GESTURES.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
             unsafe { h.removeFromSuperview() };
         }
 
@@ -1304,6 +1403,41 @@ mod imp {
 
         fn set_event_sink(&mut self, sink: EventSink) {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        }
+
+        fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
+            let key = ptr_of(h);
+            let is_drag = matches!(kind, day_spec::GestureKind::Drag);
+            let already = GESTURES.with(|m| {
+                m.borrow()
+                    .get(&key)
+                    .is_some_and(|v| v.iter().any(|t| t.ivars().is_drag == is_drag))
+            });
+            if already {
+                return;
+            }
+            let mtm = mtm();
+            let target = DayGesture::new(mtm, node, is_drag);
+            unsafe {
+                let recognizer: Retained<UIGestureRecognizer> = if is_drag {
+                    let pan = UIPanGestureRecognizer::initWithTarget_action(
+                        UIPanGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    );
+                    Retained::into_super(pan)
+                } else {
+                    let tap = UITapGestureRecognizer::initWithTarget_action(
+                        UITapGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    );
+                    Retained::into_super(tap)
+                };
+                h.setUserInteractionEnabled(true);
+                h.addGestureRecognizer(&recognizer);
+            }
+            GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
         }
 
         fn attach_list(&mut self, host: &Handle, source: ListSource) {

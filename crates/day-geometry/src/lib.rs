@@ -119,6 +119,118 @@ impl Rect {
     }
 }
 
+/// A 2-D affine transform (CoreGraphics row-vector convention): a point `p` maps to
+/// `(a·p.x + c·p.y + tx, b·p.x + d·p.y + ty)`. Used by canvas transform ops for shape
+/// rotate/scale/offset — every native 2-D context concatenates it onto its CTM identically.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Affine {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+    pub tx: f64,
+    pub ty: f64,
+}
+
+impl Affine {
+    pub const IDENTITY: Affine = Affine {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        tx: 0.0,
+        ty: 0.0,
+    };
+
+    #[inline]
+    pub const fn translate(x: f64, y: f64) -> Affine {
+        Affine {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            tx: x,
+            ty: y,
+        }
+    }
+    #[inline]
+    pub const fn scale(sx: f64, sy: f64) -> Affine {
+        Affine {
+            a: sx,
+            b: 0.0,
+            c: 0.0,
+            d: sy,
+            tx: 0.0,
+            ty: 0.0,
+        }
+    }
+    /// Rotation by `radians` (counter-clockwise in a y-up space; clockwise on y-down screens).
+    #[inline]
+    pub fn rotate(radians: f64) -> Affine {
+        let (s, cos) = radians.sin_cos();
+        Affine {
+            a: cos,
+            b: s,
+            c: -s,
+            d: cos,
+            tx: 0.0,
+            ty: 0.0,
+        }
+    }
+    /// `self` applied first, then `other` (row-vector product `self · other`).
+    #[inline]
+    pub fn then(self, o: Affine) -> Affine {
+        Affine {
+            a: self.a * o.a + self.b * o.c,
+            b: self.a * o.b + self.b * o.d,
+            c: self.c * o.a + self.d * o.c,
+            d: self.c * o.b + self.d * o.d,
+            tx: self.tx * o.a + self.ty * o.c + o.tx,
+            ty: self.tx * o.b + self.ty * o.d + o.ty,
+        }
+    }
+    #[inline]
+    pub fn apply(&self, p: Point) -> Point {
+        Point::new(
+            self.a * p.x + self.c * p.y + self.tx,
+            self.b * p.x + self.d * p.y + self.ty,
+        )
+    }
+    /// Map a point back through the inverse (for hit-testing a transformed shape). None if singular.
+    pub fn invert_apply(&self, p: Point) -> Option<Point> {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let inv = 1.0 / det;
+        let x = p.x - self.tx;
+        let y = p.y - self.ty;
+        Some(Point::new(
+            (x * self.d - y * self.c) * inv,
+            (y * self.a - x * self.b) * inv,
+        ))
+    }
+    #[inline]
+    pub fn is_identity(&self) -> bool {
+        *self == Affine::IDENTITY
+    }
+    #[inline]
+    pub fn as_array(&self) -> [f64; 6] {
+        [self.a, self.b, self.c, self.d, self.tx, self.ty]
+    }
+    #[inline]
+    pub fn from_array(m: [f64; 6]) -> Affine {
+        Affine {
+            a: m[0],
+            b: m[1],
+            c: m[2],
+            d: m[3],
+            tx: m[4],
+            ty: m[5],
+        }
+    }
+}
+
 /// Logical insets: `leading`/`trailing` resolve against the layout direction at place time (§7.8).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Insets {
