@@ -83,6 +83,22 @@ struct Node {
 static void* boxh(UIElement const& e) { return new Node(e); }
 static UIElement& elem(void* h) { return reinterpret_cast<Node*>(h)->e; }
 
+// A WinRT HRESULT thrown out of an element-mutating FFI entry point would unwind through Rust's
+// `extern "C"` post-trampoline (run_posted) — a foreign unwind through a non-unwindable frame
+// aborts the whole process ("panic in a function that cannot unwind"). Those entry points are all
+// best-effort side effects on one element (layout, a11y id, visibility…), so a failure on a
+// degraded element must be swallowed, not fatal. Motivating case: the EdgeHTML WebView
+// (day-piece-webview) is a zombie on a headless CI host — its backing browser process never
+// starts, so it throws on *every* interaction (SetAutomationId, Canvas.SetTop, …). Wrapping the
+// FFI seam lets that page degrade to blank instead of taking the whole app down. Keep this OUT of
+// element-creating entry points (`*_new`) — a null handle there would just crash Rust later.
+template <typename F> static void guard(F&& f) {
+    try {
+        f();
+    } catch (...) {
+    }
+}
+
 // Pump the message loop until a WinRT async op completes (bounded). RenderTargetBitmap's async
 // work runs on this UI thread, so a blocking .get() would deadlock — we must pump. (Templates
 // can't live in the extern "C" block, hence file scope here.)
@@ -788,13 +804,17 @@ void day_winui_combo_set_selected(void* h, int idx) {
 // ---- tree / geometry / props ----
 
 void day_winui_add_child(void* parent, void* child) {
-    if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(elem(child));
+    guard([&] {
+        if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(elem(child));
+    });
 }
 void day_winui_remove_child(void* parent, void* child) {
-    if (auto p = elem(parent).try_as<WUXC::Panel>()) {
-        uint32_t idx = 0;
-        if (p.Children().IndexOf(elem(child), idx)) p.Children().RemoveAt(idx);
-    }
+    guard([&] {
+        if (auto p = elem(parent).try_as<WUXC::Panel>()) {
+            uint32_t idx = 0;
+            if (p.Children().IndexOf(elem(child), idx)) p.Children().RemoveAt(idx);
+        }
+    });
 }
 void day_winui_delete(void* h) { delete reinterpret_cast<Node*>(h); }
 
@@ -812,55 +832,66 @@ void* day_winui_unbox(void* handle) {
 }
 
 void day_winui_set_geometry(void* h, int x, int y, int width, int height) {
-    auto& e = elem(h);
-    WUXC::Canvas::SetLeft(e, static_cast<double>(x));
-    WUXC::Canvas::SetTop(e, static_cast<double>(y));
-    if (auto fe = e.try_as<FrameworkElement>()) {
-        fe.Width(static_cast<double>(width));
-        fe.Height(static_cast<double>(height));
-    }
+    guard([&] {
+        auto& e = elem(h);
+        WUXC::Canvas::SetLeft(e, static_cast<double>(x));
+        WUXC::Canvas::SetTop(e, static_cast<double>(y));
+        if (auto fe = e.try_as<FrameworkElement>()) {
+            fe.Width(static_cast<double>(width));
+            fe.Height(static_cast<double>(height));
+        }
+    });
 }
 
 void day_winui_measure(void* h, double aw, double ah, double* ow, double* oh) {
-    float fw = aw < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(aw);
-    float fh = ah < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(ah);
-    auto& e = elem(h);
-    e.Measure(WF::Size{ fw, fh });
-    auto d = e.DesiredSize();
-    if (d.Width == 0 && d.Height == 0) {
-        // day measures during its synchronous initial layout, before the island's first async
-        // layout pass has applied control templates (so templated controls report 0). Force a
-        // synchronous layout to expand templates, then re-measure. Runs at most once (the first
-        // zero-measure lays out the whole tree; later measures are already non-zero).
-        if (auto fe = e.try_as<FrameworkElement>()) fe.UpdateLayout();
+    *ow = 0; // sane defaults if a degraded element throws mid-measure (guard swallows it)
+    *oh = 0;
+    guard([&] {
+        float fw = aw < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(aw);
+        float fh = ah < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(ah);
+        auto& e = elem(h);
         e.Measure(WF::Size{ fw, fh });
-        d = e.DesiredSize();
-    }
-    *ow = d.Width;
-    *oh = d.Height;
+        auto d = e.DesiredSize();
+        if (d.Width == 0 && d.Height == 0) {
+            // day measures during its synchronous initial layout, before the island's first async
+            // layout pass has applied control templates (so templated controls report 0). Force a
+            // synchronous layout to expand templates, then re-measure. Runs at most once (the first
+            // zero-measure lays out the whole tree; later measures are already non-zero).
+            if (auto fe = e.try_as<FrameworkElement>()) fe.UpdateLayout();
+            e.Measure(WF::Size{ fw, fh });
+            d = e.DesiredSize();
+        }
+        *ow = d.Width;
+        *oh = d.Height;
+    });
 }
 
 void day_winui_set_enabled(void* h, int enabled) {
-    if (auto c = elem(h).try_as<WUXC::Control>()) c.IsEnabled(enabled != 0);
+    guard([&] {
+        if (auto c = elem(h).try_as<WUXC::Control>()) c.IsEnabled(enabled != 0);
+    });
 }
 
 void day_winui_set_visible(void* h, int visible) {
-    elem(h).Visibility(visible ? WUX::Visibility::Visible : WUX::Visibility::Collapsed);
+    guard([&] {
+        elem(h).Visibility(visible ? WUX::Visibility::Visible : WUX::Visibility::Collapsed);
+    });
 }
 
 // The element's laid-out size (points). Used by the list to size cells to its viewport width.
 void day_winui_widget_size(void* h, double* ow, double* oh) {
-    if (auto fe = elem(h).try_as<FrameworkElement>()) {
-        *ow = fe.ActualWidth();
-        *oh = fe.ActualHeight();
-    } else {
-        *ow = 0;
-        *oh = 0;
-    }
+    *ow = 0;
+    *oh = 0;
+    guard([&] {
+        if (auto fe = elem(h).try_as<FrameworkElement>()) {
+            *ow = fe.ActualWidth();
+            *oh = fe.ActualHeight();
+        }
+    });
 }
 
 void day_winui_set_name(void* h, const char* name) {
-    WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name));
+    guard([&] { WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name)); });
 }
 
 // ---- snapshot (PrintWindow → Gdiplus PNG) ----
