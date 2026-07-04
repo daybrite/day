@@ -2,11 +2,24 @@ plugins {
     id("com.android.application")
 }
 
+// Standalone-piece backend contributions (docs/extending.md): `day build` resolves every piece in
+// the app's dependency tree from `cargo metadata` and stages its Java dirs + Gradle deps here. Read
+// generically — a piece adds native Android code with NO edits to this file.
+val dayPiecesFile = rootProject.projectDir.resolve("../../build/day/android/day-pieces.json")
+@Suppress("UNCHECKED_CAST")
+val dayPieces: Map<String, Any> =
+    if (dayPiecesFile.exists()) groovy.json.JsonSlurper().parse(dayPiecesFile) as Map<String, Any>
+    else emptyMap()
+@Suppress("UNCHECKED_CAST")
+val pieceJavaDirs = (dayPieces["javaSrcDirs"] as? List<String>) ?: emptyList()
+@Suppress("UNCHECKED_CAST")
+val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
+
 android {
-    namespace = "dev.day.showcase"
+    namespace = "dev.daybrite.showcase"
     compileSdk = 35
     defaultConfig {
-        applicationId = "dev.day.showcase"
+        applicationId = "dev.daybrite.showcase"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
@@ -16,6 +29,8 @@ android {
         getByName("main") {
             // The day-android Java shim ships with the framework (§17.1).
             java.srcDir(rootProject.projectDir.resolve("../../../../toolkits/day-android/java"))
+            // Standalone pieces' own Java/Kotlin (docs/extending.md).
+            pieceJavaDirs.forEach { java.srcDir(it) }
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
             assets.srcDir(rootProject.projectDir.resolve("../../assets"))
@@ -30,4 +45,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Gradle dependencies contributed by standalone pieces (docs/extending.md).
+    pieceDeps.forEach { implementation(it) }
 }

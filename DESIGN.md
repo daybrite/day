@@ -1472,7 +1472,7 @@ day-piece-lottie/
       Sources/DayLottie/DayLottie.swift
     android/            # Gradle library module: wraps lottie-android (maven dep)
       build.gradle.kts
-      src/main/kotlin/dev/day/lottie/DayLottie.kt
+      src/main/kotlin/dev/daybrite/day/lottie/DayLottie.kt
     qt/                 # optional: CMake + C++ (rlottie), used by *-qt targets
       CMakeLists.txt
   locales/en/lottie.ftl # packages localize their own strings

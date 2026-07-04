@@ -1,4 +1,4 @@
-package dev.day.bridge;
+package dev.daybrite.day.bridge;
 
 import android.content.Context;
 import android.view.View;

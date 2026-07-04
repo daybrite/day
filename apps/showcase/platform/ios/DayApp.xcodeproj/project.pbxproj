@@ -156,7 +156,7 @@
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
 				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = "-lshowcase";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.day.showcase;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.daybrite.showcase;
 				PRODUCT_NAME = Showcase;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -173,7 +173,7 @@
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
 				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = "-lshowcase";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.day.showcase;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.daybrite.showcase;
 				PRODUCT_NAME = Showcase;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};

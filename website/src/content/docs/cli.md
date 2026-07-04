@@ -36,7 +36,7 @@ SwiftPM-style dependency graph — you never hand-maintain them.
 day: 1
 app:
   name: showcase
-  id: dev.day.showcase
+  id: dev.daybrite.showcase
   title: Day Showcase
   version: 0.1.0
 targets:

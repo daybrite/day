@@ -9,6 +9,7 @@ mod meta;
 mod mobile;
 mod ops;
 mod pack;
+mod pieces;
 mod script;
 mod signals;
 mod targets;

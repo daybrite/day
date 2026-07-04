@@ -1,5 +1,5 @@
 //! day-android — the android-widget backend (DESIGN.md §9). jni + the DayBridge Java shim
-//! (java/dev/day/bridge/ — the Java analogue of the Qt C++ shim; framework widgets only, zero
+//! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; framework widgets only, zero
 //! AndroidX). `Handle = AHandle(GlobalRef)`. Coordinates: day works in dp; `set_frame` scales
 //! by density to px and `measure` scales back. The JVM owns the main loop: `Platform::run`
 //! hands the pre-registered root straight to `ready` (the Activity already called `init`).
@@ -128,7 +128,7 @@ mod imp {
         }
     }
 
-    pub const BRIDGE: &str = "dev/day/bridge/DayBridge";
+    pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
     #[derive(Clone)]
     pub struct AHandle(pub GlobalRef);

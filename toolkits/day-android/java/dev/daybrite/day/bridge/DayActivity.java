@@ -1,4 +1,4 @@
-package dev.day.bridge;
+package dev.daybrite.day.bridge;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;

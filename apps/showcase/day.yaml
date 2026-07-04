@@ -1,7 +1,7 @@
 day: 1
 app:
   name: showcase
-  id: dev.day.showcase
+  id: dev.daybrite.showcase
   title: Day Showcase
   version: 0.1.0
   build: 1

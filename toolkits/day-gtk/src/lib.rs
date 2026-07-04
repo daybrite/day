@@ -1387,7 +1387,7 @@ impl Platform for Gtk {
         // AdwApplication initialises libadwaita and loads the Adwaita stylesheet, so
         // AdwNavigationSplitView / AdwNavigationView render with the GNOME treatment.
         let app = adw::Application::builder()
-            .application_id("dev.day.app")
+            .application_id("dev.daybrite.day.app")
             .build();
         let state = RefCell::new(Some((self, ready, options)));
         // Take on first activate (FnOnce payload inside an Fn handler).

@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/qt_shim.cpp");
-    println!("cargo:rerun-if-changed=src/winui_shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
@@ -24,7 +24,7 @@ fn build_qt() {
         .output()
         .expect("pkg-config Qt6Widgets");
     let mut build = cc::Build::new();
-    build.cpp(true).std("c++17").file("src/qt_shim.cpp");
+    build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
     for tok in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
         build.flag(tok);
     }
@@ -45,7 +45,7 @@ fn build_winui() {
         .cpp(true)
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
-        .file("src/winui_shim.cpp")
+        .file("src/lib-winui-shim.cpp")
         .include(&cppwinrt)
         .flag("/EHsc")
         .flag("/bigobj")

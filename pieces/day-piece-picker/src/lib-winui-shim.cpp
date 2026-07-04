@@ -1,4 +1,4 @@
-// The picker piece's OWN C++/WinRT shim — parallel to src/qt_shim.cpp. Three stylings behind a flat
+// The picker piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. Three stylings behind a flat
 // C ABI: 0 = menu (ComboBox), 1 = segmented (horizontal StackPanel of RadioButtons), 2 = inline
 // (vertical StackPanel of RadioButtons). The native element is boxed into a day handle via the
 // `day_winui_box`/`day_winui_unbox` seam that day-winui-sys exports, so this piece carries its own

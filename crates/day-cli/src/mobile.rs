@@ -389,7 +389,11 @@ pub fn build_android(
     );
     build_android_so(project, profile, &jni_out)?;
 
-    // 2) Gradle assemble.
+    // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
+    //    for the Gradle build to pick up — zero edits to day for a piece to ship its backend.
+    crate::pieces::write_android_manifest(project)?;
+
+    // 3) Gradle assemble.
     let task = if profile == "release" {
         "assembleRelease"
     } else {
@@ -456,7 +460,7 @@ pub fn launch_android(
         "am",
         "start",
         "-n",
-        &format!("{app_id}/dev.day.bridge.DayActivity"),
+        &format!("{app_id}/dev.daybrite.day.bridge.DayActivity"),
     ]);
     for (k, v) in &spec.envs {
         let quoted = format!("'{}'", v.replace('\'', ""));

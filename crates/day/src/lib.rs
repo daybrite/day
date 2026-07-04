@@ -62,7 +62,7 @@ pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static)
 
 // ---------------------------------------------------------------------------
 // App entry macros (§17.4): the mobile shells bind fixed exported symbols
-// (Runner/main.swift → `day_main`; dev.day.bridge.DayBridge → `Java_…` natives).
+// (Runner/main.swift → `day_main`; dev.daybrite.day.bridge.DayBridge → `Java_…` natives).
 // These expand to that glue so an app's lib.rs carries one line per platform.
 // Both emit nothing off their target OS, so apps invoke them unconditionally.
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ macro_rules! ios_main {
     };
 }
 
-/// Expands to the three JNI exports `dev.day.bridge.DayBridge`'s natives resolve
+/// Expands to the three JNI exports `dev.daybrite.day.bridge.DayBridge`'s natives resolve
 /// against in the app cdylib (`nativeStart`/`nativeOnEvent`/`nativeRunPosted`),
 /// wired to the given root piece.
 ///
@@ -107,7 +107,7 @@ macro_rules! android_main {
     ($root:expr) => {
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeStart(
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeStart(
             mut env: $crate::android::jni::JNIEnv,
             _class: $crate::android::jni::objects::JClass,
             root: $crate::android::jni::objects::JObject,
@@ -136,7 +136,7 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeOnEvent(
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeOnEvent(
             mut env: $crate::android::jni::JNIEnv,
             _class: $crate::android::jni::objects::JClass,
             id: $crate::android::jni::sys::jlong,
@@ -149,7 +149,7 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeRunPosted(
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeRunPosted(
             _env: $crate::android::jni::JNIEnv,
             _class: $crate::android::jni::objects::JClass,
             token: $crate::android::jni::sys::jlong,
@@ -159,7 +159,7 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeListLen(
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListLen(
             _env: $crate::android::jni::JNIEnv,
             _class: $crate::android::jni::objects::JClass,
             host_id: $crate::android::jni::sys::jlong,
@@ -169,7 +169,7 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_day_bridge_DayBridge_nativeListBind<'a>(
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListBind<'a>(
             mut env: $crate::android::jni::JNIEnv<'a>,
             _class: $crate::android::jni::objects::JClass<'a>,
             host_id: $crate::android::jni::sys::jlong,
