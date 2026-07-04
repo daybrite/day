@@ -77,12 +77,21 @@ The piece carries its own Java/Kotlin under a crate dir and declares it in `Carg
 java = ["android/java"]                                        # → Gradle java srcDirs
 gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → app dependencies { }
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
+permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
 ```
 
 `day build` (for `android-widget`) runs `cargo metadata`, walks the app's dependency closure, collects
 every piece's contributions, and writes `build/day/android/day-pieces.json`. The app's checked-in
 `platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file **generically** (a loop —
 no per-piece edits, ever) and add the Java dirs, dependencies, and repos.
+
+**Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
+app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated
+**overlay manifest** (`build/day/android/day-pieces-manifest.xml`). The scaffold points its debug +
+release source-set manifests at that overlay, and AGP's manifest merger folds the `<uses-permission>`
+entries into the app manifest (deduping against any the app already declares). So a WebView-using app
+needs no manual manifest edit — the piece declares the permission and it just appears. `day-piece-webview`
+is the reference. (A piece can only add a permission; it never removes or narrows the app's own.)
 
 The piece's Java uses day-android's **public** surface only — `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
@@ -131,3 +140,8 @@ pieces/day-piece-picker/
 
 `lib.rs` declares each backend with `#[cfg(…)] #[path = "lib-<toolkit>.rs"] mod …_impl;`, so every file
 is compiled only for its feature+target and the whole native surface for a toolkit lives in one place.
+
+`pieces/day-piece-webview` (see [webview.md](webview.md)) is a second reference — a heavier native
+backend (an embedded browser) that additionally contributes an Android permission, hand-rolls the iOS
+`WKWebView` (`dlopen`-ing WebKit.framework so the piece stays self-contained), and returns the proposal
+from `measure` so a growing leaf fills on Android.

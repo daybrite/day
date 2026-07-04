@@ -21,6 +21,7 @@ nav-pickers = Sélecteurs
 nav-tabs = Onglets
 nav-stack = Pile
 nav-list = Liste
+nav-webview = Vue Web
 nav-about = À propos
 
 shapes-kinds = Types
@@ -34,6 +35,13 @@ picker-menu = Menu
 picker-inline = Aligné
 list-add = Ajouter 100
 list-caption = { $count } lignes — seules les cellules visibles sont créées
+
+webview-url-hint = Saisir une URL
+webview-go = Aller
+webview-back = Précédent
+webview-forward = Suivant
+webview-stop = Arrêter
+webview-reload = Recharger
 stack-root-body = Une vraie pile push/pop. Son chemin est un signal de l'application.
 stack-push = Empiler un détail
 stack-detail-title = Niveau { $depth }

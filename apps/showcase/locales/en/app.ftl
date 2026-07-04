@@ -21,6 +21,7 @@ nav-pickers = Pickers
 nav-tabs = Tabs
 nav-stack = Stack
 nav-list = List
+nav-webview = Web View
 nav-about = About
 
 shapes-kinds = Kinds
@@ -34,6 +35,13 @@ picker-menu = Menu
 picker-inline = Inline
 list-add = Add 100
 list-caption = { $count } rows — only the visible cells are built
+
+webview-url-hint = Enter a URL
+webview-go = Go
+webview-back = Back
+webview-forward = Forward
+webview-stop = Stop
+webview-reload = Reload
 stack-root-body = A genuine push/pop stack. Its path is an app-owned signal.
 stack-push = Push a detail
 stack-detail-title = Level { $depth }

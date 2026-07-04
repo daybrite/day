@@ -116,3 +116,14 @@ flow:
   - assert_route: { route: list }
   - assert_visible: { id: list-title }
   - screenshot: list
+  # Native web view (docs/webview.md): an EXTERNAL piece wrapping each toolkit's native browser
+  # (WKWebView / QWebEngineView / WebKitGTK / android.webkit.WebView / UWP WebView). Load the project
+  # site, then `pause` (runner-side — the engine must not block the UI thread) so the page finishes
+  # loading before the capture. Visited LAST so a heavy embedded browser can't disturb the route
+  # assertions above, and so a webview that misbehaves on a headless runner still leaves every other
+  # screenshot captured.
+  - navigate: { route: webview }
+  - assert_route: { route: webview }
+  - assert_visible: { id: webview-title }
+  - pause: 5
+  - screenshot: webview

@@ -52,7 +52,10 @@ jobs:
       - name: Install GTK 4 and Qt 6 dev libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev qt6-base-dev pkg-config
+          # WebKitGTK 6 (GTK web view) + Qt WebEngine (Qt web view) for day-piece-webview.
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev qt6-base-dev pkg-config \
+            libwebkitgtk-6.0-dev qt6-webengine-dev
       - name: Clippy (host-portable crates)
         run: cargo clippy --locked --all-targets
       - name: Clippy (day CLI + dayscript)
@@ -97,6 +100,9 @@ jobs:
       - name: Install toolkit deps
         run: |
           case "${{ matrix.toolkit }}" in
+            # The full `qt` formula includes Qt WebEngine (the Qt web view). macos-gtk gets NO
+            # WebKitGTK — Homebrew's has no bottle and vends the GTK3 API, and WebKitGTK isn't viable
+            # on macOS-quartz, so the GTK web view is Linux/Windows only (day-piece-webview).
             qt) brew install qt pkg-config ;;
             gtk) brew install gtk4 libadwaita pkg-config ;;
           esac
@@ -175,9 +181,10 @@ jobs:
       - name: Install toolkit deps
         run: |
           sudo apt-get update
+          # day-piece-webview needs Qt WebEngine (Qt) / WebKitGTK 6 (GTK) on top of the base libs.
           case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev pkg-config ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev pkg-config xvfb ;;
+            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb ;;
           esac
       - name: Test host-portable crates
         run: cargo test --locked
@@ -319,12 +326,13 @@ jobs:
         include:
           # mingw-w64-x86_64-gcc provides the mingw gcc/g++ the pin step below points the linker
           # (and the cc crate) at — the runner has no MSYS2 mingw compiler otherwise, only the libs.
+          # day-piece-webview adds mingw-w64-x86_64-qt6-webengine (Qt web view) / -webkitgtk6 (GTK web view).
           - combo: windows-qt
             toolkit: qt
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
+            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-webengine mingw-w64-x86_64-pkgconf
           - combo: windows-gtk
             toolkit: gtk
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-pkgconf
+            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-webkitgtk6 mingw-w64-x86_64-pkgconf
     defaults:
       run:
         shell: msys2 {0}

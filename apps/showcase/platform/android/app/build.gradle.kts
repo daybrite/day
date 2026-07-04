@@ -14,6 +14,8 @@ val dayPieces: Map<String, Any> =
 val pieceJavaDirs = (dayPieces["javaSrcDirs"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
 val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
+@Suppress("UNCHECKED_CAST")
+val piecePermissions = (dayPieces["permissions"] as? List<String>) ?: emptyList()
 
 android {
     namespace = "dev.daybrite.showcase"
@@ -34,6 +36,14 @@ android {
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
             assets.srcDir(rootProject.projectDir.resolve("../../assets"))
+        }
+        // Android <uses-permission>s contributed by standalone pieces (docs/extending.md) live in a
+        // generated overlay manifest that AGP merges into the app manifest. Point the build-type
+        // source-set manifests at it (a source set has one manifest slot; main keeps the app's).
+        val pieceManifest = rootProject.projectDir.resolve("../../build/day/android/day-pieces-manifest.xml")
+        if (piecePermissions.isNotEmpty() && pieceManifest.exists()) {
+            getByName("debug").manifest.srcFile(pieceManifest)
+            getByName("release").manifest.srcFile(pieceManifest)
         }
     }
     buildTypes {

@@ -1,0 +1,72 @@
+[package]
+name = "day-piece-webview"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+# A standalone Day Piece wrapping each toolkit's NATIVE web view (WKWebView on AppKit/UIKit,
+# QWebEngineView on Qt, android.webkit.WebView on Android, WebKitGTK on GTK, the UWP-XAML WebView on
+# WinUI). Like `day-piece-picker`, it carries BOTH its cross-platform front-end (Rust) and its
+# per-toolkit backend (objc2 / C++ shims / Android Java / gtk-rs) with ZERO edits to any core day
+# crate. See docs/extending.md + docs/webview.md.
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:objc2-web-kit"]
+# WebKitGTK 6 via the webkit6 crate. Scoped to non-macOS: Homebrew's webkitgtk vends the GTK3 API and
+# has no bottle (hours-long source build), and WebKitGTK on macOS-quartz is not viable — so on
+# macos-gtk the webview kind falls back to a placeholder (webkit6 is a non-macOS target dependency).
+gtk = ["dep:day-gtk", "dep:gtk4", "dep:webkit6"]
+qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp and links Qt6WebEngineWidgets
+# objc2-web-kit 0.3 binds WKWebView for macOS only, so UIKit hand-rolls it via extern_class!/msg_send!.
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+widget = ["dep:day-android"]        # + [package.metadata.day.android]
+winui = ["dep:day-winui", "dep:day-winui-sys"]     # + build.rs compiles src/lib-winui-shim.cpp
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
+day-winui-sys = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSURLRequest"] }
+objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
+objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKFrameInfo"] }
+
+# WebKitGTK 6 only exists as a fast package on Linux (libwebkitgtk-6.0-dev) and Windows MSYS2
+# (webkitgtk6); the `gtk` feature enables it via `dep:webkit6`, which is a no-op on macOS where this
+# dependency is absent — so the GTK web view is Linux/Windows only (lib-gtk.rs is gated to match).
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+webkit6 = { version = "0.6", optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# Standalone-piece Android contribution (docs/extending.md). The day CLI reads this from
+# `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
+# Java AND declares the Android permissions it needs, with zero edits to day-android or the scaffold.
+[package.metadata.day.android]
+# Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
+java = ["android/java"]
+# Gradle dependency coordinates added to the app module. android.webkit.WebView is a framework
+# widget, so no extra dependency is required.
+gradle-dependencies = []
+# Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
+gradle-repositories = []
+# Android manifest <uses-permission>s the piece needs — merged into the app manifest by `day build`
+# (the enhancement this piece motivates: a standalone piece can now contribute a permission).
+permissions = ["android.permission.INTERNET"]
