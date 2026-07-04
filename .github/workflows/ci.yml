@@ -192,12 +192,20 @@ jobs:
         run: cargo build --locked -p day-cli
       # GTK renders under a virtual display (in-process snapshot is limited on GTK, §9);
       # Qt runs on the offscreen platform. Both drive the full dayscript walkthrough.
+      # The GTK web view (WebKitGTK) needs two env vars in this restricted headless runner:
+      #   WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS — the bubblewrap sandbox can't create a network
+      #     namespace here ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"), which
+      #     otherwise kills the WebKit web process and aborts the app.
+      #   WEBKIT_DISABLE_COMPOSITING_MODE — xvfb has no GPU (libEGL/DRI3 warnings), so render the
+      #     page in software instead of via accelerated (GL) compositing.
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
         run: |
           if [ "${{ matrix.toolkit }}" = gtk ]; then
             xvfb-run -a ../../target/debug/day launch -p linux-gtk \
-              --script scripts/walkthrough.yaml --locale fr
+              --script scripts/walkthrough.yaml --locale fr \
+              --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
+              --env WEBKIT_DISABLE_COMPOSITING_MODE=1
           else
             ../../target/debug/day launch -p linux-qt \
               --script scripts/walkthrough.yaml --locale fr \
@@ -366,9 +374,11 @@ jobs:
         run: cargo test --locked
       - name: Build day CLI
         run: cargo build --locked -p day-cli
+      # The WEBKIT_* var matters only for windows-gtk's WebKitGTK web view (render in software, no
+      # accelerated compositing); it is a harmless no-op for windows-qt.
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
+        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
