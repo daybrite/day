@@ -27,6 +27,14 @@ flow:
   - assert_route: { route: gauge }
   - assert_visible: { id: gauge }
   - screenshot: gauge
+  # Shape pieces (docs/shapes.md): canvas-backed shapes, a slider-bound rotation, tap-to-recolor,
+  # drag-to-move. Drive the rotation + a tap so the screenshot shows a transformed + recolored shape.
+  - navigate: { route: shapes }
+  - assert_route: { route: shapes }
+  - assert_visible: { id: shapes-title }
+  - set_value: { id: shapes-angle-slider, value: 45 }
+  - tap: { id: shapes-tap-circle }
+  - screenshot: shapes
   # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
   - navigate: { route: modals }
   - assert_route: { route: modals }

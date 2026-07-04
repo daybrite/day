@@ -1582,13 +1582,25 @@ impl Toolkit for AppKit {
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
+        let key = ptr_of(host);
         LIST_STATE.with(|m| {
-            if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
+            if let Some((table, data)) = m.borrow().get(&key) {
                 data.ivars().source.replace(Some(source));
                 // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
                 unsafe { table.reloadData() };
             }
         });
+        // Force the table to realize its visible row views on the NEXT main-loop turn — OUTSIDE
+        // any `with_tree` borrow — so `viewForRow`/`bind_row` build the cells then. Otherwise a
+        // headless CI window never lays the table out until a snapshot's `cacheDisplayInRect`
+        // forces it *inside* the snapshot borrow, where `bind_row` must skip (blank rows).
+        <AppKit as Platform>::post(Box::new(move || {
+            LIST_STATE.with(|m| {
+                if let Some((table, _)) = m.borrow().get(&key) {
+                    unsafe { table.layoutSubtreeIfNeeded() };
+                }
+            });
+        }));
     }
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {

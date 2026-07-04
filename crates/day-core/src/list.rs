@@ -8,7 +8,7 @@
 //! `with_tree` (adopt cell) → build/rebind + `flush_sync` **outside** any borrow → `with_tree`
 //! (lay the row out in its cell). Holding the borrow across the build would deadlock the RefCell.
 
-use crate::tree::{RNode, with_tree};
+use crate::tree::{RNode, try_with_tree, with_tree};
 use day_reactive::Scope;
 use day_spec::{ListSource, props::RowHeight};
 use std::collections::HashMap;
@@ -77,7 +77,13 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
         token_at: Rc::new(move |i| (d_tok.token_at)(i)),
         bind_row: Rc::new(move |index, cell| {
             let key = cell as usize;
-            match with_tree(|t| t.list_prepare_cell(node, key, cell)) {
+            // A backend snapshot draws the window while holding the tree borrow; if that draw
+            // re-enters here (a lazy list realizing a row mid-`cacheDisplayInRect`), skip rather
+            // than double-borrow — the row binds on the next real layout pass (tree.rs::try_with_tree).
+            let Some(step) = try_with_tree(|t| t.list_prepare_cell(node, key, cell)) else {
+                return;
+            };
+            match step {
                 CellStep::Build { anchor } => {
                     // Build outside the borrow — BuildCx re-acquires with_tree per op.
                     let built = (d_bind.build)(index, anchor);

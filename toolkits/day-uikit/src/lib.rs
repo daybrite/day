@@ -573,10 +573,12 @@ mod imp {
         }
     }
 
+    /// A realized LIST's (table view, its data source), keyed by table ptr.
+    type ListEntry = (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>);
+
     thread_local! {
         /// LIST table ptr → (table, data source).
-        static LIST_STATE: RefCell<HashMap<usize, (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>)>> =
-            RefCell::new(HashMap::new());
+        static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     }
 
     // -----------------------------------------------------------------------

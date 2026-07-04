@@ -257,9 +257,18 @@ fn exec(step: Step) -> Reply {
                 Ok(Reply::ok())
             }
             Step::Tap { id, repeat } => {
+                // Deliver a button `Pressed` AND a gesture `Tap` at the node's local centre, so one
+                // step exercises buttons (which ignore `Tap`) and shape/`.on_tap` pieces (which
+                // ignore `Pressed`) alike — the native recognizers deliver the same `Tap`.
+                let node = find(&id)?;
+                let center = with_tree(|t| t.node_frame(node))
+                    .map(|f| day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0))
+                    .unwrap_or(day_spec::Point::ZERO);
                 for _ in 0..repeat.unwrap_or(1).max(1) {
-                    emit(&id, Event::Pressed)?;
+                    day_core::enqueue_event(rnode_to_id(node), Event::Pressed);
+                    day_core::enqueue_event(rnode_to_id(node), Event::Tap(center));
                 }
+                day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
             Step::Input { id, text } => {

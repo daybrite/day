@@ -812,6 +812,23 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
     r
 }
 
+/// Like `with_tree`, but returns `None` instead of panicking when the tree is already borrowed.
+/// A snapshot (`TreeOps::snapshot`) holds the borrow while the backend draws the window
+/// synchronously, and that draw can re-enter day through a native callback — e.g. a lazy
+/// list's `viewForRow`/`connect_bind`/`cellForRow` firing during `cacheDisplayInRect`. Such a
+/// callback uses this and simply skips its work when re-entrant; the next real layout rebinds.
+pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
+    let r = TREE.with(|t| {
+        let mut opt = t.try_borrow_mut().ok()?;
+        let ops = opt.as_mut().expect("day: no tree installed on this thread");
+        Some(f(ops.as_mut()))
+    });
+    if r.is_some() && PUMP_PENDING.replace(false) {
+        pump_events();
+    }
+    r
+}
+
 pub fn has_tree() -> bool {
     TREE.with(|t| t.borrow().is_some())
 }
