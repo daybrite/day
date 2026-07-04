@@ -334,10 +334,12 @@ jobs:
         include:
           # mingw-w64-x86_64-gcc provides the mingw gcc/g++ the pin step below points the linker
           # (and the cc crate) at — the runner has no MSYS2 mingw compiler otherwise, only the libs.
-          # day-piece-webview adds mingw-w64-x86_64-qt6-webengine (Qt web view) / -webkitgtk6 (GTK web view).
+          # day-piece-webview's GTK web view adds -webkitgtk6; its Qt web view has NO MSYS2 package
+          # (MSYS2/MINGW64 ships no Qt6 WebEngine — Chromium won't build with MinGW GCC), so the
+          # piece degrades to a URL label there (build.rs probes pkg-config for Qt6WebEngineWidgets).
           - combo: windows-qt
             toolkit: qt
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-webengine mingw-w64-x86_64-pkgconf
+            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
           - combo: windows-gtk
             toolkit: gtk
             msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-webkitgtk6 mingw-w64-x86_64-pkgconf

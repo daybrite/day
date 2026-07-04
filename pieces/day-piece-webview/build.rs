@@ -24,10 +24,26 @@ fn main() {
 }
 
 fn build_qt() {
-    // QWebEngineView lives in Qt6WebEngineWidgets; its --cflags pull in Qt6Core/Gui/Widgets too.
-    let cflags = pkg_config(&["--cflags", "Qt6WebEngineWidgets"]);
+    // QWebEngineView lives in Qt6WebEngineWidgets, which not every Qt host ships: MSYS2/MINGW64
+    // (windows-qt) has no Qt6 WebEngine at all (Chromium won't build with MinGW GCC). When it's
+    // absent the shim degrades to a QtWidgets URL label (see lib-qt-shim.cpp's #else), so build
+    // against Qt6Widgets — which day-qt-sys already links — instead of failing the build.
+    let has_webengine = pkg_config_exists("Qt6WebEngineWidgets");
+    let cflags_pkg = if has_webengine {
+        "Qt6WebEngineWidgets" // --cflags pull in Qt6Core/Gui/Widgets too
+    } else {
+        println!(
+            "cargo:warning=Qt6WebEngineWidgets not found; day-piece-webview degrades to a URL \
+             label on qt (no native browser)."
+        );
+        "Qt6Widgets"
+    };
+    let cflags = pkg_config(&["--cflags", cflags_pkg]);
     let mut build = cc::Build::new();
     build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
+    if has_webengine {
+        build.define("DAY_WEBVIEW_QT_ENGINE", None);
+    }
     for tok in cflags.split_whitespace() {
         build.flag(tok);
     }
@@ -35,9 +51,12 @@ fn build_qt() {
     build.compile("daywebviewqtshim");
 
     // day-qt-sys already links Qt6Core/Qt6Widgets, but NOT the WebEngine modules — emit those.
-    // Duplicates with day-qt-sys's flags are harmless (the linker dedups).
-    let libs = pkg_config(&["--libs", "Qt6WebEngineWidgets"]);
-    emit_link_flags(&libs);
+    // Duplicates with day-qt-sys's flags are harmless (the linker dedups). The label fallback needs
+    // nothing beyond Qt6Widgets (already linked), so emit no extra libs there.
+    if has_webengine {
+        let libs = pkg_config(&["--libs", "Qt6WebEngineWidgets"]);
+        emit_link_flags(&libs);
+    }
 }
 
 fn build_winui() {
@@ -87,6 +106,16 @@ fn find_cppwinrt() -> Option<PathBuf> {
     }
     found.sort();
     found.pop()
+}
+
+/// True if pkg-config knows the module (used to pick the real QWebEngineView shim vs. the label
+/// fallback). `--exists` is the standard availability probe; a missing pkg-config counts as absent.
+fn pkg_config_exists(pkg: &str) -> bool {
+    std::process::Command::new("pkg-config")
+        .args(["--exists", pkg])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn pkg_config(args: &[&str]) -> String {

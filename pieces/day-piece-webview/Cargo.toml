@@ -17,7 +17,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 # has no bottle (hours-long source build), and WebKitGTK on macOS-quartz is not viable — so on
 # macos-gtk the webview kind falls back to a placeholder (webkit6 is a non-macOS target dependency).
 gtk = ["dep:day-gtk", "dep:gtk4", "dep:webkit6"]
-qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp and links Qt6WebEngineWidgets
+qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6WebEngineWidgets when present (else a URL-label fallback)
 # objc2-web-kit 0.3 binds WKWebView for macOS only, so UIKit hand-rolls it via extern_class!/msg_send!.
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 widget = ["dep:day-android"]        # + [package.metadata.day.android]
