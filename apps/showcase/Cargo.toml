@@ -8,8 +8,8 @@ rust-version.workspace = true
 appkit = ["day/appkit", "day-piece-combobox/appkit", "day-piece-picker/appkit", "day-piece-webview/appkit"]
 gtk = ["day/gtk", "day-piece-combobox/gtk", "day-piece-picker/gtk", "day-piece-webview/gtk"]
 qt = ["day/qt", "day-piece-combobox/qt", "day-piece-picker/qt", "day-piece-webview/qt"]
-uikit = ["day/uikit", "day-piece-combobox/uikit", "day-piece-picker/uikit", "day-piece-webview/uikit"]
-widget = ["day/widget", "day-piece-combobox/widget", "day-piece-picker/widget", "day-piece-webview/widget"]
+uikit = ["day/uikit", "day-piece-combobox/uikit", "day-piece-picker/uikit", "day-piece-webview/uikit", "day-piece-lottie/uikit"]
+widget = ["day/widget", "day-piece-combobox/widget", "day-piece-picker/widget", "day-piece-webview/widget", "day-piece-lottie/widget"]
 winui = ["day/winui", "day-piece-combobox/winui", "day-piece-picker/winui", "day-piece-webview/winui"]
 mock = ["day/mock"]
 
@@ -25,6 +25,9 @@ day = { workspace = true }
 day-piece-combobox = { workspace = true }
 day-piece-picker = { workspace = true }
 day-piece-webview = { workspace = true }
+# day-piece-lottie is iOS/Android only; the front-end compiles everywhere but the `lottie` page is
+# `#[cfg]`-gated to those targets. Its backend features are enabled only in `uikit`/`widget`.
+day-piece-lottie = { workspace = true }
 
 [[bin]]
 name = "showcase"

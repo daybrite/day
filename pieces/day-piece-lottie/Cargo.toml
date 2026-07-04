@@ -1,0 +1,48 @@
+[package]
+name = "day-piece-lottie"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A standalone Day Piece rendering a Lottie animation — iOS + Android only. Like the other pieces it
+# carries BOTH its cross-platform front-end (Rust) and its per-toolkit backend, with ZERO edits to
+# any core day crate. It is the reference for a piece that pulls an EXTERNAL native package:
+#   iOS      — the lottie-ios SwiftPM package (via the new [package.metadata.day.ios] mechanism)
+#   Android  — com.airbnb.android:lottie (via the existing [package.metadata.day.android] mechanism)
+# See docs/extending.md + docs/lottie.md.
+
+[features]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-ui-kit"]
+widget = ["dep:day-android"]
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+linkme = { workspace = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The day CLI reads this from `cargo metadata` and folds it into the app's Gradle build.
+[package.metadata.day.android]
+java = ["android/java"]
+# Airbnb's Lottie for Android (on mavenCentral) — the native animation renderer.
+gradle-dependencies = ["com.airbnb.android:lottie:6.6.0"]
+
+# --- iOS backend contribution (docs/extending.md — the mechanism this piece introduces) ---
+# `day build` (ios-uikit) reads this from `cargo metadata`, generates a local SwiftPM package that
+# depends on these `swift-packages` and compiles the `swift` shim sources, and links it into the app.
+[package.metadata.day.ios]
+# Swift shim source dir(s), relative to this crate root — compiled into the app's Swift build.
+swift = ["ios/swift"]
+# SwiftPM package dependencies. `products` are the library products to link from each package.
+swift-packages = [
+    { url = "https://github.com/airbnb/lottie-ios", from = "4.5.0", products = ["Lottie"] },
+]

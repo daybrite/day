@@ -99,6 +99,38 @@ The Rust side calls its OWN Java class through the re-exported `jni` (`with_env`
 + `AHandle`); `day_android::make_view` is a convenience hardcoded to `DayBridge`, so a standalone piece
 uses raw `call_static_method` on its class. See `pieces/day-piece-picker/android/java/dev/daybrite/day/piece/picker/DayPicker.java`.
 
+> **Gradle configuration cache.** The scaffold reads `day-pieces.json` at *configuration* time, and
+> `day build` rewrites it every build; the config cache can't track that read, so it would serve stale
+> piece contributions. The scaffold ships with `org.gradle.configuration-cache=false` for this reason.
+> Some pieces also pull libraries that require AndroidX (Lottie's view extends `AppCompatImageView`), so
+> the scaffold sets `android.useAndroidX=true`.
+
+### iOS Swift shims + SwiftPM packages (`[package.metadata.day.ios]`)
+
+Many iOS libraries (and any Swift class with a non-`@objc` API) can't be driven from Rust directly, and
+they ship as **SwiftPM packages**. A piece declares both — a Swift shim it carries, and the packages it
+needs — in its `Cargo.toml`:
+
+```toml
+[package.metadata.day.ios]
+swift = ["ios/swift"]                                         # dirs of Swift shim sources
+swift-packages = [                                           # SwiftPM package dependencies
+  { url = "https://github.com/airbnb/lottie-ios", from = "4.5.0", products = ["Lottie"] },
+]
+```
+
+`{from, exact, branch, revision}` map to the matching SwiftPM version requirement; `products` are the
+library products to link. Xcode is not script-driven like Gradle, so `day build` (ios-uikit) instead
+generates a **local SwiftPM package** at `build/day/ios/DayPieces` — its `Package.swift` lists every
+piece's `swift-packages` as dependencies and compiles every piece's staged Swift shims (each under a
+per-crate subfolder). The app's checked-in `.xcodeproj` depends on that **one** local package (the iOS
+analog of the checked-in Gradle scaffold — a `XCLocalSwiftPackageReference` + a product dependency in a
+Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data — **no `.xcodeproj` edits, ever**.
+
+The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mirroring the Android Java
+shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust wraps via
+`Retained::from_raw`. See `pieces/day-piece-lottie/{ios/swift/DayLottie.swift,src/lib-uikit.rs}`.
+
 ## 4. Cargo wiring
 
 ```toml
@@ -145,3 +177,8 @@ is compiled only for its feature+target and the whole native surface for a toolk
 backend (an embedded browser) that additionally contributes an Android permission, hand-rolls the iOS
 `WKWebView` (`dlopen`-ing WebKit.framework so the piece stays self-contained), and returns the proposal
 from `measure` so a growing leaf fills on Android.
+
+`pieces/day-piece-lottie` (see [lottie.md](lottie.md)) is a third reference — an iOS/Android-only piece
+that pulls an EXTERNAL native package on each platform: the **lottie-ios SwiftPM package** (via the
+`[package.metadata.day.ios]` mechanism above) and **`com.airbnb.android:lottie`** (Gradle). Its Swift
+and Java shims each wrap a `LottieAnimationView` behind a flat C ABI / static method.

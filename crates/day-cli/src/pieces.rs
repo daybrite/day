@@ -15,6 +15,19 @@
 //! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
 //! scaffold points its debug+release source-set manifests at, so AGP merges them into the app manifest.
+//!
+//! iOS contract (`[package.metadata.day.ios]`):
+//! ```toml
+//! swift = ["ios/swift"]                 # dirs (rel. to the crate) of Swift shim sources
+//! swift-packages = [                    # SwiftPM package dependencies to link
+//!   { url = "https://…", from = "1.0.0", products = ["Foo"] },
+//! ]
+//! ```
+//! Xcode is not script-driven like Gradle, so instead the CLI generates a LOCAL SwiftPM package at
+//! `build/day/ios/DayPieces` — its `Package.swift` lists every piece's `swift-packages` as
+//! dependencies and compiles every piece's staged Swift shims. The app's checked-in `.xcodeproj`
+//! depends on that one local package (the iOS analog of the Gradle scaffold), so adding an iOS piece
+//! is pure `Cargo.toml` data — no `.xcodeproj` edits, ever.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -99,10 +112,9 @@ impl<'de> Deserialize<'de> for StringOrVec {
     }
 }
 
-/// Resolve every piece in the app's Android dependency closure and collect its contributions.
-/// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
-/// by that feature set contribute) — currently `["widget"]`, no default features.
-pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
+/// Run `cargo metadata` for the app with a specific feature selection (no default features), so only
+/// pieces actually pulled in by that backend's features are considered.
+fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
     let mut cmd = Command::new("cargo");
     cmd.args(["metadata", "--format-version", "1", "--no-default-features"])
@@ -121,8 +133,34 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 .unwrap_or("")
         ));
     }
-    let meta: Metadata =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata parse: {e}"))?;
+    serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata parse: {e}"))
+}
+
+/// Deserialize a piece's `[package.metadata.day.<toolkit>]` table, warning (not failing) on a
+/// malformed one. Returns `None` when the piece declares no such table.
+fn piece_meta<T: serde::de::DeserializeOwned>(pkg: &Package, toolkit: &str) -> Option<T> {
+    let table = pkg
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("day"))
+        .and_then(|d| d.get(toolkit))?;
+    match serde_json::from_value(table.clone()) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            eprintln!(
+                "day: {} has malformed [package.metadata.day.{toolkit}]: {e}",
+                pkg.manifest_path
+            );
+            None
+        }
+    }
+}
+
+/// Resolve every piece in the app's Android dependency closure and collect its contributions.
+/// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
+/// by that feature set contribute) — currently `["widget"]`, no default features.
+pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
+    let meta = cargo_metadata(project, features)?;
 
     // Transitive closure of package ids reachable from the resolve root (the app).
     let in_closure = closure(&meta);
@@ -133,23 +171,8 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        let Some(android) = pkg
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("day"))
-            .and_then(|d| d.get("android"))
-        else {
+        let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
             continue;
-        };
-        let android: AndroidMeta = match serde_json::from_value(android.clone()) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!(
-                    "day: {} has malformed [package.metadata.day.android]: {e}",
-                    pkg.manifest_path
-                );
-                continue;
-            }
         };
         let crate_dir = Path::new(&pkg.manifest_path)
             .parent()
@@ -251,4 +274,203 @@ fn permissions_manifest(permissions: &[String]) -> String {
     }
     s.push_str("</manifest>\n");
     s
+}
+
+// ===========================================================================
+// iOS — a piece's Swift shims + SwiftPM package dependencies
+// ===========================================================================
+
+/// A SwiftPM package dependency declared by a piece (`[package.metadata.day.ios].swift-packages`).
+#[derive(Debug, Clone, Deserialize)]
+struct SwiftPackage {
+    url: String,
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    exact: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    revision: Option<String>,
+    #[serde(default)]
+    products: Vec<String>,
+}
+
+impl SwiftPackage {
+    /// SwiftPM derives a package's identity from the last path component of its URL (sans `.git`).
+    fn identity(&self) -> String {
+        self.url
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or(&self.url)
+            .trim_end_matches(".git")
+            .to_string()
+    }
+    /// The version requirement clause for `.package(url:, …)`.
+    fn requirement(&self) -> String {
+        if let Some(v) = &self.exact {
+            format!("exact: \"{v}\"")
+        } else if let Some(b) = &self.branch {
+            format!("branch: \"{b}\"")
+        } else if let Some(r) = &self.revision {
+            format!("revision: \"{r}\"")
+        } else {
+            // Default to `from:` (allows compatible newer versions); fall back to any version.
+            format!("from: \"{}\"", self.from.as_deref().unwrap_or("0.0.0"))
+        }
+    }
+}
+
+/// The `[package.metadata.day.ios]` table, as declared by a piece crate.
+#[derive(Deserialize, Default)]
+struct IosMeta {
+    #[serde(default)]
+    swift: StringOrVec,
+    #[serde(default, rename = "swift-packages")]
+    swift_packages: Vec<SwiftPackage>,
+}
+
+/// The resolved iOS contributions across all pieces in the app's dependency closure.
+#[derive(Default)]
+struct IosPieces {
+    /// `(namespace, absolute dir)` Swift source dirs to compile — the namespace (the piece's crate
+    /// name) subfolders the staged shims so two pieces' files can't collide.
+    swift_dirs: Vec<(String, String)>,
+    /// SwiftPM package dependencies (deduped by identity).
+    packages: Vec<SwiftPackage>,
+}
+
+/// Resolve every piece in the app's iOS dependency closure (features = `["uikit"]`) and collect its
+/// Swift shim dirs + SwiftPM package dependencies.
+fn resolve_ios(project: &Project, features: &[&str]) -> Result<IosPieces, String> {
+    let meta = cargo_metadata(project, features)?;
+    let in_closure = closure(&meta);
+
+    let mut pieces = IosPieces::default();
+    let mut seen_dirs = HashSet::new();
+    let mut seen_pkgs = HashSet::new();
+    for pkg in &meta.packages {
+        if !in_closure.contains(&pkg.id) {
+            continue;
+        }
+        let Some(ios) = piece_meta::<IosMeta>(pkg, "ios") else {
+            continue;
+        };
+        let crate_dir = Path::new(&pkg.manifest_path)
+            .parent()
+            .unwrap_or(Path::new("."));
+        let namespace = crate_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "piece".into());
+        for rel in &ios.swift.0 {
+            let dir = crate_dir.join(rel);
+            if !dir.is_dir() {
+                eprintln!("day: {} swift dir {:?} not found — skipping", pkg.id, dir);
+                continue;
+            }
+            let abs = dir.to_string_lossy().into_owned();
+            if seen_dirs.insert(abs.clone()) {
+                pieces.swift_dirs.push((namespace.clone(), abs));
+            }
+        }
+        for spkg in ios.swift_packages {
+            if seen_pkgs.insert(spkg.identity()) {
+                pieces.packages.push(spkg);
+            }
+        }
+    }
+    Ok(pieces)
+}
+
+/// Generate the local `DayPieces` SwiftPM package (Package.swift + staged Swift shims) under
+/// `build/day/ios/DayPieces`, from every piece's `[package.metadata.day.ios]`. The app's `.xcodeproj`
+/// depends on this local package, so `day build` (ios) calls this before `xcodebuild`. Always writes
+/// a VALID package (an empty target with a placeholder source when no pieces contribute), so the
+/// project's local-package reference always resolves.
+pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
+    let pieces = resolve_ios(project, &["uikit"]).unwrap_or_else(|e| {
+        eprintln!("day: iOS piece discovery failed ({e}); building with framework pieces only");
+        IosPieces::default()
+    });
+
+    let pkg_dir = project.root.join("build/day/ios/DayPieces");
+    let sources = pkg_dir.join("Sources/DayPieces");
+    // Regenerate the staged sources fresh so a removed piece never leaves a stale shim behind.
+    let _ = std::fs::remove_dir_all(&sources);
+    std::fs::create_dir_all(&sources).map_err(|e| e.to_string())?;
+
+    // A placeholder keeps the target valid (≥1 source) even with no piece shims.
+    std::fs::write(
+        sources.join("_DayPieces.swift"),
+        "// Generated by `day build`. The DayPieces local package aggregates every standalone piece's\n\
+         // iOS Swift shims and SwiftPM package dependencies (docs/extending.md). Do not edit.\n\
+         enum _DayPieces {}\n",
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Stage every piece's Swift shim files under a per-crate subdir so they can't collide.
+    for (namespace, dir) in &pieces.swift_dirs {
+        stage_swift_dir(Path::new(dir), &sources.join(namespace))?;
+    }
+
+    std::fs::write(pkg_dir.join("Package.swift"), package_swift(&pieces))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Copy every `.swift` file under `src` into `dest` (recursively), so a piece's shims join the
+/// DayPieces target's sources.
+fn stage_swift_dir(src: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            stage_swift_dir(&path, &dest.join(entry.file_name()))?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("swift") {
+            std::fs::copy(&path, dest.join(entry.file_name())).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Render the generated `DayPieces/Package.swift`.
+fn package_swift(pieces: &IosPieces) -> String {
+    let deps: String = pieces
+        .packages
+        .iter()
+        .map(|p| {
+            format!(
+                "        .package(url: \"{}\", {}),\n",
+                p.url,
+                p.requirement()
+            )
+        })
+        .collect();
+    let products: String = pieces
+        .packages
+        .iter()
+        .flat_map(|p| {
+            let id = p.identity();
+            p.products.iter().map(move |prod| {
+                format!("            .product(name: \"{prod}\", package: \"{id}\"),\n")
+            })
+        })
+        .collect();
+    format!(
+        "// swift-tools-version:5.9\n\
+         // Generated by `day build` from standalone pieces' [package.metadata.day.ios]. Do not edit.\n\
+         import PackageDescription\n\n\
+         let package = Package(\n\
+         \x20   name: \"DayPieces\",\n\
+         \x20   platforms: [.iOS(.v15)],\n\
+         \x20   products: [.library(name: \"DayPieces\", targets: [\"DayPieces\"])],\n\
+         \x20   dependencies: [\n{deps}    ],\n\
+         \x20   targets: [\n\
+         \x20       .target(name: \"DayPieces\", dependencies: [\n{products}        ], path: \"Sources/DayPieces\"),\n\
+         \x20   ]\n\
+         )\n"
+    )
 }

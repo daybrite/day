@@ -8,13 +8,27 @@
 
 /* Begin PBXBuildFile section */
 		DA0000000000000000000101 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000001 /* main.swift */; };
+		DA0000000000000000000102 /* DayPieces in Frameworks */ = {isa = PBXBuildFile; productRef = DA0000000000000000000071 /* DayPieces */; };
+		DA0000000000000000000103 /* hello.json in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000004 /* hello.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		DA0000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA0000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA0000000000000000000003 /* Showcase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Showcase.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA0000000000000000000004 /* hello.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = hello.json; path = "../../assets/hello.json"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DA0000000000000000000042 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA0000000000000000000102 /* DayPieces in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		DA0000000000000000000010 = {
@@ -30,6 +44,7 @@
 			children = (
 				DA0000000000000000000001 /* main.swift */,
 				DA0000000000000000000002 /* Info.plist */,
+				DA0000000000000000000004 /* hello.json */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -51,12 +66,17 @@
 			buildPhases = (
 				DA0000000000000000000040 /* Build Rust (day) */,
 				DA0000000000000000000041 /* Sources */,
+				DA0000000000000000000042 /* Frameworks */,
+				DA0000000000000000000043 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = Runner;
+			packageProductDependencies = (
+				DA0000000000000000000071 /* DayPieces */,
+			);
 			productName = Runner;
 			productReference = DA0000000000000000000003 /* Showcase.app */;
 			productType = "com.apple.product-type.application";
@@ -79,6 +99,9 @@
 				Base,
 			);
 			mainGroup = DA0000000000000000000010;
+			packageReferences = (
+				DA0000000000000000000070 /* XCLocalSwiftPackageReference "../../build/day/ios/DayPieces" */,
+			);
 			productRefGroup = DA0000000000000000000012 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -87,6 +110,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DA0000000000000000000043 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA0000000000000000000103 /* hello.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		DA0000000000000000000040 /* Build Rust (day) */ = {
@@ -201,6 +235,20 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		DA0000000000000000000070 /* XCLocalSwiftPackageReference "../../build/day/ios/DayPieces" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../build/day/ios/DayPieces";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		DA0000000000000000000071 /* DayPieces */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DayPieces;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DA0000000000000000000050 /* Project object */;
 }

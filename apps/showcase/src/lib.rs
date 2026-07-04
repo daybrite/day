@@ -6,6 +6,10 @@ use day::prelude::*;
 use day_piece_combobox::combo_box;
 use day_piece_picker::picker;
 use day_piece_webview::web_view;
+// Lottie renders a native LottieAnimationView — iOS + Android only, so both the import and the page
+// are gated to those targets (its front-end compiles everywhere, but it only renders there).
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use day_piece_lottie::lottie;
 
 pub fn root() -> AnyPiece {
     install_locales(
@@ -19,7 +23,7 @@ pub fn root() -> AnyPiece {
     // to an app-owned `Signal<String>` of the active section. Desktop shows sidebar + detail
     // (an AdwNavigationSplitView on GTK); mobile collapses to a list that pushes the detail.
     let section = Signal::new(String::new());
-    selector(section)
+    let nav = selector(section)
         .style(SelectorStyle::Sidebar)
         .title(tr("app-title"))
         .header(sidebar_header)
@@ -31,9 +35,26 @@ pub fn root() -> AnyPiece {
         .item("tabs", tr("nav-tabs"), tabs_page)
         .item("stack", tr("nav-stack"), stack_page)
         .item("list", tr("nav-list"), list_page)
-        .item("webview", tr("nav-webview"), webview_page)
-        .item("about", tr("nav-about"), about_page)
-        .id("nav")
+        .item("webview", tr("nav-webview"), webview_page);
+    // A native Lottie animation view — iOS + Android only (docs/lottie.md).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    let nav = nav.item("lottie", tr("nav-lottie"), lottie_page);
+    nav.item("about", tr("nav-about"), about_page).id("nav")
+}
+
+/// A native Lottie animation (day-piece-lottie): a LottieAnimationView driven by airbnb's lottie-ios
+/// (SwiftPM) / lottie-android (Gradle). Renders the bundled `hello.json`, looping. iOS + Android only.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn lottie_page() -> AnyPiece {
+    column((
+        label(tr("nav-lottie")).font(Font::Title).id("lottie-title"),
+        label(tr("lottie-caption")).id("lottie-caption"),
+        lottie("hello").frame(220.0, 220.0).id("lottie-view"),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
 }
 
 /// A native recycling list (docs/list.md): 500 rows, but only the visible cells are ever built —

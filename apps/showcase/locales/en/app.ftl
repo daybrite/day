@@ -22,6 +22,7 @@ nav-tabs = Tabs
 nav-stack = Stack
 nav-list = List
 nav-webview = Web View
+nav-lottie = Lottie
 nav-about = About
 
 shapes-kinds = Kinds
@@ -42,6 +43,8 @@ webview-back = Back
 webview-forward = Forward
 webview-stop = Stop
 webview-reload = Reload
+
+lottie-caption = A native Lottie animation, bundled as JSON (lottie-ios / lottie-android)
 stack-root-body = A genuine push/pop stack. Its path is an app-owned signal.
 stack-push = Push a detail
 stack-detail-title = Level { $depth }

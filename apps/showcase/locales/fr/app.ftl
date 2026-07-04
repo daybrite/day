@@ -22,6 +22,7 @@ nav-tabs = Onglets
 nav-stack = Pile
 nav-list = Liste
 nav-webview = Vue Web
+nav-lottie = Lottie
 nav-about = À propos
 
 shapes-kinds = Types
@@ -42,6 +43,8 @@ webview-back = Précédent
 webview-forward = Suivant
 webview-stop = Arrêter
 webview-reload = Recharger
+
+lottie-caption = Une animation Lottie native, fournie en JSON (lottie-ios / lottie-android)
 stack-root-body = Une vraie pile push/pop. Son chemin est un signal de l'application.
 stack-push = Empiler un détail
 stack-detail-title = Niveau { $depth }

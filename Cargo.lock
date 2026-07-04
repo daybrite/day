@@ -313,6 +313,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-lottie"
+version = "0.1.0"
+dependencies = [
+ "day-android",
+ "day-core",
+ "day-mock",
+ "day-pieces",
+ "day-spec",
+ "day-uikit",
+ "linkme",
+ "objc2",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-piece-picker"
 version = "0.1.0"
 dependencies = [
@@ -1470,6 +1486,7 @@ version = "0.1.0"
 dependencies = [
  "day",
  "day-piece-combobox",
+ "day-piece-lottie",
  "day-piece-picker",
  "day-piece-webview",
 ]

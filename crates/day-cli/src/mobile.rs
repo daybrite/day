@@ -180,6 +180,9 @@ pub fn build_ios(
     };
     let symroot = project.root.join("build/day/ios-uikit");
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Generate the local DayPieces SwiftPM package (piece Swift shims + SwiftPM deps) that the
+    // .xcodeproj links, from every piece's [package.metadata.day.ios] — before xcodebuild resolves it.
+    crate::pieces::write_ios_pieces(project)?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration})", target.name),
