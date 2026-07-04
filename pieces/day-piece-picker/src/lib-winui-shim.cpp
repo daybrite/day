@@ -7,8 +7,12 @@
 // Windows-only; compiled by build.rs (like the Qt shim) and linked alongside day-winui-sys.
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h> // IVector methods (Append/GetAt/Size) — else C3779
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+// Selector (ComboBox.SelectedIndex/SelectionChanged) + ToggleButton (RadioButton.IsChecked) live
+// in Controls.Primitives; without it those methods hit C3779.
+#include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 
 #include <windows.h>
 
