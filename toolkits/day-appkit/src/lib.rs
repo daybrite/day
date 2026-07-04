@@ -72,6 +72,46 @@ fn ptr_of(v: &NSView) -> usize {
     (v as *const NSView).cast::<()>() as usize
 }
 
+/// day `Role` → the `NSAccessibilityRole` constant to apply (§13). `None` for `Role::None` —
+/// day leaves native controls' own roles untouched and only applies explicit canvas/custom roles.
+fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibilityRole> {
+    use day_spec::Role;
+    use objc2_app_kit::{
+        NSAccessibilityButtonRole, NSAccessibilityCheckBoxRole, NSAccessibilityGroupRole,
+        NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole, NSAccessibilitySliderRole,
+        NSAccessibilityStaticTextRole, NSAccessibilityTextFieldRole,
+    };
+    unsafe {
+        Some(match role {
+            Role::Button => NSAccessibilityButtonRole,
+            Role::Toggle => NSAccessibilityCheckBoxRole,
+            Role::Slider => NSAccessibilitySliderRole,
+            Role::TextInput => NSAccessibilityTextFieldRole,
+            Role::Heading(_) => NSAccessibilityStaticTextRole, // macOS has no arbitrary-view heading role
+            Role::Image => NSAccessibilityImageRole,
+            Role::Meter => NSAccessibilityLevelIndicatorRole,
+            Role::Group => NSAccessibilityGroupRole,
+            Role::None => return None,
+        })
+    }
+}
+
+/// Native `AXRole` string → day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+fn day_role_from_ns(ax: &str) -> day_spec::Role {
+    use day_spec::Role;
+    match ax {
+        "AXButton" => Role::Button,
+        "AXCheckBox" => Role::Toggle,
+        "AXSlider" => Role::Slider,
+        "AXTextField" => Role::TextInput,
+        "AXStaticText" => Role::Heading(0), // ambiguous with plain text; audit ignores heading level
+        "AXImage" => Role::Image,
+        "AXLevelIndicator" | "AXProgressIndicator" => Role::Meter,
+        "AXGroup" => Role::Group,
+        _ => Role::None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DayTarget — target/action + text delegate trampoline
 // ---------------------------------------------------------------------------
@@ -1652,8 +1692,42 @@ impl Toolkit for AppKit {
             if let Some(label) = &a11y.label {
                 h.setAccessibilityLabel(Some(&NSString::from_str(label)));
             }
+            if let Some(hint) = &a11y.hint {
+                h.setAccessibilityHelp(Some(&NSString::from_str(hint)));
+            }
+            if let Some(value) = &a11y.value {
+                let ns = NSString::from_str(value);
+                h.setAccessibilityValue(Some(ns.as_ref() as &objc2::runtime::AnyObject));
+            }
+            // Only apply an EXPLICIT role (canvas/custom pieces, e.g. a Meter): native controls
+            // already report the right role, so day records but doesn't override theirs (§13).
+            if let Some(role) = ns_role(a11y.role) {
+                h.setAccessibilityRole(Some(role));
+            }
+            // Decorative / hidden: drop from the AX tree entirely.
             if a11y.hidden {
                 h.setAccessibilityElement(false);
+            }
+        }
+    }
+
+    fn read_a11y(&self, h: &Handle) -> day_spec::A11ySnapshot {
+        unsafe {
+            let role = h
+                .accessibilityRole()
+                .map(|r| day_role_from_ns(&r.to_string()))
+                .unwrap_or(day_spec::Role::None);
+            day_spec::A11ySnapshot {
+                found: true,
+                role,
+                label: h.accessibilityLabel().map(|s| s.to_string()),
+                value: h
+                    .accessibilityValue()
+                    .and_then(|v| v.downcast_ref::<NSString>().map(|s| s.to_string())),
+                identifier: h
+                    .accessibilityIdentifier()
+                    .map(|s| s.to_string())
+                    .filter(|s| !s.is_empty()),
             }
         }
     }

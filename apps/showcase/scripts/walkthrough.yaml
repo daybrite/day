@@ -26,6 +26,11 @@ flow:
   - navigate: { route: gauge }
   - assert_route: { route: gauge }
   - assert_visible: { id: gauge }
+  # Accessibility (§13): diff the native AX tree against day's expectations. The gauge is a canvas,
+  # so day applies role=Meter + a spoken label/value; the audit reads them back natively (apple
+  # targets; gtk/qt report unsupported and skip). A full-tree `a11y_audit: {}` follows.
+  - a11y_audit: { id: gauge }
+  - a11y_audit: {}
   - screenshot: gauge
   # Shape pieces (docs/shapes.md): canvas-backed shapes, a slider-bound rotation, tap-to-recolor,
   # drag-to-move. Drive the rotation + a tap so the screenshot shows a transformed + recolored shape.

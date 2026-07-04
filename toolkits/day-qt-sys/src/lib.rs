@@ -62,6 +62,8 @@ unsafe extern "C" {
     pub fn day_qt_set_enabled(w: *mut c_void, enabled: c_int);
     pub fn day_qt_set_object_name(w: *mut c_void, name: *const c_char);
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);
+    pub fn day_qt_set_accessible_name(w: *mut c_void, name: *const c_char);
+    pub fn day_qt_set_accessible_description(w: *mut c_void, text: *const c_char);
 
     pub fn day_qt_canvas_new() -> *mut c_void;
     pub fn day_qt_canvas_set_ops(

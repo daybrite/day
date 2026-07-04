@@ -475,8 +475,16 @@ fn gauge(value: Signal<f64>) -> AnyPiece {
             },
         );
     })
-    .frame(110.0, 110.0)
+    // Accessibility (§13): a canvas has no inherent role, so day applies `Meter` + a spoken value
+    // and label. `.id`/`.a11y` go on the canvas leaf (before `.frame`, a handle-less layout node),
+    // so they reach the native widget. Value is a build-time snapshot (reactive a11y is a follow-up).
+    .a11y(move |a| {
+        a.role(Role::Meter)
+            .label(tr("volume-label").format())
+            .value(format!("{:.0}", value.get_untracked()))
+    })
     .id("gauge")
+    .frame(110.0, 110.0)
 }
 
 fn history(count: Signal<i64>) -> AnyPiece {

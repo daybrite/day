@@ -486,5 +486,15 @@ public final class DayBridge {
         } catch (Exception ignored) {}
         return iv;
     }
-    public static void setA11y(View v, String label) { v.setContentDescription(label); }
+    /** Accessibility (§13): contentDescription = label (TalkBack reads it); importantForAccessibility
+     *  hides decorative elements + their subtree; stateDescription = value on API 30+. */
+    public static void setA11y(View v, String label, String value, boolean hidden) {
+        if (label != null && !label.isEmpty()) v.setContentDescription(label);
+        v.setImportantForAccessibility(hidden
+            ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        if (value != null && !value.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+            v.setStateDescription(value);
+        }
+    }
 }

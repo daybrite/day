@@ -949,8 +949,15 @@ impl Toolkit for Qt {
                 ffi::day_qt_set_object_name(h.0, cstr(id).as_ptr());
             }
             if let Some(label) = &a11y.label {
+                // Real QAccessible name (screen readers) + a visible tooltip.
+                ffi::day_qt_set_accessible_name(h.0, cstr(label).as_ptr());
                 ffi::day_qt_set_tooltip(h.0, cstr(label).as_ptr());
             }
+            if let Some(hint) = &a11y.hint {
+                ffi::day_qt_set_accessible_description(h.0, cstr(hint).as_ptr());
+            }
+            // Qt derives role/value from the widget type (QAccessibleInterface); day sets the
+            // text fields it can. `hidden`/canvas roles need a QAccessible subclass (follow-up).
         }
     }
 

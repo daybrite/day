@@ -771,6 +771,47 @@ mod imp {
         MainThreadMarker::new().expect("day-uikit: not on the main thread")
     }
 
+    /// day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
+    /// native controls self-describe, §13). UIKit has no toggle/meter trait, so those are `None`.
+    fn ui_traits(role: day_spec::Role) -> Option<objc2_ui_kit::UIAccessibilityTraits> {
+        use day_spec::Role;
+        use objc2_ui_kit::{
+            UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
+            UIAccessibilityTraitImage,
+        };
+        unsafe {
+            Some(match role {
+                Role::Button | Role::Toggle => UIAccessibilityTraitButton,
+                Role::Slider => UIAccessibilityTraitAdjustable,
+                Role::Heading(_) => UIAccessibilityTraitHeader,
+                Role::Image => UIAccessibilityTraitImage,
+                _ => return None,
+            })
+        }
+    }
+
+    /// Native UIAccessibility traits → day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+    fn day_role_from_traits(t: objc2_ui_kit::UIAccessibilityTraits) -> day_spec::Role {
+        use day_spec::Role;
+        use objc2_ui_kit::{
+            UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
+            UIAccessibilityTraitImage,
+        };
+        unsafe {
+            if t & UIAccessibilityTraitAdjustable != 0 {
+                Role::Slider
+            } else if t & UIAccessibilityTraitHeader != 0 {
+                Role::Heading(0)
+            } else if t & UIAccessibilityTraitImage != 0 {
+                Role::Image
+            } else if t & UIAccessibilityTraitButton != 0 {
+                Role::Button
+            } else {
+                Role::None
+            }
+        }
+    }
+
     fn uifont_size(f: Font) -> (f64, bool) {
         match f {
             Font::Title => (28.0, true),
@@ -1466,6 +1507,38 @@ mod imp {
                 if let Some(label) = &a11y.label {
                     let ns = NSString::from_str(label);
                     let _: () = msg_send![&**h, setAccessibilityLabel: &*ns];
+                }
+                if let Some(hint) = &a11y.hint {
+                    let ns = NSString::from_str(hint);
+                    let _: () = msg_send![&**h, setAccessibilityHint: &*ns];
+                }
+                if let Some(value) = &a11y.value {
+                    let ns = NSString::from_str(value);
+                    let _: () = msg_send![&**h, setAccessibilityValue: &*ns];
+                }
+                // Explicit role → traits (canvas/custom; native controls self-describe, §13).
+                if let Some(traits) = ui_traits(a11y.role) {
+                    let _: () = msg_send![&**h, setAccessibilityTraits: traits];
+                }
+                if a11y.hidden {
+                    let _: () = msg_send![&**h, setAccessibilityElementsHidden: true];
+                }
+            }
+        }
+
+        fn read_a11y(&self, h: &Handle) -> day_spec::A11ySnapshot {
+            unsafe {
+                let traits: objc2_ui_kit::UIAccessibilityTraits =
+                    msg_send![&**h, accessibilityTraits];
+                let label: Option<Retained<NSString>> = msg_send![&**h, accessibilityLabel];
+                let value: Option<Retained<NSString>> = msg_send![&**h, accessibilityValue];
+                let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
+                day_spec::A11ySnapshot {
+                    found: true,
+                    role: day_role_from_traits(traits),
+                    label: label.map(|s| s.to_string()),
+                    value: value.map(|s| s.to_string()),
+                    identifier: ident.map(|s| s.to_string()).filter(|s| !s.is_empty()),
                 }
             }
         }

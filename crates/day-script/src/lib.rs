@@ -100,6 +100,13 @@ pub enum Step {
         #[serde(default)]
         dismiss: bool,
     },
+    /// Diff the NATIVE accessibility tree against day's expectations (role/label/value/identifier)
+    /// for every id'd node, or just `id` (§13, §14.2). Backends that can't read their native tree
+    /// (`found = false`) are skipped; role is only compared when both sides map to a known `Role`.
+    A11yAudit {
+        #[serde(default)]
+        id: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -431,9 +438,84 @@ fn exec(step: Step) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
+            Step::A11yAudit { id } => {
+                let rows = with_tree(|t| t.a11y_nodes());
+                let rows: Vec<_> = match &id {
+                    Some(want) => rows.into_iter().filter(|(nid, ..)| nid == want).collect(),
+                    None => rows,
+                };
+                if let Some(want) = &id
+                    && rows.is_empty()
+                {
+                    return Err(Reply::fail(
+                        format!("a11y_audit: no element {want:?}"),
+                        true,
+                    ));
+                }
+                let mut fails = Vec::new();
+                let mut checked = 0usize;
+                for (nid, _kind, expected, actual) in &rows {
+                    if !actual.found {
+                        continue; // backend can't read its native a11y tree (non-apple) — skip
+                    }
+                    checked += 1;
+                    if actual.identifier.as_deref() != Some(nid.as_str()) {
+                        fails.push(format!(
+                            "{nid}: native identifier {:?} ≠ {nid:?}",
+                            actual.identifier
+                        ));
+                    }
+                    // Role: audit only EXPLICIT (user-set) roles — the canvas/custom cases where
+                    // day actually applies a role. Native controls own their own roles (day's job
+                    // is to not break them, §13), and those vary per platform, so we don't diff
+                    // the kind-default. Compare only when the native role also maps to a known Role.
+                    if expected.role != day_spec::Role::None
+                        && actual.role != day_spec::Role::None
+                        && !role_eq(expected.role, actual.role)
+                    {
+                        fails.push(format!(
+                            "{nid}: role {:?} ≠ expected {:?}",
+                            actual.role, expected.role
+                        ));
+                    }
+                    if let Some(lbl) = &expected.label
+                        && actual.label.as_deref() != Some(lbl.as_str())
+                    {
+                        fails.push(format!(
+                            "{nid}: label {:?} ≠ expected {lbl:?}",
+                            actual.label
+                        ));
+                    }
+                    if let Some(val) = &expected.value
+                        && actual.value.as_deref() != Some(val.as_str())
+                    {
+                        fails.push(format!(
+                            "{nid}: value {:?} ≠ expected {val:?}",
+                            actual.value
+                        ));
+                    }
+                }
+                if !fails.is_empty() {
+                    return Err(Reply::fail(
+                        format!("a11y_audit: {}", fails.join("; ")),
+                        false,
+                    ));
+                }
+                if checked == 0 {
+                    // No node could be read natively — treat as unsupported, not a pass/fail.
+                    return Ok(Reply::ok());
+                }
+                Ok(Reply::ok())
+            }
         }
     })();
     result.unwrap_or_else(|r| r)
+}
+
+/// Two roles match for audit purposes — `Heading` levels are ignored (the native role carries no level).
+fn role_eq(a: day_spec::Role, b: day_spec::Role) -> bool {
+    use day_spec::Role::Heading;
+    matches!((a, b), (Heading(_), Heading(_))) || a == b
 }
 
 // ---------------------------------------------------------------------------

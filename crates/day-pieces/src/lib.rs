@@ -1134,10 +1134,23 @@ impl A11yBuilder {
         self.0.hint = Some(s.into());
         self
     }
+    /// The control's current value read aloud by the screen reader (e.g. a `Meter`'s "72%").
+    pub fn value(mut self, s: impl Into<String>) -> Self {
+        self.0.value = Some(s.into());
+        self
+    }
     pub fn role(mut self, r: Role) -> Self {
         self.0.role = r;
         self
     }
+    /// Hide this element from assistive tech (still visible on screen) — e.g. a redundant chrome
+    /// element already announced by its labelled sibling.
+    pub fn hidden(mut self) -> Self {
+        self.0.hidden = true;
+        self
+    }
+    /// Purely decorative (a background flourish): hidden from assistive tech and, for images,
+    /// exempt from the "needs a label" lint (§13).
     pub fn decorative(mut self) -> Self {
         self.0.decorative = true;
         self.0.hidden = true;

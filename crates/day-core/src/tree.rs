@@ -57,6 +57,10 @@ pub struct NodeData<H> {
     pub flex: Flex,
     pub scope: Scope,
     pub id: Option<String>,
+    /// Accumulated accessibility annotations (§13): merged from the piece default, `.a11y()`,
+    /// and `.id()`. Stored so each `set_a11y` re-applies the full picture and `a11y_audit`
+    /// (§14.2) can diff the native tree against day's own expectation.
+    pub a11y: day_spec::A11yProps,
     // --- layout state (§7.4) ---
     pub cache: Vec<((u64, u64), Size)>,
     pub probe: NodeProbe,
@@ -92,6 +96,7 @@ impl<B: Toolkit> Tree<B> {
             flex: Flex::default(),
             scope: Scope::root(),
             id: None,
+            a11y: Default::default(),
             cache: Vec::new(),
             probe: NodeProbe::default(),
             needs_measure: true,
@@ -122,6 +127,7 @@ impl<B: Toolkit> Tree<B> {
             flex: Flex::default(),
             scope,
             id: None,
+            a11y: Default::default(),
             cache: Vec::new(),
             probe: NodeProbe::default(),
             needs_measure: true,
@@ -371,6 +377,13 @@ pub trait TreeOps {
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
     fn node_frame(&self, node: RNode) -> Option<Rect>;
     fn node_probe(&self, node: RNode) -> Option<NodeProbe>;
+    /// The node's accumulated accessibility annotations (§13) — `a11y_audit`'s expectation.
+    fn node_a11y(&self, node: RNode) -> Option<A11yProps>;
+    /// The node's ACTUAL native a11y properties (`a11y_audit` diffs this against `node_a11y`).
+    fn read_a11y(&self, node: RNode) -> Option<day_spec::A11ySnapshot>;
+    /// For every node with an `.id()` and a native handle: `(id, kind, expected, actual)` — the
+    /// raw material for the `a11y_audit` step (§14.2). Comparison/policy lives in day-script.
+    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)>;
     fn find_by_id(&self, id: &str) -> Option<RNode>;
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     fn root_node(&self) -> RNode;
@@ -464,6 +477,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             flex,
             scope,
             id: None,
+            a11y: Default::default(),
             cache: Vec::new(),
             probe,
             needs_measure: true,
@@ -524,21 +538,24 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn set_id(&mut self, node: RNode, id: String) {
         if let Some(n) = self.nodes.get_mut(node) {
             n.id = Some(id.clone());
+            n.a11y.merge(&A11yProps {
+                identifier: Some(id),
+                ..Default::default()
+            });
             if let Some(h) = n.handle.clone() {
-                let a11y = A11yProps {
-                    identifier: Some(id),
-                    ..Default::default()
-                };
-                self.toolkit.set_a11y(&h, &a11y);
+                self.toolkit.set_a11y(&h, &n.a11y);
             }
         }
     }
 
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps) {
-        if let Some(n) = self.nodes.get(node)
-            && let Some(h) = n.handle.clone()
-        {
-            self.toolkit.set_a11y(&h, &a11y);
+        if let Some(n) = self.nodes.get_mut(node) {
+            // Merge onto whatever's already recorded (piece default role, an earlier `.a11y`/`.id`)
+            // and re-apply the FULL picture — backends set each present field idempotently (§13).
+            n.a11y.merge(&a11y);
+            if let Some(h) = n.handle.clone() {
+                self.toolkit.set_a11y(&h, &n.a11y);
+            }
         }
     }
 
@@ -658,6 +675,27 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn node_probe(&self, node: RNode) -> Option<NodeProbe> {
         self.nodes.get(node).map(|n| n.probe.clone())
+    }
+
+    fn node_a11y(&self, node: RNode) -> Option<A11yProps> {
+        self.nodes.get(node).map(|n| n.a11y.clone())
+    }
+
+    fn read_a11y(&self, node: RNode) -> Option<day_spec::A11ySnapshot> {
+        let n = self.nodes.get(node)?;
+        let h = n.handle.as_ref()?;
+        Some(self.toolkit.read_a11y(h))
+    }
+
+    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)> {
+        self.nodes
+            .values()
+            .filter_map(|n| {
+                let id = n.id.clone()?;
+                let h = n.handle.as_ref()?;
+                Some((id, n.kind, n.a11y.clone(), self.toolkit.read_a11y(h)))
+            })
+            .collect()
     }
 
     fn find_by_id(&self, id: &str) -> Option<RNode> {

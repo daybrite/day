@@ -1191,12 +1191,28 @@ impl Toolkit for Gtk {
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
+        use gtk4::accessible::{Property, State};
         if let Some(id) = &a11y.identifier {
-            h.set_widget_name(id); // GtkInspector-visible only (§13's honest table)
+            h.set_widget_name(id); // GtkInspector-visible automation id (§13's honest table)
         }
+        // Real GtkAccessible properties → AT-SPI (screen readers on Linux; no AT bridge on macOS,
+        // §13). GtkWidget's accessible-role is fixed at construction, so day sets label/description/
+        // value here and leaves role to the widget (canvas role-setting is a follow-up).
+        let mut props: Vec<Property> = Vec::new();
         if let Some(label) = &a11y.label {
-            // Full GtkAccessible property plumbing lands with M6; tooltip is the M3 stopgap.
-            h.set_tooltip_text(Some(label));
+            props.push(Property::Label(label.as_str()));
+        }
+        if let Some(hint) = &a11y.hint {
+            props.push(Property::Description(hint.as_str()));
+        }
+        if let Some(value) = &a11y.value {
+            props.push(Property::ValueText(value.as_str()));
+        }
+        if !props.is_empty() {
+            h.update_property(&props);
+        }
+        if a11y.hidden {
+            h.update_state(&[State::Hidden(true)]);
         }
     }
 

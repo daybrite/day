@@ -198,6 +198,24 @@ pub enum Role {
     Group,
 }
 
+impl Role {
+    /// The a11y role a built-in piece kind reports natively — the audit's *expectation* when the
+    /// user hasn't set an explicit `.role()`. Native controls already expose these, so day records
+    /// them for `a11y_audit` (§14.2) rather than overriding the widget; only canvas/custom pieces
+    /// need day to apply a role. Returns `None` for kinds with no inherent control role.
+    pub fn for_kind(kind: PieceKind) -> Role {
+        match kind {
+            kinds::BUTTON => Role::Button,
+            kinds::TOGGLE => Role::Toggle,
+            kinds::SLIDER => Role::Slider,
+            kinds::TEXT_FIELD => Role::TextInput,
+            kinds::IMAGE => Role::Image,
+            kinds::PROGRESS => Role::Meter,
+            _ => Role::None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct A11yProps {
     pub label: Option<String>,
@@ -207,6 +225,55 @@ pub struct A11yProps {
     pub identifier: Option<String>,
     pub hidden: bool,
     pub decorative: bool,
+}
+
+impl A11yProps {
+    /// Merge another set of annotations onto this one: any field `other` sets — a `Some`, a
+    /// non-`None` role, or a `true` flag — overrides ours; unset fields are left intact. Lets a
+    /// node accumulate its `.a11y()`, `.id()`, and piece defaults into one stored result, so
+    /// each `set_a11y` re-applies the full picture and `a11y_audit` has the complete expectation.
+    pub fn merge(&mut self, other: &A11yProps) {
+        if other.label.is_some() {
+            self.label = other.label.clone();
+        }
+        if other.hint.is_some() {
+            self.hint = other.hint.clone();
+        }
+        if other.value.is_some() {
+            self.value = other.value.clone();
+        }
+        if other.role != Role::None {
+            self.role = other.role;
+        }
+        if other.identifier.is_some() {
+            self.identifier = other.identifier.clone();
+        }
+        self.hidden |= other.hidden;
+        self.decorative |= other.decorative;
+    }
+
+    /// The role to *expect* for a node of `kind` carrying these annotations: an explicit
+    /// `.role()` wins, otherwise the kind's native default (`Role::for_kind`).
+    pub fn resolved_role(&self, kind: PieceKind) -> Role {
+        if self.role != Role::None {
+            self.role
+        } else {
+            Role::for_kind(kind)
+        }
+    }
+}
+
+/// A widget's ACTUAL native accessibility properties, read back by `Toolkit::read_a11y` so
+/// `a11y_audit` (§14.2) can diff the native tree against day's expectation. `role` is the native
+/// role mapped back to day's `Role` (best-effort); `found = false` means the backend can't read
+/// the native tree (audit skips the node).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct A11ySnapshot {
+    pub found: bool,
+    pub role: Role,
+    pub label: Option<String>,
+    pub value: Option<String>,
+    pub identifier: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -638,6 +705,11 @@ pub trait Toolkit: Sized + 'static {
 
     // pillars
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}
+    /// Read a widget's ACTUAL native accessibility properties for `a11y_audit` (§14.2) to diff
+    /// against day's expectation. Default: unsupported (`found = false`) — the audit skips the node.
+    fn read_a11y(&self, _h: &Self::Handle) -> A11ySnapshot {
+        A11ySnapshot::default()
+    }
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())

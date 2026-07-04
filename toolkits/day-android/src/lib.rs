@@ -1000,17 +1000,21 @@ mod imp {
         }
 
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
-            if let Some(label) = &a11y.label {
-                with_env(|env| {
-                    let s = jstr(env, label);
-                    let _ = env.call_static_method(
-                        BRIDGE,
-                        "setA11y",
-                        "(Landroid/view/View;Ljava/lang/String;)V",
-                        &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                    );
-                });
-            }
+            with_env(|env| {
+                let label = jstr(env, a11y.label.as_deref().unwrap_or(""));
+                let value = jstr(env, a11y.value.as_deref().unwrap_or(""));
+                let _ = env.call_static_method(
+                    BRIDGE,
+                    "setA11y",
+                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
+                    &[
+                        JValue::Object(h.0.as_obj()),
+                        JValue::Object(&label),
+                        JValue::Object(&value),
+                        JValue::Bool(a11y.hidden as u8),
+                    ],
+                );
+            });
         }
 
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {

@@ -218,6 +218,14 @@ void day_qt_set_object_name(void *w, const char *name) {
 void day_qt_set_tooltip(void *w, const char *text) {
     static_cast<QWidget *>(w)->setToolTip(QString::fromUtf8(text));
 }
+// Accessibility (§13): QWidget accessibleName/Description surface via QAccessible (UIA on Windows,
+// AT-SPI on Linux, NSAccessibility on macOS). Role/value derive from the widget type.
+void day_qt_set_accessible_name(void *w, const char *name) {
+    static_cast<QWidget *>(w)->setAccessibleName(QString::fromUtf8(name));
+}
+void day_qt_set_accessible_description(void *w, const char *text) {
+    static_cast<QWidget *>(w)->setAccessibleDescription(QString::fromUtf8(text));
+}
 
 // --- misc ---
 // --- navigation (docs/navigation.md): QSplitter host with two plain-widget panes ---
