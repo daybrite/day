@@ -85,3 +85,9 @@ flow:
   - nav_back:
   - assert_route: { route: "" }
   - screenshot: back-home
+  # Native recycling list (docs/list.md): 500 virtualized rows — visited last so the delicate
+  # stack/tabs route assertions above stay undisturbed.
+  - navigate: { route: list }
+  - assert_route: { route: list }
+  - assert_visible: { id: list-title }
+  - screenshot: list

@@ -21,6 +21,15 @@ unsafe extern "C" {
     pub fn day_winui_container_set_bg(w: *mut c_void, argb: u32);
     pub fn day_winui_canvas_new() -> *mut c_void;
 
+    // recycling list host (docs/list.md): a ScrollViewer + content Canvas
+    pub fn day_winui_list_new(out_content: *mut *mut c_void) -> *mut c_void;
+    pub fn day_winui_list_set_content_size(content: *mut c_void, w: c_int, h: c_int);
+
+    // navigation sidebar menu (docs/navigation.md): a single-select ListView
+    pub fn day_winui_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_winui_navlist_set_items(w: *mut c_void, items_joined: *const c_char);
+    pub fn day_winui_navlist_set_selected(w: *mut c_void, idx: c_int);
+
     // leaves
     pub fn day_winui_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_winui_label_set_text(w: *mut c_void, text: *const c_char);
@@ -90,6 +99,8 @@ unsafe extern "C" {
         out_h: *mut c_double,
     );
     pub fn day_winui_set_enabled(w: *mut c_void, enabled: c_int);
+    pub fn day_winui_set_visible(w: *mut c_void, visible: c_int);
+    pub fn day_winui_widget_size(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
     pub fn day_winui_set_name(w: *mut c_void, name: *const c_char);
     /// Capture the window's client area to a PNG file. Returns 0 on success.
     pub fn day_winui_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;

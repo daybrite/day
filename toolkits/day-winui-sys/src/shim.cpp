@@ -88,8 +88,14 @@ static void pump_until_complete(TOp const& op) {
     op.Completed([done](auto&&, auto&&) { *done = true; });
     MSG msg{};
     ULONGLONG start = GetTickCount64();
+    // Snapshots run inside a day-core `with_tree` borrow; day's cross-thread post (WM_APP+1)
+    // trampolines re-enter `with_tree` (e.g. a pending list-reload's bind_row). Excluding that
+    // message from this nested pump leaves those closures queued for the real loop — the async
+    // render completes via XAML's own messages, so nothing is lost.
+    const UINT day_post = WM_APP + 1;
     while (!*done && GetTickCount64() - start < 5000) {
-        if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (PeekMessageW(&msg, nullptr, 0, day_post - 1, PM_REMOVE) ||
+            PeekMessageW(&msg, nullptr, day_post + 1, 0xFFFFFFFF, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         } else {
@@ -305,6 +311,56 @@ void day_winui_post(void (*cb)(void*), void* data) {
 void* day_winui_container_new() { WUXC::Canvas c; return boxh(c); }
 void* day_winui_scroll_new() { WUXC::Canvas c; return boxh(c); } // MVP: no scrolling
 void* day_winui_canvas_new() { WUXC::Canvas c; return boxh(c); }
+
+// Recycling-list host: a real ScrollViewer whose Content is a Canvas that holds the row cells
+// (day positions each cell by absolute frame). `out_content` receives a handle to that Canvas so
+// the Rust side can add/position cells; the list drives scrolling via the content's extent.
+void* day_winui_list_new(void** out_content) {
+    WUXC::ScrollViewer sv;
+    sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
+    sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+    WUXC::Canvas content;
+    sv.Content(content);
+    if (out_content) *out_content = boxh(content);
+    return boxh(sv);
+}
+void day_winui_list_set_content_size(void* content, int w, int h) {
+    if (auto fe = elem(content).try_as<FrameworkElement>()) {
+        fe.Width(static_cast<double>(w));
+        fe.Height(static_cast<double>(h));
+    }
+}
+
+// Navigation sidebar item list (docs/navigation.md): a single-select ListView of route titles.
+// The NAV host + pages are plain Canvases; day-core's NavLayout positions the sidebar/detail
+// split, so no native split control is needed. Items are '\n'-joined (titles have no newlines).
+void* day_winui_navlist_new(unsigned long long id, void (*cb)(unsigned long long, int)) {
+    WUXC::ListView lv;
+    lv.SelectionMode(WUXC::ListViewSelectionMode::Single);
+    lv.SelectionChanged([id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
+        cb(id, s.as<WUXC::ListView>().SelectedIndex());
+    });
+    return boxh(lv);
+}
+void day_winui_navlist_set_items(void* w, const char* items_joined) {
+    auto lv = elem(w).try_as<WUXC::ListView>();
+    if (!lv) return;
+    lv.Items().Clear();
+    std::string all = items_joined ? items_joined : "";
+    size_t start = 0;
+    while (start <= all.size()) {
+        size_t nl = all.find('\n', start);
+        std::string item =
+            all.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+        if (!(item.empty() && all.empty())) lv.Items().Append(winrt::box_value(hs(item.c_str())));
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+}
+void day_winui_navlist_set_selected(void* w, int idx) {
+    auto lv = elem(w).try_as<WUXC::ListView>();
+    if (lv && lv.SelectedIndex() != idx) lv.SelectedIndex(idx);
+}
 
 void day_winui_container_set_bg(void* h, unsigned int argb) {
     if (auto p = elem(h).try_as<WUXC::Panel>())
@@ -550,6 +606,21 @@ void day_winui_measure(void* h, double aw, double ah, double* ow, double* oh) {
 
 void day_winui_set_enabled(void* h, int enabled) {
     if (auto c = elem(h).try_as<WUXC::Control>()) c.IsEnabled(enabled != 0);
+}
+
+void day_winui_set_visible(void* h, int visible) {
+    elem(h).Visibility(visible ? WUX::Visibility::Visible : WUX::Visibility::Collapsed);
+}
+
+// The element's laid-out size (points). Used by the list to size cells to its viewport width.
+void day_winui_widget_size(void* h, double* ow, double* oh) {
+    if (auto fe = elem(h).try_as<FrameworkElement>()) {
+        *ow = fe.ActualWidth();
+        *oh = fe.ActualHeight();
+    } else {
+        *ow = 0;
+        *oh = 0;
+    }
 }
 
 void day_winui_set_name(void* h, const char* name) {
