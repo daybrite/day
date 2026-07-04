@@ -14,6 +14,8 @@
 #include <string>
 #include <limits>
 #include <cstdio>
+#include <cmath>
+#include <vector>
 
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -27,6 +29,7 @@
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
+#include <winrt/Windows.UI.Xaml.Shapes.h>
 #include <winrt/Windows.UI.Xaml.Hosting.h>
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Markup.h>
@@ -43,6 +46,7 @@ namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
+namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
 
 using WUX::UIElement;
@@ -102,6 +106,78 @@ static void pump_until_complete(TOp const& op) {
             Sleep(1);
         }
     }
+}
+
+// ---- canvas display list helpers (§11, docs/shapes.md) ----
+// XAML is retained-mode, so each op becomes a Path/TextBlock child of the Canvas; the painter
+// transform stack (Save/Restore/Concat) is folded into each element's RenderTransform (a
+// MatrixTransform — same row-vector convention as day's Affine).
+static WUXM::SolidColorBrush brush_bits(unsigned col) {
+    WUI::Color c;
+    c.A = static_cast<uint8_t>((col >> 24) & 0xff);
+    c.R = static_cast<uint8_t>((col >> 16) & 0xff);
+    c.G = static_cast<uint8_t>((col >> 8) & 0xff);
+    c.B = static_cast<uint8_t>(col & 0xff);
+    return WUXM::SolidColorBrush(c);
+}
+static WUXM::Matrix mat_identity() {
+    WUXM::Matrix m{};
+    m.M11 = 1;
+    m.M22 = 1;
+    return m;
+}
+// Row-vector affine product "apply x, then y" (p' = p·x·y).
+static WUXM::Matrix mat_mul(WUXM::Matrix const& x, WUXM::Matrix const& y) {
+    WUXM::Matrix r{};
+    r.M11 = x.M11 * y.M11 + x.M12 * y.M21;
+    r.M12 = x.M11 * y.M12 + x.M12 * y.M22;
+    r.M21 = x.M21 * y.M11 + x.M22 * y.M21;
+    r.M22 = x.M21 * y.M12 + x.M22 * y.M22;
+    r.OffsetX = x.OffsetX * y.M11 + x.OffsetY * y.M21 + y.OffsetX;
+    r.OffsetY = x.OffsetX * y.M12 + x.OffsetY * y.M22 + y.OffsetY;
+    return r;
+}
+static void place_shape(WUXC::Canvas const& canvas, WUXSh::Shape const& p, WUXM::Matrix const& cur) {
+    WUXC::Canvas::SetLeft(p, 0);
+    WUXC::Canvas::SetTop(p, 0);
+    WUXM::MatrixTransform mt;
+    mt.Matrix(cur);
+    p.RenderTransform(mt);
+    canvas.Children().Append(p);
+}
+// Windows.UI.Xaml.Media.RectangleGeometry has no corner radius (unlike WPF), so build a rounded
+// rect as a path of 4 lines + 4 quarter-arcs.
+static WUXM::PathGeometry rounded_rect_geo(double a, double b, double c, double d, double r) {
+    double half = (c < d ? c : d) / 2.0; // (windows.h defines min/max macros — avoid std::min)
+    if (r > half) r = half;
+    auto pt = [](double x, double y) { return WF::Point{ (float)x, (float)y }; };
+    auto line = [&](double x, double y) {
+        WUXM::LineSegment s;
+        s.Point(pt(x, y));
+        return s;
+    };
+    auto corner = [&](double x, double y) {
+        WUXM::ArcSegment s;
+        s.Point(pt(x, y));
+        s.Size(WF::Size{ (float)r, (float)r });
+        s.SweepDirection(WUXM::SweepDirection::Clockwise);
+        return s;
+    };
+    WUXM::PathFigure fig;
+    fig.StartPoint(pt(a + r, b));
+    fig.IsClosed(true);
+    auto segs = fig.Segments();
+    segs.Append(line(a + c - r, b));
+    segs.Append(corner(a + c, b + r));
+    segs.Append(line(a + c, b + d - r));
+    segs.Append(corner(a + c - r, b + d));
+    segs.Append(line(a + r, b + d));
+    segs.Append(corner(a, b + d - r));
+    segs.Append(line(a, b + r));
+    segs.Append(corner(a + r, b));
+    WUXM::PathGeometry pg;
+    pg.Figures().Append(fig);
+    return pg;
 }
 
 static WUI::Color color_argb(unsigned int argb) {
@@ -311,6 +387,153 @@ void day_winui_post(void (*cb)(void*), void* data) {
 void* day_winui_container_new() { WUXC::Canvas c; return boxh(c); }
 void* day_winui_scroll_new() { WUXC::Canvas c; return boxh(c); } // MVP: no scrolling
 void* day_winui_canvas_new() { WUXC::Canvas c; return boxh(c); }
+
+void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) {
+    auto canvas = elem(h).try_as<WUXC::Canvas>();
+    if (!canvas) return;
+    canvas.Children().Clear();
+
+    std::vector<std::string> texts;
+    {
+        std::string all = texts_joined ? texts_joined : "";
+        size_t start = 0;
+        while (start <= all.size()) {
+            size_t nl = all.find('\n', start);
+            texts.push_back(all.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+        }
+    }
+    size_t ti = 0;
+    std::vector<WUXM::Matrix> stack;
+    WUXM::Matrix cur = mat_identity();
+    const double DEG = 3.14159265358979323846 / 180.0;
+
+    for (int i = 0; i + 8 < n; i += 9) {
+        int k = static_cast<int>(nums[i]);
+        double a = nums[i + 1], b = nums[i + 2], c = nums[i + 3], d = nums[i + 4];
+        double e = nums[i + 5], f = nums[i + 6], g = nums[i + 7];
+        unsigned col = static_cast<unsigned>(nums[i + 8]);
+        switch (k) {
+        case 8:
+            stack.push_back(cur);
+            break;
+        case 9:
+            if (!stack.empty()) {
+                cur = stack.back();
+                stack.pop_back();
+            }
+            break;
+        case 10: {
+            WUXM::Matrix m{};
+            m.M11 = a;
+            m.M12 = b;
+            m.M21 = c;
+            m.M22 = d;
+            m.OffsetX = e;
+            m.OffsetY = f;
+            cur = mat_mul(m, cur);
+            break;
+        }
+        case 0:
+        case 1:
+        case 2: {
+            WUXSh::Path p;
+            if (k == 2) {
+                p.Data(rounded_rect_geo(a, b, c, d, e));
+            } else {
+                WUXM::RectangleGeometry rg;
+                rg.Rect(WF::Rect{ (float)a, (float)b, (float)c, (float)d });
+                p.Data(rg);
+            }
+            if (k == 1) {
+                p.Stroke(brush_bits(col));
+                p.StrokeThickness(g);
+            } else {
+                p.Fill(brush_bits(col));
+            }
+            place_shape(canvas, p, cur);
+            break;
+        }
+        case 3:
+        case 4: {
+            WUXM::EllipseGeometry eg;
+            eg.Center(WF::Point{ (float)(a + c / 2), (float)(b + d / 2) });
+            eg.RadiusX(c / 2);
+            eg.RadiusY(d / 2);
+            WUXSh::Path p;
+            p.Data(eg);
+            if (k == 4) {
+                p.Stroke(brush_bits(col));
+                p.StrokeThickness(g);
+            } else {
+                p.Fill(brush_bits(col));
+            }
+            place_shape(canvas, p, cur);
+            break;
+        }
+        case 5: { // stroke arc (e=start°, f=sweep°); clockwise, 0=+x, in screen (y-down) space
+            double cx = a + c / 2, cy = b + d / 2, rx = c / 2, ry = d / 2;
+            double s = e * DEG, en = (e + f) * DEG;
+            WUXM::ArcSegment arc;
+            arc.Point(WF::Point{ (float)(cx + rx * cos(en)), (float)(cy + ry * sin(en)) });
+            arc.Size(WF::Size{ (float)rx, (float)ry });
+            arc.IsLargeArc(fabs(f) > 180.0);
+            arc.SweepDirection(f >= 0 ? WUXM::SweepDirection::Clockwise
+                                      : WUXM::SweepDirection::Counterclockwise);
+            WUXM::PathFigure fig;
+            fig.StartPoint(WF::Point{ (float)(cx + rx * cos(s)), (float)(cy + ry * sin(s)) });
+            fig.IsClosed(false);
+            fig.Segments().Append(arc);
+            WUXM::PathGeometry pg;
+            pg.Figures().Append(fig);
+            WUXSh::Path p;
+            p.Data(pg);
+            p.Stroke(brush_bits(col));
+            p.StrokeThickness(g);
+            p.StrokeStartLineCap(WUXM::PenLineCap::Round);
+            p.StrokeEndLineCap(WUXM::PenLineCap::Round);
+            place_shape(canvas, p, cur);
+            break;
+        }
+        case 6: { // line
+            WUXM::LineGeometry lg;
+            lg.StartPoint(WF::Point{ (float)a, (float)b });
+            lg.EndPoint(WF::Point{ (float)c, (float)d });
+            WUXSh::Path p;
+            p.Data(lg);
+            p.Stroke(brush_bits(col));
+            p.StrokeThickness(g);
+            p.StrokeStartLineCap(WUXM::PenLineCap::Round);
+            p.StrokeEndLineCap(WUXM::PenLineCap::Round);
+            place_shape(canvas, p, cur);
+            break;
+        }
+        case 7: { // text at (a,b); e=size, f=anchor (0 leading / 1 centered)
+            std::string t = ti < texts.size() ? texts[ti++] : std::string();
+            WUXC::TextBlock tb;
+            tb.Text(hs(t.c_str()));
+            tb.FontSize(e);
+            tb.Foreground(brush_bits(col));
+            // Fold the CTM into the anchor point (glyph rotation is a follow-up; the demos draw
+            // upright text under an identity CTM).
+            double px = a * cur.M11 + b * cur.M21 + cur.OffsetX;
+            double py = a * cur.M12 + b * cur.M22 + cur.OffsetY;
+            if (f > 0.5) {
+                tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
+                                     std::numeric_limits<float>::infinity() });
+                auto ds = tb.DesiredSize();
+                px -= ds.Width / 2;
+                py -= ds.Height / 2;
+            }
+            WUXC::Canvas::SetLeft(tb, px);
+            WUXC::Canvas::SetTop(tb, py);
+            canvas.Children().Append(tb);
+            break;
+        }
+        }
+    }
+}
 
 // Recycling-list host: a real ScrollViewer whose Content is a Canvas that holds the row cells
 // (day positions each cell by absolute frame). `out_content` receives a handle to that Canvas so

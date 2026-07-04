@@ -20,6 +20,13 @@ unsafe extern "C" {
     pub fn day_winui_scroll_new() -> *mut c_void;
     pub fn day_winui_container_set_bg(w: *mut c_void, argb: u32);
     pub fn day_winui_canvas_new() -> *mut c_void;
+    /// Render a canvas display list (day_spec::encode_ops output) into the Canvas.
+    pub fn day_winui_canvas_set_ops(
+        w: *mut c_void,
+        nums: *const c_double,
+        n: c_int,
+        texts_joined: *const c_char,
+    );
 
     // recycling list host (docs/list.md): a ScrollViewer + content Canvas
     pub fn day_winui_list_new(out_content: *mut *mut c_void) -> *mut c_void;

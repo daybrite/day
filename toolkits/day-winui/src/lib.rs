@@ -19,8 +19,8 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, Event, EventSink, Font, NodeId, PieceKind, Platform, Proposal, Rect,
-    Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
+    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -754,6 +754,14 @@ impl Toolkit for WinUi {
     fn adopt(&mut self, raw: day_spec::RawHandle) -> WinHandle {
         // A recycling-list cell (a plain Canvas) — day builds/rebinds its row content in place.
         WinHandle(raw)
+    }
+
+    fn replay(&mut self, h: &WinHandle, ops: &[DrawOp], _size: Size) {
+        let (nums, texts) = day_spec::encode_ops(ops);
+        let joined = cstr(&texts.join("\n"));
+        unsafe {
+            ffi::day_winui_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
+        };
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
