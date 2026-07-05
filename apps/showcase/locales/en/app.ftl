@@ -45,6 +45,7 @@ webview-stop = Stop
 webview-reload = Reload
 
 lottie-caption = A native Lottie animation, bundled as JSON (lottie-ios / lottie-android)
+lottie-speed = Speed
 stack-root-body = A genuine push/pop stack. Its path is an app-owned signal.
 stack-push = Push a detail
 stack-detail-title = Level { $depth }

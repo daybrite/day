@@ -1800,7 +1800,7 @@ mod imp {
                     .unwrap_or_default();
                 let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
                 if let Some(node) = node {
-                    emit(node, Event::Custom("deeplink", format!("{host}{path}")));
+                    emit(node, Event::custom("deeplink", format!("{host}{path}")));
                     true
                 } else {
                     false

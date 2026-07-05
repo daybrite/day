@@ -8,9 +8,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use block2::RcBlock;
-use day_spec::{NodeId, Proposal, Renderer, Size};
+use day_spec::{NodeId, Proposal, Size};
 use day_uikit::Uikit;
-use linkme::distributed_slice;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -166,8 +165,7 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, node: NodeId) -> Retained<U
     btn
 }
 
-fn make(_backend: &mut Uikit, props: &dyn std::any::Any, id: NodeId) -> Retained<UIView> {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
     let mtm = MainThreadMarker::new().unwrap();
     let target = PickerTarget::new(mtm, id);
     let (view, buttons, menu_button) = match p.style {
@@ -196,10 +194,8 @@ fn make(_backend: &mut Uikit, props: &dyn std::any::Any, id: NodeId) -> Retained
     view
 }
 
-fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &dyn std::any::Any) {
-    let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() else {
-        return;
-    };
+fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
+    let PickerPatch::Selected(i) = patch;
     let i = *i;
     if let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() {
         if seg.selectedSegmentIndex() != i as isize {
@@ -235,10 +231,6 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(28.0))
 }
 
-#[distributed_slice(day_uikit::RENDERERS)]
-static PICKER_UIKIT: fn() -> Renderer<Uikit> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update, measure: measure);

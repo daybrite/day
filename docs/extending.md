@@ -35,24 +35,37 @@ impl Piece for Gauge {
 `impl Piece` gives you `.id()`/`.a11y()`/`.frame()` for free (blanket `Decorate`). Props are the full
 realize payload; a sparse `Patch` enum carries changes.
 
-## 2. Per-backend renderers
+## 2. Per-backend renderers — the `renderer!` macro
 
-Each backend module registers a `Renderer<B>` into that backend's slice — the exact same slice the
-built-ins use, so **no day edit is needed**:
+Each backend module registers its native renderer into that backend's `RENDERERS` slice — the same
+slice the built-ins use, so **no day edit is needed**. Write **typed** `make`/`update` (no `&dyn Any`
+downcast) and one macro line; `day_pieces::renderer!` expands to the `linkme` registration + the props/
+patch downcast:
 
 ```rust
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 mod appkit_impl {
-    #[linkme::distributed_slice(day_appkit::RENDERERS)]
-    static R: fn() -> Renderer<AppKit> = || Renderer { kind: KIND, make, update, measure: Some(measure) };
-    fn make(backend: &mut AppKit, props: &dyn Any, id: NodeId) -> Retained<NSView> { … }
-    // update / measure …
+    use super::*;
+    fn make(backend: &mut AppKit, props: &MyProps, id: NodeId) -> Retained<NSView> { … }
+    fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { … }
+
+    day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+        kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update);
 }
 ```
 
+Add `measure: f` for custom sizing — `measure: day_pieces::fill_measure` for a growing leaf (a web
+view, a canvas), omit it for the backend's default. A **patchless** piece (configured once, e.g. Lottie)
+drops `patch:`/`update:`: `renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: MyProps, make: make)`.
 Do the same for `day_gtk::RENDERERS`, `day_qt::RENDERERS`, `day_uikit::RENDERERS`,
 `day_android::RENDERERS`, `day_winui::RENDERERS`. Each backend is behind a cargo feature that pulls in
 that toolkit crate; the app enables `my-piece/<backend>` alongside `day/<backend>`.
+
+**Reporting events back.** A renderer calls `day_<backend>::emit(node, event)`. Beyond the fixed
+`Event` variants, a piece defines its own event with `Event::custom("my:tag", text)` (in-process) — its
+`cx.on` reads it. Across a native boundary (JNI/C-ABI) the tag can't be a `&'static str`, so it's empty
+and the payload rides in `num`/`text`: on Android the shim calls `DayBridge.nativeOnEvent(id, 12, num,
+text)` (kind 12 = the open Custom channel). `day-piece-webview` reports its URL this way.
 
 ## 3. Native backend assets (the interesting part)
 
@@ -117,7 +130,13 @@ swift = ["ios/swift"]                                         # dirs of Swift sh
 swift-packages = [                                           # SwiftPM package dependencies
   { url = "https://github.com/airbnb/lottie-ios", from = "4.5.0", products = ["Lottie"] },
 ]
+frameworks = ["WebKit"]                                      # system frameworks to link
 ```
+
+`frameworks` links system frameworks via the generated package's `linkerSettings` — so a piece that
+drives a class from an unlinked framework (e.g. a hand-rolled `WKWebView`) declares it here instead of
+`dlopen`ing or hand-`#[link]`ing (which doesn't survive the cargo-staticlib → xcode link). `day-piece-webview`
+uses `frameworks = ["WebKit"]`.
 
 `{from, exact, branch, revision}` map to the matching SwiftPM version requirement; `products` are the
 library products to link. Xcode is not script-driven like Gradle, so `day build` (ios-uikit) instead

@@ -347,6 +347,7 @@ dependencies = [
  "day-core",
  "day-mock",
  "day-pieces",
+ "day-reactive",
  "day-spec",
  "day-uikit",
  "linkme",
@@ -419,6 +420,7 @@ dependencies = [
  "day-mock",
  "day-reactive",
  "day-spec",
+ "linkme",
 ]
 
 [[package]]

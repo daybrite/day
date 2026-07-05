@@ -73,3 +73,10 @@ gradle-repositories = []
 # Android manifest <uses-permission>s the piece needs — merged into the app manifest by `day build`
 # (the enhancement this piece motivates: a standalone piece can now contribute a permission).
 permissions = ["android.permission.INTERNET"]
+
+# --- iOS backend contribution (docs/extending.md) ---
+# The iOS WKWebView is hand-rolled in Rust (objc2), so there's no Swift shim — but WKWebView's ObjC
+# class lives in WebKit.framework, which the app must link. Declaring it here (the `frameworks` key)
+# links it via the generated DayPieces SwiftPM package — replacing the earlier runtime `dlopen`.
+[package.metadata.day.ios]
+frameworks = ["WebKit"]

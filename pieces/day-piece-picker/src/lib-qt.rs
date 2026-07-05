@@ -8,8 +8,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
 use day_qt::{Qt, QtHandle};
-use day_spec::{NodeId, Proposal, Renderer, Size};
-use linkme::distributed_slice;
+use day_spec::{NodeId, Proposal, Size};
 
 unsafe extern "C" {
     fn day_picker_new(
@@ -40,8 +39,7 @@ fn style_code(s: PickerStyle) -> c_int {
     }
 }
 
-fn make(_backend: &mut Qt, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
     QtHandle(unsafe {
         day_picker_new(
             style_code(p.style),
@@ -53,8 +51,9 @@ fn make(_backend: &mut Qt, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
     })
 }
 
-fn update(_backend: &mut Qt, h: &QtHandle, patch: &dyn std::any::Any) {
-    if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
+fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
+    {
+        let PickerPatch::Selected(i) = patch;
         unsafe { day_picker_set_selected(h.0, *i as c_int) };
     }
 }
@@ -66,10 +65,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     Size::new(w.max(60.0), hh.max(22.0))
 }
 
-#[distributed_slice(day_qt::RENDERERS)]
-static PICKER_QT: fn() -> Renderer<Qt> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+day_pieces::renderer!(day_qt::RENDERERS, Qt,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update, measure: measure);

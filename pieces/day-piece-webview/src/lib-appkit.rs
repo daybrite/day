@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // AppKit: WKWebView (WebKit). A custom navigation delegate reports the committed URL back via
-// `Event::Custom("webview:url", …)` so a bound text field follows navigation. WKWebView keeps its
+// `Event::custom("webview:url", …)` so a bound text field follows navigation. WKWebView keeps its
 // navigationDelegate WEAKLY, so we retain each delegate in a thread_local for the view's lifetime.
 // ---------------------------------------------------------------------------
 
@@ -9,8 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use day_appkit::AppKit;
-use day_spec::{NodeId, Renderer};
-use linkme::distributed_slice;
+use day_spec::NodeId;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -36,7 +35,7 @@ define_class!(
         #[unsafe(method(webView:didFinishNavigation:))]
         fn did_finish(&self, web_view: &WKWebView, _navigation: Option<&WKNavigation>) {
             if let Some(url) = current_url(web_view) {
-                day_appkit::emit(self.ivars().node, Event::Custom("webview:url", url));
+                day_appkit::emit(self.ivars().node, Event::custom("webview:url", url));
             }
         }
     }
@@ -69,8 +68,7 @@ fn load_url(web: &WKWebView, url: &str) {
     let _ = unsafe { web.loadRequest(&req) };
 }
 
-fn make(backend: &mut AppKit, props: &dyn std::any::Any, id: NodeId) -> Retained<NSView> {
-    let p = props.downcast_ref::<WebProps>().unwrap();
+fn make(backend: &mut AppKit, p: &WebProps, id: NodeId) -> Retained<NSView> {
     let mtm = backend.mtm();
     // SAFETY: creates a WKWebView with a default configuration on the main thread.
     let web = unsafe { WKWebView::new(mtm) };
@@ -87,10 +85,7 @@ fn make(backend: &mut AppKit, props: &dyn std::any::Any, id: NodeId) -> Retained
     view
 }
 
-fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &dyn std::any::Any) {
-    let Some(patch) = patch.downcast_ref::<WebPatch>() else {
-        return;
-    };
+fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &WebPatch) {
     let Some(web) = h.downcast_ref::<WKWebView>() else {
         return;
     };
@@ -109,10 +104,6 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &dyn std::any::Any
     }
 }
 
-#[distributed_slice(day_appkit::RENDERERS)]
-static WEBVIEW_APPKIT: fn() -> Renderer<AppKit> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: None,
-};
+day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+    kind: KIND, props: WebProps, patch: WebPatch,
+    make: make, update: update, measure: day_pieces::fill_measure);

@@ -136,12 +136,14 @@ impl Piece for WebView {
             watch(move || reload.track(), move |_, _| send(WebPatch::Reload));
         }
 
-        // Native navigation reports the current URL back so a bound text field follows along.
-        // Apple/Qt use `Custom("webview:url", …)`; Android reports via the public `TextChanged`
-        // kind (its `Custom` kind is reserved for deep links). Same node either way.
-        cx.on(node, move |ev| match ev {
-            Event::Custom("webview:url", u) | Event::TextChanged(u) => url.set(u.clone()),
-            _ => {}
+        // Native navigation reports the current URL back via `Event::Custom` so a bound text field
+        // follows along. In-process backends tag it "webview:url"; Android's cross-boundary Custom
+        // carries just the payload. This node emits only that event, so any Custom is the URL — no
+        // more hijacking `TextChanged` on Android (§8.2's opened event channel).
+        cx.on(node, move |ev| {
+            if let Event::Custom { text, .. } = ev {
+                url.set(text.clone());
+            }
         });
         node
     }

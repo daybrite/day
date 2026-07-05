@@ -255,7 +255,7 @@ mod imp {
                     .ok()
                     .map(|s| s.into())
                     .unwrap_or_default();
-                Event::Custom("deeplink", route)
+                Event::custom("deeplink", route)
             }
             // Presentation answers (docs/dialogs.md): id == request id.
             8 => Event::PresentResult {
@@ -310,6 +310,17 @@ mod imp {
                         translation: tr,
                     },
                 }
+            }
+            // Piece-defined custom event (§8.2's open event channel): a `&'static str` tag can't cross
+            // JNI, so the tag is empty and the piece reads the primitive `num`/`text` payload. A piece
+            // (e.g. day-piece-webview) calls `DayBridge.nativeOnEvent(id, 12, num, text)`.
+            12 => {
+                let text: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                Event::Custom { tag: "", num, text }
             }
             _ => return,
         };

@@ -101,7 +101,27 @@ pub enum Event {
         req: u64,
         result: present::PresentResult,
     },
-    Custom(&'static str, String),
+    /// An open, piece-defined event (§8.2). `tag` names the event for in-process emitters (a static
+    /// literal); it is empty for events that cross a native boundary (JNI/C-ABI), which carry only the
+    /// primitive `num`/`text` payload. A piece's `cx.on` reads whichever fields it needs. This is the
+    /// escape hatch for events the fixed variants above don't cover (a web view's URL, a picked date, …).
+    Custom {
+        tag: &'static str,
+        num: f64,
+        text: String,
+    },
+}
+
+impl Event {
+    /// Build a text-carrying [`Event::Custom`] (with `num` defaulted to 0) — the common case for an
+    /// in-process piece reporting a value back: `emit(node, Event::custom("webview:url", url))`.
+    pub fn custom(tag: &'static str, text: impl Into<String>) -> Event {
+        Event::Custom {
+            tag,
+            num: 0.0,
+            text: text.into(),
+        }
+    }
 }
 
 /// The phase of a drag gesture (docs/shapes.md).

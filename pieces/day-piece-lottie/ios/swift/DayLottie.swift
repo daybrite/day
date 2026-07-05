@@ -13,14 +13,39 @@ import Lottie
 public func day_lottie_new(
     _ namePtr: UnsafePointer<CChar>,
     _ looping: Bool,
-    _ autoplay: Bool
+    _ autoplay: Bool,
+    _ speed: Double
 ) -> UnsafeMutableRawPointer {
     let name = String(cString: namePtr)
     let view = LottieAnimationView(name: name)
     view.contentMode = .scaleAspectFit
     view.loopMode = looping ? .loop : .playOnce
+    view.animationSpeed = CGFloat(speed)
     if autoplay {
         view.play()
     }
     return Unmanaged.passRetained(view).toOpaque()
+}
+
+/// Update the playback rate of an existing LottieAnimationView (from a `Speed` patch). The pointer is
+/// the same object Rust wraps as a UIView; we take an unretained reference (Rust still owns the +1).
+///
+/// Assigning `animationSpeed` alone re-adds the in-flight animation, and with the Core Animation
+/// rendering engine + loop mode that restarts it at frame 0 (lottie-ios can't retime a running
+/// CAAnimation in place). So we snapshot the current progress and, if it was playing, resume from that
+/// exact frame with `play()` — which loops the FULL range from the current progress at the new speed
+/// (unlike `play(fromProgress:toProgress:)`, which would permanently shrink the loop to `[progress, 1]`).
+/// The result: the scrubber changes speed without the animation jumping back to the start.
+@_cdecl("day_lottie_set_speed")
+public func day_lottie_set_speed(_ viewPtr: UnsafeMutableRawPointer, _ speed: Double) {
+    let view = Unmanaged<LottieAnimationView>.fromOpaque(viewPtr).takeUnretainedValue()
+    let newSpeed = CGFloat(speed)
+    guard view.animationSpeed != newSpeed else { return }
+    let wasPlaying = view.isAnimationPlaying
+    let progress = view.realtimeAnimationProgress
+    view.animationSpeed = newSpeed
+    if wasPlaying {
+        view.currentProgress = progress
+        view.play()
+    }
 }

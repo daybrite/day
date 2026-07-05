@@ -1,0 +1,20 @@
+name: lottie-speed
+description: Drive the Lottie speed slider (iOS/Android only) and confirm the bound readout tracks it.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: lottie }
+  - assert_route: { route: lottie }
+  - assert_visible: { id: lottie-view }
+  - assert_visible: { id: lottie-speed-slider }
+  # Default speed is 1.0.
+  - assert_text: { id: lottie-speed-value, text: "1.00×" }
+  - screenshot: lottie-1x
+  # Drive the slider to 3× — the signal feeds both the readout label and `.speed(speed)`, which
+  # pushes a Speed patch to the native LottieAnimationView (animationSpeed / setSpeed).
+  - set_value: { id: lottie-speed-slider, value: 3.0 }
+  - assert_text: { id: lottie-speed-value, text: "3.00×" }
+  - screenshot: lottie-3x
+  # And down to 0.25×.
+  - set_value: { id: lottie-speed-slider, value: 0.25 }
+  - assert_text: { id: lottie-speed-value, text: "0.25×" }
+  - screenshot: lottie-quarter

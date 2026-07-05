@@ -69,8 +69,7 @@ mod appkit_impl {
     use std::collections::HashMap;
 
     use day_appkit::AppKit;
-    use day_spec::{NodeId, Proposal, Renderer, Size};
-    use linkme::distributed_slice;
+    use day_spec::{NodeId, Proposal, Size};
     use objc2::rc::Retained;
     use objc2::runtime::NSObjectProtocol;
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -121,8 +120,7 @@ mod appkit_impl {
         }
     }
 
-    fn make(backend: &mut AppKit, props: &dyn std::any::Any, id: NodeId) -> Retained<NSView> {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(backend: &mut AppKit, p: &ComboProps, id: NodeId) -> Retained<NSView> {
         let mtm = backend.mtm();
         let target = ComboTarget::new(mtm, id);
         let zero = objc2_foundation::NSRect::new(
@@ -144,11 +142,12 @@ mod appkit_impl {
         view
     }
 
-    fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &dyn std::any::Any) {
+    fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &ComboPatch) {
         let Some(popup) = h.downcast_ref::<NSPopUpButton>() else {
             return;
         };
-        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+        {
+            let p = patch;
             match p {
                 ComboPatch::Items(items) => apply_items(popup, items, None),
                 ComboPatch::Selected(sel) => match sel {
@@ -168,13 +167,7 @@ mod appkit_impl {
         Size::new(s.width.ceil().max(80.0), s.height.ceil())
     }
 
-    #[distributed_slice(day_appkit::RENDERERS)]
-    static COMBO_APPKIT: fn() -> Renderer<AppKit> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: Some(measure),
-    };
+    day_pieces::renderer!(day_appkit::RENDERERS, AppKit, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update, measure: measure);
 }
 
 // ---------------------------------------------------------------------------
@@ -185,17 +178,15 @@ mod appkit_impl {
 mod gtk_impl {
     use super::*;
     use day_gtk::Gtk;
-    use day_spec::{NodeId, Proposal, Renderer, Size};
+    use day_spec::{NodeId, Proposal, Size};
     use gtk4::prelude::*;
-    use linkme::distributed_slice;
 
     fn strings(items: &[String]) -> gtk4::StringList {
         let refs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
         gtk4::StringList::new(&refs)
     }
 
-    fn make(_backend: &mut Gtk, props: &dyn std::any::Any, id: NodeId) -> gtk4::Widget {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(_backend: &mut Gtk, p: &ComboProps, id: NodeId) -> gtk4::Widget {
         let dd = gtk4::DropDown::new(Some(strings(&p.items)), gtk4::Expression::NONE);
         if let Some(i) = p.selected {
             dd.set_selected(i as u32);
@@ -212,11 +203,12 @@ mod gtk_impl {
         dd.upcast()
     }
 
-    fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &dyn std::any::Any) {
+    fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &ComboPatch) {
         let Some(dd) = h.downcast_ref::<gtk4::DropDown>() else {
             return;
         };
-        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+        {
+            let p = patch;
             match p {
                 ComboPatch::Items(items) => dd.set_model(Some(&strings(items))),
                 ComboPatch::Selected(sel) => {
@@ -235,13 +227,7 @@ mod gtk_impl {
         Size::new((nat_w as f64).max(80.0), nat_h as f64)
     }
 
-    #[distributed_slice(day_gtk::RENDERERS)]
-    static COMBO_GTK: fn() -> Renderer<Gtk> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: Some(measure),
-    };
+    day_pieces::renderer!(day_gtk::RENDERERS, Gtk, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update, measure: measure);
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +241,7 @@ mod qt_impl {
     use std::os::raw::{c_char, c_int, c_void};
 
     use day_qt::{Qt, QtHandle};
-    use day_spec::{NodeId, Proposal, Renderer, Size};
-    use linkme::distributed_slice;
+    use day_spec::{NodeId, Proposal, Size};
 
     unsafe extern "C" {
         fn day_combo_new(
@@ -279,14 +264,14 @@ mod qt_impl {
         CString::new(items.join("\n")).unwrap_or_default()
     }
 
-    fn make(_backend: &mut Qt, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(_backend: &mut Qt, p: &ComboProps, id: NodeId) -> QtHandle {
         let sel = p.selected.map(|i| i as c_int).unwrap_or(-1);
         QtHandle(unsafe { day_combo_new(joined(&p.items).as_ptr(), sel, id.0, on_select) })
     }
 
-    fn update(_backend: &mut Qt, h: &QtHandle, patch: &dyn std::any::Any) {
-        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+    fn update(_backend: &mut Qt, h: &QtHandle, patch: &ComboPatch) {
+        {
+            let p = patch;
             unsafe {
                 match p {
                     ComboPatch::Items(items) => day_combo_set_items(h.0, joined(items).as_ptr()),
@@ -305,13 +290,7 @@ mod qt_impl {
         Size::new(w.max(80.0), hh.max(22.0))
     }
 
-    #[distributed_slice(day_qt::RENDERERS)]
-    static COMBO_QT: fn() -> Renderer<Qt> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: Some(measure),
-    };
+    day_pieces::renderer!(day_qt::RENDERERS, Qt, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update, measure: measure);
 }
 
 // ---------------------------------------------------------------------------
@@ -325,9 +304,8 @@ mod winui_impl {
     use std::ffi::CString;
     use std::os::raw::c_int;
 
-    use day_spec::{NodeId, Proposal, Renderer, Size};
+    use day_spec::{NodeId, Proposal, Size};
     use day_winui::{WinHandle, WinUi};
-    use linkme::distributed_slice;
 
     fn cstr(s: &str) -> CString {
         CString::new(s).unwrap_or_default()
@@ -340,16 +318,16 @@ mod winui_impl {
         day_winui::emit(NodeId(id), Event::SelectionChanged(idx as i64));
     }
 
-    fn make(_backend: &mut WinUi, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(_backend: &mut WinUi, p: &ComboProps, id: NodeId) -> WinHandle {
         let sel = p.selected.map(|i| i as c_int).unwrap_or(-1);
         WinHandle(unsafe {
             day_winui_sys::day_winui_combo_new(joined(&p.items).as_ptr(), sel, id.0, on_select)
         })
     }
 
-    fn update(_backend: &mut WinUi, h: &WinHandle, patch: &dyn std::any::Any) {
-        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+    fn update(_backend: &mut WinUi, h: &WinHandle, patch: &ComboPatch) {
+        {
+            let p = patch;
             unsafe {
                 match p {
                     ComboPatch::Items(items) => {
@@ -371,13 +349,7 @@ mod winui_impl {
         Size::new(w.max(120.0), hh.max(32.0))
     }
 
-    #[distributed_slice(day_winui::RENDERERS)]
-    static COMBO_WINUI: fn() -> Renderer<WinUi> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: Some(measure),
-    };
+    day_pieces::renderer!(day_winui::RENDERERS, WinUi, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update, measure: measure);
 }
 
 // ---------------------------------------------------------------------------
@@ -388,9 +360,8 @@ mod winui_impl {
 #[cfg(all(feature = "uikit", target_os = "ios"))]
 mod uikit_impl {
     use super::*;
-    use day_spec::{NodeId, Proposal, Renderer, Size};
+    use day_spec::{NodeId, Proposal, Size};
     use day_uikit::Uikit;
-    use linkme::distributed_slice;
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, NSObjectProtocol};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -443,8 +414,7 @@ mod uikit_impl {
         }
     }
 
-    fn make(_backend: &mut Uikit, props: &dyn std::any::Any, id: NodeId) -> Retained<UIView> {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(_backend: &mut Uikit, p: &ComboProps, id: NodeId) -> Retained<UIView> {
         let mtm = MainThreadMarker::new().unwrap();
         let target = SegTarget::new(mtm, id);
         let seg = UISegmentedControl::new(mtm);
@@ -466,11 +436,12 @@ mod uikit_impl {
         view
     }
 
-    fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &dyn std::any::Any) {
+    fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &ComboPatch) {
         let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() else {
             return;
         };
-        if let Some(p) = patch.downcast_ref::<ComboPatch>() {
+        {
+            let p = patch;
             match p {
                 ComboPatch::Items(items) => apply(seg, items, None),
                 ComboPatch::Selected(sel) => {
@@ -485,13 +456,7 @@ mod uikit_impl {
         Size::new(s.width.ceil().max(80.0), s.height.ceil().max(28.0))
     }
 
-    #[distributed_slice(day_uikit::RENDERERS)]
-    static COMBO_UIKIT: fn() -> Renderer<Uikit> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: Some(measure),
-    };
+    day_pieces::renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update, measure: measure);
 }
 
 // ---------------------------------------------------------------------------
@@ -504,11 +469,9 @@ mod android_impl {
     use super::*;
     use day_android::jni::objects::JValue;
     use day_android::{AHandle, Android, make_view, with_env};
-    use day_spec::{NodeId, Renderer};
-    use linkme::distributed_slice;
+    use day_spec::NodeId;
 
-    fn make(_backend: &mut Android, props: &dyn std::any::Any, id: NodeId) -> AHandle {
-        let p = props.downcast_ref::<ComboProps>().unwrap();
+    fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {
         let joined = p.items.join("\n");
         let sel = p.selected.map(|i| i as i32).unwrap_or(-1);
         with_env(|env| {
@@ -526,8 +489,9 @@ mod android_impl {
         })
     }
 
-    fn update(_backend: &mut Android, h: &AHandle, patch: &dyn std::any::Any) {
-        if let Some(ComboPatch::Selected(sel)) = patch.downcast_ref::<ComboPatch>() {
+    fn update(_backend: &mut Android, h: &AHandle, patch: &ComboPatch) {
+        // Android only reflects selection changes (item lists are set once at build).
+        if let ComboPatch::Selected(sel) = patch {
             with_env(|env| {
                 let _ = env.call_static_method(
                     day_android::BRIDGE,
@@ -542,11 +506,5 @@ mod android_impl {
         }
     }
 
-    #[distributed_slice(day_android::RENDERERS)]
-    static COMBO_ANDROID: fn() -> Renderer<Android> = || Renderer {
-        kind: KIND,
-        make,
-        update,
-        measure: None,
-    };
+    day_pieces::renderer!(day_android::RENDERERS, Android, kind: KIND, props: ComboProps, patch: ComboPatch, make: make, update: update);
 }

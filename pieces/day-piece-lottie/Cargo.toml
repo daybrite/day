@@ -19,6 +19,7 @@ widget = ["dep:day-android"]
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
+day-reactive = { workspace = true }
 linkme = { workspace = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }

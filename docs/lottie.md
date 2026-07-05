@@ -11,14 +11,19 @@
 ```rust
 use day_piece_lottie::lottie;
 
+let speed = Signal::new(1.0);
 lottie("hello")                 // renders the bundled hello.json (looping, autoplaying)
+    .speed(speed)               // playback rate — reactive: follows the signal live
     .frame(220.0, 220.0)        // it's a growing leaf — constrain it
     .id("lottie-view")
 ```
 
 `lottie(name)` loads `name`(.json), **bundled with the app** — the iOS app bundle (`Bundle.main`) and
-the Android `assets/`. `.looping(false)` plays once; `.autoplay(false)` starts paused. `Lottie`
-implements `Piece`, so `.id()/.a11y()/.frame()` chain via `Decorate`.
+the Android `assets/`. `.looping(false)` plays once; `.autoplay(false)` starts paused. `.speed(_)` sets
+the playback-rate multiplier (1.0 = normal, 2.0 = double, 0.5 = half) and takes any `IntoReactive<f64>`
+— a constant, a `Signal<f64>`, or a `Fn() -> f64`; a reactive value updates the native view's speed live
+(the showcase binds it to a slider). `Lottie` implements `Piece`, so `.id()/.a11y()/.frame()` chain via
+`Decorate`.
 
 The showcase's `lottie` page is `#[cfg(any(target_os = "ios", target_os = "android"))]`, so the nav item
 appears only on those builds; the bundled `apps/showcase/assets/hello.json` is a small hand-authored

@@ -17,10 +17,10 @@ fn main() {
     if std::env::var("CARGO_FEATURE_WINUI").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
         build_winui();
     }
-    // NOTE: the iOS WKWebView (lib-uikit.rs) needs WebKit.framework linked. We do that with a
-    // `#[link(name = "WebKit", kind = "framework")]` autolink hint in the source (which the Apple
-    // linker honors even through the staticlib xcode links) — NOT a `cargo:rustc-link-lib` here,
-    // which only affects cargo's own final link and never reaches xcodebuild.
+    // NOTE: the iOS WKWebView (lib-uikit.rs) needs WebKit.framework linked. That's declared in
+    // Cargo.toml's `[package.metadata.day.ios].frameworks = ["WebKit"]` and linked by the generated
+    // DayPieces SwiftPM package — not from this build script (a `cargo:rustc-link-lib` never reaches
+    // xcodebuild, which performs the app's final link).
 }
 
 fn build_qt() {

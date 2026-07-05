@@ -16,6 +16,13 @@ use day_spec::{
     A11yProps, Color, DrawOp, Event, Font, Insets, Point, Rect, Role, Shape, Size, kinds,
 };
 
+// External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
+// re-exports the macro expands to (so a piece needs only a `day-pieces` dependency, not linkme).
+pub mod render;
+pub use day_spec::Renderer;
+pub use linkme;
+pub use render::fill_measure;
+
 // ---------------------------------------------------------------------------
 // Text sources (§12.2's IntoText, M1 subset — Fluent joins at M6)
 // ---------------------------------------------------------------------------
@@ -1928,7 +1935,11 @@ fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode 
                     s.set_rw(k.clone());
                 }
             }
-            Event::Custom("deeplink", route) => {
+            Event::Custom {
+                tag: "deeplink",
+                text: route,
+                ..
+            } => {
                 let _ = day_core::navigate(route);
             }
             _ => {}
@@ -2136,7 +2147,11 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
         let s = selection.clone();
         cx.on(host, move |ev| match ev {
             Event::NavBack { .. } => s.set_rw(String::new()),
-            Event::Custom("deeplink", route) => {
+            Event::Custom {
+                tag: "deeplink",
+                text: route,
+                ..
+            } => {
                 let _ = day_core::navigate(route);
             }
             _ => {}
@@ -2349,7 +2364,11 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
                         p.set_rw(v);
                     }
                 }
-                Event::Custom("deeplink", route) => {
+                Event::Custom {
+                    tag: "deeplink",
+                    text: route,
+                    ..
+                } => {
                     let _ = day_core::navigate(route);
                 }
                 _ => {}

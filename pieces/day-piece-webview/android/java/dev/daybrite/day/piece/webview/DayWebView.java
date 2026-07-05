@@ -11,7 +11,7 @@ import android.webkit.WebViewClient;
 
 import dev.daybrite.day.bridge.DayBridge;
 
-/** Wraps android.webkit.WebView, reporting the finished URL back via the public TextChanged kind (1). */
+/** Wraps android.webkit.WebView, reporting the finished URL back via the open Custom-event kind (12). */
 public final class DayWebView {
     private DayWebView() {}
 
@@ -22,8 +22,9 @@ public final class DayWebView {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String finishedUrl) {
-                // kind 1 = TextChanged: the piece's front-end maps it to the bound URL.
-                DayBridge.nativeOnEvent(id, 1, 0.0, finishedUrl);
+                // kind 12 = a piece-defined Custom event (§8.2's open channel): the front-end's
+                // cx.on reads the text payload as the URL. (No longer hijacking kind 1 = TextChanged.)
+                DayBridge.nativeOnEvent(id, 12, 0.0, finishedUrl);
             }
         });
         if (url != null && !url.isEmpty()) {

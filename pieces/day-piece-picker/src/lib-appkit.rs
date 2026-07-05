@@ -7,8 +7,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use day_appkit::AppKit;
-use day_spec::{NodeId, Proposal, Renderer, Size};
-use linkme::distributed_slice;
+use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -126,8 +125,7 @@ fn make_inline(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) ->
     Retained::from(<NSStackView as AsRef<NSView>>::as_ref(&stack))
 }
 
-fn make(backend: &mut AppKit, props: &dyn std::any::Any, id: NodeId) -> Retained<NSView> {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
     let mtm = backend.mtm();
     let target = PickerTarget::new(mtm, id);
     let view = match p.style {
@@ -142,10 +140,8 @@ fn make(backend: &mut AppKit, props: &dyn std::any::Any, id: NodeId) -> Retained
     view
 }
 
-fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &dyn std::any::Any) {
-    let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() else {
-        return;
-    };
+fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
+    let PickerPatch::Selected(i) = patch;
     let i = *i;
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
         if popup.indexOfSelectedItem() != i as isize {
@@ -171,10 +167,6 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(22.0))
 }
 
-#[distributed_slice(day_appkit::RENDERERS)]
-static PICKER_APPKIT: fn() -> Renderer<AppKit> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update, measure: measure);

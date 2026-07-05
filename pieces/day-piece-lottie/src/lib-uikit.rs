@@ -9,32 +9,39 @@ use super::*;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use day_spec::{NodeId, Renderer};
+use day_spec::NodeId;
 use day_uikit::Uikit;
-use linkme::distributed_slice;
 use objc2::rc::Retained;
 use objc2_ui_kit::UIView;
 
 unsafe extern "C" {
-    fn day_lottie_new(name: *const c_char, looping: bool, autoplay: bool) -> *mut c_void;
+    fn day_lottie_new(
+        name: *const c_char,
+        looping: bool,
+        autoplay: bool,
+        speed: f64,
+    ) -> *mut c_void;
+    fn day_lottie_set_speed(view: *mut c_void, speed: f64);
 }
 
-fn make(_backend: &mut Uikit, props: &dyn std::any::Any, _id: NodeId) -> Retained<UIView> {
-    let p = props.downcast_ref::<LottieProps>().unwrap();
+fn make(_backend: &mut Uikit, p: &LottieProps, _id: NodeId) -> Retained<UIView> {
     let name = CString::new(p.name.as_str()).unwrap_or_default();
     // The shim returns a +1-retained LottieAnimationView (a UIView subclass); we take ownership.
-    let ptr = unsafe { day_lottie_new(name.as_ptr(), p.looping, p.autoplay) };
+    let ptr = unsafe { day_lottie_new(name.as_ptr(), p.looping, p.autoplay, p.speed) };
     unsafe { Retained::from_raw(ptr.cast::<UIView>()) }.expect("LottieAnimationView")
 }
 
-fn update(_backend: &mut Uikit, _h: &Retained<UIView>, _patch: &dyn std::any::Any) {
-    // No patches: the animation is configured once at build (name/looping/autoplay).
+fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &LottiePatch) {
+    match patch {
+        // The stored UIView IS the LottieAnimationView; the shim casts the pointer back to set speed.
+        LottiePatch::Speed(s) => {
+            let ptr = (&**h as *const UIView) as *mut c_void;
+            unsafe { day_lottie_set_speed(ptr, *s) };
+        }
+    }
 }
 
-#[distributed_slice(day_uikit::RENDERERS)]
-static LOTTIE_UIKIT: fn() -> Renderer<Uikit> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: None,
-};
+// name/looping/autoplay are set once at build; only `speed` patches.
+day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
+    kind: KIND, props: LottieProps, patch: LottiePatch, make: make, update: update,
+    measure: day_pieces::fill_measure);

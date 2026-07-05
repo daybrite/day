@@ -9,6 +9,9 @@ day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
+# Re-exported so external pieces register per-backend renderers through the `renderer!` macro
+# without depending on linkme (or day-spec's Renderer) directly.
+linkme = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

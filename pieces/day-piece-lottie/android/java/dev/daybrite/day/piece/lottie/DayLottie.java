@@ -15,14 +15,22 @@ import dev.daybrite.day.bridge.DayBridge;
 public final class DayLottie {
     private DayLottie() {}
 
-    public static View makeLottie(String name, boolean looping, boolean autoplay) {
+    public static View makeLottie(String name, boolean looping, boolean autoplay, float speed) {
         LottieAnimationView view = new LottieAnimationView(DayBridge.ctx);
         // Lottie loads from src/main/assets by filename; the app bundles the JSON there.
         view.setAnimation(name.endsWith(".json") ? name : name + ".json");
         view.setRepeatCount(looping ? LottieDrawable.INFINITE : 0);
+        view.setSpeed(speed);
         if (autoplay) {
             view.playAnimation();
         }
         return view;
+    }
+
+    /** Update the playback rate of an existing view (from a `Speed` patch). */
+    public static void setSpeed(View view, float speed) {
+        if (view instanceof LottieAnimationView) {
+            ((LottieAnimationView) view).setSpeed(speed);
+        }
     }
 }

@@ -8,25 +8,24 @@
 use super::*;
 use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
-use day_spec::{NodeId, Proposal, Renderer, Size};
-use linkme::distributed_slice;
+use day_spec::NodeId;
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
 const LOTTIE_CLASS: &str = "dev/daybrite/day/piece/lottie/DayLottie";
 
-fn make(_backend: &mut Android, props: &dyn std::any::Any, _id: NodeId) -> AHandle {
-    let p = props.downcast_ref::<LottieProps>().unwrap();
+fn make(_backend: &mut Android, p: &LottieProps, _id: NodeId) -> AHandle {
     with_env(|env| {
         let name = env.new_string(&p.name).expect("name");
         let view = env
             .call_static_method(
                 LOTTIE_CLASS,
                 "makeLottie",
-                "(Ljava/lang/String;ZZ)Landroid/view/View;",
+                "(Ljava/lang/String;ZZF)Landroid/view/View;",
                 &[
                     JValue::Object(&name),
                     JValue::Bool(p.looping as u8),
                     JValue::Bool(p.autoplay as u8),
+                    JValue::Float(p.speed as f32),
                 ],
             )
             .expect("DayLottie.makeLottie")
@@ -36,19 +35,21 @@ fn make(_backend: &mut Android, props: &dyn std::any::Any, _id: NodeId) -> AHand
     })
 }
 
-fn update(_backend: &mut Android, _h: &AHandle, _patch: &dyn std::any::Any) {
-    // No patches: the animation is configured once at build (name/looping/autoplay).
+fn update(_backend: &mut Android, h: &AHandle, patch: &LottiePatch) {
+    match patch {
+        LottiePatch::Speed(s) => with_env(|env| {
+            let _ = env.call_static_method(
+                LOTTIE_CLASS,
+                "setSpeed",
+                "(Landroid/view/View;F)V",
+                &[JValue::Object(h.0.as_obj()), JValue::Float(*s as f32)],
+            );
+        }),
+    }
 }
 
-/// Fill the offered space (day-android's `measure: None` default returns the view's natural size).
-fn measure(_backend: &mut Android, _h: &AHandle, p: Proposal) -> Size {
-    Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
-}
-
-#[distributed_slice(day_android::RENDERERS)]
-static LOTTIE_ANDROID: fn() -> Renderer<Android> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+// name/looping/autoplay are set once at build; only `speed` patches. `fill_measure` gives the uniform
+// growing-leaf sizing (which day-android's `measure: None` default would otherwise collapse).
+day_pieces::renderer!(day_android::RENDERERS, Android,
+    kind: KIND, props: LottieProps, patch: LottiePatch, make: make, update: update,
+    measure: day_pieces::fill_measure);

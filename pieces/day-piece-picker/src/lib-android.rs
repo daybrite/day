@@ -10,8 +10,7 @@
 use super::*;
 use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
-use day_spec::{NodeId, Renderer};
-use linkme::distributed_slice;
+use day_spec::NodeId;
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
 const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
@@ -24,8 +23,7 @@ fn style_code(s: PickerStyle) -> i32 {
     }
 }
 
-fn make(_backend: &mut Android, props: &dyn std::any::Any, id: NodeId) -> AHandle {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
     let joined = p.options.join("\n");
     with_env(|env| {
         let s = env.new_string(&joined).expect("items");
@@ -48,8 +46,9 @@ fn make(_backend: &mut Android, props: &dyn std::any::Any, id: NodeId) -> AHandl
     })
 }
 
-fn update(_backend: &mut Android, h: &AHandle, patch: &dyn std::any::Any) {
-    if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
+fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
+    {
+        let PickerPatch::Selected(i) = patch;
         with_env(|env| {
             let _ = env.call_static_method(
                 PICKER_CLASS,
@@ -61,10 +60,6 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &dyn std::any::Any) {
     }
 }
 
-#[distributed_slice(day_android::RENDERERS)]
-static PICKER_ANDROID: fn() -> Renderer<Android> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: None,
-};
+day_pieces::renderer!(day_android::RENDERERS, Android,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update);

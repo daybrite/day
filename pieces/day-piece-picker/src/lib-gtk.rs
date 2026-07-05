@@ -9,9 +9,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use day_gtk::Gtk;
-use day_spec::{NodeId, Proposal, Renderer, Size};
+use day_spec::{NodeId, Proposal, Size};
 use gtk4::prelude::*;
-use linkme::distributed_slice;
 
 struct PickerState {
     dropdown: Option<gtk4::DropDown>,
@@ -44,8 +43,7 @@ fn make_menu(p: &PickerProps, id: NodeId, suppress: Rc<Cell<bool>>) -> gtk4::Dro
     dd
 }
 
-fn make(_backend: &mut Gtk, props: &dyn std::any::Any, id: NodeId) -> gtk4::Widget {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
     let suppress = Rc::new(Cell::new(false));
     let (root, state): (gtk4::Widget, PickerState) = match p.style {
         PickerStyle::Menu => {
@@ -134,10 +132,8 @@ fn make(_backend: &mut Gtk, props: &dyn std::any::Any, id: NodeId) -> gtk4::Widg
     root
 }
 
-fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &dyn std::any::Any) {
-    let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() else {
-        return;
-    };
+fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &PickerPatch) {
+    let PickerPatch::Selected(i) = patch;
     let i = *i;
     STATE.with(|m| {
         let m = m.borrow();
@@ -164,10 +160,6 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     Size::new((nat_w as f64).max(60.0), (nat_h as f64).max(22.0))
 }
 
-#[distributed_slice(day_gtk::RENDERERS)]
-static PICKER_GTK: fn() -> Renderer<Gtk> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update, measure: measure);

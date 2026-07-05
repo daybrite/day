@@ -9,9 +9,8 @@ use super::*;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
-use day_spec::{NodeId, Proposal, Renderer, Size};
+use day_spec::{NodeId, Proposal, Size};
 use day_winui::{WinHandle, WinUi};
-use linkme::distributed_slice;
 
 unsafe extern "C" {
     fn day_picker_winui_new(
@@ -45,8 +44,7 @@ fn style_code(s: PickerStyle) -> c_int {
     }
 }
 
-fn make(_backend: &mut WinUi, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
-    let p = props.downcast_ref::<PickerProps>().unwrap();
+fn make(_backend: &mut WinUi, p: &PickerProps, id: NodeId) -> WinHandle {
     let joined = CString::new(p.options.join("\n")).unwrap_or_default();
     WinHandle(unsafe {
         day_picker_winui_new(
@@ -59,8 +57,9 @@ fn make(_backend: &mut WinUi, props: &dyn std::any::Any, id: NodeId) -> WinHandl
     })
 }
 
-fn update(_backend: &mut WinUi, h: &WinHandle, patch: &dyn std::any::Any) {
-    if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
+fn update(_backend: &mut WinUi, h: &WinHandle, patch: &PickerPatch) {
+    {
+        let PickerPatch::Selected(i) = patch;
         unsafe { day_picker_winui_set_selected(h.0, *i as c_int) };
     }
 }
@@ -72,10 +71,6 @@ fn measure(_backend: &mut WinUi, h: &WinHandle, _p: Proposal) -> Size {
     Size::new(w.max(120.0), hh.max(32.0))
 }
 
-#[distributed_slice(day_winui::RENDERERS)]
-static PICKER_WINUI: fn() -> Renderer<WinUi> = || Renderer {
-    kind: KIND,
-    make,
-    update,
-    measure: Some(measure),
-};
+day_pieces::renderer!(day_winui::RENDERERS, WinUi,
+    kind: KIND, props: PickerProps, patch: PickerPatch,
+    make: make, update: update, measure: measure);
