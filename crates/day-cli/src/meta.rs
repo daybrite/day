@@ -70,6 +70,27 @@ pub struct Project {
     pub manifest: Manifest,
 }
 
+/// On Windows `std::fs::canonicalize` returns an extended-length `\\?\` (verbatim) path. That prefix
+/// flows into `CARGO_TARGET_DIR` (ops.rs), and the windows-gnu toolchain's MinGW linker
+/// (`ld`/`collect2`) can't parse `\\?\` object-file arguments — it drops the prefix and reports
+/// `cannot find \\symbols.o`, failing the link (hit on windows-gtk / windows-qt; MSVC's link.exe
+/// tolerates it, so winui was unaffected). De-verbatim the path so every subtool gets a plain
+/// absolute path — still absolute, so the xcodebuild-SYMROOT need in `find_project` holds. No-op off
+/// Windows, where canonicalize never adds a verbatim prefix.
+fn strip_verbatim(p: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(s) = p.to_str() {
+        // `\\?\UNC\server\share` → `\\server\share`; `\\?\D:\path` → `D:\path`.
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    p
+}
+
 /// Find the nearest ancestor directory containing day.yaml (from `start` or cwd).
 pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
     let mut dir = match start {
@@ -98,10 +119,39 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
                     .map(|cwd| cwd.join(&dir))
                     .unwrap_or_else(|_| dir.clone())
             });
-            return Ok(Project { root, manifest });
+            return Ok(Project {
+                root: strip_verbatim(root),
+                manifest,
+            });
         }
         if !dir.pop() {
             return Err("no day.yaml found in this directory or any ancestor".into());
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_verbatim_deverbatims_windows_paths() {
+        // Drive + UNC verbatim prefixes are removed so the MinGW linker can read the paths.
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"\\?\D:\a\day\day\apps\showcase")),
+            PathBuf::from(r"D:\a\day\day\apps\showcase")
+        );
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"\\?\UNC\server\share\proj")),
+            PathBuf::from(r"\\server\share\proj")
+        );
+        // A plain absolute path is already fine — leave it untouched.
+        assert_eq!(
+            strip_verbatim(PathBuf::from(r"D:\a\proj")),
+            PathBuf::from(r"D:\a\proj")
+        );
+        // canonicalize() really does hand back a verbatim path here; the result must not.
+        let canon = std::fs::canonicalize(".").unwrap();
+        assert!(!strip_verbatim(canon).to_string_lossy().starts_with(r"\\?\"));
     }
 }
