@@ -541,11 +541,28 @@ fn about_page() -> AnyPiece {
         image("day-logo.png").frame(96.0, 96.0),
         label(tr("app-title")).font(Font::Headline),
         label(tr("about-text")).id("about-text"),
+        // A HEADLESS capability crate (day-battery, docs/battery.md): app Rust calls
+        // `day_battery::status()` directly — no UI Piece — and shows the platform's native reading.
+        label(battery_line()).id("battery-line"),
     ))
     .spacing(12.0)
     .align(HAlign::Leading)
     .padding(16.0)
     .any()
+}
+
+/// Format the current battery status read via the headless `day-battery` crate.
+fn battery_line() -> String {
+    match day_battery::status() {
+        Some(b) => format!(
+            "Battery: {} · {:?}",
+            b.percent()
+                .map(|p| format!("{p}%"))
+                .unwrap_or_else(|| "?".into()),
+            b.state
+        ),
+        None => "Battery: no battery API on this platform".into(),
+    }
 }
 
 fn gauge(value: Signal<f64>) -> AnyPiece {

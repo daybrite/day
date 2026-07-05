@@ -22,6 +22,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 day = { workspace = true }
+# A HEADLESS capability crate (no UI Piece): app Rust code calls day_battery::status() directly.
+day-battery = { workspace = true }
 day-piece-combobox = { workspace = true }
 day-piece-picker = { workspace = true }
 day-piece-webview = { workspace = true }
