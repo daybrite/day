@@ -194,7 +194,7 @@ pub fn xcode_backend_build() -> i32 {
         .join(triple)
         .join(profile)
         .join(format!("lib{name}.a"));
-    let out_dir = built_products.join("Day");
+    let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
         eprintln!("day xcode-backend: cannot create {}", out_dir.display());
         return 4;

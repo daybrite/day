@@ -142,7 +142,7 @@ fn piece_meta<T: serde::de::DeserializeOwned>(pkg: &Package, toolkit: &str) -> O
     let table = pkg
         .metadata
         .as_ref()
-        .and_then(|m| m.get("Day"))
+        .and_then(|m| m.get("day")) // Cargo.toml `[package.metadata.day.*]` — lowercase key
         .and_then(|d| d.get(toolkit))?;
     match serde_json::from_value(table.clone()) {
         Ok(v) => Some(v),
