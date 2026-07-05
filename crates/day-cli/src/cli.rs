@@ -13,7 +13,7 @@ use crate::targets;
 #[command(
     name = "day",
     version,
-    about = "day — cross-platform apps in Rust with native toolkits"
+    about = "Day — cross-platform apps in Rust with native toolkits"
 )]
 struct Cli {
     /// Project directory (default: nearest ancestor with day.yaml)
@@ -28,7 +28,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Create a new day project
+    /// Create a new Day project
     Create {
         name: String,
         /// Comma-separated target list
@@ -278,7 +278,7 @@ fn print_result_json(command: &str, results: &[ops::BuildOutcome]) {
     );
 }
 
-/// The root of the day repo (for path deps in created projects; DAY_HOME overrides).
+/// The root of the Day repo (for path deps in created projects; DAY_HOME overrides).
 fn day_home() -> PathBuf {
     std::env::var_os("DAY_HOME")
         .map(PathBuf::from)
@@ -353,7 +353,7 @@ path = "src/main.rs"
 pub fn root() -> AnyPiece {
     let count = Signal::new(0i64);
     column((
-        label("Hello, day!").font(Font::Title),
+        label("Hello, Day!").font(Font::Title),
         row((
             button("−").action(move || count.update(|c| *c -= 1)).id("dec"),
             label(move || format!("{}", count.get())).id("count"),

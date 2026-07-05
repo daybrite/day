@@ -1,6 +1,6 @@
 # API style: argument clarity
 
-Rust has no named arguments, so day emulates their clarity where it pays and keeps
+Rust has no named arguments, so Day emulates their clarity where it pays and keeps
 SwiftUI-like terseness where it doesn't. The rule, in priority order:
 
 1. **No bare `bool` (or otherwise unreadable literal) in a public signature.**
@@ -32,7 +32,7 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
    with same-typed arguments: `Color::rgba(r, g, b, a)`, `Size::new(w, h)`,
    `.frame(w, h)`, rect `(x, y, w, h)`.
 
-Scope: the rule binds the **app-facing surface** (day-pieces, day umbrella, day-core's
+Scope: the rule binds the **app-facing surface** (day-pieces, Day umbrella, day-core's
 `BuildCx`/nav API). Engine seams (the `Toolkit` trait, `TreeOps`, FFI shims) prefer the
 same, but a documented `bool` parameter is acceptable where changing it would ripple
 through every backend for internal call sites only.

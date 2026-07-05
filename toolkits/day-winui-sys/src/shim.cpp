@@ -617,10 +617,15 @@ void* day_winui_label_new(const char* text) {
 void day_winui_label_set_text(void* h, const char* t) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.Text(hs(t));
 }
-void day_winui_label_set_font(void* h, double pt, int bold) {
+void day_winui_label_set_font(void* h, double pt, int weight, int italic) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
+        // FontSize scales with the OS text-scale-factor (accessibility "Text size"); WinUI applies it.
         tb.FontSize(pt);
-        tb.FontWeight(bold ? WUI::Text::FontWeights::SemiBold() : WUI::Text::FontWeights::Normal());
+        // `weight` is a numeric font weight (100–900); build a FontWeight directly.
+        winrt::Windows::UI::Text::FontWeight w;
+        w.Weight = static_cast<uint16_t>(weight > 0 ? weight : 400);
+        tb.FontWeight(w);
+        tb.FontStyle(italic ? WUI::Text::FontStyle::Italic : WUI::Text::FontStyle::Normal);
     }
 }
 

@@ -5,7 +5,7 @@
 > dayscript `a11y_audit` step verifies it in-process on the apple targets.
 
 Native-first: every interactive Piece is a real native control, so screen readers, switch access,
-and keyboard navigation work at the level the platform provides *before day adds anything*. day's
+and keyboard navigation work at the level the platform provides *before Day adds anything*. Day's
 job is to (a) not break it, (b) provide one uniform annotation API, (c) verify it landed.
 
 ## Authoring
@@ -33,8 +33,8 @@ handle-less layout node, so annotations placed after them wouldn't reach a nativ
 
 `Role`: `None`, `Button`, `Toggle`, `Slider`, `TextInput`, `Heading(u8)`, `Image`, `Meter`, `Group`.
 
-day only **applies** an *explicit* role (the canvas/custom cases — e.g. a `Meter` gauge). Native
-controls already report the right role, so day records their kind-default (`Role::for_kind`) as the
+Day only **applies** an *explicit* role (the canvas/custom cases — e.g. a `Meter` gauge). Native
+controls already report the right role, so Day records their kind-default (`Role::for_kind`) as the
 audit *expectation* but never overrides the widget. `resolved_role(kind)` = explicit role, else the
 kind default.
 
@@ -55,12 +55,12 @@ Honest reality (from §13's truth table): apple + Qt have first-class native a11
 
 ## Verification — `a11y_audit` (§14.2)
 
-The dayscript step `a11y_audit: { id? }` walks day's id'd nodes, reads each widget's **actual**
+The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's **actual**
 native a11y (`Toolkit::read_a11y`), and diffs identifier + label + value + explicit-role against
-day's stored expectation. Backends that can't read their native tree (`found=false`) skip. Apple
-targets implement `read_a11y` (NSAccessibility / UIAccessibility → day `Role`); it is required in
+Day's stored expectation. Backends that can't read their native tree (`found=false`) skip. Apple
+targets implement `read_a11y` (NSAccessibility / UIAccessibility → Day `Role`); it is required in
 the CI walkthrough on apple targets and passes there (the showcase gauge audits as
-role=Meter/AXLevelIndicator + label + value + id). Role is diffed only for **explicit** roles day
+role=Meter/AXLevelIndicator + label + value + id). Role is diffed only for **explicit** roles Day
 applied — native controls own their own roles, which vary per platform.
 
 ## Follow-ups

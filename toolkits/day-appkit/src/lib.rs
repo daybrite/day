@@ -1,8 +1,8 @@
 //! day-appkit — the macos-appkit backend (DESIGN.md §9). objc2, pure Rust, no shim.
 //!
-//! `Handle = Retained<NSView>`. Containers are flipped `NSView`s (top-left origin, so day's
+//! `Handle = Retained<NSView>`. Containers are flipped `NSView`s (top-left origin, so Day's
 //! frames apply directly and survive diffing). One custom target class (`DayTarget`) forwards
-//! target/action + text-delegate callbacks into the day event sink, node-id keyed (§8.3).
+//! target/action + text-delegate callbacks into the Day event sink, node-id keyed (§8.3).
 
 #![allow(unused_unsafe)]
 #![cfg(target_os = "macos")]
@@ -72,8 +72,8 @@ fn ptr_of(v: &NSView) -> usize {
     (v as *const NSView).cast::<()>() as usize
 }
 
-/// day `Role` → the `NSAccessibilityRole` constant to apply (§13). `None` for `Role::None` —
-/// day leaves native controls' own roles untouched and only applies explicit canvas/custom roles.
+/// Day `Role` → the `NSAccessibilityRole` constant to apply (§13). `None` for `Role::None` —
+/// Day leaves native controls' own roles untouched and only applies explicit canvas/custom roles.
 fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibilityRole> {
     use day_spec::Role;
     use objc2_app_kit::{
@@ -96,7 +96,7 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
     }
 }
 
-/// Native `AXRole` string → day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+/// Native `AXRole` string → Day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
 fn day_role_from_ns(ax: &str) -> day_spec::Role {
     use day_spec::Role;
     match ax {
@@ -192,7 +192,7 @@ impl DayFlipped {
 }
 
 // ---------------------------------------------------------------------------
-// DayCanvas — a flipped view replaying the day display list in drawRect (§11)
+// DayCanvas — a flipped view replaying the Day display list in drawRect (§11)
 // ---------------------------------------------------------------------------
 
 thread_local! {
@@ -295,8 +295,8 @@ impl DayGesture {
 
 // ---------------------------------------------------------------------------
 // Navigation (docs/navigation.md): NSSplitView host, sidebar + detail panes.
-// Page FRAMES are pane-owned (autoresized); day lays content inside the size each
-// page reports from setFrameSize:. day's set_frame on pages is skipped.
+// Page FRAMES are pane-owned (autoresized); Day lays content inside the size each
+// page reports from setFrameSize:. Day's set_frame on pages is skipped.
 // ---------------------------------------------------------------------------
 
 struct NavState {
@@ -575,7 +575,7 @@ define_class!(
                     unsafe { v.setIdentifier(Some(&ident)) };
                     v
                 });
-            // day builds row content the first time it sees this cell, and rebinds (slot-write)
+            // Day builds row content the first time it sees this cell, and rebinds (slot-write)
             // when the cell is recycled. NSTableView calls this outside reloadData's stack, so the
             // re-entry into with_tree is safe.
             if let Some(source) = self.ivars().source.borrow().as_ref() {
@@ -839,15 +839,77 @@ fn nscolor(c: day_spec::Color) -> Retained<NSColor> {
     unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
 }
 
-fn nsfont(f: Font) -> Retained<NSFont> {
+/// The macOS native semantic text style for a logical [`Font`] (`None` for a custom size).
+/// `NSFont.preferredFont(forTextStyle:)` gives the OS's own typography, tracking the system settings.
+fn ns_text_style(f: Font) -> Option<&'static objc2_app_kit::NSFontTextStyle> {
+    use objc2_app_kit::*;
     unsafe {
-        match f {
-            Font::Title => NSFont::boldSystemFontOfSize(24.0),
-            Font::Headline => NSFont::boldSystemFontOfSize(15.0),
-            Font::Body => NSFont::systemFontOfSize(NSFont::systemFontSize()),
-            Font::Caption => NSFont::systemFontOfSize(11.0),
-            Font::System(pt) => NSFont::systemFontOfSize(pt),
+        Some(match f {
+            Font::LargeTitle => NSFontTextStyleLargeTitle,
+            Font::Title => NSFontTextStyleTitle1,
+            Font::Title2 => NSFontTextStyleTitle2,
+            Font::Title3 => NSFontTextStyleTitle3,
+            Font::Headline => NSFontTextStyleHeadline,
+            Font::Subheadline => NSFontTextStyleSubheadline,
+            Font::Body => NSFontTextStyleBody,
+            Font::Callout => NSFontTextStyleCallout,
+            Font::Footnote => NSFontTextStyleFootnote,
+            Font::Caption => NSFontTextStyleCaption1,
+            Font::Caption2 => NSFontTextStyleCaption2,
+            Font::System(_) => return None,
+        })
+    }
+}
+
+fn ns_weight(w: day_spec::FontWeight) -> objc2_app_kit::NSFontWeight {
+    use day_spec::FontWeight as W;
+    use objc2_app_kit::*;
+    unsafe {
+        match w {
+            W::UltraLight => NSFontWeightUltraLight,
+            W::Thin => NSFontWeightThin,
+            W::Light => NSFontWeightLight,
+            W::Regular => NSFontWeightRegular,
+            W::Medium => NSFontWeightMedium,
+            W::Semibold => NSFontWeightSemibold,
+            W::Bold => NSFontWeightBold,
+            W::Heavy => NSFontWeightHeavy,
+            W::Black => NSFontWeightBlack,
         }
+    }
+}
+
+/// Resolve a [`FontSpec`] to a native `NSFont`: a semantic style via `preferredFont(forTextStyle:)`
+/// (or a custom system size), then an optional weight override (at the same size) and italic trait.
+fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
+    use objc2_app_kit::*;
+    let base: Retained<NSFont> = match spec.style {
+        Font::System(pt) => {
+            let w = spec
+                .weight
+                .map(ns_weight)
+                .unwrap_or(unsafe { NSFontWeightRegular });
+            unsafe { NSFont::systemFontOfSize_weight(pt, w) }
+        }
+        style => {
+            let ts = ns_text_style(style).expect("semantic style");
+            let opts = objc2_foundation::NSDictionary::new();
+            let f = unsafe { NSFont::preferredFontForTextStyle_options(ts, &opts) };
+            match spec.weight {
+                // A weight override keeps the style's (system-resolved) size but re-picks the weight.
+                Some(w) => unsafe { NSFont::systemFontOfSize_weight(f.pointSize(), ns_weight(w)) },
+                None => f,
+            }
+        }
+    };
+    if spec.italic {
+        let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
+        unsafe {
+            NSFontManager::sharedFontManager(mtm)
+                .convertFont_toHaveTrait(&base, NSFontTraitMask::ItalicFontMask)
+        }
+    } else {
+        base
     }
 }
 
@@ -1023,7 +1085,7 @@ impl Toolkit for AppKit {
                 unsafe {
                     split.addArrangedSubview(&effect);
                     split.addArrangedSubview(&detail_wrap);
-                    // (Holding priorities are a no-op when day drives the split's frame
+                    // (Holding priorities are a no-op when Day drives the split's frame
                     // directly — the sidebar-holds-width behaviour lives in `set_frame`,
                     // which restores the divider position after each window resize.)
                     split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
@@ -1318,7 +1380,7 @@ impl Toolkit for AppKit {
                                 }
                             }
                             NavPatch::Popped => {
-                                // Hide the outgoing top; reveal its predecessor (day
+                                // Hide the outgoing top; reveal its predecessor (Day
                                 // removes the popped page right after this patch).
                                 let n = state.pages.len();
                                 if let Some(top) = state.pages.last() {
@@ -1431,7 +1493,7 @@ impl Toolkit for AppKit {
             return;
         }
         // Nav host: index 0 = sidebar page, the rest are detail (stack) pages. Pages fill
-        // their pane via autoresizing — the pane, not day, owns their frames.
+        // their pane via autoresizing — the pane, not Day, owns their frames.
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
@@ -1552,7 +1614,7 @@ impl Toolkit for AppKit {
         if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
             return;
         }
-        // Every day parent is flipped (DayFlipped containers, flipped scroll document views),
+        // Every Day parent is flipped (DayFlipped containers, flipped scroll document views),
         // so top-left frames apply directly.
         let r = NSRect::new(
             NSPoint::new(frame.origin.x, frame.origin.y),
@@ -1560,7 +1622,7 @@ impl Toolkit for AppKit {
         );
         // Nav host: the sidebar should HOLD its width when the window resizes, letting the
         // detail pane absorb the change (the standard Finder/Mail behavior). NSSplitView's
-        // holding priorities don't take effect when day drives the split's frame directly, so
+        // holding priorities don't take effect when Day drives the split's frame directly, so
         // we capture the current sidebar width, resize, then restore the divider to it.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
             let (first, is_split) = NAV_STATE.with(|m| {
@@ -1644,7 +1706,7 @@ impl Toolkit for AppKit {
     }
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
-        // A recycling NSTableView cell view — day builds/rebinds its row content in place.
+        // A recycling NSTableView cell view — Day builds/rebinds its row content in place.
         let ptr = raw as *mut NSView;
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
@@ -1700,7 +1762,7 @@ impl Toolkit for AppKit {
                 h.setAccessibilityValue(Some(ns.as_ref() as &objc2::runtime::AnyObject));
             }
             // Only apply an EXPLICIT role (canvas/custom pieces, e.g. a Meter): native controls
-            // already report the right role, so day records but doesn't override theirs (§13).
+            // already report the right role, so Day records but doesn't override theirs (§13).
             if let Some(role) = ns_role(a11y.role) {
                 h.setAccessibilityRole(Some(role));
             }

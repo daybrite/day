@@ -40,7 +40,7 @@ unsafe extern "C" {
     // leaves
     pub fn day_winui_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_winui_label_set_text(w: *mut c_void, text: *const c_char);
-    pub fn day_winui_label_set_font(w: *mut c_void, pt: c_double, bold: c_int);
+    pub fn day_winui_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
 
     pub fn day_winui_button_new(
         title: *const c_char,

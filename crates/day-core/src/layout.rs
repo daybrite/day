@@ -457,7 +457,7 @@ impl Layout for ScrollLayout {
 }
 
 /// Navigation host (docs/navigation.md): page FRAMES are native-owned (splitter panes,
-/// nav-controller views), so `set_frame` on pages is a toolkit no-op; day lays each page's
+/// nav-controller views), so `set_frame` on pages is a toolkit no-op; Day lays each page's
 /// CONTENT within the size the toolkit last reported via `Event::FrameChanged`, falling
 /// back to a sidebar/detail split (or the full host) of the host bounds.
 pub struct NavLayout {

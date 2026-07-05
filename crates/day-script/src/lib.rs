@@ -1,7 +1,7 @@
 //! day-script — the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
 //! server starts ONLY when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
 //! (never otherwise), listens on 127.0.0.1, and accepts only the step catalog. Steps execute
-//! as synthesized day events on the main thread between flushes — deterministic and
+//! as synthesized Day events on the main thread between flushes — deterministic and
 //! toolkit-uniform. Locator steps get an implicit bounded wait (default 5s).
 
 use std::collections::BTreeMap;
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 
 // ---------------------------------------------------------------------------
-// Wire protocol (shared with the day CLI runner)
+// Wire protocol (shared with the Day CLI runner)
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -100,7 +100,7 @@ pub enum Step {
         #[serde(default)]
         dismiss: bool,
     },
-    /// Diff the NATIVE accessibility tree against day's expectations (role/label/value/identifier)
+    /// Diff the NATIVE accessibility tree against Day's expectations (role/label/value/identifier)
     /// for every id'd node, or just `id` (§13, §14.2). Backends that can't read their native tree
     /// (`found = false`) are skipped; role is only compared when both sides map to a known `Role`.
     A11yAudit {
@@ -218,7 +218,7 @@ fn run_on_main(step: Step) -> Reply {
 }
 
 // ---------------------------------------------------------------------------
-// Step execution (main thread; events go through the normal day path)
+// Step execution (main thread; events go through the normal Day path)
 // ---------------------------------------------------------------------------
 
 fn find(id: &str) -> Result<day_core::RNode, Reply> {
@@ -466,7 +466,7 @@ fn exec(step: Step) -> Reply {
                         ));
                     }
                     // Role: audit only EXPLICIT (user-set) roles — the canvas/custom cases where
-                    // day actually applies a role. Native controls own their own roles (day's job
+                    // Day actually applies a role. Native controls own their own roles (Day's job
                     // is to not break them, §13), and those vary per platform, so we don't diff
                     // the kind-default. Compare only when the native role also maps to a known Role.
                     if expected.role != day_spec::Role::None

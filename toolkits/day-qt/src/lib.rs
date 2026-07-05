@@ -59,7 +59,7 @@ fn cstr(s: &str) -> CString {
 
 // ---------------------------------------------------------------------------
 // Recycling list (docs/list.md, §10). Qt's item views are paint-based, so a widget list can't
-// recycle natively — day emulates it (DP-19): a QScrollArea whose content holds one absolutely
+// recycle natively — Day emulates it (DP-19): a QScrollArea whose content holds one absolutely
 // positioned cell widget per row, each filled through the same `bind_row` seam. Cells are reused
 // across reloads (append-only), so day-core's cell map never dangles.
 // ---------------------------------------------------------------------------
@@ -219,18 +219,51 @@ fn content_of(parent: &QtHandle) -> *mut c_void {
     if inner.is_null() { parent.0 } else { inner }
 }
 
-fn font_params(f: Font) -> (f64, c_int) {
+/// Point size + the style's inherent weight for a logical [`Font`] (Qt has no semantic text styles;
+/// we approximate the platform typographic scale, matching Apple's text-style sizes for consistency).
+fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
+    use day_spec::FontWeight::*;
     match f {
-        Font::Title => (22.0, 1),
-        Font::Headline => (14.0, 1),
-        Font::Body => (13.0, 0),
-        Font::Caption => (11.0, 0),
-        Font::System(pt) => (pt, 0),
+        Font::LargeTitle => (26.0, Regular),
+        Font::Title => (22.0, Regular),
+        Font::Title2 => (17.0, Regular),
+        Font::Title3 => (15.0, Regular),
+        Font::Headline => (13.0, Semibold),
+        Font::Subheadline => (11.0, Regular),
+        Font::Body => (13.0, Regular),
+        Font::Callout => (12.0, Regular),
+        Font::Footnote => (10.0, Regular),
+        Font::Caption => (10.0, Regular),
+        Font::Caption2 => (10.0, Regular),
+        Font::System(pt) => (pt, Regular),
     }
 }
 
+/// Day weight → QFont::Weight numeric value (Thin=100 … Black=900).
+fn qt_weight(w: day_spec::FontWeight) -> c_int {
+    use day_spec::FontWeight as W;
+    match w {
+        W::Thin => 100,
+        W::UltraLight => 200,
+        W::Light => 300,
+        W::Regular => 400,
+        W::Medium => 500,
+        W::Semibold => 600,
+        W::Bold => 700,
+        W::Heavy => 800,
+        W::Black => 900,
+    }
+}
+
+/// (point size, QFont weight, italic flag) for the C++ shim.
+fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int) {
+    let (pt, inherent) = qt_style(spec.style);
+    let weight = qt_weight(spec.weight.unwrap_or(inherent));
+    (pt, weight, spec.italic as c_int)
+}
+
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md): QSplitter host, sidebar + detail panes. day sizes
+// Navigation (docs/navigation.md): QSplitter host, sidebar + detail panes. Day sizes
 // page content from the pane sizes reported here via FrameChanged.
 // ---------------------------------------------------------------------------
 
@@ -457,8 +490,8 @@ impl Toolkit for Qt {
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
-                    let (pt, bold) = font_params(p.font);
-                    ffi::day_qt_label_set_font(w, pt, bold);
+                    let (pt, weight, italic) = font_params(p.font);
+                    ffi::day_qt_label_set_font(w, pt, weight, italic);
                     QtHandle(w)
                 }
                 kinds::BUTTON => {
@@ -612,8 +645,8 @@ impl Toolkit for Qt {
                                 ffi::day_qt_label_set_text(h.0, cstr(t).as_ptr())
                             }
                             LabelPatch::Font(f) => {
-                                let (pt, bold) = font_params(*f);
-                                ffi::day_qt_label_set_font(h.0, pt, bold);
+                                let (pt, weight, italic) = font_params(*f);
+                                ffi::day_qt_label_set_font(h.0, pt, weight, italic);
                             }
                             LabelPatch::Color(_) => {}
                         }
@@ -725,7 +758,7 @@ impl Toolkit for Qt {
 
     fn insert(&mut self, parent: &QtHandle, child: &QtHandle, index: usize) {
         // Tabs host: add the page to the QTabWidget with its label. The tab widget owns the
-        // page's geometry; day sizes the page content from tabs_sync's FrameChanged reports.
+        // page's geometry; Day sizes the page content from tabs_sync's FrameChanged reports.
         let tabs_handled = TABS_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&(parent.0 as usize)) else {
@@ -834,7 +867,7 @@ impl Toolkit for Qt {
     }
 
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-        // Tab pages are laid out by the QTabWidget, not by day; skip them.
+        // Tab pages are laid out by the QTabWidget, not by Day; skip them.
         if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             return;
         }
@@ -939,7 +972,7 @@ impl Toolkit for Qt {
     }
 
     fn adopt(&mut self, raw: day_spec::RawHandle) -> QtHandle {
-        // A recycling list cell (a plain QWidget) — day fills/rebinds its row content in place.
+        // A recycling list cell (a plain QWidget) — Day fills/rebinds its row content in place.
         QtHandle(raw)
     }
 
@@ -956,7 +989,7 @@ impl Toolkit for Qt {
             if let Some(hint) = &a11y.hint {
                 ffi::day_qt_set_accessible_description(h.0, cstr(hint).as_ptr());
             }
-            // Qt derives role/value from the widget type (QAccessibleInterface); day sets the
+            // Qt derives role/value from the widget type (QAccessibleInterface); Day sets the
             // text fields it can. `hidden`/canvas roles need a QAccessible subclass (follow-up).
         }
     }

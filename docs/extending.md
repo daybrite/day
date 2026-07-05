@@ -1,9 +1,9 @@
 # Standalone pieces (front-end **and** backend, zero core edits)
 
-A **piece** is a reusable day widget. day ships built-in pieces (`button`, `slider`, `list`, …), but
+A **piece** is a reusable Day widget. Day ships built-in pieces (`button`, `slider`, `list`, …), but
 anyone can publish a piece as an independent crate that adds **both** its cross-platform front-end
 (Rust) **and** its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …) —
-with **no edits to any core day crate**. `day-piece-picker` is the reference implementation.
+with **no edits to any core Day crate**. `day-piece-picker` is the reference implementation.
 
 The whole extensibility story rests on two mechanisms:
 
@@ -38,7 +38,7 @@ realize payload; a sparse `Patch` enum carries changes.
 ## 2. Per-backend renderers — the `renderer!` macro
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice — the same
-slice the built-ins use, so **no day edit is needed**. Write **typed** `make`/`update` (no `&dyn Any`
+slice the built-ins use, so **no Day edit is needed**. Write **typed** `make`/`update` (no `&dyn Any`
 downcast) and one macro line; `day_pieces::renderer!` expands to the `linkme` registration + the props/
 patch downcast:
 
@@ -69,7 +69,7 @@ text)` (kind 12 = the open Custom channel). `day-piece-webview` reports its URL 
 
 ## 3. Native backend assets (the interesting part)
 
-A piece often needs native code the Rust FFI alone can't express. day gives each toolkit a **local**
+A piece often needs native code the Rust FFI alone can't express. Day gives each toolkit a **local**
 extension path so it lives in the piece crate:
 
 ### C++ shims — Qt & WinUI (`build.rs`)

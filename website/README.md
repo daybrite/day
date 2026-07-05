@@ -1,6 +1,6 @@
-# day website
+# Day website
 
-The marketing + documentation site for **day**, built with [Astro](https://astro.build). Deployed
+The marketing + documentation site for **Day**, built with [Astro](https://astro.build). Deployed
 to GitHub Pages at <https://daybrite.dev>.
 
 ## Local development

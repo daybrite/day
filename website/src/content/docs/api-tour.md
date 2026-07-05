@@ -4,7 +4,7 @@ description: A guided tour of Pieces, signals, layout, inputs, navigation, local
 order: 3
 ---
 
-Everything below is real day API — the snippets are lifted from the showcase app that produces the
+Everything below is real Day API — the snippets are lifted from the showcase app that produces the
 [gallery](../gallery). Pull `use day::prelude::*;` in and you have all of it.
 
 ## A first app
@@ -107,7 +107,7 @@ each row keeps its own state across updates.
 ## Progress and canvas
 
 `progress` takes a fraction (a value or a reactive closure); `spinner` is indeterminate. `canvas`
-hands you a native 2D drawing surface — day never rasterizes it itself.
+hands you a native 2D drawing surface — Day never rasterizes it itself.
 
 ```rust
 progress(move || volume.get() / 100.0);   // determinate, tracks the slider live
@@ -125,7 +125,7 @@ canvas(move |d, size| {
 
 ## Navigation
 
-day models navigation as a *projection of an app-owned signal* — you own the state, the native
+Day models navigation as a *projection of an app-owned signal* — you own the state, the native
 container is reconciled to it. Two primitives cover the field:
 
 **`selector`** — a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
@@ -142,7 +142,7 @@ selector(section)
     .item("settings", "Settings", settings_page)
 ```
 
-**`stack`** — a genuine push/pop stack bound to a `Signal<Vec<String>>` *path*. day reconciles the
+**`stack`** — a genuine push/pop stack bound to a `Signal<Vec<String>>` *path*. Day reconciles the
 native stack (`UINavigationController`, `AdwNavigationView`, the Android back stack) to the path.
 
 ```rust
@@ -202,7 +202,7 @@ let flavor  = Signal::new(Some(0usize));
 combo_box(flavors, flavor).id("flavor-combo")
 ```
 
-Day Pieces can ship as ordinary Rust crates, and — across day's small stable C ABI (**dayffi**) —
+Day Pieces can ship as ordinary Rust crates, and — across Day's small stable C ABI (**dayffi**) —
 in other languages, wrapping a real native widget on each toolkit.
 
 Next: the [CLI & projects](./cli) that build, launch, and script all of this.

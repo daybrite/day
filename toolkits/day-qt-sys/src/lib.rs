@@ -1,5 +1,5 @@
 //! day-qt-sys — raw `extern "C"` declarations for the Qt 6 shim compiled by build.rs.
-//! Handles are opaque `QWidget*`; ownership stays with Qt's parent/child tree (day's release
+//! Handles are opaque `QWidget*`; ownership stays with Qt's parent/child tree (Day's release
 //! calls `day_qt_delete` = deleteLater, per §4.3's deferred-destruction allowance).
 
 use std::os::raw::{c_char, c_double, c_int, c_void};
@@ -14,7 +14,7 @@ unsafe extern "C" {
 
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
-    pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, bold: c_int);
+    pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
     pub fn day_qt_label_height_for_width(w: *mut c_void, width: c_int) -> c_int;
 
     pub fn day_qt_button_new(title: *const c_char, id: u64, cb: extern "C" fn(u64)) -> *mut c_void;

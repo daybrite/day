@@ -29,8 +29,8 @@ widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(Pick
 | **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` |
 
 The **Qt and WinUI renderers each carry their OWN C++ shim** inside this crate (`src/lib-qt-shim.cpp`,
-`src/lib-winui-shim.cpp`), compiled by the crate's `build.rs` — no edits to day's toolkit crates. The WinUI
-shim boxes its native XAML element into a day handle through the **`day_winui_box` / `day_winui_unbox`
+`src/lib-winui-shim.cpp`), compiled by the crate's `build.rs` — no edits to Day's toolkit crates. The WinUI
+shim boxes its native XAML element into a Day handle through the **`day_winui_box` / `day_winui_unbox`
 seam** that `day-winui-sys` exports (so a piece never has to touch day-winui's private handle wrapper —
 the same way the Qt shim's handle is just a raw `QWidget*`). Android carries its OWN Java factory
 (`android/java/dev/daybrite/day/piece/picker/DayPicker.java`), folded into the app's Gradle build automatically

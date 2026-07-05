@@ -2,7 +2,7 @@
 //! (`task`) plus the pending-request registry that routes a `present(spec).await` through
 //! the tree to the backend and its `Event::PresentResult` answer back to the future.
 //!
-//! Everything is thread-local and `!Send` — day has one UI thread. The executor is std-only
+//! Everything is thread-local and `!Send` — Day has one UI thread. The executor is std-only
 //! (no async runtime): tasks are boxed futures polled on the main loop; a presentation
 //! future parks a `Waker` that re-polls its task through `day_reactive::on_main`.
 
@@ -41,7 +41,7 @@ struct PendingShared {
 // Executor
 // ---------------------------------------------------------------------------
 
-/// Spawn an async flow onto day's main-loop executor. This is the opt-in seam for actions
+/// Spawn an async flow onto Day's main-loop executor. This is the opt-in seam for actions
 /// that open modals or pickers: `button.action(|| day::task(async move { … .await … }))`.
 pub fn task(fut: impl Future<Output = ()> + 'static) {
     let id = NEXT_TASK.with(|c| {

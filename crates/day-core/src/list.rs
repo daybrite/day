@@ -1,5 +1,5 @@
 //! Recycling-list driver (docs/list.md, §10). The native list host owns scrolling + cell reuse;
-//! day owns row *content*. day-core injects a [`day_spec::ListSource`] into the backend; when the
+//! Day owns row *content*. day-core injects a [`day_spec::ListSource`] into the backend; when the
 //! native data-source pulls a cell, `bind_row` builds it once (per physical cell) and thereafter
 //! *rebinds* it — one slot-write — as the cell recycles.
 //!

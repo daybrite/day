@@ -194,7 +194,7 @@ pub fn xcode_backend_build() -> i32 {
         .join(triple)
         .join(profile)
         .join(format!("lib{name}.a"));
-    let out_dir = built_products.join("day");
+    let out_dir = built_products.join("Day");
     if std::fs::create_dir_all(&out_dir).is_err() {
         eprintln!("day xcode-backend: cannot create {}", out_dir.display());
         return 4;
@@ -469,7 +469,7 @@ pub fn build_android(
     build_android_so(project, profile, &jni_out)?;
 
     // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
-    //    for the Gradle build to pick up — zero edits to day for a piece to ship its backend.
+    //    for the Gradle build to pick up — zero edits to Day for a piece to ship its backend.
     crate::pieces::write_android_manifest(project)?;
 
     // 3) Gradle assemble.
@@ -558,7 +558,7 @@ pub fn launch_android(
     );
     run_logged(&mut cmd, "am start")?;
     if spec.attached {
-        // Stream the app's stdout/stderr (redirected into logcat under tag `day` by
+        // Stream the app's stdout/stderr (redirected into logcat under tag `Day` by
         // day-android). `-v tag` prefixes each line with `<prio>/day:`; we map the
         // priority to a stream (I→stdout/blue, E→stderr/yellow) and re-prefix.
         let id = app_id.clone();

@@ -3,9 +3,9 @@
 Alerts, confirmations, action sheets, text prompts (and later native pickers) are
 *imperative request→response* interactions: an action opens one and needs the answer
 back. SwiftUI is forced to model this as a detached binding
-(`showAlert = true` … `.alert($showAlert)`) because `body` re-runs constantly. day
+(`showAlert = true` … `.alert($showAlert)`) because `body` re-runs constantly. Day
 doesn't have that constraint — a `button().action(|| …)` is a real closure on the
-persistent main thread — so day co-locates the request and its response with
+persistent main thread — so Day co-locates the request and its response with
 **async/await**:
 
 ```rust

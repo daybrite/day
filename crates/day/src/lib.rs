@@ -1,4 +1,4 @@
-//! day — the umbrella crate apps depend on. One backend feature per binary (§3.2).
+//! Day — the umbrella crate apps depend on. One backend feature per binary (§3.2).
 
 #[cfg(any(
     all(feature = "appkit", feature = "gtk"),

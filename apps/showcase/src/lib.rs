@@ -1,4 +1,4 @@
-//! The day showcase (DESIGN.md Appendix A, staged): every implemented piece behind a
+//! The Day showcase (DESIGN.md Appendix A, staged): every implemented piece behind a
 //! native navigation host (docs/navigation.md) — stack presentation on mobile, sidebar +
 //! detail split on desktop. Three destinations: controls, gauge, about.
 
@@ -28,6 +28,7 @@ pub fn root() -> AnyPiece {
         .title(tr("app-title"))
         .header(sidebar_header)
         .item("controls", tr("nav-controls"), controls_page)
+        .item("text", tr("nav-text"), text_page)
         .item("gauge", tr("nav-gauge"), gauge_page)
         .item("shapes", tr("nav-shapes"), shapes_page)
         .item("pickers", tr("nav-pickers"), pickers_page)
@@ -40,6 +41,112 @@ pub fn root() -> AnyPiece {
     #[cfg(any(target_os = "ios", target_os = "android"))]
     let nav = nav.item("lottie", tr("nav-lottie"), lottie_page);
     nav.item("about", tr("nav-about"), about_page).id("nav")
+}
+
+/// Typography playground: every semantic text style (mapped to the platform's native styles + Dynamic
+/// Type / font-scale accessibility sizing), font weights, bold/italic, color, and accessibility-scaled
+/// custom sizes. See docs/text.md.
+fn text_page() -> AnyPiece {
+    // A style name rendered IN its own style — a self-documenting type specimen.
+    fn specimen(name: &'static str, f: Font) -> AnyPiece {
+        label(name).font(f).id_keyed("text-style", name).any()
+    }
+    // Every semantic style (largest → smallest), each rendered in its own style.
+    let styles = column((
+        label(tr("text-styles-header")).font(Font::Headline),
+        specimen("Large Title", Font::LargeTitle),
+        specimen("Title", Font::Title),
+        specimen("Title 2", Font::Title2),
+        specimen("Title 3", Font::Title3),
+        specimen("Headline", Font::Headline),
+        specimen("Subheadline", Font::Subheadline),
+        specimen("Body", Font::Body),
+        specimen("Callout", Font::Callout),
+        specimen("Footnote", Font::Footnote),
+        specimen("Caption", Font::Caption),
+        specimen("Caption 2", Font::Caption2),
+    ))
+    .spacing(6.0)
+    .align(HAlign::Leading);
+    // Font weights on a body-size line.
+    let weights = column((
+        label(tr("text-weights-header")).font(Font::Headline),
+        label("Ultra Light")
+            .weight(FontWeight::UltraLight)
+            .id("text-w-ultralight"),
+        label("Light").weight(FontWeight::Light),
+        label("Regular").weight(FontWeight::Regular),
+        label("Medium").weight(FontWeight::Medium),
+        label("Semibold").weight(FontWeight::Semibold),
+        label("Bold").weight(FontWeight::Bold).id("text-w-bold"),
+        label("Heavy").weight(FontWeight::Heavy),
+        label("Black").weight(FontWeight::Black),
+    ))
+    .spacing(4.0)
+    .align(HAlign::Leading);
+    // Bold / italic / both, and everything-at-once.
+    let styling = column((
+        label(tr("text-styling-header")).font(Font::Headline),
+        label("Bold text").bold().id("text-bold"),
+        label("Italic text").italic().id("text-italic"),
+        label("Bold italic").bold().italic().id("text-bolditalic"),
+        label("Emphasis")
+            .font(Font::Title2)
+            .weight(FontWeight::Heavy)
+            .italic()
+            .color(Color::hex(0x8E44AD))
+            .id("text-emphasis"),
+    ))
+    .spacing(4.0)
+    .align(HAlign::Leading);
+    // Color.
+    let colors = column((
+        label(tr("text-colors-header")).font(Font::Headline),
+        row((
+            label("Red").color(Color::hex(0xE74C3C)),
+            label("Green").color(Color::hex(0x27AE60)),
+            label("Blue").color(Color::hex(0x2F6FDE)),
+            label("Orange").color(Color::hex(0xE67E22)),
+        ))
+        .spacing(12.0),
+    ))
+    .spacing(4.0)
+    .align(HAlign::Leading);
+    // Custom sizes — Font::System(pt), still scaled by the platform accessibility text size.
+    let custom = column((
+        label(tr("text-custom-header")).font(Font::Headline),
+        label(tr("text-custom-note")).font(Font::Footnote),
+        label("13 pt").font(Font::System(13.0)),
+        label("20 pt").font(Font::System(20.0)),
+        label("28 pt").font(Font::System(28.0)).id("text-custom-28"),
+        label("40 pt")
+            .font(Font::System(40.0))
+            .weight(FontWeight::Bold),
+    ))
+    .spacing(4.0)
+    .align(HAlign::Leading);
+
+    scroll(
+        column((
+            label(tr("nav-text"))
+                .font(Font::LargeTitle)
+                .id("text-title"),
+            label(tr("text-caption")).font(Font::Subheadline),
+            styles,
+            divider(),
+            weights,
+            divider(),
+            styling,
+            divider(),
+            colors,
+            divider(),
+            custom,
+        ))
+        .spacing(12.0)
+        .align(HAlign::Leading)
+        .padding(16.0),
+    )
+    .any()
 }
 
 /// A native Lottie animation (day-piece-lottie): a LottieAnimationView driven by airbnb's lottie-ios
@@ -514,7 +621,7 @@ fn tabs_page() -> AnyPiece {
 }
 
 /// Genuine push/pop navigation (docs/navigation.md): `stack` bound to a `Signal<Vec<String>>`
-/// path. Pushing a detail appends to the path; day reconciles the native UINavigationController
+/// path. Pushing a detail appends to the path; Day reconciles the native UINavigationController
 /// / AdwNavigationView / back-stack; the native back button writes the pop back into the path.
 fn stack_page() -> AnyPiece {
     fn push(path: Signal<Vec<String>>) {
@@ -620,7 +727,7 @@ fn gauge(value: Signal<f64>) -> AnyPiece {
             },
         );
     })
-    // Accessibility (§13): a canvas has no inherent role, so day applies `Meter` + a spoken value
+    // Accessibility (§13): a canvas has no inherent role, so Day applies `Meter` + a spoken value
     // and label. `.id`/`.a11y` go on the canvas leaf (before `.frame`, a handle-less layout node),
     // so they reach the native widget. Value is a build-time snapshot (reactive a11y is a follow-up).
     .a11y(move |a| {

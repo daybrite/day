@@ -2,7 +2,7 @@
 
 `list` drives the platform's **recycling** list — `NSTableView` / `UITableView` /
 `RecyclerView` / `GtkListView` / `QListView` — so large collections get native
-virtualization, scroll physics, and platform behaviours. It is the one place day's
+virtualization, scroll physics, and platform behaviours. It is the one place Day's
 "build once, bind forever" model meets cell reuse, and the resolution is exactly that model:
 **a row subtree is built once per physical cell and *rebound* — a single slot-write into its
 `ItemSlot` — every time that cell is recycled for a new item.**
@@ -32,10 +32,10 @@ slot — never move the item in — so a surviving cell can be fed a new `&T` wi
 Builder options: `.row_height(RowHeight)`, `.on_select(Fn(K))`, and (reserved) `.row_kind(Fn(&T) -> RowKind)`
 mapping to native reuse pools.
 
-## The seam — `ListSource` (native → day, synchronous)
+## The seam — `ListSource` (native → Day, synchronous)
 
 Recycling lists *pull*: the native data-source asks, synchronously, "how many rows?" and "fill
-this cell for row N". day's normal native→day path is enqueue-only (`EventSink`), so `list` adds
+this cell for row N". Day's normal native→Day path is enqueue-only (`EventSink`), so `list` adds
 a second, synchronous seam — injected into the backend the same way the event sink is:
 
 ```rust

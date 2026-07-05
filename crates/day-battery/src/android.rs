@@ -2,7 +2,7 @@
 // staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
 // like the UI pieces, but registering NO renderer. The Java uses day-android's cached Context
 // (DayBridge.ctx); Rust calls it through day-android's re-exported `jni`. So on Android this headless
-// crate rides on the day runtime (it needs the app's JVM + Context).
+// crate rides on the Day runtime (it needs the app's JVM + Context).
 
 use super::{BatteryState, BatteryStatus};
 use day_android::with_env;

@@ -1,6 +1,6 @@
 //! day-uikit — the ios-uikit backend (DESIGN.md §9). objc2, pure Rust, no shim.
 //!
-//! `Handle = Retained<UIView>`; UIKit is top-left/y-down so day frames apply directly. The app
+//! `Handle = Retained<UIView>`; UIKit is top-left/y-down so Day frames apply directly. The app
 //! boots via `UIApplicationMain` + a `define_class!` app delegate (pane's proven pattern: the
 //! delegate class is force-registered before `UIApplicationMain`, and exposes `window`/
 //! `setWindow:` for the no-scene-manifest compat path). iOS-only (`cfg(target_os = "ios")`);
@@ -197,7 +197,7 @@ mod imp {
     // -----------------------------------------------------------------------
     // Navigation (docs/navigation.md): UINavigationController child-contained in the
     // root VC. Each page = UIViewController whose view pins a content subview to the
-    // safe area; the content view is day's handle (its frame is native-owned).
+    // safe area; the content view is Day's handle (its frame is native-owned).
     // -----------------------------------------------------------------------
 
     struct NavState {
@@ -237,7 +237,7 @@ mod imp {
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 // Pin the content subview to the safe area (below the navigation bar)
-                // and report its size so NavLayout re-lays the day content (§8.3).
+                // and report its size so NavLayout re-lays the Day content (§8.3).
                 let bounds = self.bounds();
                 let insets = self.safeAreaInsets();
                 let frame = CGRect::new(
@@ -301,7 +301,7 @@ mod imp {
                         if state.expect_pop.replace(false) {
                             (false, NodeId(0))
                         } else {
-                            // Sync the mirror now; day's remove() will find it gone.
+                            // Sync the mirror now; Day's remove() will find it gone.
                             state.vcs.truncate(native);
                             (true, state.host_node)
                         }
@@ -520,7 +520,7 @@ mod imp {
                         )
                     },
                 );
-                // day builds/rebinds its row content inside the cell's contentView.
+                // Day builds/rebinds its row content inside the cell's contentView.
                 let content = cell.contentView();
                 let row = unsafe { index_path.row() } as usize;
                 if let Some(source) = self.ivars().source.borrow().as_ref() {
@@ -771,7 +771,7 @@ mod imp {
         MainThreadMarker::new().expect("day-uikit: not on the main thread")
     }
 
-    /// day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
+    /// Day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
     /// native controls self-describe, §13). UIKit has no toggle/meter trait, so those are `None`.
     fn ui_traits(role: day_spec::Role) -> Option<objc2_ui_kit::UIAccessibilityTraits> {
         use day_spec::Role;
@@ -790,7 +790,7 @@ mod imp {
         }
     }
 
-    /// Native UIAccessibility traits → day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+    /// Native UIAccessibility traits → Day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
     fn day_role_from_traits(t: objc2_ui_kit::UIAccessibilityTraits) -> day_spec::Role {
         use day_spec::Role;
         use objc2_ui_kit::{
@@ -812,25 +812,109 @@ mod imp {
         }
     }
 
-    fn uifont_size(f: Font) -> (f64, bool) {
-        match f {
-            Font::Title => (28.0, true),
-            Font::Headline => (17.0, true),
-            Font::Body => (17.0, false),
-            Font::Caption => (12.0, false),
-            Font::System(pt) => (pt, false),
+    /// The iOS native semantic text style for a logical [`Font`] (`None` for a custom size).
+    /// `UIFont.preferredFont(forTextStyle:)` IS Dynamic Type — it scales with the user's chosen text
+    /// size in Settings ▸ Accessibility ▸ Display & Text Size ▸ Larger Text.
+    fn ui_text_style(f: Font) -> Option<&'static objc2_ui_kit::UIFontTextStyle> {
+        use objc2_ui_kit::*;
+        unsafe {
+            Some(match f {
+                Font::LargeTitle => UIFontTextStyleLargeTitle,
+                Font::Title => UIFontTextStyleTitle1,
+                Font::Title2 => UIFontTextStyleTitle2,
+                Font::Title3 => UIFontTextStyleTitle3,
+                Font::Headline => UIFontTextStyleHeadline,
+                Font::Subheadline => UIFontTextStyleSubheadline,
+                Font::Body => UIFontTextStyleBody,
+                Font::Callout => UIFontTextStyleCallout,
+                Font::Footnote => UIFontTextStyleFootnote,
+                Font::Caption => UIFontTextStyleCaption1,
+                Font::Caption2 => UIFontTextStyleCaption2,
+                Font::System(_) => return None,
+            })
         }
     }
 
-    fn apply_font(label: &UILabel, font: Font) {
-        let (pt, bold) = uifont_size(font);
+    fn ui_weight(w: day_spec::FontWeight) -> objc2_ui_kit::UIFontWeight {
+        use day_spec::FontWeight as W;
+        use objc2_ui_kit::*;
         unsafe {
-            let f = if bold {
-                objc2_ui_kit::UIFont::boldSystemFontOfSize(pt)
-            } else {
-                objc2_ui_kit::UIFont::systemFontOfSize(pt)
-            };
-            label.setFont(Some(&f));
+            match w {
+                W::UltraLight => UIFontWeightUltraLight,
+                W::Thin => UIFontWeightThin,
+                W::Light => UIFontWeightLight,
+                W::Regular => UIFontWeightRegular,
+                W::Medium => UIFontWeightMedium,
+                W::Semibold => UIFontWeightSemibold,
+                W::Bold => UIFontWeightBold,
+                W::Heavy => UIFontWeightHeavy,
+                W::Black => UIFontWeightBlack,
+            }
+        }
+    }
+
+    /// The iOS Dynamic Type DEFAULT (content size = Large) point size for a semantic style — the base
+    /// that `UIFontMetrics` scales from. Used to build weighted fonts that still auto-scale.
+    fn ui_default_size(f: Font) -> objc2_core_foundation::CGFloat {
+        match f {
+            Font::LargeTitle => 34.0,
+            Font::Title => 28.0,
+            Font::Title2 => 22.0,
+            Font::Title3 => 20.0,
+            Font::Headline => 17.0,
+            Font::Subheadline => 15.0,
+            Font::Body => 17.0,
+            Font::Callout => 16.0,
+            Font::Footnote => 13.0,
+            Font::Caption => 12.0,
+            Font::Caption2 => 11.0,
+            Font::System(pt) => pt,
+        }
+    }
+
+    fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
+        use objc2_ui_kit::*;
+        let base: Retained<UIFont> = match spec.style {
+            Font::System(pt) => unsafe {
+                // A custom size, weighted, then run through UIFontMetrics so it ALSO honors Dynamic
+                // Type (accessibility text scale) instead of being a fixed pixel size.
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::systemFontOfSize_weight(pt, w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            },
+            style => unsafe {
+                let ts = ui_text_style(style).expect("semantic style");
+                match spec.weight {
+                    // No weight override → preferredFont, which is Dynamic Type (auto-scales live).
+                    None => UIFont::preferredFontForTextStyle(ts),
+                    // A weight override: build the weighted system font at the style's DEFAULT size,
+                    // then run it through the style's UIFontMetrics so it ALSO auto-scales with Dynamic
+                    // Type (a bare `systemFont(ofSize:weight:)` is a fixed size and would NOT re-scale).
+                    Some(w) => {
+                        let raw =
+                            UIFont::systemFontOfSize_weight(ui_default_size(style), ui_weight(w));
+                        UIFontMetrics::metricsForTextStyle(ts).scaledFontForFont(&raw)
+                    }
+                }
+            },
+        };
+        let font = if spec.italic {
+            unsafe {
+                let desc = base.fontDescriptor();
+                let traits = desc.symbolicTraits() | UIFontDescriptorSymbolicTraits::TraitItalic;
+                match desc.fontDescriptorWithSymbolicTraits(traits) {
+                    Some(d2) => UIFont::fontWithDescriptor_size(&d2, base.pointSize()),
+                    None => base,
+                }
+            }
+        } else {
+            base
+        };
+        unsafe {
+            label.setFont(Some(&font));
+            // Re-scale live when the user changes the accessibility text size (works for fonts derived
+            // from preferredFont / UIFontMetrics).
+            let _: () = objc2::msg_send![label, setAdjustsFontForContentSizeCategory: true];
         }
     }
 
@@ -1493,7 +1577,7 @@ mod imp {
         }
 
         fn adopt(&mut self, raw: RawHandle) -> Handle {
-            // A recycling UITableViewCell's contentView — day fills/rebinds its row content there.
+            // A recycling UITableViewCell's contentView — Day fills/rebinds its row content there.
             let ptr = raw as *mut UIView;
             unsafe { Retained::retain(ptr) }.expect("adopt: null list cell content")
         }
@@ -1745,7 +1829,7 @@ mod imp {
                 WINDOW.with(|w| *w.borrow_mut() = retained);
             }
 
-            // Classic (pre-UIScene) window setup: fine for day's single-window shell.
+            // Classic (pre-UIScene) window setup: fine for Day's single-window shell.
             #[allow(deprecated)]
             #[unsafe(method(application:didFinishLaunchingWithOptions:))]
             fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
@@ -1818,7 +1902,7 @@ mod imp {
             // Force-register the delegate class: UIApplicationMain looks it up by name before
             // any Rust code touches it (pane's exact fix).
             let _ = <AppDelegate as objc2::ClassType>::class();
-            let arg0 = c"day".as_ptr() as *mut c_char;
+            let arg0 = c"Day".as_ptr() as *mut c_char;
             let mut argv = [arg0];
             let argv_ptr = NonNull::new(argv.as_mut_ptr()).unwrap();
             let delegate = NSString::from_str("DayAppDelegate");

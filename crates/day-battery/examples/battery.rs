@@ -1,5 +1,5 @@
 //! `cargo run -p day-battery --example battery` — print the current battery status. Demonstrates that
-//! any Rust code can depend on this crate and use the API with no day framework at all.
+//! any Rust code can depend on this crate and use the API with no Day framework at all.
 
 fn main() {
     match day_battery::status() {

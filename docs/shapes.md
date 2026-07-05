@@ -4,12 +4,12 @@
 > (`day_pieces`), reactive `ShapeKind`/`fill`/`stroke`/`inset`/`rotate`/`scale`/`offset`, canvas
 > CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
 > five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
-> playground. This document is the SwiftUI `Circle`/`Rectangle`/`Path`/`Shape` analogue for day;
+> playground. This document is the SwiftUI `Circle`/`Rectangle`/`Path`/`Shape` analogue for Day;
 > conventions follow DESIGN.md.
 
 ## 1. Goal & constraints
 
-Give day SwiftUI's shape ergonomics — `Circle`, `Rectangle`, `RoundedRectangle`, `Capsule`,
+Give Day SwiftUI's shape ergonomics — `Circle`, `Rectangle`, `RoundedRectangle`, `Capsule`,
 `Ellipse`, arbitrary `Path`, and custom shapes — as **first-class Pieces** that:
 
 - are **bound to signals** (geometry *and* style),
@@ -17,10 +17,10 @@ Give day SwiftUI's shape ergonomics — `Circle`, `Rectangle`, `RoundedRectangle
 - are **interactive** through the (eventual) gesture seam, with **path-precise** hit testing,
 - are **animatable**,
 - are built **atop the internal canvas API** (so they work on all six backends day one),
-- read idiomatically for day + Rust — a single data-oriented `shape` piece parameterised by kind,
+- read idiomatically for Day + Rust — a single data-oriented `shape` piece parameterised by kind,
   not a zoo of node types.
 
-### What day already gives us (the substrate)
+### What Day already gives us (the substrate)
 
 - `canvas(|d: &mut Draw, size: Size| …)` — a reactive leaf (`kinds::CANVAS`) whose closure re-runs
   on any tracked signal read (and on `FrameChanged`), records a `Vec<DrawOp>`, diffs it
@@ -70,10 +70,10 @@ parameter and style may be a value, a `Signal`, or a closure with **no per-prop 
 strict simplification over native leaves. Shape params are stored as a small `Reactive<T>` source.
 
 **D5 — Interaction is path-precise and day-side.** The shape knows its path, so on a `Tap(point)`
-from its canvas leaf, day tests the point against the path *in Rust* before firing `.on_tap` — no
+from its canvas leaf, Day tests the point against the path *in Rust* before firing `.on_tap` — no
 backend change, and more correct than bounding-box hit testing.
 
-**D6 — Two animation paths; shapes use the canvas one.** day has (i) backend-executed animation for
+**D6 — Two animation paths; shapes use the canvas one.** Day has (i) backend-executed animation for
 native widgets (the `AnimSpec` seam) and (ii) a day-driven **canvas frame-clock** (§8.4). Shapes
 animate by interpolating params CPU-side and re-recording per frame — the same way SwiftUI renders
 shape animation. The shape API is animation-ready now; the frame-clock engine lands via §8.4.
@@ -269,7 +269,7 @@ Two entry points, matching SwiftUI:
 - **Explicit** — `with_animation(Animation::spring(...), || path.set(newValue))`: any signal writes
   in the closure animate their dependent animated shapes.
 
-**Realisation (§8.4).** day owns one per-window frame clock (CVDisplayLink / Choreographer /
+**Realisation (§8.4).** Day owns one per-window frame clock (CVDisplayLink / Choreographer /
 GdkFrameClock / DispatchSourceTimer), started only while ≥1 animation is live and stopped when the
 pool drains (no idle wakeups). Each tick advances active `Animatable` transitions and `notify()`s a
 Trigger that the animated shapes' canvas `bind`s track — so the *existing* record→diff→replay path
@@ -283,7 +283,7 @@ The shape's canvas leaf is a real native view; when the gesture seam emits `Even
 for it, the shape does **path-precise** hit testing in Rust (D5) via `Geometry::contains(point)`
 before firing `.on_tap`/`.on_long_press`. Bounding-box fallback if a kind has no cheap containment.
 This is strictly more correct than SwiftUI's default (which needs `.contentShape` to get precise
-hit testing) and needs no backend work beyond the gesture events day already plans.
+hit testing) and needs no backend work beyond the gesture events Day already plans.
 
 ## 7. Gradients & `ShapeStyle` (phase 2)
 

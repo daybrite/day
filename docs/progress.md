@@ -1,6 +1,6 @@
 # Progress indicators (`progress`, `spinner`)
 
-A progress indicator reports the state of ongoing work. day exposes the two SwiftUI
+A progress indicator reports the state of ongoing work. Day exposes the two SwiftUI
 shapes as separate constructors so the call site says which one it means, with no bare
 boolean or sentinel value to decode (docs/api-style.md):
 
@@ -71,7 +71,7 @@ Each backend resolves the two variants to its idiomatic native widget:
 Notes:
 
 - **Qt has no native spinner widget.** The idiomatic Qt indeterminate indicator is a busy
-  `QProgressBar` (`min == max == 0`), so day uses that rather than emulating a ring. It is a
+  `QProgressBar` (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar, not a circular spinner — the one intentional cross-platform
   divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in

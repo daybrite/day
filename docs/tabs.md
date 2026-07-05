@@ -67,7 +67,7 @@ toggle group — over an `AdwViewStack`, since Adwaita has no icon-free tab widg
 | Android | custom `DayTabs` strip | top tab bar + content `FrameLayout` (dependency-free; Material's TabLayout/BottomNavigationView aren't required) |
 | WinUI 3 | `Pivot` (shim) | `SelectionChanged` reports selection |
 
-Each page reports its allocated content size (`FrameChanged`) so day lays out the tab's content
+Each page reports its allocated content size (`FrameChanged`) so Day lays out the tab's content
 at native size — the same mechanism nav pages use. Pages with native-owned frames are skipped by
 `set_frame`.
 

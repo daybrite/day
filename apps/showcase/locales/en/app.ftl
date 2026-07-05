@@ -15,6 +15,7 @@ flavor-label = Flavor
 history-title = History
 history-entry = count became { $value }
 nav-controls = Controls
+nav-text = Text
 nav-gauge = Gauge
 nav-shapes = Shapes
 nav-pickers = Pickers
@@ -75,3 +76,12 @@ flavor-title = Choose a flavor
 cancel = Cancel
 vanilla = vanilla
 pistachio = pistachio
+
+# Text playground (typography)
+text-caption = Semantic styles map to the platform's native text styles and accessibility text scaling.
+text-styles-header = Styles
+text-weights-header = Weights
+text-styling-header = Bold & italic
+text-colors-header = Color
+text-custom-header = Custom sizes
+text-custom-note = Font.System(pt) — still scaled by the accessibility text size (Dynamic Type / font scale).

@@ -1,10 +1,10 @@
 //! day-winui — the Windows backend (target `windows-winui`; DESIGN.md §1, §9), over the
-//! day-winui-sys C++/WinRT XAML-Islands shim. `Handle = WinHandle(*mut UIElement)`; every day
+//! day-winui-sys C++/WinRT XAML-Islands shim. `Handle = WinHandle(*mut UIElement)`; every Day
 //! node is a real `Windows.UI.Xaml` control (TextBlock, Button, ToggleSwitch, Slider, TextBox,
-//! ComboBox) hosted inside a `DesktopWindowXamlSource`. day owns layout — containers are XAML
+//! ComboBox) hosted inside a `DesktopWindowXamlSource`. Day owns layout — containers are XAML
 //! `Canvas`es and children are placed by absolute frame — exactly like the GTK/AppKit/Qt
 //! backends. Native events (Click/Toggled/ValueChanged/TextChanged) funnel through the shim's
-//! id-keyed callbacks into day's event sink.
+//! id-keyed callbacks into Day's event sink.
 
 #![cfg(windows)]
 
@@ -83,7 +83,7 @@ fn nav_layout_panes(host: *mut c_void, w: f64, h: f64) {
 
 // ---------------------------------------------------------------------------
 // Recycling list (docs/list.md, §10). XAML's ListView virtualizes with a data source, which
-// doesn't fit day's synchronous `bind_row` pull; instead — like the Qt backend (DP-19) — day
+// doesn't fit Day's synchronous `bind_row` pull; instead — like the Qt backend (DP-19) — Day
 // EMULATES recycling: a ScrollViewer whose content Canvas holds one absolutely-positioned cell
 // per row, each filled through the same `bind_row` seam. Cells are pooled append-only.
 // ---------------------------------------------------------------------------
@@ -249,15 +249,49 @@ impl Default for WinUi {
     }
 }
 
-/// day font intents → (XAML FontSize in DIPs, bold).
-fn font_params(f: Font) -> (f64, c_int) {
+/// Day font intents → (XAML FontSize in DIPs, bold).
+/// Point size + the style's inherent weight for a logical [`Font`]. WinUI's `TextBlock.FontSize`
+/// auto-scales with the OS text-scale-factor (Settings ▸ Accessibility ▸ Text size), so these sizes
+/// honor accessibility. Aligned with the desktop scale used by the GTK/Qt backends.
+fn winui_style(f: Font) -> (f64, day_spec::FontWeight) {
+    use day_spec::FontWeight::*;
     match f {
-        Font::Title => (24.0, 1),
-        Font::Headline => (18.0, 1),
-        Font::Body => (14.0, 0),
-        Font::Caption => (12.0, 0),
-        Font::System(pt) => (pt, 0),
+        Font::LargeTitle => (26.0, Regular),
+        Font::Title => (22.0, Regular),
+        Font::Title2 => (17.0, Regular),
+        Font::Title3 => (15.0, Regular),
+        Font::Headline => (13.0, Semibold),
+        Font::Subheadline => (11.0, Regular),
+        Font::Body => (13.0, Regular),
+        Font::Callout => (12.0, Regular),
+        Font::Footnote => (10.0, Regular),
+        Font::Caption => (10.0, Regular),
+        Font::Caption2 => (10.0, Regular),
+        Font::System(pt) => (pt, Regular),
     }
+}
+
+/// Day weight → Windows.UI.Text.FontWeight numeric value (Thin=100 … Black=900).
+fn winui_weight(w: day_spec::FontWeight) -> c_int {
+    use day_spec::FontWeight as W;
+    match w {
+        W::Thin => 100,
+        W::UltraLight => 200,
+        W::Light => 300,
+        W::Regular => 400,
+        W::Medium => 500,
+        W::Semibold => 600,
+        W::Bold => 700,
+        W::Heavy => 800,
+        W::Black => 900,
+    }
+}
+
+/// (point size, FontWeight numeric, italic) for the C++/WinRT shim.
+fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int) {
+    let (pt, inherent) = winui_style(spec.style);
+    let weight = winui_weight(spec.weight.unwrap_or(inherent));
+    (pt, weight, spec.italic as c_int)
 }
 
 /// Natural (unconstrained) desired size from the shim's XAML Measure.
@@ -329,8 +363,8 @@ impl Toolkit for WinUi {
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let h = ffi::day_winui_label_new(cstr(&p.text).as_ptr());
-                    let (pt, bold) = font_params(p.font);
-                    ffi::day_winui_label_set_font(h, pt, bold);
+                    let (pt, weight, italic) = font_params(p.font);
+                    ffi::day_winui_label_set_font(h, pt, weight, italic);
                     WinHandle(h)
                 }
                 kinds::BUTTON => {
@@ -456,8 +490,8 @@ impl Toolkit for WinUi {
                                 ffi::day_winui_label_set_text(h.0, cstr(t).as_ptr())
                             }
                             LabelPatch::Font(f) => {
-                                let (pt, bold) = font_params(*f);
-                                ffi::day_winui_label_set_font(h.0, pt, bold);
+                                let (pt, weight, italic) = font_params(*f);
+                                ffi::day_winui_label_set_font(h.0, pt, weight, italic);
                             }
                             LabelPatch::Color(_) => {} // XAML Foreground token is a follow-up
                         }
@@ -698,7 +732,7 @@ impl Toolkit for WinUi {
     }
 
     fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-        // Tab pages are laid out by the Pivot, not by day; skip them.
+        // Tab pages are laid out by the Pivot, not by Day; skip them.
         if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             return;
         }
@@ -752,7 +786,7 @@ impl Toolkit for WinUi {
     }
 
     fn adopt(&mut self, raw: day_spec::RawHandle) -> WinHandle {
-        // A recycling-list cell (a plain Canvas) — day builds/rebinds its row content in place.
+        // A recycling-list cell (a plain Canvas) — Day builds/rebinds its row content in place.
         WinHandle(raw)
     }
 

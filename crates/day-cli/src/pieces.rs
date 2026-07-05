@@ -1,8 +1,8 @@
 //! Standalone-piece backend discovery (docs/extending.md). External piece crates (e.g.
 //! `day-piece-picker`) declare their per-toolkit backend contributions in `Cargo.toml` under
-//! `[package.metadata.day.<toolkit>]`; the day CLI reads them from `cargo metadata` and folds them
+//! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them
 //! into the native build — so a piece carries BOTH its front-end (Rust) and its backend (Java /
-//! Gradle deps / …) with ZERO edits to the core day crates.
+//! Gradle deps / …) with ZERO edits to the core Day crates.
 //!
 //! Android contract (`[package.metadata.day.android]`):
 //! ```toml
@@ -142,7 +142,7 @@ fn piece_meta<T: serde::de::DeserializeOwned>(pkg: &Package, toolkit: &str) -> O
     let table = pkg
         .metadata
         .as_ref()
-        .and_then(|m| m.get("day"))
+        .and_then(|m| m.get("Day"))
         .and_then(|d| d.get(toolkit))?;
     match serde_json::from_value(table.clone()) {
         Ok(v) => Some(v),

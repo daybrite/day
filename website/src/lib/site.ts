@@ -9,10 +9,10 @@ export function url(path = ''): string {
 }
 
 export const site = {
-  name: 'day',
+  name: 'Day',
   tagline: 'One Rust codebase. Real native widgets on every platform.',
   description:
-    'day is an industry-strength Rust framework for cross-platform apps that are genuinely native — SwiftUI-like Pieces realized with real AppKit, UIKit, GTK, Qt, WinUI, and Android widgets, with build-once/bind-forever reactivity.',
+    'Day is an industry-strength Rust framework for cross-platform apps that are genuinely native — SwiftUI-like Pieces realized with real AppKit, UIKit, GTK, Qt, WinUI, and Android widgets, with build-once/bind-forever reactivity.',
   repo: 'https://github.com/daybrite/day',
   targets: [
     'macOS · AppKit',

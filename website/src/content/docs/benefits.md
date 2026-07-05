@@ -1,10 +1,10 @@
 ---
-title: Why day
+title: Why Day
 description: The benefits — native fidelity, one codebase, fine-grained reactivity, and four pillars built in.
 order: 2
 ---
 
-day exists to remove a false choice: *native fidelity* **or** *a single codebase*. You get both.
+Day exists to remove a false choice: *native fidelity* **or** *a single codebase*. You get both.
 
 ## Genuinely native, not native-ish
 
@@ -17,7 +17,7 @@ platform does better than any cross-platform renderer can imitate:
 - platform theming, dark mode, dynamic type, and right-to-left;
 - OS updates that improve your app without you shipping anything.
 
-A day app on macOS uses AppKit; on Android it uses `android.widget`; on Linux it adopts
+A Day app on macOS uses AppKit; on Android it uses `android.widget`; on Linux it adopts
 libadwaita. It looks like it belongs, because it does.
 
 ## One codebase, one language
@@ -28,7 +28,7 @@ your logic, no template DSL to context-switch into, no per-platform UI forks to 
 
 ## Fine-grained reactivity with a native runtime profile
 
-Because day **builds once and binds forever**, a state change doesn't re-run your view functions or
+Because Day **builds once and binds forever**, a state change doesn't re-run your view functions or
 diff a virtual tree — it updates precisely the native attributes that depend on the changed
 `Signal`. You write declaratively; it runs like hand-tuned native code.
 
@@ -43,7 +43,7 @@ row((
 
 ## Four pillars, built in
 
-day treats these as first-class framework concerns, not add-ons:
+Day treats these as first-class framework concerns, not add-ons:
 
 - **Fluent localization.** Text is localized through Mozilla's Fluent (`tr("key")`), with
   arguments and per-locale plurals. Switching locale re-binds affected labels live.
@@ -58,7 +58,7 @@ day treats these as first-class framework concerns, not add-ons:
 
 - **One backend per binary** — no runtime toolkit indirection; the compiler monomorphizes to the
   chosen toolkit.
-- **A `flutter_tools`-style CLI** — `day create / build / launch / pack / lint`, designed from day
+- **A `flutter_tools`-style CLI** — `day create / build / launch / pack / lint`, designed from Day
   one for humans, CI, IDEs, and AI agents.
 - **Screenshot-validated CI** — every target builds the showcase and captures screenshots on each
   push; the [gallery](../gallery) on this site is assembled from exactly those artifacts.

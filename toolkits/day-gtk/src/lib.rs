@@ -1,8 +1,8 @@
 //! day-gtk — the GTK 4 backend (linux-gtk / macos-gtk; DESIGN.md §9). gtk4-rs, pure Rust.
 //!
-//! `Handle = gtk4::Widget` (GObject-refcounted, `!Send`). Containers are `GtkFixed`; day's
+//! `Handle = gtk4::Widget` (GObject-refcounted, `!Send`). Containers are `GtkFixed`; Day's
 //! layout positions children via `fixed.move_()` + `set_size_request` (hop's proven pattern).
-//! Native signals connect once at realize, capturing the NodeId and emitting into the day sink.
+//! Native signals connect once at realize, capturing the NodeId and emitting into the Day sink.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -145,10 +145,10 @@ pub fn emit(id: NodeId, ev: Event) {
 // ---------------------------------------------------------------------------
 // Navigation (docs/navigation.md): libadwaita. selector(Sidebar) → AdwNavigationSplitView;
 // stack → AdwNavigationView (push/pop). Each page's GtkFixed is wrapped in an
-// AdwNavigationPage; day sizes content from the host width via FrameChanged (nav_report).
+// AdwNavigationPage; Day sizes content from the host width via FrameChanged (nav_report).
 // ---------------------------------------------------------------------------
 
-/// The sidebar's fixed width in the split view (day sizes detail content = host − this).
+/// The sidebar's fixed width in the split view (Day sizes detail content = host − this).
 const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
 
 /// selector(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
@@ -176,7 +176,7 @@ struct NavMenuState {
 
 thread_local! {
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
-    /// NAV_PAGE widget → its day node id (recorded at realize, joined at insert).
+    /// NAV_PAGE widget → its Day node id (recorded at realize, joined at insert).
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// NAV_PAGE widget → its title (for the AdwNavigationPage).
     static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
@@ -229,7 +229,7 @@ fn nav_report(host_key: usize) {
 // ---------------------------------------------------------------------------
 // Tabs (docs/tabs.md): the Adwaita view-switching pattern — an AdwViewSwitcher above
 // an AdwViewStack (the libadwaita counterpart to a stock GtkNotebook), wrapped in a box.
-// day's tabs are label-only, so the switcher is a `.linked` row of grouped toggle buttons —
+// Day's tabs are label-only, so the switcher is a `.linked` row of grouped toggle buttons —
 // the Adwaita segmented-control idiom — rather than an icon-oriented AdwViewSwitcher.
 // ---------------------------------------------------------------------------
 
@@ -252,7 +252,7 @@ struct TabsState {
 
 thread_local! {
     static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE widget → its day node id (recorded at realize, joined at insert).
+    /// TABS_PAGE widget → its Day node id (recorded at realize, joined at insert).
     static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// TABS_PAGE widget → its tab label.
     static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
@@ -263,7 +263,7 @@ thread_local! {
 
 // ---------------------------------------------------------------------------
 // Native recycling list (docs/list.md, §10): GtkListView + GtkSignalListItemFactory. The model
-// (a GtkStringList) supplies only the row COUNT; day fills each recycled cell's content on bind.
+// (a GtkStringList) supplies only the row COUNT; Day fills each recycled cell's content on bind.
 // ---------------------------------------------------------------------------
 
 struct ListEntry {
@@ -349,26 +349,61 @@ impl Default for Gtk {
     }
 }
 
-fn apply_font(label: &gtk4::Label, font: Font) {
-    let (size_pt, bold) = match font {
-        Font::Title => (24.0, true),
-        Font::Headline => (15.0, true),
-        Font::Body => (13.0, false),
-        Font::Caption => (11.0, false),
-        Font::System(pt) => (pt, false),
-    };
-    let weight = if bold { "bold" } else { "normal" };
-    // Pango attributes via markup-free CSS is heavyweight; use attributes list.
-    let attrs = gtk4::pango::AttrList::new();
-    let mut size = gtk4::pango::AttrSize::new((size_pt * gtk4::pango::SCALE as f64) as i32);
+/// Point size + the style's inherent weight for a logical [`Font`]. GTK has no semantic text styles,
+/// so we approximate the platform typographic scale (matching the Apple text-style sizes for cross-
+/// platform consistency). Pango point sizes are rendered through the Xft DPI, which GNOME's
+/// text-scaling-factor (Settings ▸ Accessibility ▸ Large Text) feeds — so these scale for accessibility.
+fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
+    use day_spec::FontWeight::*;
+    match f {
+        Font::LargeTitle => (26.0, Regular),
+        Font::Title => (22.0, Regular),
+        Font::Title2 => (17.0, Regular),
+        Font::Title3 => (15.0, Regular),
+        Font::Headline => (13.0, Semibold),
+        Font::Subheadline => (11.0, Regular),
+        Font::Body => (13.0, Regular),
+        Font::Callout => (12.0, Regular),
+        Font::Footnote => (10.0, Regular),
+        Font::Caption => (10.0, Regular),
+        Font::Caption2 => (10.0, Regular),
+        Font::System(pt) => (pt, Regular),
+    }
+}
+
+fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
+    use day_spec::FontWeight as W;
+    use gtk4::pango::Weight;
+    match w {
+        W::UltraLight => Weight::Ultralight,
+        W::Thin => Weight::Thin,
+        W::Light => Weight::Light,
+        W::Regular => Weight::Normal,
+        W::Medium => Weight::Medium,
+        W::Semibold => Weight::Semibold,
+        W::Bold => Weight::Bold,
+        W::Heavy => Weight::Heavy,
+        W::Black => Weight::Ultraheavy,
+    }
+}
+
+fn apply_font(label: &gtk4::Label, spec: day_spec::FontSpec) {
+    use gtk4::pango;
+    let (size_pt, inherent) = gtk_style(spec.style);
+    let weight = spec.weight.unwrap_or(inherent);
+    // Pango attribute list (markup-free): size, weight, and italic style.
+    let attrs = pango::AttrList::new();
+    let mut size = pango::AttrSize::new((size_pt * pango::SCALE as f64) as i32);
     size.set_start_index(0);
     attrs.insert(size);
-    if bold {
-        let mut w = gtk4::pango::AttrInt::new_weight(gtk4::pango::Weight::Bold);
-        w.set_start_index(0);
-        attrs.insert(w);
+    let mut w = pango::AttrInt::new_weight(pango_weight(weight));
+    w.set_start_index(0);
+    attrs.insert(w);
+    if spec.italic {
+        let mut it = pango::AttrInt::new_style(pango::Style::Italic);
+        it.set_start_index(0);
+        attrs.insert(it);
     }
-    let _ = weight;
     label.set_attributes(Some(&attrs));
 }
 
@@ -618,7 +653,7 @@ impl Toolkit for Gtk {
                 let factory = gtk4::SignalListItemFactory::new();
                 factory.connect_setup(|_, item| {
                     if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
-                        // Each physical cell is a GtkFixed; day fills it via bind_row.
+                        // Each physical cell is a GtkFixed; Day fills it via bind_row.
                         let cell = gtk4::Fixed::new();
                         cell.set_overflow(gtk4::Overflow::Visible);
                         li.set_child(Some(&cell));
@@ -892,7 +927,7 @@ impl Toolkit for Gtk {
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
         let host_key = widget_key(parent);
         // Tabs host: insert the page into the view stack + a toggle into the switcher; the stack
-        // owns the page's layout, so day sizes the page content from tabs_sync's FrameChanged reports.
+        // owns the page's layout, so Day sizes the page content from tabs_sync's FrameChanged reports.
         let tabs_handled = TABS_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&host_key) else {
@@ -963,7 +998,7 @@ impl Toolkit for Gtk {
             let title = NAV_PAGE_TITLES
                 .with(|t| t.borrow().get(&widget_key(child)).cloned())
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "day".to_string());
+                .unwrap_or_else(|| "Day".to_string());
             let nav_page = adw::NavigationPage::new(child, &title);
             match &state.present {
                 NavPresent::Split(sv) => {
@@ -1071,7 +1106,7 @@ impl Toolkit for Gtk {
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
         let key = widget_key(h);
-        // Tab pages / nav pages are laid out by their native container, not by day; skip them.
+        // Tab pages / nav pages are laid out by their native container, not by Day; skip them.
         if TABS_PAGES.with(|s| s.borrow().contains(&key))
             || NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key))
         {
@@ -1186,7 +1221,7 @@ impl Toolkit for Gtk {
     }
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
-        // A recycling GtkListView cell (a GtkFixed) — day fills/rebinds its row content in place.
+        // A recycling GtkListView cell (a GtkFixed) — Day fills/rebinds its row content in place.
         unsafe { gtk4::glib::translate::from_glib_none(raw as *mut gtk4::ffi::GtkWidget) }
     }
 
@@ -1196,7 +1231,7 @@ impl Toolkit for Gtk {
             h.set_widget_name(id); // GtkInspector-visible automation id (§13's honest table)
         }
         // Real GtkAccessible properties → AT-SPI (screen readers on Linux; no AT bridge on macOS,
-        // §13). GtkWidget's accessible-role is fixed at construction, so day sets label/description/
+        // §13). GtkWidget's accessible-role is fixed at construction, so Day sets label/description/
         // value here and leaves role to the widget (canvas role-setting is a follow-up).
         let mut props: Vec<Property> = Vec::new();
         if let Some(label) = &a11y.label {
@@ -1358,11 +1393,11 @@ thread_local! {
     static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
 }
 
-/// Adwaita's default header-bar height, used to size day's content area before the header is
+/// Adwaita's default header-bar height, used to size Day's content area before the header is
 /// first allocated (`report_content_size` reads the real height thereafter).
 const HEADER_H: f64 = 47.0;
 
-/// Report day's content area (the window minus its AdwHeaderBar) on every window resize.
+/// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
 fn report_content_size(w: &adw::ApplicationWindow, header: &adw::HeaderBar) {
     let hb = header.height();
     let hb = if hb > 0 { hb as f64 } else { HEADER_H };
@@ -1401,13 +1436,13 @@ impl Platform for Gtk {
             let fixed = gtk4::Fixed::new();
             // A GtkFixed reports its children's bounding box as its MINIMUM size, which
             // would pin the window at the content size. A scroll wrapper with External
-            // policy breaks that propagation (no scrollbars are ever shown — day sizes
+            // policy breaks that propagation (no scrollbars are ever shown — Day sizes
             // the content to the window on every resize).
             let wrapper = gtk4::ScrolledWindow::new();
             wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
             wrapper.set_child(Some(&fixed));
             // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies
-            // an AdwHeaderBar (window controls, drag handle, and the window title) above day's
+            // an AdwHeaderBar (window controls, drag handle, and the window title) above Day's
             // content — the standard Adwaita window structure, and the AdwDialog host that
             // AdwAlertDialog needs.
             let header = adw::HeaderBar::new();
@@ -1416,7 +1451,7 @@ impl Platform for Gtk {
             toolbar.set_content(Some(&wrapper));
             window.set_content(Some(&toolbar));
             backend.window_fixed = Some(fixed.clone());
-            // day's content area is the window height minus the header bar; estimate it until
+            // Day's content area is the window height minus the header bar; estimate it until
             // the header is allocated (report_content_size reads the real height thereafter).
             ready(
                 backend,

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // WinUI: this crate's OWN C++/WinRT shim (src/lib-winui-shim.cpp) — ComboBox / RadioButton StackPanels,
-// boxed into day handles via the `day_winui_box`/`day_winui_unbox` seam day-winui-sys exports. This
+// boxed into Day handles via the `day_winui_box`/`day_winui_unbox` seam day-winui-sys exports. This
 // mirrors the Qt renderer (own shim for the control; reuse the sys crate's generic measure).
 // Windows-only, built in CI, not verified locally.
 // ---------------------------------------------------------------------------

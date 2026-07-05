@@ -1,16 +1,16 @@
 ---
 title: Overview
-description: What day is, how it works, and the platforms it targets.
+description: What Day is, how it works, and the platforms it targets.
 order: 1
 ---
 
-**day** is a Rust framework for building applications that look, feel, and behave like native
+**Day** is a Rust framework for building applications that look, feel, and behave like native
 applications on every platform — because they *are* native applications.
 
 You author your UI once, in idiomatic Rust, as a declarative tree of **Pieces** (what SwiftUI calls
 a View and Flutter calls a Widget). Each Piece is realized by a **real native component** —
 `NSTextField`, `UILabel`, `android.widget.Button`, `GtkEntry`, a Qt `QSlider`, a WinUI `TextBox` —
-through a per-platform **toolkit** backend. day owns layout, reactivity, localization, accessibility
+through a per-platform **toolkit** backend. Day owns layout, reactivity, localization, accessibility
 policy, and scripting; the platform owns pixels, text input, scrolling physics, and assistive
 technology.
 
@@ -34,7 +34,7 @@ and Windows — no web view, no custom renderer, no per-platform forks.
 
 ## The targets
 
-A *target* is an `(OS, toolkit)` pair whose toolkit supports that OS. day ships ten:
+A *target* is an `(OS, toolkit)` pair whose toolkit supports that OS. Day ships ten:
 
 | Target | OS | Toolkit |
 |---|---|---|
@@ -53,7 +53,7 @@ One `day launch -p <target>` builds and runs your app on any of them.
 ## How it works: build once, bind forever
 
 Most declarative UI frameworks re-run your view functions and diff the result on every state
-change. day does not. It builds the native widget tree **exactly once**, then **binds** reactive
+change. Day does not. It builds the native widget tree **exactly once**, then **binds** reactive
 values directly to native attributes. When a `Signal` changes, only the widgets that read it are
 updated — there is no virtual tree, no reconciliation pass, no re-execution of your view code.
 
@@ -66,18 +66,18 @@ hand-written native code: no diffing on the hot path, one native widget per Piec
 
 ## One binary per target
 
-day compiles exactly one toolkit backend into each binary (selected by a Cargo feature). There is
+Day compiles exactly one toolkit backend into each binary (selected by a Cargo feature). There is
 no runtime toolkit abstraction to pay for — the AppKit build contains only AppKit code, the Android
 build only the JNI bridge. This keeps binaries small and calls direct.
 
-## What day is *not*
+## What Day is *not*
 
-- **Not a renderer.** day never rasterizes text or widgets itself. The `canvas` Piece delegates to
+- **Not a renderer.** Day never rasterizes text or widgets itself. The `canvas` Piece delegates to
   the platform's native 2D API. No Skia, no vello, no embedded web view for core UI.
-- **Not pixel-identical across platforms.** A day app looks like a Mac app on macOS and a Material
+- **Not pixel-identical across platforms.** A Day app looks like a Mac app on macOS and a Material
   app on Android. The goal is consistency of *behavior and information architecture* with native
   *look and feel* — not one skin everywhere.
 - **Not lowest-common-denominator.** Where platforms diverge, the Piece API exposes per-target
   styling; where a platform lacks a control, the toolkit composes one from primitives.
 
-Continue to [Why day](./benefits) for the case, or jump into the [API tour](./api-tour).
+Continue to [Why Day](./benefits) for the case, or jump into the [API tour](./api-tour).

@@ -19,7 +19,7 @@ if let Some(b) = day_battery::status() {
 
 There are **no features** — platform selection is purely `#[cfg(target_os)]`, because a battery is an OS
 concern, not a widget-toolkit one. `crates/day-battery/examples/battery.rs` is a plain `main` that uses
-it with no day framework at all.
+it with no Day framework at all.
 
 ## Per-platform native realization
 
@@ -40,5 +40,5 @@ This is the first **headless** external crate — no UI Piece, nothing registere
 `RENDERERS` slice. It demonstrates that the standalone-piece **backend-contribution** mechanism (see
 [extending.md](extending.md)) already accommodates headless capability crates: `day-battery` contributes
 its Android Java through `[package.metadata.day.android]` exactly like the UI pieces, but registers no
-renderer — the Java staging is independent of rendering. On Android the crate rides on the day runtime
+renderer — the Java staging is independent of rendering. On Android the crate rides on the Day runtime
 (it uses day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

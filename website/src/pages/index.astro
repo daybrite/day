@@ -42,7 +42,7 @@ const features = [
   {
     icon: '↯',
     title: 'Build once, bind forever',
-    body: 'No virtual tree, no diffing. day builds the widget tree once and binds Signals straight to native attributes; a change updates only what read it.',
+    body: 'No virtual tree, no diffing. Day builds the widget tree once and binds Signals straight to native attributes; a change updates only what read it.',
   },
   {
     icon: '⬢',
@@ -114,9 +114,9 @@ const features = [
   <!-- FEATURES -->
   <section class="section features">
     <div class="container">
-      <p class="eyebrow">Why day</p>
+      <p class="eyebrow">Why Day</p>
       <h2 class="sec-title">Native fidelity <span class="grad-text">and</span> a single codebase.</h2>
-      <p class="lead">day removes the usual trade-off: you write one Rust program and ship genuinely native apps.</p>
+      <p class="lead">Day removes the usual trade-off: you write one Rust program and ship genuinely native apps.</p>
       <div class="feat-grid">
         {features.map((f) => (
           <div class="card feat">
@@ -137,7 +137,7 @@ const features = [
         <h2 class="sec-title">Signals bind straight to native attributes.</h2>
         <p class="lead">
           A <code>Signal&lt;T&gt;</code> is a cheap, <code>Copy</code> reactive cell. Any closure that
-          reads it becomes reactive — when it changes, day updates precisely those native attributes
+          reads it becomes reactive — when it changes, Day updates precisely those native attributes
           and nothing else. No component re-render, no reconciliation on the hot path.
         </p>
         <ul class="how-list">

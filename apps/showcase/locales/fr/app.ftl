@@ -15,6 +15,7 @@ flavor-label = Parfum
 history-title = Historique
 history-entry = le compteur est passé à { $value }
 nav-controls = Contrôles
+nav-text = Texte
 nav-gauge = Jauge
 nav-shapes = Formes
 nav-pickers = Sélecteurs
@@ -75,3 +76,12 @@ flavor-title = Choisissez un parfum
 cancel = Annuler
 vanilla = vanille
 pistachio = pistache
+
+# Aire de jeu Texte (typographie)
+text-caption = Les styles sémantiques correspondent aux styles natifs et à l'échelle de texte d'accessibilité.
+text-styles-header = Styles
+text-weights-header = Graisses
+text-styling-header = Gras et italique
+text-colors-header = Couleur
+text-custom-header = Tailles personnalisées
+text-custom-note = Font.System(pt) — mis à l'échelle par la taille de texte d'accessibilité (Dynamic Type).

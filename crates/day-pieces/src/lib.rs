@@ -184,6 +184,8 @@ impl<T: Clone + 'static> SignalRw<T> for Signal<T> {
 pub struct Label {
     text: TextSource,
     font: Font,
+    weight: Option<day_spec::FontWeight>,
+    italic: bool,
     color: Option<day_spec::Color>,
 }
 
@@ -191,13 +193,31 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
     Label {
         text: text.into_text(),
         font: Font::Body,
+        weight: None,
+        italic: false,
         color: None,
     }
 }
 
 impl Label {
+    /// The semantic text style (`Font::Title`, `Font::Footnote`, …) or a custom `Font::System(pt)`.
+    /// Backends render it with the platform's native style + accessibility text scaling.
     pub fn font(mut self, f: Font) -> Self {
         self.font = f;
+        self
+    }
+    /// Override the font weight (e.g. `FontWeight::Semibold`). See also [`Label::bold`].
+    pub fn weight(mut self, w: day_spec::FontWeight) -> Self {
+        self.weight = Some(w);
+        self
+    }
+    /// Shorthand for `.weight(FontWeight::Bold)`.
+    pub fn bold(self) -> Self {
+        self.weight(day_spec::FontWeight::Bold)
+    }
+    /// Render the text italic (slanted).
+    pub fn italic(mut self) -> Self {
+        self.italic = true;
         self
     }
     pub fn color(mut self, c: day_spec::Color) -> Self {
@@ -213,7 +233,11 @@ impl Piece for Label {
             kinds::LABEL,
             &LabelProps {
                 text: initial,
-                font: self.font,
+                font: day_spec::FontSpec {
+                    style: self.font,
+                    weight: self.weight,
+                    italic: self.italic,
+                },
                 color: self.color,
                 wraps: true,
             },
@@ -879,7 +903,7 @@ fn key_token<K: Hash>(k: &K) -> u64 {
 /// Applies a fresh items snapshot (refresh the data-source view + tell the native host to reload).
 type RefreshFn<T> = Rc<dyn Fn(&Vec<T>)>;
 
-/// A native recycling list: the platform widget owns scrolling + cell reuse; day builds each
+/// A native recycling list: the platform widget owns scrolling + cell reuse; Day builds each
 /// visible row once and *rebinds* it (a slot-write into its `ItemSlot`) as cells recycle.
 /// Shares the `ItemSlot` row contract with [`each`]; migrating is a one-word change.
 pub struct List<T: 'static, K: 'static> {
@@ -1197,7 +1221,7 @@ pub mod prelude {
     pub use day_spec::props::RowHeight;
     pub use day_spec::{DragPhase, GestureKind};
     pub use day_spec::{DrawOp, Shape, TextAnchor};
-    pub use day_spec::{Font, Role};
+    pub use day_spec::{Font, FontSpec, FontWeight, Role};
 }
 
 // ---------------------------------------------------------------------------
@@ -1705,7 +1729,7 @@ pub fn nav_link<M>(label: impl IntoText<M>, path: &str) -> Button {
 }
 
 /// Create a NAV_PAGE under `host` and wire its FrameChanged size reports into `sizes`
-/// (the native container owns each page's frame; day lays content out at the reported size).
+/// (the native container owns each page's frame; Day lays content out at the reported size).
 fn nav_page(
     host: RNode,
     props: &day_spec::props::NavPageProps,
@@ -2210,7 +2234,7 @@ struct StackEntry {
 }
 
 /// A push/pop navigation stack whose contents are an app-owned `Signal<Vec<String>>` (the
-/// path above the root). day reconciles the native stack to the path; the native back button
+/// path above the root). Day reconciles the native stack to the path; the native back button
 /// writes the pop back into it (docs/navigation.md).
 ///
 /// ```ignore

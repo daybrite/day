@@ -59,7 +59,7 @@ pub struct NodeData<H> {
     pub id: Option<String>,
     /// Accumulated accessibility annotations (§13): merged from the piece default, `.a11y()`,
     /// and `.id()`. Stored so each `set_a11y` re-applies the full picture and `a11y_audit`
-    /// (§14.2) can diff the native tree against day's own expectation.
+    /// (§14.2) can diff the native tree against Day's own expectation.
     pub a11y: day_spec::A11yProps,
     // --- layout state (§7.4) ---
     pub cache: Vec<((u64, u64), Size)>,
@@ -852,7 +852,7 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
 
 /// Like `with_tree`, but returns `None` instead of panicking when the tree is already borrowed.
 /// A snapshot (`TreeOps::snapshot`) holds the borrow while the backend draws the window
-/// synchronously, and that draw can re-enter day through a native callback — e.g. a lazy
+/// synchronously, and that draw can re-enter Day through a native callback — e.g. a lazy
 /// list's `viewForRow`/`connect_bind`/`cellForRow` firing during `cacheDisplayInRect`. Such a
 /// callback uses this and simply skips its work when re-entrant; the next real layout rebinds.
 pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
@@ -884,8 +884,8 @@ pub fn enqueue_event(id: NodeId, ev: Event) {
 }
 
 /// Dispatch queued native events (see [`pump_events_inner`]), CONTAINING any panic. Native event
-/// callbacks reach day through `extern "C"` signal trampolines (GTK's `value_changed_trampoline`,
-/// Qt's event filters, …) that ABORT the process on unwind (`panic_cannot_unwind`). A panic in a day
+/// callbacks reach Day through `extern "C"` signal trampolines (GTK's `value_changed_trampoline`,
+/// Qt's event filters, …) that ABORT the process on unwind (`panic_cannot_unwind`). A panic in a Day
 /// event handler or its reactive drain — e.g. the reactive-cycle assertion firing during a slider
 /// drag — would therefore `SIGABRT` the whole app instead of surfacing. Catch it at this single
 /// backend-agnostic boundary, log it (the message carries the offending effect's source location), and

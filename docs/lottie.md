@@ -44,7 +44,7 @@ returns a `UIView` Rust wraps via `Retained::from_raw`, and the Android shim ret
 ## The iOS mechanism this piece introduces
 
 A piece can't drive a Swift library from Rust directly, and it ships as a SwiftPM package — neither of
-which day supported before. `[package.metadata.day.ios]` (see [extending.md](extending.md)) adds it: at
+which Day supported before. `[package.metadata.day.ios]` (see [extending.md](extending.md)) adds it: at
 build time the CLI generates a **local SwiftPM package** (`build/day/ios/DayPieces`) whose `Package.swift`
 depends on every piece's `swift-packages` and compiles every piece's staged Swift shims. The app's
 `.xcodeproj` depends on that one local package, so adding an iOS piece is pure `Cargo.toml` data — no

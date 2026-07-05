@@ -1,6 +1,6 @@
 ---
 title: CLI & projects
-description: The day command-line tool, the conventional project layout, day.yaml, and dayscript.
+description: The Day command-line tool, the conventional project layout, day.yaml, and dayscript.
 order: 4
 ---
 
@@ -27,7 +27,7 @@ day launch -p macos-gtk --script scripts/walkthrough.yaml --locale fr
 
 ## The conventional project
 
-A day project is a normal Cargo package plus a small `day.yaml`. The build tool generates the
+A Day project is a normal Cargo package plus a small `day.yaml`. The build tool generates the
 per-platform scaffolds (an Xcode project, a Gradle module tree) on demand and links them to your
 SwiftPM-style dependency graph — you never hand-maintain them.
 
@@ -83,4 +83,4 @@ Android, Linux, and Windows.
 Every push builds the showcase on all ten targets and runs the walkthrough, uploading each target's
 screenshots as an artifact. This site's [gallery](../gallery) is assembled from exactly those
 artifacts, so it always shows the latest captures from each platform that succeeded — see
-[Why day](./benefits) for the bigger picture.
+[Why Day](./benefits) for the bigger picture.

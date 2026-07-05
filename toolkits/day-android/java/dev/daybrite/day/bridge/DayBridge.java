@@ -112,10 +112,28 @@ public final class DayBridge {
         return t;
     }
     public static void setLabel(View v, String text) { ((TextView) v).setText(text); }
-    public static void setLabelFont(View v, float dip, boolean bold) {
+    /** `sp` size (scales with the accessibility Font Size setting), font weight (100–900), and italic. */
+    public static void setLabelFont(View v, float sp, int weight, boolean italic) {
         TextView t = (TextView) v;
-        t.setTextSize(TypedValue.COMPLEX_UNIT_DIP, dip);
-        t.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size) — the Android
+        // accessibility text-scale — unlike DIP which does not.
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            // Exact numeric weight + italic (API 28+).
+            t.setTypeface(Typeface.create(Typeface.DEFAULT, weight, italic));
+        } else {
+            int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
+            t.setTypeface(Typeface.create(Typeface.DEFAULT, style));
+        }
+    }
+    /** Text color as a packed 0xAARRGGBB int; `on=false` restores the theme default. */
+    public static void setLabelColor(View v, int argb, boolean on) {
+        TextView t = (TextView) v;
+        if (on) {
+            t.setTextColor(argb);
+        } else {
+            t.setTextColor(new TextView(ctx).getTextColors());
+        }
     }
 
     public static View makeButton(final long id, String title) {

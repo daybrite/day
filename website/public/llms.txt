@@ -1,0 +1,39 @@
+# Day
+
+> Day is a Rust framework for building cross-platform desktop and mobile apps that are genuinely
+> native — you write one declarative UI as a tree of Pieces, and each Piece is realized by a real
+> native widget (AppKit, UIKit, GTK, Qt, WinUI, Android) through a per-platform toolkit backend. There
+> is no virtual DOM and no diffing: the native tree is built once and Signals bind straight to native
+> attributes ("build once, bind forever").
+
+This file follows the llmstxt.org convention. The page at /docs/for-agents is written specifically for
+AI agents (dense, rule-based, canonical); start there if you are generating Day code.
+
+## Quick facts
+
+- Language: Rust. Import everything with `use day::prelude::*;`.
+- Naming: **Day** = the framework (capitalized). `day` = the CLI binary and the crate (lowercase).
+- A UI node is a **Piece**; state is a `Copy` reactive **Signal<T>**; a **target** is an `(OS, toolkit)`
+  pair (e.g. `macos-appkit`, `ios-uikit`, `android-widget`, `linux-gtk`, `windows-winui`).
+- Reactivity: static content passes a value (`label("Hi")`); dynamic content passes a closure that
+  reads a Signal (`label(move || n.get().to_string())`). Only bindings that read a changed Signal re-run.
+- One toolkit backend is compiled per binary (selected by the target); enabling two is a `compile_error!`.
+- CLI: `day create` · `day build -p <target>` · `day launch -p <target>` · `day launch -p <target>
+  --script <s.yaml>` (drive/assert a running app) · `day pack` · `day lint` · `day doctor`.
+- Give any Piece a stable `.id("…")` so dayscript, tests, and deep links can address it.
+
+## Docs
+
+- [For AI Agents](https://daybrite.dev/docs/for-agents): dense, canonical, rule-based reference for LLMs — invariants, canonical patterns, API cheat-sheet, failure modes.
+- [Overview](https://daybrite.dev/docs/overview): what Day is, how it works, the targets it ships.
+- [Why Day](https://daybrite.dev/docs/benefits): the case for native widgets + build-once/bind-forever.
+- [API tour](https://daybrite.dev/docs/api-tour): Pieces, Signals, layout, inputs, navigation, localization, accessibility, extensibility — with runnable snippets.
+- [CLI & projects](https://daybrite.dev/docs/cli): the `day` CLI, the conventional project layout, `day.yaml`, and dayscript automation.
+
+## Invariants (for code generation)
+
+- Build once, bind forever — never rebuild the view on state change; bind a Signal instead.
+- `Signal<T>` is `Copy` — move it into closures directly; never wrap it in `Rc`/`Arc`.
+- Containers take a tuple of children: `column((a, b, c))`; end a heterogeneous Piece with `.any()`.
+- Edit `day.yaml` and Rust; never hand-edit generated Xcode/Gradle scaffolds.
+- Verify on a real target with `day launch -p <target>`; `cargo build` alone does not prove a target works.

@@ -76,11 +76,14 @@ void *day_qt_label_new(const char *text) {
 void day_qt_label_set_text(void *w, const char *text) {
     static_cast<QLabel *>(w)->setText(QString::fromUtf8(text));
 }
-void day_qt_label_set_font(void *w, double pt, int bold) {
+void day_qt_label_set_font(void *w, double pt, int weight, int italic) {
     QLabel *l = static_cast<QLabel *>(w);
     QFont f = l->font();
     f.setPointSizeF(pt);
-    f.setBold(bold != 0);
+    // `weight` is a QFont::Weight numeric value (Thin=100 … Black=900).
+    if (weight > 0)
+        f.setWeight(static_cast<QFont::Weight>(weight));
+    f.setItalic(italic != 0);
     l->setFont(f);
 }
 int day_qt_label_height_for_width(void *w, int width) {

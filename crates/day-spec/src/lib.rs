@@ -41,9 +41,9 @@ pub mod kinds {
     /// One tab's content container inside a `TABS` host; its frame is native-owned.
     pub const TABS_PAGE: &str = "day.tabs_page";
     /// Native recycling list (docs/list.md): NSTableView / UITableView / RecyclerView /
-    /// GtkListView / QListView. Owns scrolling + cell reuse; day binds row content on demand.
+    /// GtkListView / QListView. Owns scrolling + cell reuse; Day binds row content on demand.
     pub const LIST: &str = "day.list";
-    /// A recycled row's content anchor inside a `LIST`; day adopts the native cell as its handle.
+    /// A recycled row's content anchor inside a `LIST`; Day adopts the native cell as its handle.
     pub const LIST_CELL: &str = "day.list_cell";
 }
 
@@ -170,7 +170,7 @@ pub struct ListSource {
     pub token_at: std::rc::Rc<dyn Fn(usize) -> u64>,
     /// Build (first use of this cell) or rebind (recycled cell) row `index` into the native cell.
     pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
-    /// The native cell left the viewport — day may drop per-cell bookkeeping (optional).
+    /// The native cell left the viewport — Day may drop per-cell bookkeeping (optional).
     pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
 }
 
@@ -220,9 +220,9 @@ pub enum Role {
 
 impl Role {
     /// The a11y role a built-in piece kind reports natively — the audit's *expectation* when the
-    /// user hasn't set an explicit `.role()`. Native controls already expose these, so day records
+    /// user hasn't set an explicit `.role()`. Native controls already expose these, so Day records
     /// them for `a11y_audit` (§14.2) rather than overriding the widget; only canvas/custom pieces
-    /// need day to apply a role. Returns `None` for kinds with no inherent control role.
+    /// need Day to apply a role. Returns `None` for kinds with no inherent control role.
     pub fn for_kind(kind: PieceKind) -> Role {
         match kind {
             kinds::BUTTON => Role::Button,
@@ -284,8 +284,8 @@ impl A11yProps {
 }
 
 /// A widget's ACTUAL native accessibility properties, read back by `Toolkit::read_a11y` so
-/// `a11y_audit` (§14.2) can diff the native tree against day's expectation. `role` is the native
-/// role mapped back to day's `Role` (best-effort); `found = false` means the backend can't read
+/// `a11y_audit` (§14.2) can diff the native tree against Day's expectation. `role` is the native
+/// role mapped back to Day's `Role` (best-effort); `found = false` means the backend can't read
 /// the native tree (audit skips the node).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct A11ySnapshot {
@@ -348,14 +348,73 @@ pub enum DrawOp {
 // One binding = one attribute = one patch value — sparseness by construction (§8.1).
 // ---------------------------------------------------------------------------
 
+/// A semantic (logical) text style. Each maps to the PLATFORM's native text style where the toolkit
+/// has one — `UIFont`/`NSFont.preferredFont(forTextStyle:)` on Apple (Dynamic Type), the
+/// `*TextBlockStyle` resources on WinUI — so a Day app matches the OS's own typography and inherits its
+/// accessibility text scaling for free. Backends without semantic styles (GTK/Qt/Android) approximate
+/// with sizes that still track the platform's text-scale / font-scale accessibility setting.
+///
+/// The set mirrors SwiftUI `Font.TextStyle` (largest → smallest).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum Font {
+    LargeTitle,
     Title,
+    Title2,
+    Title3,
     Headline,
+    Subheadline,
     #[default]
     Body,
+    Callout,
+    Footnote,
     Caption,
+    Caption2,
+    /// A custom point size. Backends scale it by the platform's accessibility text-scale (iOS via
+    /// `UIFontMetrics`, Android via `sp`, GTK via text-scaling-factor) so it stays legible.
     System(f64),
+}
+
+/// Font weight, matching `UIFont.Weight` / SwiftUI `Font.Weight` (lightest → heaviest).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontWeight {
+    UltraLight,
+    Thin,
+    Light,
+    Regular,
+    Medium,
+    Semibold,
+    Bold,
+    Heavy,
+    Black,
+}
+
+/// The full font descriptor a label carries: a semantic (or custom) [`Font`] style plus an optional
+/// weight override and italic flag. Backends resolve this to one native font.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FontSpec {
+    pub style: Font,
+    pub weight: Option<FontWeight>,
+    pub italic: bool,
+}
+
+impl Default for FontSpec {
+    fn default() -> Self {
+        FontSpec {
+            style: Font::Body,
+            weight: None,
+            italic: false,
+        }
+    }
+}
+
+impl From<Font> for FontSpec {
+    fn from(style: Font) -> Self {
+        FontSpec {
+            style,
+            weight: None,
+            italic: false,
+        }
+    }
 }
 
 pub mod props {
@@ -371,7 +430,7 @@ pub mod props {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LabelProps {
         pub text: String,
-        pub font: Font,
+        pub font: FontSpec,
         pub color: Option<Color>,
         pub wraps: bool,
     }
@@ -379,7 +438,7 @@ pub mod props {
     pub enum LabelPatch {
         Text(String),
         Color(Option<Color>),
-        Font(Font),
+        Font(FontSpec),
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -542,7 +601,7 @@ pub mod props {
         Automatic,
     }
 
-    /// Native recycling list (docs/list.md). The host owns scrolling + cell reuse; day supplies
+    /// Native recycling list (docs/list.md). The host owns scrolling + cell reuse; Day supplies
     /// row content on demand through the injected `ListSource` (see `Toolkit::attach_list`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListProps {
@@ -726,7 +785,7 @@ pub trait Toolkit: Sized + 'static {
     // pillars
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}
     /// Read a widget's ACTUAL native accessibility properties for `a11y_audit` (§14.2) to diff
-    /// against day's expectation. Default: unsupported (`found = false`) — the audit skips the node.
+    /// against Day's expectation. Default: unsupported (`found = false`) — the audit skips the node.
     fn read_a11y(&self, _h: &Self::Handle) -> A11ySnapshot {
         A11ySnapshot::default()
     }
@@ -737,7 +796,7 @@ pub trait Toolkit: Sized + 'static {
 
     // imperative presentation (docs/dialogs.md): show a native modal for request `req`;
     // the backend answers by enqueuing `Event::PresentResult { req, .. }`. `dismiss` is
-    // used only when day resolves programmatically (dayscript) while the modal is still up.
+    // used only when Day resolves programmatically (dayscript) while the modal is still up.
     fn present(&mut self, _req: u64, _spec: &present::PresentSpec) {}
     fn dismiss(&mut self, _req: u64) {}
 
@@ -762,7 +821,7 @@ pub struct WindowOptions {
 impl Default for WindowOptions {
     fn default() -> Self {
         WindowOptions {
-            title: "day".into(),
+            title: "Day".into(),
             size: Size::new(480.0, 640.0),
             min_size: None,
         }

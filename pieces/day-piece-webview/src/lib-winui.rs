@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // WinUI: this crate's OWN C++/WinRT shim (src/lib-winui-shim.cpp) wrapping the UWP-XAML WebView,
-// boxed into day handles via the `day_winui_box`/`day_winui_unbox` seam day-winui-sys exports (like
+// boxed into Day handles via the `day_winui_box`/`day_winui_unbox` seam day-winui-sys exports (like
 // the Qt renderer's own shim). The shim reports url changes through a C callback →
 // `Event::custom("webview:url", …)`. Windows-only, built + verified in CI (not on this host).
 // ---------------------------------------------------------------------------

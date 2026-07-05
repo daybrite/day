@@ -18,7 +18,7 @@ pub use tree::*;
 
 use day_spec::{Platform, WindowOptions};
 
-/// Launch a day app on the given platform backend: sets up the reactive scheduler and the
+/// Launch a Day app on the given platform backend: sets up the reactive scheduler and the
 /// cross-thread poster, mounts the root piece into the window's content container, runs the
 /// initial layout, and installs the turn-end layout callback (§3.3). The backend then owns
 /// the native main loop.
@@ -84,7 +84,7 @@ pub fn launch_with<P: Platform>(
             }
 
             // Verification hook (headless CI / no-input environments): drive the app through
-            // day's own event path once the native loop starts (delayed past first allocation
+            // Day's own event path once the native loop starts (delayed past first allocation
             // so snapshots see a laid-out window). Precursor of dayscript (§14).
             if let Ok(spec) = std::env::var("DAY_AUTODRIVE") {
                 std::thread::spawn(move || {
@@ -97,7 +97,7 @@ pub fn launch_with<P: Platform>(
 }
 
 /// `DAY_AUTODRIVE="<id>:press;<id>:text:Ada;<id>:value:80;<id>:toggle:true;<id>:tap;
-/// <id>:drag:40:60;shot:/tmp/x.png"` — synthesized day events by element id, plus snapshots.
+/// <id>:drag:40:60;shot:/tmp/x.png"` — synthesized Day events by element id, plus snapshots.
 fn autodrive(spec: &str) {
     use day_spec::{DragPhase, Event, Point};
     for step in spec.split(';').filter(|s| !s.is_empty()) {
@@ -120,7 +120,7 @@ fn autodrive(spec: &str) {
         };
         // Gesture drivers (docs/shapes.md): tap fires at the node's local centre; drag runs a
         // Began→Changed→Ended sequence translated by dx,dy — exercising `.on_tap`/`.on_drag`
-        // hit-testing through day's own event path (the native recognizers deliver the same events).
+        // hit-testing through Day's own event path (the native recognizers deliver the same events).
         if parts.get(1) == Some(&"tap") {
             if let Some(f) = with_tree(|t| t.node_frame(node)) {
                 let c = Point::new(f.size.width / 2.0, f.size.height / 2.0);

@@ -1,5 +1,5 @@
 ---
-// The day mark: a rising sun (dawn = "daybrite") in the brand gradient. Inline SVG so it stays
+// The Day mark: a rising sun (dawn = "daybrite") in the brand gradient. Inline SVG so it stays
 // crisp at any size and needs no network request. `id` keeps the gradient unique per instance.
 interface Props { size?: number; class?: string }
 const { size = 28, class: cls = '' } = Astro.props;
@@ -12,7 +12,7 @@ const gid = 'daysun-' + Math.random().toString(36).slice(2, 8);
   fill="none"
   class={cls}
   role="img"
-  aria-label="day logo"
+  aria-label="Day logo"
   xmlns="http://www.w3.org/2000/svg"
 >
   <defs>

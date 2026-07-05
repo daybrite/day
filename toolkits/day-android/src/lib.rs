@@ -1,6 +1,6 @@
 //! day-android — the android-widget backend (DESIGN.md §9). jni + the DayBridge Java shim
 //! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; framework widgets only, zero
-//! AndroidX). `Handle = AHandle(GlobalRef)`. Coordinates: day works in dp; `set_frame` scales
+//! AndroidX). `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales
 //! by density to px and `measure` scales back. The JVM owns the main loop: `Platform::run`
 //! hands the pre-registered root straight to `ready` (the Activity already called `init`).
 
@@ -34,9 +34,9 @@ mod imp {
     const ANDROID_LOG_ERROR: c_int = 6;
 
     /// Route the process's stdout (fd 1) and stderr (fd 2) into logcat under the tag
-    /// `day` — Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
+    /// `Day` — Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
     /// (and Rust panics) would be invisible. stdout logs at INFO, stderr at ERROR, so
-    /// the `day` CLI can colour them apart. Idempotent; safe to call once at startup.
+    /// the `Day` CLI can colour them apart. Idempotent; safe to call once at startup.
     pub fn redirect_stdio_to_logcat() {
         static DONE: OnceLock<()> = OnceLock::new();
         if DONE.set(()).is_err() {
@@ -52,7 +52,7 @@ mod imp {
             }
             let read_fd = fds[0];
             std::thread::spawn(move || {
-                let tag = c"day";
+                let tag = c"Day";
                 let mut buf = [0u8; 2048];
                 let mut line: Vec<u8> = Vec::new();
                 loop {
@@ -362,14 +362,53 @@ mod imp {
         unsafe { std::mem::transmute(env.new_string(s).expect("new_string")) }
     }
 
-    fn font_params(f: Font) -> (f32, bool) {
+    /// Size (in **sp** — scales with Settings ▸ Display ▸ Font size, the Android accessibility text
+    /// scale) + the style's inherent weight for a logical [`Font`]. Mobile scale, aligned with iOS.
+    fn font_style(f: Font) -> (f32, day_spec::FontWeight) {
+        use day_spec::FontWeight::*;
         match f {
-            Font::Title => (24.0, true),
-            Font::Headline => (16.0, true),
-            Font::Body => (14.0, false),
-            Font::Caption => (12.0, false),
-            Font::System(pt) => (pt as f32, false),
+            Font::LargeTitle => (34.0, Regular),
+            Font::Title => (28.0, Regular),
+            Font::Title2 => (22.0, Regular),
+            Font::Title3 => (20.0, Regular),
+            Font::Headline => (17.0, Semibold),
+            Font::Subheadline => (15.0, Regular),
+            Font::Body => (17.0, Regular),
+            Font::Callout => (16.0, Regular),
+            Font::Footnote => (13.0, Regular),
+            Font::Caption => (12.0, Regular),
+            Font::Caption2 => (11.0, Regular),
+            Font::System(pt) => (pt as f32, Regular),
         }
+    }
+
+    /// Day weight → Android font weight (Thin=100 … Black=900, for `Typeface.create(_, weight, _)`).
+    fn android_weight(w: day_spec::FontWeight) -> i32 {
+        use day_spec::FontWeight as W;
+        match w {
+            W::Thin => 100,
+            W::UltraLight => 200,
+            W::Light => 300,
+            W::Regular => 400,
+            W::Medium => 500,
+            W::Semibold => 600,
+            W::Bold => 700,
+            W::Heavy => 800,
+            W::Black => 900,
+        }
+    }
+
+    /// (sp size, Android weight, italic) for `DayBridge.setLabelFont`.
+    fn font_params(spec: day_spec::FontSpec) -> (f32, i32, bool) {
+        let (sp, inherent) = font_style(spec.style);
+        let weight = android_weight(spec.weight.unwrap_or(inherent));
+        (sp, weight, spec.italic)
+    }
+
+    /// Day `Color` (0–1 floats) → a packed `0xAARRGGBB` int for `android.graphics.Color`.
+    fn argb_i32(c: day_spec::Color) -> i32 {
+        let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u32;
+        ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
     }
 
     impl Toolkit for Android {
@@ -537,7 +576,7 @@ mod imp {
                 }
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
-                    let (dip, bold) = font_params(p.font);
+                    let (sp, weight, italic) = font_params(p.font);
                     with_env(|env| {
                         let s = jstr(env, &p.text);
                         let view = make_view(
@@ -549,13 +588,26 @@ mod imp {
                         let _ = env.call_static_method(
                             BRIDGE,
                             "setLabelFont",
-                            "(Landroid/view/View;FZ)V",
+                            "(Landroid/view/View;FIZ)V",
                             &[
                                 JValue::Object(view.as_obj()),
-                                JValue::Float(dip),
-                                JValue::Bool(bold as u8),
+                                JValue::Float(sp),
+                                JValue::Int(weight),
+                                JValue::Bool(italic as u8),
                             ],
                         );
+                        if let Some(col) = p.color {
+                            let _ = env.call_static_method(
+                                BRIDGE,
+                                "setLabelColor",
+                                "(Landroid/view/View;IZ)V",
+                                &[
+                                    JValue::Object(view.as_obj()),
+                                    JValue::Int(argb_i32(col)),
+                                    JValue::Bool(1),
+                                ],
+                            );
+                        }
                         AHandle(view)
                     })
                 }
@@ -713,18 +765,29 @@ mod imp {
                                 );
                             }),
                             LabelPatch::Font(f) => {
-                                let (dip, bold) = font_params(*f);
+                                let (sp, weight, italic) = font_params(*f);
                                 call_void(
                                     "setLabelFont",
-                                    "(Landroid/view/View;FZ)V",
+                                    "(Landroid/view/View;FIZ)V",
                                     &[
                                         JValue::Object(h.0.as_obj()),
-                                        JValue::Float(dip),
-                                        JValue::Bool(bold as u8),
+                                        JValue::Float(sp),
+                                        JValue::Int(weight),
+                                        JValue::Bool(italic as u8),
                                     ],
                                 );
                             }
-                            LabelPatch::Color(_) => {}
+                            LabelPatch::Color(c) => {
+                                call_void(
+                                    "setLabelColor",
+                                    "(Landroid/view/View;IZ)V",
+                                    &[
+                                        JValue::Object(h.0.as_obj()),
+                                        JValue::Int(c.map(argb_i32).unwrap_or(0)),
+                                        JValue::Bool(c.is_some() as u8),
+                                    ],
+                                );
+                            }
                         }
                     }
                 }
@@ -1003,7 +1066,7 @@ mod imp {
         }
 
         fn adopt(&mut self, raw: RawHandle) -> AHandle {
-            // A recycling ListView cell (a DayFixed) — day fills/rebinds its row content in place.
+            // A recycling ListView cell (a DayFixed) — Day fills/rebinds its row content in place.
             with_env(|env| {
                 let obj = unsafe { JObject::from_raw(raw as jni::sys::jobject) };
                 AHandle(env.new_global_ref(&obj).expect("adopt: global ref"))

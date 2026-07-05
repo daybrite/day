@@ -1,6 +1,6 @@
 # Navigation (`selector`, `stack`)
 
-day models navigation the way it models everything else: as a **projection of an app-owned
+Day models navigation the way it models everything else: as a **projection of an app-owned
 `Signal`**. There is no imperative navigation controller in app code — you own the state, and
 the native container is reconciled to it. Two orthogonal primitives cover the field, matching
 what every native toolkit has converged on:
@@ -47,7 +47,7 @@ stack(path, home_view)
 // the native back button writes the pop back into `path` (origin-tagged).
 ```
 
-day reconciles the native stack to `path` (keep the common prefix, pop the rest, push the new
+Day reconciles the native stack to `path` (keep the common prefix, pop the rest, push the new
 suffix — the same diff `NavigationStack`/React-Navigation do). The native containers:
 `UINavigationController` (iOS), **`AdwNavigationView`** (GTK), Android back-stack, and a
 top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode. The path is
@@ -81,16 +81,16 @@ selector(section).style(SelectorStyle::Sidebar)
 ```
 
 The sidebar selection drives which section shows; the selected section is itself a `stack` that
-drills down. Each owns its signal; day reconciles each native container independently.
+drills down. Each owns its signal; Day reconciles each native container independently.
 
 ## Backend notes
 
 - **GTK adopts libadwaita throughout** (`adw::Application` loads the Adwaita stylesheet). The
   window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
-  supplies the title, window controls, and drag; day's content sits below it). Navigation:
+  supplies the title, window controls, and drag; Day's content sits below it). Navigation:
   `Sidebar` → `AdwNavigationSplitView` with `AdwNavigationPage` sidebar/content; `stack` →
   `AdwNavigationView` (push/pop + back gesture; its `popped` signal writes native back into the
-  path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; day sizes it from the
+  path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; Day sizes it from the
   host width (sidebar is a fixed width, detail fills the rest). Tabs use an `AdwViewStack` with a
   `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
 - **macOS `NSSplitView` / Qt `QSplitter`** honor a `split` flag: `Sidebar` shows both panes; a

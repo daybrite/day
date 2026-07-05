@@ -128,7 +128,7 @@ impl MockProbe {
         f.map(|f| f()).unwrap_or(0)
     }
 
-    /// Simulate the native list binding row `index` into a physical `cell` — day builds the row
+    /// Simulate the native list binding row `index` into a physical `cell` — Day builds the row
     /// the first time a cell is used and rebinds (slot-write) when it is recycled. Drives the real
     /// day-core driver, so tests exercise the whole recycling path. (The source Rc is cloned out
     /// before the call so the re-entrant `with_tree`/toolkit work holds no MockState borrow.)

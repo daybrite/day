@@ -10,7 +10,7 @@ interface Props {
   active?: string;
 }
 const { title, description = site.description, active } = Astro.props;
-const fullTitle = title ? `${title} — day` : `day — ${site.tagline}`;
+const fullTitle = title ? `${title} — Day` : `Day — ${site.tagline}`;
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
 ---
 <!doctype html>
