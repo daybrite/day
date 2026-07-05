@@ -359,9 +359,19 @@ impl<S: SignalRw<f64>> Piece for Slider<S> {
             },
         );
         let v = self.value;
+        let (step, min, max) = (self.step, self.min, self.max);
         cx.on(node, move |ev| {
             if let Event::ValueChanged(val) = ev {
-                v.set_rw(*val);
+                // Honor `.step(_)` at the framework layer so EVERY backend produces stepped values —
+                // several native sliders (e.g. iOS `UISlider`) have no native step and emit a
+                // continuous stream while dragging. Snapping here keeps the bound signal (and the
+                // thumb, via `bind_seeded` above) on the step grid, and stops a `.step`-bound consumer
+                // from being hammered ~60×/s with sub-step deltas during a drag.
+                let snapped = match step {
+                    Some(s) if s > 0.0 => (min + ((val - min) / s).round() * s).clamp(min, max),
+                    _ => *val,
+                };
+                v.set_rw(snapped);
             }
         });
         node

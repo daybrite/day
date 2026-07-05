@@ -171,7 +171,7 @@ fn controls_page() -> AnyPiece {
             row((
                 label(tr("volume-label")),
                 slider(volume).range(0.0..=100.0).id("volume-slider"),
-                label(move || format!("{:.0}", dbg!(volume.get()))).id("volume-value"),
+                label(move || format!("{:.0}", volume.get())).id("volume-value"),
             ))
             .spacing(8.0),
             // — a determinate progress bar tracking the slider live, and a spinner —

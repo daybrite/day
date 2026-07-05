@@ -883,11 +883,33 @@ pub fn enqueue_event(id: NodeId, ev: Event) {
     }
 }
 
-/// Dispatch queued native events: each event is a fresh batch (§3.3 step 1–2), and the
-/// pump as a whole is a TURN BOUNDARY: handlers may dirty only tree state (WindowResized,
-/// FrameChanged) without touching any signal, so no write-driven flush would follow —
-/// the closing flush_sync runs the turn-end hooks (layout) unconditionally.
+/// Dispatch queued native events (see [`pump_events_inner`]), CONTAINING any panic. Native event
+/// callbacks reach day through `extern "C"` signal trampolines (GTK's `value_changed_trampoline`,
+/// Qt's event filters, …) that ABORT the process on unwind (`panic_cannot_unwind`). A panic in a day
+/// event handler or its reactive drain — e.g. the reactive-cycle assertion firing during a slider
+/// drag — would therefore `SIGABRT` the whole app instead of surfacing. Catch it at this single
+/// backend-agnostic boundary, log it (the message carries the offending effect's source location), and
+/// reset the runtime so the app keeps running (degraded) rather than crashing.
 pub fn pump_events() {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(pump_events_inner));
+    if let Err(payload) = result {
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic".to_string());
+        eprintln!(
+            "day: a native event handler panicked and was contained — the app continues, but \
+             reactive/UI state may be inconsistent until the next interaction. Cause: {msg}"
+        );
+        // Drop the in-flight event batch and reset drain state so the runtime isn't wedged.
+        EVENTS.with(|e| e.borrow_mut().clear());
+        PUMP_PENDING.set(false);
+        day_reactive::recover_from_panic();
+    }
+}
+
+fn pump_events_inner() {
     loop {
         let item = EVENTS.with(|e| e.borrow_mut().pop_front());
         let Some((id, ev)) = item else { break };

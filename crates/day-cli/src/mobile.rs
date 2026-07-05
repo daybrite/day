@@ -31,6 +31,71 @@ fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
     }
 }
 
+/// Make a path absolute without requiring it to exist yet (build-output dirs often don't). Build-tool
+/// arguments such as xcodebuild's `SYMROOT` MUST be absolute — a relative one is resolved per-target
+/// against each target's own working directory, so an app target and its SwiftPM package dependencies
+/// scatter their products into different trees.
+fn absolute(path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path))
+    }
+}
+
+/// True when a failed xcodebuild is the "a package resource bundle isn't where the app target expected
+/// it" class — a stale or split build tree. Worth one clean retry (see [`build_ios`]).
+fn is_stale_bundle_failure(out: &std::process::Output) -> bool {
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+    .to_lowercase();
+    all.contains(".bundle") && all.contains("no such file")
+}
+
+/// Distill a failed xcodebuild run into something readable. Raw xcodebuild output is mostly a wall of
+/// `export FOO=bar` lines; the actionable content is the `error:` lines — surface those first (from
+/// both streams), fall back to a non-`export` tail, and add a targeted hint for the resource-bundle
+/// "no such file" failure class (a stale/split build tree).
+fn diagnose_xcodebuild(out: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut errors: Vec<String> = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .filter(|l| l.starts_with("error:") || l.contains(": error:"))
+        .map(str::to_string)
+        .collect();
+    errors.dedup();
+
+    let mut msg = if errors.is_empty() {
+        let tail: Vec<&str> = stdout
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("export "))
+            .rev()
+            .take(20)
+            .collect();
+        tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+    } else {
+        errors.join("\n")
+    };
+
+    let lower = format!("{stdout}{stderr}").to_lowercase();
+    if lower.contains(".bundle") && lower.contains("no such file") {
+        msg.push_str(
+            "\n\nhint: a SwiftPM package resource bundle wasn't where the app target expected it. \
+             This is usually a stale or split build tree — remove build/day/ios-uikit and retry \
+             (day launch does this automatically on a resource-bundle failure).",
+        );
+    }
+    msg
+}
+
 // ---------------------------------------------------------------------------
 // xcode-backend: invoked BY the Xcode script phase with Xcode's env (§17.4)
 // ---------------------------------------------------------------------------
@@ -178,7 +243,12 @@ pub fn build_ios(
     } else {
         "Debug"
     };
-    let symroot = project.root.join("build/day/ios-uikit");
+    // SYMROOT MUST be absolute: xcodebuild resolves a relative build path against each target's own
+    // working directory, so the Runner app target and its SwiftPM package dependencies (e.g. Lottie,
+    // whose resource bundle the app copies) would land their products in different trees and the copy
+    // would fail with "no such file … .bundle". `project.root` is absolute (see meta::find_project),
+    // but absolutize here too so this invariant is enforced at the one place that actually matters.
+    let symroot = absolute(&project.root.join("build/day/ios-uikit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     // Generate the local DayPieces SwiftPM package (piece Swift shims + SwiftPM deps) that the
     // .xcodeproj links, from every piece's [package.metadata.day.ios] — before xcodebuild resolves it.
@@ -187,29 +257,35 @@ pub fn build_ios(
         "Building",
         &format!("{} (xcodebuild {configuration})", target.name),
     );
-    let mut cmd = Command::new("xcodebuild");
-    cmd.current_dir(project.root.join("platform/ios"))
-        .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
-        .args([
-            "-configuration",
-            configuration,
-            "-sdk",
-            "iphonesimulator",
-            "-arch",
-            "arm64",
-        ])
-        .arg(format!("SYMROOT={}", symroot.display()))
-        .arg(format!("DAY_BIN={}", day_bin.display()))
-        .arg("build")
-        .stdout(std::process::Stdio::piped());
-    let out = cmd.output().map_err(|e| format!("xcodebuild: {e}"))?;
+    let xcodebuild = || {
+        let mut cmd = Command::new("xcodebuild");
+        cmd.current_dir(project.root.join("platform/ios"))
+            .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+            .args([
+                "-configuration",
+                configuration,
+                "-sdk",
+                "iphonesimulator",
+                "-arch",
+                "arm64",
+            ])
+            .arg(format!("SYMROOT={}", symroot.display()))
+            .arg(format!("DAY_BIN={}", day_bin.display()))
+            .arg("build")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        cmd.output().map_err(|e| format!("xcodebuild: {e}"))
+    };
+    let mut out = xcodebuild()?;
+    if !out.status.success() && is_stale_bundle_failure(&out) {
+        // A SwiftPM package resource bundle landed in the wrong tree (stale/split build products).
+        // Clear this target's build tree and retry once from clean — self-heals the common case.
+        status("Rebuilding", "ios-uikit (clearing stale build tree)");
+        let _ = std::fs::remove_dir_all(&symroot);
+        out = xcodebuild()?;
+    }
     if !out.status.success() {
-        let text = String::from_utf8_lossy(&out.stdout);
-        let tail: Vec<&str> = text.lines().rev().take(30).collect();
-        return Err(format!(
-            "xcodebuild failed:\n{}",
-            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
-        ));
+        return Err(format!("xcodebuild failed:\n{}", diagnose_xcodebuild(&out)));
     }
     let app = symroot
         .join(format!("{configuration}-iphonesimulator"))

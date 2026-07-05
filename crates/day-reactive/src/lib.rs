@@ -406,6 +406,21 @@ pub fn flush_sync() {
     }
 }
 
+/// Reset the runtime to a clean idle state after a panic unwound through a drain or batch — e.g. a
+/// reactive-cycle assertion ([`RERUN_CAP`]) that tripped inside a native event callback which the
+/// backend *contained* (rather than letting it abort the process across the C ABI — a GTK/Qt signal
+/// trampoline can't unwind). The in-flight `pending` work and the observer stack are dropped (the next
+/// interaction re-derives them); persistent registrations (effects, memos, turn-end hooks) are kept.
+pub fn recover_from_panic() {
+    with_rt(|rt| {
+        rt.draining = false;
+        rt.schedule_posted = false;
+        rt.batch_depth = 0;
+        rt.pending.clear();
+        rt.observers.clear();
+    });
+}
+
 /// After a write: schedule work. Inside a batch or drain, the fixpoint picks it up; outside,
 /// post a coalesced drain through the installed scheduler (§3.3 step 3).
 fn schedule_after_write(rt: &mut Runtime) -> Option<Rc<dyn Fn()>> {

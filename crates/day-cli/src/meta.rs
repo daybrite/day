@@ -88,10 +88,17 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
                     manifest.day
                 ));
             }
-            return Ok(Project {
-                root: dir,
-                manifest,
+            // Always hand back an ABSOLUTE root. A relative `--project` (e.g. `apps/showcase`) would
+            // otherwise flow into build-tool arguments like xcodebuild's `SYMROOT` as a relative path;
+            // xcodebuild resolves relative build paths against each target's own working directory, so
+            // the app target and a SwiftPM package dependency scatter their products into different
+            // trees (a missing `*_*.bundle` copy failure). Absolute paths resolve identically everywhere.
+            let root = std::fs::canonicalize(&dir).unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(&dir))
+                    .unwrap_or_else(|_| dir.clone())
             });
+            return Ok(Project { root, manifest });
         }
         if !dir.pop() {
             return Err("no day.yaml found in this directory or any ancestor".into());
