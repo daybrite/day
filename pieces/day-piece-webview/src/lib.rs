@@ -158,8 +158,9 @@ impl Piece for WebView {
 #[path = "lib-appkit.rs"]
 mod appkit_impl;
 
-// GTK web view is Linux/Windows only — WebKitGTK 6 (webkit6) isn't viable on macOS (see Cargo.toml).
-#[cfg(all(feature = "gtk", not(target_os = "macos")))]
+// GTK web view is Linux only — WebKitGTK 6 (webkit6) isn't viable on macOS and has no MSYS2 package
+// on Windows, so both fall back to day's placeholder leaf (see Cargo.toml's webkit6 target gate).
+#[cfg(all(feature = "gtk", not(target_os = "macos"), not(windows)))]
 #[path = "lib-gtk.rs"]
 mod gtk_impl;
 

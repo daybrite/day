@@ -13,9 +13,11 @@ build = "build.rs"
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:objc2-web-kit"]
-# WebKitGTK 6 via the webkit6 crate. Scoped to non-macOS: Homebrew's webkitgtk vends the GTK3 API and
-# has no bottle (hours-long source build), and WebKitGTK on macOS-quartz is not viable — so on
-# macos-gtk the webview kind falls back to a placeholder (webkit6 is a non-macOS target dependency).
+# WebKitGTK 6 via the webkit6 crate, scoped to Linux (non-macOS, non-Windows): Homebrew's webkitgtk
+# vends the GTK3 API and isn't viable on macOS-quartz, and MSYS2/MINGW64 has no WebKitGTK package at
+# all. `dep:webkit6` is a no-op where the dependency is target-gated out (macOS + Windows), so on
+# macos-gtk AND windows-gtk the webview kind falls back to a placeholder (lib.rs gates lib-gtk.rs to
+# match).
 gtk = ["dep:day-gtk", "dep:gtk4", "dep:webkit6"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6WebEngineWidgets when present (else a URL-label fallback)
 # objc2-web-kit 0.3 binds WKWebView for macOS only, so UIKit hand-rolls it via extern_class!/msg_send!.
@@ -44,10 +46,11 @@ objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "
 objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
 objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKFrameInfo"] }
 
-# WebKitGTK 6 only exists as a fast package on Linux (libwebkitgtk-6.0-dev) and Windows MSYS2
-# (webkitgtk6); the `gtk` feature enables it via `dep:webkit6`, which is a no-op on macOS where this
-# dependency is absent — so the GTK web view is Linux/Windows only (lib-gtk.rs is gated to match).
-[target.'cfg(not(target_os = "macos"))'.dependencies]
+# WebKitGTK 6 ships as a fast package only on Linux (libwebkitgtk-6.0-dev): MSYS2/MINGW64 has no
+# WebKitGTK at all and it isn't viable on macOS-quartz. Scope `webkit6` to non-macOS + non-Windows so
+# the `gtk` feature's `dep:webkit6` is a no-op on those (the GTK web view then falls back to day's
+# placeholder leaf — lib.rs gates lib-gtk.rs to match).
+[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
 webkit6 = { version = "0.6", optional = true }
 
 [build-dependencies]

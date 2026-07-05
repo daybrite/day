@@ -343,15 +343,17 @@ jobs:
         include:
           # mingw-w64-x86_64-gcc provides the mingw gcc/g++ the pin step below points the linker
           # (and the cc crate) at — the runner has no MSYS2 mingw compiler otherwise, only the libs.
-          # day-piece-webview's GTK web view adds -webkitgtk6; its Qt web view has NO MSYS2 package
-          # (MSYS2/MINGW64 ships no Qt6 WebEngine — Chromium won't build with MinGW GCC), so the
-          # piece degrades to a URL label there (build.rs probes pkg-config for Qt6WebEngineWidgets).
+          # Neither web view has an MSYS2/MINGW64 package: no Qt6 WebEngine and no WebKitGTK 6 (both
+          # embed a browser engine — Chromium / WebKit — that won't build with MinGW GCC). So
+          # day-piece-webview degrades on both: the Qt view to a URL label (build.rs probes pkg-config
+          # for Qt6WebEngineWidgets), the GTK view to day's placeholder leaf (webkit6 is gated off
+          # Windows in Cargo.toml, exactly like macOS).
           - combo: windows-qt
             toolkit: qt
             msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
           - combo: windows-gtk
             toolkit: gtk
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-webkitgtk6 mingw-w64-x86_64-pkgconf
+            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-pkgconf
     defaults:
       run:
         shell: msys2 {0}
@@ -385,8 +387,9 @@ jobs:
         run: cargo test --locked
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # The WEBKIT_* var matters only for windows-gtk's WebKitGTK web view (render in software, no
-      # accelerated compositing); it is a harmless no-op for windows-qt.
+      # WEBKIT_DISABLE_COMPOSITING_MODE is a harmless no-op on Windows now (neither combo has a real
+      # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
+      # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
