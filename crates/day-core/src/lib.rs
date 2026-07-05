@@ -5,6 +5,7 @@
 mod build;
 mod layout;
 pub mod list;
+pub mod menu;
 mod nav;
 mod present;
 mod tree;
@@ -12,6 +13,7 @@ mod tree;
 pub use build::*;
 pub use layout::*;
 pub use list::{BuiltRow, ListDriver, install_list, list_reload};
+pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
 pub use present::*;
 pub use tree::*;

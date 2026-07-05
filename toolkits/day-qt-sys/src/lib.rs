@@ -109,4 +109,26 @@ unsafe extern "C" {
     pub fn day_qt_set_visible(w: *mut c_void, visible: c_int);
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
+
+    // Menus (docs/menus.md): a flat builder walked from the day-neutral MenuItem tree.
+    pub fn day_qt_set_menu_cb(cb: extern "C" fn(u64));
+    pub fn day_qt_window_menubar(win: *mut c_void) -> *mut c_void;
+    pub fn day_qt_menubar_add_menu(bar: *mut c_void, label: *const c_char) -> *mut c_void;
+    pub fn day_qt_menu_new() -> *mut c_void;
+    pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;
+    pub fn day_qt_menu_add_separator(menu: *mut c_void);
+    pub fn day_qt_menu_add_action(
+        menu: *mut c_void,
+        label: *const c_char,
+        id: u64,
+        shortcut: *const c_char,
+        enabled: c_int,
+    );
+    pub fn day_qt_menu_add_role(
+        menu: *mut c_void,
+        label: *const c_char,
+        role: c_int,
+        shortcut: *const c_char,
+    );
+    pub fn day_qt_set_context_menu(widget: *mut c_void, menu: *mut c_void);
 }

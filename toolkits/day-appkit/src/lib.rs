@@ -802,6 +802,7 @@ pub struct AppKit {
     registry: Registry<AppKit>,
     window: Option<Retained<NSWindow>>,
     content: Option<Handle>,
+    app_name: String,
 }
 
 impl AppKit {
@@ -816,6 +817,7 @@ impl AppKit {
             registry,
             window: None,
             content: None,
+            app_name: "Day".into(),
         }
     }
 
@@ -1711,6 +1713,71 @@ impl Toolkit for AppKit {
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
 
+    fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        let mtm = self.mtm;
+        let app = NSApplication::sharedApplication(mtm);
+        let menubar = NSMenu::new(mtm);
+        // macOS mandates a leading app menu (shown as the app name); provide the standard one so the
+        // app's `app_menu(...)` supplies only the rest (File/Edit/View/…), staying convention-native.
+        let app_item = NSMenuItem::new(mtm);
+        let app_menu = build_ns_menu(
+            mtm,
+            &self.app_name,
+            &[
+                day_spec::MenuItem::Action {
+                    id: 0,
+                    label: format!("About {}", self.app_name),
+                    shortcut: None,
+                    enabled: true,
+                    role: Some(day_spec::MenuRole::About),
+                },
+                day_spec::MenuItem::Separator,
+                day_spec::MenuItem::Action {
+                    id: 0,
+                    label: format!("Quit {}", self.app_name),
+                    shortcut: None,
+                    enabled: true,
+                    role: Some(day_spec::MenuRole::Quit),
+                },
+            ],
+        );
+        app_item.setSubmenu(Some(&app_menu));
+        menubar.addItem(&app_item);
+        // Each top-level entry becomes a menu-bar menu.
+        for item in items {
+            match item {
+                day_spec::MenuItem::Submenu { label, items } => {
+                    let sub = build_ns_menu(mtm, label, items);
+                    let it = NSMenuItem::new(mtm);
+                    it.setTitle(&NSString::from_str(label));
+                    it.setSubmenu(Some(&sub));
+                    menubar.addItem(&it);
+                }
+                other => {
+                    // A bare top-level action → wrap in a one-item menu so it has a submenu.
+                    let sub = build_ns_menu(mtm, "", std::slice::from_ref(other));
+                    let it = NSMenuItem::new(mtm);
+                    it.setSubmenu(Some(&sub));
+                    menubar.addItem(&it);
+                }
+            }
+        }
+        app.setMainMenu(Some(&menubar));
+    }
+
+    fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        let Some(view) = h.downcast_ref::<NSView>() else {
+            return;
+        };
+        if items.is_empty() {
+            unsafe { view.setMenu(None) };
+            return;
+        }
+        let menu = build_ns_menu(self.mtm, "", items);
+        // NSView (via NSResponder) shows this on right-click automatically; setMenu retains it.
+        unsafe { view.setMenu(Some(&menu)) };
+    }
+
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
         let key = ptr_of(h);
         // Idempotent: attach each kind at most once per view.
@@ -1933,9 +2000,12 @@ impl Platform for AppKit {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
         let mtm = self.mtm;
+        self.app_name = options.title.clone();
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
 
+        // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
+        // installs its own via `app_menu(...)`.
         install_main_menu(mtm, &app, &options.title);
 
         let content_rect = NSRect::new(
@@ -2067,6 +2137,186 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     menubar.addItem(&edit_item);
 
     app.setMainMenu(Some(&menubar));
+}
+
+// ---------------------------------------------------------------------------
+// Menus (§ menus): render day's MenuItem model with NSMenu. Custom items route to a shared
+// DayMenuTarget (id in the item's tag → Event::MenuAction); role items use the native selector.
+// ---------------------------------------------------------------------------
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayMenuTarget"]
+    #[ivars = ()]
+    struct DayMenuTarget;
+
+    unsafe impl NSObjectProtocol for DayMenuTarget {}
+
+    impl DayMenuTarget {
+        #[unsafe(method(fire:))]
+        fn fire(&self, sender: &NSMenuItem) {
+            let id = sender.tag() as u64;
+            if id != 0 {
+                emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+            }
+        }
+    }
+);
+
+thread_local! {
+    // NSMenuItem does NOT retain its target — keep one shared target alive for the app's lifetime.
+    static MENU_TARGET: std::cell::RefCell<Option<Retained<DayMenuTarget>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn menu_target(mtm: MainThreadMarker) -> Retained<DayMenuTarget> {
+    MENU_TARGET.with(|t| {
+        t.borrow_mut()
+            .get_or_insert_with(|| {
+                let this = DayMenuTarget::alloc(mtm).set_ivars(());
+                let obj: Retained<DayMenuTarget> = unsafe { msg_send![super(this), init] };
+                obj
+            })
+            .clone()
+    })
+}
+
+fn ns_modifiers(s: &day_spec::Shortcut) -> objc2_app_kit::NSEventModifierFlags {
+    use objc2_app_kit::NSEventModifierFlags as F;
+    let mut m = F::empty();
+    if s.primary {
+        m |= F::Command;
+    }
+    if s.shift {
+        m |= F::Shift;
+    }
+    if s.alt {
+        m |= F::Option;
+    }
+    if s.control {
+        m |= F::Control;
+    }
+    m
+}
+
+/// A shortcut's key-equivalent string. Single chars pass through (lowercased); a few named keys map
+/// to their control characters. Modifiers ride separately via `setKeyEquivalentModifierMask`.
+fn ns_key_equivalent(key: &str) -> String {
+    match key {
+        "Return" | "Enter" => "\r".into(),
+        "Tab" => "\t".into(),
+        "Delete" | "Backspace" => "\u{8}".into(),
+        "Escape" => "\u{1b}".into(),
+        "Space" => " ".into(),
+        k if k.chars().count() == 1 => k.to_lowercase(),
+        _ => String::new(), // named keys we don't map get no key-equivalent (still shown in menu)
+    }
+}
+
+/// A standard role → (default label, selector, default shortcut). Selector `None` = no native action
+/// (the app should attach its own via a custom item); the role then only supplies label placement.
+fn role_spec(
+    role: day_spec::MenuRole,
+) -> (
+    &'static str,
+    Option<objc2::runtime::Sel>,
+    Option<day_spec::Shortcut>,
+) {
+    use day_spec::MenuRole as R;
+    use day_spec::Shortcut as S;
+    match role {
+        R::Cut => ("Cut", Some(sel!(cut:)), Some(S::new("x"))),
+        R::Copy => ("Copy", Some(sel!(copy:)), Some(S::new("c"))),
+        R::Paste => ("Paste", Some(sel!(paste:)), Some(S::new("v"))),
+        R::SelectAll => ("Select All", Some(sel!(selectAll:)), Some(S::new("a"))),
+        R::Undo => ("Undo", Some(sel!(undo:)), Some(S::new("z"))),
+        R::Redo => ("Redo", Some(sel!(redo:)), Some(S::new("z").shift())),
+        R::Delete => ("Delete", Some(sel!(delete:)), None),
+        R::About => ("About", Some(sel!(orderFrontStandardAboutPanel:)), None),
+        R::Quit => ("Quit", Some(sel!(terminate:)), Some(S::new("q"))),
+        R::Preferences => ("Settings…", None, Some(S::new(","))),
+        R::Minimize => (
+            "Minimize",
+            Some(sel!(performMiniaturize:)),
+            Some(S::new("m")),
+        ),
+        R::CloseWindow => ("Close", Some(sel!(performClose:)), Some(S::new("w"))),
+        R::Fullscreen => (
+            "Enter Full Screen",
+            Some(sel!(toggleFullScreen:)),
+            Some(S::new("f").control()),
+        ),
+    }
+}
+
+fn build_ns_menu(
+    mtm: MainThreadMarker,
+    title: &str,
+    items: &[day_spec::MenuItem],
+) -> Retained<NSMenu> {
+    use day_spec::MenuItem as MI;
+    let menu = unsafe { NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str(title)) };
+    let target = menu_target(mtm);
+    for item in items {
+        match item {
+            MI::Separator => menu.addItem(&NSMenuItem::separatorItem(mtm)),
+            MI::Submenu { label, items } => {
+                let sub = build_ns_menu(mtm, label, items);
+                let it = NSMenuItem::new(mtm);
+                it.setTitle(&NSString::from_str(label));
+                it.setSubmenu(Some(&sub));
+                menu.addItem(&it);
+            }
+            MI::Action {
+                id,
+                label,
+                shortcut,
+                enabled,
+                role,
+            } => {
+                // Resolve label/selector/shortcut, folding in the role's native defaults.
+                let (mut lbl, sel, mut sc) = match role {
+                    Some(r) => {
+                        let (dl, ds, dsc) = role_spec(*r);
+                        (dl.to_string(), ds, dsc)
+                    }
+                    None => (String::new(), None, None),
+                };
+                if !label.is_empty() {
+                    lbl = label.clone();
+                }
+                if shortcut.is_some() {
+                    sc = shortcut.clone();
+                }
+                // Custom action (nonzero id) overrides any role selector and targets our trampoline.
+                let custom = *id != 0;
+                let key = sc
+                    .as_ref()
+                    .map(|s| ns_key_equivalent(&s.key))
+                    .unwrap_or_default();
+                let it = unsafe {
+                    NSMenuItem::initWithTitle_action_keyEquivalent(
+                        NSMenuItem::alloc(mtm),
+                        &NSString::from_str(&lbl),
+                        if custom { Some(sel!(fire:)) } else { sel },
+                        &NSString::from_str(&key),
+                    )
+                };
+                if let Some(s) = &sc {
+                    it.setKeyEquivalentModifierMask(ns_modifiers(s));
+                }
+                if custom {
+                    let tobj: &objc2::runtime::AnyObject = target.as_ref();
+                    unsafe { it.setTarget(Some(tobj)) };
+                    it.setTag(*id as isize);
+                }
+                it.setEnabled(*enabled);
+                menu.addItem(&it);
+            }
+        }
+    }
+    menu
 }
 
 /// Resolve an asset name: DAY_ASSET_ROOT (dev runs / CLI launch) or the app bundle Resources.

@@ -58,6 +58,16 @@ public class DayActivity extends Activity {
         return host + path;
     }
 
+    /** App menu (docs/menus.md): the global menu maps to the app-bar overflow (⋮). Rebuilt whenever
+     *  DayBridge.setAppMenu invalidates it. No spec → no overflow item shown. */
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        if (DayBridge.appMenuSpec != null && !DayBridge.appMenuSpec.isEmpty()) {
+            DayBridge.buildMenu(menu, DayBridge.appMenuSpec);
+            return true;
+        }
+        return false;
+    }
+
     /** System back: pop the nav stack when there is one; otherwise leave the app. */
     @Override public void onBackPressed() {
         DayNavHost nav = DayNavHost.active;

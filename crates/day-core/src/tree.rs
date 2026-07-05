@@ -366,6 +366,8 @@ pub trait TreeOps {
     /// Attach a native gesture recognizer to `node` (docs/shapes.md): the backend then emits
     /// `Event::Tap/LongPress/Drag` for it. The node must have a native handle.
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind);
+    fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
+    fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>);
     fn mark_needs_measure(&mut self, node: RNode);
@@ -564,6 +566,18 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(h) = n.handle.clone()
         {
             self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
+        }
+    }
+
+    fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>) {
+        self.toolkit.set_app_menu(&items);
+    }
+
+    fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>) {
+        if let Some(n) = self.nodes.get(node)
+            && let Some(h) = n.handle.clone()
+        {
+            self.toolkit.set_context_menu(&h, rnode_to_id(node), &items);
         }
     }
 
@@ -916,6 +930,11 @@ fn pump_events_inner() {
         // Presentation answers are keyed by request id, not by tree node (docs/dialogs.md).
         if let Event::PresentResult { req, result } = ev {
             crate::present::resolve_presentation(req, result);
+            continue;
+        }
+        // Menu actions are keyed by action id, not by tree node (§ menus).
+        if let Event::MenuAction(action) = ev {
+            crate::menu::dispatch_menu_action(action);
             continue;
         }
         let node = if id == day_spec::WINDOW_NODE {

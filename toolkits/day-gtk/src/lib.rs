@@ -143,6 +143,157 @@ pub fn emit(id: NodeId, ev: Event) {
 }
 
 // ---------------------------------------------------------------------------
+// Menus (§ menus): render day's MenuItem model as a GMenu (GtkPopoverMenu for context menus,
+// GtkPopoverMenuBar for the app menu). Custom items → SimpleActions under the "daymenu" prefix that
+// emit Event::MenuAction; role items → the widget's stock action (clipboard.copy, …).
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// Keep each context-menu popover alive + parented to its widget (widget ptr → popover).
+    static MENU_POPOVERS: RefCell<HashMap<usize, gtk4::PopoverMenu>> = RefCell::new(HashMap::new());
+}
+
+/// A day `MenuRole` → a GTK stock action targeting the focused widget's built-in behavior. `None` =
+/// GTK has no widget action for it (the role item is then omitted from a context menu).
+fn gtk_role_action(role: day_spec::MenuRole) -> Option<&'static str> {
+    use day_spec::MenuRole as R;
+    Some(match role {
+        R::Cut => "clipboard.cut",
+        R::Copy => "clipboard.copy",
+        R::Paste => "clipboard.paste",
+        R::SelectAll => "selection.select-all",
+        R::Undo => "text.undo",
+        R::Redo => "text.redo",
+        _ => return None,
+    })
+}
+
+fn gtk_role_label(role: day_spec::MenuRole) -> &'static str {
+    use day_spec::MenuRole as R;
+    match role {
+        R::Cut => "Cut",
+        R::Copy => "Copy",
+        R::Paste => "Paste",
+        R::SelectAll => "Select All",
+        R::Undo => "Undo",
+        R::Redo => "Redo",
+        R::Delete => "Delete",
+        R::About => "About",
+        R::Quit => "Quit",
+        R::Preferences => "Preferences",
+        R::Minimize => "Minimize",
+        R::CloseWindow => "Close",
+        R::Fullscreen => "Full Screen",
+    }
+}
+
+/// GTK accelerator string, e.g. `<Primary>s`, `<Primary><Shift>s`.
+fn accel_string(s: &day_spec::Shortcut) -> String {
+    let mut acc = String::new();
+    if s.primary {
+        acc.push_str("<Primary>");
+    }
+    if s.shift {
+        acc.push_str("<Shift>");
+    }
+    if s.alt {
+        acc.push_str("<Alt>");
+    }
+    if s.control {
+        acc.push_str("<Control>");
+    }
+    let key = match s.key.as_str() {
+        "Return" | "Enter" => "Return".to_string(),
+        "Delete" | "Backspace" => "Delete".to_string(),
+        "Space" => "space".to_string(),
+        k if k.chars().count() == 1 => k.to_lowercase(),
+        k => k.to_string(),
+    };
+    format!("{acc}{key}")
+}
+
+fn build_gio_menu(
+    items: &[day_spec::MenuItem],
+    group: &gtk4::gio::SimpleActionGroup,
+) -> gtk4::gio::Menu {
+    use day_spec::MenuItem as MI;
+    use gtk4::glib::variant::ToVariant;
+    use gtk4::prelude::*;
+    let menu = gtk4::gio::Menu::new();
+    let mut section = gtk4::gio::Menu::new();
+    for item in items {
+        match item {
+            MI::Separator => {
+                if section.n_items() > 0 {
+                    menu.append_section(None, &section);
+                    section = gtk4::gio::Menu::new();
+                }
+            }
+            MI::Submenu { label, items } => {
+                section.append_submenu(Some(label), &build_gio_menu(items, group));
+            }
+            MI::Action {
+                id,
+                label,
+                shortcut,
+                enabled,
+                role,
+            } => {
+                if *id != 0 {
+                    let name = format!("a{id}");
+                    let action = gtk4::gio::SimpleAction::new(&name, None);
+                    action.set_enabled(*enabled);
+                    let aid = *id;
+                    action.connect_activate(move |_, _| {
+                        emit(day_spec::WINDOW_NODE, Event::MenuAction(aid));
+                    });
+                    group.add_action(&action);
+                    let mi =
+                        gtk4::gio::MenuItem::new(Some(label), Some(&format!("daymenu.{name}")));
+                    if let Some(sc) = shortcut {
+                        mi.set_attribute_value("accel", Some(&accel_string(sc).to_variant()));
+                    }
+                    section.append_item(&mi);
+                } else if let Some(r) = role {
+                    let lbl = if label.is_empty() {
+                        gtk_role_label(*r)
+                    } else {
+                        label.as_str()
+                    };
+                    if let Some(act) = gtk_role_action(*r) {
+                        section.append(Some(lbl), Some(act));
+                    }
+                }
+            }
+        }
+    }
+    if section.n_items() > 0 {
+        menu.append_section(None, &section);
+    }
+    menu
+}
+
+/// Register app-menu accelerators on the GtkApplication so shortcuts fire even without opening the bar.
+fn set_menu_accels(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
+    use day_spec::MenuItem as MI;
+    use gtk4::prelude::*;
+    for item in items {
+        match item {
+            MI::Submenu { items, .. } => set_menu_accels(app, items),
+            MI::Action {
+                id,
+                shortcut: Some(sc),
+                ..
+            } if *id != 0 => {
+                let accel = accel_string(sc);
+                app.set_accels_for_action(&format!("daymenu.a{id}"), &[accel.as_str()]);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Navigation (docs/navigation.md): libadwaita. selector(Sidebar) → AdwNavigationSplitView;
 // stack → AdwNavigationView (push/pop). Each page's GtkFixed is wrapped in an
 // AdwNavigationPage; Day sizes content from the host width via FrameChanged (nav_report).
@@ -328,6 +479,8 @@ pub static RENDERERS: [fn() -> Renderer<Gtk>];
 pub struct Gtk {
     registry: Registry<Gtk>,
     window_fixed: Option<gtk4::Fixed>,
+    /// The app menu bar, if installed — kept so a re-`set_app_menu` can replace it.
+    menu_bar: Option<gtk4::PopoverMenuBar>,
 }
 
 impl Gtk {
@@ -339,6 +492,7 @@ impl Gtk {
         Gtk {
             registry,
             window_fixed: None,
+            menu_bar: None,
         }
     }
 }
@@ -1207,6 +1361,80 @@ impl Toolkit for Gtk {
                 h.add_controller(click);
             }
         }
+    }
+
+    fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        // Remove any prior context menu (popover + gesture) for this widget.
+        MENU_POPOVERS.with(|m| {
+            if let Some(pop) = m.borrow_mut().remove(&widget_key(h)) {
+                pop.unparent();
+            }
+        });
+        if items.is_empty() {
+            return;
+        }
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let model = build_gio_menu(items, &group);
+        h.insert_action_group("daymenu", Some(&group));
+        // The label/target must be able to receive pointer events for the gesture to fire.
+        h.set_can_target(true);
+        let popover = gtk4::PopoverMenu::from_model(Some(&model));
+        popover.set_parent(h);
+        popover.set_has_arrow(false);
+        let popup_at = {
+            let pop = popover.clone();
+            move |x: f64, y: f64| {
+                pop.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                pop.popup();
+            }
+        };
+        // Secondary (right) click on desktop…
+        let click = gtk4::GestureClick::new();
+        click.set_button(3);
+        let f = popup_at.clone();
+        click.connect_pressed(move |_, _n, x, y| f(x, y));
+        h.add_controller(click);
+        // …and long-press for touch/mobile.
+        let long = gtk4::GestureLongPress::new();
+        let f = popup_at.clone();
+        long.connect_pressed(move |_, x, y| f(x, y));
+        h.add_controller(long);
+        MENU_POPOVERS.with(|m| m.borrow_mut().insert(widget_key(h), popover));
+    }
+
+    fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        let Some(app) = self
+            .window_fixed
+            .as_ref()
+            .and_then(|f| f.root())
+            .and_then(|r| r.downcast::<gtk4::Window>().ok())
+            .and_then(|w| w.application())
+        else {
+            return;
+        };
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let model = build_gio_menu(items, &group);
+        // Actions live under the "daymenu" prefix on the window; accelerators are set on the app.
+        if let Some(win) = app.active_window() {
+            win.insert_action_group("daymenu", Some(&group));
+        }
+        set_menu_accels(&app, items);
+        // The Adwaita window is Window → AdwToolbarView[ AdwHeaderBar, ScrolledWindow[ fixed ] ].
+        // The app menu bar is another top bar of the toolbar view, sitting under the header.
+        let toolbar = self
+            .window_fixed
+            .as_ref()
+            .and_then(|f| f.parent()) // ScrolledWindow (the sizing wrapper)
+            .and_then(|w| w.parent()) // AdwToolbarView
+            .and_then(|w| w.downcast::<adw::ToolbarView>().ok());
+        let Some(toolbar) = toolbar else { return };
+        // Replace any previously-installed bar (set_app_menu may be called again).
+        if let Some(old) = self.menu_bar.take() {
+            toolbar.remove(&old);
+        }
+        let bar = gtk4::PopoverMenuBar::from_model(Some(&model));
+        toolbar.add_top_bar(&bar);
+        self.menu_bar = Some(bar);
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {

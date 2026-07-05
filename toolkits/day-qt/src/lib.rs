@@ -406,6 +406,130 @@ extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
     }
 }
 
+extern "C" fn on_menu_action(id: u64) {
+    emit_window(Event::MenuAction(id));
+}
+
+/// A QKeySequence-parseable string for a shortcut. Qt maps `Ctrl` to ⌘ on macOS, so `primary`
+/// renders as the platform's command modifier everywhere.
+fn qt_shortcut(sc: &day_spec::Shortcut) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if sc.primary {
+        parts.push("Ctrl".into());
+    }
+    if sc.shift {
+        parts.push("Shift".into());
+    }
+    if sc.alt {
+        parts.push("Alt".into());
+    }
+    if sc.control {
+        // The *physical* Control key: Qt::MetaModifier is Control on macOS, Control elsewhere.
+        #[cfg(target_os = "macos")]
+        parts.push("Meta".into());
+        #[cfg(not(target_os = "macos"))]
+        parts.push("Ctrl".into());
+    }
+    // Single letters are case-insensitive to Qt; named keys ("Delete", "Return", "F11") pass through.
+    let key = if sc.key.chars().count() == 1 {
+        sc.key.to_uppercase()
+    } else {
+        sc.key.clone()
+    };
+    parts.push(key);
+    parts.join("+")
+}
+
+/// Default label for a standard role when the app left the entry's label empty.
+fn qt_role_label(role: day_spec::MenuRole) -> &'static str {
+    use day_spec::MenuRole::*;
+    match role {
+        Cut => "Cut",
+        Copy => "Copy",
+        Paste => "Paste",
+        SelectAll => "Select All",
+        Undo => "Undo",
+        Redo => "Redo",
+        Delete => "Delete",
+        About => "About",
+        Quit => "Quit",
+        Preferences => "Preferences…",
+        Minimize => "Minimize",
+        CloseWindow => "Close",
+        Fullscreen => "Enter Full Screen",
+    }
+}
+
+/// Default portable shortcut for a role (Qt maps `Ctrl` → ⌘ on macOS).
+fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
+    use day_spec::MenuRole::*;
+    Some(match role {
+        Cut => "Ctrl+X",
+        Copy => "Ctrl+C",
+        Paste => "Ctrl+V",
+        SelectAll => "Ctrl+A",
+        Undo => "Ctrl+Z",
+        Redo => "Ctrl+Shift+Z",
+        Quit => "Ctrl+Q",
+        CloseWindow => "Ctrl+W",
+        Minimize => "Ctrl+M",
+        Preferences => "Ctrl+,",
+        Delete | About | Fullscreen => return None,
+    })
+}
+
+/// Walk the day-neutral menu tree, issuing flat builder calls against a QMenu pointer.
+fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
+    for item in items {
+        match item {
+            day_spec::MenuItem::Separator => unsafe { ffi::day_qt_menu_add_separator(menu) },
+            day_spec::MenuItem::Submenu { label, items } => {
+                let sub = unsafe { ffi::day_qt_menu_add_submenu(menu, cstr(label).as_ptr()) };
+                build_qt_menu(sub, items);
+            }
+            day_spec::MenuItem::Action {
+                id,
+                label,
+                shortcut,
+                enabled,
+                role,
+            } => {
+                if let Some(role) = role {
+                    let text = if label.is_empty() {
+                        qt_role_label(*role).to_string()
+                    } else {
+                        label.clone()
+                    };
+                    let sc = shortcut
+                        .as_ref()
+                        .map(qt_shortcut)
+                        .or_else(|| qt_role_shortcut(*role).map(str::to_string))
+                        .unwrap_or_default();
+                    unsafe {
+                        ffi::day_qt_menu_add_role(
+                            menu,
+                            cstr(&text).as_ptr(),
+                            *role as c_int,
+                            cstr(&sc).as_ptr(),
+                        )
+                    };
+                } else {
+                    let sc = shortcut.as_ref().map(qt_shortcut).unwrap_or_default();
+                    unsafe {
+                        ffi::day_qt_menu_add_action(
+                            menu,
+                            cstr(label).as_ptr(),
+                            *id,
+                            cstr(&sc).as_ptr(),
+                            *enabled as c_int,
+                        )
+                    };
+                }
+            }
+        }
+    }
+}
+
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
@@ -961,6 +1085,36 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, is_drag as c_int, on_gesture) };
     }
 
+    fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        if self.window.is_null() {
+            return;
+        }
+        let bar = unsafe { ffi::day_qt_window_menubar(self.window) };
+        // Top level entries are the menu-bar menus; a bare action becomes a single-item menu.
+        for item in items {
+            match item {
+                day_spec::MenuItem::Submenu { label, items } => {
+                    let menu = unsafe { ffi::day_qt_menubar_add_menu(bar, cstr(label).as_ptr()) };
+                    build_qt_menu(menu, items);
+                }
+                other => {
+                    let menu = unsafe { ffi::day_qt_menubar_add_menu(bar, cstr("").as_ptr()) };
+                    build_qt_menu(menu, std::slice::from_ref(other));
+                }
+            }
+        }
+    }
+
+    fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        if items.is_empty() {
+            unsafe { ffi::day_qt_set_context_menu(h.0, std::ptr::null_mut()) };
+            return;
+        }
+        let menu = unsafe { ffi::day_qt_menu_new() };
+        build_qt_menu(menu, items);
+        unsafe { ffi::day_qt_set_context_menu(h.0, menu) };
+    }
+
     fn attach_list(&mut self, host: &QtHandle, source: day_spec::ListSource) {
         LIST_STATE.with(|m| {
             if let Some(st) = m.borrow().get(&(host.0 as usize)) {
@@ -1043,6 +1197,7 @@ impl Platform for Qt {
             );
             self.window = window;
             ffi::day_qt_set_present_cb(present_cb);
+            ffi::day_qt_set_menu_cb(on_menu_action);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_window_show(window);

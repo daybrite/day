@@ -29,6 +29,10 @@
 #include <QSlider>
 #include <QString>
 #include <QWidget>
+#include <QMenu>
+#include <QMenuBar>
+#include <QAction>
+#include <QKeySequence>
 
 #include <cstdint>
 
@@ -537,6 +541,121 @@ void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb)
     DayGestureFilter *f = new DayGestureFilter(node, is_drag != 0, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);
+}
+
+// ---- Menus (docs/menus.md) -------------------------------------------------
+// A flat builder mirrored from the day-neutral MenuItem tree: Rust walks the tree and issues
+// add_submenu / add_action / add_role / add_separator calls. Custom actions fire g_menu_cb(id);
+// standard roles map to Qt's native affordances (QAction::menuRole on macOS moves About/Preferences/
+// Quit into the app menu; clipboard/undo roles dispatch to the focused editing widget).
+
+static void (*g_menu_cb)(uint64_t) = nullptr;
+
+void day_qt_set_menu_cb(void (*cb)(uint64_t)) { g_menu_cb = cb; }
+
+// Invoke a QLineEdit/QTextEdit public slot on whatever widget currently has focus.
+static void day_qt_edit_dispatch(const char *slot) {
+    if (QWidget *w = QApplication::focusWidget())
+        QMetaObject::invokeMethod(w, slot, Qt::DirectConnection);
+}
+
+void *day_qt_window_menubar(void *win) {
+    QWidget *window = static_cast<QWidget *>(win);
+    QMenuBar *bar = window->findChild<QMenuBar *>(QString(), Qt::FindDirectChildrenOnly);
+    if (!bar) {
+        bar = new QMenuBar(window); // native global bar on macOS; top-of-window elsewhere
+        bar->setNativeMenuBar(true);
+    }
+    bar->clear();
+    return bar;
+}
+
+void *day_qt_menubar_add_menu(void *bar, const char *label) {
+    return static_cast<QMenuBar *>(bar)->addMenu(QString::fromUtf8(label));
+}
+
+void *day_qt_menu_new() { return new QMenu(); }
+
+void *day_qt_menu_add_submenu(void *menu, const char *label) {
+    return static_cast<QMenu *>(menu)->addMenu(QString::fromUtf8(label));
+}
+
+void day_qt_menu_add_separator(void *menu) {
+    static_cast<QMenu *>(menu)->addSeparator();
+}
+
+void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
+                            const char *shortcut, int enabled) {
+    QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
+    if (shortcut && *shortcut) a->setShortcut(QKeySequence(QString::fromUtf8(shortcut)));
+    a->setEnabled(enabled != 0);
+    uint64_t aid = id;
+    QObject::connect(a, &QAction::triggered, [aid]() {
+        if (g_menu_cb) g_menu_cb(aid);
+    });
+}
+
+// role codes match day_spec::MenuRole order.
+void day_qt_menu_add_role(void *menu, const char *label, int role, const char *shortcut) {
+    QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
+    if (shortcut && *shortcut) a->setShortcut(QKeySequence(QString::fromUtf8(shortcut)));
+    switch (role) {
+        case 0: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("cut"); }); break;
+        case 1: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("copy"); }); break;
+        case 2: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("paste"); }); break;
+        case 3: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("selectAll"); }); break;
+        case 4: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("undo"); }); break;
+        case 5: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("redo"); }); break;
+        case 6: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("del"); }); break;
+        case 7: a->setMenuRole(QAction::AboutRole); break;
+        case 8:
+            a->setMenuRole(QAction::QuitRole);
+            QObject::connect(a, &QAction::triggered, []() { qApp->quit(); });
+            break;
+        case 9: a->setMenuRole(QAction::PreferencesRole); break;
+        case 10:
+            QObject::connect(a, &QAction::triggered, []() {
+                if (QWidget *w = QApplication::focusWidget()) w->window()->showMinimized();
+            });
+            break;
+        case 11:
+            QObject::connect(a, &QAction::triggered, []() {
+                if (QWidget *w = QApplication::focusWidget()) w->window()->close();
+            });
+            break;
+        case 12:
+            QObject::connect(a, &QAction::triggered, []() {
+                if (QWidget *w = QApplication::focusWidget()) {
+                    QWidget *top = w->window();
+                    if (top->isFullScreen()) top->showNormal();
+                    else top->showFullScreen();
+                }
+            });
+            break;
+        default: break;
+    }
+}
+
+// Attach `menu` as `widget`'s context menu (secondary-click / long-press). A null menu clears it.
+void day_qt_set_context_menu(void *w, void *menu) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    // Drop any previously attached context menu + its connection (tracked by object name).
+    if (QMenu *old = widget->findChild<QMenu *>(QStringLiteral("day_ctx_menu"),
+                                                Qt::FindDirectChildrenOnly)) {
+        old->setObjectName(QString()); // so it isn't re-found before deleteLater runs
+        old->deleteLater();
+    }
+    QObject::disconnect(widget, &QWidget::customContextMenuRequested, nullptr, nullptr);
+    if (!menu) {
+        widget->setContextMenuPolicy(Qt::DefaultContextMenu);
+        return;
+    }
+    QMenu *m = static_cast<QMenu *>(menu);
+    m->setObjectName(QStringLiteral("day_ctx_menu"));
+    m->setParent(widget); // freed with the widget
+    widget->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(widget, &QWidget::customContextMenuRequested,
+                     [widget, m](const QPoint &pos) { m->popup(widget->mapToGlobal(pos)); });
 }
 
 } // extern "C"

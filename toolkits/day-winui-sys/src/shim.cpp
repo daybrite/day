@@ -14,6 +14,7 @@
 #include <string>
 #include <limits>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#include <winrt/Windows.UI.Xaml.Input.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Shapes.h>
@@ -48,6 +50,8 @@ namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
 namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
+namespace WUXIn = winrt::Windows::UI::Xaml::Input;
+namespace WS = winrt::Windows::System;
 
 using WUX::UIElement;
 using WUX::FrameworkElement;
@@ -972,3 +976,161 @@ int day_winui_snapshot_png(void* win, const char* path) try {
 }
 
 } // extern "C"
+
+// ---- menus (docs/menus.md) ------------------------------------------------
+// Context menus are MenuFlyouts set as a UIElement's ContextFlyout (right-click / press-hold);
+// the app menu is a MenuBar docked at the top of the root Canvas. Both are built from the same
+// tab/newline spec (kind \t id \t role \t key \t mods \t enabled \t label) so the Rust side only
+// serializes the day-neutral tree once. Custom items fire g_menu_cb(id); roles carry the standard
+// keyboard accelerator (and Quit closes the window). CI-built (no live Windows verification).
+
+static void (*g_menu_cb)(unsigned long long) = nullptr;
+
+static std::vector<std::string> split_tabs(const std::string& s) {
+    std::vector<std::string> out;
+    size_t p = 0;
+    while (true) {
+        size_t t = s.find('\t', p);
+        if (t == std::string::npos) { out.push_back(s.substr(p)); break; }
+        out.push_back(s.substr(p, t - p));
+        p = t + 1;
+    }
+    return out;
+}
+
+static std::vector<std::string> split_lines(const std::string& s) {
+    std::vector<std::string> out;
+    size_t p = 0;
+    while (true) {
+        size_t nl = s.find('\n', p);
+        out.push_back(s.substr(p, nl == std::string::npos ? std::string::npos : nl - p));
+        if (nl == std::string::npos) break;
+        p = nl + 1;
+    }
+    return out;
+}
+
+static void add_accel(WUXC::MenuFlyoutItem const& item, int key, int mods) {
+    if (key == 0) return;
+    WUXIn::KeyboardAccelerator ka;
+    ka.Key(static_cast<WS::VirtualKey>(key));
+    auto m = WS::VirtualKeyModifiers::None;
+    if (mods & 1) m |= WS::VirtualKeyModifiers::Control;
+    if (mods & 2) m |= WS::VirtualKeyModifiers::Shift;
+    if (mods & 4) m |= WS::VirtualKeyModifiers::Menu;
+    ka.Modifiers(m);
+    item.KeyboardAccelerators().Append(ka);
+}
+
+// Append the flat menu spec into a MenuFlyoutItemBase collection (a MenuFlyout / MenuFlyoutSubItem /
+// MenuBarItem Items()), tracking submenu depth with a stack.
+static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> root,
+                             const std::string& spec) {
+    std::vector<WF::Collections::IVector<WUXC::MenuFlyoutItemBase>> stack;
+    stack.push_back(root);
+    for (auto const& line : split_lines(spec)) {
+        if (line.empty()) continue;
+        auto f = split_tabs(line);
+        std::string kind = f.size() > 0 ? f[0] : "";
+        std::string label = f.size() > 6 ? f[6] : "";
+        auto cur = stack.back();
+        if (kind == "-") {
+            cur.Append(WUXC::MenuFlyoutSeparator{});
+        } else if (kind == "S") {
+            WUXC::MenuFlyoutSubItem sub;
+            sub.Text(hs(label.c_str()));
+            cur.Append(sub);
+            stack.push_back(sub.Items());
+        } else if (kind == "E") {
+            if (stack.size() > 1) stack.pop_back();
+        } else { // "A" action, "R" role
+            WUXC::MenuFlyoutItem item;
+            item.Text(hs(label.c_str()));
+            item.IsEnabled(!(f.size() > 5 && f[5] == "0"));
+            int key = f.size() > 3 ? std::atoi(f[3].c_str()) : 0;
+            int mods = f.size() > 4 ? std::atoi(f[4].c_str()) : 0;
+            add_accel(item, key, mods);
+            if (kind == "A") {
+                unsigned long long aid = f.size() > 1 ? std::strtoull(f[1].c_str(), nullptr, 10) : 0;
+                item.Click([aid](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_menu_cb) g_menu_cb(aid);
+                });
+            } else {
+                int role = f.size() > 2 ? std::atoi(f[2].c_str()) : -1;
+                if (role == 8) { // Quit
+                    item.Click([](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                        if (g_app && g_app->host) PostMessageW(g_app->host, WM_CLOSE, 0, 0);
+                    });
+                }
+            }
+            cur.Append(item);
+        }
+    }
+}
+
+extern "C" void day_winui_set_menu_cb(void (*cb)(unsigned long long)) { g_menu_cb = cb; }
+
+extern "C" void day_winui_set_context_menu(void* h, const char* spec) try {
+    if (!h) return;
+    auto e = elem(h);
+    if (!spec || !*spec) {
+        e.ContextFlyout(nullptr);
+        return;
+    }
+    WUXC::MenuFlyout fly;
+    build_menu_items(fly.Items(), spec);
+    e.ContextFlyout(fly);
+} catch (...) {
+}
+
+extern "C" void day_winui_set_app_menu(void* win, const char* spec) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) return;
+    // Remove any prior MenuBar we docked (named "day_menubar").
+    auto& kids = app->root.Children();
+    for (uint32_t i = 0; i < kids.Size(); ++i) {
+        if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
+            if (fe.Name() == L"day_menubar") { kids.RemoveAt(i); break; }
+        }
+    }
+    if (!spec || !*spec) return;
+    WUXC::MenuBar bar;
+    bar.Name(L"day_menubar");
+    // Top-level "S" groups become MenuBarItems; a bare item wraps in an unnamed MenuBarItem.
+    auto lines = split_lines(spec);
+    size_t i = 0;
+    while (i < lines.size()) {
+        if (lines[i].empty()) { ++i; continue; }
+        auto f = split_tabs(lines[i]);
+        std::string kind = f.size() > 0 ? f[0] : "";
+        if (kind == "S") {
+            std::string label = f.size() > 6 ? f[6] : "";
+            WUXC::MenuBarItem mbi;
+            mbi.Title(hs(label.c_str()));
+            int depth = 1;
+            std::string inner;
+            ++i;
+            while (i < lines.size() && depth > 0) {
+                auto ff = split_tabs(lines[i]);
+                std::string k = ff.empty() ? "" : ff[0];
+                if (k == "S") depth++;
+                else if (k == "E") { depth--; if (depth == 0) { ++i; break; } }
+                inner += lines[i];
+                inner += "\n";
+                ++i;
+            }
+            build_menu_items(mbi.Items(), inner);
+            bar.Items().Append(mbi);
+        } else {
+            WUXC::MenuBarItem mbi;
+            mbi.Title(hs(""));
+            build_menu_items(mbi.Items(), lines[i] + "\n");
+            bar.Items().Append(mbi);
+            ++i;
+        }
+    }
+    WUXC::Canvas::SetLeft(bar, 0);
+    WUXC::Canvas::SetTop(bar, 0);
+    app->root.Children().Append(bar);
+} catch (...) {
+}

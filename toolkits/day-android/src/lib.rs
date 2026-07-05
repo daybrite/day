@@ -322,6 +322,9 @@ mod imp {
                     .unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
+            // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
+            // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
+            13 => Event::MenuAction(id as u64),
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -360,6 +363,65 @@ mod imp {
     fn jstr(env: &mut JNIEnv, s: &str) -> jni::objects::JString<'static> {
         // SAFETY: local ref used immediately within the same JNI frame.
         unsafe { std::mem::transmute(env.new_string(s).expect("new_string")) }
+    }
+
+    /// Default label for a standard role left unlabeled by the app. (Android's own text-selection
+    /// toolbar handles the actual Cut/Copy/Paste on editable views; a role in a day menu is shown
+    /// for parity and dispatches nothing — see docs/menus.md.)
+    fn android_role_label(role: day_spec::MenuRole) -> &'static str {
+        use day_spec::MenuRole::*;
+        match role {
+            Cut => "Cut",
+            Copy => "Copy",
+            Paste => "Paste",
+            SelectAll => "Select All",
+            Undo => "Undo",
+            Redo => "Redo",
+            Delete => "Delete",
+            About => "About",
+            Quit => "Quit",
+            Preferences => "Settings",
+            Minimize => "Minimize",
+            CloseWindow => "Close",
+            Fullscreen => "Full Screen",
+        }
+    }
+
+    /// Flatten the day-neutral menu tree to the line format `DayBridge.buildMenu` parses:
+    /// `kind \t id \t enabled \t label` per line, where kind ∈ {A action, S submenu-open,
+    /// E submenu-close, `-` separator}. Roles become plain actions with id 0.
+    fn serialize_menu(items: &[day_spec::MenuItem], out: &mut String) {
+        fn clean(s: &str) -> String {
+            s.replace(['\t', '\n'], " ")
+        }
+        for item in items {
+            match item {
+                day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t\n"),
+                day_spec::MenuItem::Submenu { label, items } => {
+                    out.push_str(&format!("S\t0\t1\t{}\n", clean(label)));
+                    serialize_menu(items, out);
+                    out.push_str("E\t0\t1\t\n");
+                }
+                day_spec::MenuItem::Action {
+                    id,
+                    label,
+                    shortcut: _,
+                    enabled,
+                    role,
+                } => {
+                    let text = match role {
+                        Some(r) if label.is_empty() => android_role_label(*r).to_string(),
+                        _ => label.clone(),
+                    };
+                    out.push_str(&format!(
+                        "A\t{}\t{}\t{}\n",
+                        id,
+                        *enabled as i32,
+                        clean(&text)
+                    ));
+                }
+            }
+        }
     }
 
     /// Size (in **sp** — scales with Settings ▸ Display ▸ Font size, the Android accessibility text
@@ -1049,6 +1111,36 @@ mod imp {
                     JValue::Bool(is_drag as u8),
                 ],
             );
+        }
+
+        fn set_context_menu(&mut self, h: &AHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+            let mut spec = String::new();
+            serialize_menu(items, &mut spec);
+            with_env(|env| {
+                let jspec = jstr(env, &spec);
+                let _ = env.call_static_method(
+                    BRIDGE,
+                    "setContextMenu",
+                    "(Landroid/view/View;Ljava/lang/String;)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Object(&jspec)],
+                );
+            });
+        }
+
+        fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+            // Android has no persistent menu bar; the platform convention for a global app menu is
+            // the app-bar overflow (⋮). DayActivity.onCreateOptionsMenu builds from this spec.
+            let mut spec = String::new();
+            serialize_menu(items, &mut spec);
+            with_env(|env| {
+                let jspec = jstr(env, &spec);
+                let _ = env.call_static_method(
+                    BRIDGE,
+                    "setAppMenu",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(&jspec)],
+                );
+            });
         }
 
         fn attach_list(&mut self, host: &AHandle, source: ListSource) {

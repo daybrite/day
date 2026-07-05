@@ -1,0 +1,7 @@
+name: menus-hold
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: menus }
+  - assert_visible: { id: menus-title }
+  - screenshot: menus
+  - pause: 90

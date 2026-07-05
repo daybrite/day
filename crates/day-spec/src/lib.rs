@@ -110,6 +110,10 @@ pub enum Event {
         num: f64,
         text: String,
     },
+    /// A menu item (app menu or context menu) with this action id was activated (§ menus). day-core
+    /// routes it to the app closure registered for the id. Standard-role items don't carry an id
+    /// (`role` items are handled natively) so they never emit this.
+    MenuAction(u64),
 }
 
 impl Event {
@@ -139,6 +143,97 @@ pub enum GestureKind {
     Tap,
     LongPress,
     Drag,
+}
+
+// ---------------------------------------------------------------------------
+// Menus (app menu bar + context menus). The MODEL is a toolkit-neutral tree; each backend renders it
+// with its OWN native affordance (NSMenu / GMenu+GtkPopoverMenu / QMenu / UIMenu / Android PopupMenu /
+// WinUI MenuFlyout) and its own conventions, so day imposes no menu manager of its own.
+// ---------------------------------------------------------------------------
+
+/// A keyboard shortcut for a menu item. `primary` is the platform's command modifier — ⌘ on Apple,
+/// Ctrl on GTK/Qt/WinUI — so one declaration reads correctly everywhere. `key` is a single character
+/// (`"s"`, `"."`) or a named key (`"Return"`, `"Delete"`, `"Left"`, `"F1"`).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Shortcut {
+    pub key: String,
+    /// ⌘ (Apple) / Ctrl (elsewhere). The conventional command modifier.
+    pub primary: bool,
+    pub shift: bool,
+    /// ⌥ / Alt.
+    pub alt: bool,
+    /// Literal Control (⌃ on Apple). Rare — prefer `primary` for the command modifier.
+    pub control: bool,
+}
+
+impl Shortcut {
+    /// `primary`+`key` (⌘S / Ctrl+S) — the common case.
+    pub fn new(key: impl Into<String>) -> Shortcut {
+        Shortcut {
+            key: key.into(),
+            primary: true,
+            ..Default::default()
+        }
+    }
+    /// `key` with NO modifiers (e.g. `F1`, plain `Delete`).
+    pub fn plain(key: impl Into<String>) -> Shortcut {
+        Shortcut {
+            key: key.into(),
+            ..Default::default()
+        }
+    }
+    pub fn shift(mut self) -> Shortcut {
+        self.shift = true;
+        self
+    }
+    pub fn alt(mut self) -> Shortcut {
+        self.alt = true;
+        self
+    }
+    pub fn control(mut self) -> Shortcut {
+        self.control = true;
+        self
+    }
+}
+
+/// A standard/system command. The backend supplies the NATIVE item — selector on AppKit/UIKit
+/// (`cut:`/`copy:`/`paste:`…), a stock action on GTK/Qt/WinUI — so it targets the focused control,
+/// gets the platform's default label + shortcut, and enables/disables itself automatically. This is
+/// how default items (Edit ▸ Cut/Copy/Paste, the app's Quit/About) are accommodated without the app
+/// re-implementing them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuRole {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    Undo,
+    Redo,
+    Delete,
+    About,
+    Quit,
+    Preferences,
+    Minimize,
+    CloseWindow,
+    Fullscreen,
+}
+
+/// One entry in a menu (recursive — a `Submenu` nests).
+#[derive(Clone, Debug, PartialEq)]
+pub enum MenuItem {
+    /// A command. `id` (nonzero) dispatches [`Event::MenuAction`] to the app; a `role`-only item uses
+    /// the native standard command instead (id 0). `label`/`shortcut` override the role's defaults.
+    Action {
+        id: u64,
+        label: String,
+        shortcut: Option<Shortcut>,
+        enabled: bool,
+        role: Option<MenuRole>,
+    },
+    /// A nested submenu.
+    Submenu { label: String, items: Vec<MenuItem> },
+    /// A visual separator.
+    Separator,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -781,6 +876,16 @@ pub trait Toolkit: Sized + 'static {
     // once, right after realize. A recycling backend stores it and calls it from its native
     // data-source; the default no-op means a backend without list support simply renders nothing.
     fn attach_list(&mut self, _host: &Self::Handle, _source: ListSource) {}
+
+    // menus (§ menus): render `items` with the backend's native menu affordance, firing
+    // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard
+    // command. Default no-op — a toolkit without a menu bar / context menu simply shows nothing.
+    /// The application menu (macOS/Windows/Linux menu bar; the app-bar overflow on Android; the
+    /// UIMenuBuilder main menu on iPadOS/Catalyst). Replaces any previous app menu.
+    fn set_app_menu(&mut self, _items: &[MenuItem]) {}
+    /// A context menu for `h`, shown on secondary-click (desktop) or long-press (mobile). Passing an
+    /// empty slice removes it.
+    fn set_context_menu(&mut self, _h: &Self::Handle, _node: NodeId, _items: &[MenuItem]) {}
 
     // pillars
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}

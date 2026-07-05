@@ -15,6 +15,7 @@ flavor-label = Flavor
 history-title = History
 history-entry = count became { $value }
 nav-controls = Controls
+nav-menus = Menus
 nav-text = Text
 nav-gauge = Gauge
 nav-shapes = Shapes
@@ -85,3 +86,10 @@ text-styling-header = Bold & italic
 text-colors-header = Color
 text-custom-header = Custom sizes
 text-custom-note = Font.System(pt) — still scaled by the accessibility text size (Dynamic Type / font scale).
+
+# Menus playground
+menus-caption = Native menus — the app menu bar and per-piece context menus — with nested submenus, keyboard shortcuts, and standard Edit commands.
+menus-last = Last action:
+menus-context-hint = Context menu
+menus-target = Right-click here (long-press on mobile) for a context menu
+menus-shortcut-hint = Keyboard shortcuts (⌘/Ctrl + key) are shown in the menu bar and work while the app is focused — e.g. New (N), Save (S), Reload (R), Save As (⇧S).

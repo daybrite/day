@@ -6,6 +6,16 @@ use day::prelude::*;
 use day_piece_combobox::combo_box;
 use day_piece_picker::picker;
 use day_piece_webview::web_view;
+use std::cell::OnceCell;
+
+thread_local! {
+    /// The last menu action fired — shared between the app menu (installed in `root`) and the Menus
+    /// page so both demonstrate action dispatch. Created lazily inside the reactive runtime.
+    static MENU_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
+}
+fn menu_log() -> Signal<String> {
+    MENU_LOG.with(|c| *c.get_or_init(|| Signal::new("—".into())))
+}
 // Lottie renders a native LottieAnimationView — iOS + Android only, so both the import and the page
 // are gated to those targets (its front-end compiles everywhere, but it only renders there).
 #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -22,12 +32,14 @@ pub fn root() -> AnyPiece {
     // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound
     // to an app-owned `Signal<String>` of the active section. Desktop shows sidebar + detail
     // (an AdwNavigationSplitView on GTK); mobile collapses to a list that pushes the detail.
+    install_app_menu();
     let section = Signal::new(String::new());
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
         .title(tr("app-title"))
         .header(sidebar_header)
         .item("controls", tr("nav-controls"), controls_page)
+        .item("menus", tr("nav-menus"), menus_page)
         .item("text", tr("nav-text"), text_page)
         .item("gauge", tr("nav-gauge"), gauge_page)
         .item("shapes", tr("nav-shapes"), shapes_page)
@@ -41,6 +53,110 @@ pub fn root() -> AnyPiece {
     #[cfg(any(target_os = "ios", target_os = "android"))]
     let nav = nav.item("lottie", tr("nav-lottie"), lottie_page);
     nav.item("about", tr("nav-about"), about_page).id("nav")
+}
+
+/// The application menu bar (native NSMenu / GtkPopoverMenuBar / QMenuBar; app-bar overflow on Android;
+/// UIMenuBuilder on iPadOS). Custom items carry keyboard shortcuts and update the shared `menu_log`;
+/// the Edit menu uses standard roles so Cut/Copy/Paste target the focused control natively.
+fn install_app_menu() {
+    let log = |what: &'static str| move || menu_log().set(what.into());
+    app_menu(vec![
+        sub_menu(
+            "File",
+            vec![
+                menu_item("New").key("n").action(log("File ▸ New")),
+                menu_item("Open…").key("o").action(log("File ▸ Open")),
+                // A nested submenu with keyboard shortcuts.
+                sub_menu(
+                    "Open Recent",
+                    vec![
+                        menu_item("report.pdf").action(log("Recent ▸ report.pdf")),
+                        menu_item("budget.xlsx").action(log("Recent ▸ budget.xlsx")),
+                        menu_separator(),
+                        menu_item("Clear Menu").action(log("Recent ▸ Clear")),
+                    ],
+                ),
+                menu_separator(),
+                menu_item("Save").key("s").action(log("File ▸ Save")),
+                menu_item("Save As…")
+                    .shortcut(Shortcut::new("s").shift())
+                    .action(log("File ▸ Save As")),
+                menu_separator(),
+                menu_role(MenuRole::CloseWindow),
+            ],
+        ),
+        // Standard edit commands — native items that target the focused control (default shortcuts).
+        sub_menu(
+            "Edit",
+            vec![
+                menu_role(MenuRole::Undo),
+                menu_role(MenuRole::Redo),
+                menu_separator(),
+                menu_role(MenuRole::Cut),
+                menu_role(MenuRole::Copy),
+                menu_role(MenuRole::Paste),
+                menu_role(MenuRole::SelectAll),
+            ],
+        ),
+        sub_menu(
+            "View",
+            vec![
+                menu_item("Reload").key("r").action(log("View ▸ Reload")),
+                menu_item("Actual Size")
+                    .key("0")
+                    .action(log("View ▸ Actual Size")),
+                menu_separator(),
+                menu_role(MenuRole::Fullscreen),
+            ],
+        ),
+    ]);
+}
+
+/// Menus playground: a context menu (secondary-click on desktop, long-press on mobile) with nested
+/// submenus, standard roles, and shortcuts, plus a live readout of the last menu action fired — from
+/// EITHER the app menu bar or this context menu. See docs/menus.md.
+fn menus_page() -> AnyPiece {
+    column((
+        label(tr("nav-menus")).font(Font::Title).id("menus-title"),
+        label(tr("menus-caption")).font(Font::Subheadline),
+        // Live readout — driven by both the app menu and the context menu below.
+        label(move || format!("{}  {}", tr("menus-last").format(), menu_log().get()))
+            .id("menus-last"),
+        divider(),
+        label(tr("menus-context-hint")).font(Font::Headline),
+        // A target for the context menu: nested submenu + a separator + a standard role.
+        label(tr("menus-target"))
+            .font(Font::Body)
+            .padding(Insets::symmetric(20.0, 28.0))
+            .id("menus-context-target")
+            .context_menu(vec![
+                menu_item("Rename").action(move || menu_log().set("Context ▸ Rename".into())),
+                menu_item("Duplicate")
+                    .key("d")
+                    .action(move || menu_log().set("Context ▸ Duplicate".into())),
+                menu_separator(),
+                sub_menu(
+                    "Move To",
+                    vec![
+                        menu_item("Inbox")
+                            .action(move || menu_log().set("Context ▸ Move ▸ Inbox".into())),
+                        menu_item("Archive")
+                            .action(move || menu_log().set("Context ▸ Move ▸ Archive".into())),
+                    ],
+                ),
+                menu_separator(),
+                menu_role(MenuRole::Copy),
+                menu_item("Delete")
+                    .shortcut(Shortcut::plain("Delete"))
+                    .action(move || menu_log().set("Context ▸ Delete".into())),
+            ]),
+        divider(),
+        label(tr("menus-shortcut-hint")).font(Font::Footnote),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
 }
 
 /// Typography playground: every semantic text style (mapped to the platform's native styles + Dynamic

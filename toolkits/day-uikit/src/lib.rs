@@ -34,6 +34,11 @@ mod imp {
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
     use objc2_ui_kit::{
+        UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
+        UIContextMenuInteractionDelegate, UIMenu, UIMenuElement, UIMenuElementAttributes,
+        UIMenuOptions,
+    };
+    use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
         UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIProgressView, UIScreen,
         UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView, UIViewController,
@@ -137,6 +142,11 @@ mod imp {
         /// Keeps each view's gesture targets alive + records which are attached (idempotent).
         static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
             RefCell::new(HashMap::new());
+        /// Per-view context-menu interaction + its delegate (kept alive; replaced on reconfigure).
+        #[allow(clippy::type_complexity)]
+        static CTX_MENUS: RefCell<
+            HashMap<usize, (Retained<UIContextMenuInteraction>, Retained<DayContextMenu>)>,
+        > = RefCell::new(HashMap::new());
     }
 
     define_class!(
@@ -192,6 +202,197 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(GestureIvars { node, is_drag });
             unsafe { msg_send![super(this), init] }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Menus (docs/menus.md): the day-neutral MenuItem tree becomes a UIMenu of UIActions, shown
+    // by a UIContextMenuInteraction on long-press. Custom actions emit MenuAction(id); standard
+    // roles route their selector up the responder chain so Cut/Copy/Paste hit the focused field.
+    // -----------------------------------------------------------------------
+
+    struct CtxMenuIvars {
+        menu: Retained<UIMenu>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitContextMenu"]
+        #[ivars = CtxMenuIvars]
+        struct DayContextMenu;
+
+        unsafe impl NSObjectProtocol for DayContextMenu {}
+
+        unsafe impl UIContextMenuInteractionDelegate for DayContextMenu {
+            #[unsafe(method_id(contextMenuInteraction:configurationForMenuAtLocation:))]
+            fn configuration_for_menu(
+                &self,
+                _interaction: &UIContextMenuInteraction,
+                _location: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                let menu = self.ivars().menu.clone();
+                let provider = block2::RcBlock::new(
+                    move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                        Retained::into_raw(menu.clone())
+                    },
+                );
+                Some(unsafe {
+                    UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                        None,
+                        std::ptr::null_mut(),
+                        block2::RcBlock::as_ptr(&provider),
+                        mtm(),
+                    )
+                })
+            }
+        }
+    );
+
+    impl DayContextMenu {
+        fn new(mtm: MainThreadMarker, menu: Retained<UIMenu>) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CtxMenuIvars { menu });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Default label for a standard role left unlabeled by the app.
+    fn ui_role_label(role: day_spec::MenuRole) -> &'static str {
+        use day_spec::MenuRole::*;
+        match role {
+            Cut => "Cut",
+            Copy => "Copy",
+            Paste => "Paste",
+            SelectAll => "Select All",
+            Undo => "Undo",
+            Redo => "Redo",
+            Delete => "Delete",
+            About => "About",
+            Quit => "Quit",
+            Preferences => "Settings",
+            Minimize => "Minimize",
+            CloseWindow => "Close",
+            Fullscreen => "Full Screen",
+        }
+    }
+
+    /// The UIResponder standard-edit selector a role routes to (None → a no-op labelled action, since
+    /// iOS has no responder equivalent — e.g. Quit/About/window management).
+    fn ui_role_selector(role: day_spec::MenuRole) -> Option<objc2::runtime::Sel> {
+        use day_spec::MenuRole::*;
+        Some(match role {
+            Cut => sel!(cut:),
+            Copy => sel!(copy:),
+            Paste => sel!(paste:),
+            SelectAll => sel!(selectAll:),
+            Delete => sel!(delete:),
+            _ => return None,
+        })
+    }
+
+    /// Build a single UIAction; `handler` runs on the main thread when chosen.
+    fn ui_action(
+        mtm: MainThreadMarker,
+        title: &str,
+        enabled: bool,
+        handler: impl Fn() + 'static,
+    ) -> Retained<UIMenuElement> {
+        let block = block2::RcBlock::new(move |_a: NonNull<UIAction>| handler());
+        let action = unsafe {
+            UIAction::actionWithTitle_image_identifier_handler(
+                &NSString::from_str(title),
+                None,
+                None,
+                block2::RcBlock::as_ptr(&block),
+                mtm,
+            )
+        };
+        if !enabled {
+            unsafe { action.setAttributes(UIMenuElementAttributes::Disabled) };
+        }
+        Retained::into_super(action)
+    }
+
+    /// Lower one run of items (already split on separators) into UIMenuElements.
+    fn ui_menu_elements(
+        mtm: MainThreadMarker,
+        items: &[day_spec::MenuItem],
+    ) -> Vec<Retained<UIMenuElement>> {
+        let mut out: Vec<Retained<UIMenuElement>> = Vec::new();
+        for item in items {
+            match item {
+                day_spec::MenuItem::Separator => {}
+                day_spec::MenuItem::Submenu { label, items } => {
+                    out.push(Retained::into_super(build_ui_menu(mtm, label, items)));
+                }
+                day_spec::MenuItem::Action {
+                    id,
+                    label,
+                    shortcut: _,
+                    enabled,
+                    role,
+                } => {
+                    if let Some(role) = role {
+                        let title = if label.is_empty() {
+                            ui_role_label(*role).to_string()
+                        } else {
+                            label.clone()
+                        };
+                        let sel = ui_role_selector(*role);
+                        out.push(ui_action(mtm, &title, *enabled, move || {
+                            if let Some(sel) = sel {
+                                let app = UIApplication::sharedApplication(mtm);
+                                unsafe {
+                                    app.sendAction_to_from_forEvent(sel, None, None, None);
+                                }
+                            }
+                        }));
+                    } else {
+                        let id = *id;
+                        out.push(ui_action(mtm, label, *enabled, move || {
+                            emit(WINDOW_NODE, Event::MenuAction(id));
+                        }));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Build a UIMenu whose children preserve separators as inline sections (the native iOS look).
+    fn build_ui_menu(
+        mtm: MainThreadMarker,
+        title: &str,
+        items: &[day_spec::MenuItem],
+    ) -> Retained<UIMenu> {
+        // Split on separators; each run becomes an inline submenu so dividers render natively.
+        let groups: Vec<&[day_spec::MenuItem]> = items
+            .split(|i| matches!(i, day_spec::MenuItem::Separator))
+            .filter(|g| !g.is_empty())
+            .collect();
+        let children: Vec<Retained<UIMenuElement>> = if groups.len() <= 1 {
+            ui_menu_elements(mtm, items)
+        } else {
+            groups
+                .into_iter()
+                .map(|g| {
+                    let elems = ui_menu_elements(mtm, g);
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&elems);
+                    let inline = unsafe {
+                        UIMenu::menuWithTitle_image_identifier_options_children(
+                            &NSString::from_str(""),
+                            None,
+                            None,
+                            UIMenuOptions::DisplayInline,
+                            &arr,
+                            mtm,
+                        )
+                    };
+                    Retained::into_super(inline)
+                })
+                .collect()
+        };
+        let arr = objc2_foundation::NSArray::from_retained_slice(&children);
+        unsafe { UIMenu::menuWithTitle_children(&NSString::from_str(title), &arr, mtm) }
     }
 
     // -----------------------------------------------------------------------
@@ -1565,6 +1766,40 @@ mod imp {
                 h.addGestureRecognizer(&recognizer);
             }
             GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
+        }
+
+        fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
+            let key = ptr_of(h);
+            // Remove any prior interaction (replace-on-reconfigure).
+            if let Some((interaction, _)) = CTX_MENUS.with(|m| m.borrow_mut().remove(&key)) {
+                let proto = ProtocolObject::from_ref(&*interaction);
+                unsafe { h.removeInteraction(proto) };
+            }
+            if items.is_empty() {
+                return;
+            }
+            let mtm = mtm();
+            let menu = build_ui_menu(mtm, "", items);
+            let delegate = DayContextMenu::new(mtm, menu);
+            let proto = ProtocolObject::from_ref(&*delegate);
+            let interaction = unsafe {
+                UIContextMenuInteraction::initWithDelegate(
+                    UIContextMenuInteraction::alloc(mtm),
+                    proto,
+                )
+            };
+            unsafe {
+                h.setUserInteractionEnabled(true);
+                h.addInteraction(ProtocolObject::from_ref(&*interaction));
+            }
+            CTX_MENUS.with(|m| m.borrow_mut().insert(key, (interaction, delegate)));
+        }
+
+        fn set_app_menu(&mut self, _items: &[day_spec::MenuItem]) {
+            // iOS has no persistent global menu bar (that is a Mac Catalyst / iPad-with-keyboard
+            // concern handled via UIMenuBuilder in `buildMenuWithBuilder:`). On iPhone the native
+            // affordances are the per-view context menu (`set_context_menu`) and the system edit
+            // menu; a global bar is intentionally a no-op here. See docs/menus.md.
         }
 
         fn attach_list(&mut self, host: &Handle, source: ListSource) {

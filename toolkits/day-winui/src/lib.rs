@@ -302,6 +302,160 @@ fn natural(h: *mut c_void) -> Size {
     Size::new(w, hh)
 }
 
+// ---- menus (docs/menus.md) -------------------------------------------------
+
+extern "C" fn on_menu_action(id: u64) {
+    emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+}
+
+fn win_role_label(role: day_spec::MenuRole) -> String {
+    use day_spec::MenuRole::*;
+    match role {
+        Cut => "Cut",
+        Copy => "Copy",
+        Paste => "Paste",
+        SelectAll => "Select All",
+        Undo => "Undo",
+        Redo => "Redo",
+        Delete => "Delete",
+        About => "About",
+        Quit => "Exit",
+        Preferences => "Settings",
+        Minimize => "Minimize",
+        CloseWindow => "Close",
+        Fullscreen => "Full Screen",
+    }
+    .to_string()
+}
+
+/// Standard (keycode, modifier-bitmask) for a role: bit0 Control, bit1 Shift, bit2 Alt.
+fn win_role_keymods(role: day_spec::MenuRole) -> (i32, i32) {
+    use day_spec::MenuRole::*;
+    match role {
+        Cut => (b'X' as i32, 1),
+        Copy => (b'C' as i32, 1),
+        Paste => (b'V' as i32, 1),
+        SelectAll => (b'A' as i32, 1),
+        Undo => (b'Z' as i32, 1),
+        Redo => (b'Y' as i32, 1),
+        _ => (0, 0),
+    }
+}
+
+fn win_mods(sc: &day_spec::Shortcut) -> i32 {
+    let mut m = 0;
+    if sc.primary || sc.control {
+        m |= 1; // Control is the primary modifier on Windows
+    }
+    if sc.shift {
+        m |= 2;
+    }
+    if sc.alt {
+        m |= 4;
+    }
+    m
+}
+
+/// Windows `VirtualKey` code for a shortcut key string (0 = none/unmapped).
+fn win_keycode(key: &str) -> i32 {
+    let mut chars = key.chars();
+    if let (Some(c), None) = (chars.next(), chars.clone().next()) {
+        if c.is_ascii_alphabetic() {
+            return c.to_ascii_uppercase() as i32;
+        }
+        if c.is_ascii_digit() {
+            return c as i32;
+        }
+        return match c {
+            ',' => 0xBC,
+            '.' => 0xBE,
+            '-' => 0xBD,
+            '=' => 0xBB,
+            '/' => 0xBF,
+            _ => 0,
+        };
+    }
+    match key {
+        "Return" | "Enter" => 0x0D,
+        "Delete" | "Del" => 0x2E,
+        "Space" => 0x20,
+        "Escape" | "Esc" => 0x1B,
+        "Tab" => 0x09,
+        "Backspace" | "Back" => 0x08,
+        "Left" => 0x25,
+        "Up" => 0x26,
+        "Right" => 0x27,
+        "Down" => 0x28,
+        "Home" => 0x24,
+        "End" => 0x23,
+        _ => key
+            .strip_prefix('F')
+            .and_then(|n| n.parse::<i32>().ok())
+            .filter(|n| (1..=12).contains(n))
+            .map(|n| 0x70 + (n - 1))
+            .unwrap_or(0),
+    }
+}
+
+/// Serialize the day-neutral tree to the shim's line format:
+/// `kind \t id \t role \t key \t mods \t enabled \t label` (kinds A/R/S/E/`-`).
+fn serialize_menu_winui(items: &[day_spec::MenuItem], out: &mut String) {
+    fn clean(s: &str) -> String {
+        s.replace(['\t', '\n'], " ")
+    }
+    for item in items {
+        match item {
+            day_spec::MenuItem::Separator => out.push_str("-\t0\t-1\t0\t0\t1\t\n"),
+            day_spec::MenuItem::Submenu { label, items } => {
+                out.push_str(&format!("S\t0\t-1\t0\t0\t1\t{}\n", clean(label)));
+                serialize_menu_winui(items, out);
+                out.push_str("E\t0\t-1\t0\t0\t1\t\n");
+            }
+            day_spec::MenuItem::Action {
+                id,
+                label,
+                shortcut,
+                enabled,
+                role,
+            } => {
+                let en = *enabled as i32;
+                if let Some(role) = role {
+                    let text = if label.is_empty() {
+                        win_role_label(*role)
+                    } else {
+                        label.clone()
+                    };
+                    let (key, mods) = match shortcut {
+                        Some(sc) => (win_keycode(&sc.key), win_mods(sc)),
+                        None => win_role_keymods(*role),
+                    };
+                    out.push_str(&format!(
+                        "R\t0\t{}\t{}\t{}\t{}\t{}\n",
+                        *role as i32,
+                        key,
+                        mods,
+                        en,
+                        clean(&text)
+                    ));
+                } else {
+                    let (key, mods) = shortcut
+                        .as_ref()
+                        .map(|sc| (win_keycode(&sc.key), win_mods(sc)))
+                        .unwrap_or((0, 0));
+                    out.push_str(&format!(
+                        "A\t{}\t-1\t{}\t{}\t{}\t{}\n",
+                        id,
+                        key,
+                        mods,
+                        en,
+                        clean(label)
+                    ));
+                }
+            }
+        }
+    }
+}
+
 impl Toolkit for WinUi {
     type Handle = WinHandle;
 
@@ -785,6 +939,21 @@ impl Toolkit for WinUi {
         schedule_list_populate(host.0 as usize);
     }
 
+    fn set_context_menu(&mut self, h: &WinHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        let mut spec = String::new();
+        serialize_menu_winui(items, &mut spec);
+        unsafe { ffi::day_winui_set_context_menu(h.0, cstr(&spec).as_ptr()) };
+    }
+
+    fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        if self.window.is_null() {
+            return;
+        }
+        let mut spec = String::new();
+        serialize_menu_winui(items, &mut spec);
+        unsafe { ffi::day_winui_set_app_menu(self.window, cstr(&spec).as_ptr()) };
+    }
+
     fn adopt(&mut self, raw: day_spec::RawHandle) -> WinHandle {
         // A recycling-list cell (a plain Canvas) — Day builds/rebinds its row content in place.
         WinHandle(raw)
@@ -864,6 +1033,7 @@ impl Platform for WinUi {
                 return;
             }
             self.window = win;
+            ffi::day_winui_set_menu_cb(on_menu_action);
             let root = ffi::day_winui_window_root(win);
             ready(self, WinHandle(root), options.size);
             ffi::day_winui_window_on_resize(win, window_resized);

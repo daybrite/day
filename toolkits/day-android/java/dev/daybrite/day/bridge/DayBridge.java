@@ -7,7 +7,10 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
@@ -514,5 +517,87 @@ public final class DayBridge {
         if (value != null && !value.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
             v.setStateDescription(value);
         }
+    }
+
+    // --- Menus (docs/menus.md) -------------------------------------------------
+    // The context menu is a PopupMenu shown on long-press (the Android touch convention); the app
+    // menu is the app-bar overflow (⋮), built by DayActivity.onCreateOptionsMenu. Both parse the
+    // same tab-separated spec (kind\tid\tenabled\tlabel per line) and route item clicks to
+    // nativeOnEvent(id, 13, 0, "") = MenuAction.
+
+    /** The current app (overflow) menu spec, or null. Set by setAppMenu; read by DayActivity. */
+    public static String appMenuSpec = null;
+
+    /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
+    public static void setContextMenu(final View v, final String spec) {
+        if (spec == null || spec.isEmpty()) {
+            v.setOnLongClickListener(null);
+            v.setLongClickable(false);
+            return;
+        }
+        v.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View anchor) {
+                android.widget.PopupMenu popup = new android.widget.PopupMenu(anchor.getContext(), anchor);
+                buildMenu(popup.getMenu(), spec);
+                popup.show();
+                return true;
+            }
+        });
+    }
+
+    /** Record the app menu spec + refresh the Activity's overflow menu. */
+    public static void setAppMenu(String spec) {
+        appMenuSpec = spec;
+        if (ctx instanceof android.app.Activity) {
+            ((android.app.Activity) ctx).invalidateOptionsMenu();
+        }
+    }
+
+    /** Populate `menu` from `spec`. Android SubMenus can't nest, so deeper submenus flatten into
+     *  the nearest SubMenu. Separators become group boundaries (dividers on API 28+). */
+    public static void buildMenu(Menu menu, String spec) {
+        if (spec == null || spec.isEmpty()) return;
+        if (android.os.Build.VERSION.SDK_INT >= 28) menu.setGroupDividerEnabled(true);
+        // A stack of the menu we are currently adding into (index 0 = root).
+        java.util.ArrayList<Menu> stack = new java.util.ArrayList<Menu>();
+        stack.add(menu);
+        int[] order = {0};
+        int[] group = {0};
+        for (String line : spec.split("\n")) {
+            if (line.isEmpty()) continue;
+            String[] f = line.split("\t", 4);
+            if (f.length < 1) continue;
+            String kind = f[0];
+            Menu cur = stack.get(stack.size() - 1);
+            if (kind.equals("-")) {
+                group[0]++; // next items land in a new group → a divider is drawn between them
+            } else if (kind.equals("S")) {
+                String label = f.length > 3 ? f[3] : "";
+                // SubMenu.addSubMenu is unsupported; when already in a submenu, flatten.
+                if (cur instanceof SubMenu) {
+                    stack.add(cur);
+                } else {
+                    stack.add(cur.addSubMenu(group[0], Menu.NONE, order[0]++, label));
+                }
+            } else if (kind.equals("E")) {
+                if (stack.size() > 1) stack.remove(stack.size() - 1);
+            } else { // "A" = action (roles too, with id 0)
+                final long id = f.length > 1 ? parseLong(f[1]) : 0L;
+                boolean enabled = f.length > 2 && f[2].equals("1");
+                String label = f.length > 3 ? f[3] : "";
+                MenuItem it = cur.add(group[0], Menu.NONE, order[0]++, label);
+                it.setEnabled(enabled);
+                it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                    public boolean onMenuItemClick(MenuItem mi) {
+                        nativeOnEvent(id, 13, 0.0, "");
+                        return true;
+                    }
+                });
+            }
+        }
+    }
+
+    private static long parseLong(String s) {
+        try { return Long.parseLong(s); } catch (NumberFormatException e) { return 0L; }
     }
 }

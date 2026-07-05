@@ -111,4 +111,9 @@ unsafe extern "C" {
     pub fn day_winui_set_name(w: *mut c_void, name: *const c_char);
     /// Capture the window's client area to a PNG file. Returns 0 on success.
     pub fn day_winui_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
+
+    // menus (docs/menus.md): a tab/newline spec parsed by the shim into MenuFlyout / MenuBar.
+    pub fn day_winui_set_menu_cb(cb: extern "C" fn(u64));
+    pub fn day_winui_set_context_menu(elem: *mut c_void, spec: *const c_char);
+    pub fn day_winui_set_app_menu(win: *mut c_void, spec: *const c_char);
 }
