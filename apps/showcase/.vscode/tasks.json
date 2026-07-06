@@ -1,0 +1,24 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "day",
+      "command": "launch",
+      "target": "macos-appkit",
+      "profile": "debug",
+      "project": "${workspaceFolder}",
+      "problemMatcher": [],
+      "label": "day: run showcase (macos-appkit)"
+    },
+    {
+      "type": "day",
+      "command": "build",
+      "target": "macos-appkit",
+      "profile": "debug",
+      "project": "${workspaceFolder}",
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "build", "isDefault": true },
+      "label": "day: build showcase (macos-appkit)"
+    }
+  ]
+}
