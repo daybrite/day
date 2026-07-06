@@ -250,6 +250,9 @@ struct PostMsg { void (*cb)(void*); void* data; };
 // Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
 // Windows host; mirrors the Qt shim's DayWindow::resizeEvent contract.
 static void (*g_resize_cb)(int, int) = nullptr;
+// Lifecycle (docs/lifecycle.md): codes match day_spec::Lifecycle order (2=DidBecomeActive,
+// 3=WillResignActive, 7=WillTerminate).
+static void (*g_lifecycle_cb)(int) = nullptr;
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -260,6 +263,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_resize_cb) g_resize_cb(rc.right, rc.bottom);
         }
         return 0;
+    case WM_ACTIVATE:
+        // Window gained/lost foreground focus → active / resign-active.
+        if (g_lifecycle_cb) g_lifecycle_cb(LOWORD(wp) == WA_INACTIVE ? 3 : 2);
+        break; // let DefWindowProc handle focus normally
+    case WM_CLOSE:
+        // About to close (menu Quit posts WM_CLOSE too) → terminate, then destroy.
+        if (g_lifecycle_cb) g_lifecycle_cb(7);
+        break;
     case WM_DAY_POST: {
         auto p = reinterpret_cast<PostMsg*>(lp);
         if (p) { p->cb(p->data); delete p; }
@@ -271,6 +282,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
+
+extern "C" void day_winui_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb; }
 
 extern "C" {
 

@@ -16,6 +16,8 @@ const { code, lang = 'rust', title } = Astro.props;
 <style>
   .codewin {
     margin: 0;
+    min-width: 0;      /* shrink inside grid/flex parents so the code scrolls, not the page */
+    max-width: 100%;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;

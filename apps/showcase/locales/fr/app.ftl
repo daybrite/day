@@ -90,6 +90,7 @@ text-custom-note = Font.System(pt) — mis à l'échelle par la taille de texte 
 # Aire de jeu Menus
 menus-caption = Menus natifs — la barre de menus de l'application et les menus contextuels par élément — avec sous-menus imbriqués, raccourcis clavier et commandes d'édition standard.
 menus-last = Dernière action :
+menus-lifecycle = Dernière phase du cycle de vie :
 menus-context-hint = Menu contextuel
 menus-target = Clic droit ici (appui long sur mobile) pour un menu contextuel
 menus-shortcut-hint = Les raccourcis clavier (⌘/Ctrl + touche) apparaissent dans la barre de menus et fonctionnent quand l'application est active — p. ex. Nouveau (N), Enregistrer (S), Recharger (R).

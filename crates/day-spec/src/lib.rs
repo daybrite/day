@@ -114,6 +114,9 @@ pub enum Event {
     /// routes it to the app closure registered for the id. Standard-role items don't carry an id
     /// (`role` items are handled natively) so they never emit this.
     MenuAction(u64),
+    /// The app moved through a lifecycle phase (docs/lifecycle.md). Backends emit this from the
+    /// native app/activity delegate; day-core routes it to the app's `on_lifecycle` handlers.
+    Lifecycle(Lifecycle),
 }
 
 impl Event {
@@ -124,6 +127,86 @@ impl Event {
             tag,
             num: 0.0,
             text: text.into(),
+        }
+    }
+}
+
+/// An app-lifecycle phase (docs/lifecycle.md). Each backend maps these onto its OS's native app /
+/// activity delegate. Some phases only exist on some platforms — a mobile app truly enters the
+/// background and can be low on memory, a desktop app essentially cannot — so [`Lifecycle::is_universal`]
+/// marks the ones every backend delivers, and [`Toolkit::supports_lifecycle`] reports per-backend truth.
+///
+/// Rough native mapping:
+///
+/// | phase | AppKit | UIKit | GTK | Qt | Android | WinUI |
+/// |---|---|---|---|---|---|---|
+/// | `WillLaunch` / `DidLaunch` | `applicationWill/DidFinishLaunching` | same | `startup`/mount | mount | `onCreate` | window create |
+/// | `DidBecomeActive` | `didBecomeActive` | `didBecomeActive` | `notify::is-active` | `ApplicationActive` | `onResume` | `Activated` |
+/// | `WillResignActive` | `willResignActive` | `willResignActive` | `notify::is-active` | `ApplicationInactive` | `onPause` | `Deactivated` |
+/// | `WillEnterForeground` | — | `willEnterForeground` | — | — | `onStart` | — |
+/// | `DidEnterBackground` | — | `didEnterBackground` | — | — | `onStop` | — |
+/// | `DidReceiveMemoryWarning` | — | `didReceiveMemoryWarning` | — | — | `onTrimMemory` | — |
+/// | `WillTerminate` | `willTerminate` | `willTerminate` | `shutdown` | `aboutToQuit` | `onDestroy` | window close |
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Lifecycle {
+    /// Before the window and UI are built — the first thing to run. Set up global state here.
+    WillLaunch,
+    /// The UI is mounted and the app is about to start running. Kick off startup work here.
+    DidLaunch,
+    /// The app came to the foreground and is the active, focused app receiving input.
+    DidBecomeActive,
+    /// The app is about to stop being active (an interruption, app switch, or losing focus).
+    WillResignActive,
+    /// The app is about to return to the foreground (mobile). Refresh what background invalidated.
+    WillEnterForeground,
+    /// The app left the foreground and is no longer visible (mobile). Persist state, release UI work.
+    DidEnterBackground,
+    /// The system is low on memory (mobile). Drop caches and non-essential memory now.
+    DidReceiveMemoryWarning,
+    /// The app is about to terminate — the last chance to save. Triggered by the Quit command,
+    /// the platform's quit shortcut, or the OS reclaiming the app.
+    WillTerminate,
+}
+
+impl Lifecycle {
+    /// Every phase, in delivery order (launch → run → quit). Handy for logging/registration sweeps.
+    pub const ALL: [Lifecycle; 8] = [
+        Lifecycle::WillLaunch,
+        Lifecycle::DidLaunch,
+        Lifecycle::DidBecomeActive,
+        Lifecycle::WillResignActive,
+        Lifecycle::WillEnterForeground,
+        Lifecycle::DidEnterBackground,
+        Lifecycle::DidReceiveMemoryWarning,
+        Lifecycle::WillTerminate,
+    ];
+
+    /// True for phases EVERY backend delivers (launch, activation, termination). The remaining
+    /// phases (`WillEnterForeground`, `DidEnterBackground`, `DidReceiveMemoryWarning`) are genuine
+    /// mobile concepts and are only delivered by the mobile backends. `const` so it composes into a
+    /// backend's `const fn lifecycle_supported` and thus into compile-time guards.
+    pub const fn is_universal(self) -> bool {
+        matches!(
+            self,
+            Lifecycle::WillLaunch
+                | Lifecycle::DidLaunch
+                | Lifecycle::DidBecomeActive
+                | Lifecycle::WillResignActive
+                | Lifecycle::WillTerminate
+        )
+    }
+
+    /// A stable, human-readable name (for logs/warnings).
+    pub const fn name(self) -> &'static str {
+        match self {
+            Lifecycle::WillLaunch => "WillLaunch",
+            Lifecycle::DidLaunch => "DidLaunch",
+            Lifecycle::DidBecomeActive => "DidBecomeActive",
+            Lifecycle::WillResignActive => "WillResignActive",
+            Lifecycle::WillEnterForeground => "WillEnterForeground",
+            Lifecycle::DidEnterBackground => "DidEnterBackground",
+            Lifecycle::DidReceiveMemoryWarning => "DidReceiveMemoryWarning",
+            Lifecycle::WillTerminate => "WillTerminate",
         }
     }
 }
@@ -886,6 +969,14 @@ pub trait Toolkit: Sized + 'static {
     /// A context menu for `h`, shown on secondary-click (desktop) or long-press (mobile). Passing an
     /// empty slice removes it.
     fn set_context_menu(&mut self, _h: &Self::Handle, _node: NodeId, _items: &[MenuItem]) {}
+
+    // lifecycle (docs/lifecycle.md): does this backend deliver `phase`? The default answers "yes" for
+    // the universal phases (launch/activation/termination) and "no" for the mobile-only ones. Backends
+    // that wire up more (the mobile ones) override this; it MUST agree with the crate's
+    // `const fn lifecycle_supported`, which drives compile-time guards in `day::require_lifecycle!`.
+    fn supports_lifecycle(&self, phase: Lifecycle) -> bool {
+        phase.is_universal()
+    }
 
     // pillars
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}

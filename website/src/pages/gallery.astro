@@ -94,7 +94,7 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
   .pf-tag.on { color: #8ce39a; border-color: rgba(140,227,154,0.35); background: rgba(140,227,154,0.1); }
   .shots {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
     gap: 16px;
   }
 </style>

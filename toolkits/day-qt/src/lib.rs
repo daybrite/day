@@ -410,6 +410,24 @@ extern "C" fn on_menu_action(id: u64) {
     emit_window(Event::MenuAction(id));
 }
 
+/// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
+/// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
+pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
+    phase.is_universal()
+}
+
+/// Phase codes (from the Qt shim's QApplication signals) → day lifecycle events.
+extern "C" fn on_lifecycle(code: c_int) {
+    use day_spec::Lifecycle::*;
+    let phase = match code {
+        2 => DidBecomeActive,
+        3 => WillResignActive,
+        7 => WillTerminate,
+        _ => return,
+    };
+    emit_window(Event::Lifecycle(phase));
+}
+
 /// A QKeySequence-parseable string for a shortcut. Qt maps `Ctrl` to ⌘ on macOS, so `primary`
 /// renders as the platform's command modifier everywhere.
 fn qt_shortcut(sc: &day_spec::Shortcut) -> String {
@@ -1198,6 +1216,7 @@ impl Platform for Qt {
             self.window = window;
             ffi::day_qt_set_present_cb(present_cb);
             ffi::day_qt_set_menu_cb(on_menu_action);
+            ffi::day_qt_set_lifecycle_cb(on_lifecycle);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_window_show(window);

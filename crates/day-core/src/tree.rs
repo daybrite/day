@@ -391,6 +391,8 @@ pub trait TreeOps {
     fn root_node(&self) -> RNode;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
+    /// Does the running backend deliver this lifecycle phase (docs/lifecycle.md)?
+    fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool;
     /// Present a native modal for request `req` (docs/dialogs.md).
     fn present(&mut self, req: u64, spec: &present::PresentSpec);
     /// Dismiss the modal for `req` (programmatic resolve while it is still up).
@@ -424,6 +426,10 @@ pub trait TreeOps {
 impl<B: Toolkit> TreeOps for Tree<B> {
     fn capability(&self, cap: Cap) -> Support {
         self.toolkit.capability(cap)
+    }
+
+    fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
+        self.toolkit.supports_lifecycle(phase)
     }
 
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {
@@ -935,6 +941,11 @@ fn pump_events_inner() {
         // Menu actions are keyed by action id, not by tree node (§ menus).
         if let Event::MenuAction(action) = ev {
             crate::menu::dispatch_menu_action(action);
+            continue;
+        }
+        // Lifecycle phases are app-global, not keyed by tree node (docs/lifecycle.md).
+        if let Event::Lifecycle(phase) = ev {
+            crate::lifecycle::dispatch_lifecycle(phase);
             continue;
         }
         let node = if id == day_spec::WINDOW_NODE {

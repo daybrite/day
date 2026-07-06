@@ -308,6 +308,24 @@ extern "C" fn on_menu_action(id: u64) {
     emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
 }
 
+/// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
+/// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
+pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
+    phase.is_universal()
+}
+
+/// Phase codes (from the shim's WndProc) → day lifecycle events.
+extern "C" fn on_lifecycle(code: c_int) {
+    use day_spec::Lifecycle::*;
+    let phase = match code {
+        2 => DidBecomeActive,
+        3 => WillResignActive,
+        7 => WillTerminate,
+        _ => return,
+    };
+    emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+}
+
 fn win_role_label(role: day_spec::MenuRole) -> String {
     use day_spec::MenuRole::*;
     match role {
@@ -1034,6 +1052,7 @@ impl Platform for WinUi {
             }
             self.window = win;
             ffi::day_winui_set_menu_cb(on_menu_action);
+            ffi::day_winui_set_lifecycle_cb(on_lifecycle);
             let root = ffi::day_winui_window_root(win);
             ready(self, WinHandle(root), options.size);
             ffi::day_winui_window_on_resize(win, window_resized);

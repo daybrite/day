@@ -42,7 +42,22 @@ static int s_argc = 1;
 static char s_arg0[] = "day";
 static char *s_argv[] = {s_arg0, nullptr};
 
-void *day_qt_app_new() { return new QApplication(s_argc, s_argv); }
+// Lifecycle (docs/lifecycle.md): codes match day_spec::Lifecycle order (2=DidBecomeActive,
+// 3=WillResignActive, 7=WillTerminate). Set from Rust before exec.
+static void (*g_lifecycle_cb)(int) = nullptr;
+
+void *day_qt_app_new() {
+    auto *app = new QApplication(s_argc, s_argv);
+    QObject::connect(app, &QApplication::applicationStateChanged, [](Qt::ApplicationState s) {
+        if (!g_lifecycle_cb) return;
+        if (s == Qt::ApplicationActive) g_lifecycle_cb(2);        // DidBecomeActive
+        else if (s == Qt::ApplicationInactive) g_lifecycle_cb(3); // WillResignActive
+    });
+    QObject::connect(app, &QCoreApplication::aboutToQuit, []() {
+        if (g_lifecycle_cb) g_lifecycle_cb(7);                    // WillTerminate
+    });
+    return app;
+}
 void day_qt_app_run(void *app) { static_cast<QApplication *>(app)->exec(); }
 
 // Resizable top-level that reports size changes back to day (docs §7.7).
@@ -552,6 +567,8 @@ void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb)
 static void (*g_menu_cb)(uint64_t) = nullptr;
 
 void day_qt_set_menu_cb(void (*cb)(uint64_t)) { g_menu_cb = cb; }
+
+void day_qt_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb; }
 
 // Invoke a QLineEdit/QTextEdit public slot on whatever widget currently has focus.
 static void day_qt_edit_dispatch(const char *slot) {

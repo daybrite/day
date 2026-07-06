@@ -181,10 +181,13 @@ const features = [
   .hero-grid {
     position: relative;
     display: grid;
-    grid-template-columns: 1.05fr 0.95fr;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
     gap: 52px;
     align-items: center;
   }
+  /* Grid items must be allowed to shrink below their content's intrinsic width, so a wide
+     code block scrolls inside its own box instead of stretching the page. */
+  .hero-grid > *, .how-grid > * { min-width: 0; }
   .hero-pill { margin-bottom: 22px; }
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; }
   .hero-lead { margin: 0 0 28px; }
@@ -193,7 +196,7 @@ const features = [
   .hero-code-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
 
   /* RUNS ON */
-  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 8px; }
+  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; margin-top: 8px; }
   .os-card { border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 18px 20px; background: var(--surface); }
   .os-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
   .os-card ul { list-style: none; margin: 0; padding: 0; }
@@ -204,7 +207,7 @@ const features = [
   .sec-title { font-size: clamp(1.7rem, 3.6vw, 2.4rem); margin: 0 0 14px; }
 
   /* FEATURES */
-  .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 18px; margin-top: 34px; }
+  .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr)); gap: 18px; margin-top: 34px; }
   .feat { transition: border-color 0.15s ease, transform 0.12s ease; }
   .feat:hover { border-color: var(--border); transform: translateY(-3px); }
   .feat-icon {
@@ -216,7 +219,7 @@ const features = [
   .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 
   /* HOW */
-  .how-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+  .how-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
   .how-list { list-style: none; padding: 0; margin: 20px 0 26px; }
   .how-list li { color: var(--muted); padding: 8px 0 8px 26px; position: relative; }
   .how-list li::before { content: '◆'; color: var(--sun); position: absolute; left: 0; font-size: 0.72rem; top: 12px; }
@@ -236,7 +239,7 @@ const features = [
   .cta-inner h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0; max-width: 20ch; }
 
   @media (max-width: 880px) {
-    .hero-grid, .how-grid { grid-template-columns: 1fr; }
+    .hero-grid, .how-grid { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 40px; }
     .how-code { order: 2; }
   }

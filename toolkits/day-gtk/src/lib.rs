@@ -164,6 +164,11 @@ fn gtk_role_action(role: day_spec::MenuRole) -> Option<&'static str> {
         R::SelectAll => "selection.select-all",
         R::Undo => "text.undo",
         R::Redo => "text.redo",
+        // App/window-scoped standard commands. `app.quit` is registered on the GtkApplication in
+        // `Platform::run`; `window.close`/`window.minimize` are GTK's built-in window actions.
+        R::Quit => "app.quit",
+        R::CloseWindow => "window.close",
+        R::Minimize => "window.minimize",
         _ => return None,
     })
 }
@@ -1638,6 +1643,14 @@ fn report_content_size(w: &adw::ApplicationWindow, header: &adw::HeaderBar) {
     );
 }
 
+/// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set
+/// (launch / activation / termination). GTK desktop apps have no background/foreground or
+/// memory-warning concept. `const` so `day::require_lifecycle!` can reject unsupported phases at
+/// compile time. Must match [`Gtk::supports_lifecycle`].
+pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
+    phase.is_universal()
+}
+
 impl Platform for Gtk {
     const TARGET: &'static str = if cfg!(target_os = "macos") {
         "macos-gtk"
@@ -1652,6 +1665,28 @@ impl Platform for Gtk {
         let app = adw::Application::builder()
             .application_id("dev.daybrite.day.app")
             .build();
+
+        // Standard app-level "quit" action so `MenuRole::Quit` (and the platform quit shortcut
+        // ⌘Q / Ctrl+Q) actually exits — GTK provides no default quit action (docs/menus.md fix).
+        // Calling `app.quit()` tears the app down, which fires `shutdown` → `WillTerminate` below,
+        // so every quit path (menu item, accelerator, last-window-close) runs the same handlers.
+        let quit = gtk4::gio::SimpleAction::new("quit", None);
+        {
+            let app = app.clone();
+            quit.connect_activate(move |_, _| app.quit());
+        }
+        app.add_action(&quit);
+        app.set_accels_for_action("app.quit", &["<Primary>q"]);
+
+        // Lifecycle: GApplication `shutdown` is the single point every quit funnels through
+        // (docs/lifecycle.md). Emit WillTerminate synchronously so handlers run before teardown.
+        app.connect_shutdown(|_| {
+            emit(
+                day_spec::WINDOW_NODE,
+                Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
+            );
+        });
+
         let state = RefCell::new(Some((self, ready, options)));
         // Take on first activate (FnOnce payload inside an Fn handler).
         app.connect_activate(move |app| {
@@ -1699,6 +1734,15 @@ impl Platform for Gtk {
                 let header = header.clone();
                 window.connect_default_height_notify(move |w| report_content_size(w, &header));
             }
+            // Lifecycle activation (docs/lifecycle.md): the window's focus tracks foreground/active.
+            window.connect_is_active_notify(|w| {
+                let phase = if w.is_active() {
+                    day_spec::Lifecycle::DidBecomeActive
+                } else {
+                    day_spec::Lifecycle::WillResignActive
+                };
+                emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+            });
             window.present();
         });
         app.run_with_args::<&str>(&[]);

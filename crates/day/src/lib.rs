@@ -15,12 +15,108 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
-pub use day_spec::WindowOptions;
+pub use day_core::{lifecycle_supported, on_lifecycle};
+pub use day_spec::{Lifecycle, WindowOptions};
+
+/// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,
+/// `"UIKit"`, `"Android"`, `"WinUI"` (or `"Mock"`). Handy for a window title that names its backend.
+pub const fn toolkit_name() -> &'static str {
+    #[cfg(feature = "appkit")]
+    {
+        return "AppKit";
+    }
+    #[cfg(feature = "gtk")]
+    {
+        return "GTK";
+    }
+    #[cfg(feature = "qt")]
+    {
+        return "Qt";
+    }
+    #[cfg(feature = "uikit")]
+    {
+        return "UIKit";
+    }
+    #[cfg(feature = "widget")]
+    {
+        return "Android";
+    }
+    #[cfg(feature = "winui")]
+    {
+        return "WinUI";
+    }
+    #[allow(unreachable_code)]
+    {
+        "Mock"
+    }
+}
 
 pub mod prelude {
     pub use day_fluent::{LocalizedText, install as install_locales, set_locale, tr};
     pub use day_pieces::prelude::*;
-    pub use day_spec::{Size, WindowOptions};
+    pub use day_spec::{Lifecycle, Size, WindowOptions};
+    pub use {super::lifecycle_supported, super::on_lifecycle};
+}
+
+/// App-lifecycle support for the backend compiled into THIS binary (docs/lifecycle.md).
+///
+/// Register handlers with [`on_lifecycle`]; guard phases a platform may not deliver either at runtime
+/// (`if day::lifecycle::supported(p) { … }`) or at compile time with [`require_lifecycle!`].
+pub mod lifecycle {
+    pub use day_core::{lifecycle_supported, on_lifecycle};
+    pub use day_spec::Lifecycle;
+
+    /// Does the backend compiled into this binary deliver `phase`? A `const fn`, so it drives both a
+    /// runtime guard and the compile-time [`crate::require_lifecycle!`] assertion. Agrees with the
+    /// runtime [`day_core::lifecycle_supported`] once the app is running.
+    pub const fn supported(phase: Lifecycle) -> bool {
+        #[cfg(feature = "appkit")]
+        {
+            return day_appkit::lifecycle_supported(phase);
+        }
+        #[cfg(feature = "gtk")]
+        {
+            return day_gtk::lifecycle_supported(phase);
+        }
+        #[cfg(feature = "qt")]
+        {
+            return day_qt::lifecycle_supported(phase);
+        }
+        #[cfg(all(feature = "uikit", target_os = "ios"))]
+        {
+            return day_uikit::lifecycle_supported(phase);
+        }
+        #[cfg(all(feature = "widget", target_os = "android"))]
+        {
+            return day_android::lifecycle_supported(phase);
+        }
+        #[cfg(all(feature = "winui", windows))]
+        {
+            return day_winui::lifecycle_supported(phase);
+        }
+        // No concrete backend (mock, or a mobile backend compiled for the host to check): the
+        // universal phases are always deliverable.
+        #[allow(unreachable_code)]
+        {
+            phase.is_universal()
+        }
+    }
+}
+
+/// Compile-time assert that the backend in this binary delivers `$phase`, else a build error. Use it
+/// to make a hard dependency on a platform-specific phase explicit:
+/// `day::require_lifecycle!(day::Lifecycle::DidEnterBackground);` fails to compile on desktop.
+/// For soft handling, guard with [`lifecycle::supported`] / [`lifecycle_supported`] instead.
+#[macro_export]
+macro_rules! require_lifecycle {
+    ($phase:expr) => {
+        const {
+            ::core::assert!(
+                $crate::lifecycle::supported($phase),
+                "this Day backend does not deliver that lifecycle phase (see docs/lifecycle.md)",
+            )
+        }
+    };
 }
 
 /// Launch the app on the selected backend (blocks; owns the native main loop).

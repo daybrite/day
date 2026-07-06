@@ -325,6 +325,12 @@ mod imp {
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
             // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
             13 => Event::MenuAction(id as u64),
+            // Activity lifecycle (docs/lifecycle.md): `num` is the phase code (day_spec::Lifecycle
+            // order). DayActivity forwards onResume/onPause/onStart/onStop/onTrimMemory/onDestroy.
+            14 => match android_lifecycle(num as i32) {
+                Some(phase) => Event::Lifecycle(phase),
+                None => return,
+            },
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -363,6 +369,26 @@ mod imp {
     fn jstr(env: &mut JNIEnv, s: &str) -> jni::objects::JString<'static> {
         // SAFETY: local ref used immediately within the same JNI frame.
         unsafe { std::mem::transmute(env.new_string(s).expect("new_string")) }
+    }
+
+    /// Map an Android lifecycle phase code (day_spec::Lifecycle order) to the enum (docs/lifecycle.md).
+    fn android_lifecycle(code: i32) -> Option<day_spec::Lifecycle> {
+        use day_spec::Lifecycle::*;
+        Some(match code {
+            2 => DidBecomeActive,
+            3 => WillResignActive,
+            4 => WillEnterForeground,
+            5 => DidEnterBackground,
+            6 => DidReceiveMemoryWarning,
+            7 => WillTerminate,
+            _ => return None,
+        })
+    }
+
+    /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md). `const` for
+    /// `day::require_lifecycle!` compile-time guards.
+    pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
+        true
     }
 
     /// Default label for a standard role left unlabeled by the app. (Android's own text-selection
@@ -1141,6 +1167,10 @@ mod imp {
                     &[JValue::Object(&jspec)],
                 );
             });
+        }
+
+        fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
+            lifecycle_supported(phase)
         }
 
         fn attach_list(&mut self, host: &AHandle, source: ListSource) {

@@ -528,6 +528,18 @@ public final class DayBridge {
     /** The current app (overflow) menu spec, or null. Set by setAppMenu; read by DayActivity. */
     public static String appMenuSpec = null;
 
+    // --- Lifecycle (docs/lifecycle.md) ----------------------------------------
+    // True once nativeStart has run; lifecycle events before that are dropped (native isn't ready).
+    // DayActivity forwards Activity lifecycle transitions here with the phase code (day_spec::Lifecycle
+    // order: 2=DidBecomeActive 3=WillResignActive 4=WillEnterForeground 5=DidEnterBackground
+    // 6=DidReceiveMemoryWarning 7=WillTerminate), delivered to native as event kind 14.
+    public static volatile boolean started = false;
+
+    /** Forward an Activity lifecycle phase to native, once the app has started. */
+    public static void lifecycle(int code) {
+        if (started) nativeOnEvent(0L, 14, code, "");
+    }
+
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
     public static void setContextMenu(final View v, final String spec) {
         if (spec == null || spec.isEmpty()) {

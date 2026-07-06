@@ -110,6 +110,9 @@ unsafe extern "C" {
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
 
+    // Lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
+    pub fn day_qt_set_lifecycle_cb(cb: extern "C" fn(c_int));
+
     // Menus (docs/menus.md): a flat builder walked from the day-neutral MenuItem tree.
     pub fn day_qt_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_qt_window_menubar(win: *mut c_void) -> *mut c_void;

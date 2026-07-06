@@ -12,9 +12,58 @@ thread_local! {
     /// The last menu action fired — shared between the app menu (installed in `root`) and the Menus
     /// page so both demonstrate action dispatch. Created lazily inside the reactive runtime.
     static MENU_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
+    /// The most recent app-lifecycle phase, shown live on the Menus page (docs/lifecycle.md).
+    static LIFECYCLE_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
 }
 fn menu_log() -> Signal<String> {
     MENU_LOG.with(|c| *c.get_or_init(|| Signal::new("—".into())))
+}
+fn lifecycle_log() -> Signal<String> {
+    LIFECYCLE_LOG.with(|c| *c.get_or_init(|| Signal::new("—".into())))
+}
+
+/// Register app-lifecycle handlers (docs/lifecycle.md). Call this from `main` BEFORE `day::launch`
+/// so the launch phases are captured. Each handler logs to the console and to a live UI readout.
+///
+/// The mobile-only phases are registered only where the compiled-in backend actually delivers them,
+/// using the compile-time-accurate guard `day::lifecycle::supported(..)` — on desktop those `if`s are
+/// `false` and the handlers are never registered, so no "unsupported phase" warning is produced.
+pub fn install_lifecycle_handlers() {
+    use day::Lifecycle::*;
+
+    // Idempotent: desktop calls this from `main` (to catch WillLaunch), mobile from `root`.
+    thread_local! { static INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    if INSTALLED.with(|c| c.replace(true)) {
+        return;
+    }
+
+    let note = |phase: day::Lifecycle| {
+        move || {
+            eprintln!("day lifecycle: {}", phase.name());
+            lifecycle_log().set(phase.name().into());
+        }
+    };
+
+    // Universal phases — every backend delivers these.
+    for phase in [
+        WillLaunch,
+        DidLaunch,
+        DidBecomeActive,
+        WillResignActive,
+        WillTerminate,
+    ] {
+        day::on_lifecycle(phase, note(phase));
+    }
+    // Mobile-only phases — guard so we register only where they're delivered (iOS / Android).
+    for phase in [
+        WillEnterForeground,
+        DidEnterBackground,
+        DidReceiveMemoryWarning,
+    ] {
+        if day::lifecycle::supported(phase) {
+            day::on_lifecycle(phase, note(phase));
+        }
+    }
 }
 // Lottie renders a native LottieAnimationView — iOS + Android only, so both the import and the page
 // are gated to those targets (its front-end compiles everywhere, but it only renders there).
@@ -33,6 +82,9 @@ pub fn root() -> AnyPiece {
     // to an app-owned `Signal<String>` of the active section. Desktop shows sidebar + detail
     // (an AdwNavigationSplitView on GTK); mobile collapses to a list that pushes the detail.
     install_app_menu();
+    // Lifecycle handlers (docs/lifecycle.md). On mobile this is the registration point; on desktop
+    // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
+    install_lifecycle_handlers();
     let section = Signal::new(String::new());
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
@@ -83,6 +135,10 @@ fn install_app_menu() {
                     .action(log("File ▸ Save As")),
                 menu_separator(),
                 menu_role(MenuRole::CloseWindow),
+                // Quit is a standard role: ⌘Q / Ctrl+Q, it exits the app and fires the
+                // `WillTerminate` lifecycle phase (docs/lifecycle.md). macOS also keeps the
+                // conventional Quit in the App menu.
+                menu_role(MenuRole::Quit),
             ],
         ),
         // Standard edit commands — native items that target the focused control (default shortcuts).
@@ -119,9 +175,22 @@ fn menus_page() -> AnyPiece {
     column((
         label(tr("nav-menus")).font(Font::Title).id("menus-title"),
         label(tr("menus-caption")).font(Font::Subheadline),
-        // Live readout — driven by both the app menu and the context menu below.
-        label(move || format!("{}  {}", tr("menus-last").format(), menu_log().get()))
-            .id("menus-last"),
+        // Live readouts: the last menu action (app menu or context menu), and the last app-lifecycle
+        // phase (docs/lifecycle.md) — Quit fires WillTerminate; switching apps fires resign/active.
+        column((
+            label(move || format!("{}  {}", tr("menus-last").format(), menu_log().get()))
+                .id("menus-last"),
+            label(move || {
+                format!(
+                    "{}  {}",
+                    tr("menus-lifecycle").format(),
+                    lifecycle_log().get()
+                )
+            })
+            .id("menus-lifecycle"),
+        ))
+        .spacing(6.0)
+        .align(HAlign::Leading),
         divider(),
         label(tr("menus-context-hint")).font(Font::Headline),
         // A target for the context menu: nested submenu + a separator + a standard role.

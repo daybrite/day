@@ -1802,6 +1802,10 @@ mod imp {
             // menu; a global bar is intentionally a no-op here. See docs/menus.md.
         }
 
+        fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
+            lifecycle_supported(phase)
+        }
+
         fn attach_list(&mut self, host: &Handle, source: ListSource) {
             LIST_STATE.with(|m| {
                 if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
@@ -2125,8 +2129,58 @@ mod imp {
                     false
                 }
             }
+
+            // Lifecycle (docs/lifecycle.md): the full iOS app lifecycle, mapped 1:1 to day phases.
+            #[unsafe(method(applicationDidBecomeActive:))]
+            fn did_become_active(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::DidBecomeActive),
+                );
+            }
+            #[unsafe(method(applicationWillResignActive:))]
+            fn will_resign_active(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::WillResignActive),
+                );
+            }
+            #[unsafe(method(applicationWillEnterForeground:))]
+            fn will_enter_foreground(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::WillEnterForeground),
+                );
+            }
+            #[unsafe(method(applicationDidEnterBackground:))]
+            fn did_enter_background(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::DidEnterBackground),
+                );
+            }
+            #[unsafe(method(applicationDidReceiveMemoryWarning:))]
+            fn did_receive_memory_warning(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::DidReceiveMemoryWarning),
+                );
+            }
+            #[unsafe(method(applicationWillTerminate:))]
+            fn will_terminate(&self, _app: &UIApplication) {
+                emit(
+                    WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
+                );
+            }
         }
     );
+
+    /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md), including the background,
+    /// foreground, and memory-warning phases desktops lack. `const` for `day::require_lifecycle!`.
+    pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
+        true
+    }
 
     impl Platform for Uikit {
         const TARGET: &'static str = "ios-uikit";

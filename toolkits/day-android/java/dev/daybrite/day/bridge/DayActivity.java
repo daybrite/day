@@ -44,12 +44,37 @@ public class DayActivity extends Activity {
             blob.append("DAY_DEEPLINK=").append(uriRoute(data)).append('\n');
         }
         final String envBlob = blob.toString();
+        final DayActivity self = this;
         root.post(new Runnable() {
             public void run() {
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
                         autodrive, locale, envBlob);
+                // Native is ready now (docs/lifecycle.md). onStart/onResume already ran before this
+                // post, so their events were dropped — synthesize the current active state.
+                DayBridge.started = true;
+                if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
             }
         });
+    }
+
+    /** Whether the Activity is currently resumed (foreground + interactive). */
+    private boolean resumed = false;
+
+    // Activity lifecycle → day lifecycle phases (docs/lifecycle.md). Codes match day_spec::Lifecycle.
+    @Override protected void onStart() { super.onStart(); DayBridge.lifecycle(4); }   // WillEnterForeground
+    @Override protected void onResume() { super.onResume(); resumed = true; DayBridge.lifecycle(2); } // DidBecomeActive
+    @Override protected void onPause() { DayBridge.lifecycle(3); resumed = false; super.onPause(); }   // WillResignActive
+    @Override protected void onStop() { DayBridge.lifecycle(5); super.onStop(); }     // DidEnterBackground
+
+    @Override protected void onDestroy() {
+        // Only a real finish is a termination; a config-change recreation is not.
+        if (isFinishing()) DayBridge.lifecycle(7); // WillTerminate
+        super.onDestroy();
+    }
+
+    @Override public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        DayBridge.lifecycle(6); // DidReceiveMemoryWarning
     }
 
     static String uriRoute(android.net.Uri uri) {

@@ -76,7 +76,7 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
     background: rgba(106, 164, 255, 0.1);
     border-left-color: var(--brand);
   }
-  .doc-body { max-width: 760px; min-width: 0; }
+  .doc-body { max-width: 760px; min-width: 0; overflow-wrap: break-word; }
 
   .prevnext {
     display: flex;
@@ -139,8 +139,13 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
     line-height: 1.6;
     box-shadow: var(--shadow);
   }
+  /* A wide table scrolls within the column instead of widening the page. `display: block`
+     makes the table its own horizontal scroll container on narrow screens. */
   .doc-body table {
+    display: block;
     width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
     border-collapse: collapse;
     margin: 18px 0;
     font-size: 0.93rem;

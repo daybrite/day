@@ -30,6 +30,10 @@ use objc2_app_kit::{
     NSProgressIndicatorStyle, NSScrollView, NSSlider, NSSwitch, NSTabView, NSTabViewItem,
     NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
+use objc2_app_kit::{
+    NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
+    NSApplicationWillTerminateNotification,
+};
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_foundation::{
@@ -2007,6 +2011,8 @@ impl Platform for AppKit {
         // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
         // installs its own via `app_menu(...)`.
         install_main_menu(mtm, &app, &options.title);
+        // App activation / termination → day lifecycle events (docs/lifecycle.md).
+        install_lifecycle_observers();
 
         let content_rect = NSRect::new(
             NSPoint::new(0.0, 0.0),
@@ -2090,6 +2096,44 @@ fn mark_tree_needs_display(view: &NSView) {
     view.setNeedsDisplay(true);
     for sub in view.subviews() {
         mark_tree_needs_display(&sub);
+    }
+}
+
+/// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
+/// macOS has no true background/foreground or memory-warning lifecycle. `const` so
+/// `day::require_lifecycle!` can reject unsupported phases at compile time. Must agree with the
+/// `Toolkit::supports_lifecycle` default (which also returns `is_universal`).
+pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
+    phase.is_universal()
+}
+
+/// Bridge the NSApplication activation/termination notifications to day lifecycle events
+/// (docs/lifecycle.md). The observer tokens are leaked to live for the whole app.
+fn install_lifecycle_observers() {
+    use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName};
+    let center = unsafe { NSNotificationCenter::defaultCenter() };
+    let observe = |name: &NSNotificationName, phase: day_spec::Lifecycle| {
+        let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+            emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+        });
+        let token = unsafe {
+            center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
+        };
+        std::mem::forget(token); // observe for the app's lifetime
+    };
+    unsafe {
+        observe(
+            NSApplicationDidBecomeActiveNotification,
+            day_spec::Lifecycle::DidBecomeActive,
+        );
+        observe(
+            NSApplicationWillResignActiveNotification,
+            day_spec::Lifecycle::WillResignActive,
+        );
+        observe(
+            NSApplicationWillTerminateNotification,
+            day_spec::Lifecycle::WillTerminate,
+        );
     }
 }
 

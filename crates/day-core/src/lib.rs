@@ -4,6 +4,7 @@
 
 mod build;
 mod layout;
+pub mod lifecycle;
 pub mod list;
 pub mod menu;
 mod nav;
@@ -12,6 +13,7 @@ mod tree;
 
 pub use build::*;
 pub use layout::*;
+pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{BuiltRow, ListDriver, install_list, list_reload};
 pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
@@ -37,6 +39,10 @@ pub fn launch_with<P: Platform>(
         }))
     });
 
+    // WillLaunch: before the window/UI exists (docs/lifecycle.md). Fired uniformly by day-core so
+    // it is reliable on every backend; handlers must not touch the tree (there isn't one yet).
+    lifecycle::dispatch_lifecycle(day_spec::Lifecycle::WillLaunch);
+
     P::run(
         backend,
         options,
@@ -45,6 +51,10 @@ pub fn launch_with<P: Platform>(
             let tree = Tree::new(toolkit, root_handle, size);
             let root = tree.root();
             tree::install_tree(Box::new(tree));
+
+            // The backend is now known: warn about any lifecycle handlers already registered for
+            // phases this platform doesn't deliver (docs/lifecycle.md).
+            lifecycle::warn_unsupported_registrations();
 
             // Window resize → relayout.
             with_tree(|t| {
@@ -71,6 +81,9 @@ pub fn launch_with<P: Platform>(
                 t.layout_if_needed();
             });
             day_reactive::on_turn_end(|| with_tree(|t| t.layout_if_needed()));
+
+            // DidLaunch: the UI is mounted and laid out, the app is about to run (docs/lifecycle.md).
+            lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);
 
             // Startup deep link (docs/navigation.md): uniform across platforms — desktop
             // sets the env directly, mobile shells forward the launch URL/intent into it.
