@@ -1,13 +1,14 @@
 {
   "app": {
-    // Fill `signingConfigs` in DevEco Studio (File ▸ Project Structure ▸ Signing Configs ▸ auto-sign),
-    // or with the command-line `--sign-hap` flow. HarmonyOS requires a signed .hap to install.
+    // No `signingConfig` here → hvigor builds an UNSIGNED .hap; the CI signs it afterwards with the
+    // bundled default OpenHarmony debug material (hap-sign-tool.jar). In DevEco Studio, use
+    // File ▸ Project Structure ▸ Signing Configs ▸ auto-sign instead. compatibleSdkVersion matches the
+    // command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
     "signingConfigs": [],
     "products": [
       {
         "name": "default",
-        "signingConfig": "default",
-        "compatibleSdkVersion": "5.0.0(12)",
+        "compatibleSdkVersion": "5.1.0(18)",
         "runtimeOS": "HarmonyOS"
       }
     ],

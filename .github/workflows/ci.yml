@@ -294,13 +294,17 @@ jobs:
   # non-blocking meanwhile. A pre-set OHOS_NDK_HOME (a self-hosted DevEco SDK) skips the download.
   ohos-arkui:
     name: ohos-arkui
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     needs: [fmt, clippy, msrv]
     continue-on-error: true
     env:
-      OHOS_SDK_VERSION: "6.0-Release"
-      OHOS_SDK_PKG: "L2-SDK-MAC-M1-PUBLIC.tar.gz"
+      # OpenHarmony command-line-tools: one self-contained bundle carrying the SDK/NDK, hvigor,
+      # ohpm, a bundled node, hdc, and the default debug signing material — downloadable without a
+      # Huawei developer account. This lets CI run a real hvigor build + sign the .hap headlessly.
+      CLT_VERSION: "5.1.0.840"
+      CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
       APP_ID: "dev.daybrite.day.arkui.demo"
+      HARMONY: apps/day-arkui-demo/harmony
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -309,85 +313,101 @@ jobs:
           targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Cache the OpenHarmony SDK (~1.2 GB)
+      - uses: actions/setup-java@v5
+        # java + keytool for the headless hap signing (sign-hap.sh).
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Cache the OpenHarmony command-line-tools (~2 GB)
         uses: actions/cache@v4
         with:
-          path: ~/ohos-sdk
-          key: ohos-sdk-${{ env.OHOS_SDK_VERSION }}-${{ env.OHOS_SDK_PKG }}
-      # Prefer a pre-configured SDK (self-hosted DevEco); else download the public OpenHarmony SDK
-      # and extract the NDK (`native` — clang cross-linkers + ArkUI/NAPI headers + runtime libs) and
-      # `toolchains` (for `hdc`). Emits OHOS_NDK_HOME + the per-target linker paths for cargo.
-      - name: Install / locate the OpenHarmony NDK
+          path: ~/ohos-clt
+          key: ohos-clt-${{ env.CLT_VERSION }}
+      # The command-line-tools carry everything needed to build a .hap headlessly: the SDK/NDK
+      # (native clang cross-linkers + ArkUI/NAPI headers + runtime libs), hvigor, ohpm, a bundled
+      # node, hdc, and the default OpenHarmony debug signing material. Emits OHOS_NDK_HOME (for the
+      # Rust cross-compile), DEVECO_SDK_HOME + PATH (for hvigor/ohpm/hdc), and the cargo linkers.
+      - name: Install the OpenHarmony command-line-tools
         run: |
           set -euo pipefail
-          if [ -n "${OHOS_NDK_HOME:-}" ] && [ -d "$OHOS_NDK_HOME/llvm/bin" ]; then
-            NDK="$OHOS_NDK_HOME"
-            echo "using pre-configured OHOS_NDK_HOME=$NDK"
-          else
-            mkdir -p ~/ohos-sdk && cd ~/ohos-sdk
-            if [ ! -d native/llvm ]; then
-              echo "downloading OpenHarmony SDK $OHOS_SDK_VERSION ..."
-              curl -fSL -o sdk.tar.gz \
-                "https://repo.huaweicloud.com/openharmony/os/${OHOS_SDK_VERSION}/${OHOS_SDK_PKG}"
-              tar xzf sdk.tar.gz
-              # Extract just the NDK (`native`) + `toolchains` (hdc) components. `find | while read`
-              # (no `head`) is pipefail-safe; find's default -print covers both -name patterns.
-              find . -name 'native-darwin-arm64-*.zip' -o -name 'toolchains-darwin-arm64-*.zip' \
-                | while read -r z; do unzip -q -o "$z" -d .; done
-              # Keep only the extracted native/ + toolchains/ in the cache (drop the ~1.2 GB of
-              # other component zips the tarball carried).
-              rm -rf sdk.tar.gz sdk
-            fi
-            NDK="$HOME/ohos-sdk/native"
-            echo "$HOME/ohos-sdk/toolchains" >> "$GITHUB_PATH"
-            echo "DYLD_LIBRARY_PATH=$HOME/ohos-sdk/toolchains" >> "$GITHUB_ENV"
+          C="$HOME/ohos-clt/command-line-tools"
+          if [ ! -x "$C/bin/hvigorw" ]; then
+            mkdir -p ~/ohos-clt && cd ~/ohos-clt
+            curl -fSL -o clt.zip "$CLT_URL"
+            unzip -q -o clt.zip && rm -f clt.zip
+            chmod -R +x "$C/bin" "$C/tool/node/bin" \
+              "$C/sdk/default/openharmony/toolchains" 2>/dev/null || true
           fi
-          echo "OHOS_NDK_HOME=$NDK" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          NDK="$C/sdk/default/openharmony/native"
+          {
+            echo "OHOS_NDK_HOME=$NDK"
+            echo "DEVECO_SDK_HOME=$C/sdk"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/aarch64-unknown-linux-ohos-clang"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/x86_64-unknown-linux-ohos-clang"
+          } >> "$GITHUB_ENV"
+          {
+            echo "$C/bin"
+            echo "$C/tool/node/bin"
+            echo "$C/sdk/default/openharmony/toolchains"
+          } >> "$GITHUB_PATH"
       - name: Clippy (arkui backend, cross-check)
         run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p day-arkui-demo -- -D warnings
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # The verifiable core: the full Day app links to a loadable libentry.so for both arches,
-      # assembled into the ArkTS host project's entry/libs/<abi>/.
-      - name: Build the ArkUI app (libentry.so)
+      # The full Day app links to a loadable libentry.so for both arches, assembled into the ArkTS
+      # host project's entry/libs/<abi>/, using the CLT's native NDK clang.
+      - name: Cross-compile the app to libentry.so
         run: |
-          apps/day-arkui-demo/harmony/build.sh both
-          file apps/day-arkui-demo/harmony/entry/libs/x86_64/libentry.so \
-               apps/day-arkui-demo/harmony/entry/libs/arm64-v8a/libentry.so
-      # Best-effort from here: needs DevEco's hvigor + a signing profile.
-      - name: Package the .hap (if hvigor is installed)
-        id: hap
+          "$HARMONY/build.sh" both
+          file "$HARMONY/entry/libs/x86_64/libentry.so" \
+               "$HARMONY/entry/libs/arm64-v8a/libentry.so"
+      - name: Resolve ohpm dependencies
+        working-directory: ${{ env.HARMONY }}
         run: |
-          set -x
-          proj="$PWD/apps/day-arkui-demo/harmony"
-          if command -v hvigorw >/dev/null 2>&1 || [ -x "$proj/hvigorw" ]; then
-            ( cd "$proj" && { [ -x ./hvigorw ] && ./hvigorw assembleHap || hvigorw assembleHap; } ) \
-              && echo "packaged=1" >> "$GITHUB_OUTPUT" \
-              || echo "hvigor assembleHap failed (needs the SDK path + a signing config)"
-          else
-            echo "hvigor not installed — install DevEco Studio / command-line-tools to package the .hap; skipping"
-          fi
-      # Best-effort run against a locally-installed + configured HarmonyOS emulator.
+          # The app's only dependency (the local libentry.so type) resolves offline; ohpm install
+          # wires up oh_modules for hvigor. Non-fatal if the registry is unreachable.
+          ohpm install || echo "ohpm install non-fatal (only a local dependency)"
+      # THE CORE OF THIS JOB: hvigor assembles the .hap (compiles the ArkTS host, packs the native
+      # libs + resources). Unsigned, because build-profile.json5 declares no signingConfig.
+      - name: Build the .hap (hvigor assembleHap)
+        working-directory: ${{ env.HARMONY }}
+        run: |
+          hvigorw assembleHap --mode module -p product=default -p buildMode=debug \
+            --no-daemon --stacktrace
+          echo "--- built .hap(s) ---"; find entry/build -name '*.hap'
+      # Sign the unsigned .hap with the default OpenHarmony debug material bundled in the SDK (no
+      # account / secrets). The generate-app-cert + sign-profile + sign-app chain is validated.
+      - name: Sign the .hap
+        working-directory: ${{ env.HARMONY }}
+        run: |
+          unsigned="$(find entry/build -name '*-unsigned.hap' | head -1)"
+          [ -n "$unsigned" ] || unsigned="$(find entry/build -name '*.hap' | head -1)"
+          [ -n "$unsigned" ] || { echo "hvigor produced no .hap; skipping sign"; exit 1; }
+          ./sign-hap.sh "$unsigned" "entry/build/day-arkui-demo-signed.hap" "$APP_ID"
+          ls -la entry/build/day-arkui-demo-signed.hap
+      # Best-effort run against a locally-configured HarmonyOS emulator (self-hosted runner only;
+      # GitHub-hosted runners have no HarmonyOS emulator).
       - name: Run on a locally-configured HarmonyOS emulator (if connected)
-        if: steps.hap.outputs.packaged == '1'
         run: |
-          set -x
           command -v hdc >/dev/null 2>&1 || { echo "hdc not on PATH — skipping run"; exit 0; }
           targets="$(hdc list targets 2>/dev/null | tr -d '[:space:]')"
           if [ -z "$targets" ] || [ "$targets" = "[Empty]" ]; then
-            echo "no HarmonyOS target connected to hdc — boot a HarmonyOS emulator in DevEco Studio; skipping run"
-            exit 0
+            echo "no HarmonyOS target connected to hdc — skipping run"; exit 0
           fi
-          hap="$(find apps/day-arkui-demo/harmony -name '*-signed.hap' | head -1)"
-          [ -n "$hap" ] || { echo "no signed .hap produced; skipping"; exit 0; }
+          hap="$(find "$HARMONY/entry/build" -name '*-signed.hap' | head -1)"
           hdc install "$hap"
           hdc shell aa start -b "$APP_ID" -a EntryAbility
           sleep 6
-          mkdir -p apps/day-arkui-demo/build/screenshots/ohos-arkui
+          mkdir -p "$HARMONY/../build/screenshots/ohos-arkui"
           hdc shell snapshot_display -f /data/local/tmp/day.png
-          hdc file recv /data/local/tmp/day.png apps/day-arkui-demo/build/screenshots/ohos-arkui/home.png
+          hdc file recv /data/local/tmp/day.png "$HARMONY/../build/screenshots/ohos-arkui/home.png"
+      - name: Upload the signed .hap
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ohos-arkui-hap
+          path: ${{ env.HARMONY }}/entry/build/**/*.hap
+          if-no-files-found: ignore
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7

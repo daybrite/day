@@ -31,8 +31,10 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
 
 ## Local development environment
 
-1. **OpenHarmony SDK / NDK.** Download the public SDK (no account needed) and extract the `native`
-   component (the NDK — clang, sysroot, ArkUI/NAPI headers, the ArkUI runtime libs):
+1. **OpenHarmony SDK / NDK.** Easiest: install the **command-line-tools** (see Build & run) — one
+   bundle carrying the NDK + hvigor + ohpm + node + signing material — and point `OHOS_NDK_HOME` at
+   its `sdk/default/openharmony/native`. For a Rust-only cross-compile you can instead grab just the
+   `native` NDK component from the public SDK (no account needed):
 
    ```bash
    curl -LO https://repo.huaweicloud.com/openharmony/os/6.0-Release/L2-SDK-MAC-M1-PUBLIC.tar.gz
@@ -51,19 +53,33 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
 
 ## Build & run
 
+You need the OpenHarmony **command-line-tools** — one self-contained bundle carrying the SDK/NDK,
+hvigor, ohpm, a bundled node, `hdc`, and the default debug signing material. It downloads without a
+Huawei developer account from `repo.huaweicloud.com/harmonyos/ohpm/<ver>/` (Linux x64; on macOS use
+DevEco Studio's bundled copy). Point `OHOS_NDK_HOME` at `sdk/default/openharmony/native` and put
+`bin/` (hvigor/ohpm) + `sdk/default/openharmony/toolchains` (hdc) on `PATH`.
+
 ```bash
+cd apps/day-arkui-demo/harmony
+
 # 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
-apps/day-arkui-demo/harmony/build.sh both     # drops entry/libs/<abi>/libentry.so
+./build.sh both                                # drops entry/libs/<abi>/libentry.so
 
-# 2) Package the .hap. Open apps/day-arkui-demo/harmony/ in DevEco Studio (it fills in the default
-#    resources + a debug signing profile), or use the OpenHarmony command-line-tools:
-#      hvigorw assembleHap
+# 2) Assemble an (unsigned) .hap with hvigor — build-profile.json5 declares no signingConfig:
+ohpm install
+hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
 
-# 3) Sign (DevEco auto-sign, or a debug signing profile — HarmonyOS requires signed .haps), then
-#    launch the HarmonyOS emulator and install/run:
-hdc install entry/build/default/outputs/default/entry-default-signed.hap
+# 3) Sign it with the bundled default OpenHarmony DEBUG material (no account/secrets needed).
+#    sign-hap.sh runs generate-app-cert + sign-profile + sign-app for this bundle id:
+./sign-hap.sh entry/build/*/outputs/*/entry-default-unsigned.hap \
+  entry/build/day-arkui-demo-signed.hap dev.daybrite.day.arkui.demo
+
+# 4) Launch the HarmonyOS emulator, then install/run:
+hdc install entry/build/day-arkui-demo-signed.hap
 hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
 ```
+
+(Opening `harmony/` in DevEco Studio and pressing Run ▶ — with auto-sign — does all of 2–4 too.)
 
 `day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
@@ -74,23 +90,28 @@ Day app cross-compiles and links to a loadable `libentry.so`** for both HarmonyO
 x86_64), exporting `day_arkui_start` / `day_arkui_on_event` and registering the `entry` NAPI module.
 The ArkTS host project + `build.sh` assemble the `.so` into a DevEco-buildable project.
 
-Not yet done here (needs tooling this environment lacks): **packaging the `.hap`** (hvigor/ohpm — the
-build system is npm-fetchable from `repo.harmonyos.com/npm`, but not bundled with the public SDK),
-**app signing** (a HarmonyOS certificate/profile), and **running on the emulator** (the HarmonyOS
-emulator ships with DevEco Studio and is gated behind a Huawei developer account). The `day` CLI
-registers the `harmonyos-arkui` target (build/launch orchestration through DevEco/hvigor is a
-follow-up); today the flow is `harmony/build.sh` + DevEco Studio.
+**Packaging + signing now run headlessly** via the command-line-tools (see Build & run) — no Huawei
+developer account: hvigor assembles the `.hap` and `sign-hap.sh` signs it with the bundled default
+debug material. What still needs real hardware is **running on the emulator** (the HarmonyOS emulator
+ships with DevEco Studio, Huawei-account-gated; no HarmonyOS emulator is connectable to `hdc` in this
+sandbox). The `day` CLI registers the `harmonyos-arkui` target (end-to-end build/launch orchestration
+through hvigor is a follow-up); today the flow is the `harmony/` scripts above or DevEco Studio.
 
 ## CI
 
-The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR. It always does the
-verifiable half — fetch the OpenHarmony NDK (cached), then cross-compile the full Day app to
-`libentry.so` for the emulator (x86_64) and device (arm64) and clippy the backend for the OHOS target
-— and then **tries** the run against a locally-installed + configured HarmonyOS emulator: package the
-`.hap` (if DevEco's hvigor is present), `hdc install`, launch the ability, and snapshot. Those run
-steps no-op on a stock runner (no HarmonyOS target connected) and light up on a **self-hosted macOS
-runner** that has DevEco Studio + a booted emulator; the job is `continue-on-error` so it stays
-non-blocking. A pre-set `OHOS_NDK_HOME` (a self-hosted DevEco SDK) skips the download.
+The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubuntu-24.04`,
+`continue-on-error` so it stays non-blocking). It downloads + caches the OpenHarmony
+**command-line-tools** (~2 GB) and then runs the real build pipeline:
+
+1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
+   the emulator (x86_64) and device (arm64) using the CLT's native NDK clang;
+2. `ohpm install`, then `hvigorw assembleHap` — a genuine hvigor build of the ArkTS host + `.hap`;
+3. sign the `.hap` with the bundled default debug material (`sign-hap.sh`), uploaded as an artifact.
+
+The final step **tries** a run against a locally-configured HarmonyOS emulator (`hdc install` → launch
+→ snapshot); it no-ops on a stock GitHub runner (no HarmonyOS target connected) and lights up on a
+**self-hosted runner** with a booted emulator. A pre-set `DEVECO_SDK_HOME`/`OHOS_NDK_HOME` (a
+self-hosted DevEco install) is used as-is.
 
 ## Follow-ups
 
