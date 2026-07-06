@@ -45,6 +45,10 @@ pub const fn toolkit_name() -> &'static str {
     {
         return "WinUI";
     }
+    #[cfg(feature = "arkui")]
+    {
+        return "ArkUI";
+    }
     #[allow(unreachable_code)]
     {
         "Mock"
@@ -316,6 +320,54 @@ pub mod android {
             day_android::Android::new(),
             crate::WindowOptions::default(),
             root_piece,
+        );
+    }
+}
+
+/// Expands to the `day_arkui_start` C export the HarmonyOS ArkUI shim's `start(...)` NAPI wrapper
+/// calls (from ArkTS: `import native from 'libday_arkui.so'; native.start(nodeContent, w, h, density)`).
+/// It mounts the app's `root` piece into the ArkTS `NodeContent` and runs the loop.
+///
+/// ```ignore
+/// day::arkui_main!(root);
+/// ```
+#[macro_export]
+macro_rules! arkui_main {
+    ($root:expr) => {
+        /// HarmonyOS entry: the ArkUI shim's NAPI `start` calls this from the app cdylib (§17.4).
+        #[cfg(target_env = "ohos")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn day_arkui_start(
+            content: *mut ::core::ffi::c_void,
+            w: f64,
+            h: f64,
+            density: f64,
+        ) {
+            $crate::arkui::start(content, w, h, density, $root);
+        }
+    };
+}
+
+/// HarmonyOS ArkUI glue (§17.4): the app cdylib's `day_arkui_start` export forwards here.
+#[cfg(all(feature = "arkui", target_env = "ohos"))]
+pub mod arkui {
+    use core::ffi::c_void;
+
+    /// Mount `root` into the ArkTS `NodeContent` and run the loop. `w_vp`/`h_vp` are the content
+    /// size in vp; `density` is px-per-vp (both passed by the ArkTS host).
+    pub fn start(
+        content: *mut c_void,
+        w_vp: f64,
+        h_vp: f64,
+        density: f64,
+        root: impl FnOnce() -> crate::AnyPiece + 'static,
+    ) {
+        day_arkui::init(content, w_vp, h_vp, density);
+        day_script::init();
+        day_core::launch_with(
+            day_arkui::ArkUi::new(),
+            crate::WindowOptions::default(),
+            root,
         );
     }
 }

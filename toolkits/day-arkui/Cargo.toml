@@ -1,0 +1,13 @@
+[package]
+name = "day-arkui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+day-spec = { workspace = true }
+linkme = { workspace = true }
+
+# The ArkUI/NAPI shim links on-device runtime libs, so it's only pulled in for HarmonyOS builds.
+[target.'cfg(target_env = "ohos")'.dependencies]
+day-arkui-sys = { workspace = true }

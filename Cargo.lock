@@ -212,6 +212,7 @@ version = "0.1.0"
 dependencies = [
  "day-android",
  "day-appkit",
+ "day-arkui",
  "day-core",
  "day-fluent",
  "day-geometry",
@@ -247,6 +248,29 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+]
+
+[[package]]
+name = "day-arkui"
+version = "0.1.0"
+dependencies = [
+ "day-arkui-sys",
+ "day-spec",
+ "linkme",
+]
+
+[[package]]
+name = "day-arkui-demo"
+version = "0.1.0"
+dependencies = [
+ "day",
+]
+
+[[package]]
+name = "day-arkui-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

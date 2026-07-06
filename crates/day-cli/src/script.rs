@@ -102,6 +102,28 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
             std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
         }
         TargetKind::Desktop => Err("desktop snapshot returned unsupported".into()),
+        TargetKind::HarmonyOs => {
+            // `hdc shell snapshot_display -f <path>` on-device, then `hdc file recv`.
+            let out = Command::new("hdc")
+                .args(["shell", "snapshot_display", "-f", "/data/local/tmp/day.png"])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err("hdc snapshot_display failed".into());
+            }
+            Command::new("hdc")
+                .args(["file", "recv", "/data/local/tmp/day.png"])
+                .arg(path)
+                .status()
+                .map_err(|e| e.to_string())
+                .and_then(|s| {
+                    if s.success() {
+                        Ok(())
+                    } else {
+                        Err("hdc file recv failed".into())
+                    }
+                })
+        }
     }
 }
 
@@ -252,6 +274,11 @@ fn terminate(project: &Project, target: &Target) {
         TargetKind::Android => {
             let _ = Command::new("adb")
                 .args(["shell", "am", "force-stop", &project.manifest.app.id])
+                .status();
+        }
+        TargetKind::HarmonyOs => {
+            let _ = Command::new("hdc")
+                .args(["shell", "aa", "force-stop", &project.manifest.app.id])
                 .status();
         }
     }

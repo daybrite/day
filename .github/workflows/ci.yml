@@ -281,6 +281,121 @@ jobs:
           path: apps/showcase/build/day/screenshots/android-widget
           if-no-files-found: warn
 
+  # --- HarmonyOS Next emulator: arkui ---------------------------------------
+  # HarmonyOS has no AOSP layer; its UI framework is ArkUI. The day-arkui backend cross-compiles the
+  # app to a native cdylib (libentry.so) that an ArkTS host loads and mounts into a NodeContent
+  # (docs/harmonyos.md). This job ALWAYS does the verifiable half — fetch the OpenHarmony NDK and
+  # cross-compile the full Day app for the emulator (x86_64) and device (arm64) — then TRIES the run
+  # against a LOCALLY-INSTALLED and configured HarmonyOS emulator: package the .hap (DevEco's hvigor,
+  # if present), `hdc install`, launch the ability, and snapshot. The .hap packager, signing profile,
+  # and emulator ship with DevEco Studio and are gated behind a Huawei developer account, so the run
+  # steps are best-effort — they no-op when no HarmonyOS target is connected (stock runner) and light
+  # up on a self-hosted macOS runner that has DevEco + a booted emulator. continue-on-error keeps it
+  # non-blocking meanwhile. A pre-set OHOS_NDK_HOME (a self-hosted DevEco SDK) skips the download.
+  ohos-arkui:
+    name: ohos-arkui
+    runs-on: macos-15
+    needs: [fmt, clippy, msrv]
+    continue-on-error: true
+    env:
+      OHOS_SDK_VERSION: "6.0-Release"
+      OHOS_SDK_PKG: "L2-SDK-MAC-M1-PUBLIC.tar.gz"
+      APP_ID: "dev.daybrite.day.arkui.demo"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Tier-2 OHOS std targets: device (arm64) + emulator (x86_64). rustup provides the std.
+          targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache the OpenHarmony SDK (~1.2 GB)
+        uses: actions/cache@v4
+        with:
+          path: ~/ohos-sdk
+          key: ohos-sdk-${{ env.OHOS_SDK_VERSION }}-${{ env.OHOS_SDK_PKG }}
+      # Prefer a pre-configured SDK (self-hosted DevEco); else download the public OpenHarmony SDK
+      # and extract the NDK (`native` — clang cross-linkers + ArkUI/NAPI headers + runtime libs) and
+      # `toolchains` (for `hdc`). Emits OHOS_NDK_HOME + the per-target linker paths for cargo.
+      - name: Install / locate the OpenHarmony NDK
+        run: |
+          set -euo pipefail
+          if [ -n "${OHOS_NDK_HOME:-}" ] && [ -d "$OHOS_NDK_HOME/llvm/bin" ]; then
+            NDK="$OHOS_NDK_HOME"
+            echo "using pre-configured OHOS_NDK_HOME=$NDK"
+          else
+            mkdir -p ~/ohos-sdk && cd ~/ohos-sdk
+            if [ ! -d native/llvm ]; then
+              echo "downloading OpenHarmony SDK $OHOS_SDK_VERSION ..."
+              curl -fSL -o sdk.tar.gz \
+                "https://repo.huaweicloud.com/openharmony/os/${OHOS_SDK_VERSION}/${OHOS_SDK_PKG}"
+              tar xzf sdk.tar.gz
+              # Extract just the NDK (`native`) + `toolchains` (hdc) components. `find | while read`
+              # (no `head`) is pipefail-safe; find's default -print covers both -name patterns.
+              find . -name 'native-darwin-arm64-*.zip' -o -name 'toolchains-darwin-arm64-*.zip' \
+                | while read -r z; do unzip -q -o "$z" -d .; done
+              # Keep only the extracted native/ + toolchains/ in the cache (drop the ~1.2 GB of
+              # other component zips the tarball carried).
+              rm -rf sdk.tar.gz sdk
+            fi
+            NDK="$HOME/ohos-sdk/native"
+            echo "$HOME/ohos-sdk/toolchains" >> "$GITHUB_PATH"
+            echo "DYLD_LIBRARY_PATH=$HOME/ohos-sdk/toolchains" >> "$GITHUB_ENV"
+          fi
+          echo "OHOS_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+      - name: Clippy (arkui backend, cross-check)
+        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p day-arkui-demo -- -D warnings
+      - name: Build day CLI
+        run: cargo build --locked -p day-cli
+      # The verifiable core: the full Day app links to a loadable libentry.so for both arches,
+      # assembled into the ArkTS host project's entry/libs/<abi>/.
+      - name: Build the ArkUI app (libentry.so)
+        run: |
+          apps/day-arkui-demo/harmony/build.sh both
+          file apps/day-arkui-demo/harmony/entry/libs/x86_64/libentry.so \
+               apps/day-arkui-demo/harmony/entry/libs/arm64-v8a/libentry.so
+      # Best-effort from here: needs DevEco's hvigor + a signing profile.
+      - name: Package the .hap (if hvigor is installed)
+        id: hap
+        run: |
+          set -x
+          proj="$PWD/apps/day-arkui-demo/harmony"
+          if command -v hvigorw >/dev/null 2>&1 || [ -x "$proj/hvigorw" ]; then
+            ( cd "$proj" && { [ -x ./hvigorw ] && ./hvigorw assembleHap || hvigorw assembleHap; } ) \
+              && echo "packaged=1" >> "$GITHUB_OUTPUT" \
+              || echo "hvigor assembleHap failed (needs the SDK path + a signing config)"
+          else
+            echo "hvigor not installed — install DevEco Studio / command-line-tools to package the .hap; skipping"
+          fi
+      # Best-effort run against a locally-installed + configured HarmonyOS emulator.
+      - name: Run on a locally-configured HarmonyOS emulator (if connected)
+        if: steps.hap.outputs.packaged == '1'
+        run: |
+          set -x
+          command -v hdc >/dev/null 2>&1 || { echo "hdc not on PATH — skipping run"; exit 0; }
+          targets="$(hdc list targets 2>/dev/null | tr -d '[:space:]')"
+          if [ -z "$targets" ] || [ "$targets" = "[Empty]" ]; then
+            echo "no HarmonyOS target connected to hdc — boot a HarmonyOS emulator in DevEco Studio; skipping run"
+            exit 0
+          fi
+          hap="$(find apps/day-arkui-demo/harmony -name '*-signed.hap' | head -1)"
+          [ -n "$hap" ] || { echo "no signed .hap produced; skipping"; exit 0; }
+          hdc install "$hap"
+          hdc shell aa start -b "$APP_ID" -a EntryAbility
+          sleep 6
+          mkdir -p apps/day-arkui-demo/build/screenshots/ohos-arkui
+          hdc shell snapshot_display -f /data/local/tmp/day.png
+          hdc file recv /data/local/tmp/day.png apps/day-arkui-demo/build/screenshots/ohos-arkui/home.png
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots-ohos-arkui
+          path: apps/day-arkui-demo/build/screenshots/ohos-arkui
+          if-no-files-found: ignore
+
   # --- Windows desktop: winui (MSVC) ----------------------------------------
   # winui uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
   # captures via RenderTargetBitmap. It runs on the default `bash` shell. It is a
@@ -443,7 +558,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website:
     name: website (build)
-    needs: [macos, ios-uikit, linux, android-widget, windows-winui, windows-msys2]
+    needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

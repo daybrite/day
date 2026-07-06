@@ -86,8 +86,16 @@ pub fn build(
         }
         TargetKind::IosSim => crate::mobile::build_ios(project, target, profile, start),
         TargetKind::Android => crate::mobile::build_android(project, target, profile, start),
+        TargetKind::HarmonyOs => Err(HARMONYOS_GUIDANCE.into()),
     }
 }
+
+/// HarmonyOS Next / ArkUI builds go through the ArkTS host project + the OpenHarmony toolchain, which
+/// is not yet driven end-to-end by the `day` CLI (it needs hvigor/ohpm + a signing profile + the
+/// Huawei-gated emulator). See docs/harmonyos.md and apps/day-arkui-demo/harmony/build.sh.
+pub const HARMONYOS_GUIDANCE: &str = "harmonyos-arkui: cross-compile the native module with the \
+     OpenHarmony NDK and package the .hap via DevEco Studio / hvigor — see docs/harmonyos.md and \
+     apps/day-arkui-demo/harmony/build.sh (direct `day` orchestration is a follow-up).";
 
 /// Side-by-side manifest that lets an unpackaged app host `Windows.UI.Xaml` islands (§9).
 /// The `maxversiontested` element is the specific thing `WindowsXamlManager` demands.
@@ -171,6 +179,7 @@ pub fn launch(
         }
         TargetKind::IosSim => crate::mobile::launch_ios(project, outcome, spec),
         TargetKind::Android => crate::mobile::launch_android(project, outcome, spec),
+        TargetKind::HarmonyOs => Err(HARMONYOS_GUIDANCE.into()),
     }
 }
 

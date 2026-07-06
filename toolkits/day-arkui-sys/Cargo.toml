@@ -1,0 +1,15 @@
+[package]
+name = "day-arkui-sys"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[lib]
+# The shim links ArkUI/NAPI runtime libs that only exist on-device, so this crate is only ever
+# built for the `*-linux-ohos` targets (the build script no-ops elsewhere so `cargo check` passes).
+
+[dependencies]
+
+[build-dependencies]
+cc = "1.0"

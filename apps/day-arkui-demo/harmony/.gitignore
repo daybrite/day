@@ -1,0 +1,9 @@
+# Build outputs (the native module is cross-compiled by build.sh; the .hap by hvigor/DevEco).
+entry/libs/
+entry/.preview/
+**/build/
+.hvigor/
+.cxx/
+oh_modules/
+local.properties
+*.p7b

@@ -19,7 +19,10 @@ members = [
     "toolkits/day-android",
     "toolkits/day-winui",
     "toolkits/day-winui-sys",
+    "toolkits/day-arkui",
+    "toolkits/day-arkui-sys",
     "apps/showcase",
+    "apps/day-arkui-demo",
     "pieces/day-piece-combobox",
     "pieces/day-piece-picker",
     "pieces/day-piece-webview",
@@ -69,6 +72,8 @@ day-uikit = { path = "toolkits/day-uikit" }
 day-android = { path = "toolkits/day-android" }
 day-winui = { path = "toolkits/day-winui" }
 day-winui-sys = { path = "toolkits/day-winui-sys" }
+day-arkui = { path = "toolkits/day-arkui" }
+day-arkui-sys = { path = "toolkits/day-arkui-sys" }
 slotmap = "1.0"
 linkme = "0.3"
 

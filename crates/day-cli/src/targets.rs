@@ -5,6 +5,10 @@ pub enum TargetKind {
     Desktop,
     IosSim,
     Android,
+    /// HarmonyOS Next / ArkUI: a Rust cdylib (`libentry.so`) loaded by an ArkTS host and mounted
+    /// into a NodeContent, packaged into a `.hap` (see apps/day-arkui-demo/harmony). Cross-compiled
+    /// with the OpenHarmony NDK (`OHOS_NDK_HOME`); packaged/signed/run via DevEco Studio or hvigor.
+    HarmonyOs,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +79,12 @@ pub const TARGETS: &[Target] = &[
         name: "android-widget",
         toolkit: "widget",
         kind: TargetKind::Android,
+        host: "any",
+    },
+    Target {
+        name: "harmonyos-arkui",
+        toolkit: "arkui",
+        kind: TargetKind::HarmonyOs,
         host: "any",
     },
 ];

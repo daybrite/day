@@ -1,0 +1,279 @@
+// day-arkui-sys — a flat C ABI over the HarmonyOS ArkUI Native NodeAPI (arkui/native_node.h) and
+// NAPI (napi/native_api.h), the HarmonyOS analogue of day-qt-sys / day-winui-sys. day builds the
+// widget tree natively (createNode/setAttribute/addChild) and mounts it into an ArkTS `NodeContent`
+// slot; native events call back into Rust by node id; main-thread posting rides libuv (uv_async).
+//
+// The ArkUI headers assume C++ (bool, forward-declared types), so this is compiled as C++.
+
+#include <cstdint>
+#include <cstring>
+#include <deque>
+#include <mutex>
+#include <string>
+
+#include <arkui/native_interface.h>
+#include <arkui/native_node.h>
+#include <arkui/native_node_napi.h>
+#include <arkui/native_type.h>
+#include <napi/native_api.h>
+#include <uv.h>
+
+// ---- globals ---------------------------------------------------------------
+static ArkUI_NativeNodeAPI_1* g_api = nullptr;
+static napi_env g_env = nullptr;
+static double g_density = 1.0; // px per vp; ArkUI attributes are vp, measure/layout are px
+
+// Implemented in Rust (the day-arkui backend / the app cdylib).
+extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
+extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
+
+// ---- main-thread posting (uv_async on the JS event loop) -------------------
+struct PostItem {
+    void (*cb)(void*);
+    void* data;
+};
+static uv_async_t g_async;
+static std::mutex g_mtx;
+static std::deque<PostItem> g_queue;
+static bool g_async_ready = false;
+
+static void drain_async(uv_async_t*) {
+    for (;;) {
+        PostItem it;
+        {
+            std::lock_guard<std::mutex> lk(g_mtx);
+            if (g_queue.empty()) break;
+            it = g_queue.front();
+            g_queue.pop_front();
+        }
+        it.cb(it.data);
+    }
+}
+
+// ---- native event receiver → Rust ------------------------------------------
+static void event_receiver(ArkUI_NodeEvent* ev) {
+    if (!ev) return;
+    uint64_t id = (uint64_t)(uintptr_t)OH_ArkUI_NodeEvent_GetUserData(ev);
+    ArkUI_NodeEventType t = OH_ArkUI_NodeEvent_GetEventType(ev);
+    switch (t) {
+        case NODE_ON_CLICK:
+            day_arkui_on_event(id, 0, 0.0, "");
+            break;
+        case NODE_TEXT_INPUT_ON_CHANGE: {
+            auto* s = OH_ArkUI_NodeEvent_GetStringAsyncEvent(ev);
+            day_arkui_on_event(id, 1, 0.0, (s && s->pStr) ? s->pStr : "");
+            break;
+        }
+        case NODE_TOGGLE_ON_CHANGE: {
+            auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
+            day_arkui_on_event(id, 2, c ? (double)c->data[0].i32 : 0.0, "");
+            break;
+        }
+        case NODE_SLIDER_EVENT_ON_CHANGE: {
+            auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
+            day_arkui_on_event(id, 3, c ? (double)c->data[0].f32 : 0.0, "");
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+// day node-kind → ArkUI_NodeType.
+static ArkUI_NodeType kind_map(int32_t k) {
+    switch (k) {
+        case 0: return ARKUI_NODE_STACK;   // container (day owns absolute layout)
+        case 1: return ARKUI_NODE_TEXT;    // label
+        case 2: return ARKUI_NODE_BUTTON;  // button
+        case 3: return ARKUI_NODE_TEXT_INPUT;
+        case 4: return ARKUI_NODE_TOGGLE;
+        case 5: return ARKUI_NODE_SLIDER;
+        case 6: return ARKUI_NODE_SCROLL;
+        case 7: return ARKUI_NODE_COLUMN;
+        case 8: return ARKUI_NODE_LOADING_PROGRESS;
+        default: return ARKUI_NODE_STACK;
+    }
+}
+
+static void set_str(void* n, ArkUI_NodeAttributeType a, const char* s) {
+    ArkUI_AttributeItem it{};
+    it.string = s ? s : "";
+    g_api->setAttribute((ArkUI_NodeHandle)n, a, &it);
+}
+static void set_f32(void* n, ArkUI_NodeAttributeType a, float v) {
+    ArkUI_NumberValue nv;
+    nv.f32 = v;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, a, &it);
+}
+static void set_u32(void* n, ArkUI_NodeAttributeType a, uint32_t v) {
+    ArkUI_NumberValue nv;
+    nv.u32 = v;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, a, &it);
+}
+
+extern "C" {
+
+// One-time: resolve the NodeAPI and register the global event receiver.
+void day_ark_init(void) {
+    if (!g_api) {
+        OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_NODE, ArkUI_NativeNodeAPI_1, g_api);
+    }
+    if (g_api) g_api->registerNodeEventReceiver(event_receiver);
+}
+
+void* day_ark_node_new(int32_t kind) {
+    return g_api ? g_api->createNode(kind_map(kind)) : nullptr;
+}
+void day_ark_node_dispose(void* n) {
+    if (g_api && n) g_api->disposeNode((ArkUI_NodeHandle)n);
+}
+void day_ark_add_child(void* p, void* c) {
+    if (g_api) g_api->addChild((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c);
+}
+void day_ark_insert_child(void* p, void* c, int32_t pos) {
+    if (g_api) g_api->insertChildAt((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c, pos);
+}
+void day_ark_remove_child(void* p, void* c) {
+    if (g_api) g_api->removeChild((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c);
+}
+
+void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s); }
+void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
+void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
+void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }
+void day_ark_set_toggle(void* n, int32_t on) {
+    ArkUI_NumberValue nv;
+    nv.i32 = on ? 1 : 0;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TOGGLE_VALUE, &it);
+}
+void day_ark_set_slider(void* n, double v) { set_f32(n, NODE_SLIDER_VALUE, (float)v); }
+
+// Absolute layout (day owns it): position + explicit size, all in vp.
+void day_ark_set_frame(void* n, double x, double y, double w, double h) {
+    ArkUI_NumberValue pos[2];
+    pos[0].f32 = (float)x;
+    pos[1].f32 = (float)y;
+    ArkUI_AttributeItem pit{};
+    pit.value = pos;
+    pit.size = 2;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_POSITION, &pit);
+    set_f32(n, NODE_WIDTH, (float)w);
+    set_f32(n, NODE_HEIGHT, (float)h);
+}
+void day_ark_set_bg_color(void* n, uint32_t argb) { set_u32(n, NODE_BACKGROUND_COLOR, argb); }
+void day_ark_set_font_size(void* n, double vp) { set_f32(n, NODE_FONT_SIZE, (float)vp); }
+void day_ark_set_font_color(void* n, uint32_t argb) { set_u32(n, NODE_FONT_COLOR, argb); }
+void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
+
+// Measure a node under a width/height proposal (<=0 means "unbounded"); result in vp.
+void day_ark_measure(void* n, double max_w, double max_h, double* out_w, double* out_h) {
+    *out_w = 0;
+    *out_h = 0;
+    if (!g_api || !n) return;
+    ArkUI_LayoutConstraint* c = OH_ArkUI_LayoutConstraint_Create();
+    int32_t mw = max_w > 0 ? (int32_t)(max_w * g_density) : 1000000;
+    int32_t mh = max_h > 0 ? (int32_t)(max_h * g_density) : 1000000;
+    OH_ArkUI_LayoutConstraint_SetMaxWidth(c, mw);
+    OH_ArkUI_LayoutConstraint_SetMaxHeight(c, mh);
+    OH_ArkUI_LayoutConstraint_SetMinWidth(c, 0);
+    OH_ArkUI_LayoutConstraint_SetMinHeight(c, 0);
+    g_api->measureNode((ArkUI_NodeHandle)n, c);
+    ArkUI_IntSize sz = g_api->getMeasuredSize((ArkUI_NodeHandle)n);
+    OH_ArkUI_LayoutConstraint_Dispose(c);
+    *out_w = sz.width / g_density;
+    *out_h = sz.height / g_density;
+}
+
+// kind: 0=click 1=text-change 2=toggle-change 3=slider-change. `id` is delivered back as userData.
+void day_ark_register_event(void* n, int32_t kind, uint64_t id) {
+    if (!g_api) return;
+    ArkUI_NodeEventType t;
+    switch (kind) {
+        case 0: t = NODE_ON_CLICK; break;
+        case 1: t = NODE_TEXT_INPUT_ON_CHANGE; break;
+        case 2: t = NODE_TOGGLE_ON_CHANGE; break;
+        case 3: t = NODE_SLIDER_EVENT_ON_CHANGE; break;
+        default: return;
+    }
+    g_api->registerNodeEvent((ArkUI_NodeHandle)n, t, 0, (void*)(uintptr_t)id);
+}
+
+int32_t day_ark_content_add(void* content, void* node) {
+    return OH_ArkUI_NodeContent_AddNode((ArkUI_NodeContentHandle)content, (ArkUI_NodeHandle)node);
+}
+
+void day_ark_post(void (*cb)(void*), void* data) {
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        g_queue.push_back({cb, data});
+    }
+    if (g_async_ready) uv_async_send(&g_async);
+}
+
+double day_ark_density(void) { return g_density; }
+
+} // extern "C"
+
+// ---- NAPI module -----------------------------------------------------------
+// ArkTS calls `start(nodeContent, widthVp, heightVp, density)` on the imported native module.
+static napi_value DayStart(napi_env env, napi_callback_info info) {
+    size_t argc = 4;
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+
+    uv_loop_t* loop = nullptr;
+    napi_get_uv_event_loop(env, &loop);
+    if (loop && !g_async_ready) {
+        uv_async_init(loop, &g_async, drain_async);
+        g_async_ready = true;
+    }
+
+    ArkUI_NodeContentHandle content = nullptr;
+    OH_ArkUI_GetNodeContentFromNapiValue(env, argv[0], &content);
+    double w = 0, h = 0, dens = 1.0;
+    napi_get_value_double(env, argv[1], &w);
+    napi_get_value_double(env, argv[2], &h);
+    napi_get_value_double(env, argv[3], &dens);
+    g_density = dens > 0 ? dens : 1.0;
+
+    day_ark_init();
+    day_arkui_start(content, w, h, g_density);
+
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+static napi_value NapiInit(napi_env env, napi_value exports) {
+    napi_value fn;
+    napi_create_function(env, "start", NAPI_AUTO_LENGTH, DayStart, nullptr, &fn);
+    napi_set_named_property(env, exports, "start", fn);
+    return exports;
+}
+
+// The module name must match the imported `.so` basename. Day's HarmonyOS app cdylib is built as
+// `libentry.so` (the DevEco convention; the crate uses `[lib] name = "entry"`), imported from ArkTS
+// as `import native from 'libentry.so'`.
+static napi_module g_day_module = {
+    /* .nm_version =    */ 1,
+    /* .nm_flags =      */ 0,
+    /* .nm_filename =   */ nullptr,
+    /* .nm_register_func= */ NapiInit,
+    /* .nm_modname =    */ "entry",
+    /* .nm_priv =       */ nullptr,
+    /* .reserved =      */ {0},
+};
+
+extern "C" __attribute__((constructor)) void day_arkui_register_module(void) {
+    napi_module_register(&g_day_module);
+}

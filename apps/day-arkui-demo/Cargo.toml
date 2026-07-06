@@ -1,0 +1,14 @@
+[package]
+name = "day-arkui-demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+# Built as `libentry.so` — the HarmonyOS app cdylib the ArkTS host loads (import from 'libentry.so').
+name = "entry"
+crate-type = ["cdylib"]
+
+[dependencies]
+day = { workspace = true, features = ["arkui"] }
