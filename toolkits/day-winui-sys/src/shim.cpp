@@ -1099,8 +1099,10 @@ extern "C" void day_winui_set_context_menu(void* h, const char* spec) try {
 extern "C" void day_winui_set_app_menu(void* win, const char* spec) try {
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !app->root) return;
-    // Remove any prior MenuBar we docked (named "day_menubar").
-    auto& kids = app->root.Children();
+    // Remove any prior MenuBar we docked (named "day_menubar"). `Children()` returns the
+    // UIElementCollection by value (a projection over the real collection), so bind it by value —
+    // a non-const reference can't bind to that rvalue (C2440) — mutations still hit the real one.
+    auto kids = app->root.Children();
     for (uint32_t i = 0; i < kids.Size(); ++i) {
         if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
             if (fe.Name() == L"day_menubar") { kids.RemoveAt(i); break; }
