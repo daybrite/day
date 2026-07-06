@@ -240,6 +240,7 @@ name = "day-appkit"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "day-l10n",
  "day-spec",
  "dispatch2",
  "linkme",
@@ -286,10 +287,8 @@ dependencies = [
 name = "day-fluent"
 version = "0.1.0"
 dependencies = [
+ "day-l10n",
  "day-pieces",
- "day-reactive",
- "fluent-bundle",
- "unic-langid",
 ]
 
 [[package]]
@@ -304,6 +303,15 @@ dependencies = [
  "gtk4",
  "libadwaita",
  "linkme",
+]
+
+[[package]]
+name = "day-l10n"
+version = "0.1.0"
+dependencies = [
+ "day-reactive",
+ "fluent-bundle",
+ "unic-langid",
 ]
 
 [[package]]
@@ -417,6 +425,7 @@ version = "0.1.0"
 dependencies = [
  "day-core",
  "day-geometry",
+ "day-l10n",
  "day-mock",
  "day-reactive",
  "day-spec",

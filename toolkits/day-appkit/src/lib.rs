@@ -1730,7 +1730,7 @@ impl Toolkit for AppKit {
             &[
                 day_spec::MenuItem::Action {
                     id: 0,
-                    label: format!("About {}", self.app_name),
+                    label: about_label(&self.app_name),
                     shortcut: None,
                     enabled: true,
                     role: Some(day_spec::MenuRole::About),
@@ -1738,7 +1738,7 @@ impl Toolkit for AppKit {
                 day_spec::MenuItem::Separator,
                 day_spec::MenuItem::Action {
                     id: 0,
-                    label: format!("Quit {}", self.app_name),
+                    label: quit_label(&self.app_name),
                     shortcut: None,
                     enabled: true,
                     role: Some(day_spec::MenuRole::Quit),
@@ -2137,6 +2137,23 @@ fn install_lifecycle_observers() {
     }
 }
 
+/// Localized "About <App>" / "Quit <App>" for the standard App menu, with correct per-language word
+/// order via the core catalog's `{$app}` interpolation (docs/localization.md).
+fn about_label(app: &str) -> String {
+    day_l10n::format_in(
+        &day_l10n::locale().get(),
+        "day-about-app",
+        &[("app".to_string(), day_l10n::FArg::Str(app.to_string()))],
+    )
+}
+fn quit_label(app: &str) -> String {
+    day_l10n::format_in(
+        &day_l10n::locale().get(),
+        "day-quit-app",
+        &[("app".to_string(), day_l10n::FArg::Str(app.to_string()))],
+    )
+}
+
 /// The default main menu (§21.2 M2): App menu with Quit; Edit menu wired to the responder
 /// chain so Cmd+C/V/X/A work in NSTextFields; Window menu basics.
 fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
@@ -2147,7 +2164,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     let quit = unsafe {
         NSMenuItem::initWithTitle_action_keyEquivalent(
             NSMenuItem::alloc(mtm),
-            &NSString::from_str(&format!("Quit {title}")),
+            &NSString::from_str(&quit_label(title)),
             Some(sel!(terminate:)),
             &NSString::from_str("q"),
         )
@@ -2157,26 +2174,30 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     menubar.addItem(&app_item);
 
     let edit_item = NSMenuItem::new(mtm);
-    let edit_menu =
-        unsafe { NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Edit")) };
-    let add = |label: &str, action: objc2::runtime::Sel, key: &str| {
+    let edit_menu = unsafe {
+        NSMenu::initWithTitle(
+            NSMenu::alloc(mtm),
+            &NSString::from_str(&day_l10n::t("day-edit")),
+        )
+    };
+    let add = |key: &str, action: objc2::runtime::Sel, accel: &str| {
         let item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
-                &NSString::from_str(label),
+                &NSString::from_str(&day_l10n::t(key)),
                 Some(action),
-                &NSString::from_str(key),
+                &NSString::from_str(accel),
             )
         };
         edit_menu.addItem(&item);
     };
-    add("Undo", sel!(undo:), "z");
-    add("Redo", sel!(redo:), "Z");
+    add("day-undo", sel!(undo:), "z");
+    add("day-redo", sel!(redo:), "Z");
     edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
-    add("Cut", sel!(cut:), "x");
-    add("Copy", sel!(copy:), "c");
-    add("Paste", sel!(paste:), "v");
-    add("Select All", sel!(selectAll:), "a");
+    add("day-cut", sel!(cut:), "x");
+    add("day-copy", sel!(copy:), "c");
+    add("day-paste", sel!(paste:), "v");
+    add("day-select-all", sel!(selectAll:), "a");
     edit_item.setSubmenu(Some(&edit_menu));
     menubar.addItem(&edit_item);
 

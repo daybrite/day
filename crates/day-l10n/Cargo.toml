@@ -1,9 +1,10 @@
 [package]
-name = "day-fluent"
+name = "day-l10n"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-day-pieces = { workspace = true }
-day-l10n = { workspace = true }
+day-reactive = { workspace = true }
+fluent-bundle = "0.16"
+unic-langid = "0.9"

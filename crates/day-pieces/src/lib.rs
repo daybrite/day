@@ -1130,7 +1130,29 @@ pub fn menu_role(role: day_spec::MenuRole) -> MenuEntry {
     }
 }
 
-/// Lower app-side entries to the spec model, registering action closures with day-core.
+/// The core-catalog key for a standard menu command's label (docs/menus.md, docs/localization.md).
+fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
+    use day_spec::MenuRole as R;
+    match role {
+        R::Cut => "day-cut",
+        R::Copy => "day-copy",
+        R::Paste => "day-paste",
+        R::SelectAll => "day-select-all",
+        R::Undo => "day-undo",
+        R::Redo => "day-redo",
+        R::Delete => "day-delete",
+        R::About => "day-about",
+        R::Quit => "day-quit",
+        R::Preferences => "day-preferences",
+        R::Minimize => "day-minimize",
+        R::CloseWindow => "day-close",
+        R::Fullscreen => "day-fullscreen",
+    }
+}
+
+/// Lower app-side entries to the spec model, registering action closures with day-core. A standard
+/// `role` item with no explicit label gets its label from the localized core catalog here — so the
+/// backends receive a ready, locale-correct label instead of each hardcoding English (day-l10n).
 fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
     entries
         .into_iter()
@@ -1144,9 +1166,13 @@ fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
                 }
             } else {
                 let id = e.action.map(day_core::register_menu_action).unwrap_or(0);
+                let label = match (e.label.is_empty(), e.role) {
+                    (true, Some(role)) => day_l10n::t(role_catalog_key(role)),
+                    _ => e.label,
+                };
                 day_spec::MenuItem::Action {
                     id,
-                    label: e.label,
+                    label,
                     shortcut: e.shortcut,
                     enabled: e.enabled,
                     role: e.role,
@@ -2711,8 +2737,10 @@ pub fn confirm<M>(title: impl IntoText<M>) -> Confirm {
     Confirm {
         title: title.into_text().initial(),
         message: None,
-        confirm: "OK".into(),
-        cancel: "Cancel".into(),
+        // Localized from the core catalog (docs/dialogs.md); `.confirm_label`/`.cancel_label`
+        // override. Resolved in the current locale at build time.
+        confirm: day_l10n::t("day-ok"),
+        cancel: day_l10n::t("day-cancel"),
         destructive: false,
     }
 }
@@ -2785,8 +2813,9 @@ pub fn prompt<M>(title: impl IntoText<M>) -> Prompt {
         message: None,
         placeholder: String::new(),
         initial: String::new(),
-        ok: "OK".into(),
-        cancel: "Cancel".into(),
+        // Localized from the core catalog (docs/dialogs.md); `.ok_label`/`.cancel_label` override.
+        ok: day_l10n::t("day-ok"),
+        cancel: day_l10n::t("day-cancel"),
     }
 }
 

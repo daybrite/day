@@ -6,6 +6,8 @@ rust-version.workspace = true
 
 [dependencies]
 day-spec = { workspace = true }
+# Localize the AppKit-built menu chrome (default menu + standard App menu About/Quit).
+day-l10n = { workspace = true }
 linkme = { workspace = true }
 objc2 = "0.6"
 block2 = "0.6"

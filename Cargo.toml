@@ -7,6 +7,7 @@ members = [
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
+    "crates/day-l10n",
     "crates/day-fluent",
     "crates/day-script",
     "crates/day",
@@ -35,6 +36,7 @@ default-members = [
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
+    "crates/day-l10n",
     "crates/day-fluent",
 ]
 
@@ -50,6 +52,7 @@ day-spec = { path = "crates/day-spec" }
 day-mock = { path = "crates/day-mock" }
 day-core = { path = "crates/day-core" }
 day-pieces = { path = "crates/day-pieces" }
+day-l10n = { path = "crates/day-l10n" }
 day-fluent = { path = "crates/day-fluent" }
 day-script = { path = "crates/day-script" }
 day = { path = "crates/day" }
