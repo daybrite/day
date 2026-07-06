@@ -41,15 +41,22 @@
 extern "C" {
 
 static int s_argc = 1;
-static char s_arg0[] = "day";
+// argv[0] doubles as the macOS app-menu name (Qt captures it at QApplication construction, so it
+// must be set BEFORE `day_qt_app_new`). day-qt fills it with the app's display name.
+static char s_arg0[256] = "day";
 static char *s_argv[] = {s_arg0, nullptr};
 
 // Lifecycle (docs/lifecycle.md): codes match day_spec::Lifecycle order (2=DidBecomeActive,
 // 3=WillResignActive, 7=WillTerminate). Set from Rust before exec.
 static void (*g_lifecycle_cb)(int) = nullptr;
 
-void *day_qt_app_new() {
+void *day_qt_app_new(const char *app_name) {
+    if (app_name && *app_name) {
+        strncpy(s_arg0, app_name, sizeof(s_arg0) - 1);
+        s_arg0[sizeof(s_arg0) - 1] = '\0';
+    }
     auto *app = new QApplication(s_argc, s_argv);
+    QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
     QObject::connect(app, &QApplication::applicationStateChanged, [](Qt::ApplicationState s) {
         if (!g_lifecycle_cb) return;
         if (s == Qt::ApplicationActive) g_lifecycle_cb(2);        // DidBecomeActive

@@ -379,8 +379,9 @@ day::android_main!(root);
     day::launch(
         day::WindowOptions {{
             title: "{name}".into(),
-            size: day::prelude::Size::new(480.0, 640.0),
-            min_size: None,
+            // A desktop-appropriate default size; mobile fills the screen regardless.
+            size: day::prelude::Size::new(960.0, 640.0),
+            ..Default::default()
         }},
         {name}::root,
     );

@@ -1114,6 +1114,10 @@ pub struct WindowOptions {
     pub title: String,
     pub size: Size,
     pub min_size: Option<Size>,
+    /// The app's display name for the standard application menu / About (macOS). `None` falls back
+    /// to `title`; set it when `title` carries extra decoration you don't want in "About <name>"
+    /// (e.g. the showcase's window title is "Day Showcase (AppKit)" but its app name is "Showcase").
+    pub app_name: Option<String>,
 }
 
 impl Default for WindowOptions {
@@ -1122,6 +1126,7 @@ impl Default for WindowOptions {
             title: "Day".into(),
             size: Size::new(480.0, 640.0),
             min_size: None,
+            app_name: None,
         }
     }
 }

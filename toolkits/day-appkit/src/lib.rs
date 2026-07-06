@@ -2092,13 +2092,25 @@ impl Platform for AppKit {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
         let mtm = self.mtm;
-        self.app_name = options.title.clone();
+        // The App menu / About use the app's display name. `app_name` overrides the (possibly
+        // decorated) window title; setting the process name also makes the standard About panel and
+        // the bold App-menu title show it (an unbundled binary otherwise shows the exe name).
+        self.app_name = options
+            .app_name
+            .clone()
+            .unwrap_or_else(|| options.title.clone());
+        if let Some(name) = &options.app_name {
+            unsafe {
+                objc2_foundation::NSProcessInfo::processInfo()
+                    .setProcessName(&NSString::from_str(name));
+            }
+        }
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
 
         // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
         // installs its own via `app_menu(...)`.
-        install_main_menu(mtm, &app, &options.title);
+        install_main_menu(mtm, &app, &self.app_name);
         // App activation / termination → day lifecycle events (docs/lifecycle.md).
         install_lifecycle_observers();
 

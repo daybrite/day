@@ -29,7 +29,7 @@ fn boot_with_env(
     let options = WindowOptions {
         title: "test".into(),
         size: Size::new(400.0, 600.0),
-        min_size: None,
+        ..Default::default()
     };
     day_core::launch_with(mock, options, root);
     if let Some((k, _)) = env {

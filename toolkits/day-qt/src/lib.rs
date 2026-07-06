@@ -1225,7 +1225,11 @@ impl Platform for Qt {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, QtHandle, Size)>) {
         unsafe {
-            let app = ffi::day_qt_app_new();
+            // The macOS app menu (Quit/Hide) takes its name from argv[0] at QApplication
+            // construction, so pass the app's display name ("Showcase", falling back to the window
+            // title) into `day_qt_app_new` up front.
+            let app_name = options.app_name.as_deref().unwrap_or(&options.title);
+            let app = ffi::day_qt_app_new(cstr(app_name).as_ptr());
             let window = ffi::day_qt_window_new(
                 cstr(&options.title).as_ptr(),
                 options.size.width as c_int,

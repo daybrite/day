@@ -5,7 +5,7 @@
 use std::os::raw::{c_char, c_double, c_int, c_void};
 
 unsafe extern "C" {
-    pub fn day_qt_app_new() -> *mut c_void;
+    pub fn day_qt_app_new(app_name: *const c_char) -> *mut c_void;
     pub fn day_qt_app_run(app: *mut c_void);
     pub fn day_qt_window_new(title: *const c_char, w: c_int, h: c_int) -> *mut c_void;
     pub fn day_qt_window_show(win: *mut c_void);
