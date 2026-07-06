@@ -26,6 +26,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
+#include <winrt/Windows.UI.Input.h> // HoldingState (long-press gesture)
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
@@ -55,6 +56,7 @@ namespace WUXM = winrt::Windows::UI::Xaml::Media;
 namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
 namespace WUXIn = winrt::Windows::UI::Xaml::Input;
+namespace WUIIn = winrt::Windows::UI::Input;
 namespace WS = winrt::Windows::System;
 namespace WSt = winrt::Windows::Storage;
 namespace WStP = winrt::Windows::Storage::Pickers;
@@ -424,7 +426,42 @@ void day_winui_post(void (*cb)(void*), void* data) {
 // ---- containers ----
 
 void* day_winui_container_new() { WUXC::Canvas c; return boxh(c); }
-void* day_winui_scroll_new() { WUXC::Canvas c; return boxh(c); } // MVP: no scrolling
+// A vertical ScrollViewer wrapping a content Canvas (like the list host). day positions the
+// content's children by absolute frame and reports the content extent via set_content_size; the
+// ScrollViewer then clips + scrolls. Horizontal scrolling is disabled (day's scroll is vertical,
+// matching the Qt/AppKit backends). out_content receives the inner Canvas — day adds children there.
+void* day_winui_scroll_new(void** out_content) {
+    WUXC::ScrollViewer sv;
+    sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
+    sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+    WUXC::Canvas content;
+    sv.Content(content);
+    if (out_content) *out_content = boxh(content);
+    return boxh(sv);
+}
+void day_winui_scroll_set_content_size(void* content, int w, int h) {
+    if (auto fe = elem(content).try_as<FrameworkElement>()) {
+        fe.Width(static_cast<double>(w));
+        fe.Height(static_cast<double>(h));
+    }
+}
+void day_winui_scroll_offset(void* sv, double* out_x, double* out_y) {
+    *out_x = 0;
+    *out_y = 0;
+    if (auto s = elem(sv).try_as<WUXC::ScrollViewer>()) {
+        *out_x = s.HorizontalOffset();
+        *out_y = s.VerticalOffset();
+    }
+}
+void day_winui_scroll_to(void* sv, int y, int h, int animated) {
+    // Scroll the minimum to make [y, y+h] visible (NSScrollView scrollRectToVisible semantics).
+    auto s = elem(sv).try_as<WUXC::ScrollViewer>();
+    if (!s) return;
+    double vh = s.ViewportHeight(), off = s.VerticalOffset(), target = off;
+    if (y < off) target = y;
+    else if (y + h > off + vh) target = y + h - vh;
+    if (target != off) s.ChangeView(nullptr, target, nullptr, animated == 0);
+}
 void* day_winui_canvas_new() { WUXC::Canvas c; return boxh(c); }
 
 void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) {
@@ -920,6 +957,52 @@ void day_winui_widget_size(void* h, double* ow, double* oh) {
 
 void day_winui_set_name(void* h, const char* name) {
     guard([&] { WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name)); });
+}
+
+// Attach a native pointer recognizer to `h`, reporting to cb(id, phase, x, y, tx, ty) with `x,y` in
+// the element's local space (docs/shapes.md). kind 0 = Tap, 1 = LongPress, 2 = Drag. Phase codes:
+// 0 Tap, 1 Drag-Began, 2 Drag-Changed, 3 Drag-Ended, 4 LongPress (matching day-winui's on_gesture).
+// Routed events bubble from the shape's Path children up to the Canvas handle, so only the drawn
+// shape is hit (a transparent Canvas isn't hit-testable) — the "hit-test the path" semantic.
+void day_winui_enable_gesture(void* h, unsigned long long id, int kind,
+                              void (*cb)(unsigned long long, int, double, double, double,
+                                         double)) try {
+    auto el = elem(h);
+    if (kind == 2) { // Drag → manipulation (translate only)
+        el.ManipulationMode(WUXIn::ManipulationModes::TranslateX |
+                            WUXIn::ManipulationModes::TranslateY);
+        el.ManipulationStarted(
+            [id, cb](WF::IInspectable const&, WUXIn::ManipulationStartedRoutedEventArgs const& a) {
+                auto p = a.Position();
+                cb(id, 1, p.X, p.Y, 0, 0);
+            });
+        el.ManipulationDelta(
+            [id, cb](WF::IInspectable const&, WUXIn::ManipulationDeltaRoutedEventArgs const& a) {
+                auto p = a.Position();
+                auto t = a.Cumulative().Translation;
+                cb(id, 2, p.X, p.Y, t.X, t.Y);
+            });
+        el.ManipulationCompleted(
+            [id, cb](WF::IInspectable const&, WUXIn::ManipulationCompletedRoutedEventArgs const& a) {
+                auto p = a.Position();
+                auto t = a.Cumulative().Translation;
+                cb(id, 3, p.X, p.Y, t.X, t.Y);
+            });
+    } else if (kind == 1) { // LongPress → Holding (touch/pen; fire once on Started)
+        el.IsHoldingEnabled(true);
+        el.Holding([id, cb, el](WF::IInspectable const&, WUXIn::HoldingRoutedEventArgs const& a) {
+            if (a.HoldingState() == WUIIn::HoldingState::Started) {
+                auto p = a.GetPosition(el);
+                cb(id, 4, p.X, p.Y, 0, 0);
+            }
+        });
+    } else { // Tap
+        el.Tapped([id, cb, el](WF::IInspectable const&, WUXIn::TappedRoutedEventArgs const& a) {
+            auto p = a.GetPosition(el);
+            cb(id, 0, p.X, p.Y, 0, 0);
+        });
+    }
+} catch (...) {
 }
 
 // ---- snapshot (PrintWindow → Gdiplus PNG) ----

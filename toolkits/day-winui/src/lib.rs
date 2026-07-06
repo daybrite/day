@@ -9,9 +9,9 @@
 #![cfg(windows)]
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
+use std::os::raw::{c_char, c_double, c_int, c_void};
 use std::rc::Rc;
 
 use day_winui_sys as ffi;
@@ -19,7 +19,7 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
+    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform, Point,
     Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
 };
 
@@ -46,6 +46,10 @@ thread_local! {
     static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
     /// NAV host ptr → its sidebar/detail panes + pages (docs/navigation.md).
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// SCROLL host ptr → its inner content Canvas ptr (children live in the content, docs §7.6).
+    static SCROLL_STATE: RefCell<HashMap<usize, *mut c_void>> = RefCell::new(HashMap::new());
+    /// Handles with a native gesture recognizer wired, keyed by (handle ptr, kind) — idempotent.
+    static GESTURES: RefCell<HashSet<(usize, c_int)>> = RefCell::new(HashSet::new());
 }
 
 // Navigation host: a Canvas holding two child Canvases — sidebar (fixed 240pt) + detail.
@@ -502,7 +506,12 @@ impl Toolkit for WinUi {
                     }
                     WinHandle(h)
                 }
-                kinds::SCROLL => WinHandle(ffi::day_winui_scroll_new()),
+                kinds::SCROLL => {
+                    let mut content: *mut c_void = std::ptr::null_mut();
+                    let sv = ffi::day_winui_scroll_new(&mut content);
+                    SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
+                    WinHandle(sv)
+                }
                 kinds::CANVAS => WinHandle(ffi::day_winui_canvas_new()),
                 kinds::NAV => {
                     let host = ffi::day_winui_container_new();
@@ -781,6 +790,11 @@ impl Toolkit for WinUi {
             }
             unsafe { ffi::day_winui_delete(st.content) };
         }
+        // The scroll host's content Canvas is boxed separately from the ScrollViewer handle.
+        if let Some(content) = SCROLL_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            unsafe { ffi::day_winui_delete(content) };
+        }
+        GESTURES.with(|g| g.borrow_mut().retain(|(ptr, _)| *ptr != key));
         unsafe { ffi::day_winui_delete(h.0) };
     }
 
@@ -834,7 +848,11 @@ impl Toolkit for WinUi {
         if nav_handled {
             return;
         }
-        unsafe { ffi::day_winui_add_child(parent.0, child.0) };
+        // Scroll host: children live in the inner content Canvas, not the ScrollViewer itself.
+        let target = SCROLL_STATE
+            .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
+            .unwrap_or(parent.0);
+        unsafe { ffi::day_winui_add_child(target, child.0) };
     }
 
     fn remove(&mut self, parent: &WinHandle, child: &WinHandle) {
@@ -851,7 +869,12 @@ impl Toolkit for WinUi {
                 ffi::day_winui_remove_child(sidebar, child.0);
                 ffi::day_winui_remove_child(detail, child.0);
             },
-            None => unsafe { ffi::day_winui_remove_child(parent.0, child.0) },
+            None => {
+                let target = SCROLL_STATE
+                    .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
+                    .unwrap_or(parent.0);
+                unsafe { ffi::day_winui_remove_child(target, child.0) };
+            }
         }
     }
 
@@ -937,6 +960,50 @@ impl Toolkit for WinUi {
         if width_changed {
             schedule_list_populate(h.0 as usize);
         }
+    }
+
+    // Scroll (docs §7.6): size the ScrollViewer's inner content Canvas to the content extent so it
+    // clips + scrolls; the offset/scroll-to operate on the ScrollViewer handle directly.
+    fn set_scroll_content(&mut self, h: &WinHandle, content: Size) {
+        if let Some(c) = SCROLL_STATE.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
+            unsafe {
+                ffi::day_winui_scroll_set_content_size(
+                    c,
+                    content.width.round() as c_int,
+                    content.height.round() as c_int,
+                )
+            };
+        }
+    }
+
+    fn scroll_to(&mut self, h: &WinHandle, target: Rect, animated: bool) {
+        unsafe {
+            ffi::day_winui_scroll_to(
+                h.0,
+                target.origin.y.round() as c_int,
+                target.size.height.round() as c_int,
+                animated as c_int,
+            )
+        };
+    }
+
+    fn scroll_offset(&mut self, h: &WinHandle) -> Point {
+        let (mut x, mut y) = (0.0_f64, 0.0_f64);
+        unsafe { ffi::day_winui_scroll_offset(h.0, &mut x, &mut y) };
+        Point::new(x, y)
+    }
+
+    fn enable_gesture(&mut self, h: &WinHandle, node: NodeId, kind: day_spec::GestureKind) {
+        let k = match kind {
+            day_spec::GestureKind::Tap => 0,
+            day_spec::GestureKind::LongPress => 1,
+            day_spec::GestureKind::Drag => 2,
+        };
+        // Idempotent per (handle, kind) — day-core may re-enable on rebuild.
+        if !GESTURES.with(|g| g.borrow_mut().insert((h.0 as usize, k))) {
+            return;
+        }
+        unsafe { ffi::day_winui_enable_gesture(h.0, node.0, k, on_gesture) };
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
@@ -1105,6 +1172,41 @@ extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) 
     };
     let result = day_spec::present::PresentResult::decode(tag, index, text);
     emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+}
+
+// A native pointer recognizer fired (docs/shapes.md). Phase codes match the shim's
+// day_winui_enable_gesture: 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress. `x,y` are the
+// node-local location; `tx,ty` the cumulative drag translation.
+extern "C" fn on_gesture(
+    id: u64,
+    phase: c_int,
+    x: c_double,
+    y: c_double,
+    tx: c_double,
+    ty: c_double,
+) {
+    use day_spec::{DragPhase, Point};
+    let at = Point::new(x, y);
+    let ev = match phase {
+        0 => Event::Tap(at),
+        4 => Event::LongPress(at),
+        1 => Event::Drag {
+            phase: DragPhase::Began,
+            location: at,
+            translation: Point::ZERO,
+        },
+        3 => Event::Drag {
+            phase: DragPhase::Ended,
+            location: at,
+            translation: Point::new(tx, ty),
+        },
+        _ => Event::Drag {
+            phase: DragPhase::Changed,
+            location: at,
+            translation: Point::new(tx, ty),
+        },
+    };
+    emit(NodeId(id), ev);
 }
 
 impl Platform for WinUi {
