@@ -119,4 +119,40 @@ unsafe extern "C" {
     pub fn day_winui_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_winui_set_context_menu(elem: *mut c_void, spec: *const c_char);
     pub fn day_winui_set_app_menu(win: *mut c_void, spec: *const c_char);
+
+    // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
+    // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.
+    pub fn day_winui_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
+    pub fn day_winui_present_dialog(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        buttons_joined: *const c_char,
+        roles_joined: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_winui_present_prompt(
+        req: u64,
+        title: *const c_char,
+        message: *const c_char,
+        placeholder: *const c_char,
+        initial: *const c_char,
+        ok: *const c_char,
+        cancel: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_winui_present_file_open(
+        req: u64,
+        title: *const c_char,
+        filters_joined: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_winui_present_file_save(
+        req: u64,
+        title: *const c_char,
+        suggested: *const c_char,
+        filters_joined: *const c_char,
+        win: *mut c_void,
+    );
+    pub fn day_winui_dismiss_present(req: u64);
 }

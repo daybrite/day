@@ -484,6 +484,8 @@ impl Toolkit for WinUi {
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
+            // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
+            Cap::Dialogs | Cap::FileDialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -972,6 +974,62 @@ impl Toolkit for WinUi {
         unsafe { ffi::day_winui_set_app_menu(self.window, cstr(&spec).as_ptr()) };
     }
 
+    fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+        use day_spec::present::PresentSpec;
+        match spec {
+            PresentSpec::Dialog { .. } => unsafe {
+                ffi::day_winui_present_dialog(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(spec.message().unwrap_or("")).as_ptr(),
+                    cstr(&spec.buttons_joined()).as_ptr(),
+                    cstr(&spec.roles_joined()).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::Prompt {
+                placeholder,
+                initial,
+                ok,
+                cancel,
+                ..
+            } => unsafe {
+                ffi::day_winui_present_prompt(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(spec.message().unwrap_or("")).as_ptr(),
+                    cstr(placeholder).as_ptr(),
+                    cstr(initial).as_ptr(),
+                    cstr(ok).as_ptr(),
+                    cstr(cancel).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::OpenFile { .. } => unsafe {
+                ffi::day_winui_present_file_open(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(&spec.filters_joined()).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::SaveFile { suggested_name, .. } => unsafe {
+                // The pieces layer copies the staged bytes to the chosen path (docs/files.md).
+                ffi::day_winui_present_file_save(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(suggested_name).as_ptr(),
+                    cstr(&spec.filters_joined()).as_ptr(),
+                    self.window,
+                )
+            },
+        }
+    }
+
+    fn dismiss(&mut self, req: u64) {
+        unsafe { ffi::day_winui_dismiss_present(req) };
+    }
+
     fn adopt(&mut self, raw: day_spec::RawHandle) -> WinHandle {
         // A recycling-list cell (a plain Canvas) — Day builds/rebinds its row content in place.
         WinHandle(raw)
@@ -1035,6 +1093,20 @@ extern "C" fn run_posted(data: *mut c_void) {
     f();
 }
 
+// A native modal answered (docs/dialogs.md): the shim reports (req, tag, index, text); decode into a
+// PresentResult and route it to the window node, where day-core's executor resolves the future.
+extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
+    let text = if text.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(text) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let result = day_spec::present::PresentResult::decode(tag, index, text);
+    emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+}
+
 impl Platform for WinUi {
     const TARGET: &'static str = "windows-winui";
     const TOOLKIT: &'static str = "winui";
@@ -1053,6 +1125,7 @@ impl Platform for WinUi {
             self.window = win;
             ffi::day_winui_set_menu_cb(on_menu_action);
             ffi::day_winui_set_lifecycle_cb(on_lifecycle);
+            ffi::day_winui_set_present_cb(present_cb);
             let root = ffi::day_winui_window_root(win);
             ready(self, WinHandle(root), options.size);
             ffi::day_winui_window_on_resize(win, window_resized);

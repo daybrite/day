@@ -17,6 +17,8 @@
 #include <cstdlib>
 #include <cmath>
 #include <vector>
+#include <map>
+#include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
 
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -36,6 +38,8 @@
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Markup.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
+#include <winrt/Windows.Storage.h>         // StorageFile (file-picker results)
+#include <winrt/Windows.Storage.Pickers.h> // FileOpenPicker / FileSavePicker
 
 #include <windows.ui.xaml.hosting.desktopwindowxamlsource.h>
 #include <DispatcherQueue.h>
@@ -52,6 +56,8 @@ namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
 namespace WUXIn = winrt::Windows::UI::Xaml::Input;
 namespace WS = winrt::Windows::System;
+namespace WSt = winrt::Windows::Storage;
+namespace WStP = winrt::Windows::Storage::Pickers;
 
 using WUX::UIElement;
 using WUX::FrameworkElement;
@@ -1147,5 +1153,210 @@ extern "C" void day_winui_set_app_menu(void* win, const char* spec) try {
     WUXC::Canvas::SetLeft(bar, 0);
     WUXC::Canvas::SetTop(bar, 0);
     app->root.Children().Append(bar);
+} catch (...) {
+}
+
+// ---------------------------------------------------------------------------
+// present / dismiss (docs/dialogs.md)
+// ---------------------------------------------------------------------------
+// Native modals mirroring day-qt-sys's flat C ABI: a ContentDialog for alert/prompt, WinRT file
+// pickers for open/save. Everything is ASYNC (ShowAsync / Pick*Async) so present() returns at once
+// — the message loop keeps pumping and dayscript can `respond`/`dismiss` — with a per-`req` registry
+// so dismiss() can close/cancel a still-open modal. Results flow back through
+// g_present_cb(req, tag, index, text): tag 0 dismissed, 1 button@index, 2 text, 3 files(path) —
+// matching day_spec::PresentResult::decode. Each entry is completed by the modal's OWN handler
+// (which erases it and fires the cb once), like the Qt shim; dismiss only starts the close.
+// present() bodies are try/catch: a WinRT throw must not cross into Rust's run_posted (would abort),
+// and on failure we leave the request pending so a scripted `respond` can still resolve it.
+
+static void (*g_present_cb)(uint64_t, int, long long, const char*) = nullptr;
+
+struct DayPresent {
+    WUXC::ContentDialog dialog{ nullptr };
+    WF::IAsyncInfo op{ nullptr }; // file-picker async op — cancelable by dismiss
+};
+static std::map<uint64_t, DayPresent> g_presents;
+
+// Split a unit-separator-joined (0x1f) list, dropping empty parts (buttons_joined / filters_joined).
+static std::vector<std::string> split_units(const char* joined) {
+    std::vector<std::string> out;
+    std::string s = joined ? joined : "";
+    size_t p = 0;
+    while (true) {
+        size_t u = s.find('\x1f', p);
+        std::string part = s.substr(p, u == std::string::npos ? std::string::npos : u - p);
+        if (!part.empty()) out.push_back(part);
+        if (u == std::string::npos) break;
+        p = u + 1;
+    }
+    return out;
+}
+
+extern "C" void day_winui_set_present_cb(void (*cb)(uint64_t, int, long long, const char*)) {
+    g_present_cb = cb;
+}
+
+extern "C" void day_winui_present_dialog(uint64_t req, const char* title, const char* message,
+                                         const char* buttons_joined, const char* roles_joined,
+                                         void* win) try {
+    (void)roles_joined; // ContentDialog styles by slot, not per-button role
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) { if (g_present_cb) g_present_cb(req, 0, 0, ""); return; }
+    WUXC::ContentDialog dlg;
+    dlg.XamlRoot(app->root.XamlRoot());
+    if (title && *title) dlg.Title(winrt::box_value(hs(title)));
+    if (message && *message) dlg.Content(winrt::box_value(hs(message)));
+    // Map buttons in spec order to ContentDialog's Primary / Secondary / Close slots; the async
+    // result maps back to the original index. Windows dialogs are conventionally <=3 buttons; any
+    // beyond the third are dropped (the showcase's alert/confirm/delete/sheet all fit).
+    auto labels = split_units(buttons_joined);
+    int nbtns = static_cast<int>(labels.size());
+    if (nbtns > 0) dlg.PrimaryButtonText(hs(labels[0].c_str()));
+    if (nbtns > 1) dlg.SecondaryButtonText(hs(labels[1].c_str()));
+    if (nbtns > 2) dlg.CloseButtonText(hs(labels[2].c_str()));
+
+    g_presents[req].dialog = dlg;
+    dlg.ShowAsync().Completed(
+        [req, nbtns](WF::IAsyncOperation<WUXC::ContentDialogResult> const& a, WF::AsyncStatus st) {
+            if (!g_presents.erase(req)) return; // already resolved (scripted respond) → drop
+            if (!g_present_cb) return;
+            auto res = (st == WF::AsyncStatus::Completed) ? a.GetResults()
+                                                          : WUXC::ContentDialogResult::None;
+            if (res == WUXC::ContentDialogResult::Primary && nbtns > 0) g_present_cb(req, 1, 0, "");
+            else if (res == WUXC::ContentDialogResult::Secondary && nbtns > 1) g_present_cb(req, 1, 1, "");
+            else if (res == WUXC::ContentDialogResult::None && nbtns > 2) g_present_cb(req, 1, 2, "");
+            else g_present_cb(req, 0, 0, "");
+        });
+} catch (...) {
+}
+
+extern "C" void day_winui_present_prompt(uint64_t req, const char* title, const char* message,
+                                         const char* placeholder, const char* initial,
+                                         const char* ok, const char* cancel, void* win) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) { if (g_present_cb) g_present_cb(req, 0, 0, ""); return; }
+    WUXC::ContentDialog dlg;
+    dlg.XamlRoot(app->root.XamlRoot());
+    if (title && *title) dlg.Title(winrt::box_value(hs(title)));
+    WUXC::StackPanel panel;
+    if (message && *message) {
+        WUXC::TextBlock tb;
+        tb.Text(hs(message));
+        tb.Margin(WUX::Thickness{ 0, 0, 0, 8 });
+        panel.Children().Append(tb);
+    }
+    WUXC::TextBox box;
+    box.PlaceholderText(hs(placeholder));
+    box.Text(hs(initial));
+    panel.Children().Append(box);
+    dlg.Content(panel);
+    dlg.PrimaryButtonText(hs((ok && *ok) ? ok : "OK"));
+    dlg.CloseButtonText(hs((cancel && *cancel) ? cancel : "Cancel"));
+
+    g_presents[req].dialog = dlg;
+    dlg.ShowAsync().Completed(
+        [req, box](WF::IAsyncOperation<WUXC::ContentDialogResult> const& a, WF::AsyncStatus st) {
+            if (!g_presents.erase(req)) return;
+            if (!g_present_cb) return;
+            if (st == WF::AsyncStatus::Completed &&
+                a.GetResults() == WUXC::ContentDialogResult::Primary) {
+                std::string txt = u8(box.Text());
+                g_present_cb(req, 2, 0, txt.c_str());
+            } else {
+                g_present_cb(req, 0, 0, "");
+            }
+        });
+} catch (...) {
+}
+
+// Report a completed file-picker op: tag 3 (files) with the chosen path, else tag 0 (dismissed).
+static void finish_file(uint64_t req, WSt::StorageFile const& file) {
+    if (!g_presents.erase(req)) return;
+    if (!g_present_cb) return;
+    if (file) {
+        std::string p = u8(file.Path());
+        g_present_cb(req, 3, 0, p.c_str());
+    } else {
+        g_present_cb(req, 0, 0, "");
+    }
+}
+
+extern "C" void day_winui_present_file_open(uint64_t req, const char* title,
+                                            const char* filters_joined, void* win) try {
+    (void)title; // FileOpenPicker has no title property in the WinRT API
+    auto app = reinterpret_cast<AppWindow*>(win);
+    WStP::FileOpenPicker picker;
+    picker.SuggestedStartLocation(WStP::PickerLocationId::DocumentsLibrary);
+    // FileOpenPicker requires >=1 FileTypeFilter or PickSingleFileAsync throws. Flatten day's named
+    // filters ("Name|ext1,ext2") to a bare ".ext" list; no filters → "*" (all files).
+    bool any = false;
+    for (auto const& f : split_units(filters_joined)) {
+        size_t bar = f.find('|');
+        std::string exts = (bar == std::string::npos) ? "" : f.substr(bar + 1);
+        size_t p = 0;
+        while (p <= exts.size()) {
+            size_t c = exts.find(',', p);
+            std::string e = exts.substr(p, c == std::string::npos ? std::string::npos : c - p);
+            if (!e.empty()) { picker.FileTypeFilter().Append(hs(("." + e).c_str())); any = true; }
+            if (c == std::string::npos) break;
+            p = c + 1;
+        }
+    }
+    if (!any) picker.FileTypeFilter().Append(L"*");
+    if (app && app->host) picker.as<::IInitializeWithWindow>()->Initialize(app->host);
+
+    auto op = picker.PickSingleFileAsync();
+    g_presents[req].op = op;
+    op.Completed([req](WF::IAsyncOperation<WSt::StorageFile> const& a, WF::AsyncStatus st) {
+        finish_file(req, (st == WF::AsyncStatus::Completed) ? a.GetResults() : nullptr);
+    });
+} catch (...) {
+}
+
+extern "C" void day_winui_present_file_save(uint64_t req, const char* title, const char* suggested,
+                                            const char* filters_joined, void* win) try {
+    (void)title; // FileSavePicker has no title property in the WinRT API
+    auto app = reinterpret_cast<AppWindow*>(win);
+    WStP::FileSavePicker picker;
+    picker.SuggestedStartLocation(WStP::PickerLocationId::DocumentsLibrary);
+    // FileSavePicker requires >=1 FileTypeChoice (name → [".ext", ...]); no filters → "Any" → ".".
+    bool any = false;
+    for (auto const& f : split_units(filters_joined)) {
+        size_t bar = f.find('|');
+        std::string name = (bar == std::string::npos) ? f : f.substr(0, bar);
+        std::string exts = (bar == std::string::npos) ? "" : f.substr(bar + 1);
+        auto vec = winrt::single_threaded_vector<winrt::hstring>();
+        size_t p = 0;
+        while (p <= exts.size()) {
+            size_t c = exts.find(',', p);
+            std::string e = exts.substr(p, c == std::string::npos ? std::string::npos : c - p);
+            if (!e.empty()) vec.Append(hs(("." + e).c_str()));
+            if (c == std::string::npos) break;
+            p = c + 1;
+        }
+        if (vec.Size() > 0) { picker.FileTypeChoices().Insert(hs(name.c_str()), vec); any = true; }
+    }
+    if (!any) {
+        picker.FileTypeChoices().Insert(
+            L"Any", winrt::single_threaded_vector<winrt::hstring>({ L"." }));
+    }
+    if (suggested && *suggested) picker.SuggestedFileName(hs(suggested));
+    if (app && app->host) picker.as<::IInitializeWithWindow>()->Initialize(app->host);
+
+    auto op = picker.PickSaveFileAsync();
+    g_presents[req].op = op;
+    op.Completed([req](WF::IAsyncOperation<WSt::StorageFile> const& a, WF::AsyncStatus st) {
+        finish_file(req, (st == WF::AsyncStatus::Completed) ? a.GetResults() : nullptr);
+    });
+} catch (...) {
+}
+
+extern "C" void day_winui_dismiss_present(uint64_t req) try {
+    auto it = g_presents.find(req);
+    if (it == g_presents.end()) return;
+    // Start the close; the modal's own Completed handler erases the entry and fires the cb (which
+    // day-core ignores, having already resolved). Matches the Qt shim's dismiss.
+    if (it->second.dialog) it->second.dialog.Hide();
+    else if (it->second.op) it->second.op.Cancel();
 } catch (...) {
 }
