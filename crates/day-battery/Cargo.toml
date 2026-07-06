@@ -8,11 +8,12 @@ rust-version.workspace = true
 # battery status via each platform's NATIVE API. Any Rust code can depend on it and call
 # `day_battery::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not a
 # widget toolkit), so there are no backend features — it "just works" per target:
-#   macOS   — IOKit IOPowerSources (CoreFoundation)
-#   iOS     — UIDevice batteryLevel/batteryState
-#   Windows — GetSystemPowerStatus
-#   Linux   — /sys/class/power_supply
-#   Android — BatteryManager via a Java shim staged through [package.metadata.day.android]
+#   macOS    — IOKit IOPowerSources (CoreFoundation)
+#   iOS      — UIDevice batteryLevel/batteryState
+#   Windows  — GetSystemPowerStatus
+#   Linux    — /sys/class/power_supply
+#   HarmonyOS— native libohbattery_info.so (BasicServicesKit), gated on target_env = "ohos"
+#   Android  — BatteryManager via a Java shim staged through [package.metadata.day.android]
 # See docs/battery.md + docs/extending.md.
 
 [dependencies]

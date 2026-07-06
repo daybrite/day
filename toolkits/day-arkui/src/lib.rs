@@ -136,9 +136,38 @@ mod imp {
                     .unwrap_or((0.0, 1.0));
                 Event::ValueChanged(min + (num / 100.0) * (max - min))
             }
+            // File-picker answer (docs/files.md): `id` is the request id, `text` the chosen local
+            // path (a cache copy for open, a docs URI for save) — empty means the user cancelled.
+            5 => {
+                let s = if text.is_null() {
+                    String::new()
+                } else {
+                    unsafe { CStr::from_ptr(text) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                let result = day_spec::present::PresentResult::decode(3, 0, s);
+                emit(node, Event::PresentResult { req: id, result });
+                return;
+            }
             _ => return,
         };
         emit(node, ev);
+    }
+
+    /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
+    /// area for `save_file(..)`, since HarmonyOS's OS temp dir isn't writable by the app.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `path` is a valid C string from the ArkTS host
+    pub extern "C" fn day_arkui_set_cache_dir(path: *const c_char) {
+        if !path.is_null() {
+            let p = unsafe { CStr::from_ptr(path) }
+                .to_string_lossy()
+                .into_owned();
+            if !p.is_empty() {
+                day_spec::present::set_app_temp_dir(p);
+            }
+        }
     }
 
     /// The ArkUI backend. `new` collects any externally-registered renderers (§8.2), like the others.
@@ -365,8 +394,43 @@ mod imp {
             Err("use `hdc shell snapshot_display` on harmonyos-arkui".into())
         }
 
-        fn capability(&self, _cap: Cap) -> Support {
-            Support::Unsupported
+        /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).
+        /// Alerts/prompts aren't wired on ArkUI yet, so those specs are ignored (like WinUI).
+        fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
+            use day_spec::present::PresentSpec;
+            match spec {
+                PresentSpec::OpenFile { .. } => unsafe {
+                    ffi::day_ark_present_file(
+                        req,
+                        0,
+                        std::ptr::null(),
+                        std::ptr::null(),
+                        cstr(&spec.filters_joined()).as_ptr(),
+                    );
+                },
+                PresentSpec::SaveFile {
+                    suggested_name,
+                    src_path,
+                    ..
+                } => unsafe {
+                    ffi::day_ark_present_file(
+                        req,
+                        1,
+                        cstr(suggested_name).as_ptr(),
+                        cstr(src_path).as_ptr(),
+                        cstr(&spec.filters_joined()).as_ptr(),
+                    );
+                },
+                // Dialog / Prompt aren't implemented on ArkUI (a follow-up); ignore.
+                _ => {}
+            }
+        }
+
+        fn capability(&self, cap: Cap) -> Support {
+            match cap {
+                Cap::FileDialogs => Support::Native,
+                _ => Support::Unsupported,
+            }
         }
     }
 

@@ -26,6 +26,12 @@ static double g_density = 1.0; // px per vp; ArkUI attributes are vp, measure/la
 // Implemented in Rust (the day-arkui backend / the app cdylib).
 extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
 extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
+extern "C" void day_arkui_set_cache_dir(const char* path);
+
+// The ArkTS-registered file-picker callback (docs/files.md): `(req, mode, name, src, filters)`.
+// Held as a napi_ref because HarmonyOS file pickers live in the ArkTS @kit.CoreFileKit layer,
+// not the native NodeAPI. Called on the JS thread (day's loop runs there), so no threadsafe fn.
+static napi_ref g_file_picker = nullptr;
 
 // ---- main-thread posting (uv_async on the JS event loop) -------------------
 struct PostItem {
@@ -221,7 +227,47 @@ void day_ark_post(void (*cb)(void*), void* data) {
 
 double day_ark_density(void) { return g_density; }
 
+// Ask the ArkTS-registered picker to open/save a file. Runs on the JS thread, so a plain
+// napi_call_function is safe. Falls back to an immediate cancel if nothing is registered.
+void day_ark_present_file(uint64_t req, int32_t mode, const char* name, const char* src,
+                          const char* filters) {
+    if (!g_env || !g_file_picker) {
+        day_arkui_on_event(req, 5, 0.0, ""); // cancel (no picker)
+        return;
+    }
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_file_picker, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[5];
+        napi_create_double(g_env, (double)req, &args[0]);
+        napi_create_int32(g_env, mode, &args[1]);
+        napi_create_string_utf8(g_env, name ? name : "", NAPI_AUTO_LENGTH, &args[2]);
+        napi_create_string_utf8(g_env, src ? src : "", NAPI_AUTO_LENGTH, &args[3]);
+        napi_create_string_utf8(g_env, filters ? filters : "", NAPI_AUTO_LENGTH, &args[4]);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 5, args, &ret);
+    } else {
+        day_arkui_on_event(req, 5, 0.0, "");
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
 } // extern "C"
+
+// Read a NAPI string argument into a std::string (queries the exact length first).
+static std::string napi_to_string(napi_env env, napi_value v) {
+    size_t need = 0;
+    if (napi_get_value_string_utf8(env, v, nullptr, 0, &need) != napi_ok) return std::string();
+    std::string out(need, '\0');
+    size_t written = 0;
+    napi_get_value_string_utf8(env, v, &out[0], need + 1, &written);
+    out.resize(written);
+    return out;
+}
 
 // ---- NAPI module -----------------------------------------------------------
 // ArkTS calls `start(nodeContent, widthVp, heightVp, density)` on the imported native module.
@@ -254,10 +300,48 @@ static napi_value DayStart(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ArkTS registers its file picker + the app cache dir (docs/files.md): `registerFilePicker(cb,
+// cacheDir)`. `cb` is `(req, mode, name, src, filters) => void` and answers via `onFileResult`.
+static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (g_file_picker) {
+        napi_delete_reference(env, g_file_picker);
+        g_file_picker = nullptr;
+    }
+    napi_create_reference(env, argv[0], 1, &g_file_picker);
+    std::string cache = napi_to_string(env, argv[1]);
+    if (!cache.empty()) day_arkui_set_cache_dir(cache.c_str());
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// The picker's answer: `onFileResult(req, path)` — empty path = cancel (docs/files.md).
+static napi_value OnFileResult(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double reqd = 0;
+    napi_get_value_double(env, argv[0], &reqd);
+    std::string path = napi_to_string(env, argv[1]);
+    day_arkui_on_event((uint64_t)reqd, 5, 0.0, path.c_str()); // kind 5 = present files
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_value fn;
     napi_create_function(env, "start", NAPI_AUTO_LENGTH, DayStart, nullptr, &fn);
     napi_set_named_property(env, exports, "start", fn);
+    napi_create_function(env, "registerFilePicker", NAPI_AUTO_LENGTH, RegisterFilePicker, nullptr,
+                         &fn);
+    napi_set_named_property(env, exports, "registerFilePicker", fn);
+    napi_create_function(env, "onFileResult", NAPI_AUTO_LENGTH, OnFileResult, nullptr, &fn);
+    napi_set_named_property(env, exports, "onFileResult", fn);
     return exports;
 }
 

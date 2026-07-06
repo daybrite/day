@@ -3,7 +3,8 @@
 > **Status: implemented** as `day-battery` — a **headless** day-ecosystem crate (no UI Piece): a shared
 > cross-platform API for reading the device battery through each platform's NATIVE API. Any Rust code
 > can depend on it and call `day_battery::status()`. Verified on macOS (real battery), the iOS
-> simulator, and the Android emulator.
+> simulator, and the Android emulator; HarmonyOS cross-compiles + links against the native
+> `libohbattery_info.so`.
 
 ## Authoring
 
@@ -29,10 +30,17 @@ it with no Day framework at all.
 | iOS | `UIDevice.batteryLevel` / `batteryState` | `objc2-ui-kit` |
 | Windows | `GetSystemPowerStatus` | raw FFI (kernel32) |
 | Linux | `/sys/class/power_supply` | std only |
+| HarmonyOS | native `OH_BatteryInfo_GetCapacity` / `GetPluggedType` (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
 | Android | `BatteryManager` via a Java shim | `day-android` + `[package.metadata.day.android]` |
 
 iOS reads on the main thread (`UIDevice` is `MainThreadOnly`); off it, `status()` returns `None`. The
 simulator has no battery → `level: None, state: Unknown` (the API path still runs).
+
+HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
+and uses the native BasicServicesKit C API instead — pure FFI, needing neither a permission nor the
+Day runtime (unlike Android). The native API exposes capacity + plugged type but no explicit charge
+state, so the state is inferred from whether external power is connected. The `day-arkui-demo` app
+shows a live readout (docs/harmonyos.md).
 
 ## What it shows about the extension system
 

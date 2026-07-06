@@ -55,4 +55,17 @@ unsafe extern "C" {
 
     /// Display density (px per vp), captured from the ArkTS host at start.
     pub fn day_ark_density() -> f64;
+
+    /// Invoke the ArkTS-registered file picker (docs/files.md). `mode` 0 = open, 1 = save; `name`
+    /// is the suggested save name, `src` the Day-staged temp file to save, `filters` the flattened
+    /// filter list. The ArkTS side answers by calling the module's `onFileResult(req, path)`, which
+    /// re-enters Rust as a `day_arkui_on_event(req, 5, 0, path)` present result (empty = cancel).
+    /// A no-op (immediate cancel) if no picker was registered.
+    pub fn day_ark_present_file(
+        req: u64,
+        mode: c_int,
+        name: *const c_char,
+        src: *const c_char,
+        filters: *const c_char,
+    );
 }
