@@ -9,6 +9,7 @@ day-yes = Yes
 day-no = No
 day-done = Done
 day-save = Save
+day-open = Open
 day-close = Close
 day-delete = Delete
 

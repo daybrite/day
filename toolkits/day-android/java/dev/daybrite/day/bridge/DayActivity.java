@@ -103,6 +103,13 @@ public class DayActivity extends Activity {
         }
     }
 
+    /** Storage Access Framework results (docs/files.md) route back to DayBridge. */
+    @Override protected void onActivityResult(int requestCode, int resultCode,
+            android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        DayBridge.onFileResult(requestCode, resultCode, data);
+    }
+
     /** Warm deep link (launchMode=singleTask): route to the running nav host. */
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);

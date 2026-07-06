@@ -6,6 +6,7 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QCheckBox>
+#include <QFileDialog>
 #include <QFont>
 #include <QFrame>
 #include <QLabel>
@@ -13,6 +14,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QInputDialog>
+#include <QStringList>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QTabWidget>
@@ -420,6 +422,66 @@ void day_qt_present_prompt(uint64_t req, const char *title, const char *message,
         }
         dlg->deleteLater();
     });
+    dlg->open();
+}
+
+// Convert Day's flattened filter string ("Name|ext1,ext2" joined by 0x1f) into a Qt name filter
+// ("Name (*.ext1 *.ext2);;…"). Empty input → no filter.
+static QString day_qt_name_filters(const char *filters_joined) {
+    QString all = QString::fromUtf8(filters_joined);
+    if (all.isEmpty()) return QString();
+    QStringList out;
+    for (const QString &f : all.split(QChar(0x1f), Qt::SkipEmptyParts)) {
+        int bar = f.indexOf('|');
+        QString name = bar >= 0 ? f.left(bar) : f;
+        QString exts = bar >= 0 ? f.mid(bar + 1) : QString();
+        QStringList globs;
+        for (const QString &e : exts.split(',', Qt::SkipEmptyParts)) globs << ("*." + e);
+        if (globs.isEmpty()) globs << "*";
+        out << (name + " (" + globs.join(' ') + ")");
+    }
+    return out.join(";;");
+}
+
+// Report a file dialog result: tag 3 (files) with the chosen path, or tag 0 (dismissed).
+static void day_qt_finish_file(uint64_t req, QFileDialog *dlg, int result) {
+    g_presents.erase(req);
+    if (g_present_cb) {
+        QStringList sel = dlg->selectedFiles();
+        if (result == QDialog::Accepted && !sel.isEmpty()) {
+            QByteArray path = sel.first().toUtf8();
+            g_present_cb(req, 3, 0, path.constData());
+        } else {
+            g_present_cb(req, 0, 0, "");
+        }
+    }
+    dlg->deleteLater();
+}
+
+void day_qt_present_file_open(uint64_t req, const char *title, const char *filters_joined,
+                              void *parent) {
+    auto *dlg = new QFileDialog(static_cast<QWidget *>(parent), QString::fromUtf8(title));
+    dlg->setFileMode(QFileDialog::ExistingFile);
+    dlg->setAcceptMode(QFileDialog::AcceptOpen);
+    QString nf = day_qt_name_filters(filters_joined);
+    if (!nf.isEmpty()) dlg->setNameFilter(nf);
+    g_presents[req] = {dlg, {}};
+    QObject::connect(dlg, &QFileDialog::finished,
+                     [req, dlg](int result) { day_qt_finish_file(req, dlg, result); });
+    dlg->open();
+}
+
+void day_qt_present_file_save(uint64_t req, const char *title, const char *suggested,
+                              const char *filters_joined, void *parent) {
+    auto *dlg = new QFileDialog(static_cast<QWidget *>(parent), QString::fromUtf8(title));
+    dlg->setFileMode(QFileDialog::AnyFile);
+    dlg->setAcceptMode(QFileDialog::AcceptSave);
+    if (suggested && *suggested) dlg->selectFile(QString::fromUtf8(suggested));
+    QString nf = day_qt_name_filters(filters_joined);
+    if (!nf.isEmpty()) dlg->setNameFilter(nf);
+    g_presents[req] = {dlg, {}};
+    QObject::connect(dlg, &QFileDialog::finished,
+                     [req, dlg](int result) { day_qt_finish_file(req, dlg, result); });
     dlg->open();
 }
 

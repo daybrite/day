@@ -27,6 +27,10 @@ thread_local! {
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
 }
 
+/// An app-writable scratch directory (docs/files.md) — re-exported from `day_spec::present` so
+/// `day_core::app_temp_dir()` keeps working for the pieces layer's file-save staging.
+pub use day_spec::present::app_temp_dir;
+
 struct PendingEntry {
     shared: Rc<PendingShared>,
     spec: PresentSpec,

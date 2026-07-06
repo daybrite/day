@@ -210,6 +210,18 @@ mod imp {
         let handle = AHandle(env.new_global_ref(root).expect("root global ref"));
         let size = Size::new(w as f64 / d, h as f64 / d);
         ROOT.with(|r| *r.borrow_mut() = Some((handle, size)));
+        // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save staging
+        // area (docs/files.md) so `save_file(..)` can write its temp before handing off to SAF.
+        if let Ok(dir) = env
+            .call_static_method(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
+            .and_then(|v| v.l())
+            && let Ok(s) = env.get_string(&JString::from(dir))
+        {
+            let path: String = s.into();
+            if !path.is_empty() {
+                day_spec::present::set_app_temp_dir(path);
+            }
+        }
     }
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here).
@@ -277,6 +289,19 @@ mod imp {
                 req: id as u64,
                 result: day_spec::present::PresentResult::Dismissed,
             },
+            // File-picker answer (docs/files.md): string = chosen locators (a cache path for open,
+            // a content:// URI for save), joined by the unit separator. Reuse the `decode` tag 3.
+            15 => {
+                let text: String = env
+                    .get_string(jstr)
+                    .ok()
+                    .map(|s| s.into())
+                    .unwrap_or_default();
+                Event::PresentResult {
+                    req: id as u64,
+                    result: day_spec::present::PresentResult::decode(3, 0, text),
+                }
+            }
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
             // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
             11 => {
@@ -504,7 +529,7 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -557,6 +582,45 @@ mod imp {
                             JValue::Object(&init),
                             JValue::Object(&okj),
                             JValue::Object(&cancelj),
+                        ],
+                    );
+                }),
+                // Storage Access Framework (docs/files.md). Java launches ACTION_OPEN_DOCUMENT /
+                // ACTION_CREATE_DOCUMENT and, on result, copies through the ContentResolver: open →
+                // an app cache file (readable path); save → the chosen content:// URI.
+                PresentSpec::OpenFile { .. } => with_env(|env| {
+                    let title = jstr(env, spec.title());
+                    let filters = jstr(env, &spec.filters_joined());
+                    let _ = env.call_static_method(
+                        BRIDGE,
+                        "presentFileOpen",
+                        "(JLjava/lang/String;Ljava/lang/String;)V",
+                        &[
+                            JValue::Long(reqj),
+                            JValue::Object(&title),
+                            JValue::Object(&filters),
+                        ],
+                    );
+                }),
+                PresentSpec::SaveFile {
+                    suggested_name,
+                    src_path,
+                    ..
+                } => with_env(|env| {
+                    let title = jstr(env, spec.title());
+                    let name = jstr(env, suggested_name);
+                    let src = jstr(env, src_path);
+                    let filters = jstr(env, &spec.filters_joined());
+                    let _ = env.call_static_method(
+                        BRIDGE,
+                        "presentFileSave",
+                        "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                        &[
+                            JValue::Long(reqj),
+                            JValue::Object(&title),
+                            JValue::Object(&name),
+                            JValue::Object(&src),
+                            JValue::Object(&filters),
                         ],
                     );
                 }),

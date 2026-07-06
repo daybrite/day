@@ -944,7 +944,11 @@ impl Toolkit for AppKit {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NativeSymbols | Cap::NavSplit | Cap::Dialogs => Support::Native,
+            Cap::Snapshot
+            | Cap::NativeSymbols
+            | Cap::NavSplit
+            | Cap::Dialogs
+            | Cap::FileDialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1910,6 +1914,45 @@ impl Toolkit for AppKit {
             );
             return;
         };
+        // File pickers use a different native object (NSOpen/NSSavePanel), not an NSAlert.
+        match spec {
+            PresentSpec::OpenFile { filters, .. } => {
+                let panel = unsafe { objc2_app_kit::NSOpenPanel::openPanel(mtm) };
+                unsafe {
+                    panel.setCanChooseFiles(true);
+                    panel.setCanChooseDirectories(false);
+                    panel.setAllowsMultipleSelection(false);
+                    panel.setMessage(Some(&NSString::from_str(spec.title())));
+                }
+                apply_allowed_file_types(&panel, filters);
+                let p = panel.clone();
+                let handler: block2::RcBlock<dyn Fn(isize)> =
+                    block2::RcBlock::new(move |resp: isize| {
+                        emit_panel_result(req, resp, &p);
+                    });
+                unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
+                PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, Retained::into_super(panel)));
+                return;
+            }
+            PresentSpec::SaveFile { suggested_name, .. } => {
+                let panel = unsafe { objc2_app_kit::NSSavePanel::savePanel(mtm) };
+                unsafe {
+                    panel.setMessage(Some(&NSString::from_str(spec.title())));
+                    panel.setNameFieldStringValue(&NSString::from_str(suggested_name));
+                }
+                apply_allowed_file_types(&panel, spec.filters());
+                let p = panel.clone();
+                let handler: block2::RcBlock<dyn Fn(isize)> =
+                    block2::RcBlock::new(move |resp: isize| {
+                        // The pieces layer copies the staged bytes to the chosen local path.
+                        emit_panel_result(req, resp, &p);
+                    });
+                unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
+                PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, panel));
+                return;
+            }
+            _ => {}
+        }
         let alert = unsafe { objc2_app_kit::NSAlert::new(mtm) };
         unsafe { alert.setMessageText(&NSString::from_str(spec.title())) };
         if let Some(msg) = spec.message() {
@@ -1975,6 +2018,8 @@ impl Toolkit for AppKit {
                     });
                 })
             }
+            // File pickers returned early above.
+            PresentSpec::OpenFile { .. } | PresentSpec::SaveFile { .. } => unreachable!(),
         };
         unsafe {
             alert.beginSheetModalForWindow_completionHandler(&window, Some(&handler));
@@ -1989,6 +2034,11 @@ impl Toolkit for AppKit {
         if let (Some(alert), Some(window)) = (alert, self.window.clone()) {
             unsafe { window.endSheet(&alert.window()) };
         }
+        // File-picker sheets are their own NSWindow.
+        let panel = PRESENT_PANELS.with(|m| m.borrow_mut().remove(&req));
+        if let (Some(panel), Some(window)) = (panel, self.window.clone()) {
+            unsafe { window.endSheet(&panel) };
+        }
     }
 }
 
@@ -1996,6 +2046,44 @@ thread_local! {
     /// Live modal sheets keyed by request id (for programmatic dismissal).
     static PRESENT_ALERTS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSAlert>>> =
         RefCell::new(HashMap::new());
+    /// Live file-picker sheets (NSOpenPanel is stored via its NSSavePanel supertype).
+    static PRESENT_PANELS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSSavePanel>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Apply a file dialog's extension filters (`allowedFileTypes` — deprecated but still the simplest
+/// extension-based API; `UTType` would pull in another framework crate for no benefit here).
+#[allow(deprecated)]
+fn apply_allowed_file_types(
+    panel: &objc2_app_kit::NSSavePanel,
+    filters: &[day_spec::present::FileFilter],
+) {
+    let exts: Vec<Retained<NSString>> = filters
+        .iter()
+        .flat_map(|f| f.extensions.iter())
+        .map(|e| NSString::from_str(e))
+        .collect();
+    if !exts.is_empty() {
+        let refs: Vec<&NSString> = exts.iter().map(|r| &**r).collect();
+        let arr = objc2_foundation::NSArray::from_slice(&refs);
+        unsafe { panel.setAllowedFileTypes(Some(&arr)) };
+    }
+}
+
+/// Turn an open/save panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1).
+fn emit_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSSavePanel) {
+    let result = if resp == 1 {
+        unsafe { panel.URL() }
+            .and_then(|url| unsafe { url.path() })
+            .map(|p| present::PresentResult::Files(vec![p.to_string()]))
+            .unwrap_or(present::PresentResult::Dismissed)
+    } else {
+        present::PresentResult::Dismissed
+    };
+    emit(WINDOW_NODE, Event::PresentResult { req, result });
+    PRESENT_PANELS.with(|m| {
+        m.borrow_mut().remove(&req);
+    });
 }
 
 impl Platform for AppKit {

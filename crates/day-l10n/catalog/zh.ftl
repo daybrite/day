@@ -5,6 +5,7 @@ day-yes = 是
 day-no = 否
 day-done = 完成
 day-save = 保存
+day-open = 打开
 day-close = 关闭
 day-delete = 删除
 day-cut = 剪切

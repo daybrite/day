@@ -5,6 +5,7 @@ day-yes = はい
 day-no = いいえ
 day-done = 完了
 day-save = 保存
+day-open = 開く
 day-close = 閉じる
 day-delete = 削除
 day-cut = カット

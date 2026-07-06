@@ -587,7 +587,7 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs => Support::Native,
+            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1585,6 +1585,42 @@ impl Toolkit for Gtk {
                 NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
                 dialog.present(parent.as_ref());
             }
+            // GtkFileDialog (GTK 4.10+): async open/save with a native GTK picker. The chosen
+            // GFile's local path crosses back; a Cancellable lets dismiss() cancel it.
+            PresentSpec::OpenFile { title, filters } => {
+                let dialog = gtk4::FileDialog::builder()
+                    .title(title.as_str())
+                    .modal(true)
+                    .build();
+                apply_gtk_filters(&dialog, filters);
+                let cancellable = gtk4::gio::Cancellable::new();
+                dialog.open(
+                    file_dialog_window(&parent).as_ref(),
+                    Some(&cancellable),
+                    move |res| emit_file_result(req, res.map(|f| f.path())),
+                );
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable));
+            }
+            PresentSpec::SaveFile {
+                title,
+                suggested_name,
+                ..
+            } => {
+                let dialog = gtk4::FileDialog::builder()
+                    .title(title.as_str())
+                    .initial_name(suggested_name.as_str())
+                    .modal(true)
+                    .build();
+                apply_gtk_filters(&dialog, spec.filters());
+                let cancellable = gtk4::gio::Cancellable::new();
+                // The pieces layer copies the staged bytes to the chosen local path.
+                dialog.save(
+                    file_dialog_window(&parent).as_ref(),
+                    Some(&cancellable),
+                    move |res| emit_file_result(req, res.map(|f| f.path())),
+                );
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable));
+            }
         }
     }
 
@@ -1595,7 +1631,50 @@ impl Toolkit for Gtk {
         if let Some(handle) = handle {
             (handle.finish)(day_spec::present::PresentResult::Dismissed);
         }
+        // GtkFileDialog: cancel the in-flight operation (its callback then no-ops in day-core).
+        if let Some(c) = FILE_DIALOGS.with(|m| m.borrow_mut().remove(&req)) {
+            c.cancel();
+        }
     }
+}
+
+/// The GtkWindow to anchor a file picker on: the fixed content's toplevel.
+fn file_dialog_window(parent: &Option<gtk4::Fixed>) -> Option<gtk4::Window> {
+    parent
+        .as_ref()
+        .and_then(|f| f.root())
+        .and_then(|r| r.downcast::<gtk4::Window>().ok())
+}
+
+/// Apply a file dialog's extension filters as GtkFileFilters (`*.ext` glob patterns).
+fn apply_gtk_filters(dialog: &gtk4::FileDialog, filters: &[day_spec::present::FileFilter]) {
+    if filters.is_empty() {
+        return;
+    }
+    let store = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+    for f in filters {
+        let ff = gtk4::FileFilter::new();
+        ff.set_name(Some(&f.name));
+        for ext in &f.extensions {
+            ff.add_pattern(&format!("*.{ext}"));
+        }
+        store.append(&ff);
+    }
+    dialog.set_filters(Some(&store));
+}
+
+/// Turn a GtkFileDialog result into a `PresentResult` and enqueue it.
+fn emit_file_result(req: u64, res: Result<Option<std::path::PathBuf>, gtk4::glib::Error>) {
+    let result = match res {
+        Ok(Some(path)) => {
+            day_spec::present::PresentResult::Files(vec![path.to_string_lossy().into_owned()])
+        }
+        _ => day_spec::present::PresentResult::Dismissed,
+    };
+    emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+    FILE_DIALOGS.with(|m| {
+        m.borrow_mut().remove(&req);
+    });
 }
 
 /// A live modal's resolver: emits the first result only, then closes the AdwDialog (whose
@@ -1624,6 +1703,9 @@ fn dialog_finisher(
 thread_local! {
     /// Live modals keyed by request id (for programmatic dismissal).
     static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
+    /// In-flight GtkFileDialog operations keyed by request id (cancelled on dismiss).
+    static FILE_DIALOGS: RefCell<HashMap<u64, gtk4::gio::Cancellable>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Adwaita's default header-bar height, used to size Day's content area before the header is

@@ -20,6 +20,7 @@ nav-text = Texte
 nav-gauge = Jauge
 nav-shapes = Formes
 nav-pickers = Sélecteurs
+nav-files = Fichiers
 nav-tabs = Onglets
 nav-stack = Pile
 nav-list = Liste
@@ -77,6 +78,13 @@ flavor-title = Choisissez un parfum
 cancel = Annuler
 vanilla = vanille
 pistachio = pistache
+
+# Files playground (docs/files.md)
+files-caption = Sélecteurs de fichiers natifs. « Ouvrir » lit un fichier texte dans l'éditeur ; « Enregistrer » l'écrit.
+files-placeholder = Saisissez du texte à enregistrer…
+files-open = Ouvrir un fichier…
+files-save = Enregistrer le fichier…
+files-opened = Ouvert : { $name }
 
 # Aire de jeu Texte (typographie)
 text-caption = Les styles sémantiques correspondent aux styles natifs et à l'échelle de texte d'accessibilité.

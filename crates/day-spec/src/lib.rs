@@ -367,6 +367,8 @@ pub enum Cap {
     NavSplit,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,
+    /// The toolkit can present native open/save file pickers (docs/files.md).
+    FileDialogs,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -817,6 +819,14 @@ pub mod present {
         pub role: ButtonRole,
     }
 
+    /// A named group of file extensions for a file dialog (e.g. "Text" → `["txt", "md"]`).
+    /// An empty `extensions` list means "all files".
+    #[derive(Clone, Debug, PartialEq, Default)]
+    pub struct FileFilter {
+        pub name: String,
+        pub extensions: Vec<String>,
+    }
+
     /// What a backend should present for a `req`. Kept toolkit-agnostic; the pieces layer
     /// maps a chosen button index back to a typed payload.
     #[derive(Clone, Debug, PartialEq)]
@@ -838,6 +848,23 @@ pub mod present {
             ok: String,
             cancel: String,
         },
+        /// Native "open file" picker (docs/files.md). The backend must answer with
+        /// `PresentResult::Files` whose entries are **readable local paths** — desktop returns
+        /// the chosen path directly; iOS/Android copy the selection into app storage first, so
+        /// the pieces layer can read it with `std::fs` regardless of platform.
+        OpenFile {
+            title: String,
+            filters: Vec<FileFilter>,
+        },
+        /// Native "save file" picker (docs/files.md). `src_path` is a Day-written temp file
+        /// holding the bytes to save; iOS/Android deliver it to the chosen destination natively,
+        /// and the pieces layer best-effort copies it to a chosen local path otherwise.
+        SaveFile {
+            title: String,
+            suggested_name: String,
+            src_path: String,
+            filters: Vec<FileFilter>,
+        },
     }
 
     /// The user's answer to a presentation.
@@ -847,16 +874,50 @@ pub mod present {
         Button(i64),
         /// A prompt was confirmed with `text`.
         Text(String),
+        /// One or more file locators chosen from an open/save picker (docs/files.md). Each is a
+        /// local filesystem path or, on Android save, a `content://` URI.
+        Files(Vec<String>),
         /// Dismissed without choosing (tap-outside / Esc / cancel gesture).
         Dismissed,
     }
 
+    /// The unit-separator that joins string lists across the C ABI (Qt shim / Android JNI) — the
+    /// same encoding the nav menu, combobox, and dialog-button shims use.
+    pub const UNIT_SEP: char = '\u{1f}';
+
+    std::thread_local! {
+        /// An app-writable scratch directory. Backends whose OS temp dir isn't app-writable
+        /// (Android → `getCacheDir()`) set this at startup; elsewhere it stays `None` and callers
+        /// fall back to `std::env::temp_dir()`.
+        static APP_TEMP_DIR: std::cell::RefCell<Option<std::path::PathBuf>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Record an app-writable scratch directory (see [`app_temp_dir`]). Called by a backend at
+    /// startup when the OS temp dir isn't writable by the app (Android).
+    pub fn set_app_temp_dir(dir: impl Into<std::path::PathBuf>) {
+        APP_TEMP_DIR.with(|d| *d.borrow_mut() = Some(dir.into()));
+    }
+
+    /// An app-writable scratch directory: the backend-supplied one, else `std::env::temp_dir()`.
+    /// Used by the file-save flow (docs/files.md) to stage bytes before the native save picker.
+    pub fn app_temp_dir() -> std::path::PathBuf {
+        APP_TEMP_DIR.with(|d| d.borrow().clone().unwrap_or_else(std::env::temp_dir))
+    }
+
     impl PresentResult {
-        /// Flat wire tag for the C ABI (Qt shim / Android JNI): 0 dismissed, 1 button, 2 text.
+        /// Flat wire tag for the C ABI (Qt shim / Android JNI): 0 dismissed, 1 button, 2 text,
+        /// 3 files (`text` is the chosen locators joined by the unit separator).
         pub fn decode(tag: i32, index: i64, text: String) -> PresentResult {
             match tag {
                 1 => PresentResult::Button(index),
                 2 => PresentResult::Text(text),
+                3 => PresentResult::Files(
+                    text.split(UNIT_SEP)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .collect(),
+                ),
                 _ => PresentResult::Dismissed,
             }
         }
@@ -867,7 +928,10 @@ pub mod present {
         /// roles as ints, sheet-or-prompt fields)`. Pure-Rust backends read the enum directly.
         pub fn title(&self) -> &str {
             match self {
-                PresentSpec::Dialog { title, .. } | PresentSpec::Prompt { title, .. } => title,
+                PresentSpec::Dialog { title, .. }
+                | PresentSpec::Prompt { title, .. }
+                | PresentSpec::OpenFile { title, .. }
+                | PresentSpec::SaveFile { title, .. } => title,
             }
         }
         pub fn message(&self) -> Option<&str> {
@@ -875,6 +939,7 @@ pub mod present {
                 PresentSpec::Dialog { message, .. } | PresentSpec::Prompt { message, .. } => {
                     message.as_deref()
                 }
+                _ => None,
             }
         }
         /// Button labels joined with the unit separator (0x1f) — the encoding the nav menu
@@ -887,6 +952,7 @@ pub mod present {
                     .collect::<Vec<_>>()
                     .join("\u{1f}"),
                 PresentSpec::Prompt { ok, cancel, .. } => format!("{ok}\u{1f}{cancel}"),
+                _ => String::new(),
             }
         }
         /// Button roles as ints (0 default, 1 cancel, 2 destructive), joined with commas.
@@ -898,12 +964,48 @@ pub mod present {
                 PresentSpec::Prompt { .. } => {
                     vec![ButtonRole::Default as i32, ButtonRole::Cancel as i32]
                 }
+                _ => vec![],
             };
             roles
                 .iter()
                 .map(|r| r.to_string())
                 .collect::<Vec<_>>()
                 .join(",")
+        }
+
+        // --- file-dialog accessors (docs/files.md) ---
+
+        /// The file filters, if this is a file dialog.
+        pub fn filters(&self) -> &[FileFilter] {
+            match self {
+                PresentSpec::OpenFile { filters, .. } | PresentSpec::SaveFile { filters, .. } => {
+                    filters
+                }
+                _ => &[],
+            }
+        }
+        /// The suggested file name for a save dialog (empty otherwise).
+        pub fn suggested_name(&self) -> &str {
+            match self {
+                PresentSpec::SaveFile { suggested_name, .. } => suggested_name,
+                _ => "",
+            }
+        }
+        /// The Day-written temp source path for a save dialog (empty otherwise).
+        pub fn src_path(&self) -> &str {
+            match self {
+                PresentSpec::SaveFile { src_path, .. } => src_path,
+                _ => "",
+            }
+        }
+        /// Filters flattened for the C ABI: each filter is `name|ext1,ext2`, joined by the unit
+        /// separator. A trailing `|` (no extensions) means "all files". Empty when unfiltered.
+        pub fn filters_joined(&self) -> String {
+            self.filters()
+                .iter()
+                .map(|f| format!("{}|{}", f.name, f.extensions.join(",")))
+                .collect::<Vec<_>>()
+                .join("\u{1f}")
         }
     }
 }

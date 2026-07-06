@@ -20,6 +20,7 @@ nav-text = Text
 nav-gauge = Gauge
 nav-shapes = Shapes
 nav-pickers = Pickers
+nav-files = Files
 nav-tabs = Tabs
 nav-stack = Stack
 nav-list = List
@@ -77,6 +78,13 @@ flavor-title = Choose a flavor
 cancel = Cancel
 vanilla = vanilla
 pistachio = pistachio
+
+# Files playground (docs/files.md)
+files-caption = Native open/save file pickers. Open reads a text file into the editor; Save writes it back out.
+files-placeholder = Type something to save…
+files-open = Open File…
+files-save = Save File…
+files-opened = Opened { $name }
 
 # Text playground (typography)
 text-caption = Semantic styles map to the platform's native text styles and accessibility text scaling.

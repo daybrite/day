@@ -91,12 +91,16 @@ pub enum Step {
         #[serde(default)]
         title: Option<String>,
     },
-    /// Answer the open modal: a button `index`, a prompt `text`, or `dismiss`.
+    /// Answer the open modal: a button `index`, a prompt `text`, a file `path` (open/save
+    /// pickers — relative paths resolve against the app temp dir, writable on every target), or
+    /// `dismiss`.
     Respond {
         #[serde(default)]
         button: Option<i64>,
         #[serde(default)]
         text: Option<String>,
+        #[serde(default)]
+        path: Option<String>,
         #[serde(default)]
         dismiss: bool,
     },
@@ -420,6 +424,7 @@ fn exec(step: Step) -> Reply {
             Step::Respond {
                 button,
                 text,
+                path,
                 dismiss,
             } => {
                 let Some((req, _)) = day_core::pending_presentation() else {
@@ -429,6 +434,16 @@ fn exec(step: Step) -> Reply {
                     PresentResult::Dismissed
                 } else if let Some(t) = text {
                     PresentResult::Text(t)
+                } else if let Some(p) = path {
+                    // Relative paths resolve against the app-writable temp dir so a scripted
+                    // open/save round-trip works on desktop, iOS, and Android alike.
+                    let pb = std::path::PathBuf::from(&p);
+                    let full = if pb.is_absolute() {
+                        pb
+                    } else {
+                        day_core::app_temp_dir().join(pb)
+                    };
+                    PresentResult::Files(vec![full.to_string_lossy().into_owned()])
                 } else if let Some(i) = button {
                     PresentResult::Button(i)
                 } else {

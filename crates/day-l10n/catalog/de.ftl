@@ -5,6 +5,7 @@ day-yes = Ja
 day-no = Nein
 day-done = Fertig
 day-save = Speichern
+day-open = Öffnen
 day-close = Schließen
 day-delete = Löschen
 day-cut = Ausschneiden

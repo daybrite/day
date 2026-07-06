@@ -957,3 +957,111 @@ fn shape_fill_rebinds_reactively() {
         "fill colour must re-record when its signal flips"
     );
 }
+
+// ---------------------------------------------------------------------------
+// File open / save (docs/files.md) — the FileUrl type + the picker round-trip.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn file_url_local_path_and_name() {
+    // A filesystem path (and file:// URL) resolves to a PathBuf; a content:// URI does not.
+    let p = FileUrl::new("/tmp/notes.txt");
+    assert_eq!(
+        p.local_path(),
+        Some(std::path::PathBuf::from("/tmp/notes.txt"))
+    );
+    assert_eq!(p.file_name().as_deref(), Some("notes.txt"));
+
+    let f = FileUrl::new("file:///tmp/a/b.md");
+    assert_eq!(
+        f.local_path(),
+        Some(std::path::PathBuf::from("/tmp/a/b.md"))
+    );
+
+    let c = FileUrl::new("content://com.android.providers/doc/42");
+    assert_eq!(c.local_path(), None); // not directly readable
+    assert!(c.read_to_string().is_err());
+}
+
+#[test]
+fn open_file_reads_the_chosen_path() {
+    // Write a real file, then drive open_file → respond with its path → the app reads it back.
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("day-open-test-{}.txt", std::process::id()));
+    std::fs::write(&path, b"opened contents").unwrap();
+
+    let out: Rc<RefCell<Option<String>>> = Rc::default();
+    let o2 = out.clone();
+    let probe = boot(move || {
+        let o2 = o2.clone();
+        button("open")
+            .action(move || {
+                let o2 = o2.clone();
+                day_core::task(async move {
+                    if let Some(file) = open_file().filter("Text", &["txt"]).await {
+                        *o2.borrow_mut() = file.read_to_string().ok();
+                    }
+                })
+            })
+            .id("open")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, spec) = day_core::pending_presentation().expect("open picker pending");
+    assert!(matches!(
+        spec,
+        day_spec::present::PresentSpec::OpenFile { .. }
+    ));
+    day_core::respond_presentation(
+        req,
+        PresentResult::Files(vec![path.to_string_lossy().into_owned()]),
+    );
+    flush_sync();
+    assert_eq!(out.borrow().as_deref(), Some("opened contents"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn save_file_writes_data_to_the_chosen_path() {
+    // Drive save_file → respond with a destination path → the bytes land there.
+    let dir = std::env::temp_dir();
+    let dest = dir.join(format!("day-save-test-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&dest);
+
+    let saved: Rc<RefCell<Option<String>>> = Rc::default();
+    let s2 = saved.clone();
+    let probe = boot(move || {
+        let s2 = s2.clone();
+        button("save")
+            .action(move || {
+                let s2 = s2.clone();
+                day_core::task(async move {
+                    let dest = save_file(b"written by day".to_vec())
+                        .suggested_name("out.txt")
+                        .await;
+                    *s2.borrow_mut() = dest.and_then(|d| d.file_name());
+                })
+            })
+            .id("save")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    let (req, spec) = day_core::pending_presentation().expect("save picker pending");
+    assert_eq!(spec.suggested_name(), "out.txt");
+    assert!(
+        !spec.src_path().is_empty(),
+        "save spec stages a temp source file"
+    );
+    day_core::respond_presentation(
+        req,
+        PresentResult::Files(vec![dest.to_string_lossy().into_owned()]),
+    );
+    flush_sync();
+    // The pieces layer copied the staged bytes to the chosen local destination.
+    assert_eq!(std::fs::read(&dest).unwrap(), b"written by day");
+    assert_eq!(
+        saved.borrow().as_deref(),
+        Some(dest.file_name().unwrap().to_str().unwrap())
+    );
+    let _ = std::fs::remove_file(&dest);
+}

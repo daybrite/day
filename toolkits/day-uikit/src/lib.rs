@@ -50,6 +50,11 @@ mod imp {
     };
     use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
     use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
+    // `.import`/`.exportToService` modes (deprecated in favor of `initFor…ContentTypes:`, which
+    // would pull in the UniformTypeIdentifiers crate) remain the simplest UTType-free path.
+    #[allow(deprecated)]
+    use objc2_ui_kit::UIDocumentPickerMode;
+    use objc2_ui_kit::{UIDocumentPickerDelegate, UIDocumentPickerViewController};
 
     use day_spec::props::*;
     use day_spec::{
@@ -1124,7 +1129,7 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -2014,6 +2019,38 @@ mod imp {
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
                     unsafe { top.presentViewController_animated_completion(&ac, true, None) };
                 }
+                // Native file pickers: UIDocumentPickerViewController with a delegate. Open uses
+                // `.import` mode (the system hands back an app-local copy, readable via std::fs);
+                // save exports the Day-staged temp file to the chosen destination.
+                PresentSpec::OpenFile { .. } => {
+                    let types =
+                        objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
+                            "public.item",
+                        )]);
+                    #[allow(deprecated)]
+                    let picker = unsafe {
+                        UIDocumentPickerViewController::initWithDocumentTypes_inMode(
+                            UIDocumentPickerViewController::alloc(m),
+                            &types,
+                            UIDocumentPickerMode::Import,
+                        )
+                    };
+                    present_doc_picker(req, m, &top, picker);
+                }
+                PresentSpec::SaveFile { src_path, .. } => {
+                    let url = unsafe {
+                        objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(src_path))
+                    };
+                    #[allow(deprecated)]
+                    let picker = unsafe {
+                        UIDocumentPickerViewController::initWithURL_inMode(
+                            UIDocumentPickerViewController::alloc(m),
+                            &url,
+                            UIDocumentPickerMode::ExportToService,
+                        )
+                    };
+                    present_doc_picker(req, m, &top, picker);
+                }
             }
         }
 
@@ -2021,13 +2058,41 @@ mod imp {
             if let Some(ac) = PRESENT_VCS.with(|p| p.borrow_mut().remove(&req)) {
                 unsafe { ac.dismissViewControllerAnimated_completion(true, None) };
             }
+            if let Some((picker, _)) = PRESENT_PICKERS.with(|p| p.borrow_mut().remove(&req)) {
+                unsafe { picker.dismissViewControllerAnimated_completion(true, None) };
+            }
         }
+    }
+
+    /// Wire a document picker's delegate, retain both, and present it on `top`.
+    fn present_doc_picker(
+        req: u64,
+        m: MainThreadMarker,
+        top: &UIViewController,
+        picker: Retained<UIDocumentPickerViewController>,
+    ) {
+        unsafe { picker.setAllowsMultipleSelection(false) };
+        let delegate = DayDocPicker::new(m, req);
+        unsafe { picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+        PRESENT_PICKERS.with(|p| p.borrow_mut().insert(req, (picker.clone(), delegate)));
+        unsafe { top.presentViewController_animated_completion(&picker, true, None) };
     }
 
     thread_local! {
         /// Live alert controllers keyed by request id (for programmatic dismissal).
         static PRESENT_VCS: RefCell<HashMap<u64, Retained<objc2_ui_kit::UIAlertController>>> =
             RefCell::new(HashMap::new());
+        /// Live document pickers + their retained delegates, keyed by request id.
+        #[allow(clippy::type_complexity)]
+        static PRESENT_PICKERS: RefCell<
+            HashMap<
+                u64,
+                (
+                    Retained<UIDocumentPickerViewController>,
+                    Retained<DayDocPicker>,
+                ),
+            >,
+        > = RefCell::new(HashMap::new());
     }
 
     /// The frontmost view controller (walk past any already-presented modal).
@@ -2037,6 +2102,69 @@ mod imp {
             vc = p;
         }
         Some(vc)
+    }
+
+    struct DocPickerIvars {
+        req: u64,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitDocPicker"]
+        #[ivars = DocPickerIvars]
+        struct DayDocPicker;
+
+        unsafe impl NSObjectProtocol for DayDocPicker {}
+
+        unsafe impl UIDocumentPickerDelegate for DayDocPicker {
+            #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
+            fn did_pick(
+                &self,
+                _picker: &UIDocumentPickerViewController,
+                urls: &objc2_foundation::NSArray<objc2_foundation::NSURL>,
+            ) {
+                let req = self.ivars().req;
+                let mut paths = Vec::new();
+                for i in 0..urls.count() {
+                    let url = urls.objectAtIndex(i);
+                    if let Some(p) = unsafe { url.path() } {
+                        paths.push(p.to_string());
+                    }
+                }
+                let result = if paths.is_empty() {
+                    day_spec::present::PresentResult::Dismissed
+                } else {
+                    day_spec::present::PresentResult::Files(paths)
+                };
+                emit(WINDOW_NODE, Event::PresentResult { req, result });
+                PRESENT_PICKERS.with(|m| {
+                    m.borrow_mut().remove(&req);
+                });
+            }
+
+            #[unsafe(method(documentPickerWasCancelled:))]
+            fn was_cancelled(&self, _picker: &UIDocumentPickerViewController) {
+                let req = self.ivars().req;
+                emit(
+                    WINDOW_NODE,
+                    Event::PresentResult {
+                        req,
+                        result: day_spec::present::PresentResult::Dismissed,
+                    },
+                );
+                PRESENT_PICKERS.with(|m| {
+                    m.borrow_mut().remove(&req);
+                });
+            }
+        }
+    );
+
+    impl DayDocPicker {
+        fn new(mtm: MainThreadMarker, req: u64) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(DocPickerIvars { req });
+            unsafe { msg_send![super(this), init] }
+        }
     }
 
     // -----------------------------------------------------------------------

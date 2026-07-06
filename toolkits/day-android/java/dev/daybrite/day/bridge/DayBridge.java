@@ -469,6 +469,136 @@ public final class DayBridge {
         if (dlg != null) dlg.dismiss();
     }
 
+    // --- Native file open/save via the Storage Access Framework (docs/files.md) ---------------
+    // startActivityForResult carries an int requestCode, so a small table correlates it back to the
+    // Day request id (+ save mode/source). DayActivity.onActivityResult routes results here.
+
+    static final int FILE_REQUEST_BASE = 0x0DA7;
+    static int fileRequestNext = FILE_REQUEST_BASE;
+    static final java.util.HashMap<Integer, long[]> fileReqToDay = new java.util.HashMap<>();
+    static final java.util.HashMap<Integer, String> fileSaveSrc = new java.util.HashMap<>();
+
+    /** The app cache dir (app-writable temp area for save staging). */
+    public static String cacheDirPath() {
+        try {
+            return ctx.getCacheDir().getAbsolutePath();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    public static void presentFileOpen(final long req, String title, String filtersJoined) {
+        android.content.Intent intent =
+            new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        String[] mimes = fileMimeTypes(filtersJoined);
+        if (mimes.length > 0) intent.putExtra(android.content.Intent.EXTRA_MIME_TYPES, mimes);
+        launchFile(req, intent, null);
+    }
+
+    public static void presentFileSave(final long req, String title, String suggested,
+            String srcPath, String filtersJoined) {
+        android.content.Intent intent =
+            new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+        intent.setType(mimeForName(suggested));
+        if (suggested != null && !suggested.isEmpty())
+            intent.putExtra(android.content.Intent.EXTRA_TITLE, suggested);
+        launchFile(req, intent, srcPath);
+    }
+
+    private static void launchFile(long req, android.content.Intent intent, String srcPath) {
+        if (!(ctx instanceof android.app.Activity)) {
+            nativeOnEvent(req, 10, 0.0, null); // 10 = dismissed (no Activity to host the picker)
+            return;
+        }
+        int rc = fileRequestNext++;
+        fileReqToDay.put(rc, new long[] { req });
+        if (srcPath != null) fileSaveSrc.put(rc, srcPath);
+        try {
+            ((android.app.Activity) ctx).startActivityForResult(intent, rc);
+        } catch (Exception e) {
+            fileReqToDay.remove(rc);
+            fileSaveSrc.remove(rc);
+            nativeOnEvent(req, 10, 0.0, null);
+        }
+    }
+
+    /** Called by DayActivity.onActivityResult for our file requests. */
+    static void onFileResult(int requestCode, int resultCode, android.content.Intent data) {
+        long[] slot = fileReqToDay.remove(requestCode);
+        if (slot == null) return;
+        long req = slot[0];
+        String src = fileSaveSrc.remove(requestCode);
+        android.net.Uri uri = (resultCode == android.app.Activity.RESULT_OK && data != null) ? data.getData() : null;
+        if (uri == null) {
+            nativeOnEvent(req, 10, 0.0, null); // dismissed
+            return;
+        }
+        try {
+            if (src != null) {
+                // Save: stream the Day-staged temp file into the chosen document; return its URI.
+                copyStream(new java.io.FileInputStream(src),
+                        ctx.getContentResolver().openOutputStream(uri));
+                nativeOnEvent(req, 15, 0.0, uri.toString()); // 15 = files
+            } else {
+                // Open: copy the picked document into an app cache file, return that readable path.
+                String name = displayName(uri);
+                java.io.File out = new java.io.File(ctx.getCacheDir(), "day-open-" + req + "-" + name);
+                copyStream(ctx.getContentResolver().openInputStream(uri),
+                        new java.io.FileOutputStream(out));
+                nativeOnEvent(req, 15, 0.0, out.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            nativeOnEvent(req, 10, 0.0, null);
+        }
+    }
+
+    private static void copyStream(java.io.InputStream in, java.io.OutputStream out)
+            throws java.io.IOException {
+        try (java.io.InputStream i = in; java.io.OutputStream o = out) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = i.read(buf)) > 0) o.write(buf, 0, n);
+            o.flush();
+        }
+    }
+
+    private static String displayName(android.net.Uri uri) {
+        String name = "file";
+        try (android.database.Cursor c = ctx.getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (i >= 0 && c.getString(i) != null) name = c.getString(i);
+            }
+        } catch (Exception ignored) {}
+        return name.replaceAll("[/\\\\]", "_");
+    }
+
+    // Map Day's "name|ext1,ext2" filter list (0x1f-joined) to MIME types for EXTRA_MIME_TYPES.
+    private static String[] fileMimeTypes(String filtersJoined) {
+        if (filtersJoined == null || filtersJoined.isEmpty()) return new String[0];
+        java.util.LinkedHashSet<String> mimes = new java.util.LinkedHashSet<>();
+        for (String f : filtersJoined.split("")) {
+            int bar = f.indexOf('|');
+            String exts = bar >= 0 ? f.substring(bar + 1) : "";
+            for (String e : exts.split(",")) if (!e.isEmpty()) mimes.add(mimeForExt(e));
+        }
+        return mimes.toArray(new String[0]);
+    }
+
+    private static String mimeForName(String name) {
+        int dot = name == null ? -1 : name.lastIndexOf('.');
+        return dot >= 0 ? mimeForExt(name.substring(dot + 1)) : "application/octet-stream";
+    }
+
+    private static String mimeForExt(String ext) {
+        String m = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(ext.toLowerCase());
+        return m != null ? m : "application/octet-stream";
+    }
+
     public static int measureWidth(View v) {
         v.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
                   View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));

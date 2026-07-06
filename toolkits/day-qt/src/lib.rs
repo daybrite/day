@@ -553,7 +553,7 @@ impl Toolkit for Qt {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs => Support::Native,
+            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1080,6 +1080,24 @@ impl Toolkit for Qt {
                     cstr(initial).as_ptr(),
                     cstr(ok).as_ptr(),
                     cstr(cancel).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::OpenFile { .. } => unsafe {
+                ffi::day_qt_present_file_open(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(&spec.filters_joined()).as_ptr(),
+                    self.window,
+                )
+            },
+            PresentSpec::SaveFile { suggested_name, .. } => unsafe {
+                // The pieces layer copies the staged bytes to the chosen path.
+                ffi::day_qt_present_file_save(
+                    req,
+                    cstr(spec.title()).as_ptr(),
+                    cstr(suggested_name).as_ptr(),
+                    cstr(&spec.filters_joined()).as_ptr(),
                     self.window,
                 )
             },

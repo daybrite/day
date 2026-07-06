@@ -72,6 +72,21 @@ flow:
   - assert_presented: {}
   - respond: { button: 1 }
   - assert_text: { id: modal-result, text: "sheet-1" }
+  # Native file pickers (docs/files.md): open the save picker, answer with a temp path (relative →
+  # app temp dir, writable on every target), then open it back and confirm the round-trip. The
+  # editor content saved here is what "Open" loads, so `files-status` reflects a real read.
+  - navigate: { route: files }
+  - assert_route: { route: files }
+  - screenshot: files
+  - tap: { id: btn-save-file }
+  - assert_presented: {}
+  - respond: { path: "day-walkthrough.txt" }
+  - assert_text: { id: files-status, text: "saved:day-walkthrough.txt" }
+  - tap: { id: btn-open-file }
+  - assert_presented: {}
+  - respond: { path: "day-walkthrough.txt" }
+  - assert_text: { id: files-status, text: "opened" }
+  - assert_text: { id: files-opened-name, key: files-opened, args: { name: "day-walkthrough.txt" } }
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.
   - navigate: { route: tabs }

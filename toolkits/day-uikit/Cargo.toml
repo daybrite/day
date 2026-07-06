@@ -27,5 +27,6 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
     "UIMenu", "UIMenuElement", "UIAction", "UICommand", "UIContextMenuInteraction",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",
+    "UIDocumentPickerViewController",
     "objc2-core-foundation", "objc2-core-graphics",
 ] }

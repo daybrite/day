@@ -98,6 +98,19 @@ unsafe extern "C" {
         cancel: *const c_char,
         parent: *mut c_void,
     );
+    pub fn day_qt_present_file_open(
+        req: u64,
+        title: *const c_char,
+        filters_joined: *const c_char,
+        parent: *mut c_void,
+    );
+    pub fn day_qt_present_file_save(
+        req: u64,
+        title: *const c_char,
+        suggested: *const c_char,
+        filters_joined: *const c_char,
+        parent: *mut c_void,
+    );
     pub fn day_qt_dismiss_present(req: u64);
     pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char);

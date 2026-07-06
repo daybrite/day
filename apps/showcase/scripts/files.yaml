@@ -1,0 +1,17 @@
+name: files-demo
+description: Exercise the native file open/save pickers (docs/files.md) end to end.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: files }
+  - assert_route: { route: files }
+  - screenshot: files
+  # Save the editor content to a temp file (relative path → app temp dir), then read it back.
+  - tap: { id: btn-save-file }
+  - assert_presented: {}
+  - respond: { path: "day-files-demo.txt" }
+  - assert_text: { id: files-status, text: "saved:day-files-demo.txt" }
+  - tap: { id: btn-open-file }
+  - assert_presented: {}
+  - respond: { path: "day-files-demo.txt" }
+  - assert_text: { id: files-status, text: "opened" }
+  - screenshot: files-opened
