@@ -80,9 +80,11 @@ flow:
   - assert_visible: { id: haptics-title }
   - assert_visible: { id: haptics-supported }
   - tap: { id: haptics-medium }
-  - assert_text: { id: haptics-last-played, text: "Played: Medium" }
+  # `#haptics-last-played` is `tr("haptics-last-played")` — a localized string, so assert by key +
+  # args (like greeting-label) so it resolves in the run's locale, not a hardcoded English literal.
+  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Medium" } }
   - tap: { id: haptics-success }
-  - assert_text: { id: haptics-last-played, text: "Played: Success" }
+  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Success" } }
   - screenshot: haptics
   # day-part-prefs demo
   - navigate: { route: prefs }
