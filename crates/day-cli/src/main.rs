@@ -4,6 +4,7 @@
 
 mod cli;
 mod doctor;
+mod interactive;
 mod lint;
 mod meta;
 mod mobile;

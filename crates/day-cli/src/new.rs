@@ -16,7 +16,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::interactive::Prompt;
 use crate::ops;
+use crate::targets;
 
 /// The canonical remote used for a scaffold's default (non-`--local`) dependencies.
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
@@ -157,97 +159,399 @@ fn pascalize(snake: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry points (called from cli.rs).
+// Public entry points (called from cli.rs) + the flag↔dialog resolvers.
+//
+// FORMAL LINK between the command-line flags and the `day new` interactive dialog: every field has
+// exactly ONE resolver (`resolve_name` / `resolve_id` / the per-kind target/toolkit/platform blocks
+// below). Each takes the value parsed from the flags and, when it is absent AND a terminal is
+// present, asks the corresponding question. There is no separate wizard; the dialog is the fallback
+// branch of the flags. `day new` with no subcommand ([`interactive`]) calls a resolver with every
+// value unset, so the whole dialog runs — and any flag the user *did* pass simply skips its question.
 // ---------------------------------------------------------------------------
 
-/// Scaffold a piece. `toolkits_csv == None` (or `composite == true`) ⇒ a COMPOSITE piece.
+/// `day new` with no subcommand: ask what to build, then run that kind's resolver with no flags set.
+pub fn interactive() -> i32 {
+    let p = Prompt::new(false);
+    if !p.enabled() {
+        eprintln!(
+            "error: `day new` with no arguments needs an interactive terminal.\n       In a script or CI, use `day new app|piece|part <name> …` with flags."
+        );
+        return 2;
+    }
+    let kind = p.choose(
+        "What kind of Day project would you like to create?",
+        &[
+            "App: a complete Day app".into(),
+            "Part: a custom platform-integration component (headless)".into(),
+            "Piece: a custom user-interface component (a widget)".into(),
+        ],
+        0,
+    );
+    match kind {
+        0 => app(None, &[], None, None, None, None, None, false),
+        1 => part(None, None, None, None, false),
+        _ => piece(None, None, false, None, None, false),
+    }
+}
+
+/// Resolve the required project name: the positional if given, else prompt (interactive) or error.
+fn resolve_name(p: &Prompt, name: Option<&str>) -> Option<String> {
+    if let Some(n) = name {
+        let n = n.trim();
+        if !n.is_empty() {
+            return Some(n.to_string());
+        }
+    }
+    if p.enabled() {
+        let n = p.line("Project name", None);
+        if n.is_empty() {
+            // Empty here means EOF (Ctrl-D) at the prompt — report it like the non-interactive path.
+            eprintln!("error: a <name> is required.");
+            None
+        } else {
+            Some(n)
+        }
+    } else {
+        eprintln!("error: a <name> is required (e.g. `day new app my-app`).");
+        None
+    }
+}
+
+/// Resolve the reverse-DNS id: the flag if given, else prompt with `default` (interactive) or `default`.
+fn resolve_id(p: &Prompt, question: &str, id: Option<&str>, default: &str) -> String {
+    if let Some(s) = id {
+        let s = s.trim();
+        if !s.is_empty() {
+            return s.to_string();
+        }
+    }
+    if p.enabled() {
+        p.line(question, Some(default))
+    } else {
+        default.to_string()
+    }
+}
+
+fn default_id(name: &str) -> String {
+    format!("dev.example.{}", snake_ident(name))
+}
+
+/// Parse + validate a comma-separated toolkit list for a NATIVE piece.
+fn parse_toolkits(csv: &str) -> Result<Vec<String>, i32> {
+    let mut v = Vec::new();
+    for t in csv.split(',') {
+        let t = t.trim().to_ascii_lowercase();
+        if t.is_empty() {
+            continue;
+        }
+        if !TOOLKITS.contains(&t.as_str()) {
+            eprintln!(
+                "error: unknown toolkit {t:?} (choose from {})",
+                TOOLKITS.join(", ")
+            );
+            return Err(2);
+        }
+        if !v.contains(&t) {
+            v.push(t);
+        }
+    }
+    Ok(v)
+}
+
+/// Parse + validate a comma-separated platform list for a PART.
+fn parse_platforms(csv: &str) -> Result<Vec<String>, i32> {
+    let mut v = Vec::new();
+    for pl in csv.split(',') {
+        let pl = pl.trim().to_ascii_lowercase();
+        if pl.is_empty() {
+            continue;
+        }
+        if !PLATFORMS.contains(&pl.as_str()) {
+            eprintln!(
+                "error: unknown platform {pl:?} (choose from {})",
+                PLATFORMS.join(", ")
+            );
+            return Err(2);
+        }
+        if !v.contains(&pl) {
+            v.push(pl);
+        }
+    }
+    Ok(v)
+}
+
+fn toolkit_label(tk: &str) -> String {
+    let human = match tk {
+        "appkit" => "AppKit — macOS",
+        "gtk" => "GTK — Linux / macOS / Windows",
+        "qt" => "Qt — Linux / macOS / Windows",
+        "uikit" => "UIKit — iOS",
+        "widget" => "Android — Views / Compose",
+        "winui" => "WinUI — Windows",
+        _ => tk,
+    };
+    format!("{human}  ({tk})")
+}
+
+fn platform_label(pl: &str) -> String {
+    let human = match pl {
+        "macos" => "macOS",
+        "ios" => "iOS",
+        "android" => "Android",
+        "linux" => "Linux",
+        "windows" => "Windows",
+        _ => pl,
+    };
+    format!("{human}  ({pl})")
+}
+
+/// The TOOLKITS index of the host's own desktop toolkit — the sensible preselection for a native piece.
+fn host_toolkit_index() -> usize {
+    let want = match targets::host_os() {
+        "linux" => "gtk",
+        "windows" => "winui",
+        _ => "appkit",
+    };
+    TOOLKITS.iter().position(|&t| t == want).unwrap_or(0)
+}
+
+fn target_menu_label(t: &targets::Target) -> String {
+    if t.experimental {
+        format!("{}  ({})  [EXPERIMENTAL]", t.label, t.name)
+    } else {
+        format!("{}  ({})", t.label, t.name)
+    }
+}
+
+/// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
 pub fn piece(
-    name: &str,
+    name: Option<&str>,
     toolkits_csv: Option<&str>,
     composite: bool,
     id: Option<&str>,
     local: Option<&Path>,
+    no_input: bool,
 ) -> i32 {
-    let dir = PathBuf::from(name);
+    let p = Prompt::new(no_input);
+    let Some(name) = resolve_name(&p, name) else {
+        return 2;
+    };
+    let dir = PathBuf::from(&name);
     if dir.exists() {
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let repl = Repl::new(name, id);
     let deps = Deps::resolve(local);
 
-    let toolkits: Vec<String> = match toolkits_csv {
-        Some(csv) if !composite => {
-            let mut v = Vec::new();
-            for t in csv.split(',') {
-                let t = t.trim().to_ascii_lowercase();
-                if t.is_empty() {
-                    continue;
-                }
-                if !TOOLKITS.contains(&t.as_str()) {
-                    eprintln!(
-                        "error: unknown toolkit {t:?} (choose from {})",
-                        TOOLKITS.join(", ")
-                    );
-                    return 2;
-                }
-                if !v.contains(&t) {
-                    v.push(t);
-                }
-            }
-            v
+    // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
+    // non-interactive, default to a composite piece — the zero-config choice).
+    let toolkits: Vec<String> = if composite {
+        Vec::new()
+    } else if let Some(csv) = toolkits_csv {
+        match parse_toolkits(csv) {
+            Ok(v) => v,
+            Err(code) => return code,
         }
-        _ => Vec::new(),
+    } else if p.enabled() {
+        let native = p.choose(
+            "What kind of piece?",
+            &[
+                "Composite — pure composition; every backend for free, no per-backend code".into(),
+                "Native — a distinct native control, one implementation per toolkit".into(),
+            ],
+            0,
+        ) == 1;
+        if native {
+            let opts: Vec<String> = TOOLKITS.iter().map(|t| toolkit_label(t)).collect();
+            let picked = p.choose_multi(
+                "Which toolkits should it support?",
+                &opts,
+                &[host_toolkit_index()],
+            );
+            if picked.is_empty() {
+                eprintln!("error: a native piece needs at least one toolkit.");
+                return 2;
+            }
+            picked.iter().map(|i| TOOLKITS[*i].to_string()).collect()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
     };
+
+    let rid = resolve_id(
+        &p,
+        "Reverse-DNS id (also the piece KIND)",
+        id,
+        &default_id(&name),
+    );
+    let repl = Repl::new(&name, Some(rid.as_str()));
 
     let (files, next) = if toolkits.is_empty() {
         (composite_piece_files(&repl, &deps), COMPOSITE_NEXT)
     } else {
         (native_piece_files(&repl, &deps, &toolkits), NATIVE_NEXT)
     };
-    let code = write_all(&dir, &files, name);
+    let code = write_all(&dir, &files, &name);
     if code == 0 {
         eprintln!("{}", repl.expand(next));
     }
     code
 }
 
-/// Scaffold a headless part for the given (comma-separated) platforms.
-pub fn part(name: &str, platforms_csv: &str, id: Option<&str>, local: Option<&Path>) -> i32 {
-    let dir = PathBuf::from(name);
+/// Scaffold a headless part. No `--platforms` (and not interactively chosen) ⇒ all platforms.
+pub fn part(
+    name: Option<&str>,
+    platforms_csv: Option<&str>,
+    id: Option<&str>,
+    local: Option<&Path>,
+    no_input: bool,
+) -> i32 {
+    let p = Prompt::new(no_input);
+    let Some(name) = resolve_name(&p, name) else {
+        return 2;
+    };
+    let dir = PathBuf::from(&name);
     if dir.exists() {
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let repl = Repl::new(name, id);
     let deps = Deps::resolve(local);
 
-    let mut platforms = Vec::new();
-    for p in platforms_csv.split(',') {
-        let p = p.trim().to_ascii_lowercase();
-        if p.is_empty() {
-            continue;
+    let platforms: Vec<String> = if let Some(csv) = platforms_csv {
+        match parse_platforms(csv) {
+            Ok(v) => v,
+            Err(code) => return code,
         }
-        if !PLATFORMS.contains(&p.as_str()) {
-            eprintln!(
-                "error: unknown platform {p:?} (choose from {})",
-                PLATFORMS.join(", ")
-            );
+    } else if p.enabled() {
+        let opts: Vec<String> = PLATFORMS.iter().map(|pl| platform_label(pl)).collect();
+        let all: Vec<usize> = (0..PLATFORMS.len()).collect();
+        let picked = p.choose_multi("Which platforms should it support?", &opts, &all);
+        if picked.is_empty() {
+            eprintln!("error: a part needs at least one platform.");
             return 2;
         }
-        if !platforms.contains(&p) {
-            platforms.push(p);
-        }
-    }
-    if platforms.is_empty() {
-        eprintln!("error: no platforms selected");
-        return 2;
-    }
+        picked.iter().map(|i| PLATFORMS[*i].to_string()).collect()
+    } else {
+        PLATFORMS.iter().map(|s| s.to_string()).collect()
+    };
 
+    let rid = resolve_id(
+        &p,
+        "Reverse-DNS id (also the Java package)",
+        id,
+        &default_id(&name),
+    );
+    let repl = Repl::new(&name, Some(rid.as_str()));
     let files = part_files(&repl, &deps, &platforms);
-    let code = write_all(&dir, &files, name);
+    let code = write_all(&dir, &files, &name);
     if code == 0 {
         eprintln!("{}", repl.expand(PART_NEXT));
+    }
+    code
+}
+
+/// Scaffold a Day APP. Targets come from repeated `--toolkit <target>` and/or a `--targets <csv>`;
+/// absent ⇒ interactive multi-select (or, non-interactively, the host's default target). `--appid` /
+/// `--bundleid` / `--id` all name the same reverse-DNS id.
+#[allow(clippy::too_many_arguments)]
+pub fn app(
+    name: Option<&str>,
+    toolkits: &[String],
+    appid: Option<&str>,
+    bundleid: Option<&str>,
+    id: Option<&str>,
+    targets_csv: Option<&str>,
+    local: Option<&Path>,
+    no_input: bool,
+) -> i32 {
+    let p = Prompt::new(no_input);
+    let Some(name) = resolve_name(&p, name) else {
+        return 2;
+    };
+    let dir = PathBuf::from(&name);
+    if dir.exists() {
+        eprintln!("error: {name:?} already exists");
+        return 1;
+    }
+    let deps = Deps::resolve(local);
+
+    // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
+    let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
+        (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() && a != b => {
+            eprintln!("error: --appid ({a:?}) and --bundleid ({b:?}) must match");
+            return 2;
+        }
+        (Some(a), _) if !a.is_empty() => Some(a),
+        (_, Some(b)) if !b.is_empty() => Some(b),
+        _ => id,
+    };
+    let rid = resolve_id(
+        &p,
+        "Bundle id / application id (reverse-DNS)",
+        flag_id,
+        &default_id(&name),
+    );
+
+    // Targets: repeated --toolkit + optional --targets csv, each comma-splittable.
+    let mut requested: Vec<String> = Vec::new();
+    for raw in toolkits.iter().map(String::as_str).chain(targets_csv) {
+        for t in raw.split(',') {
+            let t = t.trim();
+            if !t.is_empty() && !requested.iter().any(|x| x == t) {
+                requested.push(t.to_string());
+            }
+        }
+    }
+
+    let targets: Vec<String> = if !requested.is_empty() {
+        for t in &requested {
+            if targets::find(t).is_none() {
+                eprintln!(
+                    "error: unknown target {t:?}\n       choose from: {}",
+                    targets::TARGETS
+                        .iter()
+                        .map(|t| t.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                return 2;
+            }
+        }
+        requested
+    } else if p.enabled() {
+        let opts: Vec<String> = targets::TARGETS.iter().map(target_menu_label).collect();
+        let default_idx = targets::TARGETS
+            .iter()
+            .position(|t| t.name == targets::host_default())
+            .unwrap_or(0);
+        let picked = p.choose_multi(
+            "Which platforms/toolkits should the app support?",
+            &opts,
+            &[default_idx],
+        );
+        if picked.is_empty() {
+            eprintln!("error: an app needs at least one target.");
+            return 2;
+        }
+        picked
+            .iter()
+            .map(|i| targets::TARGETS[*i].name.to_string())
+            .collect()
+    } else {
+        vec![targets::host_default().to_string()]
+    };
+
+    let repl = Repl::new(&name, Some(rid.as_str()));
+    let files = app_files(&repl, &deps, &targets);
+    let code = write_all(&dir, &files, &name);
+    if code == 0 {
+        let first = targets
+            .first()
+            .map(String::as_str)
+            .unwrap_or("macos-appkit");
+        eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
     }
     code
 }
@@ -265,6 +569,140 @@ fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> i32 {
     }
     ops::status("Created", &format!("{name}/ ({} files)", files.len()));
     0
+}
+
+// ---------------------------------------------------------------------------
+// APP — a complete Day app: a day.yaml manifest, a desktop bin, and the mobile entry points.
+// ---------------------------------------------------------------------------
+
+fn app_files(r: &Repl, deps: &Deps, targets: &[String]) -> Vec<(String, String)> {
+    let name = &r.crate_name;
+    let ident = &r.crate_ident;
+    let id = &r.id;
+    let targets_yaml = targets
+        .iter()
+        .map(|t| format!("  - {t}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let day_dep = deps.dep("day", "");
+
+    let day_yaml = format!(
+        "day: 1\napp:\n  name: {name}\n  id: {id}\n  title: {name}\n  version: 0.1.0\n  build: 1\ntargets:\n{targets_yaml}\nwindow:\n  width: 480\n  height: 640\n"
+    );
+
+    let cargo = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+appkit = ["day/appkit"]
+gtk = ["day/gtk"]
+qt = ["day/qt"]
+uikit = ["day/uikit"]
+widget = ["day/widget"]
+winui = ["day/winui"]
+arkui = ["day/arkui"]
+mock = ["day/mock"]
+
+# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
+# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
+# export cap).
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+{day_dep}
+
+[[bin]]
+name = "{name}"
+path = "src/main.rs"
+
+[workspace]
+"#
+    );
+
+    let lib = r#"use day::prelude::*;
+
+pub fn root() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label("Hello, Day!").font(Font::Title),
+        row((
+            button("−").action(move || count.update(|c| *c -= 1)).id("dec"),
+            label(move || format!("{}", count.get())).id("count"),
+            button("+").action(move || count.update(|c| *c += 1)).id("inc"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+
+// Mobile / embedded entries (no-op off their own platform; the platform scaffolds bind these symbols).
+day::ios_main!(root);
+day::android_main!(root);
+day::arkui_main!(root);
+"#
+    .to_string();
+
+    let main = format!(
+        r#"fn main() {{
+    day::launch(
+        day::WindowOptions {{
+            title: "{name}".into(),
+            // A desktop-appropriate default size; mobile fills the screen regardless.
+            size: day::prelude::Size::new(960.0, 640.0),
+            ..Default::default()
+        }},
+        {ident}::root,
+    );
+}}
+"#
+    );
+
+    let first = targets
+        .first()
+        .map(String::as_str)
+        .unwrap_or("macos-appkit");
+    let readme = format!(
+        r#"# {name}
+
+A [Day](https://daybrite.dev) app.
+
+## Run it
+
+Day compiles **one backend per binary**, so choose a target when you build or launch — a bare
+`cargo build` enables no backend feature and will not link. The Day CLI supplies the right feature
+for each target:
+
+```sh
+day doctor                 # check the toolchains for your targets
+day launch -p {first}      # build + run on a target from day.yaml
+day build  -p {first}      # build only
+```
+
+Targets live in `day.yaml`. To use plain cargo, pass the backend feature yourself, e.g.
+`cargo build --features appkit` (macOS) / `--features gtk` / `--features uikit` / `--features widget`.
+
+## Structure
+
+- `src/lib.rs` — your UI (`root()`), shared across every platform.
+- `src/main.rs` — the desktop entry point.
+- `day.yaml` — app metadata + the target list.
+"#
+    );
+
+    vec![
+        ("day.yaml".into(), day_yaml),
+        ("Cargo.toml".into(), cargo),
+        ("README.md".into(), readme),
+        ("src/lib.rs".into(), lib),
+        ("src/main.rs".into(), main),
+        (".gitignore".into(), "/target\n/build\nCargo.lock\n".into()),
+    ]
 }
 
 // ---------------------------------------------------------------------------

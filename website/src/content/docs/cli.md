@@ -10,13 +10,19 @@ lints, and scripts projects. It is designed from day one for humans, CI, IDEs, a
 ## The commands
 
 ```bash
-day create my-app            # scaffold a conventional project
+day new                      # interactive: scaffold an app, a piece, or a part
+day new app my-app           # scaffold a new app non-interactively
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day pack    -p ios-uikit     # produce an installable artifact (.app.zip / .apk / .dmg)
 day lint                     # check ids, Fluent coverage, project shape
 day doctor                   # check toolchains for every target
 ```
+
+Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
+which platforms and toolkits to support. Every question has an equivalent flag, so the same choices
+can be made non-interactively — e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
+--appid com.example.myapp`. (`day create` remains as a thin alias for `day new app`.)
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 

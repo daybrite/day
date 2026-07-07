@@ -58,7 +58,7 @@ Day treats these as first-class framework concerns, not add-ons:
 
 - **One backend per binary** — no runtime toolkit indirection; the compiler monomorphizes to the
   chosen toolkit.
-- **A `flutter_tools`-style CLI** — `day create / build / launch / pack / lint`, designed from Day
+- **A `flutter_tools`-style CLI** — `day new / build / launch / pack / lint`, designed from Day
   one for humans, CI, IDEs, and AI agents.
 - **Screenshot-validated CI** — every target builds the showcase and captures screenshots on each
   push; the [gallery](../gallery) on this site is assembled from exactly those artifacts.

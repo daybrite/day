@@ -28,20 +28,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Create a new Day project
+    /// Legacy alias for `day new app` (wired to this day checkout, non-interactive)
     Create {
         name: String,
-        /// Comma-separated target list
-        #[arg(long, default_value = "macos-appkit")]
-        targets: String,
+        /// Comma-separated target list (default: the host's native target)
+        #[arg(long)]
+        targets: Option<String>,
         /// Application id (reverse-DNS)
         #[arg(long)]
         id: Option<String>,
     },
-    /// Scaffold a new Day extension crate (piece / part) or app
+    /// Scaffold a new Day project — an app, a piece, or a part (interactive when run bare)
     New {
         #[command(subcommand)]
-        what: NewKind,
+        what: Option<NewKind>,
     },
     /// Build the app for one or more targets
     Build {
@@ -98,14 +98,21 @@ enum Cmd {
     },
 }
 
-/// `day new <piece|part|app>` — scaffold an extension crate or app. Pieces/parts default to REMOTE
-/// (git) day dependencies; the hidden `--local <path>` (or `DAY_LOCAL` env) redirects to a local day
-/// checkout for CI smoke-tests of a freshly-scaffolded crate against the day tree under test.
+/// `day new <piece|part|app>` — scaffold an extension crate or app; `day new` (bare) walks an
+/// interactive dialog. Every value-carrying flag has an equivalent question in the dialog (the dialog
+/// is the fallback branch of the flags — see `new.rs`), so a value not passed on the command line is
+/// asked for when a terminal is present, and defaulted (or reported as required) when it is not. The
+/// meta flags `--local` (CI) and `--no-input` have no dialog fallback by design.
+///
+/// Scaffolds default to REMOTE (git) day dependencies so they are self-contained; the hidden
+/// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI smoke-tests of a
+/// freshly-scaffolded project against the day tree under test.
 #[derive(Subcommand)]
 enum NewKind {
     /// Scaffold a Day PIECE crate (a reusable widget). No `--toolkits` ⇒ a COMPOSITE piece.
     Piece {
-        name: String,
+        /// Crate name (prompted if omitted in an interactive terminal).
+        name: Option<String>,
         /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,widget,winui).
         /// Omit for a COMPOSITE piece (pure composition; works on every backend with no per-backend code).
         #[arg(long)]
@@ -119,29 +126,53 @@ enum NewKind {
         /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
+        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
+        #[arg(long)]
+        no_input: bool,
     },
     /// Scaffold a Day PART crate (a headless, UI-less capability).
     Part {
-        name: String,
-        /// Comma-separated platforms (macos,ios,android,linux,windows).
-        #[arg(long, default_value = "macos,ios,android,linux,windows")]
-        platforms: String,
+        /// Crate name (prompted if omitted in an interactive terminal).
+        name: Option<String>,
+        /// Comma-separated platforms (macos,ios,android,linux,windows); default: all.
+        #[arg(long)]
+        platforms: Option<String>,
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
         #[arg(long)]
         id: Option<String>,
         /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
-    },
-    /// Scaffold a new Day app (alias for `day create`).
-    App {
-        name: String,
-        /// Comma-separated target list
-        #[arg(long, default_value = "macos-appkit")]
-        targets: String,
-        /// Application id (reverse-DNS)
+        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
         #[arg(long)]
+        no_input: bool,
+    },
+    /// Scaffold a new Day app (the canonical app command; `day create` is a thin alias).
+    App {
+        /// App name (prompted if omitted in an interactive terminal).
+        name: Option<String>,
+        /// A target to support (repeatable): e.g. `--toolkit ios-uikit --toolkit macos-appkit`.
+        /// Values may also be comma-separated. Omit to choose interactively.
+        #[arg(long = "toolkit")]
+        toolkits: Vec<String>,
+        /// Application id / bundle id (reverse-DNS); default `dev.example.<name>`.
+        #[arg(long)]
+        appid: Option<String>,
+        /// Alias for --appid (Android application id / Apple bundle id).
+        #[arg(long)]
+        bundleid: Option<String>,
+        /// Back-compat alias for --appid.
+        #[arg(long, hide = true)]
         id: Option<String>,
+        /// Back-compat: comma-separated target list (prefer repeated --toolkit).
+        #[arg(long, hide = true)]
+        targets: Option<String>,
+        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        #[arg(long, hide = true)]
+        local: Option<PathBuf>,
+        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
+        #[arg(long)]
+        no_input: bool,
     },
 }
 
@@ -167,28 +198,70 @@ pub fn run() -> i32 {
         }),
         Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
-        Cmd::Create { name, targets, id } => create(&name, &targets, id.as_deref()),
+        Cmd::Create { name, targets, id } => {
+            // Legacy alias for `day new app`: an app wired to THIS day checkout (local path deps),
+            // never interactive. New projects should prefer `day new app` (remote deps).
+            let home = day_home();
+            crate::new::app(
+                Some(&name),
+                &[],
+                None,
+                None,
+                id.as_deref(),
+                targets.as_deref(),
+                Some(home.as_path()),
+                true,
+            )
+        }
         Cmd::New { what } => match what {
-            NewKind::Piece {
+            None => crate::new::interactive(),
+            Some(NewKind::Piece {
                 name,
                 toolkits,
                 composite,
                 id,
                 local,
-            } => crate::new::piece(
-                &name,
+                no_input,
+            }) => crate::new::piece(
+                name.as_deref(),
                 toolkits.as_deref(),
                 composite,
                 id.as_deref(),
                 local.as_deref(),
+                no_input,
             ),
-            NewKind::Part {
+            Some(NewKind::Part {
                 name,
                 platforms,
                 id,
                 local,
-            } => crate::new::part(&name, &platforms, id.as_deref(), local.as_deref()),
-            NewKind::App { name, targets, id } => create(&name, &targets, id.as_deref()),
+                no_input,
+            }) => crate::new::part(
+                name.as_deref(),
+                platforms.as_deref(),
+                id.as_deref(),
+                local.as_deref(),
+                no_input,
+            ),
+            Some(NewKind::App {
+                name,
+                toolkits,
+                appid,
+                bundleid,
+                id,
+                targets,
+                local,
+                no_input,
+            }) => crate::new::app(
+                name.as_deref(),
+                &toolkits,
+                appid.as_deref(),
+                bundleid.as_deref(),
+                id.as_deref(),
+                targets.as_deref(),
+                local.as_deref(),
+                no_input,
+            ),
         },
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
@@ -357,126 +430,4 @@ fn day_home() -> PathBuf {
     std::env::var_os("DAY_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
-}
-
-fn create(name: &str, targets_csv: &str, id: Option<&str>) -> i32 {
-    let dir = PathBuf::from(name);
-    if dir.exists() {
-        eprintln!("error: {name:?} already exists");
-        return 1;
-    }
-    let id = id
-        .map(String::from)
-        .unwrap_or_else(|| format!("dev.example.{name}"));
-    let day = day_home().canonicalize().unwrap_or_else(|_| day_home());
-    // Cargo accepts forward slashes on every host; normalize separators and strip Windows'
-    // `\\?\` verbatim prefix so the path is a valid (unescaped) TOML basic string.
-    let day = day.to_string_lossy().replace('\\', "/");
-    let day = day.strip_prefix("//?/").unwrap_or(&day);
-    let targets_yaml = targets_csv
-        .split(',')
-        .map(|t| format!("  - {}", t.trim()))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let files: &[(&str, String)] = &[
-        (
-            "day.yaml",
-            format!(
-                "day: 1\napp:\n  name: {name}\n  id: {id}\n  title: {name}\n  version: 0.1.0\n  build: 1\ntargets:\n{targets_yaml}\nwindow:\n  width: 480\n  height: 640\n"
-            ),
-        ),
-        (
-            "Cargo.toml",
-            format!(
-                r#"[package]
-name = "{name}"
-version = "0.1.0"
-edition = "2024"
-
-[features]
-appkit = ["day/appkit"]
-gtk = ["day/gtk"]
-qt = ["day/qt"]
-uikit = ["day/uikit"]
-widget = ["day/widget"]
-winui = ["day/winui"]
-mock = ["day/mock"]
-
-# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
-# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
-# export cap).
-[lib]
-crate-type = ["rlib"]
-
-[dependencies]
-day = {{ path = "{day}/crates/day" }}
-
-[[bin]]
-name = "{name}"
-path = "src/main.rs"
-
-[workspace]
-"#
-            ),
-        ),
-        (
-            "src/lib.rs",
-            r#"use day::prelude::*;
-
-pub fn root() -> AnyPiece {
-    let count = Signal::new(0i64);
-    column((
-        label("Hello, Day!").font(Font::Title),
-        row((
-            button("−").action(move || count.update(|c| *c -= 1)).id("dec"),
-            label(move || format!("{}", count.get())).id("count"),
-            button("+").action(move || count.update(|c| *c += 1)).id("inc"),
-        ))
-        .spacing(8.0),
-    ))
-    .spacing(12.0)
-    .padding(16.0)
-    .any()
-}
-
-// Mobile entries (no-ops off iOS/Android; the platform scaffolds bind these symbols).
-day::ios_main!(root);
-day::android_main!(root);
-"#
-            .to_string(),
-        ),
-        (
-            "src/main.rs",
-            format!(
-                r#"fn main() {{
-    day::launch(
-        day::WindowOptions {{
-            title: "{name}".into(),
-            // A desktop-appropriate default size; mobile fills the screen regardless.
-            size: day::prelude::Size::new(960.0, 640.0),
-            ..Default::default()
-        }},
-        {name}::root,
-    );
-}}
-"#
-            ),
-        ),
-        (".gitignore", "/target\n/build\n".to_string()),
-    ];
-
-    for (path, content) in files {
-        let full = dir.join(path);
-        if let Some(parent) = full.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::write(&full, content) {
-            eprintln!("error writing {}: {e}", full.display());
-            return 1;
-        }
-    }
-    ops::status("Created", &format!("{name}/ ({} files)", files.len()));
-    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p macos-appkit\n");
-    0
 }

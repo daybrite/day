@@ -45,7 +45,7 @@ bind straight to native attributes.
 ## Setup (canonical)
 
 ```bash
-day create my-app --targets macos-appkit,ios-uikit,android-widget
+day new app my-app --toolkit macos-appkit,ios-uikit,android-widget
 cd my-app
 day launch -p macos-appkit                 # build + run
 day launch -p macos-appkit --script scripts/walkthrough.yaml   # build + run + assert
@@ -194,7 +194,7 @@ combo_box(items, sel).id("combo")
 ## CLI reference
 
 ```bash
-day create <name> --targets <t1,t2>   # scaffold
+day new app <name> --toolkit <t1,t2>  # scaffold an app (bare `day new` = interactive)
 day build   -p <target>               # compile
 day launch  -p <target>               # build + run (streams stdout/stderr)
 day launch  -p <target> --script s.yaml   # build + run + drive/assert

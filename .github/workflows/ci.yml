@@ -119,17 +119,24 @@ jobs:
         run: cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # Scaffold a piece + a part with `day new`, redirect their day deps to THIS checkout with
-      # --local, and build each for this combo — so `day new` output keeps compiling against the day
-      # tree under test (the desktop piece links the toolkit; the part is headless).
+      # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to THIS
+      # checkout with --local, and build each for this combo — so `day new` output keeps compiling
+      # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
           DAY="$GITHUB_WORKSPACE/target/debug/day"
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit macos-${{ matrix.toolkit }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
           ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
           ( cd smoke-part  && cargo build )
+          ( cd smoke-app   && cargo build --features ${{ matrix.toolkit }} )
+          # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
+          rm -rf remote-check
+          "$DAY" new app remote-check --toolkit macos-${{ matrix.toolkit }} --no-input >/dev/null
+          grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
+          rm -rf remote-check
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
@@ -167,16 +174,19 @@ jobs:
             --no-default-features --features uikit
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # Scaffold a uikit piece + a part (deps redirected to this checkout) and cross-compile both for
-      # the iOS Simulator — a lib build, so no device/simulator needed here.
+      # Scaffold a uikit piece + a part + a full app (deps redirected to this checkout) and
+      # cross-compile each for the iOS Simulator — a lib build, so no device/simulator needed here.
+      # The app builds `--lib` (its `day::launch` desktop bin is not part of the iOS pipeline).
       - name: Scaffold smoke-test (ios-uikit)
         run: |
           DAY="$GITHUB_WORKSPACE/target/debug/day"
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits uikit --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit ios-uikit --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
           ( cd smoke-piece && cargo build --features uikit --target aarch64-apple-ios-sim )
           ( cd smoke-part  && cargo build --target aarch64-apple-ios-sim )
+          ( cd smoke-app   && cargo build --lib --features uikit --target aarch64-apple-ios-sim )
       - name: Boot an iOS Simulator
         run: |
           UDID=$(xcrun simctl list devices available --json \
@@ -222,16 +232,19 @@ jobs:
         run: cargo test --locked
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # Scaffold a piece + a part with `day new` (deps redirected to this checkout via --local) and
-      # build each for this combo, so `day new` output keeps compiling against the day tree under test.
+      # Scaffold a piece + a part + a full app with `day new` (deps redirected to this checkout via
+      # --local) and build each for this combo, so `day new` output keeps compiling against the day
+      # tree under test.
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
           DAY="$GITHUB_WORKSPACE/target/debug/day"
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit linux-${{ matrix.toolkit }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
           ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
           ( cd smoke-part  && cargo build )
+          ( cd smoke-app   && cargo build --features ${{ matrix.toolkit }} )
       # GTK renders under a virtual display (in-process snapshot is limited on GTK, §9);
       # Qt runs on the offscreen platform. Both drive the full dayscript walkthrough.
       # The GTK web view (WebKitGTK) needs two env vars in this restricted headless runner:
@@ -298,17 +311,20 @@ jobs:
           rustup target add x86_64-linux-android
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           cargo build --locked -p day-cli
-      # Scaffold a widget piece + a part (deps redirected to this checkout) and cross-compile both for
-      # Android — a lib build (rlib), so no NDK linker or emulator is needed here.
+      # Scaffold a widget piece + a part + a full app (deps redirected to this checkout) and
+      # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
+      # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
       - name: Scaffold smoke-test (android-widget)
         run: |
           rustup target add aarch64-linux-android
           DAY="$GITHUB_WORKSPACE/target/debug/day"
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits widget --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit android-widget --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
           ( cd smoke-piece && cargo build --features widget --target aarch64-linux-android )
           ( cd smoke-part  && cargo build --target aarch64-linux-android )
+          ( cd smoke-app   && cargo build --lib --features widget --target aarch64-linux-android )
       - name: Emulator walkthrough (android-widget)
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -492,6 +508,19 @@ jobs:
         run: cargo clippy --locked -p day-part-battery --all-targets
       - name: Build day CLI
         run: cargo build --locked -p day-cli
+      # The only CI job that can compile `day new`'s winui template branch: scaffold a winui piece +
+      # a part + a full app (deps redirected to this checkout) and build each. winui is a desktop
+      # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
+      - name: Scaffold smoke-test (windows-winui)
+        run: |
+          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
+          "$DAY" new piece smoke-piece --toolkits winui --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit windows-winui --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features winui )
+          ( cd smoke-part  && cargo build )
+          ( cd smoke-app   && cargo build --features winui )
       - name: Walkthrough (windows-winui)
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
