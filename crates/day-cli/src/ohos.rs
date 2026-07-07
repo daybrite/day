@@ -34,8 +34,31 @@ pub fn hdc() -> Command {
     c
 }
 
-/// The `harmony/build.sh` ABI argument: the Oniro emulator runs an x86_64 image; a real device is
-/// arm64. Overridable with `DAY_OHOS_ARCH` (`emulator` | `device`).
+/// The OpenHarmony NDK (`native` dir) for the cross-linker: `OHOS_NDK_HOME` (set by CI's
+/// setup-ohos-sdk) if present, else a couple of common local install paths (see docs/harmonyos.md:
+/// extract the public SDK's `native` component). Validated by the presence of `llvm/bin`.
+fn find_ohos_ndk() -> Result<String, String> {
+    if let Ok(v) = std::env::var("OHOS_NDK_HOME") {
+        return Ok(v);
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    for cand in [
+        format!("{home}/ohos/ndk-extract/native"),
+        format!("{home}/ohos-sdk/native"),
+    ] {
+        if Path::new(&cand).join("llvm/bin").is_dir() {
+            return Ok(cand);
+        }
+    }
+    Err(
+        "OHOS_NDK_HOME is not set and no OpenHarmony NDK was found — set it to the SDK's `native` \
+         directory (see docs/harmonyos.md)"
+            .into(),
+    )
+}
+
+/// Which ABI to cross-compile: the Oniro emulator runs an x86_64 image; a real device is arm64.
+/// Overridable with `DAY_OHOS_ARCH` (`emulator` | `device`).
 fn build_arch() -> &'static str {
     match std::env::var("DAY_OHOS_ARCH").ok().as_deref() {
         Some("device") | Some("arm64") | Some("arm64-v8a") => "device",
@@ -50,31 +73,37 @@ pub fn build_ohos(
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     let harmony = project.root.join("harmony");
-    let build_sh = harmony.join("build.sh");
-    if !build_sh.exists() {
+    if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
-            "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a hand-authored \
-             `harmony/` project (build.sh + hvigor project + sign-hap.sh), like \
-             apps/day-arkui-demo/harmony. See docs/harmonyos.md.",
+            "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `harmony/` project \
+             (the hvigor project + sign-hap.sh), like apps/showcase/harmony. See docs/harmonyos.md.",
             harmony.display()
         ));
     }
 
-    // 1) Cross-compile the app to libentry.so for the target ABI, into entry/libs/<abi>/. build.sh
-    //    needs OHOS_NDK_HOME (the cross-linker) + a rustup toolchain with the OHOS std (Homebrew
-    //    rustc ships none) — we hand it the rustup cargo + prepend its bin to PATH.
+    // 1) Cross-compile the app to a cdylib for the emulator/device ABI, then stage it as
+    //    entry/libs/<abi>/libentry.so — the .so the ArkTS host imports (its NAPI module is "entry").
+    //    Uses the OHOS NDK cross-linker (OHOS_NDK_HOME) + a rustup toolchain (Homebrew rustc ships no
+    //    OHOS std) and `feature_selection("arkui")` (the arkui toolkit feature + every standalone
+    //    piece's `<pkg>/arkui` renderer feature, Tier A.2), exactly like the android/iOS legs.
+    let (triple, abi) = match build_arch() {
+        "device" => ("aarch64-unknown-linux-ohos", "arm64-v8a"),
+        _ => ("x86_64-unknown-linux-ohos", "x86_64"),
+    };
+    let ndk = find_ohos_ndk()?;
     let (cargo, bin) = rustup_cargo()?;
-    let arch = build_arch();
-    status(
-        "Building",
-        &format!("{} (libentry.so, {arch})", target.name),
+    let name = project.manifest.app.name.clone();
+    let target_dir = project
+        .root
+        .join("build/day/cargo/ohos-arkui")
+        .join(profile);
+    let linker_var = format!(
+        "CARGO_TARGET_{}_LINKER",
+        triple.to_uppercase().replace('-', "_")
     );
-    let mut cc = Command::new("bash");
-    cc.arg(&build_sh)
-        .arg(arch)
-        .current_dir(&harmony)
-        .env("CARGO", &cargo)
-        .env("PROFILE", profile)
+    status("Building", &format!("{} (cargo cdylib {abi})", target.name));
+    let mut cmd = Command::new(&cargo);
+    cmd.current_dir(&project.root)
         .env(
             "PATH",
             format!(
@@ -82,8 +111,38 @@ pub fn build_ohos(
                 bin.display(),
                 std::env::var("PATH").unwrap_or_default()
             ),
-        );
-    run_logged(&mut cc, "harmony/build.sh")?;
+        )
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .env(&linker_var, format!("{ndk}/llvm/bin/{triple}-clang"))
+        .args([
+            "rustc",
+            "-p",
+            &name,
+            "--lib",
+            "--crate-type",
+            "cdylib",
+            "--no-default-features",
+            "--features",
+            &crate::ops::feature_selection(project, "arkui"),
+            "--target",
+            triple,
+        ]);
+    if profile == "release" {
+        cmd.arg("--release");
+    }
+    run_logged(&mut cmd, "cargo (ohos)")?;
+    // The cdylib is `lib<[lib].name>.so` (libentry.so for a crate whose `[lib] name = "entry"`, else
+    // lib<crate>.so) — find the single produced .so and stage it AS libentry.so for the ArkTS host.
+    let out_dir = target_dir.join(triple).join(profile);
+    let so = std::fs::read_dir(&out_dir)
+        .map_err(|e| format!("reading {}: {e}", out_dir.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("so"))
+        .ok_or_else(|| format!("no cdylib .so produced in {}", out_dir.display()))?;
+    let libs = harmony.join("entry/libs").join(abi);
+    std::fs::create_dir_all(&libs).map_err(|e| format!("mkdir {}: {e}", libs.display()))?;
+    std::fs::copy(&so, libs.join("libentry.so")).map_err(|e| format!("stage libentry.so: {e}"))?;
 
     // 2) Assemble the .hap with hvigor (compiles the ArkTS host + packs the native libs + resources).
     //    hvigor + ohpm come from the OpenHarmony command-line-tools (on PATH); the SDK from

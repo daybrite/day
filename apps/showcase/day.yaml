@@ -11,6 +11,7 @@ targets:
   - macos-qt
   - ios-uikit
   - android-widget
+  - ohos-arkui
 window:
   width: 480
   height: 640

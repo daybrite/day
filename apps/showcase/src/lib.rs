@@ -1782,7 +1782,9 @@ fn history(count: Signal<i64>) -> AnyPiece {
     .any()
 }
 
-// Mobile entries (DESIGN.md §17.4): the iOS Runner binds `day_main`, DayBridge binds the
-// `Java_…` natives. Both macros emit nothing off their target OS.
+// Mobile / embedded entries (DESIGN.md §17.4): the iOS Runner binds `day_main`, DayBridge binds the
+// `Java_…` natives, and the HarmonyOS ArkTS host binds `day_arkui_start`. Every macro emits nothing
+// off its own target.
 day::ios_main!("Day Showcase", root);
 day::android_main!(root);
+day::arkui_main!(root);

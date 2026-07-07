@@ -48,9 +48,9 @@ export const suites = [
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
     preferLocales: ['default', 'en', 'fr'],
-    // Every target the showcase is captured on — all but HarmonyOS, whose ArkUI demo is its own
-    // suite below (the showcase app itself does not target ohos-arkui).
-    platforms: platforms.filter((p) => p.os !== 'HarmonyOS').map((p) => p.id),
+    // Every target the showcase is captured on, HarmonyOS/ArkUI included (the same app + walkthrough
+    // runs on the Oniro emulator in CI; pieces without an ArkUI renderer show as placeholders there).
+    platforms: platforms.map((p) => p.id),
     hero: 'home',
     shots: [
       { id: 'home', label: 'Home' },
@@ -62,21 +62,6 @@ export const suites = [
       { id: 'stack-detail', label: 'Navigation stack' },
       { id: 'webview', label: 'Web view' },
       { id: 'about', label: 'About' },
-    ],
-  },
-  {
-    id: 'arkui-demo',
-    label: 'HarmonyOS ArkUI',
-    blurb:
-      'The day-arkui-demo counter running natively on HarmonyOS / OpenHarmony through the ArkUI ' +
-      'NodeAPI backend — built, deployed, and driven by dayscript on the Oniro emulator in CI.',
-    artifactPattern: 'screenshots-{platform}',
-    preferLocales: ['default', 'en', 'fr'],
-    platforms: ['ohos-arkui'],
-    hero: 'home',
-    shots: [
-      { id: 'home', label: 'Counter' },
-      { id: 'counted', label: 'After tapping' },
     ],
   },
 ];

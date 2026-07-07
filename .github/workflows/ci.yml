@@ -381,7 +381,7 @@ jobs:
       # OpenHarmony command-line-tools (one self-contained, cached zip; Linux-x64 only).
       CLT_VERSION: "5.1.0.840"
       CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
-      HARMONY: apps/day-arkui-demo/harmony
+      HARMONY: apps/showcase/harmony
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -430,7 +430,7 @@ jobs:
           echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
           { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
       - name: Clippy (arkui backend, cross-check)
-        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p day-arkui-demo -- -D warnings
+        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --no-default-features --features arkui -- -D warnings
       - name: Build day CLI
         run: cargo build --locked -p day-cli
       # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
@@ -439,18 +439,21 @@ jobs:
         with:
           hdc-wait-seconds: "420"
           port-wait-seconds: "300"
-      # ONE command, exactly like every other platform's walkthrough: `day launch -p ohos-arkui
-      # --script` cross-compiles → hvigor assembleHap → sign → hdc install → aa start (the dayscript
-      # port/token ride as `--ps` params) → hdc fport → runs the walkthrough → saves screenshots.
+      # ONE command, exactly like every other platform's walkthrough (the SAME showcase script the
+      # other targets run): `day launch -p ohos-arkui --script` cross-compiles the showcase to
+      # libentry.so → hvigor assembleHap → sign → hdc install → aa start (the dayscript port/token
+      # ride as `--ps` params) → hdc fport → runs the walkthrough → saves screenshots. Pieces without
+      # an ArkUI renderer render as placeholders; the run continues (a failed assert is non-fatal) so
+      # the working pages still produce gallery screenshots.
       - name: Emulator walkthrough (ohos-arkui)
-        working-directory: apps/day-arkui-demo
+        working-directory: apps/showcase
         run: ../../target/debug/day launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-ohos-arkui
-          path: apps/day-arkui-demo/build/day/screenshots/ohos-arkui
+          path: apps/showcase/build/day/screenshots/ohos-arkui
           if-no-files-found: warn
       - name: Upload the .hap + emulator log (post-mortem)
         if: always()
@@ -458,7 +461,7 @@ jobs:
         with:
           name: ohos-arkui-artifacts
           path: |
-            apps/day-arkui-demo/harmony/entry/build/**/*.hap
+            apps/showcase/harmony/entry/build/**/*.hap
             /tmp/oniro-emulator.log
           if-no-files-found: ignore
 

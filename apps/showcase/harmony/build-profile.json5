@@ -1,0 +1,29 @@
+{
+  "app": {
+    // No `signingConfig` here → hvigor builds an UNSIGNED .hap; the CI signs it afterwards with the
+    // bundled default OpenHarmony debug material (hap-sign-tool.jar). In DevEco Studio, use
+    // File ▸ Project Structure ▸ Signing Configs ▸ auto-sign instead. compatibleSdkVersion matches the
+    // command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "compatibleSdkVersion": "5.1.0(18)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default"] }
+      ]
+    }
+  ]
+}

@@ -16,6 +16,7 @@ qt = ["day/qt"]
 uikit = ["day/uikit"]
 widget = ["day/widget"]
 winui = ["day/winui"]
+arkui = ["day/arkui"]
 mock = ["day/mock"]
 
 # rlib for the desktop bin; the iOS staticlib and Android cdylib are requested explicitly by
