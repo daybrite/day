@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use crate::meta::Project;
 use crate::mobile::{run_logged, rustup_cargo};
@@ -183,8 +184,8 @@ pub fn build_ohos(
     })
 }
 
-/// Recursively find the first `*.hap` under `dir` whose file name contains `needle` (empty = any).
-fn find_hap(dir: &Path, needle: &str) -> Option<PathBuf> {
+/// Recursively find the first `*.hap` under `dir` whose file name satisfies `pred`.
+fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
     let mut stack = vec![dir.to_path_buf()];
     while let Some(d) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&d) else {
@@ -196,7 +197,7 @@ fn find_hap(dir: &Path, needle: &str) -> Option<PathBuf> {
                 stack.push(p);
             } else if p.extension().and_then(|x| x.to_str()) == Some("hap") {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if needle.is_empty() || name.contains(needle) {
+                if pred(name) {
                     return Some(p);
                 }
             }
@@ -209,11 +210,12 @@ fn find_hap(dir: &Path, needle: &str) -> Option<PathBuf> {
 /// via the project's `sign-hap.sh <unsigned> <signed> <bundle-id>`.
 fn sign_if_needed(harmony: &Path, bundle: &str) -> Result<PathBuf, String> {
     let build = harmony.join("entry/build");
-    if let Some(signed) = find_hap(&build, "signed") {
+    // Already signed? Match a `*-signed.hap`, but NOT `*-unsigned.hap` (which also contains "signed").
+    if let Some(signed) = find_hap(&build, |n| n.contains("signed") && !n.contains("unsigned")) {
         return Ok(signed);
     }
-    let unsigned = find_hap(&build, "unsigned")
-        .or_else(|| find_hap(&build, ""))
+    let unsigned = find_hap(&build, |n| n.contains("unsigned"))
+        .or_else(|| find_hap(&build, |_| true))
         .ok_or_else(|| format!("no .hap produced under {}", build.display()))?;
     let sign_sh = harmony.join("sign-hap.sh");
     if !sign_sh.exists() {
@@ -221,7 +223,7 @@ fn sign_if_needed(harmony: &Path, bundle: &str) -> Result<PathBuf, String> {
         return Ok(unsigned);
     }
     let signed = unsigned.with_file_name("day-signed.hap");
-    status("Signing", &format!("{}", signed.display()));
+    status("Signing", &signed.display().to_string());
     let mut cmd = Command::new("bash");
     cmd.arg(&sign_sh)
         .arg(&unsigned)
@@ -232,6 +234,26 @@ fn sign_if_needed(harmony: &Path, bundle: &str) -> Result<PathBuf, String> {
     Ok(signed)
 }
 
+/// Combined stdout+stderr of a finished command, as one string.
+fn combined(out: &std::process::Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+}
+
+/// Is `bundle` installed on the target? `hdc install`/`bm install` can print `error: failed to
+/// execute your command` yet exit 0, so verify the end state with `bm dump` rather than the exit code.
+fn bundle_installed(bundle: &str) -> bool {
+    let Ok(out) = hdc().args(["shell", "bm", "dump", "-n", bundle]).output() else {
+        return false;
+    };
+    let s = combined(&out).to_lowercase();
+    let b = bundle.to_lowercase();
+    s.contains(&b) && !s.contains("not exist") && !s.contains("error") && !s.contains("failed")
+}
+
 pub fn launch_ohos(
     project: &Project,
     outcome: &BuildOutcome,
@@ -239,52 +261,80 @@ pub fn launch_ohos(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle = project.manifest.app.id.clone();
 
-    // Install (reinstall over any existing copy).
-    run_logged(
-        hdc().args(["install", "-r"]).arg(&outcome.artifact),
-        "hdc install",
-    )?;
+    // Install (reinstall over any existing copy) and VERIFY via `bm dump` — the exit code lies.
+    let install = hdc()
+        .args(["install", "-r"])
+        .arg(&outcome.artifact)
+        .output()
+        .map_err(|e| format!("hdc install: {e}"))?;
+    if !bundle_installed(&bundle) {
+        return Err(format!(
+            "hdc install: {bundle} not installed after `hdc install`:\n{}",
+            combined(&install).trim()
+        ));
+    }
 
-    // Right after a cold boot the keyguard refuses launches; wake the screen (best-effort).
+    // Keep the screen awake + in never-doze power mode so it doesn't re-lock mid-run (best-effort).
     let _ = hdc().args(["shell", "power-shell", "wakeup"]).status();
+    let _ = hdc()
+        .args(["shell", "power-shell", "setmode", "602"])
+        .status();
 
-    // Start the ability, delivering the dayscript engine port/token + locale as `--ps` string
-    // parameters (all shell-safe single tokens). EntryAbility.ets applies them to the process env
-    // (via the native `setEnv`) before `start()` runs the engine — mirrors Android's intent extras.
-    let mut cmd = hdc();
-    cmd.args(["shell", "aa", "start", "-a", "EntryAbility", "-b", &bundle]);
+    // The `aa start` args: the dayscript engine port/token + locale as `--ps` string parameters (all
+    // shell-safe single tokens). EntryAbility.ets applies them to the process env (via the native
+    // `setEnv`) before `start()` runs the engine — mirrors Android's intent extras. Built once, since
+    // the launch is retried below.
+    let mut args: Vec<String> = ["shell", "aa", "start", "-a", "EntryAbility", "-b", &bundle]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for (k, v) in &spec.envs {
-        match k.as_str() {
-            "DAYSCRIPT_PORT" => {
-                cmd.args(["--ps", "day.dayscript.port", v]);
-            }
-            "DAYSCRIPT_TOKEN" => {
-                cmd.args(["--ps", "day.dayscript.token", v]);
-            }
-            _ => {
-                cmd.args(["--ps", &format!("day.env.{k}"), v]);
-            }
-        }
+        let key = match k.as_str() {
+            "DAYSCRIPT_PORT" => "day.dayscript.port".to_string(),
+            "DAYSCRIPT_TOKEN" => "day.dayscript.token".to_string(),
+            other => format!("day.env.{other}"),
+        };
+        args.extend(["--ps".to_string(), key, v.clone()]);
     }
     if let Some(locale) = &spec.locale {
-        cmd.args(["--ps", "day.locale", locale]);
+        args.extend(["--ps".to_string(), "day.locale".to_string(), locale.clone()]);
     }
+
     status(
         "Launching",
         &format!("ohos-arkui ({bundle}) on {}", ohos_target()),
     );
-    // `aa start` EXITS 0 EVEN WHEN THE LAUNCH IS REFUSED — parse its output for a failure marker.
-    let out = cmd.output().map_err(|e| format!("hdc aa start: {e}"))?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    if !out.status.success()
-        || text.contains("Error Code:")
-        || text.to_lowercase().contains("failed to start")
-    {
-        return Err(format!("hdc aa start failed:\n{}", text.trim()));
+    // The emulator boots with the keyguard up; it AUTO-DISMISSES a few seconds after boot but
+    // `aa start` is refused until then (Error 10106102) — and there is NO hdc command to force-unlock
+    // in developer mode (it is disabled by design). So retry, re-waking the screen between tries, until
+    // it stops failing — the keyguard-readiness poll the Eclipse Oniro CI uses. `aa start` also EXITS 0
+    // EVEN WHEN REFUSED, so we inspect its output for the failure markers.
+    let mut last = String::new();
+    let mut launched = false;
+    for attempt in 1..=20u32 {
+        let out = hdc()
+            .args(&args)
+            .output()
+            .map_err(|e| format!("hdc aa start: {e}"))?;
+        let text = combined(&out);
+        if out.status.success()
+            && !text.contains("Error Code:")
+            && !text.to_lowercase().contains("failed to start")
+        {
+            launched = true;
+            break;
+        }
+        last = text;
+        if attempt < 20 {
+            let _ = hdc().args(["shell", "power-shell", "wakeup"]).status();
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    }
+    if !launched {
+        return Err(format!(
+            "hdc aa start refused after 20 tries (keyguard/launch):\n{}",
+            last.trim()
+        ));
     }
 
     // Attached (interactive) runs stream the device log, best-effort. In script mode the run is
