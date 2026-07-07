@@ -3,15 +3,15 @@ import BaseLayout from './BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import { url } from '../lib/site';
 
-interface Props { title: string; description?: string; slug?: string }
-const { title, description, slug } = Astro.props;
+interface Props { title: string; description?: string; slug?: string; active?: string }
+const { title, description, slug, active = 'docs' } = Astro.props;
 
 const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
 const idx = docs.findIndex((d) => d.id === slug);
 const prev = idx > 0 ? docs[idx - 1] : null;
 const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
 ---
-<BaseLayout title={title} description={description} active="docs">
+<BaseLayout title={title} description={description} active={active}>
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
       <nav aria-label="Documentation">

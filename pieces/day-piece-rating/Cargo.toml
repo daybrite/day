@@ -1,0 +1,14 @@
+[package]
+name = "day-piece-rating"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A COMPOSE piece (DESIGN §8 / the composition-first tier): a reusable widget built PURELY from Day's
+# core primitives — NO native/per-backend code, NO cargo features. Works on every backend for free.
+# The flagship example that native pieces are the exception, not the rule. Filled in by the build.
+
+[dependencies]
+day-pieces = { workspace = true }
+day-core = { workspace = true }
+day-reactive = { workspace = true }

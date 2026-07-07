@@ -545,6 +545,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-rating"
+version = "0.1.0"
+dependencies = [
+ "day-core",
+ "day-pieces",
+ "day-reactive",
+]
+
+[[package]]
 name = "day-piece-remote-image"
 version = "0.1.0"
 dependencies = [
@@ -1899,6 +1908,7 @@ dependencies = [
  "day-piece-map",
  "day-piece-media",
  "day-piece-picker",
+ "day-piece-rating",
  "day-piece-searchfield",
  "day-piece-webview",
 ]

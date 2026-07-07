@@ -1,0 +1,1722 @@
+//! `day new` — scaffold Day extension crates and apps (DESIGN.md §8/§15). Three shapes:
+//!
+//! * `day new piece <name>` — a COMPOSITE piece (pure composition, every backend for free, no
+//!   per-backend code).
+//! * `day new piece <name> --toolkits <csv>` — a NATIVE piece (a distinct native control per toolkit,
+//!   registered link-time with `renderer!`).
+//! * `day new part <name> [--platforms <csv>]` — a headless PART (a cross-platform capability with no
+//!   UI, dispatched by `#[cfg(target_os)]`).
+//!
+//! Every scaffold is its OWN cargo workspace, carries a README + .gitignore, and BUILDS out of the box.
+//!
+//! Dependencies default to the **remote** `day` git repo (`git = "https://github.com/daybrite/day.git"`)
+//! so a scaffold is self-contained. The hidden `--local <path>` flag (or the `DAY_LOCAL` env var) instead
+//! emits `path` deps rooted at a local `day` checkout — this is what CI uses to build a freshly-scaffolded
+//! crate against the day tree under test.
+
+use std::path::{Path, PathBuf};
+
+use crate::ops;
+
+/// The canonical remote used for a scaffold's default (non-`--local`) dependencies.
+const GIT_URL: &str = "https://github.com/daybrite/day.git";
+
+/// The toolkits a NATIVE piece can carry a backend renderer for.
+const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "widget", "winui"];
+/// The platforms a PART can carry a native impl for.
+const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
+
+// ---------------------------------------------------------------------------
+// Dependency source: git remote (default) or a local path (CI / --local).
+// ---------------------------------------------------------------------------
+
+struct Deps {
+    /// A normalized, forward-slash, TOML-safe local day checkout root, or `None` for the git remote.
+    local: Option<String>,
+}
+
+impl Deps {
+    /// Resolve from `--local` (highest priority) then the `DAY_LOCAL` env var; absent ⇒ git remote.
+    fn resolve(local: Option<&Path>) -> Self {
+        let picked = local
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("DAY_LOCAL").map(PathBuf::from));
+        let local = picked.map(|p| {
+            // Cargo accepts forward slashes on every host; normalize separators and strip Windows'
+            // `\\?\` verbatim prefix so the path is a valid (unescaped) TOML basic string.
+            let p = p.canonicalize().unwrap_or(p);
+            let s = p.to_string_lossy().replace('\\', "/");
+            s.strip_prefix("//?/").map(str::to_string).unwrap_or(s)
+        });
+        Deps { local }
+    }
+
+    /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
+    /// spliced inside the braces. Remote form ignores the subpath (cargo resolves by package name).
+    fn dep(&self, name: &str, extra: &str) -> String {
+        match &self.local {
+            Some(root) => format!(
+                "{name} = {{ path = \"{root}/{sub}\"{extra} }}",
+                sub = subpath(name)
+            ),
+            None => format!("{name} = {{ git = \"{GIT_URL}\"{extra} }}"),
+        }
+    }
+}
+
+/// The workspace-relative directory of a day crate (used only by the local-path form).
+fn subpath(crate_name: &str) -> String {
+    match crate_name {
+        "day" => "crates/day".into(),
+        n if n.starts_with("day-piece-") => format!("pieces/{n}"),
+        n if n.starts_with("day-part-") => format!("parts/{n}"),
+        "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-android"
+        | "day-winui" | "day-winui-sys" | "day-arkui" | "day-arkui-sys" => {
+            format!("toolkits/{crate_name}")
+        }
+        n => format!("crates/{n}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Name → identifiers.
+// ---------------------------------------------------------------------------
+
+struct Repl {
+    crate_name: String,  // the crate + directory name, verbatim (e.g. `day-piece-foo`)
+    crate_ident: String, // the crate's Rust extern name (hyphens → underscores)
+    snake: String,       // a snake_case identifier stem (e.g. `foo`)
+    pascal: String,      // PascalCase (e.g. `Foo`) for types + the `Day<Name>` factory class
+    id: String,          // reverse-DNS id, also the piece KIND + the Java package
+    pkg_slash: String,   // id with `.` → `/` (Java source dir)
+    class_slash: String, // `<pkg_slash>/Day<Pascal>` (the JNI class path)
+}
+
+impl Repl {
+    fn new(name: &str, id: Option<&str>) -> Self {
+        let snake = snake_ident(name);
+        let pascal = pascalize(&snake);
+        let id = id
+            .map(String::from)
+            .unwrap_or_else(|| format!("dev.example.{snake}"));
+        let pkg_slash = id.replace('.', "/");
+        Repl {
+            crate_name: name.to_string(),
+            crate_ident: name.replace('-', "_"),
+            class_slash: format!("{pkg_slash}/Day{pascal}"),
+            pkg_slash,
+            snake,
+            pascal,
+            id,
+        }
+    }
+
+    fn expand(&self, tpl: &str) -> String {
+        tpl.replace("__PASCAL__", &self.pascal)
+            .replace("__SNAKE__", &self.snake)
+            .replace("__KIND__", &self.id)
+            .replace("__CRATE__", &self.crate_name)
+            .replace("__CRATE_IDENT__", &self.crate_ident)
+            .replace("__CLASSPATH__", &self.class_slash)
+            .replace("__PKG_DOTS__", &self.id)
+            .replace("__PKG_SLASH__", &self.pkg_slash)
+    }
+}
+
+/// A lowercase snake_case stem from an arbitrary name (non-alphanumerics collapse to `_`).
+fn snake_ident(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    let s = out.trim_matches('_').to_string();
+    if s.is_empty() || s.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("day_{s}")
+    } else {
+        s
+    }
+}
+
+/// PascalCase from a snake_case stem.
+fn pascalize(snake: &str) -> String {
+    snake
+        .split('_')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut cs = w.chars();
+            match cs.next() {
+                Some(f) => f.to_ascii_uppercase().to_string() + cs.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points (called from cli.rs).
+// ---------------------------------------------------------------------------
+
+/// Scaffold a piece. `toolkits_csv == None` (or `composite == true`) ⇒ a COMPOSITE piece.
+pub fn piece(
+    name: &str,
+    toolkits_csv: Option<&str>,
+    composite: bool,
+    id: Option<&str>,
+    local: Option<&Path>,
+) -> i32 {
+    let dir = PathBuf::from(name);
+    if dir.exists() {
+        eprintln!("error: {name:?} already exists");
+        return 1;
+    }
+    let repl = Repl::new(name, id);
+    let deps = Deps::resolve(local);
+
+    let toolkits: Vec<String> = match toolkits_csv {
+        Some(csv) if !composite => {
+            let mut v = Vec::new();
+            for t in csv.split(',') {
+                let t = t.trim().to_ascii_lowercase();
+                if t.is_empty() {
+                    continue;
+                }
+                if !TOOLKITS.contains(&t.as_str()) {
+                    eprintln!(
+                        "error: unknown toolkit {t:?} (choose from {})",
+                        TOOLKITS.join(", ")
+                    );
+                    return 2;
+                }
+                if !v.contains(&t) {
+                    v.push(t);
+                }
+            }
+            v
+        }
+        _ => Vec::new(),
+    };
+
+    let (files, next) = if toolkits.is_empty() {
+        (composite_piece_files(&repl, &deps), COMPOSITE_NEXT)
+    } else {
+        (native_piece_files(&repl, &deps, &toolkits), NATIVE_NEXT)
+    };
+    let code = write_all(&dir, &files, name);
+    if code == 0 {
+        eprintln!("{}", repl.expand(next));
+    }
+    code
+}
+
+/// Scaffold a headless part for the given (comma-separated) platforms.
+pub fn part(name: &str, platforms_csv: &str, id: Option<&str>, local: Option<&Path>) -> i32 {
+    let dir = PathBuf::from(name);
+    if dir.exists() {
+        eprintln!("error: {name:?} already exists");
+        return 1;
+    }
+    let repl = Repl::new(name, id);
+    let deps = Deps::resolve(local);
+
+    let mut platforms = Vec::new();
+    for p in platforms_csv.split(',') {
+        let p = p.trim().to_ascii_lowercase();
+        if p.is_empty() {
+            continue;
+        }
+        if !PLATFORMS.contains(&p.as_str()) {
+            eprintln!(
+                "error: unknown platform {p:?} (choose from {})",
+                PLATFORMS.join(", ")
+            );
+            return 2;
+        }
+        if !platforms.contains(&p) {
+            platforms.push(p);
+        }
+    }
+    if platforms.is_empty() {
+        eprintln!("error: no platforms selected");
+        return 2;
+    }
+
+    let files = part_files(&repl, &deps, &platforms);
+    let code = write_all(&dir, &files, name);
+    if code == 0 {
+        eprintln!("{}", repl.expand(PART_NEXT));
+    }
+    code
+}
+
+fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> i32 {
+    for (path, content) in files {
+        let full = dir.join(path);
+        if let Some(parent) = full.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&full, content) {
+            eprintln!("error writing {}: {e}", full.display());
+            return 1;
+        }
+    }
+    ops::status("Created", &format!("{name}/ ({} files)", files.len()));
+    0
+}
+
+// ---------------------------------------------------------------------------
+// COMPOSITE piece — pure composition, no features, works on every backend.
+// ---------------------------------------------------------------------------
+
+fn composite_piece_files(r: &Repl, deps: &Deps) -> Vec<(String, String)> {
+    let cargo = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+# A COMPOSITE Day piece: a reusable widget built PURELY from Day's core primitives — no native /
+# per-backend code and NO cargo features, so it works on every backend for free. Depend on it with a
+# plain `{{ workspace = true }}` (or git) line and call the builder from `use day::prelude::*` code.
+
+[dependencies]
+{day_pieces}
+{day_core}
+{day_reactive}
+
+[workspace]
+"#,
+        name = r.crate_name,
+        day_pieces = deps.dep("day-pieces", ""),
+        day_core = deps.dep("day-core", ""),
+        day_reactive = deps.dep("day-reactive", ""),
+    );
+
+    vec![
+        ("Cargo.toml".into(), cargo),
+        (".gitignore".into(), GITIGNORE.into()),
+        ("README.md".into(), r.expand(COMPOSITE_README)),
+        ("src/lib.rs".into(), r.expand(COMPOSITE_LIB)),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// NATIVE piece — a distinct native control per toolkit, two-way bound to a Signal<String>.
+// ---------------------------------------------------------------------------
+
+fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String, String)> {
+    let has = |t: &str| toolkits.iter().any(|x| x == t);
+    let needs_build_rs = has("qt") || has("winui");
+
+    // [features]
+    let mut features = String::new();
+    for t in toolkits {
+        let entry = match t.as_str() {
+            "appkit" => {
+                "appkit = [\"dep:day-appkit\", \"dep:objc2\", \"dep:objc2-app-kit\", \"dep:objc2-foundation\"]"
+            }
+            "gtk" => "gtk = [\"dep:day-gtk\", \"dep:gtk4\"]",
+            "qt" => "qt = [\"dep:day-qt\"]",
+            "uikit" => {
+                "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
+            }
+            "widget" => "widget = [\"dep:day-android\"]",
+            "winui" => "winui = [\"dep:day-winui\", \"dep:day-winui-sys\"]",
+            _ => continue,
+        };
+        features.push_str(entry);
+        features.push('\n');
+    }
+    // A no-renderer mock feature so an app can enable `<pkg>/mock` uniformly (the kind then falls back
+    // to day's placeholder leaf under the mock backend).
+    features.push_str("mock = []\n");
+
+    // [package.metadata.day.piece].backends
+    let mut backends: Vec<String> = toolkits.iter().map(|t| format!("\"{t}\"")).collect();
+    backends.push("\"mock\"".into());
+
+    // day-crate deps (optional, gated by the features above).
+    let mut day_deps = String::new();
+    let mut push_dep = |s: String| {
+        day_deps.push_str(&s);
+        day_deps.push('\n');
+    };
+    if has("appkit") {
+        push_dep(deps.dep("day-appkit", ", optional = true"));
+    }
+    if has("gtk") {
+        push_dep(deps.dep("day-gtk", ", optional = true"));
+    }
+    if has("qt") {
+        push_dep(deps.dep("day-qt", ", optional = true"));
+    }
+    if has("uikit") {
+        push_dep(deps.dep("day-uikit", ", optional = true"));
+    }
+    if has("widget") {
+        push_dep(deps.dep("day-android", ", optional = true"));
+    }
+    if has("winui") {
+        push_dep(deps.dep("day-winui", ", optional = true"));
+        push_dep(deps.dep("day-winui-sys", ", optional = true"));
+    }
+
+    // crates.io deps for the native bindings (only for chosen toolkits).
+    let mut ext_deps = String::new();
+    if has("gtk") {
+        ext_deps.push_str("gtk4 = { version = \"0.11\", optional = true }\n");
+    }
+    if has("appkit") || has("uikit") {
+        ext_deps.push_str("objc2 = { version = \"0.6\", optional = true }\n");
+        ext_deps.push_str("objc2-foundation = { version = \"0.3\", optional = true, features = [\"NSString\", \"NSNotification\"] }\n");
+    }
+    if has("appkit") {
+        ext_deps.push_str("objc2-app-kit = { version = \"0.3\", optional = true, features = [\"NSControl\", \"NSTextField\", \"NSView\", \"NSResponder\"] }\n");
+    }
+    if has("uikit") {
+        ext_deps.push_str("objc2-ui-kit = { version = \"0.3\", optional = true, features = [\"UITextField\", \"UIControl\", \"UIView\", \"UIResponder\"] }\n");
+        ext_deps.push_str("objc2-core-foundation = { version = \"0.3\", optional = true, features = [\"CFCGTypes\"] }\n");
+    }
+
+    // Android / iOS backend-contribution metadata.
+    let mut meta = String::new();
+    if has("widget") {
+        meta.push_str(
+            "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
+             # and folds the piece's own Java into the app's Gradle build, with ZERO edits to day-android.\n\
+             [package.metadata.day.android]\n\
+             java = [\"android/java\"]\n\
+             # gradle-dependencies = [\"group:artifact:version\"]\n\
+             # permissions = [\"android.permission.INTERNET\"]\n",
+        );
+    }
+    if has("uikit") {
+        meta.push_str(
+            "\n# Standalone-piece iOS contribution: system frameworks to link, and any SwiftPM packages\n\
+             # or Swift shim dirs. A plain UITextField needs none — left empty as a template.\n\
+             [package.metadata.day.ios]\n\
+             frameworks = []\n\
+             # swift = [\"ios/swift\"]\n",
+        );
+    }
+
+    let build_line = if needs_build_rs {
+        "build = \"build.rs\"\n"
+    } else {
+        ""
+    };
+    let build_deps = if needs_build_rs {
+        "\n[build-dependencies]\ncc = \"1\"\n"
+    } else {
+        ""
+    };
+
+    let cargo = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+{build_line}
+# A NATIVE Day piece: a two-way text input realized as a DISTINCT native control per toolkit,
+# registered link-time into each backend's renderer slice with ZERO edits to any core day crate.
+# Depend on it with a plain `{{ workspace = true }}` (or git) line — `day` unions `<pkg>/<backend>`
+# into the app build, so an app never re-lists these per-backend features.
+
+[features]
+{features}
+# Backends this piece carries a native-renderer [features] entry for.
+[package.metadata.day.piece]
+backends = [{backends}]
+
+[dependencies]
+{day_spec}
+{day_core}
+{day_pieces}
+{day_reactive}
+linkme = "0.3"
+{day_deps}{ext_deps}{build_deps}{meta}"#,
+        name = r.crate_name,
+        features = features.trim_end(),
+        backends = backends.join(", "),
+        day_spec = deps.dep("day-spec", ""),
+        day_core = deps.dep("day-core", ""),
+        day_pieces = deps.dep("day-pieces", ""),
+        day_reactive = deps.dep("day-reactive", ""),
+        day_deps = day_deps,
+        ext_deps = ext_deps,
+    );
+
+    // src/lib.rs front-end: the mod declarations for the chosen toolkits.
+    let mut mod_decls = String::new();
+    for t in toolkits {
+        mod_decls.push_str(mod_decl(t));
+        mod_decls.push('\n');
+    }
+    let lib = r.expand(&NATIVE_LIB.replace("__MOD_DECLS__", mod_decls.trim_end()));
+
+    let mut files = vec![
+        ("Cargo.toml".into(), cargo),
+        (".gitignore".into(), GITIGNORE.into()),
+        ("README.md".into(), r.expand(NATIVE_README)),
+        ("src/lib.rs".into(), lib),
+    ];
+
+    if has("appkit") {
+        files.push(("src/lib-appkit.rs".into(), r.expand(APPKIT_IMPL)));
+    }
+    if has("gtk") {
+        files.push(("src/lib-gtk.rs".into(), r.expand(GTK_IMPL)));
+    }
+    if has("qt") {
+        files.push(("src/lib-qt.rs".into(), r.expand(QT_IMPL)));
+        files.push(("src/lib-qt-shim.cpp".into(), r.expand(QT_SHIM)));
+    }
+    if has("uikit") {
+        files.push(("src/lib-uikit.rs".into(), r.expand(UIKIT_IMPL)));
+    }
+    if has("widget") {
+        files.push(("src/lib-android.rs".into(), r.expand(ANDROID_IMPL)));
+        files.push((
+            format!("android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+            r.expand(ANDROID_JAVA),
+        ));
+    }
+    if has("winui") {
+        files.push(("src/lib-winui.rs".into(), r.expand(WINUI_IMPL)));
+        files.push(("src/lib-winui-shim.cpp".into(), r.expand(WINUI_SHIM)));
+    }
+    if needs_build_rs {
+        files.push(("build.rs".into(), r.expand(BUILD_RS)));
+    }
+
+    files
+}
+
+fn mod_decl(toolkit: &str) -> &'static str {
+    match toolkit {
+        "appkit" => {
+            "#[cfg(all(feature = \"appkit\", target_os = \"macos\"))]\n#[path = \"lib-appkit.rs\"]\nmod appkit_impl;"
+        }
+        "gtk" => "#[cfg(feature = \"gtk\")]\n#[path = \"lib-gtk.rs\"]\nmod gtk_impl;",
+        "qt" => "#[cfg(feature = \"qt\")]\n#[path = \"lib-qt.rs\"]\nmod qt_impl;",
+        "uikit" => {
+            "#[cfg(all(feature = \"uikit\", target_os = \"ios\"))]\n#[path = \"lib-uikit.rs\"]\nmod uikit_impl;"
+        }
+        "widget" => {
+            "#[cfg(all(feature = \"widget\", target_os = \"android\"))]\n#[path = \"lib-android.rs\"]\nmod android_impl;"
+        }
+        "winui" => {
+            "#[cfg(all(feature = \"winui\", windows))]\n#[path = \"lib-winui.rs\"]\nmod winui_impl;"
+        }
+        _ => "",
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PART — a headless cross-platform capability.
+// ---------------------------------------------------------------------------
+
+fn part_files(r: &Repl, deps: &Deps, platforms: &[String]) -> Vec<(String, String)> {
+    let has = |p: &str| platforms.iter().any(|x| x == p);
+
+    // Per-platform cfg/path module declarations for src/lib.rs.
+    let mut cfg_mods = String::new();
+    let mut push_mod = |cfg: &str, file: &str| {
+        cfg_mods.push_str(&format!(
+            "#[cfg({cfg})]\n#[path = \"{file}\"]\nmod imp;\n\n"
+        ));
+    };
+    if has("macos") {
+        push_mod("target_os = \"macos\"", "macos.rs");
+    }
+    if has("ios") {
+        push_mod("target_os = \"ios\"", "ios.rs");
+    }
+    if has("windows") {
+        push_mod("target_os = \"windows\"", "windows.rs");
+    }
+    if has("linux") {
+        push_mod(
+            "all(target_os = \"linux\", not(target_env = \"ohos\"))",
+            "linux.rs",
+        );
+    }
+    if has("android") {
+        push_mod("target_os = \"android\"", "android.rs");
+    }
+
+    // The MANDATORY catch-all fallback: every target NOT covered above returns None.
+    let os_terms: Vec<String> = platforms
+        .iter()
+        .map(|p| format!("target_os = \"{p}\""))
+        .collect();
+
+    // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-android).
+    let mut dep_sections = String::new();
+    if has("android") {
+        dep_sections.push_str(&format!(
+            "\n# Android reads through a Java shim + day-android's cached JVM/Context — the one platform\n\
+             # where a headless part rides on the day runtime (like the pieces' Android backends).\n\
+             [target.'cfg(target_os = \"android\")'.dependencies]\n{}\n",
+            deps.dep("day-android", ""),
+        ));
+    }
+
+    // Backend-contribution metadata.
+    let mut meta = String::new();
+    if has("android") {
+        meta.push_str(
+            "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
+             # with ZERO edits to day-android. This headless part registers NO renderer.\n\
+             [package.metadata.day.android]\n\
+             java = [\"android/java\"]\n\
+             # permissions = [\"android.permission.INTERNET\"]\n",
+        );
+    }
+    if has("ios") || has("macos") {
+        meta.push_str(
+            "\n# System frameworks the app must link on iOS (Rust `#[link]` is honored only when cargo\n\
+             # drives the final link — on iOS xcodebuild links the staticlib and ignores it). Empty template.\n\
+             [package.metadata.day.ios]\n\
+             frameworks = []\n",
+        );
+    }
+
+    let cargo = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2024"
+
+# A HEADLESS Day part: a cross-platform capability with NO UI. Any Rust code can depend on it and call
+# `{ident}::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not a widget
+# toolkit), so there are NO backend features — it "just works" per target.
+
+[dependencies]
+# Most platforms need no crates for a native reading (plain std / C FFI). Add per-platform deps as you
+# implement each, e.g.:
+#   [target.'cfg(target_os = "macos")'.dependencies]
+#   core-foundation = "0.10"
+{dep_sections}{meta}
+[workspace]
+"#,
+        name = r.crate_name,
+        ident = r.crate_ident,
+        dep_sections = dep_sections,
+        meta = meta,
+    );
+
+    let lib = r.expand(
+        &PART_LIB
+            .replace("__CFG_MODS__", cfg_mods.trim_end())
+            .replace("__NOT_ANY__", &os_terms.join(",\n    ")),
+    );
+
+    let mut files = vec![
+        ("Cargo.toml".into(), cargo),
+        (".gitignore".into(), GITIGNORE.into()),
+        ("README.md".into(), r.expand(PART_README)),
+        ("src/lib.rs".into(), lib),
+        (format!("examples/{}.rs", r.snake), r.expand(PART_EXAMPLE)),
+    ];
+    if has("macos") {
+        files.push(("src/macos.rs".into(), r.expand(&part_stub("macOS"))));
+    }
+    if has("ios") {
+        files.push(("src/ios.rs".into(), r.expand(&part_stub("iOS"))));
+    }
+    if has("windows") {
+        files.push(("src/windows.rs".into(), r.expand(&part_stub("Windows"))));
+    }
+    if has("linux") {
+        files.push(("src/linux.rs".into(), r.expand(&part_stub("Linux"))));
+    }
+    if has("android") {
+        files.push(("src/android.rs".into(), r.expand(PART_ANDROID)));
+        files.push((
+            format!("android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+            r.expand(PART_ANDROID_JAVA),
+        ));
+    }
+    files
+}
+
+/// A per-OS stub returning a sample value (replace the body with the real native reading).
+fn part_stub(os: &str) -> String {
+    format!(
+        "// {os}: TODO — read your capability via the platform's native API. This stub returns a sample.\n\n\
+         pub fn status() -> Option<super::Sample> {{\n    \
+         Some(super::Sample {{ value: 42 }})\n}}\n"
+    )
+}
+
+// ===========================================================================
+// Templates. `__PASCAL__` / `__SNAKE__` / `__KIND__` / `__CRATE__` / `__CRATE_IDENT__` /
+// `__CLASSPATH__` / `__PKG_DOTS__` / `__PKG_SLASH__` are substituted by `Repl::expand`.
+// ===========================================================================
+
+const GITIGNORE: &str = "/target\nCargo.lock\n";
+
+const COMPOSITE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # builds against the day git remote (or --local checkout)\n    # then, from an app:  __CRATE_IDENT__::__SNAKE__(\"Hello\")\n";
+const NATIVE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build --features <toolkit>   # e.g. appkit / gtk / qt\n    # wire it into an app: add __CRATE__ as a dependency and call __CRATE_IDENT__::__SNAKE__(signal)\n";
+const PART_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # host platform\n    cargo run --example __SNAKE__\n";
+
+// --- COMPOSITE piece --------------------------------------------------------
+
+const COMPOSITE_LIB: &str = r#"//! __CRATE__ — a COMPOSITE Day piece (built PURELY from Day's core primitives).
+//!
+//! There is no per-backend/native code and no cargo features here: this widget works on every backend
+//! for free. Drop the crate in as a plain dependency and call [`__SNAKE__`] from `use day::prelude::*`
+//! code. This sample is a rounded "chip" badge — replace it with your own composition.
+
+use day_pieces::prelude::*;
+
+/// The chip's fill (iOS system blue). Swap for your own palette.
+const CHIP_BG: Color = Color::hex(0x0A_84_FF);
+
+/// A small rounded, padded, colored label — the "hello world" of composite pieces. Pure composition
+/// over [`label`] + the [`Decorate`] modifiers, so it renders natively on every backend.
+///
+/// ```ignore
+/// use day::prelude::*;
+/// column((
+///     label("Downloads"),
+///     __SNAKE__("3 new"),
+/// ))
+/// ```
+pub fn __SNAKE__(text: impl Into<String>) -> AnyPiece {
+    label(text.into())
+        .font(Font::Caption)
+        .color(Color::WHITE)
+        .padding(Insets::symmetric(10.0, 4.0))
+        .background(CHIP_BG)
+        .corner_radius(10.0)
+        .any()
+}
+"#;
+
+const COMPOSITE_README: &str = r#"# __CRATE__
+
+A **composite** Day piece — a reusable widget built purely from Day's core primitives. There is no
+per-backend or native code and no cargo features, so it works on every backend (AppKit, GTK, Qt,
+UIKit, Android, WinUI) for free.
+
+## Use
+
+Add it as a dependency (from the day git remote by default) and call the builder from your app:
+
+```rust
+use day::prelude::*;
+use __CRATE_IDENT__::__SNAKE__;
+
+fn view() -> AnyPiece {
+    column((
+        label("Downloads"),
+        __SNAKE__("3 new"),
+    )).any()
+}
+```
+
+## Build
+
+```sh
+cargo build                 # compiles the library against the day git remote
+```
+
+Composite pieces have no runnable binary of their own — they are verified by compiling and by being
+used from an app. To develop against a local day checkout, build with `DAY_LOCAL` pointed at it (or
+regenerate with `day new piece … --local <path>`).
+
+## Next steps
+
+- Rename `__SNAKE__` and give it real parameters / builder methods.
+- Compose from `row` / `column` / `canvas` / `label` and the `Decorate` modifiers.
+- Bind reactive attributes to a `Signal<_>` for live updates.
+"#;
+
+// --- NATIVE piece -----------------------------------------------------------
+
+const NATIVE_LIB: &str = r#"//! __CRATE__ — a NATIVE Day piece: a two-way text input realized as a DISTINCT native control per
+//! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a WinUI
+//! TextBox), registered link-time into each backend's renderer slice with ZERO edits to day.
+//!
+//! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged` back
+//! to Rust which `set`s the signal, and an external signal change patches the control via
+//! [`__PASCAL__Patch::SetText`]. A per-build echo guard remembers the last value that arrived FROM the
+//! native control so its own change is not written straight back (a feedback loop).
+//!
+//! ```ignore
+//! let text = Signal::new(String::new());
+//! __SNAKE__(text).placeholder("Type here…")
+//! ```
+
+use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::{IntoText, TextSource};
+use day_reactive::{Signal, bind_seeded};
+use day_spec::Event;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+/// The unique piece kind key (every backend renderer registers under the same `kind:`).
+pub const KIND: &str = "__KIND__";
+
+/// Full props (build-time realize). Only `text` changes after build (via [`__PASCAL__Patch`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct __PASCAL__Props {
+    pub text: String,
+    pub placeholder: String,
+}
+
+/// The single imperative update: replace the control's text (programmatic sync from the signal).
+#[derive(Clone, Debug, PartialEq)]
+pub enum __PASCAL__Patch {
+    SetText(String),
+}
+
+/// A native text input bound two-way to `value`. Configure a prompt with [`__PASCAL__::placeholder`].
+pub struct __PASCAL__ {
+    value: Signal<String>,
+    placeholder: Option<TextSource>,
+}
+
+/// `__SNAKE__(value)` — a native text input whose text mirrors `value` in both directions.
+pub fn __SNAKE__(value: Signal<String>) -> __PASCAL__ {
+    __PASCAL__ {
+        value,
+        placeholder: None,
+    }
+}
+
+impl __PASCAL__ {
+    /// The empty-state prompt (evaluated once for the initial value; not reactive after build).
+    pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.placeholder = Some(t.into_text());
+        self
+    }
+}
+
+impl Piece for __PASCAL__ {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let __PASCAL__ { value, placeholder } = self;
+        let initial = value.get_untracked();
+        let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
+        let node = cx.leaf(
+            KIND,
+            &__PASCAL__Props {
+                text: initial.clone(),
+                placeholder: ph,
+            },
+            // A text input fills the available width and keeps its natural (single-line) height.
+            Flex {
+                grow_w: true,
+                ..Default::default()
+            },
+        );
+        // Controlled input with origin tracking: the echo guard remembers the last value that arrived
+        // FROM the native widget so bind_seeded does not patch that same value straight back.
+        let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let g = guard.clone();
+        bind_seeded(
+            initial,
+            move || value.get(),
+            move |t: &String| {
+                let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
+                if !from_native {
+                    with_tree(|tr| {
+                        tr.patch(node, Box::new(__PASCAL__Patch::SetText(t.clone())), false)
+                    });
+                }
+            },
+        );
+        cx.on(node, move |ev| {
+            if let Event::TextChanged(t) = ev {
+                *guard.borrow_mut() = Some(t.clone());
+                value.set(t.clone());
+            }
+        });
+        node
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-toolkit native renderers — one file per backend, each registering a `Renderer` link-time into
+// its backend's `RENDERERS` slice. `#[cfg]` gates each to its feature + target; `#[path]` keeps the
+// files grouped next to lib.rs.
+// ---------------------------------------------------------------------------
+
+__MOD_DECLS__
+"#;
+
+const APPKIT_IMPL: &str = r#"// AppKit: an editable NSTextField. A per-node delegate implements controlTextDidChange: and dispatches
+// Event::TextChanged; programmatic setStringValue does NOT fire the delegate (no echo guard needed on
+// this backend — update only writes when the value actually differs).
+
+use super::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use day_appkit::AppKit;
+use day_spec::{NodeId, Proposal, Size};
+use objc2::rc::Retained;
+use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{NSControlTextEditingDelegate, NSTextField, NSTextFieldDelegate, NSView};
+use objc2_foundation::{NSNotification, NSObject, NSString};
+
+struct FieldIvars {
+    node: NodeId,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "Day__PASCAL__Target"]
+    #[ivars = FieldIvars]
+    struct FieldTarget;
+
+    unsafe impl NSObjectProtocol for FieldTarget {}
+    unsafe impl NSTextFieldDelegate for FieldTarget {}
+
+    unsafe impl NSControlTextEditingDelegate for FieldTarget {
+        #[unsafe(method(controlTextDidChange:))]
+        fn control_text_did_change(&self, notification: &NSNotification) {
+            let node = self.ivars().node;
+            if let Some(obj) = notification.object()
+                && let Ok(tf) = obj.downcast::<NSTextField>()
+            {
+                day_appkit::emit(node, Event::TextChanged(tf.stringValue().to_string()));
+            }
+        }
+    }
+);
+
+impl FieldTarget {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    // Keep each field's delegate alive for the view's lifetime (the control holds it weakly).
+    static TARGETS: RefCell<HashMap<usize, Retained<FieldTarget>>> = RefCell::new(HashMap::new());
+}
+
+fn make(backend: &mut AppKit, p: &__PASCAL__Props, id: NodeId) -> Retained<NSView> {
+    let mtm = backend.mtm();
+    let field = NSTextField::new(mtm);
+    if !p.placeholder.is_empty() {
+        field.setPlaceholderString(Some(&NSString::from_str(&p.placeholder)));
+    }
+    field.setStringValue(&NSString::from_str(&p.text));
+    let target = FieldTarget::new(mtm, id);
+    unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
+    let ns: Retained<NSView> = Retained::from(<NSTextField as AsRef<NSView>>::as_ref(&field));
+    TARGETS.with(|m| {
+        m.borrow_mut()
+            .insert((ns.as_ref() as *const NSView) as usize, target)
+    });
+    ns
+}
+
+fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    if let Some(field) = h.downcast_ref::<NSTextField>()
+        && field.stringValue().to_string() != *t
+    {
+        field.setStringValue(&NSString::from_str(t));
+    }
+}
+
+fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
+    // Grow to the proposed width; natural single-line height.
+    let fit = h.fittingSize();
+    let w = p.width.unwrap_or(fit.width).max(120.0);
+    Size::new(w, fit.height.ceil().max(22.0))
+}
+
+day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const GTK_IMPL: &str = r#"// GTK: a GtkEntry. Its "changed" signal fires on user input AND on programmatic set_text, so a
+// per-node `suppress` cell guards the programmatic sync in `update` from echoing back.
+
+use super::*;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use day_gtk::Gtk;
+use day_spec::{NodeId, Proposal, Size};
+use gtk4::prelude::*;
+
+struct FieldState {
+    entry: gtk4::Entry,
+    suppress: Rc<Cell<bool>>,
+}
+
+thread_local! {
+    static STATE: RefCell<HashMap<usize, FieldState>> = RefCell::new(HashMap::new());
+}
+
+fn key(w: &gtk4::Widget) -> usize {
+    w.as_ptr() as usize
+}
+
+fn make(_backend: &mut Gtk, p: &__PASCAL__Props, id: NodeId) -> gtk4::Widget {
+    let entry = gtk4::Entry::new();
+    if !p.placeholder.is_empty() {
+        entry.set_placeholder_text(Some(&p.placeholder));
+    }
+    if !p.text.is_empty() {
+        entry.set_text(&p.text);
+    }
+    let suppress = Rc::new(Cell::new(false));
+    let sup = suppress.clone();
+    entry.connect_changed(move |e| {
+        if sup.get() {
+            return;
+        }
+        day_gtk::emit(id, Event::TextChanged(e.text().to_string()));
+    });
+    let w: gtk4::Widget = entry.clone().upcast();
+    STATE.with(|m| {
+        m.borrow_mut()
+            .insert(key(&w), FieldState { entry, suppress })
+    });
+    w
+}
+
+fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    STATE.with(|m| {
+        let m = m.borrow();
+        let Some(st) = m.get(&key(h)) else {
+            return;
+        };
+        if st.entry.text().as_str() != t {
+            st.suppress.set(true);
+            st.entry.set_text(t);
+            st.suppress.set(false);
+        }
+    });
+}
+
+fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
+    let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
+    let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
+    let w = p.width.unwrap_or(nat_w as f64).max(120.0);
+    Size::new(w, (nat_h as f64).max(24.0))
+}
+
+day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const QT_IMPL: &str = r#"// Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — a QLineEdit behind a flat C ABI. textChanged
+// dispatches Event::TextChanged; programmatic setText is wrapped in blockSignals so it never echoes.
+
+use super::*;
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_void};
+
+use day_qt::{Qt, QtHandle};
+use day_spec::{NodeId, Proposal, Size};
+
+unsafe extern "C" {
+    fn day___SNAKE___new(
+        placeholder: *const c_char,
+        initial: *const c_char,
+        id: u64,
+        cb: extern "C" fn(u64, *const c_char),
+    ) -> *mut c_void;
+    fn day___SNAKE___set_text(w: *mut c_void, text: *const c_char);
+    // From day-qt-sys (already linked into the binary):
+    fn day_qt_size_hint(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
+}
+
+extern "C" fn on_text(id: u64, text: *const c_char) {
+    let s = if text.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(text) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    day_qt::emit(NodeId(id), Event::TextChanged(s));
+}
+
+fn cstr(s: &str) -> CString {
+    CString::new(s).unwrap_or_default()
+}
+
+fn make(_backend: &mut Qt, p: &__PASCAL__Props, id: NodeId) -> QtHandle {
+    QtHandle(unsafe {
+        day___SNAKE___new(
+            cstr(&p.placeholder).as_ptr(),
+            cstr(&p.text).as_ptr(),
+            id.0,
+            on_text,
+        )
+    })
+}
+
+fn update(_backend: &mut Qt, h: &QtHandle, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    unsafe { day___SNAKE___set_text(h.0, cstr(t).as_ptr()) };
+}
+
+fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
+    let mut w = 0.0;
+    let mut hh = 0.0;
+    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    let width = p.width.unwrap_or(w).max(120.0);
+    Size::new(width, hh.max(24.0))
+}
+
+day_pieces::renderer!(day_qt::RENDERERS, Qt,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const QT_SHIM: &str = r#"// This piece's OWN Qt shim behind a flat C ABI: a QLineEdit. textChanged reports edits back to Rust as
+// a UTF-8 C string (valid only during the callback; Rust copies it); programmatic setText is wrapped in
+// blockSignals so it never echoes back as a change. Qt libs are already linked by day-qt-sys.
+
+#include <QLineEdit>
+#include <QString>
+
+#include <cstdint>
+
+class Day__PASCAL__ : public QLineEdit {
+public:
+    void setTextGuarded(const QString &t) {
+        if (text() != t) {
+            blockSignals(true); // programmatic ⇒ no textChanged echo
+            setText(t);
+            blockSignals(false);
+        }
+    }
+};
+
+extern "C" {
+
+void *day___SNAKE___new(const char *placeholder, const char *initial, uint64_t id,
+                        void (*cb)(uint64_t, const char *)) {
+    Day__PASCAL__ *w = new Day__PASCAL__();
+    w->setPlaceholderText(QString::fromUtf8(placeholder));
+    if (initial && *initial)
+        w->setText(QString::fromUtf8(initial));
+    QObject::connect(w, &QLineEdit::textChanged, [id, cb](const QString &t) {
+        QByteArray b = t.toUtf8();
+        cb(id, b.constData());
+    });
+    return w;
+}
+
+void day___SNAKE___set_text(void *w, const char *text) {
+    static_cast<Day__PASCAL__ *>(w)->setTextGuarded(QString::fromUtf8(text));
+}
+
+} // extern "C"
+"#;
+
+const UIKIT_IMPL: &str = r#"// UIKit: a UITextField. A per-node target fires on UIControlEvents::EditingChanged and dispatches
+// Event::TextChanged; programmatic setText does NOT fire EditingChanged (no echo guard needed here).
+
+use super::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use day_spec::{NodeId, Proposal, Size};
+use day_uikit::Uikit;
+use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, NSObjectProtocol};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2_core_foundation::CGSize;
+use objc2_foundation::NSString;
+use objc2_ui_kit::{UIControlEvents, UITextField, UIView};
+
+struct FieldIvars {
+    node: NodeId,
+}
+
+define_class!(
+    #[unsafe(super(objc2_foundation::NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayUIKit__PASCAL__Target"]
+    #[ivars = FieldIvars]
+    struct FieldTarget;
+
+    unsafe impl NSObjectProtocol for FieldTarget {}
+
+    impl FieldTarget {
+        #[unsafe(method(fire:))]
+        fn fire(&self, sender: &AnyObject) {
+            if let Some(tf) = sender.downcast_ref::<UITextField>() {
+                let s = tf.text().map(|s| s.to_string()).unwrap_or_default();
+                day_uikit::emit(self.ivars().node, Event::TextChanged(s));
+            }
+        }
+    }
+);
+
+impl FieldTarget {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    static TARGETS: RefCell<HashMap<usize, Retained<FieldTarget>>> = RefCell::new(HashMap::new());
+}
+
+fn make(_backend: &mut Uikit, p: &__PASCAL__Props, id: NodeId) -> Retained<UIView> {
+    let mtm = MainThreadMarker::new().unwrap();
+    let field = UITextField::new(mtm);
+    if !p.placeholder.is_empty() {
+        field.setPlaceholder(Some(&NSString::from_str(&p.placeholder)));
+    }
+    if !p.text.is_empty() {
+        field.setText(Some(&NSString::from_str(&p.text)));
+    }
+    let target = FieldTarget::new(mtm, id);
+    unsafe {
+        field.addTarget_action_forControlEvents(
+            Some(&target),
+            sel!(fire:),
+            UIControlEvents::EditingChanged,
+        );
+    }
+    let ns: Retained<UIView> = Retained::from(<UITextField as AsRef<UIView>>::as_ref(&field));
+    TARGETS.with(|m| {
+        m.borrow_mut()
+            .insert((ns.as_ref() as *const UIView) as usize, target)
+    });
+    ns
+}
+
+fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    if let Some(field) = (**h).downcast_ref::<UITextField>() {
+        let cur = field.text().map(|s| s.to_string()).unwrap_or_default();
+        if cur != *t {
+            field.setText(Some(&NSString::from_str(t)));
+        }
+    }
+}
+
+fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
+    let fit = h.sizeThatFits(CGSize::new(1.0e6, 1.0e6));
+    let w = p.width.unwrap_or(fit.width).max(120.0);
+    Size::new(w, fit.height.ceil().max(28.0))
+}
+
+day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__) is bundled under android/java and
+// pulled into the app's Gradle build via [package.metadata.day.android] — ZERO edits to day-android. A
+// TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
+
+use super::*;
+use day_android::jni::objects::JValue;
+use day_android::{AHandle, Android, with_env};
+use day_spec::{NodeId, Proposal, Size};
+
+const FIELD_CLASS: &str = "__CLASSPATH__";
+
+fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
+    with_env(|env| {
+        let ph = env.new_string(&p.placeholder).expect("placeholder");
+        let init = env.new_string(&p.text).expect("initial");
+        let view = env
+            .call_static_method(
+                FIELD_CLASS,
+                "makeField",
+                "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
+                &[
+                    JValue::Long(id.0 as i64),
+                    JValue::Object(&ph),
+                    JValue::Object(&init),
+                ],
+            )
+            .expect("Day__PASCAL__.makeField")
+            .l()
+            .expect("View");
+        AHandle(env.new_global_ref(view).expect("global ref"))
+    })
+}
+
+fn update(_backend: &mut Android, h: &AHandle, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    with_env(|env| {
+        let s = env.new_string(t).expect("text");
+        let _ = env.call_static_method(
+            FIELD_CLASS,
+            "setFieldText",
+            "(Landroid/view/View;Ljava/lang/String;)V",
+            &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
+        );
+    });
+}
+
+fn measure(_backend: &mut Android, _h: &AHandle, p: Proposal) -> Size {
+    // Fill the proposed width (grow_w leaf); natural single-line height.
+    Size::new(p.width.unwrap_or(180.0), p.height.unwrap_or(44.0))
+}
+
+day_pieces::renderer!(day_android::RENDERERS, Android,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const ANDROID_JAVA: &str = r#"// This piece's OWN Android factory — bundled with the crate and pulled into the app's Gradle build
+// via [package.metadata.day.android], with ZERO edits to day-android. It uses only day-android's PUBLIC
+// Java surface: DayBridge.ctx (the Android Context) and DayBridge.nativeOnEvent (the event trampoline).
+package __PKG_DOTS__;
+
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
+import android.view.View;
+import android.widget.EditText;
+
+import dev.daybrite.day.bridge.DayBridge;
+
+public final class Day__PASCAL__ {
+    // A single-line EditText. Every edit reports back via DayBridge.nativeOnEvent kind 1 (TextChanged).
+    public static View makeField(final long id, String placeholder, String initial) {
+        EditText e = new EditText(DayBridge.ctx);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT);
+        e.setHint(placeholder);
+        if (initial != null && !initial.isEmpty()) {
+            e.setText(initial);
+            e.setSelection(initial.length());
+        }
+        e.addTextChangedListener(new TextWatcher() {
+            public void afterTextChanged(Editable s) {
+                DayBridge.nativeOnEvent(id, 1, 0, s.toString());
+            }
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+        });
+        return e;
+    }
+
+    // Programmatic sync from the bound signal. Guard on equality so setting the same text is a no-op.
+    public static void setFieldText(View v, String text) {
+        EditText e = (EditText) v;
+        if (!e.getText().toString().equals(text)) {
+            e.setText(text);
+            e.setSelection(text.length());
+        }
+    }
+}
+"#;
+
+const WINUI_IMPL: &str = r#"// WinUI: this crate's OWN C++/WinRT shim (src/lib-winui-shim.cpp) — a TextBox boxed into a Day handle
+// via the day_winui_box/unbox seam that day-winui-sys exports. Windows-only; built in CI, not verified
+// on non-Windows hosts.
+
+use super::*;
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_void};
+
+use day_spec::{NodeId, Proposal, Size};
+use day_winui::{WinHandle, WinUi};
+
+unsafe extern "C" {
+    fn day___SNAKE___winui_new(
+        placeholder: *const c_char,
+        initial: *const c_char,
+        id: u64,
+        cb: extern "C" fn(u64, *const c_char),
+    ) -> *mut c_void;
+    fn day___SNAKE___winui_set_text(w: *mut c_void, text: *const c_char);
+    // Generic size hint from day-winui-sys (already linked).
+    fn day_winui_measure(
+        w: *mut c_void,
+        avail_w: f64,
+        avail_h: f64,
+        out_w: *mut f64,
+        out_h: *mut f64,
+    );
+}
+
+extern "C" fn on_text(id: u64, text: *const c_char) {
+    let s = if text.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(text) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    day_winui::emit(NodeId(id), Event::TextChanged(s));
+}
+
+fn cstr(s: &str) -> CString {
+    CString::new(s).unwrap_or_default()
+}
+
+fn make(_backend: &mut WinUi, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
+    WinHandle(unsafe {
+        day___SNAKE___winui_new(
+            cstr(&p.placeholder).as_ptr(),
+            cstr(&p.text).as_ptr(),
+            id.0,
+            on_text,
+        )
+    })
+}
+
+fn update(_backend: &mut WinUi, h: &WinHandle, patch: &__PASCAL__Patch) {
+    let __PASCAL__Patch::SetText(t) = patch;
+    unsafe { day___SNAKE___winui_set_text(h.0, cstr(t).as_ptr()) };
+}
+
+fn measure(_backend: &mut WinUi, h: &WinHandle, p: Proposal) -> Size {
+    let mut w = 0.0;
+    let mut hh = 0.0;
+    unsafe { day_winui_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    let width = p.width.unwrap_or(w).max(160.0);
+    Size::new(width, hh.max(32.0))
+}
+
+day_pieces::renderer!(day_winui::RENDERERS, WinUi,
+    kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
+    make: make, update: update, measure: measure);
+"#;
+
+const WINUI_SHIM: &str = r#"// This piece's OWN C++/WinRT shim — a TextBox boxed into a Day handle via the day_winui_box/unbox seam
+// that day-winui-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string; programmatic
+// Text(...) is guarded so it only re-writes on a real change. Windows-only; compiled by build.rs.
+
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.UI.Xaml.h>
+#include <winrt/Windows.UI.Xaml.Controls.h>
+
+#include <windows.h>
+
+#include <cstdint>
+#include <string>
+
+using namespace winrt;
+namespace WUX = winrt::Windows::UI::Xaml;
+namespace WUXC = winrt::Windows::UI::Xaml::Controls;
+
+// The boxing seam, exported by day-winui-sys (already linked into the app).
+extern "C" void *day_winui_box(void *iinspectable_abi);
+extern "C" void *day_winui_unbox(void *handle);
+
+static winrt::hstring hs(const char *s) {
+    if (!s || !*s)
+        return winrt::hstring{};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    if (len <= 1)
+        return winrt::hstring{};
+    std::wstring w(static_cast<size_t>(len - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), len);
+    return winrt::hstring{w};
+}
+
+static std::string to_utf8(winrt::hstring const &h) {
+    if (h.empty())
+        return std::string{};
+    int len = WideCharToMultiByte(CP_UTF8, 0, h.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (len <= 1)
+        return std::string{};
+    std::string s(static_cast<size_t>(len - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, h.c_str(), -1, s.data(), len, nullptr, nullptr);
+    return s;
+}
+
+extern "C" {
+
+void *day___SNAKE___winui_new(const char *placeholder, const char *initial, uint64_t id,
+                              void (*cb)(uint64_t, const char *)) {
+    WUXC::TextBox box;
+    box.PlaceholderText(hs(placeholder));
+    if (initial && *initial)
+        box.Text(hs(initial));
+    box.TextChanged([id, cb](WUX::DependencyObject const &s, WUXC::TextChangedEventArgs const &) {
+        std::string t = to_utf8(s.as<WUXC::TextBox>().Text());
+        cb(id, t.c_str());
+    });
+    return day_winui_box(winrt::get_abi(box));
+}
+
+void day___SNAKE___winui_set_text(void *handle, const char *text) {
+    WUX::UIElement e{nullptr};
+    winrt::copy_from_abi(e, day_winui_unbox(handle));
+    if (auto box = e.try_as<WUXC::TextBox>()) {
+        auto nt = hs(text);
+        if (box.Text() != nt)
+            box.Text(nt);
+    }
+}
+
+} // extern "C"
+"#;
+
+const BUILD_RS: &str = r#"//! Compiles this piece's OWN native shims when their feature is on — a native Day piece carrying C++
+//! with zero edits to Day's toolkit crates. Qt uses `cc` + pkg-config; WinUI uses `cc` (MSVC) + the
+//! Windows SDK cppwinrt projection, mirroring day-winui-sys.
+
+use std::path::PathBuf;
+
+fn main() {
+    println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    if std::env::var("CARGO_FEATURE_QT").is_ok() {
+        build_qt();
+    }
+    // Windows-only, and only when the app targets WinUI.
+    if std::env::var("CARGO_FEATURE_WINUI").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
+        build_winui();
+    }
+}
+
+fn build_qt() {
+    let cflags = std::process::Command::new("pkg-config")
+        .args(["--cflags", "Qt6Widgets"])
+        .output()
+        .expect("pkg-config Qt6Widgets");
+    let mut build = cc::Build::new();
+    build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
+    for tok in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
+        build.flag(tok);
+    }
+    build.flag_if_supported("-Wno-unused-parameter");
+    build.compile("day__SNAKE__qtshim");
+    // Qt libs themselves are already linked by day-qt-sys.
+}
+
+fn build_winui() {
+    let cppwinrt = find_cppwinrt().expect(
+        "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
+         (Visual Studio 'Desktop development with C++').",
+    );
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .std("c++20")
+        .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
+        .file("src/lib-winui-shim.cpp")
+        .include(&cppwinrt)
+        .flag("/EHsc")
+        .flag("/bigobj")
+        .flag_if_supported("/permissive-");
+    build.compile("day__SNAKE__winuishim");
+    // WindowsApp.lib + the day_winui_box/unbox seam are already linked by day-winui-sys.
+}
+
+/// Newest `Windows Kits\10\Include\<ver>\cppwinrt` on the machine (mirrors day-winui-sys).
+fn find_cppwinrt() -> Option<PathBuf> {
+    let mut bases: Vec<PathBuf> = Vec::new();
+    if let Ok(sdk) = std::env::var("WindowsSdkDir") {
+        bases.push(PathBuf::from(sdk).join("Include"));
+    }
+    bases.push(PathBuf::from(
+        r"C:\Program Files (x86)\Windows Kits\10\Include",
+    ));
+    bases.push(PathBuf::from(r"C:\Program Files\Windows Kits\10\Include"));
+
+    let mut found: Vec<PathBuf> = Vec::new();
+    for base in bases {
+        let Ok(rd) = std::fs::read_dir(&base) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            let cppwinrt = entry.path().join("cppwinrt");
+            if cppwinrt.join("winrt").join("base.h").exists() {
+                found.push(cppwinrt);
+            }
+        }
+    }
+    found.sort();
+    found.pop()
+}
+"#;
+
+const NATIVE_README: &str = r#"# __CRATE__
+
+A **native** Day piece: a two-way text input realized as a distinct native control per toolkit,
+registered link-time into each backend's renderer slice with **zero edits** to day.
+
+## Use
+
+Add it as a dependency (from the day git remote by default) and call the builder from your app. Because
+it declares its backends in `[package.metadata.day.piece]`, `day` unions `<pkg>/<backend>` into the app
+build automatically — you never re-list the per-backend features:
+
+```rust
+use day::prelude::*;
+use __CRATE_IDENT__::__SNAKE__;
+
+fn view() -> AnyPiece {
+    let text = Signal::new(String::new());
+    __SNAKE__(text).placeholder("Type here…").any()
+}
+```
+
+## Build a single backend
+
+```sh
+cargo build --features appkit    # or gtk / qt / uikit / widget / winui
+```
+
+- `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
+- `qt` / `winui` compile a small C++ shim (`build.rs`).
+- `widget` carries its own Java factory under `android/java` (staged into the app's Gradle build).
+
+## Next steps
+
+- Rename the `__PASCAL__` type / `__SNAKE__` builder and adjust `__PASCAL__Props` / `__PASCAL__Patch`.
+- Wire your control's real events in each `src/lib-<backend>.rs`.
+- Drop any backends you don't need from `[features]` and `[package.metadata.day.piece]`.
+"#;
+
+// --- PART -------------------------------------------------------------------
+
+const PART_LIB: &str = r#"//! __CRATE__ — a HEADLESS Day part: a cross-platform capability with no UI. Any Rust code can depend on
+//! this crate and call [`status`] to read a snapshot through the platform's NATIVE API.
+//!
+//! ```no_run
+//! if let Some(s) = __CRATE_IDENT__::status() {
+//!     println!("value = {}", s.value);
+//! }
+//! ```
+//!
+//! Platform selection is purely `#[cfg(target_os)]` (a capability is an OS concern, not a widget-toolkit
+//! one), so there are no backend features — it "just works" per target. Platforms without an impl return
+//! `None`.
+
+/// A sample snapshot. Replace `value` with your capability's real fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sample {
+    /// A stand-in reading. Replace with the real data your part exposes.
+    pub value: i64,
+}
+
+/// Read the current snapshot via the platform's native API, or `None` where unsupported.
+pub fn status() -> Option<Sample> {
+    imp::status()
+}
+
+// ---------------------------------------------------------------------------
+// Per-OS implementations. Each exposes `fn status() -> Option<Sample>`.
+// ---------------------------------------------------------------------------
+
+__CFG_MODS__
+
+// Any other platform: no native API. (MANDATORY catch-all — keeps the crate building everywhere.)
+#[cfg(not(any(
+    __NOT_ANY__
+)))]
+mod imp {
+    pub fn status() -> Option<super::Sample> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Reading must never panic, whatever the host.
+    #[test]
+    fn status_does_not_panic() {
+        let _ = super::status();
+    }
+}
+"#;
+
+const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (android/java/…/Day__PASCAL__.java) — staged into the
+// app's Gradle build by `day build` via [package.metadata.day.android], with ZERO edits to day-android
+// (it registers NO renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
+// through day-android's re-exported `jni`.
+
+use day_android::with_env;
+
+const CLASS: &str = "__CLASSPATH__";
+
+pub fn status() -> Option<super::Sample> {
+    let value: i64 = with_env(|env| {
+        env.call_static_method(CLASS, "read", "()J", &[])
+            .ok()
+            .and_then(|v| v.j().ok())
+    })?;
+    if value < 0 {
+        return None; // -1 = unavailable (no Context / capability)
+    }
+    Some(super::Sample { value })
+}
+"#;
+
+const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s OWN Android backend — a headless capability shim (no UI), bundled with this crate and
+// folded into the app's Gradle build via [package.metadata.day.android], with ZERO edits to day-android.
+package __PKG_DOTS__;
+
+public final class Day__PASCAL__ {
+    private Day__PASCAL__() {}
+
+    /**
+     * Returns a sample reading, or -1 when unavailable. Replace the body with a real native reading —
+     * the Android Context is available as dev.daybrite.day.bridge.DayBridge.ctx.
+     */
+    public static long read() {
+        return 42L;
+    }
+}
+"#;
+
+const PART_EXAMPLE: &str = r#"// A tiny driver: `cargo run --example __SNAKE__`.
+fn main() {
+    match __CRATE_IDENT__::status() {
+        Some(s) => println!("__SNAKE__ sample: value = {}", s.value),
+        None => println!("__SNAKE__: unavailable on this platform"),
+    }
+}
+"#;
+
+const PART_README: &str = r#"# __CRATE__
+
+A **headless** Day part: a cross-platform capability with no UI. Any Rust code can depend on it and call
+`status()`; platform selection is purely `#[cfg(target_os)]`, so there are no backend features.
+
+## Use
+
+```rust
+if let Some(s) = __CRATE_IDENT__::status() {
+    println!("value = {}", s.value);
+}
+```
+
+## Build & run
+
+```sh
+cargo build                    # host platform
+cargo run --example __SNAKE__   # prints a sample reading
+```
+
+Each `src/<os>.rs` is a stub returning a sample `Sample { value: 42 }`. Android reads through a bundled
+Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into the app's Gradle build.
+
+## Next steps
+
+- Replace `Sample`'s fields with your capability's real data.
+- Fill in each `src/<os>.rs` with the platform's native API (add per-platform deps to `Cargo.toml`).
+- The catch-all `mod imp { fn status() -> None }` fallback keeps the crate compiling on every target —
+  keep it.
+"#;

@@ -119,6 +119,17 @@ jobs:
         run: cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
       - name: Build day CLI
         run: cargo build --locked -p day-cli
+      # Scaffold a piece + a part with `day new`, redirect their day deps to THIS checkout with
+      # --local, and build each for this combo — so `day new` output keeps compiling against the day
+      # tree under test (the desktop piece links the toolkit; the part is headless).
+      - name: Scaffold smoke-test (${{ matrix.combo }})
+        run: |
+          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
+          ( cd smoke-part  && cargo build )
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
@@ -156,6 +167,16 @@ jobs:
             --no-default-features --features uikit
       - name: Build day CLI
         run: cargo build --locked -p day-cli
+      # Scaffold a uikit piece + a part (deps redirected to this checkout) and cross-compile both for
+      # the iOS Simulator — a lib build, so no device/simulator needed here.
+      - name: Scaffold smoke-test (ios-uikit)
+        run: |
+          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          "$DAY" new piece smoke-piece --toolkits uikit --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features uikit --target aarch64-apple-ios-sim )
+          ( cd smoke-part  && cargo build --target aarch64-apple-ios-sim )
       - name: Boot an iOS Simulator
         run: |
           UDID=$(xcrun simctl list devices available --json \
@@ -201,6 +222,16 @@ jobs:
         run: cargo test --locked
       - name: Build day CLI
         run: cargo build --locked -p day-cli
+      # Scaffold a piece + a part with `day new` (deps redirected to this checkout via --local) and
+      # build each for this combo, so `day new` output keeps compiling against the day tree under test.
+      - name: Scaffold smoke-test (${{ matrix.combo }})
+        run: |
+          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
+          ( cd smoke-part  && cargo build )
       # GTK renders under a virtual display (in-process snapshot is limited on GTK, §9);
       # Qt runs on the offscreen platform. Both drive the full dayscript walkthrough.
       # The GTK web view (WebKitGTK) needs two env vars in this restricted headless runner:
@@ -267,6 +298,17 @@ jobs:
           rustup target add x86_64-linux-android
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           cargo build --locked -p day-cli
+      # Scaffold a widget piece + a part (deps redirected to this checkout) and cross-compile both for
+      # Android — a lib build (rlib), so no NDK linker or emulator is needed here.
+      - name: Scaffold smoke-test (android-widget)
+        run: |
+          rustup target add aarch64-linux-android
+          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part
+          "$DAY" new piece smoke-piece --toolkits widget --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features widget --target aarch64-linux-android )
+          ( cd smoke-part  && cargo build --target aarch64-linux-android )
       - name: Emulator walkthrough (android-widget)
         uses: reactivecircus/android-emulator-runner@v2
         env:

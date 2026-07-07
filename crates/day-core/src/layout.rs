@@ -362,6 +362,96 @@ impl Layout for StackLayout {
     }
 }
 
+/// Two-axis placement of a child within a container's bounds (SwiftUI's `Alignment`). Used by
+/// the z-layering primitives ([`OverlayLayout`]): `zstack`, `overlay`/`overlay_aligned`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Alignment {
+    TopLeading,
+    Top,
+    TopTrailing,
+    Leading,
+    #[default]
+    Center,
+    Trailing,
+    BottomLeading,
+    Bottom,
+    BottomTrailing,
+}
+
+impl Alignment {
+    /// Horizontal placement fraction of the free space: 0 = leading, 0.5 = center, 1 = trailing.
+    fn h_fraction(self) -> f64 {
+        match self {
+            Alignment::TopLeading | Alignment::Leading | Alignment::BottomLeading => 0.0,
+            Alignment::Top | Alignment::Center | Alignment::Bottom => 0.5,
+            Alignment::TopTrailing | Alignment::Trailing | Alignment::BottomTrailing => 1.0,
+        }
+    }
+    /// Vertical placement fraction of the free space: 0 = top, 0.5 = center, 1 = bottom.
+    fn v_fraction(self) -> f64 {
+        match self {
+            Alignment::TopLeading | Alignment::Top | Alignment::TopTrailing => 0.0,
+            Alignment::Leading | Alignment::Center | Alignment::Trailing => 0.5,
+            Alignment::BottomLeading | Alignment::Bottom | Alignment::BottomTrailing => 1.0,
+        }
+    }
+}
+
+/// Z-layering (§overlay): children share the container bounds, stacked back-to-front in child
+/// order (first child = bottom of the z-order), each positioned by a single [`Alignment`].
+/// `size_to_first` reports only the FIRST child's natural size — the badge/annotation sizing of
+/// [`overlay`](crate) (the annotation does not grow the frame); otherwise the layout reports the
+/// UNION (max) of all children's natural sizes — the ZStack sizing of `zstack`. No native work:
+/// the container is the same panel as `column`/`row`, so backends stack children by attach order.
+pub struct OverlayLayout {
+    pub align: Alignment,
+    pub size_to_first: bool,
+}
+
+impl OverlayLayout {
+    /// Expand group anchors (`when`/`each`) inline, exactly like [`StackLayout`].
+    fn flatten(cx: &mut dyn LayoutOps, children: &[RNode], out: &mut Vec<RNode>) {
+        for &c in children {
+            if cx.flex_of(c).is_group {
+                let inner = cx.children_of(c);
+                Self::flatten(cx, &inner, out);
+            } else {
+                out.push(c);
+            }
+        }
+    }
+}
+
+impl Layout for OverlayLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let mut kids = Vec::new();
+        Self::flatten(cx, children, &mut kids);
+        if self.size_to_first {
+            return match kids.first() {
+                Some(&c) => cx.measure_child(c, p),
+                None => Size::ZERO,
+            };
+        }
+        let mut size = Size::ZERO;
+        for &c in &kids {
+            let s = cx.measure_child(c, p);
+            size.width = size.width.max(s.width);
+            size.height = size.height.max(s.height);
+        }
+        size
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        let mut kids = Vec::new();
+        Self::flatten(cx, children, &mut kids);
+        for &c in &kids {
+            let s = cx.measure_child(c, Proposal::exact(bounds.size));
+            let x = (bounds.size.width - s.width) * self.align.h_fraction();
+            let y = (bounds.size.height - s.height) * self.align.v_fraction();
+            cx.place_child(c, Rect::new(x, y, s.width, s.height));
+        }
+    }
+}
+
 pub struct PaddingLayout {
     pub insets: Insets,
 }

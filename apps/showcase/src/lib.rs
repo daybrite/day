@@ -8,6 +8,7 @@ use day_piece_activity::activity;
 use day_piece_combobox::combo_box;
 use day_piece_media::media;
 use day_piece_picker::picker;
+use day_piece_rating::{Card, badge, rating};
 use day_piece_searchfield::search_field;
 use day_piece_webview::web_view;
 use std::cell::OnceCell;
@@ -110,6 +111,7 @@ pub fn root() -> AnyPiece {
         .item("deviceinfo", tr("nav-deviceinfo"), deviceinfo_page)
         .item("shapes", tr("nav-shapes"), shapes_page)
         .item("pickers", tr("nav-pickers"), pickers_page)
+        .item("compose", tr("nav-compose"), compose_page)
         .item("activity", tr("nav-activity"), activity_page)
         .item("search", tr("nav-search"), search_page)
         .item("modals", tr("nav-modals"), modals_page)
@@ -985,6 +987,76 @@ fn pickers_page() -> AnyPiece {
         label(tr("picker-inline")).font(Font::Headline),
         picker(plans, plan).inline().id("picker-inline"),
         label(move || plans[plan.get().min(2)].to_string()).id("picker-inline-value"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// The composition-first tier (DESIGN §8): every widget here is built PURELY from Day's core
+/// primitives — NO native/per-backend code and NO cargo features. `day-piece-rating` is a plain
+/// dependency with no per-backend feature wiring, so it works on every backend for free; native
+/// pieces are the exception, not the rule.
+fn compose_page() -> AnyPiece {
+    // A shared rating signal, driven by tapping stars and read back by the value label.
+    let stars = Signal::new(3usize);
+    // A custom ambient value flowed via `with_environment` and read back by a descendant.
+    #[derive(Clone, Copy)]
+    struct Accent(Color);
+    let accent = Color::hex(0x30_B0_60);
+
+    column((
+        label(tr("nav-compose"))
+            .font(Font::Title)
+            .id("compose-title"),
+        label(tr("compose-caption")),
+        // 1) Interactive star rating (canvas-polygon compose piece) + live value label.
+        label(tr("compose-rating-label")).font(Font::Headline),
+        rating(stars).id("compose-rating"),
+        label(move || {
+            tr("compose-rating-value")
+                .arg("value", stars.get() as i64)
+                .format()
+        })
+        .id("compose-rating-value"),
+        // 2) Card modifier — a reusable surface wrapping arbitrary content.
+        label(tr("compose-card-label")).font(Font::Headline),
+        column((
+            label(tr("compose-card-title")).font(Font::Headline),
+            label(tr("compose-card-body")),
+        ))
+        .spacing(4.0)
+        .align(HAlign::Leading)
+        .modifier(Card),
+        // 3) badge overlay — a numbered pill on an icon's top-trailing corner.
+        label(tr("compose-badge-label")).font(Font::Headline),
+        badge(
+            3,
+            rounded_rectangle(10.0)
+                .fill(Color::hex(0x8E_8E_93))
+                .frame(48.0, 48.0),
+        ),
+        // 4) ButtonStyle — a FilledButtonStyle button next to a plain one for contrast.
+        label(tr("compose-buttons-label")).font(Font::Headline),
+        row((
+            button(tr("compose-plain-btn")).id("compose-plain-btn"),
+            button(tr("compose-styled-btn"))
+                .style(FilledButtonStyle {
+                    color: Color::hex(0x0A_84_FF),
+                })
+                .id("compose-styled-btn"),
+        ))
+        .spacing(12.0),
+        // 5) Ambient environment flow — a descendant tints itself from the provided Accent.
+        label(tr("compose-env-label")).font(Font::Headline),
+        with_environment(Accent(accent), || {
+            let tint = environment::<Accent>().map(|a| a.0).unwrap_or(Color::BLACK);
+            label(tr("compose-env-value"))
+                .font(Font::Headline)
+                .color(tint)
+                .id("compose-env-value")
+        }),
     ))
     .spacing(10.0)
     .align(HAlign::Leading)

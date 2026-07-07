@@ -561,6 +561,25 @@ fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     }
 }
 
+/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// a visible placeholder. A missing renderer usually means the piece's `qt` feature wasn't enabled
+/// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
+/// every frame doesn't spam the log.
+fn warn_missing_renderer(kind: PieceKind) {
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+        std::sync::Mutex::new(None);
+    let Ok(mut guard) = SEEN.lock() else { return };
+    if guard
+        .get_or_insert_with(std::collections::HashSet::new)
+        .insert(kind)
+    {
+        eprintln!(
+            "day: no renderer for piece kind \"{kind}\" on qt \
+             — is the piece's qt feature enabled? (rendering a placeholder)"
+        );
+    }
+}
+
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
@@ -742,6 +761,7 @@ impl Toolkit for Qt {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
+                    warn_missing_renderer(kind);
                     QtHandle(ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()))
                 }
             }

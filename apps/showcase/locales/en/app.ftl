@@ -25,6 +25,7 @@ nav-network = Network
 nav-media = Media
 nav-shapes = Shapes
 nav-pickers = Pickers
+nav-compose = Compose
 nav-files = Files
 nav-tabs = Tabs
 nav-stack = Stack
@@ -42,6 +43,19 @@ shapes-drag = Drag to move
 picker-segmented = Segmented
 picker-menu = Menu
 picker-inline = Inline
+
+compose-caption = Pure-composition pieces — no native code, no cargo features, every backend for free.
+compose-rating-label = Star rating
+compose-rating-value = Rating: { $value } / 5
+compose-card-label = Card modifier
+compose-card-title = Reusable surface
+compose-card-body = Padding + background + rounded corners, applied as a Modifier.
+compose-badge-label = Badge overlay
+compose-buttons-label = Button styles
+compose-plain-btn = Plain
+compose-styled-btn = Filled
+compose-env-label = Ambient environment
+compose-env-value = Tinted by the provided accent
 list-add = Add 100
 list-caption = { $count } rows — only the visible cells are built
 

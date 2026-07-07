@@ -5,6 +5,16 @@ anyone can publish a piece as an independent crate that adds **both** its cross-
 (Rust) **and** its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …) —
 with **no edits to any core Day crate**. `day-piece-picker` is the reference implementation.
 
+**Scaffold a new piece with `day new`.** Don't hand-assemble the crate — `day new piece <name>`
+generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
+checkout). With no `--toolkits` it emits a **composite** piece (front-end only); with
+`--toolkits appkit,gtk,qt,uikit,widget,winui` (any subset) it emits a **native** piece with a renderer
+per backend plus the C++/Java/Swift glue each one needs. The companion `day new part <name>` scaffolds
+a headless part. For full walkthroughs see the tutorials:
+[composite piece](https://daybrite.dev/docs/tutorial-composite-piece/),
+[native piece](https://daybrite.dev/docs/tutorial-native-piece/), and
+[part](https://daybrite.dev/docs/tutorial-part/).
+
 The whole extensibility story rests on two mechanisms:
 
 1. **Renderers register link-time** into each backend's `RENDERERS` slice (via `linkme`), so a backend

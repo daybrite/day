@@ -38,6 +38,11 @@ enum Cmd {
         #[arg(long)]
         id: Option<String>,
     },
+    /// Scaffold a new Day extension crate (piece / part) or app
+    New {
+        #[command(subcommand)]
+        what: NewKind,
+    },
     /// Build the app for one or more targets
     Build {
         #[arg(short = 'p', long = "platform", required = true)]
@@ -93,6 +98,53 @@ enum Cmd {
     },
 }
 
+/// `day new <piece|part|app>` — scaffold an extension crate or app. Pieces/parts default to REMOTE
+/// (git) day dependencies; the hidden `--local <path>` (or `DAY_LOCAL` env) redirects to a local day
+/// checkout for CI smoke-tests of a freshly-scaffolded crate against the day tree under test.
+#[derive(Subcommand)]
+enum NewKind {
+    /// Scaffold a Day PIECE crate (a reusable widget). No `--toolkits` ⇒ a COMPOSITE piece.
+    Piece {
+        name: String,
+        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,widget,winui).
+        /// Omit for a COMPOSITE piece (pure composition; works on every backend with no per-backend code).
+        #[arg(long)]
+        toolkits: Option<String>,
+        /// Force a COMPOSITE piece even if `--toolkits` is given.
+        #[arg(long)]
+        composite: bool,
+        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece KIND + Java package.
+        #[arg(long)]
+        id: Option<String>,
+        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        #[arg(long, hide = true)]
+        local: Option<PathBuf>,
+    },
+    /// Scaffold a Day PART crate (a headless, UI-less capability).
+    Part {
+        name: String,
+        /// Comma-separated platforms (macos,ios,android,linux,windows).
+        #[arg(long, default_value = "macos,ios,android,linux,windows")]
+        platforms: String,
+        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
+        #[arg(long)]
+        id: Option<String>,
+        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        #[arg(long, hide = true)]
+        local: Option<PathBuf>,
+    },
+    /// Scaffold a new Day app (alias for `day create`).
+    App {
+        name: String,
+        /// Comma-separated target list
+        #[arg(long, default_value = "macos-appkit")]
+        targets: String,
+        /// Application id (reverse-DNS)
+        #[arg(long)]
+        id: Option<String>,
+    },
+}
+
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
@@ -116,6 +168,28 @@ pub fn run() -> i32 {
         Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
         Cmd::Create { name, targets, id } => create(&name, &targets, id.as_deref()),
+        Cmd::New { what } => match what {
+            NewKind::Piece {
+                name,
+                toolkits,
+                composite,
+                id,
+                local,
+            } => crate::new::piece(
+                &name,
+                toolkits.as_deref(),
+                composite,
+                id.as_deref(),
+                local.as_deref(),
+            ),
+            NewKind::Part {
+                name,
+                platforms,
+                id,
+                local,
+            } => crate::new::part(&name, &platforms, id.as_deref(), local.as_deref()),
+            NewKind::App { name, targets, id } => create(&name, &targets, id.as_deref()),
+        },
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
             for p in &platforms {

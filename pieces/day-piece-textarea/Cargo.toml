@@ -27,6 +27,12 @@ widget = ["dep:day-android"]        # + [package.metadata.day.android] carries t
 winui = ["dep:day-winui", "dep:day-winui-sys"]
 mock = []
 
+# Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
+# no per-backend feature fan-out in its own Cargo.toml.
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
+
 [dependencies]
 day-spec = { workspace = true }
 day-core = { workspace = true }

@@ -142,6 +142,16 @@ flow:
   - select: { id: picker-inline, index: 1 }
   - assert_text: { id: picker-inline-value, text: "Pro" }
   - screenshot: pickers
+  # Compose (DESIGN §8): the composition-first tier — pure-composition pieces (star rating, Card
+  # modifier, badge overlay, ButtonStyle, ambient environment) with no native code and no cargo
+  # features. Tap the 4th star (each star is `compose-rating:N`) to drive the bound signal, then
+  # assert the reactive value label re-rendered.
+  - navigate: { route: compose }
+  - assert_route: { route: compose }
+  - assert_visible: { id: compose-title }
+  - tap: { id: "compose-rating:4" }
+  - assert_text: { id: compose-rating-value, key: compose-rating-value, args: { value: 4 } }
+  - screenshot: compose
   # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
   - navigate: { route: modals }
   - assert_route: { route: modals }

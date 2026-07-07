@@ -4,14 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+# Each backend line is JUST the `day/<backend>` toolkit. The Day CLI derives every standalone piece's
+# `<pkg>/<backend>` renderer feature from `[package.metadata.day.piece]` and unions it into the build
+# (Tier A.2) — so adding a piece is a plain `{ workspace = true }` dep below, with no per-backend
+# feature fan-out here. (Building with bare `cargo` still works: run through `day build` so the union
+# is applied, or add the piece features by hand.)
 [features]
-appkit = ["day/appkit", "day-piece-combobox/appkit", "day-piece-picker/appkit", "day-piece-webview/appkit", "day-piece-media/appkit", "day-piece-activity/appkit", "day-piece-searchfield/appkit", "day-piece-map/appkit"]
-gtk = ["day/gtk", "day-piece-combobox/gtk", "day-piece-picker/gtk", "day-piece-webview/gtk", "day-piece-media/gtk", "day-piece-activity/gtk", "day-piece-searchfield/gtk"]
-qt = ["day/qt", "day-piece-combobox/qt", "day-piece-picker/qt", "day-piece-webview/qt", "day-piece-media/qt", "day-piece-activity/qt", "day-piece-searchfield/qt"]
-uikit = ["day/uikit", "day-piece-combobox/uikit", "day-piece-picker/uikit", "day-piece-webview/uikit", "day-piece-lottie/uikit", "day-piece-media/uikit", "day-piece-activity/uikit", "day-piece-searchfield/uikit", "day-piece-map/uikit"]
-widget = ["day/widget", "day-piece-combobox/widget", "day-piece-picker/widget", "day-piece-webview/widget", "day-piece-lottie/widget", "day-piece-media/widget", "day-piece-activity/widget", "day-piece-searchfield/widget"]
-winui = ["day/winui", "day-piece-combobox/winui", "day-piece-picker/winui", "day-piece-webview/winui", "day-piece-media/winui", "day-piece-activity/winui", "day-piece-searchfield/winui"]
-mock = ["day/mock", "day-piece-media/mock", "day-piece-activity/mock"]
+appkit = ["day/appkit"]
+gtk = ["day/gtk"]
+qt = ["day/qt"]
+uikit = ["day/uikit"]
+widget = ["day/widget"]
+winui = ["day/winui"]
+mock = ["day/mock"]
 
 # rlib for the desktop bin; the iOS staticlib and Android cdylib are requested explicitly by
 # the mobile pipeline via `cargo rustc --crate-type` (day-cli mobile.rs). Keeping cdylib here
@@ -29,6 +34,9 @@ day-part-clipboard = { workspace = true }
 day-part-network = { workspace = true }
 day-piece-combobox = { workspace = true }
 day-piece-picker = { workspace = true }
+# A COMPOSE piece (pure composition — no native code, no cargo features): a plain dep, available on
+# every backend for free. No per-backend feature wiring above, the composition-first payoff.
+day-piece-rating = { workspace = true }
 day-piece-webview = { workspace = true }
 day-piece-media = { workspace = true }
 day-part-haptics = { workspace = true }

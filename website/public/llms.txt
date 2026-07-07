@@ -30,6 +30,12 @@ AI agents (dense, rule-based, canonical); start there if you are generating Day 
 - [API tour](https://daybrite.dev/docs/api-tour): Pieces, Signals, layout, inputs, navigation, localization, accessibility, extensibility — with runnable snippets.
 - [CLI & projects](https://daybrite.dev/docs/cli): the `day` CLI, the conventional project layout, `day.yaml`, and dayscript automation.
 
+## Internal reference
+
+The framework's internal design and reference docs (the repo's `docs/` folder) are published verbatim on the web for contributors and framework authors.
+
+- [Internal docs index](https://daybrite.dev/docs/internal): every internal doc, grouped into Core & UI, Pieces, Parts, and Platform & tooling. Individual docs live at `https://daybrite.dev/docs/internal/<name>` (e.g. `/docs/internal/navigation`, `/docs/internal/shapes`, `/docs/internal/extending`).
+
 ## Invariants (for code generation)
 
 - Build once, bind forever — never rebuild the view on state change; bind a Signal instead.

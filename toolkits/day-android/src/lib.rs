@@ -542,6 +542,32 @@ mod imp {
         ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
     }
 
+    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// back to a visible placeholder. A missing renderer usually means the piece's `widget` feature
+    /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to both
+    /// stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at ERROR, so
+    /// it surfaces even before the redirect installs. Deduped per kind so it doesn't spam the log.
+    fn warn_missing_renderer(kind: PieceKind) {
+        static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+            std::sync::Mutex::new(None);
+        let Ok(mut guard) = SEEN.lock() else { return };
+        if guard
+            .get_or_insert_with(std::collections::HashSet::new)
+            .insert(kind)
+        {
+            let msg = format!(
+                "day: no renderer for piece kind \"{kind}\" on widget (android) \
+                 — is the piece's widget feature enabled? (rendering a placeholder)"
+            );
+            eprintln!("{msg}");
+            if let Ok(c) = std::ffi::CString::new(msg) {
+                // SAFETY: liblog is linked (see the extern block above); `Day` + the message are
+                // valid NUL-terminated C strings for the duration of the call.
+                unsafe { __android_log_write(ANDROID_LOG_ERROR, c"Day".as_ptr(), c.as_ptr()) };
+            }
+        }
+    }
+
     impl Toolkit for Android {
         type Handle = AHandle;
 
@@ -877,6 +903,7 @@ mod imp {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
+                    warn_missing_renderer(kind);
                     with_env(|env| {
                         let s = jstr(env, &format!("⟨{kind}⟩"));
                         AHandle(make_view(

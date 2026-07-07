@@ -1,0 +1,100 @@
+---
+import { getCollection } from 'astro:content';
+import DocsLayout from '../../../layouts/DocsLayout.astro';
+import { url, internalTitle, internalExcerpt } from '../../../lib/site';
+
+// The internal reference docs are the repo's top-level `docs/*.md`, symlinked into
+// src/content/internal (see content.config.ts). They have no frontmatter, so titles/descriptions
+// are derived from the filename / body. `docs/` remains the single source of truth.
+const entries = await getCollection('internal');
+const byId = new Map(entries.map((e) => [e.id, e]));
+
+// Curated groupings. Any ids missing from the collection are skipped; any collection entry not in a
+// group is swept into "Other" so nothing is ever silently dropped.
+const groups: { heading: string; blurb: string; ids: string[] }[] = [
+  {
+    heading: 'Core & UI',
+    blurb: 'Framework-level UI: navigation, lists, layout containers, drawing, text, and the cross-cutting concerns every app touches.',
+    ids: ['navigation', 'list', 'tabs', 'shapes', 'text', 'dialogs', 'menus', 'progress', 'files', 'accessibility', 'localization', 'lifecycle'],
+  },
+  {
+    heading: 'Pieces',
+    blurb: 'Standalone UI Pieces — native widgets that live in their own crates and plug in with zero core edits.',
+    ids: ['picker', 'combobox', 'webview', 'media', 'lottie', 'map', 'searchfield', 'activity'],
+  },
+  {
+    heading: 'Parts',
+    blurb: 'Headless capability crates — the non-UI counterpart of Pieces: device and system access with no widgets.',
+    ids: ['battery', 'sensors', 'clipboard', 'network', 'haptics', 'prefs', 'deviceinfo'],
+  },
+  {
+    heading: 'Platform & tooling',
+    blurb: 'Platform backends, the extension model for authoring your own Pieces, API conventions, and editor tooling.',
+    ids: ['harmonyos', 'extending', 'api-style', 'vscode'],
+  },
+];
+
+const grouped = new Set<string>();
+const sections = groups.map((g) => {
+  const items = g.ids.filter((id) => byId.has(id)).map((id) => byId.get(id)!);
+  items.forEach((e) => grouped.add(e.id));
+  return { heading: g.heading, blurb: g.blurb, items };
+}).filter((s) => s.items.length > 0);
+
+const leftover = entries.filter((e) => !grouped.has(e.id)).sort((a, b) => a.id.localeCompare(b.id));
+if (leftover.length) {
+  sections.push({ heading: 'Other', blurb: 'Additional internal reference docs.', items: leftover });
+}
+
+const total = entries.length;
+---
+<DocsLayout
+  title="Internal docs"
+  description="Day framework internal reference — the repo's docs/ folder, rendered for the web."
+  active="internal"
+>
+  <h1>Internal reference docs</h1>
+  <p class="lead">
+    These are Day's <strong>framework internal docs</strong> — the design and reference notes that
+    live in the repository's <code>docs/</code> folder, rendered here for easy reading. They target
+    contributors and framework authors, and are the source of truth for how each subsystem works.
+    The curated <a href={url('docs/overview')}>Documentation</a> is the place to start if you are
+    building an app.
+  </p>
+
+  {sections.map((s) => (
+    <section class="group">
+      <h2>{s.heading}</h2>
+      <p class="group-blurb">{s.blurb}</p>
+      <div class="doc-cards">
+        {s.items.map((e) => (
+          <a class="doc-card" href={url(`docs/internal/${e.id}`)}>
+            <h3>{internalTitle(e.id)}</h3>
+            <p>{internalExcerpt(e.body ?? '')}</p>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
+
+  <p class="count" data-pagefind-ignore>{total} internal documents.</p>
+</DocsLayout>
+
+<style>
+  .group { margin-top: 8px; }
+  .group h2 { border-top: 1px solid var(--border-soft); }
+  .group-blurb { color: var(--muted); margin: 0 0 18px; max-width: 70ch; }
+  .doc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 8px; }
+  .doc-card {
+    display: block;
+    padding: 18px 20px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    background: var(--surface);
+    transition: border-color 0.15s ease, transform 0.12s ease;
+  }
+  .doc-card:hover { border-color: var(--brand); transform: translateY(-2px); }
+  .doc-card h3 { margin: 0 0 6px; color: var(--text); font-size: 1.05rem; }
+  .doc-card p { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+  .count { color: var(--faint); font-size: 0.85rem; margin-top: 40px; }
+</style>

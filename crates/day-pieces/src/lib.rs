@@ -266,6 +266,63 @@ impl Button {
         self.action = Some(Rc::new(f));
         self
     }
+
+    /// Render this button with a custom [`ButtonStyle`] (the SwiftUI `.buttonStyle(_)` analog):
+    /// the style's `body` builds the visual from the button's label, and the button's action is
+    /// wired via [`Decorate::on_tap`] on the composed result — a COMPOSED tappable view rather
+    /// than the default native `button` leaf. The unstyled [`button`] keeps the native leaf.
+    ///
+    /// v1 has no pressed/hover state: the styled body is static. `s.label_color()` (if any) tints
+    /// the label before `body` sees it (`body` receives it type-erased and cannot recolor it).
+    pub fn style(self, s: impl ButtonStyle + 'static) -> AnyPiece {
+        let Button { title, action } = self;
+        let lbl = Label {
+            text: title,
+            font: Font::Body,
+            weight: None,
+            italic: false,
+            color: s.label_color(),
+        };
+        let styled = s.body(lbl.any());
+        match action {
+            Some(action) => styled.on_tap(move || action()),
+            None => styled,
+        }
+    }
+}
+
+/// A pluggable button appearance (the SwiftUI `ButtonStyle` analog). Pure composition — a style
+/// builds its body from existing pieces/decorators, so it needs no per-backend native code.
+/// Apply one with [`Button::style`].
+pub trait ButtonStyle {
+    /// Build the button's visual body from its (type-erased) `label` piece.
+    fn body(&self, label: AnyPiece) -> AnyPiece;
+    /// An optional label color applied by [`Button::style`] BEFORE the label reaches `body`.
+    /// Defaults to `None` (the label keeps its intrinsic color). A filled/colored style overrides
+    /// this to guarantee contrast — since `body` gets the label type-erased and cannot recolor it,
+    /// this is the seam through which a style tints its label. [`FilledButtonStyle`] returns white.
+    fn label_color(&self) -> Option<day_spec::Color> {
+        None
+    }
+}
+
+/// A filled, rounded button style: a solid `color` background with a white label and comfortable
+/// padding, composed from [`Decorate::padding`]/[`Decorate::background`]/[`Decorate::corner_radius`].
+/// v1 is static (no pressed/hover feedback).
+pub struct FilledButtonStyle {
+    pub color: day_spec::Color,
+}
+
+impl ButtonStyle for FilledButtonStyle {
+    fn body(&self, label: AnyPiece) -> AnyPiece {
+        label
+            .padding(Insets::symmetric(16.0, 8.0))
+            .background(self.color)
+            .corner_radius(8.0)
+    }
+    fn label_color(&self) -> Option<day_spec::Color> {
+        Some(day_spec::Color::WHITE)
+    }
 }
 
 impl Piece for Button {
@@ -705,6 +762,49 @@ impl<P: Piece> Piece for Scroll<P> {
     }
 }
 
+/// A z-stack: children are layered back-to-front (the first child sits at the bottom), all
+/// sharing the container bounds and positioned by the stack's [`Alignment`]. The stack sizes to
+/// the UNION (max width/height) of its children — contrast [`Decorate::overlay`], which sizes to
+/// its content and treats the overlaid piece as a non-sizing annotation. Pure composition: it is
+/// the same native panel as [`column`]/[`row`], so there is no per-backend work.
+pub struct ZStack<C: PieceSeq> {
+    children: C,
+    align: Alignment,
+}
+
+/// Build a [`ZStack`] from a tuple of children (or a [`PieceVec`]).
+pub fn zstack<C: PieceSeq>(children: C) -> ZStack<C> {
+    ZStack {
+        children,
+        align: Alignment::Center,
+    }
+}
+
+impl<C: PieceSeq> ZStack<C> {
+    /// Where children sit within the stack's bounds (default [`Alignment::Center`]).
+    pub fn align(mut self, a: Alignment) -> Self {
+        self.align = a;
+        self
+    }
+}
+
+impl<C: PieceSeq> Piece for ZStack<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let node = cx.native(
+            kinds::CONTAINER,
+            &ContainerProps::default(),
+            Rc::new(OverlayLayout {
+                align: self.align,
+                size_to_first: false,
+            }),
+            Flex::default(),
+            Boundary::No,
+        );
+        cx.under(node, |cx| self.children.build_each(cx));
+        node
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Structure: when / each (§5.3–§5.4)
 // ---------------------------------------------------------------------------
@@ -886,6 +986,42 @@ where
         watch(items, move |new, _| sync(new));
         anchor
     })
+}
+
+// ---------------------------------------------------------------------------
+// @Environment — ambient values over day-reactive's scope context (§4.3). No backend work.
+// ---------------------------------------------------------------------------
+
+/// Provide an ambient value `T` to `content` and its ENTIRE descendant subtree (the SwiftUI
+/// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`
+/// — and any piece built within it — reads it back with [`environment`]. A thin, non-reactive
+/// wrapper: `T` is a snapshot captured here; for a value that must react, provide a `Signal<T>`
+/// (or a `Memo<T>`) and read it reactively inside the subtree.
+///
+/// ```ignore
+/// #[derive(Clone)] struct Theme { accent: Color }
+/// with_environment(Theme { accent: BLUE }, || my_screen())
+/// // deep inside my_screen():  let accent = environment::<Theme>().unwrap().accent;
+/// ```
+pub fn with_environment<T: Clone + 'static>(
+    value: T,
+    content: impl FnOnce() -> AnyPiece + 'static,
+) -> AnyPiece {
+    piece_fn(move |cx| {
+        // A child scope carrying `T`, entered for the whole of `content`'s construction AND build,
+        // so both `content`'s own body and every descendant piece's build resolve it via
+        // `use_context` (which walks scope → ancestors). Owned by the current build scope, so it is
+        // disposed with the enclosing subtree (e.g. a `when` arm) exactly like `when`/`each` scopes.
+        let scope = Scope::child();
+        scope.provide(value);
+        scope.enter(|| content().build(cx))
+    })
+}
+
+/// Read the nearest ambient `T` provided by an enclosing [`with_environment`], or `None` if none is
+/// in scope. Call it while constructing or building a piece within that subtree.
+pub fn environment<T: Clone + 'static>() -> Option<T> {
+    Scope::current().use_context::<T>()
 }
 
 // ---------------------------------------------------------------------------
@@ -1248,6 +1384,23 @@ impl IntoInsets for Insets {
     }
 }
 
+/// A one-shot, by-value view transform (the SwiftUI `ViewModifier` analog): wrap a piece into a
+/// new one. Pure composition — no per-backend work. A plain `FnOnce(AnyPiece) -> AnyPiece` closure
+/// is a `Modifier` too (the blanket impl below), so the common case needs no new type. Apply one
+/// with [`Decorate::modifier`].
+pub trait Modifier {
+    fn apply(self, content: AnyPiece) -> AnyPiece;
+}
+
+impl<F> Modifier for F
+where
+    F: FnOnce(AnyPiece) -> AnyPiece,
+{
+    fn apply(self, content: AnyPiece) -> AnyPiece {
+        self(content)
+    }
+}
+
 pub trait Decorate: Piece + Sized {
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
     fn id(self, id: impl Into<String>) -> AnyPiece {
@@ -1454,6 +1607,42 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Apply a [`Modifier`] — or, via the blanket impl, a plain `FnOnce(AnyPiece) -> AnyPiece`
+    /// closure — to this piece. Pure composition: `content.modifier(m) == m.apply(content.any())`.
+    fn modifier(self, m: impl Modifier) -> AnyPiece {
+        m.apply(self.any())
+    }
+
+    /// Draw `over` on top of this piece, centered, WITHOUT affecting layout size — a badge /
+    /// annotation overlay. `self` is the sizing content (bottom of the z-order); `over` is proposed
+    /// `self`'s size and drawn on top. For an explicit alignment use [`Self::overlay_aligned`]; for
+    /// a stack that sizes to the UNION of its children use [`zstack`].
+    fn overlay(self, over: impl Piece) -> AnyPiece {
+        self.overlay_aligned(Alignment::Center, over)
+    }
+
+    /// [`Self::overlay`] with an explicit [`Alignment`] for the annotation (e.g. a corner badge with
+    /// [`Alignment::TopTrailing`]).
+    fn overlay_aligned(self, align: Alignment, over: impl Piece) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = cx.native(
+                kinds::CONTAINER,
+                &ContainerProps::default(),
+                Rc::new(OverlayLayout {
+                    align,
+                    size_to_first: true,
+                }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = self.build(cx); // sizing content (bottom)
+                let _ = over.build(cx); // annotation on top
+            });
+            node
+        })
+    }
+
     /// Expand to fill the available space on both axes (a filling pane / card that stretches to
     /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`] — the stack
     /// offers it the space and it fills; no native backing, so this is a pure layout change.
@@ -1540,15 +1729,16 @@ impl A11yBuilder {
 pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::{
-        A11yBuilder, Alert, Confirm, Corner, Decorate, Drag, Draw, FileUrl, HAlign, IntoFraction,
-        IntoReactive, IntoText, ItemSlot, List, MenuEntry, OpenFile, Prompt, Reactive, SaveFile,
-        Selector, SelectorStyle, ShapeKind, ShapePiece, SignalRw, Stack, VAlign, alert, app_menu,
-        arc, button, canvas, capsule, circle, column, confirm, divider, each, ellipse, image,
-        label, list, menu_item, menu_role, menu_separator, nav_back, nav_link, navigate, open_file,
-        progress, prompt, rectangle, rounded_rectangle, row, save_file, scroll, selector, shape,
-        slider, spacer, spinner, stack, sub_menu, text_field, toggle, when,
+        A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
+        FilledButtonStyle, HAlign, IntoFraction, IntoReactive, IntoText, ItemSlot, List, MenuEntry,
+        Modifier, OpenFile, Prompt, Reactive, SaveFile, Selector, SelectorStyle, ShapeKind,
+        ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule,
+        circle, column, confirm, divider, each, ellipse, environment, image, label, list,
+        menu_item, menu_role, menu_separator, nav_back, nav_link, navigate, open_file, progress,
+        prompt, rectangle, rounded_rectangle, row, save_file, scroll, selector, shape, slider,
+        spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment, zstack,
     };
-    pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
+    pub use day_core::{Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
     pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,

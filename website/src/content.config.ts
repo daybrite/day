@@ -13,4 +13,17 @@ const docs = defineCollection({
   }),
 });
 
-export const collections = { docs };
+// The framework's internal reference docs. These are the repo's top-level `docs/*.md`, symlinked
+// into `src/content/internal/` so `docs/` stays the single source of truth (see the symlinks). They
+// have NO frontmatter — each opens with an `# H1` — so the schema is fully lenient: every field is
+// optional and titles are derived from the filename / first heading at render time.
+const internal = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/internal' }),
+  schema: z.object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    order: z.number().optional(),
+  }),
+});
+
+export const collections = { docs, internal };

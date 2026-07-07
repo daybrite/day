@@ -7,6 +7,7 @@ mod doctor;
 mod lint;
 mod meta;
 mod mobile;
+mod new;
 mod ops;
 mod pack;
 mod pieces;

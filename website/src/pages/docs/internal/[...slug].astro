@@ -1,0 +1,50 @@
+---
+import { getCollection, render } from 'astro:content';
+import DocsLayout from '../../../layouts/DocsLayout.astro';
+import { url, internalTitle, internalExcerpt } from '../../../lib/site';
+
+// One page per internal reference doc. The docs are the repo's `docs/*.md` (symlinked into
+// src/content/internal); they carry no frontmatter and already open with their own `# H1`, so we
+// render the body as-is and derive the page <title>/description from the filename and first
+// paragraph. A more-specific route than `docs/[...slug]`, so there is no collision.
+export async function getStaticPaths() {
+  const entries = await getCollection('internal');
+  return entries.map((entry) => ({ params: { slug: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const title = entry.data.title ?? internalTitle(entry.id);
+const description = entry.data.description ?? internalExcerpt(entry.body ?? '');
+---
+<DocsLayout title={title} description={description} active="internal">
+  <nav class="crumb" aria-label="Breadcrumb" data-pagefind-ignore>
+    <a href={url('docs/internal')}>← Internal docs</a>
+    <span class="badge">Framework internal reference</span>
+  </nav>
+  <Content />
+</DocsLayout>
+
+<style>
+  .crumb {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 0 0 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .crumb a { color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+  .crumb a:hover { color: var(--text); }
+  .badge {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--faint);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    padding: 3px 10px;
+  }
+</style>

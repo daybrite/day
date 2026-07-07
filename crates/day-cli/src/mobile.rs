@@ -172,6 +172,8 @@ pub fn xcode_backend_build() -> i32 {
         .env("CARGO_TARGET_DIR", &target_dir)
         // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this expects.
+        // `--features` = `uikit` + every standalone piece's `<pkg>/uikit` renderer feature (Tier
+        // A.2), so the app needn't re-list per-piece features in its own Cargo.toml.
         .args([
             "rustc",
             "-p",
@@ -181,7 +183,7 @@ pub fn xcode_backend_build() -> i32 {
             "staticlib",
             "--no-default-features",
             "--features",
-            "uikit",
+            &crate::ops::feature_selection(&project, "uikit"),
         ])
         .args(["--target", triple]);
     if profile == "release" {
@@ -423,6 +425,8 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         .arg(out)
         // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
+        // `--features` = `widget` + every standalone piece's `<pkg>/widget` renderer feature (Tier
+        // A.2), so the app needn't re-list per-piece features in its own Cargo.toml.
         .arg("rustc")
         .args([
             "-p",
@@ -432,7 +436,7 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
             "cdylib",
             "--no-default-features",
             "--features",
-            "widget",
+            &crate::ops::feature_selection(project, "widget"),
         ]);
     if profile == "release" {
         cmd.arg("--release");

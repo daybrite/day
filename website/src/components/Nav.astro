@@ -6,6 +6,7 @@ interface Props { active?: string }
 const { active } = Astro.props;
 const links = [
   { href: url('docs/overview'), label: 'Docs', key: 'docs' },
+  { href: url('docs/internal'), label: 'Internal docs', key: 'internal' },
   { href: url('gallery'), label: 'Gallery', key: 'gallery' },
 ];
 ---

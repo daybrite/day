@@ -25,6 +25,12 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 widget = ["dep:day-android"]        # + [package.metadata.day.android]
 winui = ["dep:day-winui", "dep:day-winui-sys"]     # + build.rs compiles src/lib-winui-shim.cpp
 
+# Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
+# no per-backend feature fan-out in its own Cargo.toml.
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui"]
+
 [dependencies]
 day-spec = { workspace = true }
 day-core = { workspace = true }

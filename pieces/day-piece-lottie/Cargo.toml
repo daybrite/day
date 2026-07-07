@@ -15,6 +15,12 @@ rust-version.workspace = true
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-ui-kit"]
 widget = ["dep:day-android"]
 
+# Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
+# no per-backend feature fan-out in its own Cargo.toml. (Lottie is iOS/Android only.)
+[package.metadata.day.piece]
+backends = ["uikit", "widget"]
+
 [dependencies]
 day-spec = { workspace = true }
 day-core = { workspace = true }

@@ -1150,6 +1150,25 @@ mod imp {
         }
     }
 
+    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// back to a visible placeholder. A missing renderer usually means the piece's `uikit` feature
+    /// wasn't enabled (Tier A.2 derives it automatically under `day build`). Deduped per kind so a
+    /// placeholder rendered every frame doesn't spam the log.
+    fn warn_missing_renderer(kind: PieceKind) {
+        static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+            std::sync::Mutex::new(None);
+        let Ok(mut guard) = SEEN.lock() else { return };
+        if guard
+            .get_or_insert_with(std::collections::HashSet::new)
+            .insert(kind)
+        {
+            eprintln!(
+                "day: no renderer for piece kind \"{kind}\" on uikit \
+                 — is the piece's uikit feature enabled? (rendering a placeholder)"
+            );
+        }
+    }
+
     impl Toolkit for Uikit {
         type Handle = Handle;
 
@@ -1438,6 +1457,7 @@ mod imp {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
+                    warn_missing_renderer(kind);
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
                     view_of(label)

@@ -194,6 +194,24 @@ mod imp {
         }
     }
 
+    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// back to a placeholder (an empty stack node). A missing renderer usually means the piece's
+    /// `arkui` feature wasn't enabled. Deduped per kind so it doesn't spam the log.
+    fn warn_missing_renderer(kind: PieceKind) {
+        static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+            std::sync::Mutex::new(None);
+        let Ok(mut guard) = SEEN.lock() else { return };
+        if guard
+            .get_or_insert_with(std::collections::HashSet::new)
+            .insert(kind)
+        {
+            eprintln!(
+                "day: no renderer for piece kind \"{kind}\" on arkui \
+                 — is the piece's arkui feature enabled? (rendering a placeholder)"
+            );
+        }
+    }
+
     impl Toolkit for ArkUi {
         type Handle = AHandle;
 
@@ -271,6 +289,7 @@ mod imp {
                         let make = r.make;
                         return make(self, props, id);
                     }
+                    warn_missing_renderer(kind);
                     new_node(K_STACK)
                 }
             }

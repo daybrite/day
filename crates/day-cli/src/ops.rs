@@ -27,6 +27,15 @@ pub fn status(prefix: &str, msg: &str) {
     eprintln!("\x1b[1;32m{prefix:>12}\x1b[0m {msg}");
 }
 
+/// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the
+/// unioned `<pkg>/<backend>` renderer feature of every standalone piece in the app's dependency
+/// closure (Tier A.2 — apps no longer fan out per-piece features in their own Cargo.toml).
+pub fn feature_selection(project: &Project, backend: &str) -> String {
+    let mut features = vec![backend.to_string()];
+    features.extend(crate::pieces::feature_union(project, backend));
+    features.join(",")
+}
+
 pub fn build(
     project: &Project,
     target: &'static Target,
@@ -45,13 +54,17 @@ pub fn build(
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
+            // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
+            // renderer feature, derived from `cargo metadata` — so the app depends on a piece
+            // without re-listing its per-backend feature (Tier A.2).
+            let features = feature_selection(project, target.toolkit);
             if target.toolkit == "winui" {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
                 // embed our own — `cargo rustc -- <link-args>` scopes this to the bin only.
                 let manifest = write_winui_manifest(project, target, profile)?;
                 cmd.args(["rustc", "--bin", &project.manifest.app.name])
-                    .args(["--no-default-features", "--features", "winui"]);
+                    .args(["--no-default-features", "--features", &features]);
                 if profile == "release" {
                     cmd.arg("--release");
                 }
@@ -65,7 +78,7 @@ pub fn build(
                     &project.manifest.app.name,
                     "--no-default-features",
                 ])
-                .args(["--features", target.toolkit]);
+                .args(["--features", &features]);
                 if profile == "release" {
                     cmd.arg("--release");
                 }

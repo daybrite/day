@@ -43,6 +43,27 @@ fn node_id(probe: &MockProbe, kind: &str, index: usize) -> NodeId {
     NodeId(found[index].1.node)
 }
 
+/// The `day.container` that directly parents every `day.label` — the piece's own z-layering panel,
+/// as opposed to the mock's window-root container. (`MockWidget::children` holds child handle ids.)
+fn container_of_labels(probe: &MockProbe) -> day_mock::MockWidget {
+    let label_handles: Vec<u64> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(h, _)| h.0)
+        .collect();
+    let mut found: Vec<_> = probe
+        .find_by_kind("day.container")
+        .into_iter()
+        .filter(|(_, w)| label_handles.iter().all(|lh| w.children.contains(lh)))
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one container parenting the labels"
+    );
+    found.remove(0).1
+}
+
 #[test]
 fn counter_updates_exactly_one_op_per_click() {
     let probe = boot(|| {
@@ -1190,6 +1211,163 @@ fn open_file_reads_the_chosen_path() {
     flush_sync();
     assert_eq!(out.borrow().as_deref(), Some("opened contents"));
     let _ = std::fs::remove_file(&path);
+}
+
+// ---------------------------------------------------------------------------
+// Tier A.1 composition-first primitives: zstack / overlay / modifier / ButtonStyle / @Environment.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn zstack_sizes_to_union_and_centers() {
+    // "aa" = 16x16, "bbbb" = 32x16 → the union is 32x16; children centered (default alignment).
+    let probe = boot(|| zstack((label("aa"), label("bbbb"))).any());
+    // The mock's window root is also a `day.container` (400x600); pick the z-stack's own panel.
+    let stack = container_of_labels(&probe);
+    assert_eq!(
+        stack.frame.size,
+        Size::new(32.0, 16.0),
+        "z-stack sizes to the union of its children"
+    );
+    let labels = probe.find_by_kind("day.label");
+    let aa = labels.iter().find(|(_, w)| w.text == "aa").unwrap();
+    let bbbb = labels.iter().find(|(_, w)| w.text == "bbbb").unwrap();
+    // Narrow child centered in the 32-wide union → x = 8; wide child fills it → x = 0.
+    assert_eq!(aa.1.frame.origin.x, 8.0);
+    assert_eq!(bbbb.1.frame.origin.x, 0.0);
+    assert_eq!(aa.1.frame.origin.y, 0.0);
+    assert_eq!(bbbb.1.frame.origin.y, 0.0);
+}
+
+#[test]
+fn zstack_alignment_pins_to_corner() {
+    let probe = boot(|| {
+        zstack((label("aa"), label("bbbb")))
+            .align(Alignment::TopTrailing)
+            .any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    let aa = labels.iter().find(|(_, w)| w.text == "aa").unwrap();
+    // "aa" (16 wide) pinned trailing in the 32-wide union → x = 16, top → y = 0.
+    assert_eq!(aa.1.frame.origin.x, 16.0);
+    assert_eq!(aa.1.frame.origin.y, 0.0);
+}
+
+#[test]
+fn overlay_sizes_to_first_child() {
+    // Content "aa" = 16x16; annotation "wwwwwwww" = 64x16. Sizing to the FIRST child gives a
+    // 16x16 frame (a UNION would be 64x16) — the annotation does not grow the layout.
+    let probe = boot(|| label("aa").overlay(label("wwwwwwww")).any());
+    let overlay = container_of_labels(&probe);
+    assert_eq!(
+        overlay.frame.size,
+        Size::new(16.0, 16.0),
+        "overlay sizes to its content, not the annotation"
+    );
+    assert_eq!(
+        probe.find_by_kind("day.label").len(),
+        2,
+        "both the content and the annotation are built"
+    );
+}
+
+#[test]
+fn modifier_closure_wraps_the_piece() {
+    // A plain FnOnce(AnyPiece) -> AnyPiece is a Modifier (blanket impl): wrap the label in a surface.
+    let probe = boot(|| label("m").modifier(|p: AnyPiece| p.background(Color::hex(0x445566))));
+    assert_eq!(probe.find_by_kind("day.label")[0].1.text, "m");
+    assert!(
+        probe
+            .find_by_kind("day.container")
+            .iter()
+            .any(|(_, w)| w.background == Some(Color::hex(0x445566))),
+        "the modifier wrapped the label in a colored surface"
+    );
+}
+
+#[test]
+fn filled_button_style_tints_its_label_white() {
+    assert_eq!(
+        FilledButtonStyle {
+            color: Color::hex(0x2F6FDE)
+        }
+        .label_color(),
+        Some(Color::WHITE)
+    );
+}
+
+#[test]
+fn button_style_renders_a_composed_tappable_not_a_native_leaf() {
+    let clicks = std::rc::Rc::new(std::cell::Cell::new(0));
+    let c2 = clicks.clone();
+    let probe = boot(move || {
+        button("Go")
+            .action(move || c2.set(c2.get() + 1))
+            .style(FilledButtonStyle {
+                color: Color::hex(0x2F6FDE),
+            })
+    });
+    // A styled button is composed from pieces — no native button leaf is realized.
+    assert!(
+        probe.find_by_kind("day.button").is_empty(),
+        "styled button uses no native leaf"
+    );
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels[0].1.text, "Go");
+    // The filled surface + rounded clip are present.
+    let containers = probe.find_by_kind("day.container");
+    assert!(
+        containers
+            .iter()
+            .any(|(_, w)| w.background == Some(Color::hex(0x2F6FDE))),
+        "colored fill surface"
+    );
+    let clip = containers
+        .iter()
+        .find(|(_, w)| w.clips && w.corner_radius == 8.0)
+        .expect("rounded clip surface");
+    // The action fires through the composed on_tap wired onto the outer surface.
+    probe.emit(
+        NodeId(clip.1.node),
+        Event::Tap(day_spec::Point::new(1.0, 1.0)),
+    );
+    flush_sync();
+    assert_eq!(clicks.get(), 1, "composed tap triggers the button action");
+}
+
+#[test]
+fn with_environment_provides_to_descendants_only() {
+    #[derive(Clone)]
+    struct Tint(u32);
+    let probe = boot(|| {
+        column((
+            with_environment(Tint(7), || {
+                piece_fn(|cx| {
+                    let v = environment::<Tint>().map(|t| t.0).unwrap_or(0);
+                    label(format!("in={v}")).build(cx)
+                })
+            }),
+            // A sibling OUTSIDE the environment scope must not see the value.
+            piece_fn(|cx| {
+                let v = environment::<Tint>().map(|t| t.0).unwrap_or(99);
+                label(format!("out={v}")).build(cx)
+            }),
+        ))
+        .any()
+    });
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert!(
+        texts.contains(&"in=7".to_string()),
+        "descendant reads the ambient value: {texts:?}"
+    );
+    assert!(
+        texts.contains(&"out=99".to_string()),
+        "sibling outside the scope reads None: {texts:?}"
+    );
 }
 
 #[test]

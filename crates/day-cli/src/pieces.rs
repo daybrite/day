@@ -61,6 +61,7 @@ struct Metadata {
 #[derive(Deserialize)]
 struct Package {
     id: String,
+    name: String,
     manifest_path: String,
     #[serde(default)]
     metadata: Option<serde_json::Value>,
@@ -110,6 +111,58 @@ impl<'de> Deserialize<'de> for StringOrVec {
             V::Many(v) => v,
         }))
     }
+}
+
+/// The `[package.metadata.day.piece]` marker a standalone piece declares to name the backends it
+/// carries a native-renderer *feature* for. The Day CLI unions `<pkg>/<backend>` into the app build
+/// (see [`feature_union`]) so the app need only depend on the piece — never re-list its per-backend
+/// features. COMPOSE pieces (built from core pieces, no per-backend feature) omit this table and so
+/// contribute nothing.
+#[derive(Deserialize, Default)]
+struct PieceMeta {
+    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `widget`, `winui`, `mock`) this piece
+    /// declares a `[features]` entry for. Only these get `<pkg>/<backend>` unioned in.
+    #[serde(default)]
+    backends: Vec<String>,
+}
+
+/// Compute the extra `--features` entries that wire each standalone piece's per-backend renderer into
+/// a build whose toolkit is `backend`. Scans the app's dependency closure for pieces declaring
+/// `[package.metadata.day.piece].backends` that INCLUDE `backend` and returns one `<pkg>/<backend>`
+/// per match (deduped, sorted). This lets the app depend on a piece with a plain `{ workspace = true }`
+/// and no per-backend feature fan-out — the CLI derives them here.
+///
+/// Robustness: only pieces that ACTUALLY declare `backend` contribute (so `cargo`'s "feature does not
+/// exist" / "not a direct dependency" errors can't fire), and a metadata failure degrades to an empty
+/// list (warn, don't fail) so the app still builds with whatever features it lists itself. Because the
+/// union is additive, an app that still lists the per-piece features stays correct (dupes are fine).
+pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
+    let meta = match cargo_metadata(project, &[backend]) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!(
+                "day: piece feature discovery failed ({e}); \
+                 building with the app's declared features only"
+            );
+            return Vec::new();
+        }
+    };
+    let in_closure = closure(&meta);
+    let mut feats = Vec::new();
+    for pkg in &meta.packages {
+        if !in_closure.contains(&pkg.id) {
+            continue;
+        }
+        let Some(piece) = piece_meta::<PieceMeta>(pkg, "piece") else {
+            continue;
+        };
+        if piece.backends.iter().any(|b| b == backend) {
+            feats.push(format!("{}/{backend}", pkg.name));
+        }
+    }
+    feats.sort();
+    feats.dedup();
+    feats
 }
 
 /// Run `cargo metadata` for the app with a specific feature selection (no default features), so only

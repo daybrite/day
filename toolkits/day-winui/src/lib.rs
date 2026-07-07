@@ -504,6 +504,25 @@ fn serialize_menu_winui(items: &[day_spec::MenuItem], out: &mut String) {
     }
 }
 
+/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// a visible placeholder. A missing renderer usually means the piece's `winui` feature wasn't enabled
+/// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
+/// every frame doesn't spam the log.
+fn warn_missing_renderer(kind: PieceKind) {
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
+        std::sync::Mutex::new(None);
+    let Ok(mut guard) = SEEN.lock() else { return };
+    if guard
+        .get_or_insert_with(std::collections::HashSet::new)
+        .insert(kind)
+    {
+        eprintln!(
+            "day: no renderer for piece kind \"{kind}\" on winui \
+             — is the piece's winui feature enabled? (rendering a placeholder)"
+        );
+    }
+}
+
 impl Toolkit for WinUi {
     type Handle = WinHandle;
 
@@ -681,6 +700,7 @@ impl Toolkit for WinUi {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
+                    warn_missing_renderer(kind);
                     WinHandle(ffi::day_winui_label_new(
                         cstr(&format!("⟨{kind}⟩")).as_ptr(),
                     ))
