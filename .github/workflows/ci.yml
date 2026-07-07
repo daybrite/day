@@ -435,7 +435,8 @@ jobs:
         run: cargo build --locked -p day-cli
       # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
       # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
-      - uses: openharmony-rs/emulator-action@v1
+      # (@main: emulator-action publishes no release tag yet.)
+      - uses: openharmony-rs/emulator-action@main
         with:
           hdc-wait-seconds: "420"
           port-wait-seconds: "300"
