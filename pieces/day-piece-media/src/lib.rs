@@ -218,6 +218,10 @@ mod uikit_impl;
 #[path = "lib-android.rs"]
 mod android_impl;
 
+#[cfg(all(feature = "winui", windows))]
+#[path = "lib-winui.rs"]
+mod winui_impl;
+
 #[cfg(test)]
 mod tests {
     use super::*;

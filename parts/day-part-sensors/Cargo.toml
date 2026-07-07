@@ -14,7 +14,7 @@ rust-version.workspace = true
 #   HarmonyOS— native libohsensor.so (SensorServiceKit), gated on target_env = "ohos"
 #   Linux    — Industrial I/O sysfs (/sys/bus/iio/devices)
 #   macOS    — no public motion-sensor API → always None
-#   Windows  — stub for now (Windows.Devices.Sensors is a possible future impl)
+#   Windows  — Windows.Devices.Sensors (WinRT poll) via the `windows` crate
 # See docs/sensors.md + docs/extending.md.
 
 [dependencies]
@@ -29,6 +29,12 @@ objc2-core-motion = { version = "0.3", default-features = false, features = [
     "CMMagnetometer",
     "CMLogItem",
 ] }
+
+# Windows reads Windows.Devices.Sensors (WinRT) through the `windows` crate — GetDefault() +
+# GetCurrentReading() is a synchronous poll, no XAML/event subscription. Target-gated so it never
+# touches the Linux/macOS builds. Only the Devices_Sensors namespace feature is enabled.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Devices_Sensors"] }
 
 # Android reads SensorManager through a Java shim + day-android's cached JVM/Context. This is the one
 # platform where the headless crate rides on the day runtime (like the pieces' Android backends).

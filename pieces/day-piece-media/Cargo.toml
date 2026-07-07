@@ -22,10 +22,11 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, l
 # via extern_class!/msg_send! (the WKWebView-on-iOS situation) — see [package.metadata.day.ios].
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation"]
 widget = ["dep:day-android"]        # + [package.metadata.day.android]
-# No native renderer yet on WinUI (MediaPlayerElement is the eventual route) or the mock toolkit —
-# both features exist so apps can enable `day-piece-media/<feature>` uniformly per backend; the
-# media kind then falls back to day's placeholder leaf.
-winui = []
+# WinUI: build.rs compiles src/lib-winui-shim.cpp (a MediaPlayerElement boxed via day-winui-sys's
+# day_winui_box seam, like the picker/webview winui pieces). mock has no renderer — its feature
+# exists so apps can enable `day-piece-media/mock` uniformly; the media kind then falls back to
+# day's placeholder leaf.
+winui = ["dep:day-winui", "dep:day-winui-sys"]
 mock = []
 
 [dependencies]
@@ -39,6 +40,8 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
+day-winui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
