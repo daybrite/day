@@ -402,11 +402,16 @@ jobs:
         id: ohos-sdk
         with:
           version: "6.1"
-      - name: Put the OHOS toolchains (hdc) on PATH + set the cross-linkers
+      - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
         run: |
-          echo "$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$OHOS_NDK_HOME/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          # setup-ohos-sdk's own OHOS_NDK_HOME is the per-OS SDK ROOT; the NDK (the llvm cross-compilers
+          # day-arkui-sys's build.rs and the cargo linkers need) is its `native` component, exposed as
+          # the `ohos_sdk_native` output (…/native, a sibling of …/toolchains). Pin OHOS_NDK_HOME to it.
+          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
+          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
+          echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
       # hvigor + ohpm + node + the DEBUG signing material are not in the public SDK — fetch them from
       # the command-line-tools (cached). hvigor + sign-hap.sh use DEVECO_SDK_HOME (the CLT's
       # self-consistent API-18 SDK, matching build-profile's compatibleSdkVersion + the debug signing
