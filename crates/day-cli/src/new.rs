@@ -1887,9 +1887,15 @@ void *day___SNAKE___winui_new(const char *placeholder, const char *initial, uint
     box.PlaceholderText(hs(placeholder));
     if (initial && *initial)
         box.Text(hs(initial));
-    box.TextChanged([id, cb](WUX::DependencyObject const &s, WUXC::TextChangedEventArgs const &) {
-        std::string t = to_utf8(s.as<WUXC::TextBox>().Text());
-        cb(id, t.c_str());
+    // The TextChanged delegate's sender is IInspectable (NOT DependencyObject) — cppwinrt
+    // reconstructs it as such and can't downcast to a narrower type, so declaring anything else
+    // fails the delegate's noexcept Invoke to compile. Query the TextBox back out of it.
+    box.TextChanged([id, cb](winrt::Windows::Foundation::IInspectable const &s,
+                             WUXC::TextChangedEventArgs const &) {
+        if (auto tb = s.try_as<WUXC::TextBox>()) {
+            std::string t = to_utf8(tb.Text());
+            cb(id, t.c_str());
+        }
     });
     return day_winui_box(winrt::get_abi(box));
 }
