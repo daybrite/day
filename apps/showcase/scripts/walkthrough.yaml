@@ -32,6 +32,45 @@ flow:
   - a11y_audit: { id: gauge }
   - a11y_audit: {}
   - screenshot: gauge
+  # Battery (docs/battery.md): the day-part-battery part feeds a canvas battery drawing. The preview
+  # slider + charging toggle drive a deterministic state (65% + bolt) for the screenshot, then a low
+  # level checks the readout label.
+  - navigate: { route: battery }
+  - assert_route: { route: battery }
+  - assert_visible: { id: battery }
+  - a11y_audit: { id: battery }
+  - set_value: { id: battery-level, value: 65 }
+  - toggle: { id: battery-charging, value: true }
+  - screenshot: battery
+  - set_value: { id: battery-level, value: 12 }
+  - assert_text: { id: battery-level-value, text: "12%" }
+  # Sensors (docs/sensors.md): the day-part-sensors part polls motion sensors; simulators/CI hosts
+  # report "unavailable"/"waiting" — assert presence, not values. Push-model platforms need a
+  # second poll after the first read arms the listener.
+  - navigate: { route: sensors }
+  - assert_route: { route: sensors }
+  - assert_visible: { id: sensors-title }
+  - tap: { id: sensors-refresh }
+  - tap: { id: sensors-refresh }
+  - assert_visible: { id: sensor-accel }
+  - screenshot: sensors
+  # Clipboard (docs/clipboard.md): a real OS roundtrip — Copy writes via the native API, Paste
+  # reads it back (foregrounded, so Android 10+ focus rules are satisfied).
+  - navigate: { route: clipboard }
+  - assert_route: { route: clipboard }
+  - assert_visible: { id: clipboard-title }
+  - input: { id: clipboard-field, text: "day walkthrough clip" }
+  - tap: { id: clipboard-copy }
+  - tap: { id: clipboard-paste }
+  - assert_text: { id: clipboard-pasted, text: "day walkthrough clip" }
+  - screenshot: clipboard
+  # Network (docs/network.md): the day-part-network part reads a connectivity snapshot (CI
+  # hosts/emulators are online).
+  - navigate: { route: network }
+  - assert_route: { route: network }
+  - assert_visible: { id: network-title }
+  - tap: { id: network-refresh }
+  - screenshot: network
   # Shape pieces (docs/shapes.md): canvas-backed shapes, a slider-bound rotation, tap-to-recolor,
   # drag-to-move. Drive the rotation + a tap so the screenshot shows a transformed + recolored shape.
   - navigate: { route: shapes }
@@ -137,6 +176,15 @@ flow:
   # loading before the capture. Visited LAST so a heavy embedded browser can't disturb the route
   # assertions above, and so a webview that misbehaves on a headless runner still leaves every other
   # screenshot captured.
+  # Native media player (docs/media.md): an EXTERNAL piece wrapping each toolkit's native player
+  # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo). The pause lets
+  # first frames of the network sample arrive; then pause playback so the captured frame is stable.
+  - navigate: { route: media }
+  - assert_route: { route: media }
+  - assert_visible: { id: media-title }
+  - pause: { secs: 5 }
+  - tap: { id: media-pause }
+  - screenshot: media
   - navigate: { route: webview }
   - assert_route: { route: webview }
   - assert_visible: { id: webview-title }

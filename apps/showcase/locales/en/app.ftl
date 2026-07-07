@@ -18,6 +18,11 @@ nav-controls = Controls
 nav-menus = Menus
 nav-text = Text
 nav-gauge = Gauge
+nav-battery = Battery
+nav-sensors = Sensors
+nav-clipboard = Clipboard
+nav-network = Network
+nav-media = Media
 nav-shapes = Shapes
 nav-pickers = Pickers
 nav-files = Files
@@ -85,6 +90,48 @@ files-placeholder = Type something to save…
 files-open = Open File…
 files-save = Save File…
 files-opened = Opened { $name }
+
+# Battery playground (docs/battery.md)
+battery-caption = The day-part-battery part reads the device battery natively; the canvas draws it.
+battery-refresh = Read Device Battery
+battery-preview = Preview
+battery-level = Level
+battery-charging = Charging
+battery-reading = Battery: { $percent } · { $state }
+battery-reading-none = Battery: no battery API on this platform
+
+# Sensors playground (docs/sensors.md)
+sensors-caption = The day-part-sensors part polls the device's motion sensors natively.
+sensors-refresh = Read Sensors
+sensor-accelerometer = Accelerometer
+sensor-gyroscope = Gyroscope
+sensor-magnetometer = Magnetometer
+sensor-reading = x { $x } · y { $y } · z { $z } { $unit }
+sensor-waiting = waiting for first sample…
+sensor-unavailable = unavailable on this device
+
+# Clipboard playground (docs/clipboard.md)
+clipboard-caption = The day-part-clipboard part reads and writes the system clipboard natively.
+clipboard-placeholder = Type something to copy
+clipboard-copy = Copy
+clipboard-paste = Paste
+clipboard-idle = Clipboard untouched
+clipboard-copied = Copied to the system clipboard
+clipboard-copy-failed = Copy failed (no clipboard API here)
+clipboard-pasted = Pasted from the system clipboard
+clipboard-empty = Clipboard is empty (or unreadable in the background)
+
+# Network playground (docs/network.md)
+network-caption = The day-part-network part reads the device's connectivity snapshot natively.
+network-refresh = Read Network
+network-reading-online = Online · { $kind } · metered: { $expensive }
+network-reading-offline = Offline
+network-reading-none = No connectivity API on this platform
+
+# Media playground (docs/media.md)
+media-play = Play
+media-pause = Pause
+media-load = Load
 
 # Text playground (typography)
 text-caption = Semantic styles map to the platform's native text styles and accessibility text scaling.

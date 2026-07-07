@@ -69,12 +69,12 @@ jobs:
         run: |
           cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
             --no-default-features --features widget
-      # day-battery is headless (no toolkit feature) — lint its Linux + Android impls here; the
+      # day-part-battery is headless (no toolkit feature) — lint its Linux + Android impls here; the
       # macOS/iOS/Windows impls compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
-      - name: Clippy (day-battery, headless)
+      - name: Clippy (day-part-battery, headless)
         run: |
-          cargo clippy --locked -p day-battery --all-targets
-          cargo clippy --locked --target aarch64-linux-android -p day-battery
+          cargo clippy --locked -p day-part-battery --all-targets
+          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
 
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
@@ -440,9 +440,9 @@ jobs:
         run: cargo test --locked
       - name: Clippy (winui backend)
         run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
-      # Lint the headless day-battery crate's Windows impl (GetSystemPowerStatus) on a real Windows host.
-      - name: Clippy (day-battery, Windows impl)
-        run: cargo clippy --locked -p day-battery --all-targets
+      # Lint the headless day-part-battery crate's Windows impl (GetSystemPowerStatus) on a real Windows host.
+      - name: Clippy (day-part-battery, Windows impl)
+        run: cargo clippy --locked -p day-part-battery --all-targets
       - name: Build day CLI
         run: cargo build --locked -p day-cli
       - name: Walkthrough (windows-winui)

@@ -27,7 +27,11 @@ members = [
     "pieces/day-piece-picker",
     "pieces/day-piece-webview",
     "pieces/day-piece-lottie",
-    "crates/day-battery",
+    "pieces/day-piece-media",
+    "parts/day-part-battery",
+    "parts/day-part-sensors",
+    "parts/day-part-clipboard",
+    "parts/day-part-network",
     "crates/day-cli",
 ]
 # Host-portable crates built/tested by a bare `cargo test`. Backend and app crates join as they land.
@@ -63,7 +67,11 @@ day-piece-combobox = { path = "pieces/day-piece-combobox" }
 day-piece-picker = { path = "pieces/day-piece-picker" }
 day-piece-webview = { path = "pieces/day-piece-webview" }
 day-piece-lottie = { path = "pieces/day-piece-lottie" }
-day-battery = { path = "crates/day-battery" }
+day-part-battery = { path = "parts/day-part-battery" }
+day-part-sensors = { path = "parts/day-part-sensors" }
+day-part-clipboard = { path = "parts/day-part-clipboard" }
+day-part-network = { path = "parts/day-part-network" }
+day-piece-media = { path = "pieces/day-piece-media" }
 day-appkit = { path = "toolkits/day-appkit" }
 day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }

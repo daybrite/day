@@ -13,6 +13,7 @@
 
 #include <string>
 #include <limits>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -177,7 +178,9 @@ static void place_shape(WUXC::Canvas const& canvas, WUXSh::Shape const& p, WUXM:
 // rect as a path of 4 lines + 4 quarter-arcs.
 static WUXM::PathGeometry rounded_rect_geo(double a, double b, double c, double d, double r) {
     double half = (c < d ? c : d) / 2.0; // (windows.h defines min/max macros — avoid std::min)
+    if (half < 0) half = 0;
     if (r > half) r = half;
+    if (r < 0) r = 0;
     auto pt = [](double x, double y) { return WF::Point{ (float)x, (float)y }; };
     auto line = [&](double x, double y) {
         WUXM::LineSegment s;
@@ -474,7 +477,7 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
         std::string all = texts_joined ? texts_joined : "";
         size_t start = 0;
         while (start <= all.size()) {
-            size_t nl = all.find('\n', start);
+            size_t nl = all.find('\x1f', start);
             texts.push_back(all.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
             if (nl == std::string::npos) break;
             start = nl + 1;
@@ -513,16 +516,17 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
         }
         case 0:
         case 1:
-        case 2: {
+        case 2:
+        case 13: {
             WUXSh::Path p;
-            if (k == 2) {
+            if (k == 2 || k == 13) {
                 p.Data(rounded_rect_geo(a, b, c, d, e));
             } else {
                 WUXM::RectangleGeometry rg;
                 rg.Rect(WF::Rect{ (float)a, (float)b, (float)c, (float)d });
                 p.Data(rg);
             }
-            if (k == 1) {
+            if (k == 1 || k == 13) {
                 p.Stroke(brush_bits(col));
                 p.StrokeThickness(g);
             } else {
@@ -605,6 +609,47 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
             WUXC::Canvas::SetLeft(tb, px);
             WUXC::Canvas::SetTop(tb, py);
             canvas.Children().Append(tb);
+            break;
+        }
+        case 11:
+        case 12: { // polygon (11 fill / 12 stroke); points ride texts as "x,y x,y ..."
+            std::string t = ti < texts.size() ? texts[ti++] : std::string();
+            WUXM::PathFigure fig;
+            fig.IsClosed(true);
+            bool first = true;
+            size_t pos = 0;
+            while (pos < t.size()) {
+                size_t sp = t.find(' ', pos);
+                std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+                pos = sp == std::string::npos ? t.size() : sp + 1;
+                size_t comma = pair.find(',');
+                if (comma == std::string::npos || comma == 0) continue;
+                // std::from_chars: locale-independent (atof honors LC_NUMERIC).
+                float x = 0.0f, y = 0.0f;
+                std::from_chars(pair.data(), pair.data() + comma, x);
+                std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
+                if (first) {
+                    fig.StartPoint(WF::Point{ x, y });
+                    first = false;
+                } else {
+                    WUXM::LineSegment seg;
+                    seg.Point(WF::Point{ x, y });
+                    fig.Segments().Append(seg);
+                }
+            }
+            if (!first) {
+                WUXM::PathGeometry pg;
+                pg.Figures().Append(fig);
+                WUXSh::Path p;
+                p.Data(pg);
+                if (k == 12) {
+                    p.Stroke(brush_bits(col));
+                    p.StrokeThickness(g);
+                } else {
+                    p.Fill(brush_bits(col));
+                }
+                place_shape(canvas, p, cur);
+            }
             break;
         }
         }

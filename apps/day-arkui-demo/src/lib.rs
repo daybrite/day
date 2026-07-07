@@ -7,10 +7,10 @@
 
 use day::prelude::*;
 
-/// Format the current device battery (via the headless `day-battery` crate → HarmonyOS's native
+/// Format the current device battery (via the headless `day-part-battery` crate → HarmonyOS's native
 /// `libohbattery_info.so`). Returns a display string for the demo readout.
 fn battery_text() -> String {
-    match day_battery::status() {
+    match day_part_battery::status() {
         Some(b) => format!(
             "Battery: {} ({:?})",
             b.percent().map(|p| format!("{p}%")).unwrap_or("?".into()),
@@ -25,7 +25,7 @@ fn root() -> day::AnyPiece {
     // Native file open/save via the ArkTS DocumentViewPicker (docs/files.md).
     let file_text = Signal::new(String::from("Hello from Day on HarmonyOS!"));
     let status = Signal::new(String::new());
-    // Headless day-battery capability crate → native libohbattery_info.so (docs/battery.md).
+    // Headless day-part-battery capability crate → native libohbattery_info.so (docs/battery.md).
     let battery = Signal::new(battery_text());
     column((
         label("Day on HarmonyOS ArkUI").font(Font::Title),

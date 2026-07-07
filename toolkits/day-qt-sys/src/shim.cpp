@@ -502,6 +502,7 @@ void day_qt_dismiss_present(uint64_t req) {
 // --- canvas + image (day M8) ---
 #include <QPaintEvent>
 #include <QPainter>
+#include <QPolygonF>
 #include <QVector>
 
 extern "C" {
@@ -528,6 +529,7 @@ protected:
                 case 0: p.fillRect(QRectF(a, b, c, d), color); break;
                 case 1: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(QRectF(a, b, c, d)); break;
                 case 2: p.setPen(Qt::NoPen); p.setBrush(color); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+                case 13: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
                 case 3: p.setPen(Qt::NoPen); p.setBrush(color); p.drawEllipse(QRectF(a, b, c, d)); break;
                 case 4: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QRectF(a, b, c, d)); break;
                 case 5: // arc: spec is clockwise-degrees; Qt is CCW 1/16°
@@ -555,6 +557,20 @@ protected:
                     // row-vector meaning. combine=true concatenates onto the current world transform.
                     p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
                     break;
+                case 11: case 12: { // polygon (11 fill / 12 stroke); points in texts as "x,y x,y …"
+                    QString t = ti < texts.size() ? texts[ti++] : QString();
+                    QPolygonF poly;
+                    for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
+                        int comma = pair.indexOf(',');
+                        if (comma > 0)
+                            poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
+                    }
+                    if (poly.size() >= 2) {
+                        if (k == 11) { p.setPen(Qt::NoPen); p.setBrush(color); p.drawPolygon(poly); }
+                        else { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPolygon(poly); }
+                    }
+                    break;
+                }
             }
         }
     }
@@ -565,7 +581,8 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
     DayCanvasWidget *c = static_cast<DayCanvasWidget *>(w);
     c->nums.clear();
     for (int i = 0; i < n; i++) c->nums.append(nums[i]);
-    c->texts = QString::fromUtf8(texts_joined).split(QChar('\n'), Qt::SkipEmptyParts);
+    // 0x1f unit separator; keep empties — one entry per kind-7/11/12 record.
+    c->texts = QString::fromUtf8(texts_joined).split(QChar(0x1f));
     c->update();
 }
 

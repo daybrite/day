@@ -12,6 +12,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 day = { workspace = true, features = ["arkui"] }
-# The headless day-battery crate reads the device battery via HarmonyOS's native
+# The headless day-part-battery crate reads the device battery via HarmonyOS's native
 # libohbattery_info.so — demonstrating a non-UI capability crate on the ArkUI backend.
-day-battery = { workspace = true }
+day-part-battery = { workspace = true }

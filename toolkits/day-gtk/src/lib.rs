@@ -70,9 +70,23 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                     let _ = cr.stroke();
                 }
             }
-            2 => {
-                cr.rectangle(a, b, c, d); // rounded post-MVP refinement
-                let _ = cr.fill();
+            // Rounded rect (2 fill / 13 stroke): cairo has no primitive, so trace the four corner
+            // arcs (radius clamped to half the short side).
+            2 | 13 => {
+                let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
+                use std::f64::consts::FRAC_PI_2;
+                cr.new_sub_path();
+                cr.arc(a + c - r, b + r, r, -FRAC_PI_2, 0.0);
+                cr.arc(a + c - r, b + d - r, r, 0.0, FRAC_PI_2);
+                cr.arc(a + r, b + d - r, r, FRAC_PI_2, 2.0 * FRAC_PI_2);
+                cr.arc(a + r, b + r, r, 2.0 * FRAC_PI_2, 3.0 * FRAC_PI_2);
+                cr.close_path();
+                if k == 2 {
+                    let _ = cr.fill();
+                } else {
+                    cr.set_line_width(g);
+                    let _ = cr.stroke();
+                }
             }
             3 | 4 => {
                 cr.save().ok();
@@ -122,6 +136,33 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
             }
             9 => {
                 cr.restore().ok();
+            }
+            // Polygon (11 fill / 12 stroke): points ride the texts channel as "x,y x,y …".
+            11 | 12 => {
+                let pts = texts.get(ti).cloned().unwrap_or_default();
+                ti += 1;
+                let mut first = true;
+                for pair in pts.split(' ') {
+                    if let Some((x, y)) = pair.split_once(',')
+                        && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
+                    {
+                        if first {
+                            cr.move_to(x, y);
+                            first = false;
+                        } else {
+                            cr.line_to(x, y);
+                        }
+                    }
+                }
+                if !first {
+                    cr.close_path();
+                    if k == 11 {
+                        let _ = cr.fill();
+                    } else {
+                        cr.set_line_width(g);
+                        let _ = cr.stroke();
+                    }
+                }
             }
             10 => {
                 // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the

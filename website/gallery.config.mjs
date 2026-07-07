@@ -53,6 +53,7 @@ export const suites = [
       { id: 'home', label: 'Home' },
       { id: 'controls', label: 'Controls' },
       { id: 'gauge', label: 'Canvas gauge' },
+      { id: 'battery', label: 'Battery (headless part)' },
       { id: 'modals', label: 'Dialogs' },
       { id: 'tabs-one', label: 'Tabs' },
       { id: 'stack-detail', label: 'Navigation stack' },

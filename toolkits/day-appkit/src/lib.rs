@@ -743,7 +743,18 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
                 p.lineToPoint(NSPoint::new(b.x, b.y));
                 p
             }
-            Shape::Polygon(_) => return None,
+            Shape::Polygon(pts) => {
+                if pts.len() < 2 {
+                    return None;
+                }
+                let p = NSBezierPath::new();
+                p.moveToPoint(NSPoint::new(pts[0].x, pts[0].y));
+                for pt in &pts[1..] {
+                    p.lineToPoint(NSPoint::new(pt.x, pt.y));
+                }
+                p.closePath();
+                p
+            }
         })
     }
 }

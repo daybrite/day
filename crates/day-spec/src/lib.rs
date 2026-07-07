@@ -1198,7 +1198,14 @@ impl<B: Toolkit> Registry<B> {
 /// 9 numbers [kind, a, b, c, d, e, f, g, rgba-bits]; text payloads ride separately in order.
 /// Kinds: 0 fill-rect, 1 stroke-rect(g=w), 2 fill-rrect(e=r), 3 fill-ellipse,
 /// 4 stroke-ellipse(g=w), 5 stroke-arc(e=start°, f=sweep°, g=w), 6 line(a,b→c,d, g=w),
-/// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered).
+/// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered), 8 save, 9 restore,
+/// 10 concat(a..f=affine), 11 fill-polygon / 12 stroke-polygon(g=w) — polygon points ride the
+/// texts channel as "x,y x,y …" (closed automatically), 13 stroke-rrect(e=r, g=w).
+///
+/// Transports join `texts` with the unit separator U+001F (one entry per kind-7/11/12 record,
+/// in order), so text payloads must not contain U+001F. Known asymmetry: `Fill(Shape::Arc)`
+/// encodes as kind 5 (stroke) with width 0 — filled arcs render only on the direct-replay
+/// backends (AppKit/UIKit); use a polygon fan if a filled arc must be portable.
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     fn color_bits(c: Color) -> f64 {
         let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
@@ -1244,7 +1251,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         &mut nums,
                     ),
                     Shape::RoundedRect(r, rad) => push(
-                        2.0,
+                        if stroke { 13.0 } else { 2.0 },
                         r.origin.x,
                         r.origin.y,
                         r.size.width,
@@ -1286,7 +1293,28 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     Shape::Line(p1, p2) => {
                         push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, *col, &mut nums)
                     }
-                    Shape::Polygon(_) => {} // post-MVP
+                    Shape::Polygon(pts) => {
+                        // Variable-length points ride the texts side-channel ("x,y x,y …"),
+                        // consumed in record order exactly like text payloads.
+                        push(
+                            if stroke { 12.0 } else { 11.0 },
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            w,
+                            *col,
+                            &mut nums,
+                        );
+                        texts.push(
+                            pts.iter()
+                                .map(|p| format!("{},{}", p.x, p.y))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        );
+                    }
                 }
             }
             DrawOp::Text {

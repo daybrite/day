@@ -18,6 +18,11 @@ nav-controls = Contrôles
 nav-menus = Menus
 nav-text = Texte
 nav-gauge = Jauge
+nav-battery = Batterie
+nav-sensors = Capteurs
+nav-clipboard = Presse-papiers
+nav-network = Réseau
+nav-media = Média
 nav-shapes = Formes
 nav-pickers = Sélecteurs
 nav-files = Fichiers
@@ -85,6 +90,48 @@ files-placeholder = Saisissez du texte à enregistrer…
 files-open = Ouvrir un fichier…
 files-save = Enregistrer le fichier…
 files-opened = Ouvert : { $name }
+
+# Battery playground (docs/battery.md)
+battery-caption = La part day-part-battery lit la batterie de l'appareil nativement ; le canevas la dessine.
+battery-refresh = Lire la batterie
+battery-preview = Aperçu
+battery-level = Niveau
+battery-charging = En charge
+battery-reading = Batterie : { $percent } · { $state }
+battery-reading-none = Batterie : aucune API batterie sur cette plateforme
+
+# Aire de jeu Capteurs (docs/sensors.md)
+sensors-caption = La part day-part-sensors interroge nativement les capteurs de mouvement de l'appareil.
+sensors-refresh = Lire les capteurs
+sensor-accelerometer = Accéléromètre
+sensor-gyroscope = Gyroscope
+sensor-magnetometer = Magnétomètre
+sensor-reading = x { $x } · y { $y } · z { $z } { $unit }
+sensor-waiting = en attente du premier échantillon…
+sensor-unavailable = indisponible sur cet appareil
+
+# Aire de jeu Presse-papiers (docs/clipboard.md)
+clipboard-caption = La part day-part-clipboard lit et écrit le presse-papiers système nativement.
+clipboard-placeholder = Saisissez un texte à copier
+clipboard-copy = Copier
+clipboard-paste = Coller
+clipboard-idle = Presse-papiers intact
+clipboard-copied = Copié dans le presse-papiers système
+clipboard-copy-failed = Échec de la copie (pas d'API presse-papiers ici)
+clipboard-pasted = Collé depuis le presse-papiers système
+clipboard-empty = Presse-papiers vide (ou illisible en arrière-plan)
+
+# Aire de jeu Réseau (docs/network.md)
+network-caption = La part day-part-network lit nativement l'état de connectivité de l'appareil.
+network-refresh = Lire le réseau
+network-reading-online = En ligne · { $kind } · facturé : { $expensive }
+network-reading-offline = Hors ligne
+network-reading-none = Aucune API de connectivité sur cette plateforme
+
+# Aire de jeu Média (docs/media.md)
+media-play = Lecture
+media-pause = Pause
+media-load = Charger
 
 # Aire de jeu Texte (typographie)
 text-caption = Les styles sémantiques correspondent aux styles natifs et à l'échelle de texte d'accessibilité.

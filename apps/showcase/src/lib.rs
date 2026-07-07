@@ -4,6 +4,7 @@
 
 use day::prelude::*;
 use day_piece_combobox::combo_box;
+use day_piece_media::media;
 use day_piece_picker::picker;
 use day_piece_webview::web_view;
 use std::cell::OnceCell;
@@ -94,6 +95,10 @@ pub fn root() -> AnyPiece {
         .item("menus", tr("nav-menus"), menus_page)
         .item("text", tr("nav-text"), text_page)
         .item("gauge", tr("nav-gauge"), gauge_page)
+        .item("battery", tr("nav-battery"), battery_page)
+        .item("sensors", tr("nav-sensors"), sensors_page)
+        .item("clipboard", tr("nav-clipboard"), clipboard_page)
+        .item("network", tr("nav-network"), network_page)
         .item("shapes", tr("nav-shapes"), shapes_page)
         .item("pickers", tr("nav-pickers"), pickers_page)
         .item("modals", tr("nav-modals"), modals_page)
@@ -101,6 +106,7 @@ pub fn root() -> AnyPiece {
         .item("tabs", tr("nav-tabs"), tabs_page)
         .item("stack", tr("nav-stack"), stack_page)
         .item("list", tr("nav-list"), list_page)
+        .item("media", tr("nav-media"), media_page)
         .item("webview", tr("nav-webview"), webview_page);
     // A native Lottie animation view — iOS + Android only (docs/lottie.md).
     #[cfg(any(target_os = "ios", target_os = "android"))]
@@ -919,8 +925,8 @@ fn about_page() -> AnyPiece {
         image("day-logo.png").frame(96.0, 96.0),
         label(tr("app-title")).font(Font::Headline),
         label(tr("about-text")).id("about-text"),
-        // A HEADLESS capability crate (day-battery, docs/battery.md): app Rust calls
-        // `day_battery::status()` directly — no UI Piece — and shows the platform's native reading.
+        // A HEADLESS capability crate (day-part-battery, docs/battery.md): app Rust calls
+        // `day_part_battery::status()` directly — no UI Piece — and shows the platform's native reading.
         label(battery_line()).id("battery-line"),
     ))
     .spacing(12.0)
@@ -929,17 +935,19 @@ fn about_page() -> AnyPiece {
     .any()
 }
 
-/// Format the current battery status read via the headless `day-battery` crate.
-fn battery_line() -> String {
-    match day_battery::status() {
-        Some(b) => format!(
-            "Battery: {} · {:?}",
-            b.percent()
-                .map(|p| format!("{p}%"))
-                .unwrap_or_else(|| "?".into()),
-            b.state
-        ),
-        None => "Battery: no battery API on this platform".into(),
+/// The current battery reading as a localized line (Fluent; the state name stays the API's
+/// enum debug form — it is a value, not prose).
+fn battery_line() -> LocalizedText {
+    match day_part_battery::status() {
+        Some(b) => tr("battery-reading")
+            .arg(
+                "percent",
+                b.percent()
+                    .map(|p| format!("{p}%"))
+                    .unwrap_or_else(|| "?".into()),
+            )
+            .arg("state", format!("{:?}", b.state)),
+        None => tr("battery-reading-none"),
     }
 }
 
@@ -992,6 +1000,339 @@ fn gauge(value: Signal<f64>) -> AnyPiece {
     })
     .id("gauge")
     .frame(110.0, 110.0)
+}
+
+/// Battery playground (docs/battery.md): the headless `day-part-battery` part feeds a canvas-drawn
+/// battery visualization — level fill colored by charge band, a bolt when charging. The preview
+/// slider + toggle drive arbitrary states; "Read Device Battery" snaps back to the real reading.
+fn battery_page() -> AnyPiece {
+    // Seed the preview signals from the device's real reading (a demo value when there's none).
+    let status = day_part_battery::status();
+    let level = Signal::new(
+        status
+            .and_then(|b| b.percent())
+            .map(f64::from)
+            .unwrap_or(80.0),
+    );
+    let charging = Signal::new(status.map(|b| b.is_charging()).unwrap_or(false));
+    let reading = Signal::new(battery_line().format());
+    column((
+        label(tr("nav-battery"))
+            .font(Font::Title)
+            .id("battery-title"),
+        label(tr("battery-caption")),
+        battery_view(level, charging),
+        row((
+            button(tr("battery-refresh"))
+                .action(move || {
+                    reading.set(battery_line().format());
+                    if let Some(b) = day_part_battery::status() {
+                        if let Some(p) = b.percent() {
+                            level.set(f64::from(p));
+                        }
+                        charging.set(b.is_charging());
+                    }
+                })
+                .id("battery-refresh"),
+            label(move || reading.get()).id("battery-reading"),
+        ))
+        .spacing(8.0),
+        divider(),
+        // Preview controls: explore the visualization at any level / charge state.
+        label(tr("battery-preview")).font(Font::Headline),
+        row((
+            label(tr("battery-level")),
+            slider(level).range(0.0..=100.0).id("battery-level"),
+            label(move || format!("{:.0}%", level.get())).id("battery-level-value"),
+        ))
+        .spacing(8.0),
+        row((
+            label(tr("battery-charging")),
+            toggle(charging).id("battery-charging"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// Draw a battery on a canvas: rounded body + terminal nub, a level fill colored by band
+/// (red < 20% ≤ amber < 50% ≤ green), a lightning bolt when charging, and a percent caption.
+fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
+    canvas(move |d, size| {
+        if size.width <= 0.0 || size.height <= 0.0 {
+            return;
+        }
+        let frac = (level.get() / 100.0).clamp(0.0, 1.0);
+        let band = if frac < 0.2 {
+            Color::hex(0xFF3B30) // red
+        } else if frac < 0.5 {
+            Color::hex(0xFF9F0A) // amber
+        } else {
+            Color::hex(0x34C759) // green
+        };
+        let outline = Color::rgba(0.55, 0.55, 0.6, 0.9);
+
+        // Geometry: the body fills the canvas minus the nub on the right and a caption strip below.
+        let caption_h = 26.0;
+        let nub_w = (size.width * 0.05).clamp(6.0, 14.0);
+        let body = Rect::new(
+            2.0,
+            2.0,
+            size.width - nub_w - 6.0,
+            size.height - caption_h - 4.0,
+        );
+        let nub_h = body.size.height * 0.4;
+        let nub = Rect::new(
+            body.max_x() + 2.0,
+            body.center().y - nub_h / 2.0,
+            nub_w,
+            nub_h,
+        );
+        d.stroke(Shape::RoundedRect(body, 12.0), outline, 3.0);
+        d.fill(Shape::RoundedRect(nub, 3.0), outline);
+
+        // The charge fill, inset within the body and clipped to the level fraction.
+        let well = body.inset(6.0);
+        let fill_w = well.size.width * frac;
+        if fill_w > 0.5 {
+            let fill_rect = Rect::new(well.min_x(), well.min_y(), fill_w, well.size.height);
+            d.fill(
+                Shape::RoundedRect(fill_rect, 7.0_f64.min(fill_w / 2.0)),
+                band,
+            );
+        }
+
+        // Charging: a lightning bolt centered in the body (white with a dark edge, so it reads on
+        // both the colored fill and the empty well).
+        if charging.get() {
+            let c = body.center();
+            let (bw, bh) = (body.size.height * 0.42, body.size.height * 0.72);
+            let p =
+                |rx: f64, ry: f64| Point::new(c.x - bw / 2.0 + rx * bw, c.y - bh / 2.0 + ry * bh);
+            let bolt = vec![
+                p(0.62, 0.0),
+                p(0.0, 0.58),
+                p(0.42, 0.58),
+                p(0.38, 1.0),
+                p(1.0, 0.42),
+                p(0.58, 0.42),
+            ];
+            d.fill(
+                Shape::Polygon(bolt.clone()),
+                Color::rgba(1.0, 1.0, 1.0, 0.95),
+            );
+            d.stroke(Shape::Polygon(bolt), Color::rgba(0.0, 0.0, 0.0, 0.35), 1.5);
+        }
+
+        // Percent caption below the battery, in the band color.
+        d.text(
+            &format!("{:.0}%", level.get()),
+            Point::new(size.width / 2.0, size.height - caption_h / 2.0),
+            TextStyle {
+                size: 16.0,
+                color: band,
+                anchor: TextAnchor::Centered,
+            },
+        );
+    })
+    // Accessibility (§13): like the gauge, the canvas gets an explicit Meter role + spoken
+    // label/value (value is a build-time snapshot; reactive a11y is a follow-up).
+    .a11y(move |a| {
+        a.role(Role::Meter)
+            .label(tr("nav-battery").format())
+            .value(format!("{:.0}%", level.get_untracked()))
+    })
+    .id("battery")
+    .frame(260.0, 120.0)
+}
+
+/// Sensors playground (docs/sensors.md): the headless `day-part-sensors` part polls the device's
+/// motion sensors natively. Sensors are push-model on Android/OHOS, so the first read arms the
+/// listener — Refresh twice on a fresh launch; desktops/simulators report "unavailable".
+fn sensors_page() -> AnyPiece {
+    use day_part_sensors::SensorKind;
+    fn sensor_line(kind: SensorKind, unit: &str) -> String {
+        match day_part_sensors::read(kind) {
+            Some(r) => tr("sensor-reading")
+                .arg("x", format!("{:+.2}", r.x))
+                .arg("y", format!("{:+.2}", r.y))
+                .arg("z", format!("{:+.2}", r.z))
+                .arg("unit", unit)
+                .format(),
+            None if day_part_sensors::is_available(kind) => tr("sensor-waiting").format(),
+            None => tr("sensor-unavailable").format(),
+        }
+    }
+    let accel = Signal::new(sensor_line(SensorKind::Accelerometer, "m/s²"));
+    let gyro = Signal::new(sensor_line(SensorKind::Gyroscope, "rad/s"));
+    let magnet = Signal::new(sensor_line(SensorKind::Magnetometer, "µT"));
+    column((
+        label(tr("nav-sensors"))
+            .font(Font::Title)
+            .id("sensors-title"),
+        label(tr("sensors-caption")),
+        row((
+            label(tr("sensor-accelerometer")),
+            label(move || accel.get()).id("sensor-accel"),
+        ))
+        .spacing(8.0),
+        row((
+            label(tr("sensor-gyroscope")),
+            label(move || gyro.get()).id("sensor-gyro"),
+        ))
+        .spacing(8.0),
+        row((
+            label(tr("sensor-magnetometer")),
+            label(move || magnet.get()).id("sensor-magnet"),
+        ))
+        .spacing(8.0),
+        button(tr("sensors-refresh"))
+            .action(move || {
+                accel.set(sensor_line(SensorKind::Accelerometer, "m/s²"));
+                gyro.set(sensor_line(SensorKind::Gyroscope, "rad/s"));
+                magnet.set(sensor_line(SensorKind::Magnetometer, "µT"));
+            })
+            .id("sensors-refresh"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// Clipboard playground (docs/clipboard.md): the headless `day-part-clipboard` part round-trips
+/// plain text through the system clipboard — type, Copy, then Paste reads it back natively.
+fn clipboard_page() -> AnyPiece {
+    let draft = Signal::new(String::new());
+    let pasted = Signal::new(String::new());
+    let status = Signal::new(tr("clipboard-idle").format());
+    column((
+        label(tr("nav-clipboard"))
+            .font(Font::Title)
+            .id("clipboard-title"),
+        label(tr("clipboard-caption")),
+        text_field(draft)
+            .placeholder(tr("clipboard-placeholder"))
+            .id("clipboard-field"),
+        row((
+            button(tr("clipboard-copy"))
+                .action(move || {
+                    let ok = draft.with(|t| day_part_clipboard::set_text(t));
+                    let msg = if ok {
+                        tr("clipboard-copied")
+                    } else {
+                        tr("clipboard-copy-failed")
+                    };
+                    status.set(msg.format());
+                })
+                .id("clipboard-copy"),
+            button(tr("clipboard-paste"))
+                .action(move || match day_part_clipboard::get_text() {
+                    Some(text) => {
+                        pasted.set(text);
+                        status.set(tr("clipboard-pasted").format());
+                    }
+                    None => status.set(tr("clipboard-empty").format()),
+                })
+                .id("clipboard-paste"),
+        ))
+        .spacing(8.0),
+        label(move || status.get()).id("clipboard-status"),
+        label(move || pasted.get()).id("clipboard-pasted"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// Network playground (docs/network.md): the headless `day-part-network` part feeds an
+/// online/offline readout with the connection kind; "Read Network" re-polls the snapshot.
+fn network_page() -> AnyPiece {
+    let reading = Signal::new(network_line().format());
+    column((
+        label(tr("nav-network"))
+            .font(Font::Title)
+            .id("network-title"),
+        label(tr("network-caption")),
+        row((
+            button(tr("network-refresh"))
+                .action(move || reading.set(network_line().format()))
+                .id("network-refresh"),
+            label(move || reading.get()).id("network-reading"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// The current connectivity snapshot as a localized line (Fluent; kind stays the API's enum
+/// debug form — it is a value, not prose).
+fn network_line() -> LocalizedText {
+    match day_part_network::status() {
+        Some(n) => {
+            let line = if n.online {
+                tr("network-reading-online")
+            } else {
+                tr("network-reading-offline")
+            };
+            line.arg("kind", format!("{:?}", n.kind)).arg(
+                "expensive",
+                match n.expensive {
+                    Some(true) => "yes",
+                    Some(false) => "no",
+                    None => "?",
+                },
+            )
+        }
+        None => tr("network-reading-none"),
+    }
+}
+
+/// A native media player (day-piece-media, an EXTERNAL standalone piece): AVPlayerView /
+/// AVPlayerViewController / QMediaPlayer+QVideoWidget / android.widget.VideoView / GtkVideo.
+/// Transport is imperative via `Trigger`s the piece watches; native chrome (where the toolkit
+/// has one) offers its own controls too. The player fills the remaining space (a growing leaf).
+fn media_page() -> AnyPiece {
+    let url = Signal::new(
+        "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4".to_string(),
+    );
+    let play = Trigger::new();
+    let pause = Trigger::new();
+    let load = Trigger::new();
+    column((
+        label(tr("nav-media")).font(Font::Title).id("media-title"),
+        row((
+            button(tr("media-play"))
+                .action(move || play.notify())
+                .id("media-play"),
+            button(tr("media-pause"))
+                .action(move || pause.notify())
+                .id("media-pause"),
+            button(tr("media-load"))
+                .action(move || load.notify())
+                .id("media-load"),
+        ))
+        .spacing(8.0),
+        // muted: CI walkthroughs screenshot this page — don't blast audio on runners.
+        media(url)
+            .looping(true)
+            .muted(true)
+            .play(play)
+            .pause(pause)
+            .load(load)
+            .id("media"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
 }
 
 fn history(count: Signal<i64>) -> AnyPiece {

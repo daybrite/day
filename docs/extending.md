@@ -202,8 +202,11 @@ that pulls an EXTERNAL native package on each platform: the **lottie-ios SwiftPM
 `[package.metadata.day.ios]` mechanism above) and **`com.airbnb.android:lottie`** (Gradle). Its Swift
 and Java shims each wrap a `LottieAnimationView` behind a flat C ABI / static method.
 
-`crates/day-battery` (see [battery.md](battery.md)) is a fourth reference — a **headless** crate with no
-UI Piece at all. It shows the backend-contribution mechanism accommodates non-UI capabilities: it
-contributes Android Java through `[package.metadata.day.android]` (for `BatteryManager`) but registers
-nothing into any `RENDERERS` slice, and selects its per-OS impl by `#[cfg(target_os)]` rather than a
-toolkit feature. Any Rust code can depend on it and call `day_battery::status()`.
+`parts/day-part-battery` (see [battery.md](battery.md)) is a fourth reference — the first **part**:
+a **headless** crate with no UI Piece at all. Where `pieces/` holds UI-library extensions (each
+registers a renderer), `parts/` is its non-UI corollary — capability crates (`day-part-*`) that extend
+Day apps with platform services. It shows the backend-contribution mechanism accommodates non-UI
+capabilities: it contributes Android Java through `[package.metadata.day.android]` (for
+`BatteryManager`) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
+`#[cfg(target_os)]` rather than a toolkit feature. Any Rust code can depend on it and call
+`day_part_battery::status()`.

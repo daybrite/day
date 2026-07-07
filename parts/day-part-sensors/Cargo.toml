@@ -1,0 +1,42 @@
+[package]
+name = "day-part-sensors"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
+# motion sensors (accelerometer / gyroscope / magnetometer) via each platform's NATIVE API. Any Rust
+# code can depend on it and call `day_part_sensors::read(kind)`. Platform selection is by
+# `#[cfg(target_os)]` (sensors are an OS concern, not a widget-toolkit one), so there are no backend
+# features — it "just works" per target:
+#   iOS      — CoreMotion CMMotionManager (poll accessors)
+#   Android  — SensorManager via a Java shim staged through [package.metadata.day.android]
+#   HarmonyOS— native libohsensor.so (SensorServiceKit), gated on target_env = "ohos"
+#   Linux    — Industrial I/O sysfs (/sys/bus/iio/devices)
+#   macOS    — no public motion-sensor API → always None
+#   Windows  — stub for now (Windows.Devices.Sensors is a possible future impl)
+# See docs/sensors.md + docs/extending.md.
+
+[dependencies]
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-core-motion = { version = "0.3", default-features = false, features = [
+    "std",
+    "CMMotionManager",
+    "CMAccelerometer",
+    "CMGyro",
+    "CMMagnetometer",
+    "CMLogItem",
+] }
+
+# Android reads SensorManager through a Java shim + day-android's cached JVM/Context. This is the one
+# platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The SAME mechanism the UI pieces use — but this crate registers NO renderer. `day build` stages this
+# Java and adds it to the app's Gradle build, with zero edits to any core day crate.
+[package.metadata.day.android]
+java = ["android/java"]

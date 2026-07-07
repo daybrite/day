@@ -1,0 +1,78 @@
+[package]
+name = "day-piece-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+# A standalone Day Piece wrapping each toolkit's NATIVE media player (AVPlayerView on AppKit, a
+# hand-rolled AVPlayerViewController on UIKit, QMediaPlayer + QVideoWidget on Qt,
+# android.widget.VideoView on Android, GtkVideo on GTK). Like `day-piece-webview`, it carries BOTH
+# its cross-platform front-end (Rust) and its per-toolkit backend (objc2 / C++ shim / Android Java /
+# gtk-rs) with ZERO edits to any core day crate. See docs/extending.md + docs/media.md.
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-kit", "dep:objc2-av-foundation"]
+# GtkVideo is core GTK, so the gtk feature compiles EVERYWHERE — but actual playback needs gtk4
+# built with a gstreamer media backend (Debian/Fedora default). Homebrew's gtk4 ships none, so on
+# macos-gtk GtkVideo shows its own "no media backend" error UI (the webkitgtk caveat class again).
+gtk = ["dep:day-gtk", "dep:gtk4"]
+qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6MultimediaWidgets when present (else a URL-label fallback)
+# objc2-av-kit 0.3 binds AVPlayerView for macOS only, so UIKit hand-rolls AVPlayerViewController
+# via extern_class!/msg_send! (the WKWebView-on-iOS situation) — see [package.metadata.day.ios].
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation"]
+widget = ["dep:day-android"]        # + [package.metadata.day.android]
+# No native renderer yet on WinUI (MediaPlayerElement is the eventual route) or the mock toolkit —
+# both features exist so apps can enable `day-piece-media/<feature>` uniformly per backend; the
+# media kind then falls back to day's placeholder leaf.
+winui = []
+mock = []
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIViewController", "UIResponder"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSNotification"] }
+objc2-core-media = { version = "0.3", optional = true, features = ["CMTime"] }
+objc2-av-kit = { version = "0.3", optional = true, features = ["AVPlayerView", "objc2-app-kit", "objc2-av-foundation"] }
+objc2-av-foundation = { version = "0.3", optional = true, features = ["AVPlayer", "AVPlayerItem", "AVTime", "objc2-core-media"] }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# Standalone-piece Android contribution (docs/extending.md). The day CLI reads this from
+# `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
+# Java AND declares the Android permissions it needs, with zero edits to day-android or the scaffold.
+[package.metadata.day.android]
+# Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
+java = ["android/java"]
+# Gradle dependency coordinates added to the app module. android.widget.VideoView + MediaController
+# are framework widgets, so no extra dependency is required (androidx.media3/ExoPlayer is the later
+# upgrade for HLS/DASH robustness, via this same key).
+gradle-dependencies = []
+# Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
+gradle-repositories = []
+# Android manifest <uses-permission>s the piece needs — merged into the app manifest by `day build`
+# (network media sources need INTERNET; local files need nothing).
+permissions = ["android.permission.INTERNET"]
+
+# --- iOS backend contribution (docs/extending.md) ---
+# The iOS AVPlayerViewController is hand-rolled in Rust (objc2), so there's no Swift shim — but its
+# ObjC class lives in AVKit.framework (and AVPlayer in AVFoundation.framework), which the app must
+# link. Declaring them here links them via the generated DayPieces SwiftPM package.
+[package.metadata.day.ios]
+frameworks = ["AVKit", "AVFoundation"]

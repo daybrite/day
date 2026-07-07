@@ -1285,7 +1285,7 @@ mod imp {
                     .expect("double array");
                 env.set_double_array_region(&arr, 0, &nums)
                     .expect("fill array");
-                let joined = jstr(env, &texts.join("\n"));
+                let joined = jstr(env, &texts.join("\u{1f}"));
                 let _ = env.call_static_method(
                     BRIDGE,
                     "setCanvasOps",

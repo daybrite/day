@@ -941,7 +941,18 @@ mod imp {
                     p.addLineToPoint(CGPoint::new(b.x, b.y));
                     p
                 }
-                Shape::Polygon(_) => return None,
+                Shape::Polygon(pts) => {
+                    if pts.len() < 2 {
+                        return None;
+                    }
+                    let p = UIBezierPath::bezierPath();
+                    p.moveToPoint(CGPoint::new(pts[0].x, pts[0].y));
+                    for pt in &pts[1..] {
+                        p.addLineToPoint(CGPoint::new(pt.x, pt.y));
+                    }
+                    p.closePath();
+                    p
+                }
             })
         }
     }

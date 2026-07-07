@@ -1,0 +1,39 @@
+[package]
+name = "day-part-battery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
+# battery status via each platform's NATIVE API. Any Rust code can depend on it and call
+# `day_part_battery::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not a
+# widget toolkit), so there are no backend features — it "just works" per target:
+#   macOS    — IOKit IOPowerSources (CoreFoundation)
+#   iOS      — UIDevice batteryLevel/batteryState
+#   Windows  — GetSystemPowerStatus
+#   Linux    — /sys/class/power_supply
+#   HarmonyOS— native libohbattery_info.so (BasicServicesKit), gated on target_env = "ohos"
+#   Android  — BatteryManager via a Java shim staged through [package.metadata.day.android]
+# See docs/battery.md + docs/extending.md.
+
+[dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
+
+# Android reads BatteryManager through a Java shim + day-android's cached JVM/Context. This is the one
+# platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The SAME mechanism the UI pieces use — but this crate registers NO renderer. It shows the
+# backend-contribution system accommodates headless capability crates: `day build` stages this Java
+# and adds it to the app's Gradle build, with zero edits to any core day crate.
+[package.metadata.day.android]
+java = ["android/java"]

@@ -1104,7 +1104,7 @@ impl Toolkit for WinUi {
 
     fn replay(&mut self, h: &WinHandle, ops: &[DrawOp], _size: Size) {
         let (nums, texts) = day_spec::encode_ops(ops);
-        let joined = cstr(&texts.join("\n"));
+        let joined = cstr(&texts.join("\u{1f}"));
         unsafe {
             ffi::day_winui_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
         };
