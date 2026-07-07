@@ -606,6 +606,13 @@ pub mod props {
         pub corner_radius: f64,
         pub clips: bool,
     }
+    /// Reactive surface update for a `background(..)` decorator whose color is a signal/closure:
+    /// the backend re-applies the fill on the container's native backing view. Corner radius and
+    /// clipping are fixed at realize (the `corner_radius(r)` decorator takes a plain `f64`).
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ContainerPatch {
+        Background(Option<Color>),
+    }
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LabelProps {
@@ -796,6 +803,9 @@ pub mod props {
         Reload,
         /// An `Automatic`-height row's content size changed; the host re-measures just that row.
         RowSizeInvalidated(usize),
+        /// Imperatively scroll the native list so its LAST row is fully visible (a chat timeline
+        /// sticking to the newest message). No-op when the list is empty (docs/list.md).
+        ScrollToEnd,
     }
 }
 

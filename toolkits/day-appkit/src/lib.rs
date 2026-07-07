@@ -8,7 +8,7 @@
 #![cfg(target_os = "macos")]
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -171,7 +171,13 @@ impl DayTarget {
 // DayFlipped — top-left-origin container view
 // ---------------------------------------------------------------------------
 
-struct FlippedIvars;
+/// A `background(..)` fill: `(r, g, b, a, corner_radius)`, painted in `drawRect` with NSColor.
+type Surface = (f64, f64, f64, f64, f64);
+
+#[derive(Default)]
+struct FlippedIvars {
+    surface: Cell<Option<Surface>>,
+}
 
 define_class!(
     #[unsafe(super(NSView))]
@@ -185,13 +191,52 @@ define_class!(
         fn is_flipped(&self) -> bool {
             true
         }
+
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            if let Some((r, g, b, a, radius)) = self.ivars().surface.get() {
+                let bounds = self.bounds();
+                unsafe {
+                    NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a).setFill();
+                    let path = if radius > 0.0 {
+                        objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                            bounds, radius, radius,
+                        )
+                    } else {
+                        objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds)
+                    };
+                    path.fill();
+                }
+            }
+        }
     }
 );
 
 impl DayFlipped {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(FlippedIvars);
+        let this = Self::alloc(mtm).set_ivars(FlippedIvars::default());
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Apply a `background`/`corner_radius` surface. The fill (rounded by `corner_radius`) is
+    /// drawn in `drawRect` with NSColor — deliberately NOT via the layer's `backgroundColor`,
+    /// whose CGColorRef argument objc2's `msg_send` cannot type-check. A rounded child clip does
+    /// use the CALayer (`cornerRadius` + `masksToBounds` are a CGFloat + BOOL, which are fine).
+    fn set_surface(&self, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+        self.ivars()
+            .surface
+            .set(bg.map(|c| (c.r, c.g, c.b, c.a, corner_radius)));
+        unsafe {
+            let _: () = msg_send![self, setNeedsDisplay: true];
+            if clips || corner_radius > 0.0 {
+                let _: () = msg_send![self, setWantsLayer: true];
+                let layer: *mut objc2::runtime::AnyObject = msg_send![self, layer];
+                if !layer.is_null() {
+                    let _: () = msg_send![layer, setCornerRadius: corner_radius];
+                    let _: () = msg_send![layer, setMasksToBounds: true];
+                }
+            }
+        }
     }
 }
 
@@ -967,7 +1012,15 @@ impl Toolkit for AppKit {
     fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
         let mtm = self.mtm;
         match kind {
-            kinds::CONTAINER => view_of(DayFlipped::new(mtm)),
+            kinds::CONTAINER => {
+                let v = DayFlipped::new(mtm);
+                if let Some(p) = props.downcast_ref::<ContainerProps>()
+                    && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
+                {
+                    v.set_surface(p.background, p.corner_radius, p.clips);
+                }
+                view_of(v)
+            }
             kinds::SCROLL => {
                 let sv = unsafe { NSScrollView::new(mtm) };
                 unsafe {
@@ -1267,6 +1320,15 @@ impl Toolkit for AppKit {
 
     fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
         match kind {
+            kinds::CONTAINER => {
+                if let (Some(ContainerPatch::Background(c)), Ok(v)) = (
+                    patch.downcast_ref::<ContainerPatch>(),
+                    h.clone().downcast::<DayFlipped>(),
+                ) {
+                    // A background patch only targets a background container (corner radius 0).
+                    v.set_surface(*c, 0.0, false);
+                }
+            }
             kinds::LABEL => {
                 if let (Some(p), Ok(tf)) = (
                     patch.downcast_ref::<LabelPatch>(),
@@ -1435,8 +1497,8 @@ impl Toolkit for AppKit {
                     }
                 }
             }
-            kinds::LIST => {
-                if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+            kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                Some(ListPatch::Reload) => {
                     LIST_STATE.with(|m| {
                         if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
                             // reloadData queries numberOfRows synchronously (snapshot only, no
@@ -1445,7 +1507,18 @@ impl Toolkit for AppKit {
                         }
                     });
                 }
-            }
+                Some(ListPatch::ScrollToEnd) => {
+                    LIST_STATE.with(|m| {
+                        if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
+                            let rows = unsafe { table.numberOfRows() };
+                            if rows > 0 {
+                                unsafe { table.scrollRowToVisible(rows - 1) };
+                            }
+                        }
+                    });
+                }
+                _ => {}
+            },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);
@@ -2143,6 +2216,19 @@ impl Platform for AppKit {
             )
         };
         window.setTitle(&NSString::from_str(&options.title));
+        // Optional window-appearance override (opt-in via env). An app with a fixed light/dark
+        // palette sets `DAY_APPEARANCE=light|dark` so native controls (list, fields, editor) match
+        // its own colors instead of following the system appearance. Unset = follow the system.
+        let appearance_name = match std::env::var("DAY_APPEARANCE").ok().as_deref() {
+            Some("light") => Some(unsafe { objc2_app_kit::NSAppearanceNameAqua }),
+            Some("dark") => Some(unsafe { objc2_app_kit::NSAppearanceNameDarkAqua }),
+            _ => None,
+        };
+        if let Some(name) = appearance_name
+            && let Some(appearance) = unsafe { objc2_app_kit::NSAppearance::appearanceNamed(name) }
+        {
+            window.setAppearance(Some(&appearance));
+        }
         if let Some(min) = options.min_size {
             unsafe { window.setContentMinSize(NSSize::new(min.width, min.height)) };
         }

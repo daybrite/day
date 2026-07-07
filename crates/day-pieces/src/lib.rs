@@ -912,6 +912,8 @@ pub struct List<T: 'static, K: 'static> {
     build_row: Rc<dyn Fn(ItemSlot<T, K>) -> AnyPiece>,
     row_height: RowHeight,
     on_select: Option<Rc<dyn Fn(K)>>,
+    scroll_to_end: Option<day_reactive::Trigger>,
+    stick_to_bottom: bool,
 }
 
 /// Build a recycling list from a reactive items closure, a key function, and a row builder.
@@ -931,6 +933,8 @@ where
         build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
         row_height: RowHeight::Automatic,
         on_select: None,
+        scroll_to_end: None,
+        stick_to_bottom: false,
     }
 }
 
@@ -943,6 +947,23 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
     /// Called with the selected row's key when the native list reports a selection.
     pub fn on_select(mut self, f: impl Fn(K) + 'static) -> Self {
         self.on_select = Some(Rc::new(f));
+        self
+    }
+    /// Scroll the list so its LAST row is fully visible whenever `trigger` fires — e.g. a chat
+    /// timeline sticking to the newest message. Fire it with [`day_reactive::Trigger::notify`]
+    /// after appending. No-op while the list is empty. The scroll targets the native list
+    /// (`NSTableView`/`UITableView`/`GtkListView`/`QListView`/`RecyclerView`), so it respects the
+    /// platform's own scroll physics.
+    pub fn scroll_to_end(mut self, trigger: day_reactive::Trigger) -> Self {
+        self.scroll_to_end = Some(trigger);
+        self
+    }
+    /// Best-effort auto-stick: after a data reload, scroll to the end so freshly appended rows stay
+    /// visible. Convenience over [`Self::scroll_to_end`] for feeds that always follow the newest
+    /// row; for finer control (only stick when the user is already near the bottom) drive
+    /// `scroll_to_end` from your own logic instead. Off by default.
+    pub fn stick_to_bottom(mut self, on: bool) -> Self {
+        self.stick_to_bottom = on;
         self
     }
 }
@@ -1036,8 +1057,28 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
         let initial = day_reactive::untrack(|| items());
         refresh(&initial);
         {
-            let (refresh, items) = (refresh.clone(), items.clone());
-            watch(move || items(), move |new: &Vec<T>, _| refresh(new));
+            // On subsequent data changes: reload, then (if sticking) follow the newest row. The
+            // initial eager `refresh` above deliberately does NOT auto-scroll.
+            let (refresh, items, stick) = (refresh.clone(), items.clone(), self.stick_to_bottom);
+            watch(
+                move || items(),
+                move |new: &Vec<T>, _| {
+                    refresh(new);
+                    if stick {
+                        list_scroll_to_end(node);
+                    }
+                },
+            );
+        }
+
+        // Imperative scroll-to-end: each `trigger.notify()` re-runs this watch (the trigger's
+        // signal is the only tracked dep), whose callback scrolls the native list to its last row.
+        // `watch` never fires for the initial run, so building the list does not force a scroll.
+        if let Some(trigger) = self.scroll_to_end {
+            watch(
+                move || trigger.track(),
+                move |_: &(), _| list_scroll_to_end(node),
+            );
         }
         node
     }
@@ -1256,6 +1297,45 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Fix this piece's WIDTH to `width` points while its height stays flexible (hugging its content
+    /// or filling on the cross axis). The single-axis complement to [`Self::frame`] — e.g. a
+    /// fixed-width sidebar pane in a `row` whose height fills the window.
+    fn width(self, width: f64) -> AnyPiece {
+        piece_fn(move |cx| {
+            let w = cx.layout_only(
+                Rc::new(FrameLayout {
+                    width: Some(width),
+                    height: None,
+                }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                let _ = self.build(cx);
+            });
+            w
+        })
+    }
+
+    /// Fix this piece's HEIGHT to `height` points while its width stays flexible. The single-axis
+    /// complement to [`Self::frame`] — e.g. a fixed-height header/toolbar bar that fills its width.
+    fn height(self, height: f64) -> AnyPiece {
+        piece_fn(move |cx| {
+            let w = cx.layout_only(
+                Rc::new(FrameLayout {
+                    width: None,
+                    height: Some(height),
+                }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                let _ = self.build(cx);
+            });
+            w
+        })
+    }
+
     fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> AnyPiece {
         piece_fn(move |cx| {
             let n = self.build(cx);
@@ -1311,6 +1391,102 @@ pub trait Decorate: Piece + Sized {
                 }
             });
             n
+        })
+    }
+
+    /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /
+    /// badge surface. Accepts a constant [`Color`], a `Signal<Color>`, or a `Fn() -> Color`; a
+    /// reactive color repaints the surface when its source changes. Wraps the piece in a native
+    /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
+    /// colored surface and with [`Self::padding`] for interior inset.
+    fn background<M>(self, color: impl IntoReactive<Color, M>) -> AnyPiece {
+        let color = color.into_reactive();
+        piece_fn(move |cx| {
+            let node = cx.native(
+                kinds::CONTAINER,
+                &ContainerProps {
+                    background: Some(color.get_untracked()),
+                    corner_radius: 0.0,
+                    clips: false,
+                },
+                Rc::new(PassThrough),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            // Only a reactive source needs a binding; a constant fill is applied once at realize.
+            if let Reactive::Dyn(_) = &color {
+                bind(
+                    move || color.get(),
+                    move |c: &Color| {
+                        with_tree(|t| {
+                            t.patch(node, Box::new(ContainerPatch::Background(Some(*c))), false)
+                        });
+                    },
+                );
+            }
+            node
+        })
+    }
+
+    /// Round the piece's corners to `radius` points, clipping its background and content to the
+    /// rounded rectangle. Compose after [`Self::background`] for a rounded colored surface, or use
+    /// alone to round a clipped child (e.g. an avatar image).
+    fn corner_radius(self, radius: f64) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = cx.native(
+                kinds::CONTAINER,
+                &ContainerProps {
+                    background: None,
+                    corner_radius: radius,
+                    clips: true,
+                },
+                Rc::new(PassThrough),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            node
+        })
+    }
+
+    /// Expand to fill the available space on both axes (a filling pane / card that stretches to
+    /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`] — the stack
+    /// offers it the space and it fills; no native backing, so this is a pure layout change.
+    fn grow(self) -> AnyPiece {
+        self.grow_axes(true, true)
+    }
+
+    /// Expand to fill the available horizontal space.
+    fn grow_w(self) -> AnyPiece {
+        self.grow_axes(true, false)
+    }
+
+    /// Expand to fill the available vertical space.
+    fn grow_h(self) -> AnyPiece {
+        self.grow_axes(false, true)
+    }
+
+    #[doc(hidden)]
+    fn grow_axes(self, w: bool, h: bool) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = cx.layout_only(
+                Rc::new(GrowLayout { w, h }),
+                Flex {
+                    grow_w: w,
+                    grow_h: h,
+                    ..Default::default()
+                },
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            node
         })
     }
 

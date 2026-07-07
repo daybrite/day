@@ -1,0 +1,16 @@
+name: matrix-full-demo
+description: Full flow against local Conduit — login as alice, room list, open the test room, send.
+flow:
+  - wait_for: { id: login-title }
+  - input: { id: login-username, text: "@alice:localhost" }
+  - input: { id: login-password, text: "alicepass123" }
+  - tap: { id: login-submit }
+  - pause: { secs: 18 }
+  - screenshot: rooms
+  - tap: { id: room-day-test-room }
+  - pause: { secs: 6 }
+  - screenshot: timeline
+  - input: { id: composer-input, text: "Hello from the Day Matrix client!" }
+  - tap: { id: composer-send }
+  - pause: { secs: 4 }
+  - screenshot: sent

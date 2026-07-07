@@ -31,6 +31,10 @@ pub struct MockWidget {
     pub a11y: A11yProps,
     pub scroll_content: Size,
     pub ops: Vec<DrawOp>,
+    /// Surface style from a `background`/`corner_radius` decorator (probe-visible for tests).
+    pub background: Option<Color>,
+    pub corner_radius: f64,
+    pub clips: bool,
 }
 
 #[derive(Default)]
@@ -215,6 +219,16 @@ impl Toolkit for MockToolkit {
             w.placeholder = p.placeholder.clone();
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
             w.ops = p.ops.clone();
+        } else if let Some(p) = props.downcast_ref::<ContainerProps>() {
+            w.background = p.background;
+            w.corner_radius = p.corner_radius;
+            w.clips = p.clips;
+            if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                detail = format!(
+                    " bg={:?} radius={} clips={}",
+                    p.background, p.corner_radius, p.clips
+                );
+            }
         } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
             // `flag` records indeterminate-ness; `value` the determinate fraction.
             w.flag = p.value.is_none();
@@ -338,6 +352,21 @@ impl Toolkit for MockToolkit {
                     NavPatch::Title(t) => {
                         w.text = t.clone();
                         format!("nav title={t:?}")
+                    }
+                }
+            } else if let Some(ContainerPatch::Background(c)) =
+                patch.downcast_ref::<ContainerPatch>()
+            {
+                w.background = *c;
+                format!("bg={c:?}")
+            } else if let Some(p) = patch.downcast_ref::<ListPatch>() {
+                match p {
+                    ListPatch::Reload => "list reload".into(),
+                    ListPatch::RowSizeInvalidated(i) => format!("list row-size-invalidated {i}"),
+                    ListPatch::ScrollToEnd => {
+                        // Record that the host was asked to follow its last row (probe-visible).
+                        w.flag = true;
+                        "list scroll-to-end".into()
                     }
                 }
             } else {

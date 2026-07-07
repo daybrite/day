@@ -111,6 +111,32 @@ fn schedule_list_populate(host_key: usize) {
     unsafe { ffi::day_winui_post(run_posted, data) };
 }
 
+/// Scroll the (emulated) list host to its bottom on the next turn — deferred so any pending
+/// `list_populate` has sized the content Canvas first (posts run FIFO). No-op when empty.
+fn schedule_list_scroll_end(host_key: usize) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || list_scroll_end(host_key));
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_winui_post(run_posted, data) };
+}
+
+fn list_scroll_end(host_key: usize) {
+    // The list host is a ScrollViewer; make the last row's band [y, y+rowh] visible (its content
+    // Canvas is `rows * rowh` tall). Reuses the general scroll seam — no new WinUI shim.
+    let target = LIST_STATE.with(|m| {
+        let m = m.borrow();
+        let st = m.get(&host_key)?;
+        let n = st.source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+        if n == 0 {
+            return None;
+        }
+        let rowh = st.row_height.max(1.0);
+        Some((st.host, (n - 1) as f64 * rowh, rowh))
+    });
+    if let Some((host, y, rowh)) = target {
+        unsafe { ffi::day_winui_scroll_to(host, y.round() as c_int, rowh.round() as c_int, 1) };
+    }
+}
+
 fn list_populate(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: grow the cell pool + snapshot what we need.
     let Some((content, rowh, source, cells, n, width)) = LIST_STATE.with(|m| {
@@ -499,10 +525,13 @@ impl Toolkit for WinUi {
             match kind {
                 kinds::CONTAINER => {
                     let h = ffi::day_winui_container_new();
-                    if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && let Some(bg) = p.background
-                    {
-                        ffi::day_winui_container_set_bg(h, argb(bg));
+                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        if let Some(bg) = p.background {
+                            ffi::day_winui_container_set_bg(h, argb(bg));
+                        }
+                        if p.corner_radius > 0.0 {
+                            ffi::day_winui_container_set_corner(h, p.corner_radius);
+                        }
                     }
                     WinHandle(h)
                 }
@@ -666,6 +695,17 @@ impl Toolkit for WinUi {
     ) {
         unsafe {
             match kind {
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(c)) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        // A cleared background maps to fully transparent (best-effort on WinUI).
+                        ffi::day_winui_container_set_bg(
+                            h.0,
+                            argb(c.unwrap_or(day_spec::Color::CLEAR)),
+                        );
+                    }
+                }
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
@@ -727,11 +767,11 @@ impl Toolkit for WinUi {
                         });
                     }
                 }
-                kinds::LIST => {
-                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
-                        schedule_list_populate(h.0 as usize);
-                    }
-                }
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
+                    Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+                    _ => {}
+                },
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
                     {

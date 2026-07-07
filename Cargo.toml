@@ -38,8 +38,14 @@ members = [
     "pieces/day-piece-activity",
     "pieces/day-piece-searchfield",
     "pieces/day-piece-map",
+    "pieces/day-piece-remote-image",
+    "pieces/day-piece-textarea",
     "crates/day-cli",
 ]
+# apps/matrix is its OWN workspace (it pulls the heavy matrix-rust-sdk tree — ~400 crates — which must
+# NOT bloat this workspace's lockfile or per-backend CI). It depends on day crates + the general pieces
+# by relative path. See apps/matrix/DESIGN.md.
+exclude = ["apps/matrix"]
 # Host-portable crates built/tested by a bare `cargo test`. Backend and app crates join as they land.
 default-members = [
     "crates/day-fluent",
@@ -84,6 +90,8 @@ day-part-deviceinfo = { path = "parts/day-part-deviceinfo" }
 day-piece-activity = { path = "pieces/day-piece-activity" }
 day-piece-searchfield = { path = "pieces/day-piece-searchfield" }
 day-piece-map = { path = "pieces/day-piece-map" }
+day-piece-remote-image = { path = "pieces/day-piece-remote-image" }
+day-piece-textarea = { path = "pieces/day-piece-textarea" }
 day-appkit = { path = "toolkits/day-appkit" }
 day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }

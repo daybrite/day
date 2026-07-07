@@ -1,0 +1,72 @@
+[package]
+name = "day-piece-textarea"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+# An EXTERNAL Day Piece (DESIGN.md §15): a NATIVE MULTI-LINE text editor for a message composer — the
+# multi-line complement to day's single-line `text_field`. Realized as a scrolling native editor per
+# toolkit (NSTextView-in-NSScrollView / UITextView / GtkTextView-in-GtkScrolledWindow / a QPlainTextEdit
+# shim / a multiline EditText / a wrapping WinUI TextBox). Bound TWO-WAY to a `Signal<String>` (native
+# edits set the signal; a signal change patches the control), and it grows in height with its content
+# between `min_lines` and `max_lines` (then scrolls). Carries BOTH its cross-platform front-end (Rust)
+# and its per-toolkit backend (objc2 / C++ shim / Android Java / gtk-rs) with ZERO edits to any core day
+# crate — the searchfield piece's structure, widened to a multi-line control.
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QPlainTextEdit); Qt libs linked by day-qt-sys
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+widget = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayTextArea Java factory
+# WinUI: build.rs compiles src/lib-winui-shim.cpp (a wrapping multiline TextBox boxed via day-winui-sys's
+# day_winui_box seam, like the searchfield winui piece). Windows-only, built in CI, not verified locally.
+# mock has no renderer — its feature exists so apps can enable `day-piece-textarea/mock` uniformly; the
+# textarea kind then falls back to day's placeholder leaf.
+winui = ["dep:day-winui", "dep:day-winui-sys"]
+mock = []
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
+day-winui-sys = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = [
+    "NSResponder", "NSView", "NSControl", "NSTextField",
+    "NSText", "NSTextView", "NSLayoutManager", "NSTextContainer",
+    "NSScrollView", "NSClipView", "NSColor", "NSFont",
+] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSNotification", "NSGeometry", "NSObject"] }
+objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = [
+    "UITextView", "UIScrollView", "UIView", "UIResponder", "UILabel", "UIFont", "UIColor", "UITextInput",
+] }
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from `cargo metadata`
+# and folds it into the app's Gradle build — the piece carries its own backend Java
+# (dev.daybrite.day.piece.textarea.DayTextArea), with ZERO edits to day-android. A plain EditText needs
+# no Gradle dependency or manifest permission.
+[package.metadata.day.android]
+# Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
+java = ["android/java"]
+# Gradle dependency coordinates added to the app module (none — EditText is a framework widget).
+gradle-dependencies = []
+# Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
+gradle-repositories = []

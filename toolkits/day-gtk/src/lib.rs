@@ -385,6 +385,54 @@ fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
 
+thread_local! {
+    /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
+    /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
+    static SURFACE: RefCell<HashMap<usize, gtk4::CssProvider>> = RefCell::new(HashMap::new());
+}
+
+/// Apply a `background`/`corner_radius` surface to a container widget via a scoped CSS provider
+/// (a unique `.day-surface-N` class added to just this widget). `overflow: hidden` rounds the
+/// child clip. Idempotent — reuses the provider on a reactive background patch.
+fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+    let key = widget_key(w);
+    let class = format!("day-surface-{key}");
+    let provider = SURFACE.with(|m| {
+        m.borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                let p = gtk4::CssProvider::new();
+                if let Some(display) = gtk4::gdk::Display::default() {
+                    gtk4::style_context_add_provider_for_display(
+                        &display,
+                        &p,
+                        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                    );
+                }
+                w.add_css_class(&class);
+                p
+            })
+            .clone()
+    });
+    let mut body = String::new();
+    if let Some(c) = bg {
+        body.push_str(&format!(
+            "background-color: rgba({},{},{},{});",
+            (c.r * 255.0).round() as u32,
+            (c.g * 255.0).round() as u32,
+            (c.b * 255.0).round() as u32,
+            c.a
+        ));
+    }
+    if corner_radius > 0.0 {
+        body.push_str(&format!("border-radius: {corner_radius}px;"));
+    }
+    provider.load_from_data(&format!(".{class} {{ {body} }}"));
+    if clips || corner_radius > 0.0 {
+        w.set_overflow(gtk4::Overflow::Hidden);
+    }
+}
+
 /// Emit each page's content size so NavLayout re-lays it (enqueue-only, §8.3). Split: the
 /// sidebar is a fixed width and the detail fills the rest; stack: every page fills the host.
 fn nav_report(host_key: usize) {
@@ -635,7 +683,15 @@ impl Toolkit for Gtk {
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> Handle {
         match kind {
-            kinds::CONTAINER => gtk4::Fixed::new().upcast(),
+            kinds::CONTAINER => {
+                let w: Handle = gtk4::Fixed::new().upcast();
+                if let Some(p) = props.downcast_ref::<ContainerProps>()
+                    && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
+                {
+                    apply_surface(&w, p.background, p.corner_radius, p.clips);
+                }
+                w
+            }
             kinds::NAV => {
                 let is_split = props
                     .downcast_ref::<NavProps>()
@@ -930,6 +986,12 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            kinds::CONTAINER => {
+                if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
+                {
+                    apply_surface(h, *c, 0.0, false);
+                }
+            }
             kinds::NAV_MENU => {
                 if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                     NAV_MENUS.with(|m| {
@@ -1061,8 +1123,8 @@ impl Toolkit for Gtk {
                     }
                 }
             }
-            kinds::LIST => {
-                if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+            kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                Some(ListPatch::Reload) => {
                     LIST_STATE.with(|m| {
                         if let Some(e) = m.borrow().get(&widget_key(h)) {
                             // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).
@@ -1070,7 +1132,20 @@ impl Toolkit for Gtk {
                         }
                     });
                 }
-            }
+                Some(ListPatch::ScrollToEnd) => {
+                    // GtkListView::scroll_to needs v4_12; we target v4_10, so drive the scrolled
+                    // window's vertical adjustment to its maximum instead. Deferred past this
+                    // with_tree borrow AND past any pending reload splice so the freshly bound rows
+                    // are allocated before we read the extent.
+                    if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
+                        let adj = sw.vadjustment();
+                        gtk4::glib::idle_add_local_once(move || {
+                            adj.set_value(adj.upper() - adj.page_size());
+                        });
+                    }
+                }
+                _ => {}
+            },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);

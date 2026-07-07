@@ -832,6 +832,21 @@ mod imp {
         unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
     }
 
+    /// Apply a `background`/`corner_radius` surface to a container view: UIView carries a native
+    /// `backgroundColor`; the corner radius / rounded clip go on its CALayer (reached with
+    /// `msg_send`, no QuartzCore dep). Idempotent — called at realize and on a background patch.
+    fn apply_surface(v: &UIView, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+        unsafe {
+            match bg {
+                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
+                None => v.setBackgroundColor(None),
+            }
+            let layer: *mut objc2::runtime::AnyObject = msg_send![v, layer];
+            let _: () = msg_send![layer, setCornerRadius: corner_radius];
+            let _: () = msg_send![layer, setMasksToBounds: clips || corner_radius > 0.0];
+        }
+    }
+
     fn cg(r: day_spec::Rect) -> CGRect {
         CGRect::new(
             CGPoint::new(r.origin.x, r.origin.y),
@@ -1148,7 +1163,15 @@ mod imp {
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
             let mtm = mtm();
             match kind {
-                kinds::CONTAINER => view_of(unsafe { UIView::new(mtm) }),
+                kinds::CONTAINER => {
+                    let v = unsafe { UIView::new(mtm) };
+                    if let Some(p) = props.downcast_ref::<ContainerProps>()
+                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
+                    {
+                        apply_surface(&v, p.background, p.corner_radius, p.clips);
+                    }
+                    view_of(v)
+                }
                 kinds::NAV => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     let _ = p;
@@ -1430,6 +1453,18 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(c)) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        unsafe {
+                            match c {
+                                Some(c) => h.setBackgroundColor(Some(&uicolor(*c))),
+                                None => h.setBackgroundColor(None),
+                            }
+                        }
+                    }
+                }
                 kinds::TABS => {
                     if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                         let tabbar = TABS_STATE.with(|m| {
@@ -1573,8 +1608,8 @@ mod imp {
                         }
                     }
                 }
-                kinds::LIST => {
-                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Reload) => {
                         LIST_STATE.with(|m| {
                             if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
                                 // reloadData: numberOfRows reads the snapshot only, cellForRow is
@@ -1583,7 +1618,36 @@ mod imp {
                             }
                         });
                     }
-                }
+                    Some(ListPatch::ScrollToEnd) => {
+                        LIST_STATE.with(|m| {
+                            if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
+                                // Row count from the snapshot (no tree). Empty list → no-op.
+                                let n = data
+                                    .ivars()
+                                    .source
+                                    .borrow()
+                                    .as_ref()
+                                    .map(|s| (s.len)())
+                                    .unwrap_or(0);
+                                if n > 0 {
+                                    let ip =
+                                        objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                                            (n - 1) as isize,
+                                            0,
+                                        );
+                                    unsafe {
+                                        table.scrollToRowAtIndexPath_atScrollPosition_animated(
+                                            &ip,
+                                            objc2_ui_kit::UITableViewScrollPosition::Bottom,
+                                            true,
+                                        )
+                                    };
+                                }
+                            }
+                        });
+                    }
+                    _ => {}
+                },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);

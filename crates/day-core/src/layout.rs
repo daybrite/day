@@ -396,6 +396,48 @@ impl Layout for PaddingLayout {
     }
 }
 
+/// The `grow`/`grow_w`/`grow_h` decorators (§5.2): a single-child wrapper carrying grow [`Flex`]
+/// so the parent stack OFFERS it the space, and a greedy measure/place so the child actually
+/// FILLS it. Non-grown axes hug the child (like `frame(maxWidth: .infinity)` on one axis).
+pub struct GrowLayout {
+    pub w: bool,
+    pub h: bool,
+}
+
+impl Layout for GrowLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let cs = match children.first() {
+            Some(&c) => cx.measure_child(c, p),
+            None => Size::ZERO,
+        };
+        Size::new(
+            if self.w {
+                p.width.unwrap_or(cs.width)
+            } else {
+                cs.width
+            },
+            if self.h {
+                p.height.unwrap_or(cs.height)
+            } else {
+                cs.height
+            },
+        )
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let cs = cx.measure_child(c, Proposal::exact(bounds.size));
+            // Fill the grown axes; hug the child on the rest.
+            let w = if self.w { bounds.size.width } else { cs.width };
+            let h = if self.h {
+                bounds.size.height
+            } else {
+                cs.height
+            };
+            cx.place_child(c, Rect::from_size(Size::new(w, h)));
+        }
+    }
+}
+
 pub struct FrameLayout {
     pub width: Option<f64>,
     pub height: Option<f64>,

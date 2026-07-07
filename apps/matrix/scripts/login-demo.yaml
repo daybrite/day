@@ -1,0 +1,10 @@
+name: matrix-login-demo
+description: Real login to the local Conduit homeserver as alice, then sync + room list.
+flow:
+  - wait_for: { id: login-title }
+  - screenshot: login
+  - input: { id: login-username, text: "@alice:localhost" }
+  - input: { id: login-password, text: "alicepass123" }
+  - tap: { id: login-submit }
+  - pause: { secs: 14 }
+  - screenshot: rooms

@@ -32,6 +32,30 @@ slot — never move the item in — so a surviving cell can be fed a new `&T` wi
 Builder options: `.row_height(RowHeight)`, `.on_select(Fn(K))`, and (reserved) `.row_kind(Fn(&T) -> RowKind)`
 mapping to native reuse pools.
 
+### Imperative scroll-to-end (chat timelines)
+
+A chat timeline wants to *stick to the newest message*. Two additive builder options drive the
+native list's own scroller (never a Day-side scroll view):
+
+```rust
+let follow = day_reactive::Trigger::new();
+list(move || messages.get(), |m| m.id, row_builder)
+    .scroll_to_end(follow)   // each `follow.notify()` scrolls so the LAST row is fully visible
+    .stick_to_bottom(true)   // convenience: auto-scroll to end after every data reload
+// … after appending a message:
+follow.notify();
+```
+
+- `.scroll_to_end(Trigger)` — a `watch` on the trigger applies a new `ListPatch::ScrollToEnd`, which
+  each backend maps to its native "make the last row visible" call
+  (`NSTableView::scrollRowToVisible` · `UITableView::scrollToRowAtIndexPath(.bottom)` ·
+  `GtkScrolledWindow` vadjustment→max · `QScrollArea` scrollbar→max ·
+  `ListView::smoothScrollToPosition` · WinUI `ScrollViewer::ChangeView`). day-core guards the
+  **empty-list** case (no patch is sent), and building the list never auto-scrolls.
+- `.stick_to_bottom(bool)` — best-effort convenience that scrolls to the end after each data reload.
+  It does *not* check whether the user is already near the bottom (no cross-backend scroll-position
+  read exists yet); for that finer behaviour drive `scroll_to_end` from your own logic instead.
+
 ## The seam — `ListSource` (native → Day, synchronous)
 
 Recycling lists *pull*: the native data-source asks, synchronously, "how many rows?" and "fill

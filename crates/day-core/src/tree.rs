@@ -421,6 +421,8 @@ pub trait TreeOps {
     fn list_layout_cell(&mut self, node: RNode, key: usize);
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
+    /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
+    fn list_scroll_to_end(&mut self, node: RNode);
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -825,6 +827,22 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 &handle,
                 kinds::LIST,
                 &day_spec::props::ListPatch::Reload as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn list_scroll_to_end(&mut self, node: RNode) {
+        // Empty list: nothing to scroll to (the row count is read straight from the piece's
+        // snapshot — no tree access — so this guard is cheap and backend-independent).
+        if self.lists.get(&node).map(|s| (s.driver.len)()).unwrap_or(0) == 0 {
+            return;
+        }
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::ScrollToEnd as &dyn Any,
                 None,
             );
         }

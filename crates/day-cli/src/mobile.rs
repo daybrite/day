@@ -287,9 +287,15 @@ pub fn build_ios(
     if !out.status.success() {
         return Err(format!("xcodebuild failed:\n{}", diagnose_xcodebuild(&out)));
     }
-    let app = symroot
-        .join(format!("{configuration}-iphonesimulator"))
-        .join("Showcase.app");
+    // The Runner target's product bundle is named after the app's PRODUCT_NAME (per app), so locate
+    // the single `.app` in the products dir rather than assuming a fixed name.
+    let products = symroot.join(format!("{configuration}-iphonesimulator"));
+    let app = std::fs::read_dir(&products)
+        .map_err(|e| format!("reading {}: {e}", products.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
+        .ok_or_else(|| format!("no .app bundle in {}", products.display()))?;
     Ok(BuildOutcome {
         target: target.name,
         artifact: app,

@@ -25,6 +25,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QListWidget>
 #include <QResizeEvent>
 #include <QSplitter>
@@ -93,6 +94,29 @@ void day_qt_window_on_resize(void *win, void (*cb)(int, int)) {
 void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
 
 void *day_qt_container_new() { return new QWidget(); }
+
+void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, double radius,
+                               int clips) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    // A unique object name scopes the stylesheet to THIS widget (`#name { ... }`) so the fill does
+    // not bleed into child widgets the way a bare `background-color` on a parent QWidget would.
+    static unsigned long counter = 0;
+    if (widget->objectName().isEmpty())
+        widget->setObjectName(QString("daySurface%1").arg(counter++));
+    widget->setAttribute(Qt::WA_StyledBackground, true);
+    QString body;
+    if (a > 0.0) {
+        body += QString("background-color: rgba(%1,%2,%3,%4);")
+                    .arg(int(r * 255.0 + 0.5))
+                    .arg(int(g * 255.0 + 0.5))
+                    .arg(int(b * 255.0 + 0.5))
+                    .arg(a, 0, 'f', 3);
+    }
+    if (radius > 0.0)
+        body += QString("border-radius: %1px;").arg(radius);
+    (void)clips; // stylesheet border-radius rounds the background; child clipping is best-effort.
+    widget->setStyleSheet(QString("#%1 { %2 }").arg(widget->objectName()).arg(body));
+}
 
 // --- label ---
 void *day_qt_label_new(const char *text) {
@@ -218,6 +242,12 @@ void *day_qt_scroll_content(void *w) {
 void day_qt_scroll_set_content_size(void *w, int cw, int ch) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     if (sa && sa->widget()) sa->widget()->resize(cw, ch);
+}
+// Scroll the (emulated) list/scroll area to its very bottom so the last row is fully visible.
+void day_qt_scroll_to_bottom(void *w) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(sb->maximum());
 }
 
 // --- tree / geometry ---

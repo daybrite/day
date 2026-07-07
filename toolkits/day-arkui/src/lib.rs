@@ -199,7 +199,21 @@ mod imp {
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
             match kind {
-                kinds::CONTAINER => new_node(K_STACK),
+                kinds::CONTAINER => {
+                    let n = new_node(K_STACK);
+                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        unsafe {
+                            if let Some(c) = p.background {
+                                ffi::day_ark_set_bg_color(n.0, argb(c));
+                            }
+                            if p.corner_radius > 0.0 {
+                                // NODE_BORDER_RADIUS in vp rounds the background (and clips content).
+                                ffi::day_ark_set_corner_radius(n.0, p.corner_radius);
+                            }
+                        }
+                    }
+                    n
+                }
                 kinds::SCROLL => new_node(K_SCROLL),
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
@@ -270,6 +284,13 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(Some(c))) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        unsafe { ffi::day_ark_set_bg_color(h.0, argb(*c)) };
+                    }
+                }
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {

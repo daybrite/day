@@ -2,6 +2,7 @@ package dev.daybrite.day.bridge;
 
 import android.content.Context;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
@@ -56,6 +57,17 @@ public final class DayBridge {
     // --- factories + setters (called from Rust over JNI) ---
     public static View makeContainer() { return new DayFixed(ctx); }
 
+    /** A `background`/`corner_radius` surface: a GradientDrawable (rounded rect) as the view's
+     *  background, plus clipToOutline so a corner radius also clips child views. `argb` is packed
+     *  0xAARRGGBB (used only when `hasBg`); `radiusPx` is already density-scaled. */
+    public static void setSurface(View v, int argb, boolean hasBg, float radiusPx, boolean clips) {
+        GradientDrawable d = new GradientDrawable();
+        if (hasBg) d.setColor(argb);
+        if (radiusPx > 0f) d.setCornerRadius(radiusPx);
+        v.setBackground(d);
+        if (clips || radiusPx > 0f) v.setClipToOutline(true);
+    }
+
     /** A native recycling list (docs/list.md): a framework ListView whose BaseAdapter reuses
      *  DayFixed cell views (convertView) and lets day fill each via nativeListBind. */
     public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable) {
@@ -90,6 +102,18 @@ public final class DayBridge {
         if (lv instanceof ListView && ((ListView) lv).getAdapter() instanceof BaseAdapter) {
             ((BaseAdapter) ((ListView) lv).getAdapter()).notifyDataSetChanged();
         }
+    }
+    /** Scroll the list so its last row is fully visible (a chat sticking to the newest message).
+     *  Posted so it runs after any pending notifyDataSetChanged relayout; no-op when empty. */
+    public static void listScrollToEnd(View v) {
+        if (!(v instanceof ListView)) return;
+        final ListView lv = (ListView) v;
+        lv.post(new Runnable() {
+            public void run() {
+                int n = lv.getCount();
+                if (n > 0) lv.smoothScrollToPosition(n - 1);
+            }
+        });
     }
 
     public static View makeScroll() {
@@ -482,6 +506,15 @@ public final class DayBridge {
     public static String cacheDirPath() {
         try {
             return ctx.getCacheDir().getAbsolutePath();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** The app-private files dir (app-writable, persistent — for app data stores). */
+    public static String filesDirPath() {
+        try {
+            return ctx.getFilesDir().getAbsolutePath();
         } catch (Exception e) {
             return "";
         }

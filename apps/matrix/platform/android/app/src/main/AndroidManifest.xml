@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Matrix protocol networking (and the localhost dayscript engine socket, §14.5). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="Matrix"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: the client talks to a local homeserver over plain http
+             (http://10.0.2.2:6167 from the emulator). Android blocks cleartext by default (API 28+). -->
+        <activity
+            android:name="dev.daybrite.day.bridge.DayActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
+            <meta-data android:name="day.lib" android:value="matrix" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Deep links (docs/navigation.md): daymatrix://<route> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="daymatrix" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

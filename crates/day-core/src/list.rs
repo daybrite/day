@@ -68,6 +68,12 @@ pub fn list_reload(node: RNode) {
     with_tree(|t| t.list_reload(node));
 }
 
+/// Imperatively scroll the native list so its last row is fully visible (chat "stick to bottom").
+/// A no-op while the list is empty. Call with no borrow held.
+pub fn list_scroll_to_end(node: RNode) {
+    with_tree(|t| t.list_scroll_to_end(node));
+}
+
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver
 /// directly (no tree). `bind_row` phases the tree borrow around the build + flush (see module doc).
 pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {

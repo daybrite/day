@@ -711,6 +711,28 @@ void day_winui_container_set_bg(void* h, unsigned int argb) {
         p.Background(WUXM::SolidColorBrush(color_argb(argb)));
 }
 
+// Best-effort rounded clip: a RectangleGeometry (which carries RadiusX/RadiusY) whose Rect tracks
+// the element's size. A bare Canvas has no CornerRadius, so rounding is done via the clip.
+void day_winui_container_set_corner(void* h, double radius) {
+    try {
+        auto el = elem(h);
+        WUXM::RectangleGeometry geo;
+        geo.RadiusX(radius);
+        geo.RadiusY(radius);
+        auto fe = el.try_as<WUX::FrameworkElement>();
+        if (fe) {
+            geo.Rect(WF::Rect(0.0f, 0.0f, (float)fe.ActualWidth(), (float)fe.ActualHeight()));
+            fe.SizeChanged([geo](WF::IInspectable const& sender, WUX::SizeChangedEventArgs const&) mutable {
+                if (auto s = sender.try_as<WUX::FrameworkElement>())
+                    geo.Rect(WF::Rect(0.0f, 0.0f, (float)s.ActualWidth(), (float)s.ActualHeight()));
+            });
+        }
+        el.Clip(geo);
+    } catch (...) {
+        // Best-effort: corner rounding on a Canvas is not universally supported.
+    }
+}
+
 // ---- label ----
 
 void* day_winui_label_new(const char* text) {

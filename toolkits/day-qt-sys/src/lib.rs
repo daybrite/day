@@ -11,6 +11,18 @@ unsafe extern "C" {
     pub fn day_qt_window_show(win: *mut c_void);
     pub fn day_qt_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
     pub fn day_qt_container_new() -> *mut c_void;
+    /// Apply a `background`/`corner_radius` surface via a scoped stylesheet (`#objName { ... }`
+    /// so children don't inherit the fill) + `WA_StyledBackground`. `r,g,b` are 0..1, `a` is the
+    /// alpha 0..1; `radius` in px; `clips != 0` requests rounded-child clipping (best-effort).
+    pub fn day_qt_widget_set_surface(
+        w: *mut c_void,
+        r: c_double,
+        g: c_double,
+        b: c_double,
+        a: c_double,
+        radius: c_double,
+        clips: c_int,
+    );
 
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
@@ -53,6 +65,7 @@ unsafe extern "C" {
     pub fn day_qt_scroll_new() -> *mut c_void;
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
+    pub fn day_qt_scroll_to_bottom(w: *mut c_void);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);
     pub fn day_qt_remove_child(child: *mut c_void);

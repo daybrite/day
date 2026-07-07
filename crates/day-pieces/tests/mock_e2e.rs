@@ -857,6 +857,177 @@ fn list_reports_selection_by_key() {
     assert_eq!(picks.borrow().as_slice(), ["b".to_string()]);
 }
 
+// Imperative scroll-to-end (chat "stick to bottom"): a `Trigger` drives a `ListPatch::ScrollToEnd`
+// that the mock records via the LIST host's `flag`. (Real backends scroll the native list.)
+#[test]
+fn list_scroll_to_end_follows_the_trigger() {
+    let items = Signal::new((0..5).map(|i| i.to_string()).collect::<Vec<_>>());
+    let scroll = Trigger::new();
+    let probe = boot(move || {
+        list(
+            move || items.get(),
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .row_height(RowHeight::Uniform(20.0))
+        .scroll_to_end(scroll)
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    // Building the list must NOT auto-scroll (watch never fires for the initial run).
+    assert!(!probe.widget(host).flag);
+    assert!(
+        !probe
+            .mutations()
+            .iter()
+            .any(|m| m.contains("scroll-to-end"))
+    );
+
+    // Firing the trigger scrolls the native list to its last row.
+    probe.clear_log();
+    batch(|| scroll.notify());
+    flush_sync();
+    assert!(probe.widget(host).flag, "trigger scrolled the list to end");
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .any(|m| m.contains("scroll-to-end"))
+    );
+}
+
+#[test]
+fn list_scroll_to_end_is_a_noop_when_empty() {
+    let items: Signal<Vec<String>> = Signal::new(Vec::new());
+    let scroll = Trigger::new();
+    let probe = boot(move || {
+        list(
+            move || items.get(),
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .scroll_to_end(scroll)
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    probe.clear_log();
+    batch(|| scroll.notify());
+    flush_sync();
+    // day-core guards the empty case: no ScrollToEnd patch ever reaches the backend.
+    assert!(!probe.widget(host).flag);
+    assert!(
+        !probe
+            .mutations()
+            .iter()
+            .any(|m| m.contains("scroll-to-end"))
+    );
+}
+
+#[test]
+fn list_stick_to_bottom_scrolls_on_data_change() {
+    let items = Signal::new(vec!["a".to_string(), "b".into()]);
+    let probe = boot(move || {
+        list(
+            move || items.get(),
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .row_height(RowHeight::Uniform(20.0))
+        .stick_to_bottom(true)
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    assert!(
+        !probe.widget(host).flag,
+        "initial build does not auto-scroll"
+    );
+
+    // A data change (a new message arriving) sticks to the bottom.
+    probe.clear_log();
+    batch(|| items.update(|v| v.push("c".into())));
+    flush_sync();
+    assert!(probe.widget(host).flag);
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .any(|m| m.contains("scroll-to-end"))
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Surface + grow decorators (background / corner_radius / grow*).
+// ---------------------------------------------------------------------------
+
+// The chat-bubble recipe: a padded label on a rounded colored surface. `background` and
+// `corner_radius` each wrap the piece in a native container carrying the surface style.
+#[test]
+fn background_and_corner_radius_form_a_rounded_surface() {
+    let probe = boot(|| {
+        label("Hi")
+            .padding(10.0)
+            .background(Color::hex(0x2F6FDE))
+            .corner_radius(12.0)
+            .any()
+    });
+    assert_eq!(probe.find_by_kind("day.label")[0].1.text, "Hi");
+    let containers = probe.find_by_kind("day.container");
+    // Exactly one container carries the fill; exactly one rounds+clips.
+    assert_eq!(
+        containers
+            .iter()
+            .filter(|(_, w)| w.background == Some(Color::hex(0x2F6FDE)))
+            .count(),
+        1,
+        "one colored surface"
+    );
+    assert_eq!(
+        containers
+            .iter()
+            .filter(|(_, w)| w.corner_radius == 12.0 && w.clips)
+            .count(),
+        1,
+        "one rounded clip"
+    );
+}
+
+// A reactive background repaints the surface (one Background patch) when its signal changes.
+#[test]
+fn reactive_background_patches_the_surface() {
+    let color = Signal::new(Color::hex(0x111111));
+    let probe = boot(move || label("x").background(move || color.get()).any());
+    let surface = probe
+        .find_by_kind("day.container")
+        .into_iter()
+        .find(|(_, w)| w.background == Some(Color::hex(0x111111)))
+        .expect("colored surface")
+        .0;
+
+    probe.clear_log();
+    batch(|| color.set(Color::hex(0xEE0000)));
+    flush_sync();
+    assert_eq!(probe.widget(surface).background, Some(Color::hex(0xEE0000)));
+    assert!(
+        probe.mutations().iter().any(|m| m.contains("bg=")),
+        "one background patch"
+    );
+}
+
+// `grow_w` makes the surface fill the offered width (a filling pane) — the layout honours Flex.
+#[test]
+fn grow_w_fills_the_available_width() {
+    let probe = boot(|| row((label("a").background(Color::hex(0x222222)).grow_w(),)).any());
+    let surface = probe
+        .find_by_kind("day.container")
+        .into_iter()
+        .find(|(_, w)| w.background == Some(Color::hex(0x222222)))
+        .expect("colored surface")
+        .0;
+    // The 400pt-wide window: the growing surface takes the whole width, not the label's intrinsic.
+    assert_eq!(probe.widget(surface).frame.size.width, 400.0);
+}
+
 // ---------------------------------------------------------------------------
 // Shapes (docs/shapes.md): canvas-backed shape pieces, transforms, gestures.
 // ---------------------------------------------------------------------------

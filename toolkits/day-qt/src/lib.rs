@@ -86,6 +86,19 @@ fn schedule_list_populate(host_key: usize) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
+/// Scroll the (emulated) list to its bottom on the next event-loop turn — deferred so any pending
+/// `list_populate` has sized the content first (posted callbacks run FIFO), matching Qt's
+/// scrollToBottom semantics.
+fn schedule_list_scroll_end(host_key: usize) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+        if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+            unsafe { ffi::day_qt_scroll_to_bottom(host) };
+        }
+    });
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_qt_post(run_posted, data) };
+}
+
 fn list_populate(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: grow the cell pool + snapshot what we need.
     let Some((host, rowh, source, cells, n, width)) = LIST_STATE.with(|m| {
@@ -561,7 +574,24 @@ impl Toolkit for Qt {
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
         unsafe {
             match kind {
-                kinds::CONTAINER => QtHandle(ffi::day_qt_container_new()),
+                kinds::CONTAINER => {
+                    let w = ffi::day_qt_container_new();
+                    if let Some(p) = props.downcast_ref::<ContainerProps>()
+                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
+                    {
+                        let bg = p.background.unwrap_or(day_spec::Color::CLEAR);
+                        ffi::day_qt_widget_set_surface(
+                            w,
+                            bg.r,
+                            bg.g,
+                            bg.b,
+                            bg.a,
+                            p.corner_radius,
+                            p.clips as c_int,
+                        );
+                    }
+                    QtHandle(w)
+                }
                 kinds::NAV => {
                     let is_split = props
                         .downcast_ref::<NavProps>()
@@ -727,6 +757,14 @@ impl Toolkit for Qt {
     ) {
         unsafe {
             match kind {
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(c)) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        let bg = c.unwrap_or(day_spec::Color::CLEAR);
+                        ffi::day_qt_widget_set_surface(h.0, bg.r, bg.g, bg.b, bg.a, 0.0, 0);
+                    }
+                }
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -847,11 +885,11 @@ impl Toolkit for Qt {
                         }
                     }
                 }
-                kinds::LIST => {
-                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
-                        schedule_list_populate(h.0 as usize);
-                    }
-                }
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
+                    Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+                    _ => {}
+                },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);

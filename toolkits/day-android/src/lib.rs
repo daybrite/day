@@ -181,6 +181,24 @@ mod imp {
         });
     }
 
+    /// Apply a `background`/`corner_radius` surface: a rounded `GradientDrawable` background +
+    /// `clipToOutline`. The radius is density-scaled here (Java takes px). Idempotent — used at
+    /// realize and on a reactive background patch.
+    fn apply_surface(h: &AHandle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+        let d = DENSITY.with(|x| x.get());
+        call_void(
+            "setSurface",
+            "(Landroid/view/View;IZFZ)V",
+            &[
+                JValue::Object(h.0.as_obj()),
+                JValue::Int(bg.map(argb_i32).unwrap_or(0)),
+                JValue::Bool(bg.is_some() as u8),
+                JValue::Float((corner_radius * d) as f32),
+                JValue::Bool(clips as u8),
+            ],
+        );
+    }
+
     fn measure_call(h: &AHandle, method: &str) -> f64 {
         with_env(|env| {
             env.call_static_method(
@@ -634,14 +652,22 @@ mod imp {
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
             let idj = id.0 as i64;
             match kind {
-                kinds::CONTAINER => with_env(|env| {
-                    AHandle(make_view(
-                        env,
-                        "makeContainer",
-                        "()Landroid/view/View;",
-                        &[],
-                    ))
-                }),
+                kinds::CONTAINER => {
+                    let h = with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeContainer",
+                            "()Landroid/view/View;",
+                            &[],
+                        ))
+                    });
+                    if let Some(p) = props.downcast_ref::<ContainerProps>()
+                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
+                    {
+                        apply_surface(&h, p.background, p.corner_radius, p.clips);
+                    }
+                    h
+                }
                 kinds::SCROLL => with_env(|env| {
                     AHandle(make_view(env, "makeScroll", "()Landroid/view/View;", &[]))
                 }),
@@ -872,6 +898,13 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::CONTAINER => {
+                    if let Some(ContainerPatch::Background(c)) =
+                        patch.downcast_ref::<ContainerPatch>()
+                    {
+                        apply_surface(h, *c, 0.0, false);
+                    }
+                }
                 // Mobile selection is transient (rows ripple, then push) — nothing to sync.
                 kinds::NAV_MENU => {}
                 kinds::TABS => {
@@ -1043,8 +1076,8 @@ mod imp {
                         }
                     }
                 }
-                kinds::LIST => {
-                    if let Some(ListPatch::Reload) = patch.downcast_ref::<ListPatch>() {
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Reload) => {
                         // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
                         // the next layout — safe inside a with_tree borrow.
                         call_void(
@@ -1053,7 +1086,16 @@ mod imp {
                             &[JValue::Object(h.0.as_obj())],
                         );
                     }
-                }
+                    Some(ListPatch::ScrollToEnd) => {
+                        // Posts smoothScrollToPosition(count-1) on the ListView (no-op if empty).
+                        call_void(
+                            "listScrollToEnd",
+                            "(Landroid/view/View;)V",
+                            &[JValue::Object(h.0.as_obj())],
+                        );
+                    }
+                    _ => {}
+                },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                         update(self, h, patch);

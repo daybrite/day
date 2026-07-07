@@ -14,7 +14,7 @@ mod tree;
 pub use build::*;
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
-pub use list::{BuiltRow, ListDriver, install_list, list_reload};
+pub use list::{BuiltRow, ListDriver, install_list, list_reload, list_scroll_to_end};
 pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
 pub use present::*;

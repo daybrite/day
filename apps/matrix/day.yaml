@@ -1,0 +1,17 @@
+day: 1
+app:
+  name: matrix
+  id: dev.daybrite.matrix
+  title: Matrix
+  version: 0.1.0
+  build: 1
+targets:
+  - macos-appkit
+  - macos-gtk
+  - macos-qt
+  - ios-uikit
+  - android-widget
+  - ohos-arkui
+window:
+  width: 1100
+  height: 760
