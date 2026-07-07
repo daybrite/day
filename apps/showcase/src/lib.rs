@@ -444,13 +444,13 @@ fn map_page() -> AnyPiece {
             .center_signal(center)
             .span(0.05)
             .marker(SF.0, SF.1)
-            .frame(320.0, 240.0)
-            .id("map"),
+            .id("map")
+            .grow(),
     ))
     .spacing(12.0)
     .align(HAlign::Leading)
     .padding(16.0)
-    .any()
+    .grow()
 }
 
 /// The application menu bar (native NSMenu / GtkPopoverMenuBar / QMenuBar; app-bar overflow on Android;

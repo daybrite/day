@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Matrix"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
         <!-- usesCleartextTraffic: the client talks to a local homeserver over plain http
              (http://10.0.2.2:6167 from the emulator). Android blocks cleartext by default (API 28+). -->

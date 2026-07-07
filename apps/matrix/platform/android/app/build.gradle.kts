@@ -58,6 +58,8 @@ android {
 }
 
 dependencies {
+    // Material Components — provides Theme.Material3.DayNight.* (res/values/styles.xml).
+    implementation("com.google.android.material:material:1.12.0")
     // Gradle dependencies contributed by standalone pieces (docs/extending.md).
     pieceDeps.forEach { implementation(it) }
 }

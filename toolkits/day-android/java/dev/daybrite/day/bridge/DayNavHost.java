@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toolbar;
@@ -26,6 +27,11 @@ public class DayNavHost extends LinearLayout {
     final String rootTitle;
     private final ArrayList<View> stack = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
+    /** The page currently sliding out under a pop — its FrameLayout detach is deferred to the
+     *  animation's end so `removePage` (called by Rust right after the Popped patch) doesn't cut it. */
+    private View poppingView;
+    private static final int NAV_ANIM_MS = 260;
+    private static final float PARALLAX = 0.25f;
 
     public DayNavHost(Context ctx, long hostNode, String title) {
         super(ctx);
@@ -63,10 +69,13 @@ public class DayNavHost extends LinearLayout {
 
     void removePage(View page) {
         stack.remove(page);
+        // pop()'s slide-out animation owns the FrameLayout detach for the page being popped.
+        if (page == poppingView) return;
         pages.removeView(page);
     }
 
-    /** Present the most recently added page (Pushed patch). */
+    /** Present the most recently added page (Pushed patch): it slides in from the right while the
+     *  predecessor eases partially left (parallax), then hides once covered. */
     void push(String title) {
         int n = stack.size();
         if (n < 2) return;
@@ -74,24 +83,45 @@ public class DayNavHost extends LinearLayout {
         final View prev = stack.get(n - 2);
         titles.add(title);
         top.setVisibility(View.VISIBLE);
+        top.bringToFront();
         top.setTranslationX(pages.getWidth());
-        top.animate().translationX(0f).setDuration(220)
+        top.animate().translationX(0f).setDuration(NAV_ANIM_MS)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        prev.animate().translationX(-pages.getWidth() * PARALLAX).setDuration(NAV_ANIM_MS)
+                .setInterpolator(new DecelerateInterpolator())
                 .withEndAction(new Runnable() {
                     @Override public void run() {
                         prev.setVisibility(View.GONE);
+                        prev.setTranslationX(0f);
                     }
                 }).start();
         toolbar.setTitle(title);
         showUpArrow(true);
     }
 
-    /** Reveal the predecessor (Popped patch); Rust removes the top page right after. */
+    /** Slide the top page out to the right, revealing the predecessor easing in from the left
+     *  (Popped patch). Rust calls removePage on the popped page right after; its detach is deferred
+     *  to this animation's end so the slide-out is visible. */
     void pop() {
         int n = stack.size();
         if (n < 2) return;
-        View prev = stack.get(n - 2);
+        final View top = stack.get(n - 1);
+        final View prev = stack.get(n - 2);
+        poppingView = top;
         prev.setVisibility(View.VISIBLE);
-        prev.setTranslationX(0f);
+        prev.setTranslationX(-pages.getWidth() * PARALLAX);
+        prev.animate().translationX(0f).setDuration(NAV_ANIM_MS)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        top.bringToFront();
+        top.animate().translationX(pages.getWidth()).setDuration(NAV_ANIM_MS)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(new Runnable() {
+                    @Override public void run() {
+                        pages.removeView(top);
+                        top.setTranslationX(0f);
+                        if (poppingView == top) poppingView = null;
+                    }
+                }).start();
         if (!titles.isEmpty()) titles.remove(titles.size() - 1);
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
         showUpArrow(!titles.isEmpty());

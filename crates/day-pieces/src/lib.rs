@@ -1948,7 +1948,12 @@ impl Piece for ShapePiece {
             offset.1.clone(),
         );
         let node = canvas_leaf(cx, grow, move |d, size| {
-            let rect = Rect::from_size(size).inset(di.get());
+            // A centered stroke overflows the geometry by half its width; inset the shape by w/2 so
+            // the whole stroke stays inside the view bounds — backends that clip a canvas to its
+            // bounds (Qt/Android/WinUI) would otherwise cut the stroke's outer edge. (SwiftUI
+            // `strokeBorder` behavior.) Fill-only shapes are unaffected (stroke_half = 0).
+            let stroke_half = stroke.as_ref().map(|(_, w)| w.get() / 2.0).unwrap_or(0.0);
+            let rect = Rect::from_size(size).inset(di.get() + stroke_half);
             if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
                 return;
             }

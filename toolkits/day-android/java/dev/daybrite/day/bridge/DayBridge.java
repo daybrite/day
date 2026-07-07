@@ -404,7 +404,14 @@ public final class DayBridge {
             list.addView(row, new android.widget.LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        return list;
+        // The nav menu can have more items than fit on screen (the showcase sidebar has ~20), so it
+        // must scroll — wrap the row column in a vertical ScrollView (fillViewport so it still fills
+        // when short).
+        ScrollView sv = new ScrollView(ctx);
+        sv.setFillViewport(true);
+        sv.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return sv;
     }
 
     // --- imperative presentation (docs/dialogs.md) ---

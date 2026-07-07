@@ -4,7 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Day Showcase"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/AppTheme">
         <activity
             android:name="dev.daybrite.day.bridge.DayActivity"
             android:exported="true"
