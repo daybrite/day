@@ -50,11 +50,15 @@ fn read_out(cmd: &str, args: &[&str]) -> Option<String> {
 pub fn set_text(text: &str) -> bool {
     let wl = || pipe_in("wl-copy", &["--type", "text/plain"], text);
     let x = || pipe_in("xclip", &["-selection", "clipboard", "-in"], text);
-    if wayland_session() {
-        wl() || x()
+    // Try the session's native tool first, the other as fallback. Selecting the order up front —
+    // rather than a bare `wl()||x()` vs `x()||wl()` in each branch — keeps clippy::if_same_then_else,
+    // which normalizes commutative `||`, from collapsing the two arms into "identical blocks".
+    let (first, second): (&dyn Fn() -> bool, &dyn Fn() -> bool) = if wayland_session() {
+        (&wl, &x)
     } else {
-        x() || wl()
-    }
+        (&x, &wl)
+    };
+    first() || second()
 }
 
 pub fn get_text() -> Option<String> {

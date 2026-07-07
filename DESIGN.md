@@ -66,7 +66,7 @@ Eight **primary targets** (OS–toolkit combinations):
 | `linux-qt` | Linux | Qt 6 Widgets | MVP-adjacent (CI) |
 | `windows-winui` | Windows | WinUI 3 | post-MVP (CI build) |
 | `web-html` | Web (wasm32) | HTML DOM | experimental |
-| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | speculative |
+| `ohos-arkui` | HarmonyOS | ArkUI (NDK C API) | speculative |
 
 Because GTK and Qt are themselves portable, the **non-default combinations** `macos-gtk`,
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
@@ -1094,7 +1094,7 @@ question — whether absolute placement forfeits too much of the browser (text s
 elements, native scrolling) — is recorded as DP-8 with a proposed hybrid (Day layout, but `scroll`
 maps to overflow scrolling).
 
-**harmony-arkui (speculative) sketch:** ArkUI exposes a C node API in the NDK
+**ohos-arkui (speculative) sketch:** ArkUI exposes a C node API in the NDK
 (`OH_ArkUI_…`, `ArkUI_NativeNodeAPI_1`: create node, set attributes, register event receivers,
 custom layout/measure hooks) — the same shape as day-spec, which suggests a thin backend. Rust
 `*-ohos` targets are tier 2. No local device/emulator commitment in this plan; the section exists

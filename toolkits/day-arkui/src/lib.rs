@@ -1,4 +1,4 @@
-//! day-arkui — the HarmonyOS Next **ArkUI** backend (target `harmonyos-arkui`; DESIGN.md §9).
+//! day-arkui — the HarmonyOS Next **ArkUI** backend (target `ohos-arkui`; DESIGN.md §9).
 //!
 //! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI Native
 //! NodeAPI** (`day-arkui-sys`): every Piece becomes a real `ArkUI_NodeHandle` (Text / Button /
@@ -391,7 +391,7 @@ mod imp {
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
-            Err("use `hdc shell snapshot_display` on harmonyos-arkui".into())
+            Err("use `hdc shell snapshot_display` on ohos-arkui".into())
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).
@@ -435,7 +435,7 @@ mod imp {
     }
 
     impl Platform for ArkUi {
-        const TARGET: &'static str = "harmonyos-arkui";
+        const TARGET: &'static str = "ohos-arkui";
         const TOOLKIT: &'static str = "arkui";
 
         fn run(self, _options: WindowOptions, ready: Box<dyn FnOnce(Self, AHandle, Size)>) {

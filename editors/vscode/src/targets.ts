@@ -22,7 +22,7 @@ export const TARGETS: Target[] = [
   { name: "linux-qt", toolkit: "qt", kind: "desktop", host: "linux" },
   { name: "ios-uikit", toolkit: "uikit", kind: "iosSim", host: "macos" },
   { name: "android-widget", toolkit: "widget", kind: "android", host: "any" },
-  { name: "harmonyos-arkui", toolkit: "arkui", kind: "harmonyOs", host: "any" },
+  { name: "ohos-arkui", toolkit: "arkui", kind: "harmonyOs", host: "any" },
 ];
 
 export function findTarget(name: string): Target | undefined {

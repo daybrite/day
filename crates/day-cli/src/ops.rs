@@ -93,7 +93,7 @@ pub fn build(
 /// HarmonyOS Next / ArkUI builds go through the ArkTS host project + the OpenHarmony toolchain, which
 /// is not yet driven end-to-end by the `day` CLI (it needs hvigor/ohpm + a signing profile + the
 /// Huawei-gated emulator). See docs/harmonyos.md and apps/day-arkui-demo/harmony/build.sh.
-pub const HARMONYOS_GUIDANCE: &str = "harmonyos-arkui: cross-compile the native module with the \
+pub const HARMONYOS_GUIDANCE: &str = "ohos-arkui: cross-compile the native module with the \
      OpenHarmony NDK and package the .hap via DevEco Studio / hvigor — see docs/harmonyos.md and \
      apps/day-arkui-demo/harmony/build.sh (direct `day` orchestration is a follow-up).";
 

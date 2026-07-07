@@ -94,7 +94,7 @@ The ArkTS host project + `build.sh` assemble the `.so` into a DevEco-buildable p
 developer account: hvigor assembles the `.hap` and `sign-hap.sh` signs it with the bundled default
 debug material. What still needs real hardware is **running on the emulator** (the HarmonyOS emulator
 ships with DevEco Studio, Huawei-account-gated; no HarmonyOS emulator is connectable to `hdc` in this
-sandbox). The `day` CLI registers the `harmonyos-arkui` target (end-to-end build/launch orchestration
+sandbox). The `day` CLI registers the `ohos-arkui` target (end-to-end build/launch orchestration
 through hvigor is a follow-up); today the flow is the `harmony/` scripts above or DevEco Studio.
 
 ## CI
