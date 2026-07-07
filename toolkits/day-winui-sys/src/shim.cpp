@@ -261,6 +261,8 @@ struct PostMsg { void (*cb)(void*); void* data; };
 // Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
 // Windows host; mirrors the Qt shim's DayWindow::resizeEvent contract.
 static void (*g_resize_cb)(int, int) = nullptr;
+// Minimum CLIENT size (points) from WindowOptions.min_size; 0 = no minimum. Single-window v1.
+static int g_min_w = 0, g_min_h = 0;
 // Lifecycle (docs/lifecycle.md): codes match day_spec::Lifecycle order (2=DidBecomeActive,
 // 3=WillResignActive, 7=WillTerminate).
 static void (*g_lifecycle_cb)(int) = nullptr;
@@ -274,6 +276,19 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g_resize_cb) g_resize_cb(rc.right, rc.bottom);
         }
         return 0;
+    case WM_GETMINMAXINFO:
+        // Enforce WindowOptions.min_size: convert the min CLIENT size to a window size (add the
+        // frame) and clamp the minimum track size.
+        if (g_min_w > 0 || g_min_h > 0) {
+            RECT r{ 0, 0, g_min_w, g_min_h };
+            AdjustWindowRectEx(&r, static_cast<DWORD>(GetWindowLongW(hwnd, GWL_STYLE)), FALSE,
+                               static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE)));
+            auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+            mmi->ptMinTrackSize.x = r.right - r.left;
+            mmi->ptMinTrackSize.y = r.bottom - r.top;
+            return 0;
+        }
+        break;
     case WM_ACTIVATE:
         // Window gained/lost foreground focus → active / resign-active.
         if (g_lifecycle_cb) g_lifecycle_cb(LOWORD(wp) == WA_INACTIVE ? 3 : 2);
@@ -298,7 +313,9 @@ extern "C" void day_winui_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = c
 
 extern "C" {
 
-void* day_winui_window_new(const char* title, int w, int h) try {
+void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h) try {
+    g_min_w = min_w;
+    g_min_h = min_h;
     winrt::init_apartment(winrt::apartment_type::single_threaded);
 
     // XAML requires a DispatcherQueue on the UI thread. Load the flat export dynamically to
@@ -706,30 +723,42 @@ void day_winui_navlist_set_selected(void* w, int idx) {
     if (lv && lv.SelectedIndex() != idx) lv.SelectedIndex(idx);
 }
 
-void day_winui_container_set_bg(void* h, unsigned int argb) {
-    if (auto p = elem(h).try_as<WUXC::Panel>())
-        p.Background(WUXM::SolidColorBrush(color_argb(argb)));
+// A container is a Canvas (day positions children by absolute frame). It has no rounded-corner clip
+// of its own — Windows.UI.Xaml's RectangleGeometry can't round, and UIElement.Clip is rectangular
+// only — so a background fill / rounded corner is drawn by a `Rectangle` SHAPE (which DOES carry
+// RadiusX/RadiusY) kept as child[0], behind day's children, tracking the Canvas size via SizeChanged.
+static WUXSh::Rectangle ensure_bg_rect(WUXC::Canvas const& canvas) {
+    auto kids = canvas.Children();
+    if (kids.Size() > 0)
+        if (auto r = kids.GetAt(0).try_as<WUXSh::Rectangle>())
+            if (r.Name() == L"day_bg") return r;
+    WUXSh::Rectangle rect;
+    rect.Name(L"day_bg");
+    WUXC::Canvas::SetLeft(rect, 0);
+    WUXC::Canvas::SetTop(rect, 0);
+    rect.Width(canvas.ActualWidth());
+    rect.Height(canvas.ActualHeight());
+    // day sizes the container via set_geometry (Width/Height), which fires SizeChanged; grow with it.
+    canvas.SizeChanged([rect](WF::IInspectable const&, WUX::SizeChangedEventArgs const& e) mutable {
+        rect.Width(e.NewSize().Width);
+        rect.Height(e.NewSize().Height);
+    });
+    kids.InsertAt(0, rect);
+    return rect;
 }
 
-// Best-effort rounded clip: a RectangleGeometry (which carries RadiusX/RadiusY) whose Rect tracks
-// the element's size. A bare Canvas has no CornerRadius, so rounding is done via the clip.
+void day_winui_container_set_bg(void* h, unsigned int argb) {
+    if (auto c = elem(h).try_as<WUXC::Canvas>())
+        ensure_bg_rect(c).Fill(WUXM::SolidColorBrush(color_argb(argb)));
+}
+
+// Rounded corners for a container's background (login card, chat bubbles, avatar/badge discs).
+// RadiusX/RadiusY live on the Rectangle SHAPE, not on RectangleGeometry.
 void day_winui_container_set_corner(void* h, double radius) {
-    try {
-        auto el = elem(h);
-        WUXM::RectangleGeometry geo;
-        geo.RadiusX(radius);
-        geo.RadiusY(radius);
-        auto fe = el.try_as<WUX::FrameworkElement>();
-        if (fe) {
-            geo.Rect(WF::Rect(0.0f, 0.0f, (float)fe.ActualWidth(), (float)fe.ActualHeight()));
-            fe.SizeChanged([geo](WF::IInspectable const& sender, WUX::SizeChangedEventArgs const&) mutable {
-                if (auto s = sender.try_as<WUX::FrameworkElement>())
-                    geo.Rect(WF::Rect(0.0f, 0.0f, (float)s.ActualWidth(), (float)s.ActualHeight()));
-            });
-        }
-        el.Clip(geo);
-    } catch (...) {
-        // Best-effort: corner rounding on a Canvas is not universally supported.
+    if (auto c = elem(h).try_as<WUXC::Canvas>()) {
+        auto r = ensure_bg_rect(c);
+        r.RadiusX(radius);
+        r.RadiusY(radius);
     }
 }
 
@@ -743,6 +772,16 @@ void* day_winui_label_new(const char* text) {
 }
 void day_winui_label_set_text(void* h, const char* t) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.Text(hs(t));
+}
+void day_winui_label_set_color(void* h, unsigned argb) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    // Alpha 0 (Color::CLEAR / a `None` color token) = "no override" — restore the inherited default
+    // foreground; otherwise paint the requested color.
+    if ((argb >> 24) == 0)
+        tb.ClearValue(WUXC::TextBlock::ForegroundProperty());
+    else
+        tb.Foreground(brush_bits(argb));
 }
 void day_winui_label_set_font(void* h, double pt, int weight, int italic) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {

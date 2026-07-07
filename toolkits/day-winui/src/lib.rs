@@ -577,6 +577,9 @@ impl Toolkit for WinUi {
                     let h = ffi::day_winui_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic) = font_params(p.font);
                     ffi::day_winui_label_set_font(h, pt, weight, italic);
+                    if let Some(c) = p.color {
+                        ffi::day_winui_label_set_color(h, argb(c));
+                    }
                     WinHandle(h)
                 }
                 kinds::BUTTON => {
@@ -716,7 +719,10 @@ impl Toolkit for WinUi {
                                 let (pt, weight, italic) = font_params(*f);
                                 ffi::day_winui_label_set_font(h.0, pt, weight, italic);
                             }
-                            LabelPatch::Color(_) => {} // XAML Foreground token is a follow-up
+                            LabelPatch::Color(c) => ffi::day_winui_label_set_color(
+                                h.0,
+                                argb(c.unwrap_or(day_spec::Color::CLEAR)),
+                            ),
                         }
                     }
                 }
@@ -1255,10 +1261,16 @@ impl Platform for WinUi {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, WinHandle, Size)>) {
         unsafe {
+            let (min_w, min_h) = options
+                .min_size
+                .map(|s| (s.width as c_int, s.height as c_int))
+                .unwrap_or((0, 0));
             let win = ffi::day_winui_window_new(
                 cstr(&options.title).as_ptr(),
                 options.size.width as c_int,
                 options.size.height as c_int,
+                min_w,
+                min_h,
             );
             if win.is_null() {
                 eprintln!("day-winui: could not create the XAML window (see error above)");

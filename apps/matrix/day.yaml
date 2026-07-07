@@ -9,6 +9,7 @@ targets:
   - macos-appkit
   - macos-gtk
   - macos-qt
+  - windows-winui
   - ios-uikit
   - android-widget
   - ohos-arkui

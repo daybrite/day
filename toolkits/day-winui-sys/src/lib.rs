@@ -8,7 +8,13 @@ use std::os::raw::{c_char, c_double, c_int, c_void};
 
 unsafe extern "C" {
     // window / app lifecycle
-    pub fn day_winui_window_new(title: *const c_char, w: c_int, h: c_int) -> *mut c_void;
+    pub fn day_winui_window_new(
+        title: *const c_char,
+        w: c_int,
+        h: c_int,
+        min_w: c_int,
+        min_h: c_int,
+    ) -> *mut c_void;
     pub fn day_winui_window_root(win: *mut c_void) -> *mut c_void;
     pub fn day_winui_window_show(win: *mut c_void);
     pub fn day_winui_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
@@ -50,6 +56,8 @@ unsafe extern "C" {
     pub fn day_winui_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_winui_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_winui_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
+    /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
+    pub fn day_winui_label_set_color(w: *mut c_void, argb: u32);
 
     pub fn day_winui_button_new(
         title: *const c_char,

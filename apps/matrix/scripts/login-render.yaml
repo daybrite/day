@@ -1,0 +1,9 @@
+name: matrix-login-render
+description: Render the sign-in screen (no homeserver needed) and screenshot it — a smoke test for
+  the Day primitives the client leans on (colored labels, a corner_radius card, text fields, button).
+flow:
+  - wait_for: { id: login-title }
+  - screenshot: login
+  - input: { id: login-username, text: "@alice:localhost" }
+  - input: { id: login-password, text: "hunter2" }
+  - screenshot: login-typed
