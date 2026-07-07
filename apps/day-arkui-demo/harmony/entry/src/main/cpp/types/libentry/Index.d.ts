@@ -3,6 +3,12 @@
 // requests to the ArkTS @kit.CoreFileKit DocumentViewPicker (docs/files.md).
 export const start: (content: Object, widthVp: number, heightVp: number, density: number) => void;
 
+// Set a process environment variable BEFORE `start()`. The launcher (`day launch` → hdc
+// `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive) this
+// way, and the EntryAbility applies them so the walkthrough runner can drive the running app —
+// the HarmonyOS analogue of Android's intent-extra env delivery.
+export const setEnv: (key: string, value: string) => void;
+
 // Register the ArkTS file picker + the app cache dir. The callback is invoked (on the JS thread)
 // when Day requests an open (mode 0) or save (mode 1); it must answer via `onFileResult`.
 export const registerFilePicker: (

@@ -103,16 +103,24 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
         }
         TargetKind::Desktop => Err("desktop snapshot returned unsupported".into()),
         TargetKind::HarmonyOs => {
-            // `hdc shell snapshot_display -f <path>` on-device, then `hdc file recv`.
-            let out = Command::new("hdc")
-                .args(["shell", "snapshot_display", "-f", "/data/local/tmp/day.png"])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !out.status.success() {
-                return Err("hdc snapshot_display failed".into());
+            // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes in a
+            // .png file are wrong) — prefer uitest, fall back to snapshot_display. Then `hdc file recv`.
+            let dev = "/data/local/tmp/day-shot.png";
+            let cap = crate::ohos::hdc()
+                .args(["shell", "uitest", "screenCap", "-p", dev])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+                || crate::ohos::hdc()
+                    .args(["shell", "snapshot_display", "-f", dev])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            if !cap {
+                return Err("hdc screenshot failed (uitest screenCap / snapshot_display)".into());
             }
-            Command::new("hdc")
-                .args(["file", "recv", "/data/local/tmp/day.png"])
+            crate::ohos::hdc()
+                .args(["file", "recv", dev])
                 .arg(path)
                 .status()
                 .map_err(|e| e.to_string())
@@ -138,6 +146,13 @@ pub fn run_scripts(
     if target.kind == TargetKind::Android {
         let _ = Command::new("adb")
             .args(["forward", &format!("tcp:{port}"), &format!("tcp:{port}")])
+            .status();
+    }
+    if target.kind == TargetKind::HarmonyOs {
+        // hdc's `adb forward` equivalent: host tcp:port → the app's tcp:port on the emulator/device,
+        // so `connect(port)` below reaches the in-app dayscript engine over the networked target.
+        let _ = crate::ohos::hdc()
+            .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
             .status();
     }
     let mut stream = connect(port)?;
@@ -277,7 +292,7 @@ fn terminate(project: &Project, target: &Target) {
                 .status();
         }
         TargetKind::HarmonyOs => {
-            let _ = Command::new("hdc")
+            let _ = crate::ohos::hdc()
                 .args(["shell", "aa", "force-stop", &project.manifest.app.id])
                 .status();
         }

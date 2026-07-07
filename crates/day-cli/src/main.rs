@@ -9,6 +9,7 @@ mod lint;
 mod meta;
 mod mobile;
 mod new;
+mod ohos;
 mod ops;
 mod pack;
 mod pieces;

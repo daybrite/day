@@ -10,7 +10,7 @@ use crate::meta::{Project, find_project};
 use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status, stream_logs};
 use crate::targets::Target;
 
-fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
+pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
     let toolchains = PathBuf::from(&home).join(".rustup/toolchains");
     let entry = std::fs::read_dir(&toolchains)
@@ -22,7 +22,7 @@ fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     Ok((bin.join("cargo"), bin))
 }
 
-fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
+pub(crate) fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
     let out = cmd.status().map_err(|e| format!("{what}: {e}"))?;
     if out.success() {
         Ok(())

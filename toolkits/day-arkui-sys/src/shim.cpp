@@ -6,6 +6,7 @@
 // The ArkUI headers assume C++ (bool, forward-declared types), so this is compiled as C++.
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -333,10 +334,29 @@ static napi_value OnFileResult(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// Set a process environment variable from ArkTS: `setEnv(key, value)`. The launcher (`day launch`
+// / hdc `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive)
+// this way, and the ArkTS EntryAbility applies them BEFORE `start()` runs `day_script::init()`.
+// This is the HarmonyOS analogue of Android's intent-extra → setenv env delivery (day/src/lib.rs).
+// `setenv` mutates the same `environ` Rust's `std::env::var` reads, so no Rust round-trip is needed.
+static napi_value SetEnv(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string key = napi_to_string(env, argv[0]);
+    std::string val = napi_to_string(env, argv[1]);
+    if (!key.empty()) setenv(key.c_str(), val.c_str(), 1);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_value fn;
     napi_create_function(env, "start", NAPI_AUTO_LENGTH, DayStart, nullptr, &fn);
     napi_set_named_property(env, exports, "start", fn);
+    napi_create_function(env, "setEnv", NAPI_AUTO_LENGTH, SetEnv, nullptr, &fn);
+    napi_set_named_property(env, exports, "setEnv", fn);
     napi_create_function(env, "registerFilePicker", NAPI_AUTO_LENGTH, RegisterFilePicker, nullptr,
                          &fn);
     napi_set_named_property(env, exports, "registerFilePicker", fn);

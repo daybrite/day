@@ -30,6 +30,7 @@ export const platforms = /** @type {Platform[]} */ ([
   { id: 'windows-winui', label: 'WinUI 3', os: 'Windows', toolkit: 'WinUI 3' },
   { id: 'windows-gtk', label: 'GTK 4', os: 'Windows', toolkit: 'GTK 4 · libadwaita' },
   { id: 'windows-qt', label: 'Qt 6', os: 'Windows', toolkit: 'Qt 6 Widgets' },
+  { id: 'ohos-arkui', label: 'ArkUI', os: 'HarmonyOS', toolkit: 'ArkUI · NodeAPI' },
 ]);
 
 /**
@@ -47,7 +48,9 @@ export const suites = [
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
     preferLocales: ['default', 'en', 'fr'],
-    platforms: platforms.map((p) => p.id),
+    // Every target the showcase is captured on — all but HarmonyOS, whose ArkUI demo is its own
+    // suite below (the showcase app itself does not target ohos-arkui).
+    platforms: platforms.filter((p) => p.os !== 'HarmonyOS').map((p) => p.id),
     hero: 'home',
     shots: [
       { id: 'home', label: 'Home' },
@@ -59,6 +62,21 @@ export const suites = [
       { id: 'stack-detail', label: 'Navigation stack' },
       { id: 'webview', label: 'Web view' },
       { id: 'about', label: 'About' },
+    ],
+  },
+  {
+    id: 'arkui-demo',
+    label: 'HarmonyOS ArkUI',
+    blurb:
+      'The day-arkui-demo counter running natively on HarmonyOS / OpenHarmony through the ArkUI ' +
+      'NodeAPI backend — built, deployed, and driven by dayscript on the Oniro emulator in CI.',
+    artifactPattern: 'screenshots-{platform}',
+    preferLocales: ['default', 'en', 'fr'],
+    platforms: ['ohos-arkui'],
+    hero: 'home',
+    shots: [
+      { id: 'home', label: 'Counter' },
+      { id: 'counted', label: 'After tapping' },
     ],
   },
 ];

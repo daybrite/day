@@ -362,53 +362,61 @@ jobs:
           path: apps/showcase/build/day/screenshots/android-widget
           if-no-files-found: warn
 
-  # --- HarmonyOS Next emulator: arkui ---------------------------------------
-  # HarmonyOS has no AOSP layer; its UI framework is ArkUI. The day-arkui backend cross-compiles the
-  # app to a native cdylib (libentry.so) that an ArkTS host loads and mounts into a NodeContent
-  # (docs/harmonyos.md). This job ALWAYS does the verifiable half — fetch the OpenHarmony NDK and
-  # cross-compile the full Day app for the emulator (x86_64) and device (arm64) — then TRIES the run
-  # against a LOCALLY-INSTALLED and configured HarmonyOS emulator: package the .hap (DevEco's hvigor,
-  # if present), `hdc install`, launch the ability, and snapshot. The .hap packager, signing profile,
-  # and emulator ship with DevEco Studio and are gated behind a Huawei developer account, so the run
-  # steps are best-effort — they no-op when no HarmonyOS target is connected (stock runner) and light
-  # up on a self-hosted macOS runner that has DevEco + a booted emulator. continue-on-error keeps it
-  # non-blocking meanwhile. A pre-set OHOS_NDK_HOME (a self-hosted DevEco SDK) skips the download.
+  # --- HarmonyOS Next / OpenHarmony ArkUI emulator -------------------------
+  # Brings ohos-arkui to parity with the other mobile targets: `day launch -p ohos-arkui --script …`
+  # cross-compiles the app to libentry.so, packages + signs the .hap, then installs + launches + drives
+  # it on an emulator over hdc, capturing screenshots for the gallery — exactly the Android/iOS flow.
+  # The OpenHarmony SDK (NDK + hdc) comes from openharmony-rs/setup-ohos-sdk and the Oniro QEMU
+  # emulator from openharmony-rs/emulator-action; hvigor + ohpm + the debug signing material (absent
+  # from the public SDK) come from the command-line-tools. EXPERIMENTAL + continue-on-error: the
+  # OHOS-on-GitHub-hosted-runner path is new (slow TCG emulator, SDK/hvigor version sensitivity, no
+  # prior end-to-end precedent for a Rust-cdylib hap), so a failure here never blocks the pipeline.
   ohos-arkui:
     name: ohos-arkui
     runs-on: ubuntu-24.04
     needs: [fmt, clippy, msrv]
     continue-on-error: true
     env:
-      # OpenHarmony command-line-tools: one self-contained bundle carrying the SDK/NDK, hvigor,
-      # ohpm, a bundled node, hdc, and the default debug signing material — downloadable without a
-      # Huawei developer account. This lets CI run a real hvigor build + sign the .hap headlessly.
+      # hvigor + ohpm + the DEBUG signing material are NOT in the public SDK, so they come from the
+      # OpenHarmony command-line-tools (one self-contained, cached zip; Linux-x64 only).
       CLT_VERSION: "5.1.0.840"
       CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
-      APP_ID: "dev.daybrite.day.arkui.demo"
       HARMONY: apps/day-arkui-demo/harmony
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          # Tier-2 OHOS std targets: device (arm64) + emulator (x86_64). rustup provides the std.
+          # Tier-2 OHOS std targets: emulator (x86_64) + device (arm64). rustup provides the std.
           targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-java@v5
-        # java + keytool for the headless hap signing (sign-hap.sh).
+        # java + keytool for the headless .hap signing (sign-hap.sh).
         with:
           distribution: temurin
           java-version: "21"
-      - name: Cache the OpenHarmony command-line-tools (~2 GB)
+      # The OpenHarmony SDK — the NDK for the Rust cross-compile + hdc for the emulator. Emits
+      # OHOS_NDK_HOME / OHOS_BASE_SDK_HOME + the `ohos_sdk_native` output; its toolchains/ (hdc) go on
+      # PATH so emulator-action (and `day`) reach the emulator.
+      - uses: openharmony-rs/setup-ohos-sdk@v1
+        id: ohos-sdk
+        with:
+          version: "6.1"
+      - name: Put the OHOS toolchains (hdc) on PATH + set the cross-linkers
+        run: |
+          echo "$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$OHOS_NDK_HOME/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+      # hvigor + ohpm + node + the DEBUG signing material are not in the public SDK — fetch them from
+      # the command-line-tools (cached). hvigor + sign-hap.sh use DEVECO_SDK_HOME (the CLT's
+      # self-consistent API-18 SDK, matching build-profile's compatibleSdkVersion + the debug signing
+      # profile); the Rust libentry.so is an API-agnostic ELF built with setup-ohos-sdk's NDK.
+      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm / signing)
         uses: actions/cache@v4
         with:
           path: ~/ohos-clt
           key: ohos-clt-${{ env.CLT_VERSION }}
-      # The command-line-tools carry everything needed to build a .hap headlessly: the SDK/NDK
-      # (native clang cross-linkers + ArkUI/NAPI headers + runtime libs), hvigor, ohpm, a bundled
-      # node, hdc, and the default OpenHarmony debug signing material. Emits OHOS_NDK_HOME (for the
-      # Rust cross-compile), DEVECO_SDK_HOME + PATH (for hvigor/ohpm/hdc), and the cargo linkers.
-      - name: Install the OpenHarmony command-line-tools
+      - name: Install hvigor from the command-line-tools
         run: |
           set -euo pipefail
           C="$HOME/ohos-clt/command-line-tools"
@@ -419,82 +427,39 @@ jobs:
             chmod -R +x "$C/bin" "$C/tool/node/bin" \
               "$C/sdk/default/openharmony/toolchains" 2>/dev/null || true
           fi
-          NDK="$C/sdk/default/openharmony/native"
-          {
-            echo "OHOS_NDK_HOME=$NDK"
-            echo "DEVECO_SDK_HOME=$C/sdk"
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/aarch64-unknown-linux-ohos-clang"
-            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NDK/llvm/bin/x86_64-unknown-linux-ohos-clang"
-          } >> "$GITHUB_ENV"
-          {
-            echo "$C/bin"
-            echo "$C/tool/node/bin"
-            echo "$C/sdk/default/openharmony/toolchains"
-          } >> "$GITHUB_PATH"
+          echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
+          { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
       - name: Clippy (arkui backend, cross-check)
         run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p day-arkui-demo -- -D warnings
       - name: Build day CLI
         run: cargo build --locked -p day-cli
-      # The full Day app links to a loadable libentry.so for both arches, assembled into the ArkTS
-      # host project's entry/libs/<abi>/, using the CLT's native NDK clang.
-      - name: Cross-compile the app to libentry.so
-        run: |
-          "$HARMONY/build.sh" both
-          file "$HARMONY/entry/libs/x86_64/libentry.so" \
-               "$HARMONY/entry/libs/arm64-v8a/libentry.so"
-      - name: Resolve ohpm dependencies
-        working-directory: ${{ env.HARMONY }}
-        run: |
-          # The app's only dependency (the local libentry.so type) resolves offline; ohpm install
-          # wires up oh_modules for hvigor. Non-fatal if the registry is unreachable.
-          ohpm install || echo "ohpm install non-fatal (only a local dependency)"
-      # THE CORE OF THIS JOB: hvigor assembles the .hap (compiles the ArkTS host, packs the native
-      # libs + resources). Unsigned, because build-profile.json5 declares no signingConfig.
-      - name: Build the .hap (hvigor assembleHap)
-        working-directory: ${{ env.HARMONY }}
-        run: |
-          hvigorw assembleHap --mode module -p product=default -p buildMode=debug \
-            --no-daemon --stacktrace
-          echo "--- built .hap(s) ---"; find entry/build -name '*.hap'
-      # Sign the unsigned .hap with the default OpenHarmony debug material bundled in the SDK (no
-      # account / secrets). The generate-app-cert + sign-profile + sign-app chain is validated.
-      - name: Sign the .hap
-        working-directory: ${{ env.HARMONY }}
-        run: |
-          unsigned="$(find entry/build -name '*-unsigned.hap' | head -1)"
-          [ -n "$unsigned" ] || unsigned="$(find entry/build -name '*.hap' | head -1)"
-          [ -n "$unsigned" ] || { echo "hvigor produced no .hap; skipping sign"; exit 1; }
-          ./sign-hap.sh "$unsigned" "entry/build/day-arkui-demo-signed.hap" "$APP_ID"
-          ls -la entry/build/day-arkui-demo-signed.hap
-      # Best-effort run against a locally-configured HarmonyOS emulator (self-hosted runner only;
-      # GitHub-hosted runners have no HarmonyOS emulator).
-      - name: Run on a locally-configured HarmonyOS emulator (if connected)
-        run: |
-          command -v hdc >/dev/null 2>&1 || { echo "hdc not on PATH — skipping run"; exit 0; }
-          targets="$(hdc list targets 2>/dev/null | tr -d '[:space:]')"
-          if [ -z "$targets" ] || [ "$targets" = "[Empty]" ]; then
-            echo "no HarmonyOS target connected to hdc — skipping run"; exit 0
-          fi
-          hap="$(find "$HARMONY/entry/build" -name '*-signed.hap' | head -1)"
-          hdc install "$hap"
-          hdc shell aa start -b "$APP_ID" -a EntryAbility
-          sleep 6
-          mkdir -p "$HARMONY/../build/screenshots/ohos-arkui"
-          hdc shell snapshot_display -f /data/local/tmp/day.png
-          hdc file recv /data/local/tmp/day.png "$HARMONY/../build/screenshots/ohos-arkui/home.png"
-      - name: Upload the signed .hap
-        if: always()
-        uses: actions/upload-artifact@v7
+      # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
+      # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
+      - uses: openharmony-rs/emulator-action@v1
         with:
-          name: ohos-arkui-hap
-          path: ${{ env.HARMONY }}/entry/build/**/*.hap
-          if-no-files-found: ignore
+          hdc-wait-seconds: "420"
+          port-wait-seconds: "300"
+      # ONE command, exactly like every other platform's walkthrough: `day launch -p ohos-arkui
+      # --script` cross-compiles → hvigor assembleHap → sign → hdc install → aa start (the dayscript
+      # port/token ride as `--ps` params) → hdc fport → runs the walkthrough → saves screenshots.
+      - name: Emulator walkthrough (ohos-arkui)
+        working-directory: apps/day-arkui-demo
+        run: ../../target/debug/day launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-ohos-arkui
-          path: apps/day-arkui-demo/build/screenshots/ohos-arkui
+          path: apps/day-arkui-demo/build/day/screenshots/ohos-arkui
+          if-no-files-found: warn
+      - name: Upload the .hap + emulator log (post-mortem)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ohos-arkui-artifacts
+          path: |
+            apps/day-arkui-demo/harmony/entry/build/**/*.hap
+            /tmp/oniro-emulator.log
           if-no-files-found: ignore
 
   # --- Windows desktop: winui (MSVC) ----------------------------------------

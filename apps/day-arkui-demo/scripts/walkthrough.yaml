@@ -1,0 +1,20 @@
+# dayscript walkthrough for the HarmonyOS ArkUI demo (the counter). Same engine + step catalog as
+# every other platform's walkthrough — it drives the running app over a socket (hdc-forwarded on
+# HarmonyOS) and captures screenshots for the gallery. Deliberately small: the demo is a counter with
+# id'd controls plus a headless-battery readout, so this proves build → deploy → launch → drive →
+# screenshot end to end on the Oniro emulator.
+name: walkthrough
+flow:
+  - wait_for: { id: count }
+  - assert_visible: { id: count }
+  - screenshot: home
+  - tap: { id: inc }
+  - tap: { id: inc }
+  - tap: { id: inc }
+  - assert_text: { id: count, text: "Count: 3" }
+  - tap: { id: dec }
+  - assert_text: { id: count, text: "Count: 2" }
+  # Headless capability crate: device battery via HarmonyOS's native libohbattery_info.so.
+  - assert_visible: { id: battery }
+  - tap: { id: battery-refresh }
+  - screenshot: counted

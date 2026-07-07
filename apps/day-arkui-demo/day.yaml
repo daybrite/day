@@ -1,0 +1,15 @@
+day: 1
+app:
+  name: day-arkui-demo
+  id: dev.daybrite.day.arkui.demo
+  title: Day ArkUI Demo
+  version: 0.1.0
+  build: 1
+# The ArkUI/HarmonyOS backend. `day build/launch -p ohos-arkui` cross-compiles the app to
+# libentry.so, packages + signs the .hap via the ArkTS host project under `harmony/`, and (for
+# launch) installs + starts it on the connected emulator/device over hdc. See docs/harmonyos.md.
+targets:
+  - ohos-arkui
+window:
+  width: 480
+  height: 640
