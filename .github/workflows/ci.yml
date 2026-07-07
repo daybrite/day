@@ -196,7 +196,25 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
       - name: Walkthrough (ios-uikit)
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ios-uikit --script scripts/walkthrough.yaml --locale fr
+        # The iOS Simulator can intermittently jettison the app mid-run; the dayscript engine then
+        # reports "engine connection lost" — the app PROCESS died (a dead socket the runner cannot
+        # reconnect to), NOT an assertion failure. Retry the full, idempotent walkthrough ONCE on that
+        # specific flaky signal. A real assertion failure (a ✗ step, with no connection-lost) fails
+        # fast so regressions are never masked; a run that logged a ✗ is never retried.
+        run: |
+          LOG="$RUNNER_TEMP/ios-walk.log"
+          walk() { ../../target/debug/day launch -p ios-uikit --script scripts/walkthrough.yaml --locale fr 2>&1 | tee "$LOG"; }
+          if ! walk; then
+            if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
+              echo "::warning::iOS engine connection lost (flaky simulator app-death) — retrying the walkthrough once"
+              # Best-effort: surface the most recent crash report for post-mortem if the retry also fails.
+              ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
+                | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
+              walk
+            else
+              exit 1
+            fi
+          fi
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
