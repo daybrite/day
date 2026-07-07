@@ -122,6 +122,11 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
         run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
+      # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
+      # combo (headless Linux has no system clipboard — see scripts/clipboard-roundtrip.yaml).
+      - name: Clipboard round-trip (${{ matrix.combo }})
+        working-directory: apps/showcase
+        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -272,7 +277,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
-          script: cd apps/showcase && ../../target/debug/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr
+          script: cd apps/showcase && ../../target/debug/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr && ../../target/debug/day launch -p android-widget --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7

@@ -32,6 +32,12 @@ members = [
     "parts/day-part-sensors",
     "parts/day-part-clipboard",
     "parts/day-part-network",
+    "parts/day-part-haptics",
+    "parts/day-part-prefs",
+    "parts/day-part-deviceinfo",
+    "pieces/day-piece-activity",
+    "pieces/day-piece-searchfield",
+    "pieces/day-piece-map",
     "crates/day-cli",
 ]
 # Host-portable crates built/tested by a bare `cargo test`. Backend and app crates join as they land.
@@ -72,6 +78,12 @@ day-part-sensors = { path = "parts/day-part-sensors" }
 day-part-clipboard = { path = "parts/day-part-clipboard" }
 day-part-network = { path = "parts/day-part-network" }
 day-piece-media = { path = "pieces/day-piece-media" }
+day-part-haptics = { path = "parts/day-part-haptics" }
+day-part-prefs = { path = "parts/day-part-prefs" }
+day-part-deviceinfo = { path = "parts/day-part-deviceinfo" }
+day-piece-activity = { path = "pieces/day-piece-activity" }
+day-piece-searchfield = { path = "pieces/day-piece-searchfield" }
+day-piece-map = { path = "pieces/day-piece-map" }
 day-appkit = { path = "toolkits/day-appkit" }
 day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }

@@ -78,4 +78,6 @@ permissions = ["android.permission.INTERNET"]
 # ObjC class lives in AVKit.framework (and AVPlayer in AVFoundation.framework), which the app must
 # link. Declaring them here links them via the generated DayPieces SwiftPM package.
 [package.metadata.day.ios]
-frameworks = ["AVKit", "AVFoundation"]
+# CoreMedia carries kCMTimeZero (used by the looping seek); objc2-core-media's Rust framework
+# link is ignored by xcodebuild, so the app links it here too.
+frameworks = ["AVKit", "AVFoundation", "CoreMedia"]

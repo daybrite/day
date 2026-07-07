@@ -357,10 +357,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-part-deviceinfo"
+version = "0.1.0"
+dependencies = [
+ "day-android",
+ "libc",
+ "objc2",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
+name = "day-part-haptics"
+version = "0.1.0"
+dependencies = [
+ "day-android",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-part-network"
 version = "0.1.0"
 dependencies = [
  "day-android",
+]
+
+[[package]]
+name = "day-part-prefs"
+version = "0.1.0"
+dependencies = [
+ "day-android",
+ "objc2",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -371,6 +401,30 @@ dependencies = [
  "objc2",
  "objc2-core-motion",
  "windows",
+]
+
+[[package]]
+name = "day-piece-activity"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "day-uikit",
+ "day-winui",
+ "day-winui-sys",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-ui-kit",
 ]
 
 [[package]]
@@ -417,6 +471,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-map"
+version = "0.1.0"
+dependencies = [
+ "day-appkit",
+ "day-core",
+ "day-mock",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+ "day-uikit",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-location",
+ "objc2-map-kit",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-piece-media"
 version = "0.1.0"
 dependencies = [
@@ -449,6 +522,32 @@ name = "day-piece-picker"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "day-uikit",
+ "day-winui",
+ "day-winui-sys",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
+name = "day-piece-searchfield"
+version = "0.1.0"
+dependencies = [
  "cc",
  "day-android",
  "day-appkit",
@@ -1445,6 +1544,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-map-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "579edede1c244621cd8229b70ea6e20e6ec3bab5a74afdfd494b446b681e1e64"
+dependencies = [
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-location",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-media-toolbox"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1725,12 +1836,18 @@ dependencies = [
  "day",
  "day-part-battery",
  "day-part-clipboard",
+ "day-part-deviceinfo",
+ "day-part-haptics",
  "day-part-network",
+ "day-part-prefs",
  "day-part-sensors",
+ "day-piece-activity",
  "day-piece-combobox",
  "day-piece-lottie",
+ "day-piece-map",
  "day-piece-media",
  "day-piece-picker",
+ "day-piece-searchfield",
  "day-piece-webview",
 ]
 

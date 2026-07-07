@@ -1,0 +1,12 @@
+name: map-shot
+description: Apple-only native MapKit map (docs/map.md) — recenter SF->NYC, let tiles load, screenshot. Run on appkit/uikit only.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: map }
+  - assert_route: { route: map }
+  - assert_visible: { id: map-title }
+  - assert_visible: { id: map }
+  - tap: { id: map-nyc }
+  - assert_text: { id: map-coords, text: "40.7128, -74.0060" }
+  - pause: { secs: 3 }
+  - screenshot: map

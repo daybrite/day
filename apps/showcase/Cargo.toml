@@ -5,13 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 
 [features]
-appkit = ["day/appkit", "day-piece-combobox/appkit", "day-piece-picker/appkit", "day-piece-webview/appkit", "day-piece-media/appkit"]
-gtk = ["day/gtk", "day-piece-combobox/gtk", "day-piece-picker/gtk", "day-piece-webview/gtk", "day-piece-media/gtk"]
-qt = ["day/qt", "day-piece-combobox/qt", "day-piece-picker/qt", "day-piece-webview/qt", "day-piece-media/qt"]
-uikit = ["day/uikit", "day-piece-combobox/uikit", "day-piece-picker/uikit", "day-piece-webview/uikit", "day-piece-lottie/uikit", "day-piece-media/uikit"]
-widget = ["day/widget", "day-piece-combobox/widget", "day-piece-picker/widget", "day-piece-webview/widget", "day-piece-lottie/widget", "day-piece-media/widget"]
-winui = ["day/winui", "day-piece-combobox/winui", "day-piece-picker/winui", "day-piece-webview/winui", "day-piece-media/winui"]
-mock = ["day/mock", "day-piece-media/mock"]
+appkit = ["day/appkit", "day-piece-combobox/appkit", "day-piece-picker/appkit", "day-piece-webview/appkit", "day-piece-media/appkit", "day-piece-activity/appkit", "day-piece-searchfield/appkit", "day-piece-map/appkit"]
+gtk = ["day/gtk", "day-piece-combobox/gtk", "day-piece-picker/gtk", "day-piece-webview/gtk", "day-piece-media/gtk", "day-piece-activity/gtk", "day-piece-searchfield/gtk"]
+qt = ["day/qt", "day-piece-combobox/qt", "day-piece-picker/qt", "day-piece-webview/qt", "day-piece-media/qt", "day-piece-activity/qt", "day-piece-searchfield/qt"]
+uikit = ["day/uikit", "day-piece-combobox/uikit", "day-piece-picker/uikit", "day-piece-webview/uikit", "day-piece-lottie/uikit", "day-piece-media/uikit", "day-piece-activity/uikit", "day-piece-searchfield/uikit", "day-piece-map/uikit"]
+widget = ["day/widget", "day-piece-combobox/widget", "day-piece-picker/widget", "day-piece-webview/widget", "day-piece-lottie/widget", "day-piece-media/widget", "day-piece-activity/widget", "day-piece-searchfield/widget"]
+winui = ["day/winui", "day-piece-combobox/winui", "day-piece-picker/winui", "day-piece-webview/winui", "day-piece-media/winui", "day-piece-activity/winui", "day-piece-searchfield/winui"]
+mock = ["day/mock", "day-piece-media/mock", "day-piece-activity/mock"]
 
 # rlib for the desktop bin; the iOS staticlib and Android cdylib are requested explicitly by
 # the mobile pipeline via `cargo rustc --crate-type` (day-cli mobile.rs). Keeping cdylib here
@@ -31,6 +31,12 @@ day-piece-combobox = { workspace = true }
 day-piece-picker = { workspace = true }
 day-piece-webview = { workspace = true }
 day-piece-media = { workspace = true }
+day-part-haptics = { workspace = true }
+day-part-prefs = { workspace = true }
+day-part-deviceinfo = { workspace = true }
+day-piece-activity = { workspace = true }
+day-piece-searchfield = { workspace = true }
+day-piece-map = { workspace = true }
 # day-piece-lottie is iOS/Android only; the front-end compiles everywhere but the `lottie` page is
 # `#[cfg]`-gated to those targets. Its backend features are enabled only in `uikit`/`widget`.
 day-piece-lottie = { workspace = true }

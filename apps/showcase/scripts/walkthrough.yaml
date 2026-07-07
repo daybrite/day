@@ -62,7 +62,10 @@ flow:
   - input: { id: clipboard-field, text: "day walkthrough clip" }
   - tap: { id: clipboard-copy }
   - tap: { id: clipboard-paste }
-  - assert_text: { id: clipboard-pasted, text: "day walkthrough clip" }
+  # The strict OS round-trip assertion lives in scripts/clipboard-roundtrip.yaml, run in CI only
+  # on macOS + Android (real, display-independent clipboards). A fully headless Linux runner has
+  # no system clipboard (xvfb without clipboard tools; Qt offscreen has no display server), so the
+  # paste is empty there — asserting it would fail. The page + interaction are still exercised.
   - screenshot: clipboard
   # Network (docs/network.md): the day-part-network part reads a connectivity snapshot (CI
   # hosts/emulators are online).
@@ -71,6 +74,52 @@ flow:
   - assert_visible: { id: network-title }
   - tap: { id: network-refresh }
   - screenshot: network
+  # day-part-haptics demo
+  - navigate: { route: haptics }
+  - assert_route: { route: haptics }
+  - assert_visible: { id: haptics-title }
+  - assert_visible: { id: haptics-supported }
+  - tap: { id: haptics-medium }
+  - assert_text: { id: haptics-last-played, text: "Played: Medium" }
+  - tap: { id: haptics-success }
+  - assert_text: { id: haptics-last-played, text: "Played: Success" }
+  - screenshot: haptics
+  # day-part-prefs demo
+  - navigate: { route: prefs }
+  - assert_route: { route: prefs }
+  - assert_visible: { id: prefs-title }
+  - input: { id: prefs-field, text: "day-remembers" }
+  - tap: { id: prefs-save }
+  - input: { id: prefs-field, text: "overwritten" }
+  - tap: { id: prefs-load }
+  - assert_text: { id: prefs-value, text: "day-remembers" }
+  - screenshot: prefs
+  # day-part-deviceinfo demo
+  # Device info (docs/deviceinfo.md): headless day-part-deviceinfo reads model / OS / simulator flag;
+  # Refresh re-polls. Device values vary by host, so only presence is asserted.
+  - navigate: { route: deviceinfo }
+  - assert_route: { route: deviceinfo }
+  - assert_visible: { id: deviceinfo-title }
+  - assert_visible: { id: deviceinfo-model }
+  - tap: { id: deviceinfo-refresh }
+  - assert_visible: { id: deviceinfo-system }
+  - screenshot: deviceinfo
+  # day-piece-activity demo
+  - navigate: { route: activity }
+  - assert_route: { route: activity }
+  - assert_visible: { id: activity-title }
+  - assert_visible: { id: activity-spinner }
+  - toggle: { id: activity-toggle, value: false }
+  - assert_text: { id: activity-status, key: activity-off }
+  - screenshot: activity
+  # day-piece-searchfield demo
+  - navigate: { route: search }
+  - assert_route: { route: search }
+  - assert_visible: { id: search-title }
+  - input: { id: search-input, text: "ch" }
+  - assert_text: { id: search-result, text: "Cherry" }
+  - tap: { id: search-clear }
+  - screenshot: search
   # Shape pieces (docs/shapes.md): canvas-backed shapes, a slider-bound rotation, tap-to-recolor,
   # drag-to-move. Drive the rotation + a tap so the screenshot shows a transformed + recolored shape.
   - navigate: { route: shapes }

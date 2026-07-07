@@ -1,0 +1,74 @@
+[package]
+name = "day-piece-map"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A standalone Day Piece wrapping the platform's NATIVE map view (MKMapView) — APPLE PLATFORMS ONLY.
+# It is the reference for a piece that DELIBERATELY does not cover every backend: only AppKit and
+# UIKit render a real map; on GTK/Qt/Android/WinUI the `map` kind falls back to day's placeholder
+# leaf (their features exist but register no renderer). Like the other pieces it carries BOTH its
+# cross-platform front-end (Rust) and its per-toolkit backend, with ZERO edits to any core day crate.
+# objc2-map-kit binds MKMapView for macOS only, so UIKit hand-rolls the view via `extern_class!` (the
+# same shape the media piece uses for AVPlayerViewController). See docs/extending.md + docs/map.md.
+
+[features]
+# AppKit uses objc2-map-kit's typed macOS MKMapView (feature `MKMapView` + `objc2-app-kit`).
+appkit = [
+    "dep:day-appkit",
+    "dep:objc2",
+    "dep:objc2-app-kit",
+    "dep:objc2-core-location",
+    "dep:objc2-map-kit",
+    "objc2-map-kit/MKMapView",
+    "objc2-map-kit/objc2-app-kit",
+]
+# UIKit hand-rolls MKMapView (objc2-map-kit binds it for macOS only), reusing the crate's typed
+# geometry/annotation structs (cross-platform) — so no MKMapView/objc2-app-kit feature here.
+uikit = [
+    "dep:day-uikit",
+    "dep:objc2",
+    "dep:objc2-ui-kit",
+    "dep:objc2-core-location",
+    "dep:objc2-map-kit",
+]
+# No native map on these backends — the feature exists (so an app can enable `day-piece-map/<feature>`
+# uniformly per backend) but registers no renderer; the map kind falls back to day's placeholder leaf.
+gtk = []
+qt = []
+widget = []
+winui = []
+mock = []
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
+objc2-core-location = { version = "0.3", optional = true, default-features = false, features = ["CLLocation"] }
+
+# MKCoordinateRegion / MKCoordinateSpan / MKPointAnnotation are cross-platform in this crate; only the
+# MKMapView struct is macOS-gated (added by the appkit feature). CLLocationCoordinate2D comes from
+# objc2-core-location, which map-kit's `objc2-core-location` feature also pulls.
+[dependencies.objc2-map-kit]
+version = "0.3"
+optional = true
+default-features = false
+features = ["MKGeometry", "MKPointAnnotation", "MKAnnotation", "MKShape", "objc2-core-location"]
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# --- iOS backend contribution (docs/extending.md) ---
+# The UIKit MKMapView is hand-rolled in Rust (objc2), so there is no Swift shim — but its ObjC class
+# lives in MapKit.framework (and CLLocationCoordinate2D in CoreLocation.framework), which the app must
+# link or `+[MKMapView alloc]` aborts (SIGABRT). Declaring them here links them via the generated
+# DayPieces SwiftPM package (the framework-contribution seam, like the media piece's AVKit).
+[package.metadata.day.ios]
+frameworks = ["MapKit", "CoreLocation"]

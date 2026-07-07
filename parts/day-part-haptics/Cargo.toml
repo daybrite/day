@@ -1,0 +1,48 @@
+[package]
+name = "day-part-haptics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for playing HAPTIC
+# feedback via each platform's NATIVE API. Any Rust code can depend on it and call
+# `day_part_haptics::play(Haptic::Success)`. Platform selection is by `#[cfg(target_os)]` (haptics are
+# an OS concern, not a widget-toolkit one), so there are no backend features — it "just works" per
+# target:
+#   iOS      — UIFeedbackGenerator (impact / notification / selection)
+#   macOS    — NSHapticFeedbackManager (generic / alignment / levelChange)
+#   Android  — Vibrator / VibrationEffect via a Java shim staged through [package.metadata.day.android]
+#   others   — no haptic engine: play() is a no-op and is_supported() == false (Windows, desktop
+#              Linux/GTK/Qt, HarmonyOS)
+# See docs/haptics.md + docs/extending.md.
+
+[dependencies]
+
+# iOS: UIKit's feedback generators. MainThreadMarker/MainThreadOnly come from objc2.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-ui-kit = { version = "0.3", features = [
+    "UIFeedbackGenerator",
+    "UIImpactFeedbackGenerator",
+    "UINotificationFeedbackGenerator",
+    "UISelectionFeedbackGenerator",
+] }
+
+# macOS: AppKit's NSHapticFeedbackManager (the trackpad's Force Touch haptics).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
+
+# Android plays through Vibrator/VibrationEffect from a Java shim + day-android's cached JVM/Context.
+# This is the one platform where the headless crate rides on the day runtime (like the pieces' Android
+# backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
+# Java into the app's Gradle build and merges the VIBRATE permission into the app manifest, with zero
+# edits to any core day crate.
+[package.metadata.day.android]
+java = ["android/java"]
+# Vibrator.vibrate(...) requires VIBRATE (a normal, install-time permission — no runtime prompt).
+permissions = ["android.permission.VIBRATE"]

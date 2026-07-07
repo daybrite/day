@@ -1,0 +1,18 @@
+name: clipboard-roundtrip
+description: >
+  Real OS clipboard round-trip (docs/clipboard.md) — write via the native clipboard, overwrite the
+  text field, then read the clipboard back and assert it survived. Requires a working system
+  clipboard, so CI runs this ONLY on macOS (NSPasteboard, display-independent) and Android; a fully
+  headless Linux runner (xvfb without clipboard tools; the Qt offscreen platform has no display
+  server) has no system clipboard, so the shared walkthrough covers the clipboard page there without
+  this assertion.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: clipboard }
+  - assert_route: { route: clipboard }
+  - input: { id: clipboard-field, text: "day walkthrough clip" }
+  - tap: { id: clipboard-copy }
+  # Overwrite the field so a passing paste proves the value came from the OS clipboard, not the field.
+  - input: { id: clipboard-field, text: "overwritten in the field" }
+  - tap: { id: clipboard-paste }
+  - assert_text: { id: clipboard-pasted, text: "day walkthrough clip" }

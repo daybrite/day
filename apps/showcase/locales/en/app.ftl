@@ -149,3 +149,65 @@ menus-lifecycle = Last lifecycle phase:
 menus-context-hint = Context menu
 menus-target = Right-click here (long-press on mobile) for a context menu
 menus-shortcut-hint = Keyboard shortcuts (⌘/Ctrl + key) are shown in the menu bar and work while the app is focused — e.g. New (N), Save (S), Reload (R), Save As (⇧S).
+
+# --- day-part-haptics ---
+nav-haptics = Haptics
+haptics-caption = The day-part-haptics part plays native haptic feedback — each button fires one pattern.
+haptics-supported-yes = Haptic engine available on this platform
+haptics-supported-no = No haptic engine on this platform (buttons are silent)
+haptics-light = Light
+haptics-medium = Medium
+haptics-heavy = Heavy
+haptics-success = Success
+haptics-warning = Warning
+haptics-error = Error
+haptics-selection = Selection
+haptics-last = Last played
+haptics-none = Nothing played yet
+haptics-last-played = Played: { $style }
+
+# --- day-part-prefs ---
+nav-prefs = Preferences
+prefs-caption = Persist a string across launches with day-part-prefs.
+prefs-placeholder = Value to remember
+prefs-save = Save
+prefs-load = Load
+prefs-clear = Clear
+prefs-idle = Type a value, then Save.
+prefs-empty = (nothing stored)
+prefs-saved = Saved.
+prefs-save-failed = Save failed.
+prefs-loaded = Loaded from storage.
+prefs-missing = Nothing stored yet.
+prefs-cleared = Cleared.
+prefs-value-label = Stored value:
+
+# --- day-part-deviceinfo ---
+nav-deviceinfo = Device Info
+deviceinfo-caption = Device identity read through the native platform API (headless day-part-deviceinfo).
+deviceinfo-model = Model: {$value}
+deviceinfo-system = System: {$name} {$version}
+deviceinfo-simulator = Simulator: {$value}
+deviceinfo-yes = yes
+deviceinfo-no = no
+deviceinfo-refresh = Refresh
+
+# --- day-piece-activity ---
+nav-activity = Activity
+activity-caption = An indeterminate spinner shows work of unknown length.
+activity-animating = Animating
+activity-on = Spinning
+activity-off = Stopped
+activity-large-label = Large
+
+# --- day-piece-searchfield ---
+nav-search = Search
+search-caption = Type to filter the list; the result label shows the first match.
+search-placeholder = Search fruit…
+search-clear = Clear
+
+# --- day-piece-map ---
+nav-map = Map
+map-caption = A native MKMapView — Apple platforms only. Tap a preset to recenter the map live.
+map-sf = San Francisco
+map-nyc = New York

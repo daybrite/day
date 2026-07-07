@@ -3,9 +3,12 @@
 //! detail split on desktop. Three destinations: controls, gauge, about.
 
 use day::prelude::*;
+use day_part_haptics::Haptic;
+use day_piece_activity::activity;
 use day_piece_combobox::combo_box;
 use day_piece_media::media;
 use day_piece_picker::picker;
+use day_piece_searchfield::search_field;
 use day_piece_webview::web_view;
 use std::cell::OnceCell;
 
@@ -70,6 +73,9 @@ pub fn install_lifecycle_handlers() {
 // are gated to those targets (its front-end compiles everywhere, but it only renders there).
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use day_piece_lottie::lottie;
+// A native MapKit map view — Apple platforms only (docs/map.md).
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use day_piece_map::map;
 
 pub fn root() -> AnyPiece {
     install_locales(
@@ -99,8 +105,13 @@ pub fn root() -> AnyPiece {
         .item("sensors", tr("nav-sensors"), sensors_page)
         .item("clipboard", tr("nav-clipboard"), clipboard_page)
         .item("network", tr("nav-network"), network_page)
+        .item("haptics", tr("nav-haptics"), haptics_page)
+        .item("prefs", tr("nav-prefs"), prefs_page)
+        .item("deviceinfo", tr("nav-deviceinfo"), deviceinfo_page)
         .item("shapes", tr("nav-shapes"), shapes_page)
         .item("pickers", tr("nav-pickers"), pickers_page)
+        .item("activity", tr("nav-activity"), activity_page)
+        .item("search", tr("nav-search"), search_page)
         .item("modals", tr("nav-modals"), modals_page)
         .item("files", tr("nav-files"), files_page)
         .item("tabs", tr("nav-tabs"), tabs_page)
@@ -111,7 +122,335 @@ pub fn root() -> AnyPiece {
     // A native Lottie animation view — iOS + Android only (docs/lottie.md).
     #[cfg(any(target_os = "ios", target_os = "android"))]
     let nav = nav.item("lottie", tr("nav-lottie"), lottie_page);
+    // A native MapKit map — Apple platforms only (docs/map.md).
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let nav = nav.item("map", tr("nav-map"), map_page);
     nav.item("about", tr("nav-about"), about_page).id("nav")
+}
+
+/// One button that plays a haptic and records the style name into `#haptics-last-played`.
+fn haptic_button(
+    id: &'static str,
+    title: LocalizedText,
+    h: Haptic,
+    last: Signal<String>,
+) -> AnyPiece {
+    button(title)
+        .action(move || {
+            day_part_haptics::play(h);
+            last.set(
+                tr("haptics-last-played")
+                    .arg("style", format!("{h:?}"))
+                    .format(),
+            );
+        })
+        .id(id)
+        .any()
+}
+
+/// Haptics playground (docs/haptics.md): the headless `day-part-haptics` part fires a native haptic
+/// for each style; `#haptics-last-played` echoes the last one so the walkthrough can assert it.
+fn haptics_page() -> AnyPiece {
+    let last = Signal::new(tr("haptics-none").format());
+    // Report whether this platform has a haptic engine (each branch a full `tr(...)` for `day lint`).
+    let supported = if day_part_haptics::is_supported() {
+        tr("haptics-supported-yes")
+    } else {
+        tr("haptics-supported-no")
+    };
+    column((
+        label(tr("nav-haptics"))
+            .font(Font::Title)
+            .id("haptics-title"),
+        label(tr("haptics-caption")),
+        label(supported).id("haptics-supported"),
+        // Impact intensities.
+        row((
+            haptic_button("haptics-light", tr("haptics-light"), Haptic::Light, last),
+            haptic_button("haptics-medium", tr("haptics-medium"), Haptic::Medium, last),
+            haptic_button("haptics-heavy", tr("haptics-heavy"), Haptic::Heavy, last),
+        ))
+        .spacing(8.0),
+        // Notification outcomes.
+        row((
+            haptic_button(
+                "haptics-success",
+                tr("haptics-success"),
+                Haptic::Success,
+                last,
+            ),
+            haptic_button(
+                "haptics-warning",
+                tr("haptics-warning"),
+                Haptic::Warning,
+                last,
+            ),
+            haptic_button("haptics-error", tr("haptics-error"), Haptic::Error, last),
+        ))
+        .spacing(8.0),
+        haptic_button(
+            "haptics-selection",
+            tr("haptics-selection"),
+            Haptic::Selection,
+            last,
+        ),
+        divider(),
+        row((
+            label(tr("haptics-last")),
+            label(move || last.get()).id("haptics-last-played"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// Preferences playground (docs/prefs.md): the headless `day-part-prefs` part persists a
+/// string under a fixed key. Save writes the text field, Load reads it back into `#prefs-value`,
+/// and Clear deletes it. The value survives app launches (NSUserDefaults / SharedPreferences / a
+/// config file, per platform), so Load returns the stored value even after the field is typed over.
+fn prefs_page() -> AnyPiece {
+    const KEY: &str = "showcase.remembered";
+    let field = Signal::new(String::new());
+    let value = Signal::new(tr("prefs-empty").format());
+    let status = Signal::new(tr("prefs-idle").format());
+    column((
+        label(tr("nav-prefs")).font(Font::Title).id("prefs-title"),
+        label(tr("prefs-caption")),
+        text_field(field)
+            .placeholder(tr("prefs-placeholder"))
+            .id("prefs-field"),
+        row((
+            button(tr("prefs-save"))
+                .action(move || {
+                    let ok = field.with(|t| day_part_prefs::set(KEY, t));
+                    let msg = if ok {
+                        tr("prefs-saved")
+                    } else {
+                        tr("prefs-save-failed")
+                    };
+                    status.set(msg.format());
+                })
+                .id("prefs-save"),
+            button(tr("prefs-load"))
+                .action(move || match day_part_prefs::get(KEY) {
+                    Some(v) => {
+                        value.set(v);
+                        status.set(tr("prefs-loaded").format());
+                    }
+                    None => {
+                        value.set(tr("prefs-empty").format());
+                        status.set(tr("prefs-missing").format());
+                    }
+                })
+                .id("prefs-load"),
+            button(tr("prefs-clear"))
+                .action(move || {
+                    day_part_prefs::remove(KEY);
+                    value.set(tr("prefs-empty").format());
+                    status.set(tr("prefs-cleared").format());
+                })
+                .id("prefs-clear"),
+        ))
+        .spacing(8.0),
+        label(move || status.get()).id("prefs-status"),
+        row((
+            label(tr("prefs-value-label")),
+            label(move || value.get()).id("prefs-value"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+fn deviceinfo_page() -> AnyPiece {
+    // Read the device identity once now (headless day-part-deviceinfo); Refresh re-polls it.
+    let (m, s, sim) = deviceinfo_lines();
+    let model = Signal::new(m);
+    let system = Signal::new(s);
+    let simulator = Signal::new(sim);
+    column((
+        label(tr("nav-deviceinfo"))
+            .font(Font::Title)
+            .id("deviceinfo-title"),
+        label(tr("deviceinfo-caption")),
+        label(move || model.get()).id("deviceinfo-model"),
+        label(move || system.get()).id("deviceinfo-system"),
+        label(move || simulator.get()).id("deviceinfo-simulator"),
+        button(tr("deviceinfo-refresh"))
+            .action(move || {
+                let (m, s, sim) = deviceinfo_lines();
+                model.set(m);
+                system.set(s);
+                simulator.set(sim);
+            })
+            .id("deviceinfo-refresh"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+/// Read the native device identity and format each field as a localized line:
+/// `(model, "name version", simulator)`. Values vary by host, so nothing is asserted exactly.
+fn deviceinfo_lines() -> (String, String, String) {
+    let d = day_part_deviceinfo::get();
+    let model = tr("deviceinfo-model").arg("value", d.model).format();
+    let system = tr("deviceinfo-system")
+        .arg("name", d.system_name)
+        .arg("version", d.system_version)
+        .format();
+    // Each branch is a full literal tr(...) call so `day lint` sees both keys (never tr(if ...)).
+    let sim_value = if d.is_simulator {
+        tr("deviceinfo-yes").format()
+    } else {
+        tr("deviceinfo-no").format()
+    };
+    let simulator = tr("deviceinfo-simulator").arg("value", sim_value).format();
+    (model, system, simulator)
+}
+
+fn activity_page() -> AnyPiece {
+    // The spinner's running state is a Signal<bool> shared by the piece, the toggle, and a status
+    // label that mirrors it reactively (each `tr(...)` branch is a full literal call for `day lint`).
+    let spinning = Signal::new(true);
+    let status = move || {
+        if spinning.get() {
+            tr("activity-on")
+        } else {
+            tr("activity-off")
+        }
+        .format()
+    };
+    column((
+        label(tr("nav-activity"))
+            .font(Font::Title)
+            .id("activity-title"),
+        label(tr("activity-caption")),
+        row((
+            activity().animating(spinning).id("activity-spinner"),
+            label(status).id("activity-status"),
+        ))
+        .spacing(12.0),
+        row((
+            label(tr("activity-animating")),
+            toggle(spinning).id("activity-toggle"),
+        ))
+        .spacing(8.0),
+        divider(),
+        // A separate, always-animating large spinner keeps a visible spinning indicator on screen
+        // regardless of the toggle (nice for the walkthrough screenshot).
+        label(tr("activity-large-label")).font(Font::Headline),
+        activity().large(true).id("activity-large"),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+fn search_page() -> AnyPiece {
+    let query = Signal::new(String::new());
+    column((
+        label(tr("nav-search")).font(Font::Title).id("search-title"),
+        label(tr("search-caption")),
+        // A native search field bound two-way to `query` + a Clear button that sets it to ""
+        // (proving the reverse binding patches the native control).
+        row((
+            search_field(query)
+                .placeholder(tr("search-placeholder"))
+                .id("search-input"),
+            button(tr("search-clear"))
+                .action(move || query.set(String::new()))
+                .id("search-clear"),
+        ))
+        .spacing(8.0),
+        // First match (a value, not prose) or an em-dash when nothing matches.
+        label(move || search_first_match(&query.get())).id("search-result"),
+        // The filtered fruit list — each row is a reactive `when`-gated label.
+        column((
+            search_fruit_row(query, "Apple"),
+            search_fruit_row(query, "Banana"),
+            search_fruit_row(query, "Cherry"),
+            search_fruit_row(query, "Date"),
+            search_fruit_row(query, "Elderberry"),
+        ))
+        .spacing(4.0)
+        .align(HAlign::Leading),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
+}
+
+const SEARCH_FRUITS: [&str; 5] = ["Apple", "Banana", "Cherry", "Date", "Elderberry"];
+
+/// Case-insensitive substring match; an empty query matches everything.
+fn search_matches(query: &str, fruit: &str) -> bool {
+    query.is_empty() || fruit.to_lowercase().contains(&query.to_lowercase())
+}
+
+/// The first fruit matching `query` (a data value), or an em-dash when none match.
+fn search_first_match(query: &str) -> String {
+    for fruit in SEARCH_FRUITS {
+        if search_matches(query, fruit) {
+            return fruit.to_string();
+        }
+    }
+    "\u{2014}".to_string()
+}
+
+/// One filtered row: a `when`-gated label that appears only while its fruit matches the query.
+fn search_fruit_row(query: Signal<String>, fruit: &'static str) -> AnyPiece {
+    when(
+        move || search_matches(&query.get(), fruit),
+        move || label(fruit),
+    )
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+/// A native map view (day-piece-map, an EXTERNAL standalone piece) — Apple platforms only. Preset
+/// buttons recenter the map live via a bound coordinate `Signal` (a `Center` patch to the native
+/// `MKMapView`). The map fills its `.frame`, and a marker pins the initial San Francisco center.
+fn map_page() -> AnyPiece {
+    const SF: (f64, f64) = (37.7749, -122.4194);
+    const NYC: (f64, f64) = (40.7128, -74.0060);
+    let center = Signal::new(SF);
+    column((
+        label(tr("nav-map")).font(Font::Title).id("map-title"),
+        label(tr("map-caption")).id("map-caption"),
+        row((
+            button(tr("map-sf"))
+                .action(move || center.set(SF))
+                .id("map-sf"),
+            button(tr("map-nyc"))
+                .action(move || center.set(NYC))
+                .id("map-nyc"),
+        ))
+        .spacing(8.0),
+        label(move || {
+            let (lat, lon) = center.get();
+            format!("{lat:.4}, {lon:.4}")
+        })
+        .id("map-coords"),
+        map()
+            .center_signal(center)
+            .span(0.05)
+            .marker(SF.0, SF.1)
+            .frame(320.0, 240.0)
+            .id("map"),
+    ))
+    .spacing(12.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .any()
 }
 
 /// The application menu bar (native NSMenu / GtkPopoverMenuBar / QMenuBar; app-bar overflow on Android;

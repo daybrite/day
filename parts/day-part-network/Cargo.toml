@@ -34,3 +34,12 @@ java = ["android/java"]
 # ConnectivityManager.getActiveNetwork/getNetworkCapabilities require ACCESS_NETWORK_STATE (a normal,
 # install-time permission — no runtime prompt).
 permissions = ["android.permission.ACCESS_NETWORK_STATE"]
+
+# --- iOS backend contribution (docs/extending.md) ---
+# SCNetworkReachability lives in SystemConfiguration.framework. src/apple.rs has a Rust
+# `#[link(name = "SystemConfiguration", kind = "framework")]`, but that is honored only when cargo
+# drives the final link (macOS desktop). On iOS, xcodebuild links the Rust staticlib and does NOT
+# read Rust link metadata, so the app must link the framework itself — declared here and linked via
+# the generated DayPieces SwiftPM package (resolve_ios scans every closure dep, part or piece).
+[package.metadata.day.ios]
+frameworks = ["SystemConfiguration"]

@@ -1,0 +1,37 @@
+[package]
+name = "day-part-prefs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
+# key/value string store, backed by each platform's NATIVE preferences facility. Any Rust code can
+# depend on it and call `day_part_prefs::{set, get, remove, contains}`. Platform selection is by
+# `#[cfg(target_os)]` (persistence is an OS concern, not a widget-toolkit one), so there are no
+# backend features — it "just works" per target:
+#   macOS/iOS — NSUserDefaults.standard (shared apple.rs)
+#   Android   — SharedPreferences via a Java shim staged through [package.metadata.day.android]
+#   Linux     — a file-backed JSON-ish store under $XDG_CONFIG_HOME/day (shared file.rs)
+#   Windows   — the same file store under %APPDATA%\day (shared file.rs)
+#   HarmonyOS — the same file store, best-effort in the app sandbox (target_env = "ohos")
+# See docs/prefs.md + docs/extending.md.
+
+[dependencies]
+
+# macOS + iOS store into NSUserDefaults — no Java shim, no Day runtime; pure objc2 Foundation.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString"] }
+
+# Android reads/writes SharedPreferences through a Java shim + day-android's cached JVM/Context. This
+# is the one platform where the headless crate rides on the day runtime (like the pieces' Android
+# backends).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages
+# this Java into the app's Gradle build, with zero edits to any core day crate. No permission is
+# needed: SharedPreferences is app-private storage.
+[package.metadata.day.android]
+java = ["android/java"]

@@ -149,3 +149,65 @@ menus-lifecycle = Dernière phase du cycle de vie :
 menus-context-hint = Menu contextuel
 menus-target = Clic droit ici (appui long sur mobile) pour un menu contextuel
 menus-shortcut-hint = Les raccourcis clavier (⌘/Ctrl + touche) apparaissent dans la barre de menus et fonctionnent quand l'application est active — p. ex. Nouveau (N), Enregistrer (S), Recharger (R).
+
+# --- day-part-haptics ---
+nav-haptics = Haptique
+haptics-caption = Le composant day-part-haptics déclenche un retour haptique natif — chaque bouton joue un motif.
+haptics-supported-yes = Moteur haptique disponible sur cette plateforme
+haptics-supported-no = Aucun moteur haptique sur cette plateforme (les boutons sont silencieux)
+haptics-light = Léger
+haptics-medium = Moyen
+haptics-heavy = Fort
+haptics-success = Succès
+haptics-warning = Avertissement
+haptics-error = Erreur
+haptics-selection = Sélection
+haptics-last = Dernier joué
+haptics-none = Rien joué pour l'instant
+haptics-last-played = Joué : { $style }
+
+# --- day-part-prefs ---
+nav-prefs = Préférences
+prefs-caption = Conserver une chaîne entre les lancements avec day-part-prefs.
+prefs-placeholder = Valeur à mémoriser
+prefs-save = Enregistrer
+prefs-load = Charger
+prefs-clear = Effacer
+prefs-idle = Saisissez une valeur, puis Enregistrer.
+prefs-empty = (rien d'enregistré)
+prefs-saved = Enregistré.
+prefs-save-failed = Échec de l'enregistrement.
+prefs-loaded = Chargé depuis le stockage.
+prefs-missing = Rien d'enregistré pour l'instant.
+prefs-cleared = Effacé.
+prefs-value-label = Valeur enregistrée :
+
+# --- day-part-deviceinfo ---
+nav-deviceinfo = Appareil
+deviceinfo-caption = Identité de l'appareil lue via l'API native de la plateforme (day-part-deviceinfo, sans interface).
+deviceinfo-model = Modèle : {$value}
+deviceinfo-system = Système : {$name} {$version}
+deviceinfo-simulator = Simulateur : {$value}
+deviceinfo-yes = oui
+deviceinfo-no = non
+deviceinfo-refresh = Actualiser
+
+# --- day-piece-activity ---
+nav-activity = Activité
+activity-caption = Un indicateur indéterminé montre un travail de durée inconnue.
+activity-animating = Animation
+activity-on = En rotation
+activity-off = Arrêté
+activity-large-label = Grand
+
+# --- day-piece-searchfield ---
+nav-search = Recherche
+search-caption = Filtrez la liste en tapant ; l'étiquette de résultat affiche la première correspondance.
+search-placeholder = Rechercher un fruit…
+search-clear = Effacer
+
+# --- day-piece-map ---
+nav-map = Carte
+map-caption = Une MKMapView native — plateformes Apple uniquement. Touchez un préréglage pour recentrer la carte en direct.
+map-sf = San Francisco
+map-nyc = New York
