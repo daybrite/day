@@ -435,7 +435,9 @@ jobs:
           echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
           { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
       - name: Clippy (arkui backend, cross-check)
-        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --no-default-features --features arkui -- -D warnings
+        # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
+        # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
+        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings
       - name: Build day CLI
         run: cargo build --locked -p day-cli
       # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
