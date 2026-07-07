@@ -24,7 +24,7 @@ Day has two kinds of pieces:
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
 | Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `widget` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
-| Reference | [the native-piece tutorial](./tutorial-native-piece) · `day-piece-picker` | this tutorial · `day-piece-rating` |
+| Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-picker` | this tutorial · `day-piece-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. But a star rating is
 just a **row of small drawings that react to taps** — and Day already gives you `row`, `canvas` (a
@@ -85,7 +85,7 @@ day-reactive = "0.1"  # Signal (also re-exported through day-pieces' prelude)
 
 > In the Day workspace these are `{ workspace = true }` instead of a version. Either way, contrast
 > this with a native piece's `Cargo.toml`, which carries a `[features]` block (one feature per
-> backend) and often a `build.rs` — see [the native-piece tutorial](./tutorial-native-piece).
+> backend) and often a `build.rs` — see [the native-piece tutorial](/docs/tutorial-native-piece).
 
 Now `src/lib.rs`. Everything comes from the pieces prelude; we additionally name `RNode` from
 `day-core` because it is the return type of `Piece::build`:
@@ -290,6 +290,6 @@ the native leaves do the platform work.** The same approach covers most of a des
   `environment::<T>()` — no prop-drilling, no backend code.
 
 Every one of these is composite: pure Rust, no cargo features, works on all ten targets the day you
-publish it. Reach for [the native-piece tutorial](./tutorial-native-piece) only when you truly need a
+publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you truly need a
 native control Day does not already wrap — the exception that proves how far composition alone will
 take you.

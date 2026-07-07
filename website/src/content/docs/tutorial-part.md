@@ -30,7 +30,7 @@ Contrast that with a **piece**, which is a reusable UI widget (a `combo_box`, a 
 corollary. The rule of thumb:
 
 - Building a **visible control** backed by a native widget? Write a **piece** — see
-  [the piece tutorial](./extending) and `pieces/day-piece-picker`.
+  [the piece tutorial](/docs/internal/extending) and `pieces/day-piece-picker`.
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 The elegant bit: a part reuses the *exact same build-contribution channel* pieces use — the
@@ -549,7 +549,7 @@ to own the small, load-bearing FFI seam.
 ---
 
 For the full source, see `parts/day-part-battery/` in the Day repo, and
-[extending.md](./extending) for the shared contribution mechanism that parts and pieces both ride.
+[extending.md](/docs/internal/extending) for the shared contribution mechanism that parts and pieces both ride.
 `parts/day-part-network` (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
 `parts/day-part-haptics` (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

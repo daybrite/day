@@ -232,6 +232,6 @@ flow:
 
 ## Deeper references
 
-Human-oriented pages with the same facts in narrative form: [Overview](./overview) ·
-[Why Day](./benefits) · [API tour](./api-tour) · [CLI & projects](./cli). Machine index:
+Human-oriented pages with the same facts in narrative form: [Overview](/docs/overview) ·
+[Why Day](/docs/benefits) · [API tour](/docs/api-tour) · [CLI & projects](/docs/cli). Machine index:
 [`/llms.txt`](/llms.txt).

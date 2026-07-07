@@ -5,7 +5,7 @@ order: 3
 ---
 
 Everything below is real Day API — the snippets are lifted from the showcase app that produces the
-[gallery](../gallery). Pull `use day::prelude::*;` in and you have all of it.
+[gallery](/gallery). Pull `use day::prelude::*;` in and you have all of it.
 
 ## A first app
 
@@ -205,4 +205,4 @@ combo_box(flavors, flavor).id("flavor-combo")
 Day Pieces can ship as ordinary Rust crates, and — across Day's small stable C ABI (**dayffi**) —
 in other languages, wrapping a real native widget on each toolkit.
 
-Next: the [CLI & projects](./cli) that build, launch, and script all of this.
+Next: the [CLI & projects](/docs/cli) that build, launch, and script all of this.

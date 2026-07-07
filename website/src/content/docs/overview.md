@@ -80,4 +80,4 @@ build only the JNI bridge. This keeps binaries small and calls direct.
 - **Not lowest-common-denominator.** Where platforms diverge, the Piece API exposes per-target
   styling; where a platform lacks a control, the toolkit composes one from primitives.
 
-Continue to [Why Day](./benefits) for the case, or jump into the [API tour](./api-tour).
+Continue to [Why Day](/docs/benefits) for the case, or jump into the [API tour](/docs/api-tour).

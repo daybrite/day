@@ -24,7 +24,7 @@ libadwaita. It looks like it belongs, because it does.
 
 UI, state, layout, localization, and tests are all Rust. No FFI seams between your view layer and
 your logic, no template DSL to context-switch into, no per-platform UI forks to keep in sync. The
-[showcase app](../gallery) is a single Rust program that runs on all ten targets.
+[showcase app](/gallery) is a single Rust program that runs on all ten targets.
 
 ## Fine-grained reactivity with a native runtime profile
 
@@ -61,6 +61,6 @@ Day treats these as first-class framework concerns, not add-ons:
 - **A `flutter_tools`-style CLI** — `day new / build / launch / pack / lint`, designed from Day
   one for humans, CI, IDEs, and AI agents.
 - **Screenshot-validated CI** — every target builds the showcase and captures screenshots on each
-  push; the [gallery](../gallery) on this site is assembled from exactly those artifacts.
+  push; the [gallery](/gallery) on this site is assembled from exactly those artifacts.
 
-Ready to see the API? Continue to the [API tour](./api-tour).
+Ready to see the API? Continue to the [API tour](/docs/api-tour).

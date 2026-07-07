@@ -63,7 +63,7 @@ contains only AppKit code and the Android build only its JNI bridge.
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket — the same
 script on every platform. It powers the showcase walkthrough and the screenshots in the
-[gallery](../gallery).
+[gallery](/gallery).
 
 ```yaml
 name: walkthrough
@@ -87,6 +87,6 @@ Android, Linux, and Windows.
 ## Continuous integration
 
 Every push builds the showcase on all ten targets and runs the walkthrough, uploading each target's
-screenshots as an artifact. This site's [gallery](../gallery) is assembled from exactly those
+screenshots as an artifact. This site's [gallery](/gallery) is assembled from exactly those
 artifacts, so it always shows the latest captures from each platform that succeeded — see
-[Why Day](./benefits) for the bigger picture.
+[Why Day](/docs/benefits) for the bigger picture.

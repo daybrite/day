@@ -18,12 +18,12 @@ platform, installable by any app with a single line in `Cargo.toml`, and requiri
 any core Day crate**.
 
 We will build one throughout: a **native search field** bound two-way to a `Signal<String>`. It
-already exists in the tree as [`day-piece-searchfield`](https://github.com/skiptools/day/tree/main/pieces/day-piece-searchfield),
+already exists in the tree as [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
 so you can read the finished crate alongside this tutorial — every snippet below is lifted from it.
 
 > If your control can instead be *assembled* from existing Pieces (an HStack of a label and a
 > stepper, a card built from a `column` and a `divider`), you want the far lighter
-> [composite-piece tutorial](./tutorial-composite-piece) instead. Reach for a native piece only when
+> [composite-piece tutorial](/docs/tutorial-composite-piece) instead. Reach for a native piece only when
 > there is a genuine platform control underneath.
 
 ## 1. When you need a native piece
@@ -571,8 +571,8 @@ registration check tell you honestly which ones are still stubs.
 You now have the full picture: one crate, a shared Rust front-end over a typed `KIND`/`Props`/`Patch`
 protocol, a native backend per toolkit registered link-time with zero core edits, and a build that
 derives its own features. The reference crate to read end-to-end is
-[`pieces/day-piece-searchfield`](https://github.com/skiptools/day/tree/main/pieces/day-piece-searchfield);
-[`day-piece-picker`](https://github.com/skiptools/day/tree/main/pieces/day-piece-picker) shows three
-native stylings of one piece, and [`day-piece-media`](https://github.com/skiptools/day/tree/main/pieces/day-piece-media)
+[`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield);
+[`day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker) shows three
+native stylings of one piece, and [`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media)
 shows framework linking. The mechanism is documented in full in
-[`docs/extending.md`](https://github.com/skiptools/day/blob/main/docs/extending.md).
+[`docs/extending.md`](https://github.com/daybrite/day/blob/main/docs/extending.md).

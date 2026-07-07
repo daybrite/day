@@ -696,6 +696,11 @@ jobs:
         run: |
           npm ci
           npm run build
+      # Validate every internal link on every generated page (external links are skipped — flaky and
+      # not ours). A broken internal link fails the build BEFORE the Pages artifact is uploaded.
+      - name: Check for broken links
+        working-directory: website
+        run: npm run linkcheck
       - name: Upload the Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
