@@ -246,6 +246,13 @@ flow:
   - pause: { secs: 5 }
   - tap: { id: media-pause }
   - screenshot: media
+  # Bundled resources (§18.3): an image loaded by name via the native image pipeline + random-access
+  # reads of embedded data through the native data API.
+  - navigate: { route: resources }
+  - assert_route: { route: resources }
+  - assert_visible: { id: resources-numbers }
+  - assert_visible: { id: resources-greeting }
+  - screenshot: resources
   - navigate: { route: webview }
   - assert_route: { route: webview }
   - assert_visible: { id: webview-title }

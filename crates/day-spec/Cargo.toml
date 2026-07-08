@@ -6,3 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 day-geometry = { workspace = true }
+# The default resource opener mmaps the backing file for zero-copy random access (the "plain file
+# handle on Apple" path + desktop dev). Native backends (Android AAsset, GTK GResource, Qt
+# QResource, ArkUI rawfile) register their own opener and don't go through this.
+memmap2 = "0.9"

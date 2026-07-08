@@ -196,6 +196,12 @@ prefs-missing = Nothing stored yet.
 prefs-cleared = Cleared.
 prefs-value-label = Stored value:
 
+# --- bundled resources (§18.3) ---
+nav-resources = Resources
+resources-caption = An image loaded by name from a bundled resource, plus random-access reads of embedded data.
+resources-numbers = numbers.bin: { $len } bytes, byte[100] = { $byte }
+resources-greeting = greeting.txt: { $text }
+
 # --- day-part-deviceinfo ---
 nav-deviceinfo = Device Info
 deviceinfo-caption = Device identity read through the native platform API (headless day-part-deviceinfo).

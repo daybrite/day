@@ -1439,17 +1439,48 @@ mod imp {
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     let iv = unsafe { objc2_ui_kit::UIImageView::new(mtm) };
-                    // Bundle path: <app>/assets/<name> (staged by day xcode-backend).
-                    let bundle = unsafe { objc2_foundation::NSBundle::mainBundle() };
-                    if let Some(res) = unsafe { bundle.resourcePath() } {
-                        let path = format!("{}/assets/{}", res, p.source);
-                        if let Some(img) = unsafe {
-                            objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
-                                &path,
-                            ))
-                        } {
-                            unsafe { iv.setImage(Some(&img)) };
+                    // Scaling (§18.3): AspectFit / AspectFill (crop, clipped) / ScaleToFill.
+                    let mode = match p.content_mode {
+                        ContentMode::Fit => objc2_ui_kit::UIViewContentMode::ScaleAspectFit,
+                        ContentMode::Fill => objc2_ui_kit::UIViewContentMode::ScaleAspectFill,
+                        ContentMode::Stretch => objc2_ui_kit::UIViewContentMode::ScaleToFill,
+                    };
+                    unsafe {
+                        iv.setContentMode(mode);
+                        iv.setClipsToBounds(true);
+                    }
+                    let name = NSString::from_str(&p.source);
+                    let mut set = false;
+                    // Processed image (§18.3): load by name from the DayPieces `Assets.car` — the
+                    // SwiftPM `.process` catalog compiled by actool into DayPieces_DayPieces.bundle.
+                    let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+                    let bname = NSString::from_str("DayPieces_DayPieces");
+                    let bext = NSString::from_str("bundle");
+                    if let Some(url) =
+                        unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
+                        && let Some(day_bundle) =
+                            unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+                        && let Some(img) = unsafe {
+                            objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
+                                &name,
+                                Some(&day_bundle),
+                                None,
+                            )
                         }
+                    {
+                        unsafe { iv.setImage(Some(&img)) };
+                        set = true;
+                    }
+                    // Fallback: a loose file staged in the bundle (assets/ or images/), or dev.
+                    if !set
+                        && let Some(path) = day_spec::resource::resolve_image_file(&p.source)
+                        && let Some(img) = unsafe {
+                            objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                                &path.to_string_lossy(),
+                            ))
+                        }
+                    {
+                        unsafe { iv.setImage(Some(&img)) };
                     }
                     view_of(iv)
                 }

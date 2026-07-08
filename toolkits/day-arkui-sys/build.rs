@@ -39,7 +39,8 @@ fn main() {
         .file("src/shim.cpp")
         .compile("day_arkui_shim");
 
-    // ArkUI native (ace_ndk), NAPI (ace_napi), logging (hilog_ndk), and libuv (main-thread posting).
+    // ArkUI native (ace_ndk), NAPI (ace_napi), logging (hilog_ndk), libuv (main-thread posting),
+    // and the resource-manager rawfile API (rawfile — bundled data resources, §18.3).
     let lib_arch = match arch.as_str() {
         "aarch64" => "aarch64-linux-ohos",
         "x86_64" => "x86_64-linux-ohos",
@@ -48,7 +49,7 @@ fn main() {
     };
     let libdir = ndk.join("sysroot/usr/lib").join(lib_arch);
     println!("cargo:rustc-link-search=native={}", libdir.display());
-    for lib in ["ace_napi.z", "ace_ndk.z", "hilog_ndk.z", "uv"] {
+    for lib in ["ace_napi.z", "ace_ndk.z", "hilog_ndk.z", "rawfile.z", "uv"] {
         println!("cargo:rustc-link-lib=dylib={lib}");
     }
 }

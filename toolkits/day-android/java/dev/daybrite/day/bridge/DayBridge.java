@@ -514,6 +514,7 @@ public final class DayBridge {
         try {
             return ctx.getCacheDir().getAbsolutePath();
         } catch (Exception e) {
+            android.util.Log.w("Day", "cacheDirPath failed", e);
             return "";
         }
     }
@@ -523,6 +524,7 @@ public final class DayBridge {
         try {
             return ctx.getFilesDir().getAbsolutePath();
         } catch (Exception e) {
+            android.util.Log.w("Day", "filesDirPath failed", e);
             return "";
         }
     }
@@ -559,6 +561,7 @@ public final class DayBridge {
         try {
             ((android.app.Activity) ctx).startActivityForResult(intent, rc);
         } catch (Exception e) {
+            android.util.Log.w("Day", "file picker startActivityForResult failed", e);
             fileReqToDay.remove(rc);
             fileSaveSrc.remove(rc);
             nativeOnEvent(req, 10, 0.0, null);
@@ -591,6 +594,7 @@ public final class DayBridge {
                 nativeOnEvent(req, 15, 0.0, out.getAbsolutePath());
             }
         } catch (Exception e) {
+            android.util.Log.w("Day", "file open/save transfer failed", e);
             nativeOnEvent(req, 10, 0.0, null);
         }
     }
@@ -612,7 +616,9 @@ public final class DayBridge {
                 int i = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
                 if (i >= 0 && c.getString(i) != null) name = c.getString(i);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w("Day", "display-name lookup failed for " + uri, e);
+        }
         return name.replaceAll("[/\\\\]", "_");
     }
 
@@ -667,14 +673,28 @@ public final class DayBridge {
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }
-    public static View makeImage(String assetPath) {
+    public static View makeImage(String name, int mode) {
         android.widget.ImageView iv = new android.widget.ImageView(ctx);
+        // Scaling (§18.3): 0=fit, 1=fill (crop), 2=stretch.
+        iv.setScaleType(
+                mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
+                        : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
+                                : android.widget.ImageView.ScaleType.FIT_CENTER);
+        // Prefer a processed drawable resource by name (§18.3): images/<name> is staged into
+        // res/drawable -> R.drawable.<name>, crunched/optimized by aapt2. Fall back to a raw asset
+        // by path (back-compat for image("file.png") loaded straight from assets/).
+        int id = ctx.getResources().getIdentifier(name, "drawable", ctx.getPackageName());
+        if (id != 0) {
+            iv.setImageResource(id);
+            return iv;
+        }
         try {
             android.graphics.Bitmap bm =
-                    android.graphics.BitmapFactory.decodeStream(ctx.getAssets().open(assetPath));
+                    android.graphics.BitmapFactory.decodeStream(ctx.getAssets().open(name));
             iv.setImageBitmap(bm);
-            iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w("Day", "image asset decode failed for " + name, e);
+        }
         return iv;
     }
     /** Accessibility (§13): contentDescription = label (TalkBack reads it); importantForAccessibility
@@ -780,6 +800,7 @@ public final class DayBridge {
     }
 
     private static long parseLong(String s) {
-        try { return Long.parseLong(s); } catch (NumberFormatException e) { return 0L; }
+        try { return Long.parseLong(s); }
+        catch (NumberFormatException e) { android.util.Log.w("Day", "parseLong failed for " + s, e); return 0L; }
     }
 }

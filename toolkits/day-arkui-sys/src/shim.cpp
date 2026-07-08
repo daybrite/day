@@ -12,17 +12,27 @@
 #include <mutex>
 #include <string>
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 #include <arkui/native_interface.h>
 #include <arkui/native_node.h>
 #include <arkui/native_node_napi.h>
 #include <arkui/native_type.h>
 #include <napi/native_api.h>
+#include <rawfile/raw_file.h>
+#include <rawfile/raw_file_manager.h>
 #include <uv.h>
 
 // ---- globals ---------------------------------------------------------------
 static ArkUI_NativeNodeAPI_1* g_api = nullptr;
 static napi_env g_env = nullptr;
 static double g_density = 1.0; // px per vp; ArkUI attributes are vp, measure/layout are px
+
+// The app's native resource manager (§18.3), captured from the ArkTS `resourceManager` via the
+// `registerResourceManager` NAPI export. Needed to read staged rawfile data resources; null until
+// the entry ability registers it (in which case the rawfile opener returns nothing).
+static NativeResourceManager* g_res_mgr = nullptr;
 
 // Implemented in Rust (the day-arkui backend / the app cdylib).
 extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
@@ -98,6 +108,7 @@ static ArkUI_NodeType kind_map(int32_t k) {
         case 6: return ARKUI_NODE_SCROLL;
         case 7: return ARKUI_NODE_COLUMN;
         case 8: return ARKUI_NODE_LOADING_PROGRESS;
+        case 9: return ARKUI_NODE_IMAGE;  // image (by name, addressed via resource://RAWFILE)
         default: return ARKUI_NODE_STACK;
     }
 }
@@ -154,6 +165,17 @@ void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s)
 void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
 void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
 void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }
+// NODE_IMAGE_SRC accepts a "resource://RAWFILE/<path>" URI | file path | network URL | base64.
+void day_ark_set_image_src(void* n, const char* s) { set_str(n, NODE_IMAGE_SRC, s); }
+// Scaling (§18.3): `fit` is an ArkUI_ObjectFit (CONTAIN=0 / COVER=1 / FILL=3).
+void day_ark_set_image_fit(void* n, int32_t fit) {
+    ArkUI_NumberValue nv;
+    nv.i32 = fit;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_IMAGE_OBJECT_FIT, &it);
+}
 void day_ark_set_toggle(void* n, int32_t on) {
     ArkUI_NumberValue nv;
     nv.i32 = on ? 1 : 0;
@@ -257,6 +279,87 @@ void day_ark_present_file(uint64_t req, int32_t mode, const char* name, const ch
     napi_close_handle_scope(g_env, scope);
 }
 
+// ---- bundled data resources (§18.3): app rawfile store ---------------------
+// Opaque cleanup token handed back to Rust for a single opened resource view.
+struct DayResMap {
+    void* base;    // munmap base (page-aligned) when mmap'd, else the malloc'd buffer
+    size_t maplen; // length passed to munmap; 0 marks a heap copy (free `base` instead)
+};
+
+int32_t day_ark_res_available(void) { return g_res_mgr ? 1 : 0; }
+
+// Open rawfile `path` (e.g. "day/numbers.bin") and expose its bytes. Prefers a zero-copy mmap of the
+// uncompressed entry inside the .hap (via OH_ResourceManager_GetRawFileDescriptor → {fd,start,
+// length}); falls back to reading the whole file into a heap buffer if the descriptor/mmap is
+// unavailable. See rawfile/raw_file.h + rawfile/raw_file_manager.h.
+int32_t day_ark_res_open(const char* path, const uint8_t** out_data, size_t* out_len,
+                         void** out_handle) {
+    *out_data = nullptr;
+    *out_len = 0;
+    *out_handle = nullptr;
+    if (!g_res_mgr || !path) return 0;
+    RawFile* rf = OH_ResourceManager_OpenRawFile(g_res_mgr, path);
+    if (!rf) return 0;
+
+    // Zero-copy path: the CLI stages resources uncompressed, so the entry has a real fd/offset/length
+    // inside the .hap we can mmap (the 32-bit descriptor takes the same RawFile* we opened; its
+    // long fields are 64-bit on the ohos targets). The offset need not be page-aligned, so align down
+    // and bias the returned pointer. Note the OH getters take the descriptor by C++ reference.
+    RawFileDescriptor fd{};
+    bool have_fd = OH_ResourceManager_GetRawFileDescriptor(rf, fd);
+    if (have_fd && fd.fd >= 0 && fd.length > 0) {
+        long page = sysconf(_SC_PAGESIZE);
+        long misalign = page > 0 ? (fd.start % page) : 0;
+        size_t map_len = (size_t)(fd.length + misalign);
+        void* base = mmap(nullptr, map_len, PROT_READ, MAP_PRIVATE, fd.fd, fd.start - misalign);
+        // The descriptor owns a dup'd fd; release it — the mapping survives the close.
+        OH_ResourceManager_ReleaseRawFileDescriptor(fd);
+        OH_ResourceManager_CloseRawFile(rf);
+        if (base != MAP_FAILED) {
+            *out_data = (const uint8_t*)base + misalign;
+            *out_len = (size_t)fd.length;
+            *out_handle = new DayResMap{base, map_len};
+            return 1;
+        }
+        // mmap failed → reopen and fall through to the heap-copy path below.
+        rf = OH_ResourceManager_OpenRawFile(g_res_mgr, path);
+        if (!rf) return 0;
+    } else if (have_fd) {
+        // Descriptor obtained but unusable — release it so the dup'd fd isn't leaked.
+        OH_ResourceManager_ReleaseRawFileDescriptor(fd);
+    }
+
+    // Fallback copy path: read the whole file into a heap buffer.
+    long size = OH_ResourceManager_GetRawFileSize(rf);
+    if (size <= 0) {
+        OH_ResourceManager_CloseRawFile(rf);
+        return 0;
+    }
+    void* buf = malloc((size_t)size);
+    if (!buf) {
+        OH_ResourceManager_CloseRawFile(rf);
+        return 0;
+    }
+    int read = OH_ResourceManager_ReadRawFile(rf, buf, (size_t)size);
+    OH_ResourceManager_CloseRawFile(rf);
+    if (read <= 0) {
+        free(buf);
+        return 0;
+    }
+    *out_data = (const uint8_t*)buf;
+    *out_len = (size_t)read;
+    *out_handle = new DayResMap{buf, 0};
+    return 1;
+}
+
+void day_ark_res_close(void* handle) {
+    DayResMap* tok = (DayResMap*)handle;
+    if (!tok) return;
+    if (tok->maplen) munmap(tok->base, tok->maplen);
+    else free(tok->base);
+    delete tok;
+}
+
 } // extern "C"
 
 // Read a NAPI string argument into a std::string (queries the exact length first).
@@ -320,6 +423,28 @@ static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ArkTS hands the app's resourceManager to native so the rawfile data-resource opener (§18.3) can
+// read staged assets: `registerResourceManager(getContext(this).resourceManager)`. OH_ResourceManager
+// _InitNativeResourceManager needs this ArkTS object — there is no native-only way to obtain it — so
+// the entry ability must call this once (additive, like registerFilePicker; harmless if omitted, in
+// which case `resource(name)` returns None and no data resources are available).
+static napi_value RegisterResourceManager(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (argv[0]) {
+        if (g_res_mgr) {
+            OH_ResourceManager_ReleaseNativeResourceManager(g_res_mgr);
+            g_res_mgr = nullptr;
+        }
+        g_res_mgr = OH_ResourceManager_InitNativeResourceManager(env, argv[0]);
+    }
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 // The picker's answer: `onFileResult(req, path)` — empty path = cancel (docs/files.md).
 static napi_value OnFileResult(napi_env env, napi_callback_info info) {
     size_t argc = 2;
@@ -362,6 +487,9 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "registerFilePicker", fn);
     napi_create_function(env, "onFileResult", NAPI_AUTO_LENGTH, OnFileResult, nullptr, &fn);
     napi_set_named_property(env, exports, "onFileResult", fn);
+    napi_create_function(env, "registerResourceManager", NAPI_AUTO_LENGTH, RegisterResourceManager,
+                         nullptr, &fn);
+    napi_set_named_property(env, exports, "registerResourceManager", fn);
     return exports;
 }
 

@@ -266,6 +266,13 @@ impl WinUi {
         for f in RENDERERS {
             registry.register(f());
         }
+        // Data resources (§18.3): no custom opener registered. Unlike Android/GTK/Qt/ArkUI — whose
+        // bytes live inside a packaged store (AAssetManager/GResource/QResource/rawfile) and so need
+        // a backend opener — an unpackaged Win32 app reaches loose files next to its exe directly.
+        // `day build` stages data under `assets/` there, which is exactly what day-spec's default
+        // opener mmaps (env `DAY_ASSET_ROOT`, then exe-relative `assets/`), so `resource("name")`
+        // works with zero backend wiring. A custom opener would only earn its keep for embedded
+        // RCDATA, which this backend does not use.
         WinUi {
             registry,
             window: std::ptr::null_mut(),
@@ -692,8 +699,15 @@ impl Toolkit for WinUi {
                 }
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
+                    // Scaling: 0=fit, 1=fill (crop), 2=stretch.
+                    let mode = match p.content_mode {
+                        ContentMode::Fit => 0,
+                        ContentMode::Fill => 1,
+                        ContentMode::Stretch => 2,
+                    };
                     WinHandle(ffi::day_winui_image_new(
                         cstr(&image_uri(&p.source)).as_ptr(),
+                        mode,
                     ))
                 }
                 _ => {
@@ -1200,13 +1214,17 @@ fn argb(c: day_spec::Color) -> u32 {
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
-/// Resolve an asset name to a `file:///` URI the XAML `BitmapImage` can load (§18.2).
+/// Resolve an image NAME to a `file:///` URI the XAML `BitmapImage` can load (§18.3).
+///
+/// Unpackaged Win32 + WinUI has no MRT/`.pri` resource store (that path is packaged/MSIX-only), so
+/// images resolve to the loose files `day build` stages next to the exe under `images/` then
+/// `assets/`. The shared [`resolve_image_file`](day_spec::resource::resolve_image_file) does that
+/// lookup (probing `DAY_IMAGE_ROOT`/`DAY_ASSET_ROOT` for dev/`day launch` runs, then the exe-relative
+/// dirs, inferring the extension), exactly as the AppKit/GTK/Qt backends do. An unresolved name
+/// yields `""`, which `day_winui_image_new` renders as an empty placeholder — the prior behavior.
 fn image_uri(source: &str) -> String {
-    let path = std::env::var("DAY_ASSET_ROOT")
-        .map(|r| std::path::Path::new(&r).join(source))
-        .ok()
-        .filter(|p| p.exists());
-    match path {
+    match day_spec::resource::resolve_image_file(source) {
+        // XAML's `BitmapImage` wants a URI, not a bare path; forward-slash it for `Windows.Foundation.Uri`.
         Some(p) => format!("file:///{}", p.to_string_lossy().replace('\\', "/")),
         None => String::new(),
     }

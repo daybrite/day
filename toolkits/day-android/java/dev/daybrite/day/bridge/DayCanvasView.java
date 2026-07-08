@@ -77,7 +77,9 @@ public class DayCanvasView extends View {
                             float x = Float.parseFloat(pair.substring(0, comma));
                             float y = Float.parseFloat(pair.substring(comma + 1));
                             if (first) { path.moveTo(x, y); first = false; } else { path.lineTo(x, y); }
-                        } catch (NumberFormatException ignored) {}
+                        } catch (NumberFormatException nfe) {
+                            android.util.Log.w("Day", "canvas point parse failed: " + pair, nfe);
+                        }
                     }
                     if (!first) {
                         path.close();

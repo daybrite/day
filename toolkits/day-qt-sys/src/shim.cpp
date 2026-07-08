@@ -23,6 +23,7 @@
 #include <map>
 #include <vector>
 #include <QPixmap>
+#include <QResource>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -616,11 +617,52 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
     c->update();
 }
 
-void *day_qt_image_new(const char *path) {
-    QLabel *l = new QLabel();
-    QPixmap pm(QString::fromUtf8(path));
-    if (!pm.isNull()) { l->setPixmap(pm); l->setScaledContents(true); }
+// Aspect-aware image widget (§18.3): paints the pixmap scaled per content mode
+// (0 = fit / KeepAspectRatio, 1 = fill / KeepAspectRatioByExpanding + crop, 2 = stretch).
+class DayImageLabel : public QLabel {
+public:
+    QPixmap orig;
+    int mode;
+    explicit DayImageLabel(int m) : mode(m) {}
+    void setImage(const QPixmap &p) { orig = p; update(); }
+protected:
+    void paintEvent(QPaintEvent *) override {
+        if (orig.isNull()) return;
+        QPainter painter(this);
+        if (mode == 2) { // stretch
+            painter.drawPixmap(rect(), orig);
+            return;
+        }
+        Qt::AspectRatioMode arm = (mode == 1) ? Qt::KeepAspectRatioByExpanding : Qt::KeepAspectRatio;
+        QPixmap scaled = orig.scaled(size(), arm, Qt::SmoothTransformation);
+        if (mode == 1) painter.setClipRect(rect()); // fill: crop the overflow
+        int x = (width() - scaled.width()) / 2;
+        int y = (height() - scaled.height()) / 2;
+        painter.drawPixmap(x, y, scaled);
+    }
+};
+
+void *day_qt_image_new(const char *path, int mode) {
+    DayImageLabel *l = new DayImageLabel(mode);
+    QPixmap pm(QString::fromUtf8(path)); // ":/day/images/<name>" (resource) or a file path
+    if (!pm.isNull()) l->setImage(pm);
     return l;
+}
+
+// --- native Qt Resource System packing (§18.3) ---
+// Register the app's compiled .rcc blob; then data reads are zero-copy from QResource::data().
+void day_qt_register_resource(const char *path) {
+    QResource::registerResource(QString::fromUtf8(path));
+}
+const void *day_qt_resource_data(const char *respath, size_t *out_len) {
+    QResource r{ QString::fromUtf8(respath) };
+    if (!r.isValid()) return nullptr;
+    *out_len = (size_t)r.size();
+    return (const void *)r.data(); // points into the registered (uncompressed) blob — app lifetime
+}
+int day_qt_resource_exists(const char *respath) {
+    QResource r{ QString::fromUtf8(respath) };
+    return r.isValid() ? 1 : 0;
 }
 
 // --- gestures (tap / drag) ---

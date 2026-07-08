@@ -99,7 +99,7 @@ unsafe extern "C" {
     pub fn day_winui_textbox_set_placeholder(w: *mut c_void, text: *const c_char);
 
     pub fn day_winui_divider_new() -> *mut c_void;
-    pub fn day_winui_image_new(uri: *const c_char) -> *mut c_void;
+    pub fn day_winui_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
 
     pub fn day_winui_combo_new(
         items_joined: *const c_char,

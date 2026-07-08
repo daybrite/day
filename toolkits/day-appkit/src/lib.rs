@@ -1311,12 +1311,22 @@ impl Toolkit for AppKit {
             kinds::IMAGE => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
-                if let Some(path) = resolve_asset(&p.source) {
+                // Scaling (§18.3): NSImageView has no crop-fill, so Fit/Fill both scale-to-fit
+                // proportionally; Stretch scales each axis independently.
+                let scaling = match p.content_mode {
+                    ContentMode::Stretch => objc2_app_kit::NSImageScaling::ScaleAxesIndependently,
+                    _ => objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
+                };
+                unsafe { iv.setImageScaling(scaling) };
+                // Resolve `image("name")` by name through the shared image-file resolver
+                // (images/ then assets/ then bundle) — macOS AppKit's native path is a bundle
+                // file loaded straight into NSImage (§18.3).
+                if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
                     use objc2::AllocAnyThread as _;
                     if let Some(img) = unsafe {
                         objc2_app_kit::NSImage::initWithContentsOfFile(
                             objc2_app_kit::NSImage::alloc(),
-                            &NSString::from_str(&path),
+                            &NSString::from_str(&path.to_string_lossy()),
                         )
                     } {
                         unsafe { iv.setImage(Some(&img)) };
@@ -2600,21 +2610,4 @@ fn build_ns_menu(
         }
     }
     menu
-}
-
-/// Resolve an asset name: DAY_ASSET_ROOT (dev runs / CLI launch) or the app bundle Resources.
-fn resolve_asset(name: &str) -> Option<String> {
-    if let Ok(root) = std::env::var("DAY_ASSET_ROOT") {
-        let p = std::path::Path::new(&root).join(name);
-        if p.exists() {
-            return Some(p.to_string_lossy().into_owned());
-        }
-    }
-    let exe = std::env::current_exe().ok()?;
-    let res = exe.parent()?.parent()?.join("Resources/assets").join(name);
-    if res.exists() {
-        Some(res.to_string_lossy().into_owned())
-    } else {
-        None
-    }
 }

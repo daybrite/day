@@ -138,6 +138,102 @@ mod imp {
     /// class loader and cannot see app classes — cache the class on the main thread at init.
     static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 
+    // --- Bundled data resources via the NDK AAssetManager (§18.3) --------------------------------
+    // `resource("name")` reads the APK asset `name` with a zero-copy pointer into the (uncompressed)
+    // asset via AAsset_getBuffer — the native AssetManager path the user asked for.
+    #[allow(non_camel_case_types)]
+    mod aasset {
+        use std::os::raw::{c_char, c_int, c_void};
+        pub enum AAssetManager {}
+        pub enum AAsset {}
+        pub const AASSET_MODE_BUFFER: c_int = 3;
+        #[link(name = "android")]
+        unsafe extern "C" {
+            pub fn AAssetManager_fromJava(
+                env: *mut jni::sys::JNIEnv,
+                mgr: jni::sys::jobject,
+            ) -> *mut AAssetManager;
+            pub fn AAssetManager_open(
+                mgr: *mut AAssetManager,
+                filename: *const c_char,
+                mode: c_int,
+            ) -> *mut AAsset;
+            pub fn AAsset_getBuffer(asset: *mut AAsset) -> *const c_void;
+            pub fn AAsset_getLength64(asset: *mut AAsset) -> i64;
+            pub fn AAsset_close(asset: *mut AAsset);
+        }
+    }
+
+    /// The app's `AAssetManager` plus a GlobalRef to the Java `AssetManager` that keeps it alive.
+    struct AssetMgr {
+        aam: *mut aasset::AAssetManager,
+        _keepalive: GlobalRef,
+    }
+    // The AAssetManager pointer is valid for the app lifetime; resource() runs on the main thread.
+    unsafe impl Send for AssetMgr {}
+    unsafe impl Sync for AssetMgr {}
+    static ASSET_MGR: OnceLock<AssetMgr> = OnceLock::new();
+
+    /// Capture the `AAssetManager` from `DayBridge.ctx.getAssets()` and register the opener (init).
+    fn register_resource_opener(env: &mut JNIEnv) {
+        let Ok(ctx) = env
+            .get_static_field(BRIDGE, "ctx", "Landroid/content/Context;")
+            .and_then(|f| f.l())
+        else {
+            return;
+        };
+        let Ok(am) = env
+            .call_method(
+                &ctx,
+                "getAssets",
+                "()Landroid/content/res/AssetManager;",
+                &[],
+            )
+            .and_then(|r| r.l())
+        else {
+            return;
+        };
+        let Ok(keepalive) = env.new_global_ref(&am) else {
+            return;
+        };
+        let aam = unsafe { aasset::AAssetManager_fromJava(env.get_raw(), am.as_raw()) };
+        if aam.is_null() {
+            return;
+        }
+        let _ = ASSET_MGR.set(AssetMgr {
+            aam,
+            _keepalive: keepalive,
+        });
+        day_spec::resource::set_resource_opener(open_resource);
+    }
+
+    /// Opener: `resource("name")` -> the APK asset `name`, zero-copy from `AAsset_getBuffer`.
+    fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
+        let mgr = ASSET_MGR.get()?.aam;
+        let cname = std::ffi::CString::new(name).ok()?;
+        let asset =
+            unsafe { aasset::AAssetManager_open(mgr, cname.as_ptr(), aasset::AASSET_MODE_BUFFER) };
+        if asset.is_null() {
+            return None;
+        }
+        let len = unsafe { aasset::AAsset_getLength64(asset) };
+        let ptr = unsafe { aasset::AAsset_getBuffer(asset) } as *const u8;
+        if ptr.is_null() || len < 0 {
+            unsafe { aasset::AAsset_close(asset) };
+            return None;
+        }
+        struct AssetGuard(*mut aasset::AAsset);
+        impl Drop for AssetGuard {
+            fn drop(&mut self) {
+                unsafe { aasset::AAsset_close(self.0) };
+            }
+        }
+        // Safety: `ptr`/`len` are the asset's buffer, valid until AAsset_close (held by the guard).
+        Some(unsafe {
+            day_spec::resource::Resource::from_raw(ptr, len as usize, Box::new(AssetGuard(asset)))
+        })
+    }
+
     /// The day-core event sink (node-id keyed).
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
@@ -223,6 +319,7 @@ mod imp {
         {
             let _ = BRIDGE_CLASS.set(global);
         }
+        register_resource_opener(env);
         let d = density_ as f64;
         DENSITY.with(|x| x.set(d));
         let handle = AHandle(env.new_global_ref(root).expect("root global ref"));
@@ -889,13 +986,19 @@ mod imp {
                 }),
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
+                    // Scaling (§18.3): 0=fit (FIT_CENTER), 1=fill (CENTER_CROP), 2=stretch (FIT_XY).
+                    let mode = match p.content_mode {
+                        ContentMode::Fit => 0,
+                        ContentMode::Fill => 1,
+                        ContentMode::Stretch => 2,
+                    };
                     with_env(|env| {
                         let s = jstr(env, &p.source);
                         AHandle(make_view(
                             env,
                             "makeImage",
-                            "(Ljava/lang/String;)Landroid/view/View;",
-                            &[JValue::Object(&s)],
+                            "(Ljava/lang/String;I)Landroid/view/View;",
+                            &[JValue::Object(&s), JValue::Int(mode)],
                         ))
                     })
                 }

@@ -15,6 +15,7 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
+pub use day_core::{Resource, resource};
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_spec::{Lifecycle, WindowOptions};
 
@@ -60,6 +61,8 @@ pub mod prelude {
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     pub use {super::lifecycle_supported, super::on_lifecycle};
+    // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
+    pub use day_core::{Resource, resource};
 }
 
 /// App-lifecycle support for the backend compiled into THIS binary (docs/lifecycle.md).

@@ -29,6 +29,10 @@ struct Index {
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
     nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);
 
+    // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
+    // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side.
+    nativeEntry.registerResourceManager(getContext(this).resourceManager);
+
     // Bridge Day's native file open/save to the ArkTS DocumentViewPicker (docs/files.md).
     const ctx = getContext(this) as common.UIAbilityContext;
     nativeEntry.registerFilePicker(

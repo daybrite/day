@@ -49,6 +49,9 @@ pub fn build(
         ));
     }
     let start = std::time::Instant::now();
+    // Stage declared resources (images/ + assets/) into this target's native locations before its
+    // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3).
+    crate::resources::stage(project, target)?;
     match target.kind {
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
@@ -152,10 +155,23 @@ pub fn launch(
             let mut cmd = Command::new(&outcome.artifact);
             cmd.current_dir(&project.root)
                 .env("DAY_ASSET_ROOT", project.root.join("assets"))
+                .env("DAY_IMAGE_ROOT", project.root.join("images"))
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             if target.toolkit == "gtk" {
                 cmd.env("GSK_RENDERER", "cairo");
+                // Native GResource blob (§18.3) — day-gtk registers it + loads via g_resources_*.
+                let g = crate::resources::gtk::gresource_path(project);
+                if g.exists() {
+                    cmd.env("DAY_GRESOURCE", g);
+                }
+            }
+            if target.toolkit == "qt" {
+                // Native Qt resource blob (§18.3) — the day-qt shim registers it (QResource).
+                let q = crate::resources::qt::qresource_path(project);
+                if q.exists() {
+                    cmd.env("DAY_QRESOURCE", q);
+                }
             }
             if let Some(locale) = &spec.locale {
                 cmd.env("DAY_LOCALE", locale);

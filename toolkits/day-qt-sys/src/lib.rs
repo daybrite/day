@@ -85,7 +85,11 @@ unsafe extern "C" {
         n: c_int,
         texts_joined: *const c_char,
     );
-    pub fn day_qt_image_new(path: *const c_char) -> *mut c_void;
+    pub fn day_qt_image_new(path: *const c_char, mode: c_int) -> *mut c_void;
+    // Native Qt Resource System (§18.3): register the .rcc blob; read data zero-copy.
+    pub fn day_qt_register_resource(path: *const c_char);
+    pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;
+    pub fn day_qt_resource_exists(respath: *const c_char) -> c_int;
     pub fn day_qt_enable_gesture(
         w: *mut c_void,
         node: u64,

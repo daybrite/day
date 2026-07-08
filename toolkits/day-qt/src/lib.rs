@@ -209,6 +209,7 @@ pub struct Qt {
 
 impl Qt {
     pub fn new() -> Self {
+        register_resources();
         let mut registry = Registry::default();
         for f in RENDERERS {
             registry.register(f());
@@ -218,6 +219,29 @@ impl Qt {
             window: std::ptr::null_mut(),
         }
     }
+}
+
+/// Register the app's native Qt resource blob (§18.3) if `day build` produced one. Once registered,
+/// data reads go through `QResource::data` (zero-copy from the mmapped blob) via [`open_resource`],
+/// and images load with `QPixmap(":/day/images/<name>")`.
+fn register_resources() {
+    let Ok(path) = std::env::var("DAY_QRESOURCE") else {
+        return;
+    };
+    unsafe { ffi::day_qt_register_resource(cstr(&path).as_ptr()) };
+    day_spec::resource::set_resource_opener(open_resource);
+}
+
+/// `resource("name")` → the `:/day/assets/<name>` Qt resource, borrowed zero-copy from the
+/// registered blob (valid for the app lifetime, so an empty guard suffices).
+fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
+    let respath = format!(":/day/assets/{name}");
+    let mut len: usize = 0;
+    let ptr = unsafe { ffi::day_qt_resource_data(cstr(&respath).as_ptr(), &mut len) };
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { day_spec::resource::Resource::from_raw(ptr as *const u8, len, Box::new(())) })
 }
 
 impl Default for Qt {
@@ -728,13 +752,22 @@ impl Toolkit for Qt {
                 kinds::CANVAS => QtHandle(ffi::day_qt_canvas_new()),
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
-                    let path = std::env::var("DAY_ASSET_ROOT")
-                        .map(|r| std::path::Path::new(&r).join(&p.source))
-                        .ok()
-                        .filter(|p| p.exists())
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    QtHandle(ffi::day_qt_image_new(cstr(&path).as_ptr()))
+                    // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
+                    let res_path = format!(":/day/images/{}", p.source);
+                    let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0 {
+                        res_path
+                    } else {
+                        day_spec::resource::resolve_image_file(&p.source)
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    };
+                    // Scaling: 0=fit, 1=fill (crop), 2=stretch.
+                    let mode = match p.content_mode {
+                        ContentMode::Fit => 0,
+                        ContentMode::Fill => 1,
+                        ContentMode::Stretch => 2,
+                    };
+                    QtHandle(ffi::day_qt_image_new(cstr(&path).as_ptr(), mode))
                 }
                 kinds::LIST => {
                     let p = props.downcast_ref::<ListProps>().unwrap();

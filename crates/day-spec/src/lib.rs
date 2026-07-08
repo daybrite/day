@@ -8,6 +8,10 @@ use std::collections::HashMap;
 
 pub use day_geometry::*;
 
+/// Bundled-resource random-access API + the per-backend opener seam (§18.3).
+pub mod resource;
+pub use resource::{Resource, ResourceOpener, resolve_image_file, resource, set_resource_opener};
+
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
@@ -692,11 +696,30 @@ pub mod props {
         Enabled(bool),
     }
 
+    /// How an image is scaled to fill its frame (§18.3). Maps to each toolkit's native scaling.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum ContentMode {
+        /// Scale to fit entirely inside the frame, preserving aspect ratio (letterboxed). The
+        /// default — an image never stretches unless asked. SwiftUI's `.scaledToFit`.
+        #[default]
+        Fit,
+        /// Scale to fill the frame, preserving aspect ratio and cropping the overflow. SwiftUI's
+        /// `.scaledToFill`.
+        Fill,
+        /// Stretch to fill the frame exactly, ignoring aspect ratio.
+        Stretch,
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ImageProps {
         /// Resolved asset path or name; backend loads through its image pipeline (§18.2).
         pub source: String,
         pub decorative: bool,
+        /// How the image scales within its frame (default [`ContentMode::Fit`] — no stretching).
+        pub content_mode: ContentMode,
+        /// Optional width:height ratio the view is constrained to (e.g. `16.0/9.0`). `None` lets the
+        /// image take its allocated frame.
+        pub aspect_ratio: Option<f64>,
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]

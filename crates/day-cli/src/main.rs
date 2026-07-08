@@ -13,6 +13,7 @@ mod ohos;
 mod ops;
 mod pack;
 mod pieces;
+mod resources;
 mod script;
 mod signals;
 mod targets;

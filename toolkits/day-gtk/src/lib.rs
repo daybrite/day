@@ -579,6 +579,7 @@ pub struct Gtk {
 
 impl Gtk {
     pub fn new() -> Self {
+        register_resources();
         let mut registry = Registry::default();
         for f in RENDERERS {
             registry.register(f());
@@ -589,6 +590,33 @@ impl Gtk {
             menu_bar: None,
         }
     }
+}
+
+/// Register the app's native GResource blob (§18.3) — `day build` compiles images + data into it and
+/// `day launch` points `DAY_GRESOURCE` at it. Once registered, data reads go through
+/// `g_resources_lookup_data` (zero-copy from the mmapped blob) via [`open_resource`], and images load
+/// with `gtk_picture_new_for_resource`.
+fn register_resources() {
+    let Ok(path) = std::env::var("DAY_GRESOURCE") else {
+        return;
+    };
+    let Ok(res) = gtk4::gio::Resource::load(&path) else {
+        return;
+    };
+    gtk4::gio::resources_register(&res);
+    day_spec::resource::set_resource_opener(open_resource);
+}
+
+/// `resource("name")` → the `/day/assets/<name>` GResource entry, borrowed zero-copy (the `GBytes`
+/// points into the mmapped, uncompressed blob and is held as the guard).
+fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
+    let path = format!("/day/assets/{name}");
+    let bytes =
+        gtk4::gio::resources_lookup_data(&path, gtk4::gio::ResourceLookupFlags::NONE).ok()?;
+    let slice: &[u8] = &bytes;
+    let (ptr, len) = (slice.as_ptr(), slice.len());
+    // Safety: `bytes` keeps the GResource data alive for the returned view.
+    Some(unsafe { day_spec::resource::Resource::from_raw(ptr, len, Box::new(bytes)) })
 }
 
 impl Default for Gtk {
@@ -980,11 +1008,20 @@ impl Toolkit for Gtk {
             kinds::IMAGE => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let pic = gtk4::Picture::new();
-                if let Ok(root) = std::env::var("DAY_ASSET_ROOT") {
-                    let path = std::path::Path::new(&root).join(&p.source);
-                    if path.exists() {
-                        pic.set_filename(Some(&path));
-                    }
+                // Scaling (§18.3): GtkPicture content-fit — Contain (fit) / Cover (fill) / Fill.
+                pic.set_content_fit(match p.content_mode {
+                    ContentMode::Fit => gtk4::ContentFit::Contain,
+                    ContentMode::Fill => gtk4::ContentFit::Cover,
+                    ContentMode::Stretch => gtk4::ContentFit::Fill,
+                });
+                // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
+                let res_path = format!("/day/images/{}", p.source);
+                if gtk4::gio::resources_lookup_data(&res_path, gtk4::gio::ResourceLookupFlags::NONE)
+                    .is_ok()
+                {
+                    pic.set_resource(Some(&res_path));
+                } else if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
+                    pic.set_filename(Some(&path));
                 }
                 pic.upcast()
             }

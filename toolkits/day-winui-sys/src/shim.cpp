@@ -924,8 +924,12 @@ void* day_winui_divider_new() {
     return boxh(b);
 }
 
-void* day_winui_image_new(const char* uri) {
+void* day_winui_image_new(const char* uri, int mode) {
     WUXC::Image img;
+    // Scaling (§18.3): 0=fit (Uniform), 1=fill (UniformToFill, cropped), 2=stretch (Fill).
+    img.Stretch(mode == 2 ? WUXM::Stretch::Fill
+                : mode == 1 ? WUXM::Stretch::UniformToFill
+                            : WUXM::Stretch::Uniform);
     if (uri && *uri) {
         try {
             WUXM::Imaging::BitmapImage bmp{ WF::Uri{ hs(uri) } };

@@ -19,7 +19,9 @@ public class DayActivity extends Activity {
             if (info.metaData != null && info.metaData.getString("day.lib") != null) {
                 lib = info.metaData.getString("day.lib");
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w("Day", "day.lib metadata lookup failed; using \"" + lib + "\"", e);
+        }
         System.loadLibrary(lib);
 
         DayBridge.ctx = this;

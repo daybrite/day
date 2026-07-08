@@ -90,6 +90,7 @@ mod imp {
     const K_TOGGLE: c_int = 4;
     const K_SLIDER: c_int = 5;
     const K_SCROLL: c_int = 6;
+    const K_IMAGE: c_int = 9;
 
     fn new_node(kind: c_int) -> AHandle {
         AHandle(unsafe { ffi::day_ark_node_new(kind) })
@@ -101,6 +102,9 @@ mod imp {
     pub fn init(content: *mut c_void, w_vp: f64, h_vp: f64, density: f64) {
         DENSITY.with(|d| d.set(if density > 0.0 { density } else { 1.0 }));
         unsafe { ffi::day_ark_init() };
+        // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once here;
+        // the opener is a no-op until the ArkTS host hands us its resourceManager (see below).
+        day_spec::resource::set_resource_opener(open_resource);
         // A Stack fills the window; day mounts its tree under it and positions children absolutely.
         let root = new_node(K_STACK);
         unsafe {
@@ -233,6 +237,24 @@ mod imp {
                     n
                 }
                 kinds::SCROLL => new_node(K_SCROLL),
+                kinds::IMAGE => {
+                    let p = props.downcast_ref::<ImageProps>().unwrap();
+                    let n = new_node(K_IMAGE);
+                    // Resolve `image("name")` through the app's rawfile store — the only resource
+                    // root the OpenHarmony NDK can address from native code (app.media is ArkTS-only,
+                    // §18.3). The CLI stages each image uncompressed to resources/rawfile/day/<name>
+                    // normalized to PNG, so a bare `source` (no extension) maps to `day/<source>.png`.
+                    let src = format!("resource://RAWFILE/day/{}.png", p.source);
+                    unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
+                    // Scaling (§18.3): ArkUI_ObjectFit CONTAIN=0 (fit) / COVER=1 (fill) / FILL=3.
+                    let fit = match p.content_mode {
+                        ContentMode::Fit => 0,
+                        ContentMode::Fill => 1,
+                        ContentMode::Stretch => 3,
+                    };
+                    unsafe { ffi::day_ark_set_image_fit(n.0, fit) };
+                    n
+                }
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let n = new_node(K_TEXT);
@@ -504,6 +526,44 @@ mod imp {
         } else {
             ((v - min) / (max - min) * 100.0).clamp(0.0, 100.0)
         }
+    }
+
+    /// Keeps a native rawfile view (an mmap region or heap copy) alive for a [`Resource`]'s lifetime,
+    /// releasing it via the shim when dropped.
+    struct ResGuard(*mut c_void);
+
+    impl Drop for ResGuard {
+        fn drop(&mut self) {
+            unsafe { ffi::day_ark_res_close(self.0) };
+        }
+    }
+
+    /// The rawfile-backed data-resource opener (§18.3), registered once in [`init`]. Serves
+    /// `resource("numbers.bin")` from the app's `resources/rawfile/day/<name>` store via the
+    /// OpenHarmony `OH_ResourceManager_*` API — zero-copy where the entry is mmap-able, else a copy.
+    ///
+    /// Returns `None` until the ArkTS entry ability has handed the native side its `resourceManager`
+    /// (the shim's `registerResourceManager`); without it there is no `NativeResourceManager` to read
+    /// through, so no data resources are available.
+    fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
+        if unsafe { ffi::day_ark_res_available() } == 0 {
+            return None;
+        }
+        // OpenRawFile addresses entries relative to the rawfile root, so the lookup key for a staged
+        // resource is `day/<name>` (the CLI stages data uncompressed under resources/rawfile/day/).
+        let path = cstr(&format!("day/{name}"));
+        let mut data: *const u8 = std::ptr::null();
+        let mut len: usize = 0;
+        let mut handle: *mut c_void = std::ptr::null_mut();
+        let ok = unsafe { ffi::day_ark_res_open(path.as_ptr(), &mut data, &mut len, &mut handle) };
+        if ok == 0 || data.is_null() {
+            return None;
+        }
+        // Safety: `data`/`len` describe a valid immutable region owned by the native token `handle`;
+        // `ResGuard` keeps it mapped until the `Resource` drops, then releases it via the shim.
+        Some(unsafe {
+            day_spec::resource::Resource::from_raw(data, len, Box::new(ResGuard(handle)))
+        })
     }
 
     use std::any::Any;

@@ -1,0 +1,11 @@
+# Drive to the Resources page (§18.3) and screenshot it: an image loaded by name from the images/
+# resource, plus two random-access reads of embedded data via resource().
+name: resources-shot
+flow:
+  - screenshot: home
+  - navigate: { route: resources }
+  - assert_route: { route: resources }
+  - assert_visible: { id: resources-title }
+  - assert_visible: { id: resources-numbers }
+  - assert_visible: { id: resources-greeting }
+  - screenshot: resources

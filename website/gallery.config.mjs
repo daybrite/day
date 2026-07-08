@@ -60,6 +60,7 @@ export const suites = [
       { id: 'modals', label: 'Dialogs' },
       { id: 'tabs-one', label: 'Tabs' },
       { id: 'stack-detail', label: 'Navigation stack' },
+      { id: 'resources', label: 'Bundled resources' },
       { id: 'webview', label: 'Web view' },
       { id: 'about', label: 'About' },
     ],

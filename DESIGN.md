@@ -2060,6 +2060,19 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
 - **Theming**: §6.3 semantic tokens; dark/light tracked natively per toolkit and surfaced as a
   signal.
 
+### §18.3 Processed images + random-access data resources (docs/resources.md)
+
+Two declared buckets — `images/` (processed images for `image("name")`) and `assets/` (arbitrary
+data for `resource("name")`) — are routed through each platform's **native** resource machinery so
+they inherit its optimizations and by-name load paths. Day never processes pixels itself; it hands
+raw files to the native build system, which *optionally* optimizes (actool/aapt2/…). Data is stored
+uncompressed where possible so `resource("name")` returns an efficient **zero-copy random-access**
+view (`as_slice`/`read_at`/`len`), backed by the platform-native data API — mmap of a bundle file on
+Apple, `AAssetManager` on Android, `g_resources_lookup_data` on GTK, `QResource` on Qt, rawfile fd on
+ArkUI. Images map to SwiftPM `.process`→`Assets.car` (iOS), `res/drawable`→`R` (Android), GResource
+(GTK), `.qrc` (Qt), MRT (WinUI), rawfile (ArkUI). Core API in `day-core::resource`; build-time
+staging in `crates/day-cli/src/resources/`. Full design + per-platform detail: **docs/resources.md**.
+
 ---
 
 ## §19 Repository layout, examples, and docs site

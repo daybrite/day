@@ -36,6 +36,8 @@ android {
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
             assets.srcDir(rootProject.projectDir.resolve("../../assets"))
+            // Processed images (§18.3): images/ staged into res/drawable* -> R.drawable, crunched by aapt2.
+            res.srcDir(rootProject.projectDir.resolve("../../build/day/android/res"))
         }
         // Android <uses-permission>s contributed by standalone pieces (docs/extending.md) live in a
         // generated overlay manifest that AGP merges into the app manifest. Point the build-type
