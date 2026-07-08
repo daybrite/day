@@ -19,20 +19,29 @@ pub fn qresource_path(project: &Project) -> PathBuf {
 
 /// Locate `rcc` — it lives in Qt's libexec (Qt 6) or host-bins, or on PATH.
 fn find_rcc() -> Option<PathBuf> {
+    // On Windows the executable carries `.exe`, so the qmake-queried libexec/host-bins dir holds
+    // `rcc.exe`; joining a bare "rcc" there fails `exists()` and Qt's icon would silently drop.
+    let names: &[&str] = if cfg!(windows) {
+        &["rcc.exe", "rcc"]
+    } else {
+        &["rcc"]
+    };
     for qmake in ["qmake6", "qmake"] {
         for var in ["QT_INSTALL_LIBEXECS", "QT_HOST_BINS"] {
             if let Ok(out) = Command::new(qmake).args(["-query", var]).output()
                 && out.status.success()
             {
                 let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let p = Path::new(&dir).join("rcc");
-                if p.exists() {
-                    return Some(p);
+                for name in names {
+                    let p = Path::new(&dir).join(name);
+                    if p.exists() {
+                        return Some(p);
+                    }
                 }
             }
         }
     }
-    // PATH fallback.
+    // PATH fallback (Command resolves `rcc`/`rcc.exe` on PATH if present; else stage() degrades).
     Some(PathBuf::from("rcc"))
 }
 

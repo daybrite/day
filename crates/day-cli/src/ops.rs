@@ -50,8 +50,14 @@ pub fn build(
     }
     let start = std::time::Instant::now();
     // Stage declared resources (images/ + assets/) into this target's native locations before its
-    // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3).
-    crate::resources::stage(project, target)?;
+    // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3). Best-effort: this
+    // needs the toolkit's native resource compiler (rcc / glib-compile-resources / …), which isn't
+    // always on PATH (e.g. MSYS2 windows-qt/windows-gtk ship no rcc/glib-compile-resources). When
+    // it's missing the resource blob is simply skipped — day loads assets from the filesystem roots
+    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON — so a missing tool must NOT fail the build.
+    if let Err(e) = crate::resources::stage(project, target) {
+        status("Warning", &format!("resource staging skipped ({e})"));
+    }
     match target.kind {
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
