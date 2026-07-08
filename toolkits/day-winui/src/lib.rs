@@ -1223,9 +1223,12 @@ fn argb(c: day_spec::Color) -> u32 {
 /// dirs, inferring the extension), exactly as the AppKit/GTK/Qt backends do. An unresolved name
 /// yields `""`, which `day_winui_image_new` renders as an empty placeholder — the prior behavior.
 fn image_uri(source: &str) -> String {
+    // Pass the resolved NATIVE path to the shim, which reads the bytes and `SetSource`s a
+    // BitmapImage — the system-XAML image loader does NOT accept `file://` (or bare-path) URIs (a
+    // UWP restriction that carries into XAML Islands), so the old `file:///…` Uri silently loaded
+    // nothing. An http(s) source (if ever resolved to one) is passed through and loaded as a Uri.
     match day_spec::resource::resolve_image_file(source) {
-        // XAML's `BitmapImage` wants a URI, not a bare path; forward-slash it for `Windows.Foundation.Uri`.
-        Some(p) => format!("file:///{}", p.to_string_lossy().replace('\\', "/")),
+        Some(p) => p.to_string_lossy().into_owned(),
         None => String::new(),
     }
 }

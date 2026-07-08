@@ -19,6 +19,7 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <fstream> // read local image bytes for BitmapImage.SetSource (file:// URIs don't load)
 #include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
 
 #include <winrt/base.h>
@@ -61,6 +62,7 @@ namespace WUIIn = winrt::Windows::UI::Input;
 namespace WS = winrt::Windows::System;
 namespace WSt = winrt::Windows::Storage;
 namespace WStP = winrt::Windows::Storage::Pickers;
+namespace WSS = winrt::Windows::Storage::Streams;
 
 using WUX::UIElement;
 using WUX::FrameworkElement;
@@ -939,6 +941,30 @@ void* day_winui_divider_new() {
     return boxh(b);
 }
 
+// Read a local file's bytes into an in-memory stream. The system-XAML BitmapImage can't load a
+// `file://` / bare-path Uri (a UWP restriction that carries into XAML Islands), so bundled images
+// must be fed as a stream via SetSource. `path` is a UTF-8 native path; open it wide so Unicode
+// paths work. StoreAsync().get() commits the in-memory buffer (completes on a pool thread — no UI
+// deadlock). Returns null on any failure.
+static WSS::IRandomAccessStream read_file_stream(const char* path) {
+    try {
+        std::ifstream f(hs(path).c_str(), std::ios::binary); // hstring::c_str() is wchar_t* (MSVC)
+        if (!f) return nullptr;
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                   std::istreambuf_iterator<char>());
+        if (bytes.empty()) return nullptr;
+        WSS::InMemoryRandomAccessStream stream;
+        WSS::DataWriter writer(stream);
+        writer.WriteBytes(winrt::array_view<uint8_t const>(bytes.data(), bytes.data() + bytes.size()));
+        writer.StoreAsync().get();
+        writer.DetachStream();
+        stream.Seek(0);
+        return stream;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 void* day_winui_image_new(const char* uri, int mode) {
     WUXC::Image img;
     // Scaling (§18.3): 0=fit (Uniform), 1=fill (UniformToFill, cropped), 2=stretch (Fill).
@@ -947,7 +973,13 @@ void* day_winui_image_new(const char* uri, int mode) {
                             : WUXM::Stretch::Uniform);
     if (uri && *uri) {
         try {
-            WUXM::Imaging::BitmapImage bmp{ WF::Uri{ hs(uri) } };
+            WUXM::Imaging::BitmapImage bmp;
+            std::string s = uri;
+            if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0) {
+                bmp.UriSource(WF::Uri{ hs(uri) }); // remote — BitmapImage loads http(s) directly
+            } else if (auto stream = read_file_stream(uri)) {
+                bmp.SetSource(stream); // local bundled file — feed the bytes, not a file:// Uri
+            }
             img.Source(bmp);
         } catch (...) {}
     }
