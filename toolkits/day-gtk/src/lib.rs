@@ -1842,6 +1842,14 @@ impl Toolkit for Gtk {
             }
             // GtkFileDialog (GTK 4.10+): async open/save with a native GTK picker. The chosen
             // GFile's local path crosses back; a Cancellable lets dismiss() cancel it.
+            // Presenting a modal GtkFileDialog pumps the GTK main loop (mapping its window — a
+            // synchronous round-trip under a headless/xvfb display). But day-core calls this
+            // `present()` WHILE holding the tree borrow (`with_tree(|t| t.present(..))` in
+            // present.rs), so a loop-spin here re-enters Day (e.g. the on-main dayscript engine's
+            // next step) and its `with_tree` panics "already borrowed" — inside a GTK C callback,
+            // which aborts rather than unwinds. So DEFER the actual open/save to an idle: by then
+            // `present()` has returned and the borrow is released, making any re-entry safe. (Same
+            // reasoning as `schedule_list_resize`.)
             PresentSpec::OpenFile { title, filters } => {
                 let dialog = gtk4::FileDialog::builder()
                     .title(title.as_str())
@@ -1849,12 +1857,13 @@ impl Toolkit for Gtk {
                     .build();
                 apply_gtk_filters(&dialog, filters);
                 let cancellable = gtk4::gio::Cancellable::new();
-                dialog.open(
-                    file_dialog_window(&parent).as_ref(),
-                    Some(&cancellable),
-                    move |res| emit_file_result(req, res.map(|f| f.path())),
-                );
-                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable));
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable.clone()));
+                let window = file_dialog_window(&parent);
+                gtk4::glib::idle_add_local_once(move || {
+                    dialog.open(window.as_ref(), Some(&cancellable), move |res| {
+                        emit_file_result(req, res.map(|f| f.path()))
+                    });
+                });
             }
             PresentSpec::SaveFile {
                 title,
@@ -1868,13 +1877,14 @@ impl Toolkit for Gtk {
                     .build();
                 apply_gtk_filters(&dialog, spec.filters());
                 let cancellable = gtk4::gio::Cancellable::new();
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable.clone()));
+                let window = file_dialog_window(&parent);
                 // The pieces layer copies the staged bytes to the chosen local path.
-                dialog.save(
-                    file_dialog_window(&parent).as_ref(),
-                    Some(&cancellable),
-                    move |res| emit_file_result(req, res.map(|f| f.path())),
-                );
-                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable));
+                gtk4::glib::idle_add_local_once(move || {
+                    dialog.save(window.as_ref(), Some(&cancellable), move |res| {
+                        emit_file_result(req, res.map(|f| f.path()))
+                    });
+                });
             }
         }
     }
