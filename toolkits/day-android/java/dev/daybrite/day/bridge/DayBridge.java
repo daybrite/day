@@ -315,6 +315,14 @@ public final class DayBridge {
         MaterialAutoCompleteTextView tv = new MaterialAutoCompleteTextView(box.getContext());
         tv.setInputType(android.text.InputType.TYPE_NULL); // select-only, no free text
         tv.setSimpleItems(items);
+        // Size to the widest item (an UNSPECIFIED probe of the box ignores prospective values):
+        // text width + the box's start padding and end (dropdown-icon) inset. The minimum goes on
+        // the TextInputLayout itself — LinearLayout honors its own suggested minimum during an
+        // UNSPECIFIED measure, but nothing propagates a child EditText minimum up through the box.
+        float widest = 0f;
+        for (String it : items) widest = Math.max(widest, tv.getPaint().measureText(it));
+        float d = ctx.getResources().getDisplayMetrics().density;
+        box.setMinimumWidth((int) (widest + 76 * d));
         if (selected >= 0 && selected < items.length) tv.setText(items[selected], false);
         tv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
@@ -527,6 +535,17 @@ public final class DayBridge {
     public static void dismissPresent(long req) {
         android.app.Dialog dlg = presents.remove(req);
         if (dlg != null) dlg.dismiss();
+        // A pending SAF picker (docs/files.md): cancel the child DocumentsUI activity. Reached when
+        // a scripted respond answers the request Day-side (day-core dismisses the native control
+        // after recording the answer) — without this the picker stays on screen over the app.
+        Integer rc = fileDayToReq.remove(req);
+        if (rc != null) {
+            fileReqToDay.remove(rc);
+            fileSaveSrc.remove(rc);
+            if (ctx instanceof android.app.Activity) {
+                ((android.app.Activity) ctx).finishActivity(rc);
+            }
+        }
     }
 
     // --- Native file open/save via the Storage Access Framework (docs/files.md) ---------------
@@ -537,6 +556,8 @@ public final class DayBridge {
     static int fileRequestNext = FILE_REQUEST_BASE;
     static final java.util.HashMap<Integer, long[]> fileReqToDay = new java.util.HashMap<>();
     static final java.util.HashMap<Integer, String> fileSaveSrc = new java.util.HashMap<>();
+    /** Reverse map (Day request id → requestCode) so dismissPresent can cancel a pending picker. */
+    static final java.util.HashMap<Long, Integer> fileDayToReq = new java.util.HashMap<>();
 
     /** The app cache dir (app-writable temp area for save staging). */
     public static String cacheDirPath() {
@@ -586,12 +607,14 @@ public final class DayBridge {
         }
         int rc = fileRequestNext++;
         fileReqToDay.put(rc, new long[] { req });
+        fileDayToReq.put(req, rc);
         if (srcPath != null) fileSaveSrc.put(rc, srcPath);
         try {
             ((android.app.Activity) ctx).startActivityForResult(intent, rc);
         } catch (Exception e) {
             android.util.Log.w("Day", "file picker startActivityForResult failed", e);
             fileReqToDay.remove(rc);
+            fileDayToReq.remove(req);
             fileSaveSrc.remove(rc);
             nativeOnEvent(req, 10, 0.0, null);
         }
@@ -602,6 +625,7 @@ public final class DayBridge {
         long[] slot = fileReqToDay.remove(requestCode);
         if (slot == null) return;
         long req = slot[0];
+        fileDayToReq.remove(req);
         String src = fileSaveSrc.remove(requestCode);
         android.net.Uri uri = (resultCode == android.app.Activity.RESULT_OK && data != null) ? data.getData() : null;
         if (uri == null) {

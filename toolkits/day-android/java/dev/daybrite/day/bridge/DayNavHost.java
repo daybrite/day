@@ -1,22 +1,28 @@
 package dev.daybrite.day.bridge;
 
 import android.content.Context;
+import android.transition.Transition;
+import android.transition.TransitionListenerAdapter;
+import android.transition.TransitionManager;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import java.util.ArrayList;
 
+import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.transition.platform.MaterialSharedAxis;
 
 /**
- * Navigation host (docs/navigation.md): an M3 {@link MaterialToolbar} (title + up arrow)
- * over a page {@link FrameLayout}. Pages arrive via {@link #add}; presentation changes
- * (slide-in push, instant pop) are driven by the Rust side's NavPatch calls. The system
- * back key and the toolbar up arrow both dispatch event kind 5 (NavBack) — Rust then
- * pops the route stack and calls {@link #pop} + removes the page.
+ * Navigation host (docs/navigation.md): an M3 app bar ({@link AppBarLayout} hosting a
+ * {@link MaterialToolbar} — title + up arrow) over a page {@link FrameLayout}. Pages arrive via
+ * {@link #add}; presentation changes are driven by the Rust side's NavPatch calls and animated
+ * with the Material motion system: {@link MaterialSharedAxis} X, forward on push and backward on
+ * pop, via {@link TransitionManager} (the platform variant — no fragments involved). The system
+ * back key and the toolbar up arrow both dispatch event kind 5 (NavBack) — Rust then pops the
+ * route stack and calls {@link #pop} + removes the page.
  */
 public class DayNavHost extends LinearLayout {
     /** v1: nav is app-root only, so a single active host suffices (back-key routing). */
@@ -28,11 +34,10 @@ public class DayNavHost extends LinearLayout {
     final String rootTitle;
     private final ArrayList<View> stack = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
-    /** The page currently sliding out under a pop — its FrameLayout detach is deferred to the
-     *  animation's end so `removePage` (called by Rust right after the Popped patch) doesn't cut it. */
+    /** The page currently transitioning out under a pop — its FrameLayout detach is deferred to
+     *  the transition's end so `removePage` (called by Rust right after the Popped patch) doesn't
+     *  cut the exit animation short. */
     private View poppingView;
-    private static final int NAV_ANIM_MS = 260;
-    private static final float PARALLAX = 0.25f;
 
     public DayNavHost(Context ctx, long hostNode, String title) {
         super(ctx);
@@ -48,7 +53,10 @@ public class DayNavHost extends LinearLayout {
                 DayBridge.nativeOnEvent(node, 5, 0.0, null);
             }
         });
-        addView(toolbar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        AppBarLayout appBar = new AppBarLayout(ctx);
+        appBar.addView(toolbar, new AppBarLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        addView(appBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         pages = new FrameLayout(ctx);
@@ -70,59 +78,49 @@ public class DayNavHost extends LinearLayout {
 
     void removePage(View page) {
         stack.remove(page);
-        // pop()'s slide-out animation owns the FrameLayout detach for the page being popped.
+        // pop()'s shared-axis exit transition owns the FrameLayout detach for the popped page.
         if (page == poppingView) return;
         pages.removeView(page);
     }
 
-    /** Present the most recently added page (Pushed patch): it slides in from the right while the
-     *  predecessor eases partially left (parallax), then hides once covered. */
+    /** Present the most recently added page (Pushed patch) with the Material forward motion:
+     *  shared-axis X — the new page slides/fades in from the trailing edge while the predecessor
+     *  recedes out the leading edge. */
     void push(String title) {
         int n = stack.size();
         if (n < 2) return;
         final View top = stack.get(n - 1);
         final View prev = stack.get(n - 2);
         titles.add(title);
-        top.setVisibility(View.VISIBLE);
+        TransitionManager.beginDelayedTransition(pages, new MaterialSharedAxis(
+                MaterialSharedAxis.X, /* forward= */ true));
         top.bringToFront();
-        top.setTranslationX(pages.getWidth());
-        top.animate().translationX(0f).setDuration(NAV_ANIM_MS)
-                .setInterpolator(new DecelerateInterpolator()).start();
-        prev.animate().translationX(-pages.getWidth() * PARALLAX).setDuration(NAV_ANIM_MS)
-                .setInterpolator(new DecelerateInterpolator())
-                .withEndAction(new Runnable() {
-                    @Override public void run() {
-                        prev.setVisibility(View.GONE);
-                        prev.setTranslationX(0f);
-                    }
-                }).start();
+        top.setVisibility(View.VISIBLE);
+        prev.setVisibility(View.GONE);
         toolbar.setTitle(title);
         showUpArrow(true);
     }
 
-    /** Slide the top page out to the right, revealing the predecessor easing in from the left
-     *  (Popped patch). Rust calls removePage on the popped page right after; its detach is deferred
-     *  to this animation's end so the slide-out is visible. */
+    /** Dismiss the top page (Popped patch) with the Material backward motion: shared-axis X
+     *  reversed — the page exits the trailing edge, the predecessor returns from the leading edge.
+     *  Rust calls removePage on the popped page right after; its detach is deferred to the
+     *  transition's end so the exit stays visible. */
     void pop() {
         int n = stack.size();
         if (n < 2) return;
         final View top = stack.get(n - 1);
         final View prev = stack.get(n - 2);
         poppingView = top;
+        MaterialSharedAxis axis = new MaterialSharedAxis(MaterialSharedAxis.X, /* forward= */ false);
+        axis.addListener(new TransitionListenerAdapter() {
+            @Override public void onTransitionEnd(Transition t) {
+                if (top.getParent() == pages) pages.removeView(top);
+                if (poppingView == top) poppingView = null;
+            }
+        });
+        TransitionManager.beginDelayedTransition(pages, axis);
+        top.setVisibility(View.GONE);
         prev.setVisibility(View.VISIBLE);
-        prev.setTranslationX(-pages.getWidth() * PARALLAX);
-        prev.animate().translationX(0f).setDuration(NAV_ANIM_MS)
-                .setInterpolator(new DecelerateInterpolator()).start();
-        top.bringToFront();
-        top.animate().translationX(pages.getWidth()).setDuration(NAV_ANIM_MS)
-                .setInterpolator(new DecelerateInterpolator())
-                .withEndAction(new Runnable() {
-                    @Override public void run() {
-                        pages.removeView(top);
-                        top.setTranslationX(0f);
-                        if (poppingView == top) poppingView = null;
-                    }
-                }).start();
         if (!titles.isEmpty()) titles.remove(titles.size() - 1);
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
         showUpArrow(!titles.isEmpty());

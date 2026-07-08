@@ -1311,6 +1311,15 @@ mod imp {
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+                // A tabs host fills its container (like LIST). Its natural UNSPECIFIED probe is
+                // useless: the M3 BottomNavigationView reports its expansive preferred width (every
+                // item at full item width), which would lay the host out wider than the screen.
+                kinds::TABS => Size::new(
+                    p.width
+                        .unwrap_or_else(|| measure_call(h, "measureWidth") / d),
+                    p.height
+                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
+                ),
                 kinds::PROGRESS => {
                     // Determinate bar fills the proposed width (grow_w); the circular spinner
                     // keeps its natural square size (grow_w is false, so the engine uses it).

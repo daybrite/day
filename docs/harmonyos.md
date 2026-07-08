@@ -51,13 +51,52 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
    The NDK ships the linker wrappers `$OHOS_NDK_HOME/llvm/bin/<target>-clang`; point cargo at them
    with `CARGO_TARGET_<TARGET>_LINKER`.
 
+## Check your environment first
+
+`day doctor --toolkit harmonyos` reports exactly which of the pieces below are present or missing,
+with setup instructions:
+
+```bash
+day doctor --toolkit harmonyos
+```
+
+Bare `day doctor` (no `--toolkit`) scans every toolkit and reports a missing HarmonyOS setup as a
+warning rather than an error, since you only need it if you build for HarmonyOS.
+
 ## Build & run
 
-You need the OpenHarmony **command-line-tools**: one self-contained bundle carrying the SDK/NDK,
-hvigor, ohpm, a bundled node, `hdc`, and the default debug signing material. It downloads without a
-Huawei developer account from `repo.huaweicloud.com/harmonyos/ohpm/<ver>/` (Linux x64; on macOS use
-DevEco Studio's bundled copy). Point `OHOS_NDK_HOME` at `sdk/default/openharmony/native` and put
-`bin/` (hvigor/ohpm) + `sdk/default/openharmony/toolchains` (hdc) on `PATH`.
+The build has two halves with different tool needs:
+
+1. **The Rust cross-compile** (`libentry.so`) needs only the OpenHarmony **NDK** — the `native`
+   component of the public SDK, which downloads without a Huawei account. Point `OHOS_NDK_HOME` at it.
+   `hdc` (for install/launch) sits in the SDK's sibling `toolchains/` dir; `day` finds it there
+   automatically, or you can put it on `PATH`.
+2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are NOT in the public SDK — they ship with
+   the OpenHarmony **command-line-tools** (bundled with DevEco Studio, or the Linux-x64 bundle at
+   `repo.huaweicloud.com/harmonyos/ohpm/<ver>/`). Put their `bin/` on `PATH`.
+
+The showcase's `harmony/` project targets **OpenHarmony** (`runtimeOS: "OpenHarmony"`,
+`compileSdkVersion`/`compatibleSdkVersion` = the integer API level), which matches the Oniro emulator
+and avoids the HMS-only `libimage_transcoder_shared` library that only DevEco Studio ships — so the
+whole flow works login-free on macOS and Linux.
+
+**macOS note.** The Linux command-line-tools hvigor/ohpm are pure JavaScript, so they run under
+system `node` via a two-line wrapper even though the bundle is packaged for Linux:
+
+```bash
+cat > ~/ohos/bin/hvigorw <<'SH'
+#!/usr/bin/env bash
+exec node "$HOME/ohos-clt/command-line-tools/hvigor/bin/hvigorw.js" "$@"
+SH
+cat > ~/ohos/bin/ohpm <<'SH'
+#!/usr/bin/env bash
+exec node "$HOME/ohos-clt/command-line-tools/ohpm/bin/pm-cli.js" "$@"
+SH
+chmod +x ~/ohos/bin/hvigorw ~/ohos/bin/ohpm
+```
+
+Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HOME` at a versioned
+SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
 cd apps/day-arkui-demo/harmony
