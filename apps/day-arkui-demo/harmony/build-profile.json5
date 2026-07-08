@@ -1,13 +1,31 @@
 {
   "app": {
-    // No `signingConfig` here → hvigor builds an UNSIGNED .hap; the CI signs it afterwards with the
-    // bundled default OpenHarmony debug material (hap-sign-tool.jar). In DevEco Studio, use
-    // File ▸ Project Structure ▸ Signing Configs ▸ auto-sign instead. compatibleSdkVersion matches the
-    // command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
-    "signingConfigs": [],
+    // The `default` signingConfig references material regenerated (git-ignored) into ./signatures/ by
+    // setup-signing.mjs, which `day build -p ohos-arkui` runs before `hvigorw assembleHap`. hvigor's
+    // SignHap task then signs the .hap (incl. its code signature) with the OpenHarmony public RELEASE
+    // identity — required for the emulator to accept it (an out-of-band sign-app fails with 9568393).
+    // storePassword/keyPassword are the OpenHarmony-cipher-encrypted form of the public keystore
+    // password "123456"; they pair with signatures/material/ (both fixed — see setup-signing.mjs).
+    // compatibleSdkVersion matches the command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "./signatures/OpenHarmonyProfileRelease.pem",
+          "storePassword": "000000167e651b3cbbed6cf622aeb0927cbbcba98a999caf74a60c06d0c89f5cc0204ede594e",
+          "keyAlias": "openharmony application profile release",
+          "keyPassword": "0000001622cb8a9ffd46f20f688dabf6745e425779d4d68fe69034b5372269990e7cdbf89c85",
+          "profile": "./signatures/app1-profile.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "./signatures/OpenHarmony.p12"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
+        "signingConfig": "default",
         "compatibleSdkVersion": "5.1.0(18)",
         "runtimeOS": "HarmonyOS"
       }

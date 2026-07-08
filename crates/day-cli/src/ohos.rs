@@ -77,7 +77,7 @@ pub fn build_ohos(
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
             "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `harmony/` project \
-             (the hvigor project + sign-hap.sh), like apps/showcase/harmony. See docs/harmonyos.md.",
+             (the hvigor project + setup-signing.mjs), like apps/showcase/harmony. See docs/harmonyos.md.",
             harmony.display()
         ));
     }
@@ -156,6 +156,20 @@ pub fn build_ohos(
         .arg("install")
         .current_dir(&harmony)
         .status();
+
+    // 2a) Prepare hvigor signing: regenerate the git-ignored harmony/signatures/ from the SDK certs +
+    //     the fixed cipher material and sign the provision profile, so hvigor's SignHap task signs the
+    //     .hap (incl. its CODE signature) during assembleHap. The emulator rejects an out-of-band
+    //     `hap-sign-tool sign-app` signature with `9568393 verify code signature failed`; only the
+    //     coordinated hvigor signature installs. See harmony/setup-signing.mjs.
+    let setup = harmony.join("setup-signing.mjs");
+    if setup.exists() {
+        status("Signing", &format!("{} (setup-signing.mjs)", target.name));
+        let mut sign = Command::new("node");
+        sign.arg(&setup).current_dir(&harmony);
+        run_logged(&mut sign, "setup-signing.mjs")?;
+    }
+
     let mode = if profile == "release" {
         "release"
     } else {
@@ -174,8 +188,9 @@ pub fn build_ohos(
     ]);
     run_logged(&mut hv, "hvigorw assembleHap")?;
 
-    // 3) Sign the assembled .hap (unless hvigor already produced a *-signed.hap via a signingConfig).
-    let hap = sign_if_needed(&harmony, &project.manifest.app.id)?;
+    // 3) hvigor signed the .hap during assembleHap (setup-signing.mjs + build-profile.json5's
+    //    signingConfig) — locate that `*-signed.hap`.
+    let hap = signed_hap(&harmony)?;
     status("Built", &format!("{} → {}", target.name, hap.display()));
     Ok(BuildOutcome {
         target: target.name,
@@ -206,32 +221,19 @@ fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
     None
 }
 
-/// Prefer a hvigor-signed hap; otherwise sign the unsigned one with the SDK's bundled debug material
-/// via the project's `sign-hap.sh <unsigned> <signed> <bundle-id>`.
-fn sign_if_needed(harmony: &Path, bundle: &str) -> Result<PathBuf, String> {
+/// Locate the hvigor-signed hap. `setup-signing.mjs` + build-profile.json5's `signingConfig` make
+/// hvigor's SignHap task produce a `*-signed.hap` during assembleHap; the emulator requires that
+/// coordinated code signature (an out-of-band `hap-sign-tool sign-app` fails at install with 9568393).
+fn signed_hap(harmony: &Path) -> Result<PathBuf, String> {
     let build = harmony.join("entry/build");
-    // Already signed? Match a `*-signed.hap`, but NOT `*-unsigned.hap` (which also contains "signed").
-    if let Some(signed) = find_hap(&build, |n| n.contains("signed") && !n.contains("unsigned")) {
-        return Ok(signed);
-    }
-    let unsigned = find_hap(&build, |n| n.contains("unsigned"))
-        .or_else(|| find_hap(&build, |_| true))
-        .ok_or_else(|| format!("no .hap produced under {}", build.display()))?;
-    let sign_sh = harmony.join("sign-hap.sh");
-    if !sign_sh.exists() {
-        // No signer available — return the unsigned hap and let the install surface the rejection.
-        return Ok(unsigned);
-    }
-    let signed = unsigned.with_file_name("day-signed.hap");
-    status("Signing", &signed.display().to_string());
-    let mut cmd = Command::new("bash");
-    cmd.arg(&sign_sh)
-        .arg(&unsigned)
-        .arg(&signed)
-        .arg(bundle)
-        .current_dir(harmony);
-    run_logged(&mut cmd, "sign-hap.sh")?;
-    Ok(signed)
+    // Match a `*-signed.hap`, but NOT `*-unsigned.hap` (which also contains "signed").
+    find_hap(&build, |n| n.contains("signed") && !n.contains("unsigned")).ok_or_else(|| {
+        format!(
+            "no signed .hap under {} — hvigor did not sign it. Ensure `node harmony/setup-signing.mjs` \
+             ran and build-profile.json5 declares a `signingConfig` (see docs/harmonyos.md).",
+            build.display()
+        )
+    })
 }
 
 /// Combined stdout+stderr of a finished command, as one string.
