@@ -28,9 +28,31 @@ pub fn ohos_target() -> String {
     std::env::var("DAY_OHOS_TARGET").unwrap_or_else(|_| "127.0.0.1:55555".into())
 }
 
-/// A fresh `hdc` command with the networked-target selector applied.
+/// A fresh `hdc` command with the networked-target selector applied. `hdc` is taken from PATH when
+/// present; otherwise it is resolved from the SDK install's sibling `toolchains/` dir (the public
+/// SDK ships it there, next to the `native` NDK) — so `day launch -p ohos-arkui` works from
+/// GUI-launched editors whose environment has neither the variable nor the PATH entry.
 pub fn hdc() -> Command {
-    let mut c = Command::new("hdc");
+    static HDC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let program = HDC.get_or_init(|| {
+        // On PATH? Use it as-is.
+        let on_path = std::env::var("PATH")
+            .is_ok_and(|path| std::env::split_paths(&path).any(|d| d.join("hdc").is_file()));
+        if on_path {
+            return "hdc".into();
+        }
+        // Else probe the SDK roots the NDK detection knows about.
+        if let Ok(ndk) = find_ohos_ndk() {
+            let cand = Path::new(&ndk).parent().map(|p| p.join("toolchains/hdc"));
+            if let Some(c) = cand
+                && c.is_file()
+            {
+                return c.to_string_lossy().into_owned();
+            }
+        }
+        "hdc".into()
+    });
+    let mut c = Command::new(program);
     c.args(["-t", &ohos_target()]);
     c
 }
@@ -115,6 +137,10 @@ pub fn build_ohos(
         )
         .env("CARGO_TARGET_DIR", &target_dir)
         .env(&linker_var, format!("{ndk}/llvm/bin/{triple}-clang"))
+        // day-arkui-sys's build.rs compiles the C++ shim with the NDK clang and reads this
+        // variable itself — export the RESOLVED path so auto-detected local installs work even
+        // when the parent environment (a GUI-launched editor) never set it.
+        .env("OHOS_NDK_HOME", &ndk)
         .args([
             "rustc",
             "-p",
@@ -162,6 +188,18 @@ pub fn build_ohos(
     } else {
         "debug"
     };
+    // A missing hvigor otherwise surfaces as a bare spawn ENOENT — check up front and say what to
+    // install (it is NOT part of the public SDK; the `native` NDK alone only covers the Rust step).
+    let hvigor_on_path = std::env::var("PATH")
+        .is_ok_and(|p| std::env::split_paths(&p).any(|d| d.join("hvigorw").is_file()));
+    if !hvigor_on_path {
+        return Err(
+            "hvigorw not found on PATH — the Rust cross-compile succeeded, but packaging the .hap \
+             needs the OpenHarmony command-line-tools (hvigor + ohpm; bundled with DevEco Studio). \
+             Install them and put their bin/ on PATH — see docs/harmonyos.md."
+                .into(),
+        );
+    }
     let mut hv = Command::new("hvigorw");
     hv.current_dir(&harmony).args([
         "assembleHap",
@@ -178,7 +216,7 @@ pub fn build_ohos(
     // 3) Patch + sign the assembled (unsigned) .hap via harmony/sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
     //    then signs with the OpenHarmony public release material.
-    let hap = sign_hap(&harmony)?;
+    let hap = sign_hap(&harmony, &ndk)?;
     status("Built", &format!("{} → {}", target.name, hap.display()));
     Ok(BuildOutcome {
         target: target.name,
@@ -213,7 +251,7 @@ fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
 /// (Node — hvigor already requires it). The script rewrites module.json's compileSdkType to
 /// "OpenHarmony" so the emulator skips code-sign verification (the public release cert's code
 /// signature is otherwise rejected with 9568393), then signs with the SDK's release material.
-fn sign_hap(harmony: &Path) -> Result<PathBuf, String> {
+fn sign_hap(harmony: &Path, ndk: &str) -> Result<PathBuf, String> {
     let build = harmony.join("entry/build");
     // hvigor emits `entry-<product>-unsigned.hap`; fall back to any hap.
     let unsigned = find_hap(&build, |n| n.contains("unsigned"))
@@ -230,6 +268,9 @@ fn sign_hap(harmony: &Path) -> Result<PathBuf, String> {
     cmd.arg(&sign)
         .arg(&unsigned)
         .arg(&signed)
+        // The script locates the SDK signing material relative to the NDK (its findLib probes
+        // OHOS_NDK_HOME first) — hand it the resolved path, like the cargo step.
+        .env("OHOS_NDK_HOME", ndk)
         .current_dir(harmony);
     run_logged(&mut cmd, "sign-hap.mjs")?;
     Ok(signed)

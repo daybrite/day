@@ -31,6 +31,7 @@ to `cargo run -q -p day-cli --`, so it works in-repo with no installed binary.
 | `day.defaultProfile` | `debug` | Default build mode. |
 | `day.defaultLocale` | `""` | Default `--locale` (empty = app/system default). |
 | `day.extraEnv` | `{}` | Extra `KEY=VALUE` env passed to every launch via `--env`. |
+| `day.ohosNdkHome` | `""` | OpenHarmony NDK `native` dir for `ohos-arkui` (exported as `OHOS_NDK_HOME` in the task; empty = auto-detect `~/ohos/ndk-extract/native` or `~/ohos-sdk/native`; the SDK's `toolchains/` joins the task PATH for `hdc`). |
 
 ## Developing this extension
 

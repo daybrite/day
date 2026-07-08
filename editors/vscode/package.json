@@ -220,6 +220,11 @@
             "type": "string"
           },
           "description": "Extra environment variables passed to every launch as `--env KEY=VALUE`."
+        },
+        "day.ohosNdkHome": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the OpenHarmony NDK `native` directory (e.g. `~/ohos-sdk/native`), exported as `OHOS_NDK_HOME` when building/launching the `ohos-arkui` target. Leave empty to auto-detect: the existing `OHOS_NDK_HOME`, then `~/ohos/ndk-extract/native`, then `~/ohos-sdk/native`. The SDK's sibling `toolchains/` directory (which carries `hdc`) is added to the task `PATH` as well."
         }
       }
     },
