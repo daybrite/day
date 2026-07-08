@@ -1,6 +1,6 @@
 //! day-android — the android-widget backend (DESIGN.md §9). jni + the DayBridge Java shim
-//! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; framework widgets only, zero
-//! AndroidX). `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales
+//! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; controls are Material 3
+//! components from com.google.android.material, M3 Expressive themed). `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales
 //! by density to px and `measure` scales back. The JVM owns the main loop: `Platform::run`
 //! hands the pre-registered root straight to `ready` (the Activity already called `init`).
 

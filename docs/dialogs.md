@@ -76,7 +76,7 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 | uikit | `UIAlertController` (`.alert` / `.actionSheet`) on the root VC | `UIAlertController` + `addTextField` |
 | gtk | `AdwAlertDialog` (libadwaita 1.5; `response` signal) | `AdwAlertDialog` with a `GtkEntry` extra-child |
 | qt | `QMessageBox.open()` + `finished` (shim) | `QInputDialog.getText` (shim) |
-| android | `AlertDialog.Builder` (buttons / `setItems` for sheets) | `AlertDialog` + `EditText` |
+| android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + `TextInputLayout` |
 | mock | records the spec; resolved programmatically | same |
 | winui | `ContentDialog` (UNVERIFIED, no local Windows) | `ContentDialog` + `TextBox` |
 

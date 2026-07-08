@@ -64,7 +64,7 @@ toggle group) over an `AdwViewStack`, since Adwaita has no icon-free tab widget)
 | UIKit   | `UITabBarController` | bottom tab bar; each page is a child `UIViewController` |
 | GTK 4   | `AdwViewStack` + a `.linked` grouped-toggle switcher | libadwaita; label-only segmented control drives the stack |
 | Qt      | `QTabWidget` (shim) | `currentChanged` reports selection |
-| Android | custom `DayTabs` strip | top tab bar + content `FrameLayout` (dependency-free; Material's TabLayout/BottomNavigationView aren't required) |
+| Android | `BottomNavigationView` (M3 navigation bar) | bottom tab bar + content `FrameLayout`, mirroring the iOS `UITabBarController` mapping; all pages resident |
 | WinUI 3 | `Pivot` (shim) | `SelectionChanged` reports selection |
 
 Each page reports its allocated content size (`FrameChanged`) so Day lays out the tab's content

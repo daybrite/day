@@ -9,7 +9,9 @@
   "targets": [
     {
       "name": "default",
-      "runtimeOS": "HarmonyOS"
+      // Must match the product runtimeOS in the root build-profile.json5 (OpenHarmony → the Oniro
+      // emulator; avoids the HMS-only image-transcoder dependency, see there).
+      "runtimeOS": "OpenHarmony"
     }
   ]
 }

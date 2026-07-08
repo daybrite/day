@@ -18,3 +18,8 @@ export const registerFilePicker: (
 
 // Report a picker result back to Day: the chosen local path, or "" if the user cancelled.
 export const onFileResult: (req: number, path: string) => void;
+
+// Hand the native side the app's ResourceManager so Day can read staged rawfile data resources
+// (§18.3) via OH_ResourceManager_*. Call once, before or after `start()`; until then the rawfile
+// resource opener returns nothing (day_ark_res_available == 0).
+export const registerResourceManager: (resourceManager: Object) => void;

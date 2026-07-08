@@ -9,8 +9,16 @@
     "products": [
       {
         "name": "default",
-        "compatibleSdkVersion": "5.1.0(18)",
-        "runtimeOS": "HarmonyOS"
+        // OpenHarmony products take the integer API level (18), not the "5.1.0(18)" HarmonyOS form,
+        // and require compileSdkVersion alongside compatibleSdkVersion.
+        "compileSdkVersion": 18,
+        "compatibleSdkVersion": 18,
+        // OpenHarmony (not "HarmonyOS"): the target is the Oniro OpenHarmony emulator, and sign-hap.mjs
+        // already patches compileSdkType → OpenHarmony. This also selects hvigor's OpenHarmony resource
+        // path, which needs no HMS `libimage_transcoder_shared` library — that lib ships only with
+        // Huawei's DevEco Studio, not the public SDK, so the HarmonyOS path can't build on the
+        // login-free local/CI toolchain (macOS or Linux).
+        "runtimeOS": "OpenHarmony"
       }
     ],
     "buildModeSet": [

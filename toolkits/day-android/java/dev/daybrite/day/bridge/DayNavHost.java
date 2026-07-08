@@ -7,11 +7,12 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.Toolbar;
 import java.util.ArrayList;
 
+import com.google.android.material.appbar.MaterialToolbar;
+
 /**
- * Navigation host (docs/navigation.md): a framework {@link Toolbar} (title + up arrow)
+ * Navigation host (docs/navigation.md): an M3 {@link MaterialToolbar} (title + up arrow)
  * over a page {@link FrameLayout}. Pages arrive via {@link #add}; presentation changes
  * (slide-in push, instant pop) are driven by the Rust side's NavPatch calls. The system
  * back key and the toolbar up arrow both dispatch event kind 5 (NavBack) — Rust then
@@ -21,7 +22,7 @@ public class DayNavHost extends LinearLayout {
     /** v1: nav is app-root only, so a single active host suffices (back-key routing). */
     static DayNavHost active;
 
-    final Toolbar toolbar;
+    final MaterialToolbar toolbar;
     final FrameLayout pages;
     final long hostNode;
     final String rootTitle;
@@ -39,7 +40,7 @@ public class DayNavHost extends LinearLayout {
         this.hostNode = hostNode;
         this.rootTitle = title;
 
-        toolbar = new Toolbar(ctx);
+        toolbar = new MaterialToolbar(ctx);
         toolbar.setTitle(title);
         final long node = hostNode;
         toolbar.setNavigationOnClickListener(new OnClickListener() {
@@ -129,9 +130,13 @@ public class DayNavHost extends LinearLayout {
 
     private void showUpArrow(boolean show) {
         if (show) {
+            // The M3 (AppCompat-based) theme sets the appcompat attr; fall back to the framework's.
             TypedValue tv = new TypedValue();
-            getContext().getTheme().resolveAttribute(
-                    android.R.attr.homeAsUpIndicator, tv, true);
+            if (!getContext().getTheme().resolveAttribute(
+                    androidx.appcompat.R.attr.homeAsUpIndicator, tv, true)) {
+                getContext().getTheme().resolveAttribute(
+                        android.R.attr.homeAsUpIndicator, tv, true);
+            }
             toolbar.setNavigationIcon(tv.resourceId);
         } else {
             toolbar.setNavigationIcon(null);

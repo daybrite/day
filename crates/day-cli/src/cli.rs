@@ -76,8 +76,13 @@ enum Cmd {
         #[arg(long, default_value = "debug")]
         profile: String,
     },
-    /// Check toolchains for every known target
-    Doctor,
+    /// Check the development environment, grouped by toolkit
+    Doctor {
+        /// Focus a toolkit (repeatable): its checks become errors + print setup help.
+        /// One of: appkit, uikit, gtk, qt, winui, android, harmonyos.
+        #[arg(long = "toolkit")]
+        toolkits: Vec<String>,
+    },
     /// Check the project for common errors (fluent coverage, ids)
     Lint {
         /// Exit non-zero (10) when findings exist
@@ -179,7 +184,7 @@ enum NewKind {
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
-        Cmd::Doctor => crate::doctor::run(),
+        Cmd::Doctor { toolkits } => crate::doctor::run(&toolkits),
         Cmd::Pack { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             for p in &platforms {
                 let Some(target) = targets::find(p) else {

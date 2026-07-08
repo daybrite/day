@@ -16,23 +16,31 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
-import android.widget.Button;
 import android.widget.ListView;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
-import android.widget.Spinner;
-import android.widget.Switch;
 import android.widget.TextView;
 
-/** The Java shim (the Kotlin/C++-shim analogue for android.widget): creates framework views,
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.divider.MaterialDivider;
+import com.google.android.material.loadingindicator.LoadingIndicator;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.slider.Slider;
+import com.google.android.material.textfield.MaterialAutoCompleteTextView;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
+
+/** The Java shim (the Kotlin/C++-shim analogue for android.widget): creates native views,
  *  wires their listeners to the single native trampoline nativeOnEvent(id, kind, num, str)
  *  (kinds: 0=press 1=text 2=toggle 3=value 4=select), and exposes setters + measurement +
- *  absolute layout to Rust. Framework widgets only — zero AndroidX dependencies. */
+ *  absolute layout to Rust. Controls are Material 3 components (com.google.android.material,
+ *  Theme.Material3Expressive — the app theme supplies color/shape/motion); containers/labels
+ *  stay framework views. */
 public final class DayBridge {
     /** App context + main-thread handler, set by DayActivity before nativeStart. */
     public static Context ctx;
@@ -164,9 +172,8 @@ public final class DayBridge {
     }
 
     public static View makeButton(final long id, String title) {
-        Button b = new Button(ctx);
+        MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         b.setText(title);
-        b.setAllCaps(false);
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View x) { nativeOnEvent(id, 0, 0, null); }
         });
@@ -205,29 +212,43 @@ public final class DayBridge {
         });
     }
 
+    /** The editable inside a Material text box (TextInputLayout), or the view itself. */
+    private static EditText editTextOf(View v) {
+        if (v instanceof TextInputLayout) return ((TextInputLayout) v).getEditText();
+        return (EditText) v;
+    }
+
     public static View makeTextField(final long id, String value, String placeholder) {
-        EditText e = new EditText(ctx);
+        // M3 text box: TextInputLayout (theme's default box style; placeholder = floating label)
+        // wrapping a TextInputEditText. Rust talks to the outer view; setters reach the editable.
+        TextInputLayout box = new TextInputLayout(ctx);
+        box.setHint(placeholder);
+        TextInputEditText e = new TextInputEditText(box.getContext());
         e.setText(value);
-        e.setHint(placeholder);
         e.setSingleLine(true);
         e.addTextChangedListener(new TextWatcher() {
             public void afterTextChanged(Editable s) { nativeOnEvent(id, 1, 0, s.toString()); }
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
         });
-        return e;
+        box.addView(e, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
     }
     public static void setTextField(View v, String value) {
-        EditText e = (EditText) v;
+        EditText e = editTextOf(v);
         if (!e.getText().toString().equals(value)) { // controlled input (§4.4)
             e.setText(value);
             e.setSelection(value.length());
         }
     }
-    public static void setPlaceholder(View v, String value) { ((EditText) v).setHint(value); }
+    public static void setPlaceholder(View v, String value) {
+        if (v instanceof TextInputLayout) ((TextInputLayout) v).setHint(value);
+        else ((EditText) v).setHint(value);
+    }
 
     public static View makeToggle(final long id, boolean value) {
-        Switch s = new Switch(ctx);
+        MaterialSwitch s = new MaterialSwitch(ctx); // M3 switch
         s.setChecked(value);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton b, boolean on) {
@@ -237,53 +258,46 @@ public final class DayBridge {
         return s;
     }
     public static void setToggle(View v, boolean value) {
-        Switch s = (Switch) v;
+        CompoundButton s = (CompoundButton) v;
         if (s.isChecked() != value) s.setChecked(value);
     }
 
-    private static final double SLIDER_STEPS = 1000.0;
     public static View makeSlider(final long id, double value, final double min, final double max) {
-        SeekBar sb = new SeekBar(ctx);
-        sb.setMax((int) SLIDER_STEPS);
-        sb.setTag(new double[]{min, max});
-        sb.setProgress((int) Math.round((value - min) / (max - min) * SLIDER_STEPS));
-        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
-                if (fromUser) nativeOnEvent(id, 3, min + (p / SLIDER_STEPS) * (max - min), null);
+        Slider s = new Slider(ctx); // M3 slider; real value range, no step quantization
+        s.setValueFrom((float) min);
+        s.setValueTo((float) max);
+        s.setValue((float) Math.max(min, Math.min(max, value)));
+        s.addOnChangeListener(new Slider.OnChangeListener() {
+            @Override public void onValueChange(Slider slider, float v, boolean fromUser) {
+                if (fromUser) nativeOnEvent(id, 3, v, null);
             }
-            public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {}
         });
-        return sb;
+        return s;
     }
     public static void setSlider(View v, double value, double ignoredMin) {
-        SeekBar sb = (SeekBar) v;
-        double[] r = (double[]) sb.getTag();
-        int p = (int) Math.round((value - r[0]) / (r[1] - r[0]) * SLIDER_STEPS);
-        if (sb.getProgress() != p) sb.setProgress(p);
+        Slider s = (Slider) v;
+        float f = (float) Math.max(s.getValueFrom(), Math.min(s.getValueTo(), value));
+        if (s.getValue() != f) s.setValue(f); // programmatic: listener sees fromUser=false, no echo
     }
 
     public static View makeDivider() {
-        View v = new View(ctx);
-        v.setBackgroundColor(0x33888888);
-        return v;
+        return new MaterialDivider(ctx); // themed hairline (colorOutlineVariant)
     }
 
-    // Progress: a horizontal determinate bar (0..1000), or a circular indeterminate spinner.
+    // Progress: an M3 linear determinate indicator (0..1000), or the M3 Expressive
+    // LoadingIndicator (morphing-shape spinner) when indeterminate.
     public static View makeProgress(boolean determinate, double fraction) {
-        ProgressBar pb;
         if (determinate) {
-            pb = new ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal);
+            LinearProgressIndicator pb = new LinearProgressIndicator(ctx);
             pb.setMax(1000);
             pb.setIndeterminate(false);
             pb.setProgress(progressTicks(fraction));
-        } else {
-            pb = new ProgressBar(ctx); // default style is a circular indeterminate spinner
-            pb.setIndeterminate(true);
+            return pb;
         }
-        return pb;
+        return new LoadingIndicator(ctx);
     }
     public static void setProgress(View v, double fraction) {
+        if (!(v instanceof ProgressBar)) return; // LoadingIndicator has no progress to sync
         ProgressBar pb = (ProgressBar) v;
         int p = progressTicks(fraction);
         if (pb.getProgress() != p) pb.setProgress(p);
@@ -292,27 +306,33 @@ public final class DayBridge {
         return (int) Math.round(Math.max(0.0, Math.min(1.0, fraction)) * 1000);
     }
 
+    /** Combobox (day-piece-combobox): the M3 exposed dropdown menu — a TextInputLayout in the
+     *  theme's filled-dropdown style hosting a non-editable MaterialAutoCompleteTextView. */
     public static View makeSpinner(final long id, String joinedItems, int selected) {
-        Spinner sp = new Spinner(ctx);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(ctx,
-                android.R.layout.simple_spinner_item, joinedItems.split("\n"));
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        sp.setAdapter(adapter);
-        if (selected >= 0) sp.setSelection(selected);
-        // Spinner fires once on first layout; suppress that initial callback.
-        sp.setTag(new int[]{0});
-        sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            public void onItemSelected(AdapterView<?> p, View v, int pos, long rowId) {
-                int[] fired = (int[]) p.getTag();
-                if (fired[0]++ > 0) nativeOnEvent(id, 4, pos, null);
+        final String[] items = joinedItems.split("\n");
+        TextInputLayout box = new TextInputLayout(ctx, null,
+                com.google.android.material.R.attr.textInputFilledExposedDropdownMenuStyle);
+        MaterialAutoCompleteTextView tv = new MaterialAutoCompleteTextView(box.getContext());
+        tv.setInputType(android.text.InputType.TYPE_NULL); // select-only, no free text
+        tv.setSimpleItems(items);
+        if (selected >= 0 && selected < items.length) tv.setText(items[selected], false);
+        tv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
+                nativeOnEvent(id, 4, pos, null);
             }
-            public void onNothingSelected(AdapterView<?> p) {}
         });
-        return sp;
+        box.setTag(items);
+        box.addView(tv, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return box;
     }
     public static void setSpinnerSelected(View v, int idx) {
-        Spinner sp = (Spinner) v;
-        if (sp.getSelectedItemPosition() != idx && idx >= 0) sp.setSelection(idx);
+        String[] items = (String[]) v.getTag();
+        EditText e = editTextOf(v);
+        if (idx >= 0 && idx < items.length && e instanceof MaterialAutoCompleteTextView
+                && !e.getText().toString().equals(items[idx])) {
+            ((MaterialAutoCompleteTextView) e).setText(items[idx], false); // false: no filter/echo
+        }
     }
 
     public static void addChild(View parent, View child) {
@@ -415,13 +435,13 @@ public final class DayBridge {
     }
 
     // --- imperative presentation (docs/dialogs.md) ---
-    static final java.util.HashMap<Long, android.app.AlertDialog> presents = new java.util.HashMap<>();
+    static final java.util.HashMap<Long, android.app.Dialog> presents = new java.util.HashMap<>();
 
     /** A native alert / confirm / action sheet; onClick reports the spec button index. */
     public static void present(final long req, boolean sheet, String title, String message,
             String buttonsJoined, String rolesJoined) {
         final String[] labels = buttonsJoined.isEmpty() ? new String[0] : buttonsJoined.split("");
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
         b.setTitle(title);
         if (sheet) {
             // A titled list of choices — the Android idiom for an action sheet.
@@ -456,22 +476,31 @@ public final class DayBridge {
                 nativeOnEvent(req, 10, 0.0, null); // 10 = dismissed
             }
         });
-        android.app.AlertDialog dlg = b.create();
+        android.app.Dialog dlg = b.create();
         presents.put(req, dlg);
         dlg.show();
     }
 
-    /** A native text prompt (EditText); OK reports the entered text. */
+    /** A native M3 text prompt (a TextInputLayout box); OK reports the entered text. */
     public static void presentPrompt(final long req, String title, String message,
             String placeholder, String initial, String ok, String cancel) {
-        final android.widget.EditText input = new android.widget.EditText(ctx);
-        input.setHint(placeholder);
+        TextInputLayout box = new TextInputLayout(ctx);
+        box.setHint(placeholder);
+        final TextInputEditText input = new TextInputEditText(box.getContext());
         input.setText(initial);
         input.setSingleLine(true);
-        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(ctx);
+        box.addView(input, new TextInputLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // The dialog content area has no inherent padding; give the box the M3 24dp side inset.
+        android.widget.FrameLayout wrap = new android.widget.FrameLayout(ctx);
+        int inset = (int) (24 * ctx.getResources().getDisplayMetrics().density);
+        wrap.setPadding(inset, inset / 2, inset, 0);
+        wrap.addView(box, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
         b.setTitle(title);
         if (message != null && !message.isEmpty()) b.setMessage(message);
-        b.setView(input);
+        b.setView(wrap);
         b.setPositiveButton(ok, new android.content.DialogInterface.OnClickListener() {
             @Override public void onClick(android.content.DialogInterface d, int w) {
                 presents.remove(req);
@@ -490,13 +519,13 @@ public final class DayBridge {
                 nativeOnEvent(req, 10, 0.0, null);
             }
         });
-        android.app.AlertDialog dlg = b.create();
+        android.app.Dialog dlg = b.create();
         presents.put(req, dlg);
         dlg.show();
     }
 
     public static void dismissPresent(long req) {
-        android.app.AlertDialog dlg = presents.remove(req);
+        android.app.Dialog dlg = presents.remove(req);
         if (dlg != null) dlg.dismiss();
     }
 

@@ -4,7 +4,9 @@
     "type": "entry",
     "description": "Day on HarmonyOS ArkUI (native Rust cdylib)",
     "mainElement": "EntryAbility",
-    "deviceTypes": ["phone", "tablet"],
+    // "default" is the OpenHarmony device type the Oniro emulator reports ("phone" is a HarmonyOS-only
+    // syscap set, absent from the public OpenHarmony SDK's device-define).
+    "deviceTypes": ["default", "tablet"],
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",

@@ -65,7 +65,7 @@ Each backend resolves the two variants to its usual native widget:
 | UIKit   | `UIProgressView` | `UIActivityIndicatorView` (animating) |
 | GTK 4   | `GtkProgressBar` (`set_fraction`) | `GtkSpinner` (`start`) |
 | Qt      | `QProgressBar` (0..1000) | `QProgressBar` in busy mode (`range(0,0)`) |
-| Android | `ProgressBar` horizontal (0..1000) | `ProgressBar` circular (indeterminate) |
+| Android | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
 | WinUI 3 | `ProgressBar` (0..1000) | `ProgressRing` (`IsActive`) |
 
 Notes:

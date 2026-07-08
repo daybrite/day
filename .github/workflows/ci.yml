@@ -203,6 +203,11 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Validate this toolkit's build environment up front — fails the job with setup instructions
+      # if a required tool/SDK is missing, rather than deep inside the build.
+      - name: Doctor (${{ matrix.toolkit }})
+        shell: bash
+        run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
       # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to THIS
       # checkout with --local, and build each for this combo — so `day new` output keeps compiling
       # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
@@ -270,6 +275,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (uikit)
+        shell: bash
+        run: $DAY_BIN doctor --toolkit uikit
       # Scaffold a uikit piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for the iOS Simulator — a lib build, so no device/simulator needed here.
       # The app builds `--lib` (its `day::launch` desktop bin is not part of the iOS pipeline).
@@ -364,6 +372,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (${{ matrix.toolkit }})
+        shell: bash
+        run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
       # Scaffold a piece + a part + a full app with `day new` (deps redirected to this checkout via
       # --local) and build each for this combo, so `day new` output keeps compiling against the day
       # tree under test.
@@ -456,6 +467,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (android)
+        shell: bash
+        run: $DAY_BIN doctor --toolkit android
       # Scaffold a widget piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
@@ -582,6 +596,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (harmonyos)
+        shell: bash
+        run: $DAY_BIN doctor --toolkit harmonyos
       # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
       # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
       # (@main: emulator-action publishes no release tag yet.)
@@ -656,6 +673,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (winui)
+        shell: bash
+        run: $DAY_BIN doctor --toolkit winui
       # The only CI job that can compile `day new`'s winui template branch: scaffold a winui piece +
       # a part + a full app (deps redirected to this checkout) and build each. winui is a desktop
       # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
@@ -758,6 +778,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Doctor (${{ matrix.toolkit }})
+        shell: bash
+        run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
       # WEBKIT_DISABLE_COMPOSITING_MODE is a harmless no-op on Windows now (neither combo has a real
       # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
       # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.

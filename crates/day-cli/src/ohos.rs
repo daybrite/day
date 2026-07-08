@@ -60,7 +60,7 @@ pub fn hdc() -> Command {
 /// The OpenHarmony NDK (`native` dir) for the cross-linker: `OHOS_NDK_HOME` (set by CI's
 /// setup-ohos-sdk) if present, else a couple of common local install paths (see docs/harmonyos.md:
 /// extract the public SDK's `native` component). Validated by the presence of `llvm/bin`.
-fn find_ohos_ndk() -> Result<String, String> {
+pub(crate) fn find_ohos_ndk() -> Result<String, String> {
     if let Ok(v) = std::env::var("OHOS_NDK_HOME") {
         return Ok(v);
     }

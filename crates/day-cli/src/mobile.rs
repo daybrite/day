@@ -445,15 +445,22 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
     Ok(out.join(&abi).join(format!("lib{name}.so")))
 }
 
-fn find_ndk() -> Result<PathBuf, String> {
-    if let Ok(v) = std::env::var("ANDROID_NDK_HOME") {
-        return Ok(PathBuf::from(v));
-    }
-    let sdk = std::env::var("ANDROID_HOME")
+/// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the macOS default location.
+/// Shared with `day doctor` so its diagnosis matches what the build actually probes.
+pub(crate) fn android_sdk_dir() -> PathBuf {
+    std::env::var("ANDROID_HOME")
+        .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Android/sdk")
-        });
+        })
+}
+
+pub(crate) fn find_ndk() -> Result<PathBuf, String> {
+    if let Ok(v) = std::env::var("ANDROID_NDK_HOME") {
+        return Ok(PathBuf::from(v));
+    }
+    let sdk = android_sdk_dir();
     let ndk_dir = sdk.join("ndk");
     let mut versions: Vec<_> = std::fs::read_dir(&ndk_dir)
         .map_err(|_| "no Android NDK found (set ANDROID_NDK_HOME)")?

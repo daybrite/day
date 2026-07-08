@@ -50,7 +50,7 @@
 **Day** is a Rust framework for building applications that look, feel, and behave like native
 applications on every platform — because they *are* native applications. UI is authored once, in
 idiomatic Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View and Flutter calls a
-Widget). Each Piece is realized by **real native components** — `UILabel`, `android.widget.Button`,
+Widget). Each Piece is realized by **real native components** — `UILabel`, a Material `MaterialButton`,
 `NSTextField`, `GtkEntry`, `QSlider`, WinUI `TextBox`, a DOM `<input>` — through a per-platform
 **toolkit** backend. Day owns layout, reactivity, localization, accessibility policy, and scripting;
 the platform owns pixels, text input, scrolling physics, and assistive technology.
@@ -60,7 +60,7 @@ Eight **primary targets** (OS–toolkit combinations):
 | target | OS | toolkit | tier |
 |---|---|---|---|
 | `ios-uikit` | iOS | UIKit | **MVP** |
-| `android-widget` | Android | android.widget / android.view | **MVP** |
+| `android-widget` | Android | Material Components (M3 Expressive) / android.view | **MVP** |
 | `macos-appkit` | macOS | AppKit | **MVP** |
 | `linux-gtk` | Linux | GTK 4 | MVP-adjacent (CI) |
 | `linux-qt` | Linux | Qt 6 Widgets | MVP-adjacent (CI) |
