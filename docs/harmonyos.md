@@ -125,23 +125,53 @@ hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
 
 `day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
+In practice you don't run any of the above by hand — `day launch -p ohos-arkui` does the whole flow
+(cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
+
+```bash
+# A native OpenHarmony emulator window (QEMU cocoa on macOS; no VNC, no password, no DevEco).
+# Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images); --headless for CI.
+day ohos emulator launch
+
+# Then build + install + launch the app on every connected target (see "Multiple devices" below):
+day launch --project apps/showcase -p ohos-arkui
+```
+
+## Multiple devices / architectures
+
+`day launch -p ohos-arkui` enumerates every reachable `hdc` target, queries each one's arch
+(`uname -m` → x86_64 emulator / arm64 device), builds a `libentry.so` for **each** arch, and packs
+them all into the one `.hap` (`libs/x86_64/` + `libs/arm64-v8a/`) so it installs on any of them.
+It then installs + starts the app on **every** connected target. Android (`adb`, per-device
+`ro.product.cpu.abi`) and iOS (every booted simulator) do the same — one `day launch` fans out to
+all connected devices, building whatever ABIs they need.
+
 ## Status
 
-Verified in this repo: the C++ shim compiles against the real ArkUI/NAPI headers, and the complete
-Day app cross-compiles and links to a loadable `libentry.so` for both HarmonyOS arches (aarch64 +
-x86_64), exporting `day_arkui_start` / `day_arkui_on_event` and registering the `entry` NAPI module.
-The ArkTS host project + `build.sh` assemble the `.so` into a DevEco-buildable project.
+`ohos-arkui` is a **first-class, non-experimental** target. Pieces render as real ArkUI Native
+NodeAPI nodes, verified on the Oniro emulator:
 
-Packaging + signing now run headlessly via the command-line-tools (see Build & run), with no Huawei
-developer account: hvigor assembles the `.hap` and `sign-hap.mjs` patches (compileSdkType →
-OpenHarmony) + signs it with the public release material. On CI the `day` CLI drives the whole flow
-(`day launch -p ohos-arkui`) against the openharmony-rs/emulator-action Oniro emulator; locally the
-`harmony/` scripts above or DevEco Studio work too.
+- **Nav shell** (`selector`) — a scrollable list that pushes detail pages.
+- **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
+  bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
+- **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
+  with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text) — the gauge + shapes pages.
+- **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
+  500-row list only builds the visible cells.
+- **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
+
+Images/webview/lottie/map pieces are not yet wired (they render as placeholders). Packaging + signing
+run headlessly via the command-line-tools (see Build & run) with no Huawei developer account: hvigor
+assembles the `.hap` and `sign-hap.mjs` patches (compileSdkType → OpenHarmony) + signs it with the
+public release material. `libentry.so` links the NDK's shared libc++ and `libnative_drawing`, both
+packed into the `.hap`.
 
 ## CI
 
-The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubuntu-24.04`,
-`continue-on-error` so it stays non-blocking). It downloads + caches the OpenHarmony
+The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubuntu-24.04`). The build
+gates **hard** (clippy + cross-compile + `hvigorw assembleHap` + sign + `day doctor`); only the
+emulator boot + walkthrough are best-effort (`continue-on-error` per step) because the GitHub-hosted
+TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmony
 **command-line-tools** (~2 GB) and then runs the real build pipeline:
 
 1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
@@ -157,6 +187,7 @@ verification for OpenHarmony-declared apps on devices without Huawei OH code sig
 
 ## Follow-ups
 
-Accessibility (`accessibilityText`), the canvas display list (`ARKUI_NODE_CUSTOM` + a draw callback),
-lists (`ARKUI_NODE_LIST` recycling), navigation (`Navigation`), scroll content sizing, and end-to-end
-`day` CLI orchestration (cross-compile → hvigor → sign → `hdc install`).
+Wire the remaining pieces (image / webview / lottie / map), richer accessibility (roles beyond the
+label), interactive tab-bar labels on the swiper, and the image/webview backends. The dayscript
+engine's TCP channel is flaky on the TCG emulator (occasional connection resets), so scripted
+walkthrough screenshots on OHOS are best-effort.

@@ -89,6 +89,11 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
+    /// HarmonyOS / OpenHarmony helpers (emulator, …)
+    Ohos {
+        #[command(subcommand)]
+        cmd: OhosCmd,
+    },
     /// PLUMBING: invoked by the Xcode script phase (reads Xcode's env)
     #[command(name = "xcode-backend", hide = true)]
     XcodeBackend {
@@ -181,6 +186,25 @@ enum NewKind {
     },
 }
 
+#[derive(clap::Subcommand)]
+pub enum OhosCmd {
+    /// Manage the OpenHarmony emulator
+    Emulator {
+        #[command(subcommand)]
+        cmd: EmulatorCmd,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum EmulatorCmd {
+    /// Launch the Oniro/OpenHarmony QEMU emulator as a native window (no VNC/password)
+    Launch {
+        /// No window (hdc-only) — for CI / headless hosts.
+        #[arg(long)]
+        headless: bool,
+    },
+}
+
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
@@ -201,6 +225,18 @@ pub fn run() -> i32 {
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
         }),
+        Cmd::Ohos {
+            cmd:
+                OhosCmd::Emulator {
+                    cmd: EmulatorCmd::Launch { headless },
+                },
+        } => match crate::ohos::emulator_launch(headless) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("error: {e}");
+                5
+            }
+        },
         Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
         Cmd::Create { name, targets, id } => {

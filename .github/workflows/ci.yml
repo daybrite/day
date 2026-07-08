@@ -509,14 +509,14 @@ jobs:
   # it on an emulator over hdc, capturing screenshots for the gallery — exactly the Android/iOS flow.
   # The OpenHarmony SDK (NDK + hdc + RELEASE signing material) comes from openharmony-rs/setup-ohos-sdk
   # and the Oniro QEMU emulator from openharmony-rs/emulator-action; hvigor + ohpm + node (absent
-  # from the public SDK) come from the command-line-tools. EXPERIMENTAL + continue-on-error: the
-  # OHOS-on-GitHub-hosted-runner path is new (slow TCG emulator, SDK/hvigor version sensitivity, no
-  # prior end-to-end precedent for a Rust-cdylib hap), so a failure here never blocks the pipeline.
+  # from the public SDK) come from the command-line-tools. ohos-arkui is a first-class target, so the
+  # build gates HARD (clippy + cross-compile + hvigor assembleHap + sign + doctor). Only the emulator
+  # BOOT + walkthrough steps are best-effort (`continue-on-error` per step) — the GitHub-hosted TCG
+  # emulator is slow and occasionally flaky, which must not be able to red the build.
   ohos-arkui:
     name: ohos-arkui
     runs-on: ubuntu-24.04
     needs: [linux-day]
-    continue-on-error: true
     env:
       # hvigor + ohpm + node are NOT in the public SDK, so they come from the OpenHarmony
       # command-line-tools (one self-contained, cached zip; Linux-x64 only). The RELEASE signing
@@ -620,6 +620,7 @@ jobs:
       # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
       # (@main: emulator-action publishes no release tag yet.)
       - uses: openharmony-rs/emulator-action@main
+        continue-on-error: true # emulator boot is best-effort (the build already gated above)
         with:
           hdc-wait-seconds: "420"
           port-wait-seconds: "300"
@@ -631,6 +632,7 @@ jobs:
       # the working pages still produce gallery screenshots.
       - name: Emulator walkthrough (ohos-arkui)
         working-directory: apps/showcase
+        continue-on-error: true # the walkthrough drives the flaky TCG emulator; the build already gated
         run: $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
         if: always()

@@ -82,8 +82,14 @@ fn shot_dir(project: &Project, target: &Target, locale: Option<&str>) -> PathBuf
 fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
     match target.kind {
         TargetKind::IosSim => {
+            // The scripted run drives one simulator (the first booted); pin it so multiple booted
+            // sims don't make `simctl … booted` ambiguous.
+            let udid = crate::mobile::booted_sims()
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "booted".into());
             let ok = Command::new("xcrun")
-                .args(["simctl", "io", "booted", "screenshot"])
+                .args(["simctl", "io", &udid, "screenshot"])
                 .arg(path)
                 .status()
                 .map(|s| s.success())
@@ -95,7 +101,13 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
             }
         }
         TargetKind::Android => {
-            let out = Command::new("adb")
+            // Pin the first device (the one the runner forwarded to), else `adb` errors with
+            // several attached.
+            let mut cmd = Command::new("adb");
+            if let Some(dev) = crate::mobile::android_devices().first() {
+                cmd.args(["-s", &dev.serial]);
+            }
+            let out = cmd
                 .args(["exec-out", "screencap", "-p"])
                 .output()
                 .map_err(|e| e.to_string())?;
@@ -144,7 +156,13 @@ pub fn run_scripts(
     locale: Option<&str>,
 ) -> Result<ScriptRun, String> {
     if target.kind == TargetKind::Android {
-        let _ = Command::new("adb")
+        // The dayscript runner drives ONE device; with several attached, `adb forward` (no `-s`)
+        // errors ("more than one device"), so pin the first enumerated device.
+        let mut cmd = Command::new("adb");
+        if let Some(dev) = crate::mobile::android_devices().first() {
+            cmd.args(["-s", &dev.serial]);
+        }
+        let _ = cmd
             .args(["forward", &format!("tcp:{port}"), &format!("tcp:{port}")])
             .status();
     }

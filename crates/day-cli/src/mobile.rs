@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::meta::{Project, find_project};
-use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status, stream_logs};
+use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status};
 use crate::targets::Target;
 
 pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
@@ -305,63 +305,130 @@ pub fn build_ios(
     })
 }
 
+/// UDIDs of every currently-booted iOS simulator (`simctl list devices booted`). All simulators on
+/// a given host share the host arch, so the one `aarch64-apple-ios-sim` build runs on each.
+pub(crate) fn booted_sims() -> Vec<String> {
+    let out = match Command::new("xcrun")
+        .args(["simctl", "list", "devices", "booted"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| l.contains("(Booted)"))
+        .filter_map(|l| {
+            // The UDID is the parenthesized 36-char group before "(Booted)".
+            l.split(['(', ')'])
+                .map(str::trim)
+                .find(|t| t.len() == 36 && t.split('-').count() == 5)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 pub fn launch_ios(
     project: &Project,
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle_id = project.manifest.app.id.clone();
-    run_logged(
-        Command::new("xcrun")
-            .args(["simctl", "install", "booted"])
-            .arg(&outcome.artifact),
-        "simctl install",
-    )?;
-    let _ = Command::new("xcrun")
-        .args(["simctl", "terminate", "booted", &bundle_id])
-        .status();
-    let mut cmd = Command::new("xcrun");
-    cmd.args(["simctl", "launch"]);
-    if spec.attached {
-        // `--console` (not `--console-pty`) keeps the app's stdout and stderr on
-        // simctl's separate fds, so we can colour them apart.
-        cmd.arg("--console");
+    let sims = booted_sims();
+    if sims.is_empty() {
+        return Err(
+            "no booted iOS simulator (open Simulator.app or `xcrun simctl boot <device>`); \
+                    physical devices need code signing and aren't supported here"
+                .into(),
+        );
     }
-    cmd.args(["booted", &bundle_id]);
-    for (k, v) in &spec.envs {
-        cmd.env(format!("SIMCTL_CHILD_{k}"), v);
+    let multi = sims.len() > 1;
+    let mut log_threads = Vec::new();
+    for udid in &sims {
+        run_logged(
+            Command::new("xcrun")
+                .args(["simctl", "install", udid])
+                .arg(&outcome.artifact),
+            &format!("simctl install ({udid})"),
+        )?;
+        let _ = Command::new("xcrun")
+            .args(["simctl", "terminate", udid, &bundle_id])
+            .status();
+        let mut cmd = Command::new("xcrun");
+        cmd.args(["simctl", "launch"]);
+        if spec.attached {
+            // `--console` (not `--console-pty`) keeps the app's stdout and stderr on
+            // simctl's separate fds, so we can colour them apart.
+            cmd.arg("--console");
+        }
+        cmd.args([udid.as_str(), &bundle_id]);
+        for (k, v) in &spec.envs {
+            cmd.env(format!("SIMCTL_CHILD_{k}"), v);
+        }
+        if let Some(locale) = &spec.locale {
+            cmd.env("SIMCTL_CHILD_DAY_LOCALE", locale);
+        }
+        status(
+            "Launching",
+            &format!("ios-uikit ({bundle_id}) on simulator {udid}"),
+        );
+        if spec.attached {
+            cmd.stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().map_err(|e| format!("simctl launch: {e}"))?;
+            crate::signals::register_child(child.id());
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+            // Multi-sim runs tag each stream with the UDID so the interleaved logs read apart.
+            let (out_label, err_label) = if multi {
+                (
+                    format!("{}:{}", outcome.target, udid),
+                    format!("{}:{}", outcome.target, udid),
+                )
+            } else {
+                (outcome.target.to_string(), outcome.target.to_string())
+            };
+            log_threads.push(std::thread::spawn(move || {
+                let t1 = stdout.map(|s| stream_logs_labeled(out_label, LogStream::Out, s));
+                let t2 = stderr.map(|s| stream_logs_labeled(err_label, LogStream::Err, s));
+                let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+                if let Some(t) = t1 {
+                    let _ = t.join();
+                }
+                if let Some(t) = t2 {
+                    let _ = t.join();
+                }
+                code
+            }));
+        } else {
+            run_logged(&mut cmd, &format!("simctl launch ({udid})"))?;
+        }
     }
-    if let Some(locale) = &spec.locale {
-        cmd.env("SIMCTL_CHILD_DAY_LOCALE", locale);
-    }
-    status(
-        "Launching",
-        &format!("ios-uikit ({bundle_id}) on the booted simulator"),
-    );
-    if spec.attached {
-        cmd.stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let mut child = cmd.spawn().map_err(|e| format!("simctl launch: {e}"))?;
-        crate::signals::register_child(child.id());
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let name = outcome.target;
-        Ok(std::thread::spawn(move || {
-            let t1 = stdout.map(|s| stream_logs(name, LogStream::Out, s));
-            let t2 = stderr.map(|s| stream_logs(name, LogStream::Err, s));
-            let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
-            if let Some(t) = t1 {
-                let _ = t.join();
+    Ok(std::thread::spawn(move || {
+        let mut code = 0;
+        for t in log_threads {
+            if let Ok(c) = t.join()
+                && c != 0
+                && code == 0
+            {
+                code = c;
             }
-            if let Some(t) = t2 {
-                let _ = t.join();
-            }
-            code
-        }))
-    } else {
-        run_logged(&mut cmd, "simctl launch")?;
-        Ok(std::thread::spawn(|| 0))
-    }
+        }
+        code
+    }))
+}
+
+/// Like `ops::stream_logs` but with an owned label (so per-device threads can carry a serial/UDID).
+fn stream_logs_labeled(
+    label: String,
+    stream: LogStream,
+    src: impl std::io::Read + Send + 'static,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        for line in BufReader::new(src).lines().map_while(Result::ok) {
+            emit_log(&label, stream, &line);
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -388,22 +455,87 @@ pub fn gradle_backend_build() -> i32 {
             return 2;
         }
     };
-    build_android_so(&project, &profile, &out)
+    build_android_so(&project, &profile, &out, &android_build_abis())
         .map(|_| 0)
         .unwrap_or(4)
 }
 
-/// Android ABI to build (`DAY_ANDROID_ABI` override; default arm64-v8a). CI's KVM emulator
-/// runners are x86_64-only, so the e2e leg exports `DAY_ANDROID_ABI=x86_64` (§20).
-fn android_abi() -> String {
-    std::env::var("DAY_ANDROID_ABI").unwrap_or_else(|_| "arm64-v8a".into())
+/// A connected Android device or emulator, with the ABI it actually runs (queried, not guessed —
+/// an emulator matches the host arch, a phone is usually arm64, so we ask each one).
+pub(crate) struct AndroidDevice {
+    pub serial: String,
+    pub abi: String,
 }
 
-fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<PathBuf, String> {
+/// `adb` with an optional device selector (`-s <serial>`). Multi-device installs/launches MUST
+/// pin the serial, or adb errors ("more than one device/emulator").
+fn adb(serial: Option<&str>) -> Command {
+    let mut c = Command::new("adb");
+    if let Some(s) = serial {
+        c.args(["-s", s]);
+    }
+    c
+}
+
+/// Every device in `adb devices` in the `device` state, paired with its primary ABI
+/// (`ro.product.cpu.abi`). `DAY_ANDROID_ABI`, when set, overrides the queried ABI for every device
+/// (CI's KVM emulator leg pins `x86_64`). Empty when nothing is connected.
+pub(crate) fn android_devices() -> Vec<AndroidDevice> {
+    let forced = std::env::var("DAY_ANDROID_ABI").ok();
+    let out = match Command::new("adb").arg("devices").output() {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .skip(1) // "List of devices attached"
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            let serial = it.next()?;
+            if it.next() != Some("device") {
+                return None; // skip offline/unauthorized
+            }
+            let abi = forced.clone().unwrap_or_else(|| {
+                Command::new("adb")
+                    .args(["-s", serial, "shell", "getprop", "ro.product.cpu.abi"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "arm64-v8a".into())
+            });
+            Some(AndroidDevice {
+                serial: serial.to_string(),
+                abi,
+            })
+        })
+        .collect()
+}
+
+/// The set of ABIs to build for: the distinct ABIs of the connected devices, or — with nothing
+/// connected (e.g. `day build` on CI before the emulator boots) — the `DAY_ANDROID_ABI` override
+/// or the arm64-v8a default, so packaging still succeeds.
+fn android_build_abis() -> Vec<String> {
+    let mut abis: Vec<String> = android_devices().into_iter().map(|d| d.abi).collect();
+    abis.sort();
+    abis.dedup();
+    if abis.is_empty() {
+        abis.push(std::env::var("DAY_ANDROID_ABI").unwrap_or_else(|_| "arm64-v8a".into()));
+    }
+    abis
+}
+
+/// Cross-compile the app cdylib for every ABI in `abis` into `out/<abi>/lib<name>.so` (one
+/// `cargo ndk -t <abi> …` invocation covering them all).
+fn build_android_so(
+    project: &Project,
+    profile: &str,
+    out: &Path,
+    abis: &[String],
+) -> Result<(), String> {
     let (cargo, bin) = rustup_cargo()?;
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
-    let abi = android_abi();
     let target_dir = project
         .root
         .join("build/day/cargo/android-widget")
@@ -421,7 +553,11 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         )
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("ANDROID_NDK_HOME", &ndk_home)
-        .args(["ndk", "-t", &abi, "-o"])
+        .arg("ndk");
+    for abi in abis {
+        cmd.args(["-t", abi]);
+    }
+    cmd.arg("-o")
         .arg(out)
         // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
@@ -442,7 +578,7 @@ fn build_android_so(project: &Project, profile: &str, out: &Path) -> Result<Path
         cmd.arg("--release");
     }
     run_logged(&mut cmd, "cargo ndk")?;
-    Ok(out.join(&abi).join(format!("lib{name}.so")))
+    Ok(())
 }
 
 /// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the macOS default location.
@@ -477,13 +613,16 @@ pub fn build_android(
     profile: &str,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    // 1) Rust .so (also invoked by gradle's callback; building here keeps `day build` primary).
+    // 1) Rust .so, one per connected device's ABI (so an app built with an arm64 phone AND an
+    //    x86_64 emulator attached carries both). Also invoked by gradle's callback; building here
+    //    keeps `day build` primary.
     let jni_out = project.root.join("build/day/jniLibs");
+    let abis = android_build_abis();
     status(
         "Building",
-        &format!("{} (cargo-ndk arm64-v8a)", target.name),
+        &format!("{} (cargo-ndk {})", target.name, abis.join(" ")),
     );
-    build_android_so(project, profile, &jni_out)?;
+    build_android_so(project, profile, &jni_out, &abis)?;
 
     // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
     //    for the Gradle build to pick up — a piece ships its backend without editing Day.
@@ -543,99 +682,129 @@ pub fn launch_android(
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let app_id = project.manifest.app.id.clone();
-    run_logged(
-        Command::new("adb")
-            .args(["install", "-r"])
-            .arg(&outcome.artifact),
-        "adb install",
-    )?;
-    // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.
-    let mut cmd = Command::new("adb");
-    cmd.args([
-        "shell",
-        "am",
-        "start",
-        "-n",
-        &format!("{app_id}/dev.daybrite.day.bridge.DayActivity"),
-    ]);
-    for (k, v) in &spec.envs {
-        let quoted = format!("'{}'", v.replace('\'', ""));
-        if k == "AUTODRIVE" {
-            cmd.args(["--es", "day.autodrive", &quoted]);
-        } else {
-            cmd.args(["--es", &format!("day.env.{k}"), &quoted]);
+    let devices = android_devices();
+    if devices.is_empty() {
+        return Err("no Android device/emulator connected (check `adb devices`)".into());
+    }
+    // Install + launch on EVERY connected device; the one APK already carries each device's ABI.
+    let mut log_threads = Vec::new();
+    for dev in &devices {
+        run_logged(
+            adb(Some(&dev.serial))
+                .args(["install", "-r"])
+                .arg(&outcome.artifact),
+            &format!("adb install ({})", dev.serial),
+        )?;
+        // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.
+        let mut cmd = adb(Some(&dev.serial));
+        cmd.args([
+            "shell",
+            "am",
+            "start",
+            "-n",
+            &format!("{app_id}/dev.daybrite.day.bridge.DayActivity"),
+        ]);
+        for (k, v) in &spec.envs {
+            let quoted = format!("'{}'", v.replace('\'', ""));
+            if k == "AUTODRIVE" {
+                cmd.args(["--es", "day.autodrive", &quoted]);
+            } else {
+                cmd.args(["--es", &format!("day.env.{k}"), &quoted]);
+            }
+        }
+        if let Some(locale) = &spec.locale {
+            cmd.args(["--es", "day.locale", &format!("'{locale}'")]);
+        }
+        status(
+            "Launching",
+            &format!("android-widget ({app_id}) on {} ({})", dev.serial, dev.abi),
+        );
+        run_logged(&mut cmd, &format!("am start ({})", dev.serial))?;
+        if spec.attached {
+            // One-device runs keep the bare `[android-widget]` prefix; multi-device runs append
+            // the serial so the interleaved log streams read apart.
+            let label = if devices.len() > 1 {
+                format!("{}:{}", outcome.target, dev.serial)
+            } else {
+                outcome.target.to_string()
+            };
+            log_threads.push(stream_logcat(dev.serial.clone(), app_id.clone(), label));
         }
     }
-    if let Some(locale) = &spec.locale {
-        cmd.args(["--es", "day.locale", &format!("'{locale}'")]);
-    }
-    status(
-        "Launching",
-        &format!("android-widget ({app_id}) on the connected device"),
-    );
-    run_logged(&mut cmd, "am start")?;
-    if spec.attached {
-        // Stream the app's stdout/stderr (redirected into logcat under tag `Day` by
-        // day-android). `-v tag` prefixes each line with `<prio>/day:`; we map the
-        // priority to a stream (I→stdout/blue, E→stderr/yellow) and re-prefix.
-        let id = app_id.clone();
-        let name = outcome.target;
-        Ok(std::thread::spawn(move || {
-            let pid = (0..20)
-                .find_map(|_| {
-                    let p = Command::new("adb")
-                        .args(["shell", "pidof", "-s", &id])
-                        .output()
-                        .ok()
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                        .unwrap_or_default();
-                    if p.is_empty() {
-                        std::thread::sleep(std::time::Duration::from_millis(250));
-                        None
-                    } else {
-                        Some(p)
-                    }
-                })
-                .unwrap_or_default();
-            if pid.is_empty() {
-                emit_log(name, LogStream::Err, "app pid not found; logs unavailable");
+    // The returned handle joins every device's log pump; its exit code is the first non-zero.
+    Ok(std::thread::spawn(move || {
+        let mut code = 0;
+        for t in log_threads {
+            if let Ok(c) = t.join()
+                && c != 0
+                && code == 0
+            {
+                code = c;
+            }
+        }
+        code
+    }))
+}
+
+/// Stream one device's app logs (day-android redirects the app's stdout/stderr into logcat under
+/// tag `day`). `-v tag` prefixes each line with `<prio>/day:`; map the priority to a stream
+/// (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
+fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::JoinHandle<i32> {
+    std::thread::spawn(move || {
+        let pid = (0..20)
+            .find_map(|_| {
+                let p = adb(Some(&serial))
+                    .args(["shell", "pidof", "-s", &app_id])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_default();
+                if p.is_empty() {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    None
+                } else {
+                    Some(p)
+                }
+            })
+            .unwrap_or_default();
+        if pid.is_empty() {
+            emit_log(
+                &label,
+                LogStream::Err,
+                "app pid not found; logs unavailable",
+            );
+            return 1;
+        }
+        // Clear this device's backlog so we only stream this run's output.
+        let _ = adb(Some(&serial)).args(["logcat", "-c"]).status();
+        let mut child = match adb(Some(&serial))
+            .args(["logcat", "--pid", &pid, "-v", "tag", "day:V", "*:S"])
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                emit_log(&label, LogStream::Err, &format!("adb logcat: {e}"));
                 return 1;
             }
-            // Clear the backlog so we only stream this run's output.
-            let _ = Command::new("adb").args(["logcat", "-c"]).status();
-            let mut child = match Command::new("adb")
-                .args(["logcat", "--pid", &pid, "-v", "tag", "day:V", "*:S"])
-                .stdout(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    emit_log(name, LogStream::Err, &format!("adb logcat: {e}"));
-                    return 1;
-                }
-            };
-            crate::signals::register_child(child.id());
-            if let Some(out) = child.stdout.take() {
-                for line in BufReader::new(out).lines().map_while(Result::ok) {
-                    // `-v tag` line: "<P>/day: <message>" (or "<P>/day( pid): ..." on some
-                    // builds); split off the priority and the tag header.
-                    let (prio, msg) = match line.split_once(':') {
-                        Some((head, rest)) => {
-                            (head.trim().chars().next().unwrap_or('I'), rest.trim_start())
-                        }
-                        None => ('I', line.as_str()),
-                    };
-                    let stream = if prio == 'E' || prio == 'F' || prio == 'W' {
-                        LogStream::Err
-                    } else {
-                        LogStream::Out
-                    };
-                    emit_log(name, stream, msg);
-                }
+        };
+        crate::signals::register_child(child.id());
+        if let Some(out) = child.stdout.take() {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                let (prio, msg) = match line.split_once(':') {
+                    Some((head, rest)) => {
+                        (head.trim().chars().next().unwrap_or('I'), rest.trim_start())
+                    }
+                    None => ('I', line.as_str()),
+                };
+                let stream = if prio == 'E' || prio == 'F' || prio == 'W' {
+                    LogStream::Err
+                } else {
+                    LogStream::Out
+                };
+                emit_log(&label, stream, msg);
             }
-            child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
-        }))
-    } else {
-        Ok(std::thread::spawn(|| 0))
-    }
+        }
+        child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
+    })
 }
