@@ -57,7 +57,9 @@ window:
 ```
 
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
-contains only AppKit code and the Android build only its JNI bridge.
+contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
+the per-target build pipelines, and how resources are packaged are covered in
+[Project structure & builds](/docs/project-structure).
 
 ## dayscript
 

@@ -555,11 +555,12 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
       # hvigor + ohpm + node are not in the public SDK — fetch them from the command-line-tools
-      # (cached). hvigor uses DEVECO_SDK_HOME (the CLT's self-consistent API-18 SDK, matching
-      # build-profile's compatibleSdkVersion) to compile the ArkTS host into an UNSIGNED .hap; then
-      # sign-hap.mjs patches it (compileSdkType -> OpenHarmony, so the emulator skips code-sign
-      # verification) and signs it with the RELEASE material from setup-ohos-sdk's toolchains/lib. The
-      # Rust libentry.so is an API-agnostic ELF built with setup-ohos-sdk's NDK.
+      # (cached). hvigor compiles the ArkTS host into an UNSIGNED .hap using the CLT's bundled
+      # API-18 OpenHarmony SDK (exposed to hvigor as a versioned OHOS_BASE_SDK_HOME below, matching
+      # build-profile's compileSdkVersion). Then sign-hap.mjs patches it (compileSdkType ->
+      # OpenHarmony, so the emulator skips code-sign verification) and signs it with the RELEASE
+      # material from setup-ohos-sdk's toolchains/lib. The Rust libentry.so is an API-agnostic ELF
+      # built with setup-ohos-sdk's NDK.
       - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm / signing)
         uses: actions/cache@v4
         with:
@@ -578,6 +579,22 @@ jobs:
           fi
           echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
           { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
+      - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
+        run: |
+          set -euo pipefail
+          # The showcase's harmony/ project builds as `runtimeOS: "OpenHarmony"` (login-free: no
+          # HMS-only image-transcoder library — see docs/harmonyos.md). In that mode hvigor reads
+          # OHOS_BASE_SDK_HOME and requires the NEW *versioned* SDK layout (<base>/<api>/{ets,js,
+          # native,toolchains,…}). setup-ohos-sdk exports OHOS_BASE_SDK_HOME pointed at its FLAT
+          # layout (…/linux/ets, …), which hvigor rejects with "SDK management mode has changed".
+          # Build a versioned view from the command-line-tools' bundled API-18 OpenHarmony SDK
+          # (matching build-profile's compile/compatibleSdkVersion = 18) and override the var. The
+          # Rust NDK (OHOS_NDK_HOME) + hdc + RELEASE signing material stay on setup-ohos-sdk.
+          OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
+          BASE="$HOME/ohos-ohsdk"
+          mkdir -p "$BASE"
+          ln -sfn "$OH" "$BASE/18"
+          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
       - name: Clippy (arkui backend, cross-check)
         # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
         # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.

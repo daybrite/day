@@ -101,6 +101,45 @@ fn have_rust_target(triple: &str) -> Option<String> {
         .then(|| triple.to_string())
 }
 
+/// The first of `triples` whose std is installed. Android/OHOS builds pick an arch by device vs
+/// emulator, so having EITHER arch installed is enough to prove the toolchain is set up.
+fn have_any_rust_target(triples: &[&str]) -> Option<String> {
+    triples.iter().find_map(|t| have_rust_target(t))
+}
+
+/// Locate a JDK 21 (Android's AGP needs 21 exactly — 22+ breaks the jdk-image transform). Checks, in
+/// order: `$JAVA_HOME` (what Gradle uses; set by CI's setup-java), the Homebrew openjdk@21 path, then
+/// `java` on PATH. Accepts a JDK whose major version is 21, parsed robustly from `java -version`
+/// (which prints `openjdk version "21.0.8" …` — or bare `"21"` for some builds — to stderr).
+fn have_jdk21() -> Option<String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("JAVA_HOME") {
+        candidates.push(PathBuf::from(home).join("bin").join("java"));
+    }
+    candidates.push(PathBuf::from("/opt/homebrew/opt/openjdk@21/bin/java"));
+    if let Some(p) = which("java") {
+        candidates.push(p);
+    }
+    for java in candidates {
+        let Ok(out) = Command::new(&java).arg("-version").output() else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        // Split the (stderr) version banner on whitespace and quotes; accept a `21` / `21.x` token.
+        let text = String::from_utf8_lossy(&out.stderr);
+        let is21 = text
+            .split(|c: char| c.is_whitespace() || c == '"')
+            .filter_map(|t| t.strip_prefix("21"))
+            .any(|rest| rest.is_empty() || rest.starts_with('.'));
+        if is21 {
+            return Some(text.lines().next().unwrap_or("").trim().to_string());
+        }
+    }
+    None
+}
+
 /// Resolve `bin` on PATH (like the shell would); `Some(path)` if found. `bin` may carry `.exe`; on
 /// Windows a bare name also matches `<bin>.exe` (else e.g. `glib-compile-resources.exe` reads as
 /// missing).
@@ -324,8 +363,8 @@ fn android_group() -> Group {
             ),
             Probe::new(
                 "rust-android",
-                have_rust_target("aarch64-linux-android"),
-                "rustup target add aarch64-linux-android",
+                have_any_rust_target(&["aarch64-linux-android", "x86_64-linux-android"]),
+                "rustup target add aarch64-linux-android (or x86_64-linux-android for the emulator)",
             ),
             Probe::new(
                 "cargo-ndk",
@@ -334,8 +373,7 @@ fn android_group() -> Group {
             ),
             Probe::new(
                 "jdk21",
-                run_line("/opt/homebrew/opt/openjdk@21/bin/java", &["--version"])
-                    .or_else(|| run_line("bash", &["-c", "java -version 2>&1 | grep -m1 '21\\.'"])),
+                have_jdk21(),
                 "install JDK 21 (`brew install openjdk@21`); newer JDKs break the AGP jdk-image transform",
             ),
             Probe::new(
