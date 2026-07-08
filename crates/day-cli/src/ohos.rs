@@ -244,14 +244,15 @@ fn combined(out: &std::process::Output) -> String {
 }
 
 /// Is `bundle` installed on the target? `hdc install`/`bm install` can print `error: failed to
-/// execute your command` yet exit 0, so verify the end state with `bm dump` rather than the exit code.
+/// execute your command` yet still install (and yet exit 0), so verify the end state with
+/// `bm dump -a` — the flat list of every installed bundle name — a clean membership test (unlike
+/// `bm dump -n <bundle>`, whose per-bundle JSON can itself contain the words "error"/"failed").
 fn bundle_installed(bundle: &str) -> bool {
-    let Ok(out) = hdc().args(["shell", "bm", "dump", "-n", bundle]).output() else {
-        return false;
-    };
-    let s = combined(&out).to_lowercase();
-    let b = bundle.to_lowercase();
-    s.contains(&b) && !s.contains("not exist") && !s.contains("error") && !s.contains("failed")
+    hdc()
+        .args(["shell", "bm", "dump", "-a"])
+        .output()
+        .map(|o| combined(&o).contains(bundle))
+        .unwrap_or(false)
 }
 
 pub fn launch_ohos(
@@ -261,24 +262,45 @@ pub fn launch_ohos(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle = project.manifest.app.id.clone();
 
-    // Install (reinstall over any existing copy) and VERIFY via `bm dump` — the exit code lies.
-    let install = hdc()
-        .args(["install", "-r"])
-        .arg(&outcome.artifact)
-        .output()
-        .map_err(|e| format!("hdc install: {e}"))?;
-    if !bundle_installed(&bundle) {
-        return Err(format!(
-            "hdc install: {bundle} not installed after `hdc install`:\n{}",
-            combined(&install).trim()
-        ));
-    }
-
     // Keep the screen awake + in never-doze power mode so it doesn't re-lock mid-run (best-effort).
     let _ = hdc().args(["shell", "power-shell", "wakeup"]).status();
     let _ = hdc()
         .args(["shell", "power-shell", "setmode", "602"])
         .status();
+
+    // Install (reinstall over any existing copy), RETRYING: right after boot the bundle-manager
+    // service may not accept installs yet, and `hdc install`'s exit code + its "error: failed to
+    // execute your command" message are BOTH unreliable on Oniro (the app often installs anyway).
+    // Gate on `bm dump -a` actually listing the bundle rather than on the install command's output.
+    status(
+        "Installing",
+        &format!("ohos-arkui ({bundle}) on {}", ohos_target()),
+    );
+    let mut install_log = String::new();
+    let mut installed = false;
+    for attempt in 1..=10u32 {
+        if let Ok(out) = hdc()
+            .args(["install", "-r"])
+            .arg(&outcome.artifact)
+            .output()
+        {
+            install_log = combined(&out);
+        }
+        if bundle_installed(&bundle) {
+            installed = true;
+            break;
+        }
+        if attempt < 10 {
+            let _ = hdc().args(["shell", "power-shell", "wakeup"]).status();
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    }
+    if !installed {
+        return Err(format!(
+            "hdc install: {bundle} not installed after 10 tries:\n{}",
+            install_log.trim()
+        ));
+    }
 
     // The `aa start` args: the dayscript engine port/token + locale as `--ps` string parameters (all
     // shell-safe single tokens). EntryAbility.ets applies them to the process env (via the native
