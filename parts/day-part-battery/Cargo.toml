@@ -34,6 +34,6 @@ day-android = { workspace = true }
 # --- Android backend contribution (docs/extending.md) ---
 # The SAME mechanism the UI pieces use — but this crate registers NO renderer. It shows the
 # backend-contribution system accommodates headless capability crates: `day build` stages this Java
-# and adds it to the app's Gradle build, with zero edits to any core day crate.
+# and adds it to the app's Gradle build, without touching any core day crate.
 [package.metadata.day.android]
 java = ["android/java"]

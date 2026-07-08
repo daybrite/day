@@ -20,19 +20,19 @@ set_locale("fr");                               // every visible string updates
 
 There are two tiers of Fluent bundles:
 
-- **App catalog** — the locales your app registers with `install_locales`. Your keys, your
-  translations.
-- **Core catalog** — a **built-in** set of standard UI strings the framework itself needs (dialog
+- **App catalog**: the locales your app registers with `install_locales`. It holds your keys and
+  your translations.
+- **Core catalog**: a built-in set of standard UI strings the framework itself needs (dialog
   buttons, standard menu commands), shipped inside `day-l10n` in several languages (English, French,
   Spanish, German, Japanese, Simplified Chinese). Always present, even before `install_locales`.
 
-Lookup order for any key: **app[locale] → app[default] → core[locale] → core English**. So your
+Lookup order for any key: app[locale] → app[default] → core[locale] → core English. So your
 strings always win, and the core catalog is the fallback for the `day-*` keys the framework emits and
-your app didn't define. You can **override** any core string just by defining the same key in your own
+your app didn't define. You can override any core string just by defining the same key in your own
 catalog.
 
 Because the engine (`day-l10n`) sits low in the crate graph, the central crates localize their own UI
-without the app doing anything: **dialog buttons** and **standard menu-command labels** come out in the
+without the app doing anything: dialog buttons and standard menu-command labels come out in the
 user's language automatically.
 
 ## Core strings the framework provides
@@ -49,8 +49,8 @@ Concretely:
 
 - **`confirm(...)`/`prompt(...)`** default their buttons to `day-ok`/`day-cancel`. In French the
   buttons read *OK* / *Annuler*; `.confirm_label`/`.cancel_label` still override.
-- **`menu_role(MenuRole::Cut)`** (and the rest) get their label from the core catalog — *Couper* in
-  French, *Ausschneiden* in German — instead of each backend hardcoding English.
+- **`menu_role(MenuRole::Cut)`** (and the rest) get their label from the core catalog (*Couper* in
+  French, *Ausschneiden* in German) instead of each backend hardcoding English.
 - The AppKit **standard App menu** ("About X" / "Quit X") uses `day-about-app`/`day-quit-app`, whose
   `{$app}` interpolation gives correct per-language word order (e.g. Japanese `Dayを終了`).
 
@@ -74,4 +74,4 @@ framework's own one-shot strings.
 ## Pseudolocale
 
 Setting the locale to `en-XA` accents and expands every string (`Cáncél ・ロング`) to stress-test
-layout for longer translations and non-Latin glyphs — without needing a real translation.
+layout for longer translations and non-Latin glyphs, without needing a real translation.

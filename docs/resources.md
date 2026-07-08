@@ -1,10 +1,10 @@
 # Resources (§18.3)
 
 Day apps bundle two kinds of resource, both looked up by name, both routed through each platform's
-**native** resource machinery so they get the platform's optimizations and load paths for free. Day
-never rewrites your pixels or bytes itself — it hands the raw files to the native build system, which
-*optionally* optimizes them (actool re-encodes/dedupes, aapt2 crunches, …). Data is stored
-**uncompressed** wherever the platform allows, so the runtime can return a zero-copy view.
+native resource machinery so they get the platform's optimizations and load paths for free. Day
+never rewrites your pixels or bytes itself. It hands the raw files to the native build system, which
+optionally optimizes them (actool re-encodes/dedupes, aapt2 crunches, …). Data is stored
+uncompressed wherever the platform allows, so the runtime can return a zero-copy view.
 
 | Project dir | Kind | API | Native store |
 |---|---|---|---|
@@ -15,7 +15,7 @@ never rewrites your pixels or bytes itself — it hands the raw files to the nat
 
 Drop `images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
 each image into the target's native image pipeline; `image("logo")` (the existing piece) then
-resolves the name through the native by-name API. Nothing about the piece API changes — only *how*
+resolves the name through the native by-name API. Nothing about the piece API changes, only how
 the backend resolves the name.
 
 - **iOS (UIKit):** a generated `Media.xcassets` is placed in the `DayResources` SwiftPM package with
@@ -50,7 +50,7 @@ let owned: Vec<u8> = res.to_vec();        // copy out if you need ownership
 ```
 
 Backing per platform: Apple = mmap of the bundle file (the "plain file handle"); Android = NDK
-`AAssetManager` (`AAsset_getBuffer` on an uncompressed asset — zero copy); GTK =
+`AAssetManager` (`AAsset_getBuffer` on an uncompressed asset, zero copy); GTK =
 `g_resources_lookup_data`; Qt = `QResource::data`; ArkUI = `OH_ResourceManager_GetRawFileDescriptor`
 + mmap; desktop dev / host tests = mmap of `DAY_ASSET_ROOT/<name>`. The active backend registers its
 opener once via `day_core::set_resource_opener`; absent that, the default mmap-file opener is used
@@ -58,7 +58,7 @@ opener once via `day_core::set_resource_opener`; absent that, the default mmap-f
 
 ## Scaling — `image("logo").content_mode(…)` / `.aspect_ratio(…)`
 
-Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox — never stretch). Tune
+Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, never stretch). Tune
 with `.content_mode(ContentMode::Fill)` (preserve aspect, crop), `.stretch()`, or the shorthands
 `.fit()`/`.fill()`; constrain the frame to a ratio with `.aspect_ratio(16.0/9.0)`. Each maps to the
 native scaler: NSImageView `imageScaling`, UIImageView `contentMode`, GtkPicture `content-fit`, a
@@ -72,12 +72,12 @@ dispatches to a per-toolkit stager. GTK compiles a `.gresource` blob (`glib-comp
 Qt a `.rcc` blob (`rcc -binary -no-compress`); both are registered at startup and loaded natively
 (`g_resources_lookup_data` / `gtk_picture_new_for_resource`, `QResource::data` / `QPixmap(":/…")`).
 Android copies images into `res/drawable*/` and iOS into a `.process` `Media.xcassets`; ArkUI copies
-into `rawfile/`. No image/SVG processing is performed by Day — the native build system optionally
+into `rawfile/`. Day performs no image/SVG processing of its own; the native build system optionally
 optimizes.
 
 ## Notes / limits
 
-- ArkUI uses `rawfile` (native-reachable, uncompressed) — no per-density auto-selection yet; a
+- ArkUI uses `rawfile` (native-reachable, uncompressed) with no per-density auto-selection yet; a
   `media/` + ArkTS-bridge path for density is a future enhancement.
 - macOS AppKit does not run actool (cargo build), so its images are unoptimized bundle files.
 - WinUI is built unpackaged, so images/data load as loose files via WIC/the file opener (the

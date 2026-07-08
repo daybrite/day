@@ -1,18 +1,18 @@
 ---
 title: "Tutorial: A composite piece (no native code)"
-description: A step-by-step guide to building a reusable widget — a star rating — purely by composing Day's core primitives, with no platform-specific code. Works on every backend for free.
+description: A step-by-step guide to building a reusable widget (a star rating) by composing Day's core primitives, with no platform-specific code. It works on every backend.
 order: 30
 ---
 
-Most Day widgets you will ever build do not need a single line of platform code. They are
-**composite pieces** — new widgets assembled entirely from primitives Day already ships. A composite
-piece is pure Rust, has no cargo features, no `build.rs`, and no per-toolkit source files. You add it
-to an app as a plain dependency and it runs on **all ten targets** — AppKit, UIKit, Android, GTK, Qt,
-WinUI — for free, because every leaf it composes is already a real native control on each one.
+Most Day widgets you build won't need a single line of platform code. They are
+**composite pieces**: new widgets assembled from primitives Day already ships. A composite
+piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it
+to an app as a plain dependency and it runs on all ten targets (AppKit, UIKit, Android, GTK, Qt,
+WinUI), because every leaf it composes is already a native control on each one.
 
-In this tutorial you will build one end to end: a **star rating** control — a row of tappable stars
+In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
-`.star_size(32.0)`, and drop next to a label, exactly like a built-in.
+`.star_size(32.0)`, and drop next to a label, just like a built-in.
 
 ## 1. What a composite piece is (and why it needs no backend code)
 
@@ -27,45 +27,45 @@ Day has two kinds of pieces:
 | Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-picker` | this tutorial · `day-piece-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. But a star rating is
-just a **row of small drawings that react to taps** — and Day already gives you `row`, `canvas` (a
-real native 2D surface on every platform), `Shape`, `Signal`, and `.on_tap`. Compose those and there
+just a row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a
+native 2D surface on every platform), `Shape`, `Signal`, and `.on_tap`. Compose those and there
 is nothing left for a backend to do: the AppKit build draws the star with Core Graphics, the Android
-build with `android.graphics.Canvas`, the GTK build with Cairo — and *you wrote none of that*.
+build with `android.graphics.Canvas`, and the GTK build with Cairo. You wrote none of that.
 
-This is the rule, not the exception. **Most widgets should be composite.** Reach for a native piece
-only when you genuinely need a control the toolkits provide and Day does not yet wrap.
+Most widgets should be composite. Reach for a native piece only when you need a control the
+toolkits provide and Day does not yet wrap.
 
 The composition toolkit lives in the prelude and is worth knowing before we start:
 
-- `column` / `row` / `zstack` — stack children (vertical, horizontal, layered).
-- `.overlay(...)` / `.overlay_aligned(align, ...)` with `Alignment` — draw an annotation on top
+- `column` / `row` / `zstack`: stack children (vertical, horizontal, layered).
+- `.overlay(...)` / `.overlay_aligned(align, ...)` with `Alignment`: draw an annotation on top
   without changing layout size (badges, corner dots).
-- `.background(color)` / `.corner_radius(r)` / `.padding(...)` / `.frame(w, h)` — surface + inset.
-- `canvas(|d, size| …)` with `Shape` — a native drawing surface for anything custom.
-- the `Modifier` trait + `.modifier(m)` — a reusable, by-value view transform (a card, a chip).
-- `ButtonStyle` / `FilledButtonStyle` + `Button::style` — a pluggable button appearance.
-- `with_environment(...)` / `environment::<T>()` — pass ambient values down a subtree.
+- `.background(color)` / `.corner_radius(r)` / `.padding(...)` / `.frame(w, h)`: surface + inset.
+- `canvas(|d, size| …)` with `Shape`: a native drawing surface for anything custom.
+- the `Modifier` trait + `.modifier(m)`: a reusable, by-value view transform (a card, a chip).
+- `ButtonStyle` / `FilledButtonStyle` + `Button::style`: a pluggable button appearance.
+- `with_environment(...)` / `environment::<T>()`: pass ambient values down a subtree.
 
-Every one of those is pure composition — no per-backend work — and each is what makes the rest of
-this tutorial possible.
+Every one of those is pure composition, with no per-backend work, and they are what the rest of
+this tutorial is built from.
 
 ## 2. Scaffold the crate
 
-**Start with the scaffolder.** `day new piece` generates a ready-to-build crate — `Cargo.toml`,
-`.gitignore`, `README.md`, and a sample `src/lib.rs` — so you never assemble the boilerplate by hand:
+Start with the scaffolder. `day new piece` generates a ready-to-build crate (`Cargo.toml`,
+`.gitignore`, `README.md`, and a sample `src/lib.rs`) so you never assemble the boilerplate by hand:
 
 ```bash
 day new piece day-piece-rating          # no --toolkits ⇒ a composite piece
 ```
 
-The generated crate builds immediately (`cargo build`) and depends on a **remote** Day release, so it
+The generated crate builds immediately (`cargo build`) and depends on a remote Day release, so it
 works as a standalone repo outside the Day workspace. Pass `--id dev.acme.rating` to set the
 reverse-DNS id (defaults to `dev.example.<name>`), or `--local <path-to-day-checkout>` if you are
 developing against a local Day clone rather than the published crates. The rest of this tutorial walks
 through what the scaffolder emits and how to flesh it out.
 
-A composite piece is an ordinary library crate. It depends on three Day crates and **nothing
-platform-specific** — no toolkit crates, no feature table.
+A composite piece is an ordinary library crate. It depends on three Day crates and nothing
+platform-specific: no toolkit crates, no feature table.
 
 ```toml
 # day-piece-rating/Cargo.toml
@@ -79,13 +79,13 @@ day-pieces = "0.1"    # the primitives + the prelude (row, canvas, Decorate, …
 day-core = "0.1"      # Piece / BuildCx / RNode / AnyPiece
 day-reactive = "0.1"  # Signal (also re-exported through day-pieces' prelude)
 
-# Note what is NOT here: no [features], no dep:day-appkit / day-gtk / day-android,
-# no build.rs. That absence IS the composition-first payoff.
+# Note what is not here: no [features], no dep:day-appkit / day-gtk / day-android,
+# no build.rs. That absence is the composition-first payoff.
 ```
 
 > In the Day workspace these are `{ workspace = true }` instead of a version. Either way, contrast
 > this with a native piece's `Cargo.toml`, which carries a `[features]` block (one feature per
-> backend) and often a `build.rs` — see [the native-piece tutorial](/docs/tutorial-native-piece).
+> backend) and often a `build.rs`. See [the native-piece tutorial](/docs/tutorial-native-piece).
 
 Now `src/lib.rs`. Everything comes from the pieces prelude; we additionally name `RNode` from
 `day-core` because it is the return type of `Piece::build`:
@@ -99,7 +99,7 @@ use day_pieces::prelude::*;
 
 Day pieces follow a **config-struct + chainable-setter** pattern (the same shape as `slider(...)`,
 `button(...)`, or the `combo_box` piece). A free function creates the piece with sensible defaults;
-methods return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller — the
+methods return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller: the
 control reads it to draw and writes it back on tap.
 
 ```rust
@@ -149,13 +149,13 @@ impl Rating {
 
 ## 4. Compose the body
 
-A piece becomes usable by implementing the `Piece` trait — a single `build` method that returns the
-node it created. Once `Rating` implements `Piece`, it *automatically* gains `.id(…)`, `.padding(…)`,
+A piece becomes usable by implementing the `Piece` trait: a single `build` method that returns the
+node it created. Once `Rating` implements `Piece`, it automatically gains `.id(…)`, `.padding(…)`,
 `.frame(…)`, `.any()` and the rest, from the blanket `Decorate` impl. We never touch a backend.
 
 ### The star, as a `Shape::Polygon`
 
-A five-pointed star is ten points on two alternating radii — a tip on the outer radius, a valley on
+A five-pointed star is ten points on two alternating radii: a tip on the outer radius, a valley on
 the inner one. This helper computes them, centered in whatever size layout hands the canvas:
 
 ```rust
@@ -177,8 +177,8 @@ fn star_points(size: Size, points: usize, outer: f64, inner: f64) -> Vec<Point> 
 
 ### One star = one reactive `canvas`
 
-Each star is a fixed-size `canvas` that draws the polygon: **filled** if its index is within the
-current value, **outlined** otherwise. The draw closure reads `value.get()` — a *tracked* read — so
+Each star is a fixed-size `canvas` that draws the polygon: filled if its index is within the
+current value, outlined otherwise. The draw closure reads `value.get()`, a tracked read, so
 the canvas re-records exactly when the signal changes. When `editable`, an `.on_tap` writes this
 star's 1-based position back into the signal.
 
@@ -219,25 +219,25 @@ impl Piece for Rating {
 }
 ```
 
-That is the entire piece. Note the reactivity model: the row and its `max` canvases are built **once**.
-Tapping the third star calls `value.set(3)`; only the star canvases that read `value` re-record — the
-first three fill, the last two outline — with no tree diff and no re-execution of `build`. This is
+That is the entire piece. Note the reactivity model: the row and its `max` canvases are built once.
+Tapping the third star calls `value.set(3)`; only the star canvases that read `value` re-record (the
+first three fill, the last two outline), with no tree diff and no re-execution of `build`. This is
 Day's build-once, bind-forever model, and you got it without writing a binding by hand: `canvas`'s
 tracked read wired it for you.
 
 ## 5. Use it in an app
 
-The app depends on `day-piece-rating` like any crate. There is **no feature to enable**, no
-platform block, no conditional compilation — that is the whole point:
+The app depends on `day-piece-rating` like any crate. There is no feature to enable, no
+platform block, and no conditional compilation:
 
 ```toml
 # the app's Cargo.toml
 [dependencies]
 day = "0.1"
-day-piece-rating = "0.1"   # a plain dependency — nothing else to wire
+day-piece-rating = "0.1"   # a plain dependency, nothing else to wire
 ```
 
-Then use it exactly like a built-in piece, bound to your own `Signal`:
+Then use it like a built-in piece, bound to your own `Signal`:
 
 ```rust
 use day::prelude::*;
@@ -257,15 +257,15 @@ fn review_form() -> AnyPiece {
 }
 ```
 
-Run `day launch -p macos-appkit`, then `-p android-widget`, then `-p linux-gtk` — the same rating
+Run `day launch -p macos-appkit`, then `-p android-widget`, then `-p linux-gtk`. The same rating
 renders natively on each, drawn by that platform's own 2D API. You wrote zero platform code.
 
 ## 6. Going further
 
-The star rating is one instance of a general move: **build widgets by composing primitives, and let
-the native leaves do the platform work.** The same approach covers most of a design system:
+The star rating is one instance of a general pattern: build widgets by composing primitives, and
+let the native leaves do the platform work. The same idea covers most of a design system:
 
-- **A card** is a `Modifier` — a reusable transform you apply with `.modifier(m)`:
+- **A card** is a `Modifier`, a reusable transform you apply with `.modifier(m)`:
 
   ```rust
   pub struct Card { pub tint: Color }
@@ -277,19 +277,18 @@ the native leaves do the platform work.** The same approach covers most of a des
   // usage: my_content.modifier(Card { tint: Color::hex(0xF2F2F7) })
   ```
 
-  For a one-off you do not even need the type — a plain closure is a `Modifier` via the blanket impl:
+  For a one-off you do not even need the type; a plain closure is a `Modifier` via the blanket impl:
   `my_content.modifier(|c: AnyPiece| c.padding(16.0).corner_radius(12.0))`.
 
-- **A badge** is `.overlay_aligned(Alignment::TopTrailing, dot)` — an annotation layered on top of an
+- **A badge** is `.overlay_aligned(Alignment::TopTrailing, dot)`, an annotation layered on top of an
   avatar or icon without disturbing its layout size.
 
 - **A chip** is a labelled `.background(...).corner_radius(...)` capsule; a **pill button** is a
   `ButtonStyle` (`FilledButtonStyle` is the shipped example) applied with `Button::style`.
 
 - **Themed subtrees** flow through `with_environment(value, || …)` and are read back with
-  `environment::<T>()` — no prop-drilling, no backend code.
+  `environment::<T>()`, with no prop drilling and no backend code.
 
-Every one of these is composite: pure Rust, no cargo features, works on all ten targets the day you
-publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you truly need a
-native control Day does not already wrap — the exception that proves how far composition alone will
-take you.
+Every one of these is composite: pure Rust with no cargo features, working on all ten targets the
+day you publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you
+need a native control Day does not already wrap.

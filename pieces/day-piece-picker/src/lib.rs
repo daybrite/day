@@ -1,6 +1,6 @@
 //! day-piece-picker — an EXTERNAL Day Piece (DESIGN.md §15 tier 1): one Rust API, three SwiftUI-style
 //! stylings (`.menu`, `.segmented`, `.inline`) each realized as a NATIVE control per toolkit, registered
-//! link-time into each backend's renderer slice with **zero edits** to day. Bound two-way to a selection.
+//! link-time into each backend's renderer slice without touching day. Bound two-way to a selection.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_pieces::SignalRw;

@@ -1,13 +1,13 @@
-# HarmonyOS Next — the ArkUI backend (§9)
+# HarmonyOS Next: the ArkUI backend (§9)
 
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native
-backend (`day-arkui`) built on the **ArkUI Native NodeAPI** — the same "real native widgets, Day owns
-layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world.
+backend (`day-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
+owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world.
 
 ## Architecture
 
 It mirrors the Android backend: a managed UI runtime (ArkTS) hosts the window, native Rust builds the
-widget tree over a thin bridge, and **Day owns absolute layout**.
+widget tree over a thin bridge, and Day owns absolute layout.
 
 ```
 ArkTS host (Index.ets)           libentry.so (Rust cdylib)
@@ -17,22 +17,22 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
         └── OH_ArkUI_NodeContent_AddNode ── the native tree Day builds is mounted here
 ```
 
-- **`day-arkui-sys`** — a C++ shim (like `day-qt-sys`/`day-winui-sys`) exposing a flat C ABI over
+- **`day-arkui-sys`**: a C++ shim (like `day-qt-sys`/`day-winui-sys`) exposing a flat C ABI over
   `arkui/native_node.h` (`createNode`/`setAttribute`/`addChild`/`registerNodeEvent`/`measureNode`),
   `arkui/native_node_napi.h` (`NodeContent`), and `napi/native_api.h`. It also registers the NAPI
   module (`entry`) whose `start(nodeContent, widthVp, heightVp, density)` kicks off Day, wires the
   global node-event receiver back to Rust, and posts to the main (JS) thread via libuv `uv_async`.
-- **`day-arkui`** — the `Toolkit`/`Platform` impl. Pieces map to ArkUI node types
+- **`day-arkui`**: the `Toolkit`/`Platform` impl. Pieces map to ArkUI node types
   (`ARKUI_NODE_STACK` for containers, `TEXT`, `BUTTON`, `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children
   get an explicit position + size in **vp** (≈ Day points), and events (click / text / toggle /
   slider) come back through `day_arkui_on_event`.
-- **`day::arkui_main!(root)`** — exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
+- **`day::arkui_main!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
   it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`).
 
 ## Local development environment
 
-1. **OpenHarmony SDK / NDK.** Easiest: install the **command-line-tools** (see Build & run) — one
-   bundle carrying the NDK + hvigor + ohpm + node + signing material — and point `OHOS_NDK_HOME` at
+1. **OpenHarmony SDK / NDK.** Easiest: install the **command-line-tools** (see Build & run), one
+   bundle carrying the NDK + hvigor + ohpm + node + signing material, and point `OHOS_NDK_HOME` at
    its `sdk/default/openharmony/native`. For a Rust-only cross-compile you can instead grab just the
    `native` NDK component from the public SDK (no account needed):
 
@@ -42,7 +42,7 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
    export OHOS_NDK_HOME=/path/to/ohos-sdk/native
    ```
 
-2. **Rust OHOS targets** (Tier 2 std via rustup — Homebrew rustc has none):
+2. **Rust OHOS targets** (Tier 2 std via rustup; Homebrew rustc has none):
 
    ```bash
    rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
@@ -53,7 +53,7 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
 
 ## Build & run
 
-You need the OpenHarmony **command-line-tools** — one self-contained bundle carrying the SDK/NDK,
+You need the OpenHarmony **command-line-tools**: one self-contained bundle carrying the SDK/NDK,
 hvigor, ohpm, a bundled node, `hdc`, and the default debug signing material. It downloads without a
 Huawei developer account from `repo.huaweicloud.com/harmonyos/ohpm/<ver>/` (Linux x64; on macOS use
 DevEco Studio's bundled copy). Point `OHOS_NDK_HOME` at `sdk/default/openharmony/native` and put
@@ -65,14 +65,14 @@ cd apps/day-arkui-demo/harmony
 # 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
 ./build.sh both                                # drops entry/libs/<abi>/libentry.so
 
-# 2) Assemble an (unsigned) .hap with hvigor — build-profile.json5 declares no signingConfig:
+# 2) Assemble an (unsigned) .hap with hvigor; build-profile.json5 declares no signingConfig:
 ohpm install
 hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
 
-# 3) Patch + sign it with the OpenHarmony public RELEASE material (no account/secrets needed).
+# 3) Patch + sign it with the OpenHarmony public release material (no account/secrets needed).
 #    sign-hap.mjs rewrites module.json's compileSdkType to "OpenHarmony" so the emulator skips
-#    code-sign verification (an OpenHarmony device does not trust the public cert's code signature —
-#    install error 9568393 — but skips the check entirely for OpenHarmony-declared apps), then signs
+#    code-sign verification (an OpenHarmony device does not trust the public cert's code signature,
+#    install error 9568393, but skips the check entirely for OpenHarmony-declared apps), then signs
 #    the provision profile + the .hap. Run from the harmony/ project (it reads AppScope/app.json5):
 node sign-hap.mjs entry/build/*/outputs/*/entry-default-unsigned.hap \
   entry/build/day-arkui-demo-signed.hap
@@ -82,18 +82,18 @@ hdc install entry/build/day-arkui-demo-signed.hap
 hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
 ```
 
-(Opening `harmony/` in DevEco Studio and pressing Run ▶ — with auto-sign — does all of 2–4 too.)
+(Opening `harmony/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
 
 `day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
 ## Status
 
-Verified in this repo: the C++ shim compiles against the real ArkUI/NAPI headers, and the **complete
-Day app cross-compiles and links to a loadable `libentry.so`** for both HarmonyOS arches (aarch64 +
+Verified in this repo: the C++ shim compiles against the real ArkUI/NAPI headers, and the complete
+Day app cross-compiles and links to a loadable `libentry.so` for both HarmonyOS arches (aarch64 +
 x86_64), exporting `day_arkui_start` / `day_arkui_on_event` and registering the `entry` NAPI module.
 The ArkTS host project + `build.sh` assemble the `.so` into a DevEco-buildable project.
 
-**Packaging + signing now run headlessly** via the command-line-tools (see Build & run) — no Huawei
+Packaging + signing now run headlessly via the command-line-tools (see Build & run), with no Huawei
 developer account: hvigor assembles the `.hap` and `sign-hap.mjs` patches (compileSdkType →
 OpenHarmony) + signs it with the public release material. On CI the `day` CLI drives the whole flow
 (`day launch -p ohos-arkui`) against the openharmony-rs/emulator-action Oniro emulator; locally the
@@ -107,10 +107,10 @@ The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubunt
 
 1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
    the emulator (x86_64) and device (arm64) using the CLT's native NDK clang;
-2. `ohpm install`, then `hvigorw assembleHap` — a genuine hvigor build of the ArkTS host + `.hap`;
+2. `ohpm install`, then `hvigorw assembleHap`, a full hvigor build of the ArkTS host + `.hap`;
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
    material), then install/launch it on the openharmony-rs/emulator-action Oniro emulator over `hdc`
-   and drive the dayscript walkthrough, uploading screenshots for the gallery — like the other targets.
+   and drive the dayscript walkthrough, uploading screenshots for the gallery, like the other targets.
 
 Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it install: the emulator
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign

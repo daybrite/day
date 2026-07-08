@@ -1,8 +1,8 @@
 # VS Code extension
 
 `editors/vscode/` is a VS Code extension that builds and runs Day apps across one or more targets from
-the editor. It is a thin, conventional wrapper over the `day` CLI: the control surface is a sidebar +
-status bar + command palette, and **execution goes through the VS Code Tasks API** — each launch is a
+the editor. It is a thin wrapper over the `day` CLI: the control surface is a sidebar +
+status bar + command palette, and execution goes through the VS Code Tasks API. Each launch is a
 `day` Task in its own integrated terminal, so output is native (ANSI colors intact) and filtered per
 target, and stop/restart ride the standard task lifecycle.
 
@@ -11,10 +11,10 @@ target, and stop/restart ride the standard task lifecycle.
 - **Day sidebar** (activity bar): the current project, a *Configuration* section (build mode / locale /
   dayscript), and a *Targets* section with per-target checkboxes. Targets this host can't build are
   disabled.
-- **Run / Build** the selected targets. Multiple targets launch **simultaneously**, each in its own
-  terminal, each **stoppable / restartable independently** (inline buttons + status bar).
+- **Run / Build** the selected targets. Multiple targets launch simultaneously, each in its own
+  terminal, and each can be stopped or restarted independently (inline buttons + status bar).
 - **Build mode** (`--profile debug|release`), **locale** (`--locale`), and an optional **dayscript**
-  (`--script`) — all editable from the sidebar or the command palette.
+  (`--script`), all editable from the sidebar or the command palette.
 - **`day` task type**: auto-detected `day: build/run <target>` tasks integrate with `Ctrl+Shift+B`,
   `tasks.json`, and key bindings (see `apps/showcase/.vscode/tasks.json` for an example). Build errors
   surface through the `$rustc` problem matcher.
@@ -29,12 +29,12 @@ target, and stop/restart ride the standard task lifecycle.
 | Stop | `TaskExecution.terminate()` → SIGTERM → `day` kills the app + simctl/adb watchers (`signals.rs`) |
 | Restart | terminate + re-execute |
 
-Stop is clean on every platform because `day` traps **both SIGINT and SIGTERM** and tears down the app
+Stop is clean on every platform because `day` traps both SIGINT and SIGTERM and tears down the app
 and its log watchers.
 
 ## The `day` binary
 
-Set `day.cliPath` to your `day` binary. If it isn't on `PATH` **and** the workspace is the Day repo (a
+Set `day.cliPath` to your `day` binary. If it isn't on `PATH` and the workspace is the Day repo (a
 Cargo workspace with a `day-cli` member), the extension falls back to `cargo run -q -p day-cli --`, so
 it works in-repo with no installed binary.
 
@@ -45,7 +45,7 @@ cd editors/vscode && npm install && npm run compile
 ```
 
 Press **F5** (Run → "Run Day Extension") to open an Extension Development Host with the Day repo loaded.
-The **Day** sidebar shows the Showcase app and its 5 targets — tick `macos-appkit`, click **Run**, and
+The **Day** sidebar shows the Showcase app and its 5 targets. Tick `macos-appkit`, click **Run**, and
 the app launches in a terminal; tick `ios-uikit` too and both run at once; use the inline stop/restart
 buttons per target. `npx @vscode/vsce package` produces an installable `.vsix`.
 

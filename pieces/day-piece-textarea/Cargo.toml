@@ -11,7 +11,7 @@ build = "build.rs"
 # shim / a multiline EditText / a wrapping WinUI TextBox). Bound TWO-WAY to a `Signal<String>` (native
 # edits set the signal; a signal change patches the control), and it grows in height with its content
 # between `min_lines` and `max_lines` (then scrolls). Carries BOTH its cross-platform front-end (Rust)
-# and its per-toolkit backend (objc2 / C++ shim / Android Java / gtk-rs) with ZERO edits to any core day
+# and its per-toolkit backend (objc2 / C++ shim / Android Java / gtk-rs) without touching any core day
 # crate — the searchfield piece's structure, widened to a multi-line control.
 
 [features]
@@ -67,7 +67,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from `cargo metadata`
 # and folds it into the app's Gradle build — the piece carries its own backend Java
-# (dev.daybrite.day.piece.textarea.DayTextArea), with ZERO edits to day-android. A plain EditText needs
+# (dev.daybrite.day.piece.textarea.DayTextArea), without touching day-android. A plain EditText needs
 # no Gradle dependency or manifest permission.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.

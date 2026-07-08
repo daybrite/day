@@ -1,8 +1,8 @@
 //! day-piece-textarea — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE MULTI-LINE text editor for a
 //! message composer, realized as a scrolling native editor per toolkit (NSTextView-in-NSScrollView /
 //! UITextView / GtkTextView-in-GtkScrolledWindow / a QPlainTextEdit shim / a multiline EditText / a
-//! wrapping WinUI TextBox), registered link-time into each backend's renderer slice with **zero edits**
-//! to day. It is the multi-line complement to day-core's single-line `text_field`.
+//! wrapping WinUI TextBox), registered link-time into each backend's renderer slice without touching
+//! day. It is the multi-line complement to day-core's single-line `text_field`.
 //!
 //! It is bound **two-way** to a `Signal<String>` — the same pattern as day-piece-searchfield: a native
 //! edit dispatches an `Event::TextChanged` back to Rust which `set`s the signal, and an external signal

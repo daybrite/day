@@ -2,7 +2,7 @@
 //! the reference for a piece that pulls an EXTERNAL native package: the lottie-ios SwiftPM package on
 //! iOS (via the `[package.metadata.day.ios]` mechanism this piece introduces) and
 //! `com.airbnb.android:lottie` on Android. One Rust API, a native `LottieAnimationView` per platform,
-//! registered link-time into each backend's renderer slice with **zero edits** to day.
+//! registered link-time into each backend's renderer slice without touching day.
 //!
 //! `lottie("name")` loads `name`(.json), bundled with the app (iOS: the app bundle; Android: assets),
 //! and plays it. It's a growing leaf, so constrain it with `.frame(w, h)`.

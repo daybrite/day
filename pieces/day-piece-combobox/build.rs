@@ -1,5 +1,5 @@
 //! Compiles this piece's OWN Qt shim when the `qt` feature is on — an external Day Piece
-//! carrying native C++ with zero edits to Day's toolkit crates (DESIGN.md §15's tier-1+shim).
+//! carrying native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim).
 
 fn main() {
     println!("cargo:rerun-if-changed=src/qt_shim.cpp");

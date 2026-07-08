@@ -1,15 +1,15 @@
 # App lifecycle (§ lifecycle)
 
-A Day app can hook the moments its process moves through — launching, gaining and losing focus,
+A Day app can hook the moments its process moves through: launching, gaining and losing focus,
 going to and from the background, running low on memory, and terminating. Each phase maps to the
-host OS's native app/activity delegate, so a handler runs at exactly the right native moment on
+host OS's native app/activity delegate, so a handler runs at the right native moment on
 every platform.
 
 ```rust
 use day::prelude::*;
 
 fn main() {
-    // Register BEFORE launch so `WillLaunch` / `DidLaunch` are captured.
+    // Register before launch so `WillLaunch` / `DidLaunch` are captured.
     day::on_lifecycle(Lifecycle::DidLaunch,    || println!("up and running"));
     day::on_lifecycle(Lifecycle::WillTerminate, || save_state());   // ⌘Q / Ctrl+Q / OS quit
 
@@ -17,38 +17,38 @@ fn main() {
 }
 ```
 
-Handlers run in registration order, inside a reactive batch — so a lifecycle handler that writes a
+Handlers run in registration order, inside a reactive batch, so a lifecycle handler that writes a
 `Signal` updates the UI just like a button callback. Register as many as you like per phase.
 
 ## The phases
 
 | Phase | When |
 |---|---|
-| `WillLaunch` | Before the window/UI exists — the first thing. Set up global state. |
+| `WillLaunch` | Before the window/UI exists; the first thing to run. Set up global state. |
 | `DidLaunch` | The UI is mounted and laid out; the app is about to run. |
 | `DidBecomeActive` | Came to the foreground and is the focused, interactive app. |
 | `WillResignActive` | About to stop being active (an interruption, app switch, losing focus). |
 | `WillEnterForeground` | *(mobile)* About to return to the foreground. |
 | `DidEnterBackground` | *(mobile)* Left the foreground and is no longer visible. Persist state. |
 | `DidReceiveMemoryWarning` | *(mobile)* The system is low on memory. Drop caches. |
-| `WillTerminate` | About to terminate — the last chance to save. |
+| `WillTerminate` | About to terminate; the last chance to save. |
 
 `WillLaunch` and `DidLaunch` are emitted uniformly by day-core (reliable everywhere); the rest come
 from each backend's native app/activity delegate.
 
 ### When to register
 
-Register **before `day::launch`** (in `main`) to catch `WillLaunch`/`DidLaunch`. Registering later —
-e.g. inside your root builder — still catches everything from `DidLaunch` onward. On the mobile
+Register before `day::launch` (in `main`) to catch `WillLaunch`/`DidLaunch`. Registering later
+(inside your root builder, say) still catches everything from `DidLaunch` onward. On the mobile
 shells, the root builder is the natural registration point (there is no `main` you own); those
 handlers see `DidLaunch` and after.
 
 ## Platform availability
 
-Not every phase exists on every platform: a desktop app doesn't truly enter the background or run out
-of memory the way a phone does. The **universal** phases — `WillLaunch`, `DidLaunch`,
-`DidBecomeActive`, `WillResignActive`, `WillTerminate` — are delivered by every backend. The
-background/foreground/memory phases are delivered only by the **mobile** backends (UIKit, Android).
+Not every phase exists on every platform: a desktop app doesn't enter the background or run out
+of memory the way a phone does. The **universal** phases (`WillLaunch`, `DidLaunch`,
+`DidBecomeActive`, `WillResignActive`, `WillTerminate`) are delivered by every backend. The
+background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android).
 
 | Phase | AppKit | GTK | Qt | UIKit | Android | WinUI |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -65,8 +65,8 @@ lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); 
 
 ### Guarding platform-specific phases
 
-Registering a handler for a phase the running backend doesn't deliver is not an error — the handler is
-simply never called, and Day logs a one-time warning at launch:
+Registering a handler for a phase the running backend doesn't deliver is not an error: the handler is
+never called, and Day logs a one-time warning at launch:
 
 ```
 day: an `on_lifecycle(DidEnterBackground)` handler was registered, but this backend never delivers
@@ -76,7 +76,7 @@ that phase, so it will not run. Guard it with `day::lifecycle_supported(..)` or 
 
 There are two ways to guard, depending on how strict you want to be.
 
-**Soft — register only where supported.** `day::lifecycle::supported` is a `const fn` that knows the
+**Soft: register only where supported.** `day::lifecycle::supported` is a `const fn` that knows the
 backend compiled into this binary, so it's `false` on desktop and `true` on mobile for the mobile-only
 phases:
 
@@ -88,7 +88,7 @@ if day::lifecycle::supported(Lifecycle::DidEnterBackground) {
 
 (There is also a runtime `day::lifecycle_supported(phase)` for checks after the app is up.)
 
-**Hard — require it at compile time.** If your app *depends* on a phase, assert it and get a build
+**Hard: require it at compile time.** If your app depends on a phase, assert it and get a build
 error on a backend that can't deliver it:
 
 ```rust
@@ -99,11 +99,11 @@ day::require_lifecycle!(Lifecycle::DidEnterBackground);  // compile error on a d
 
 `WillTerminate` fires on every quit path: the `Quit` menu command (`menu_role(MenuRole::Quit)`), the
 platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and the OS reclaiming the app. The `Quit`
-command exits the app — on GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
+command exits the app. On GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
 item both work; on macOS the App-menu Quit is standard; Qt/WinUI quit their event loops. Save work in a
 `WillTerminate` handler.
 
-Mobile note: iOS/Android apps don't have a user-facing "quit" — `WillTerminate` there means the OS is
+Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is
 tearing the app down (Android `onDestroy` while finishing; iOS `applicationWillTerminate:`). Prefer
 `DidEnterBackground` for "the user left" on mobile.
 

@@ -8,7 +8,7 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
    (`TextAnchor::Centered`, `Boundary::Yes`) or a builder toggle instead.
 
 2. **Required bundles of 3+ concrete-typed values → a struct parameter** with named
-   fields at the call site — the closest Rust gets to named arguments:
+   fields at the call site. This is the closest Rust gets to named arguments:
 
    ```rust
    d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered });
@@ -26,7 +26,7 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
    cost more ergonomics than they buy.
 
 4. **Optional configuration → builder methods** (`.spacing(8.0)`, `.align(…)`,
-   `.padding(16.0)`) — never grow a constructor's positional list for options.
+   `.padding(16.0)`). Never grow a constructor's positional list for options.
 
 5. **Conventional-order exemptions.** Universally-fixed orders stay positional even
    with same-typed arguments: `Color::rgba(r, g, b, a)`, `Size::new(w, h)`,

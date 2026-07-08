@@ -1,36 +1,36 @@
 ---
 title: For AI Agents
-description: A dense, canonical, rule-based reference for LLMs and coding agents writing Day apps. Follow the invariants verbatim; prefer the patterns shown.
+description: A terse, rule-based reference for LLMs and coding agents writing Day apps. Follow the invariants verbatim; prefer the patterns shown.
 order: 5
 ---
 
-This page is written **for coding agents**, not humans. It is terse, imperative, and canonical. Prefer
+This page is written for coding agents rather than humans, so it is terse and imperative. Prefer
 the patterns here verbatim, obey the invariants, and cross-check against the failure modes before you
 finish. A machine-readable index of the whole site lives at [`/llms.txt`](/llms.txt).
 
 ## Naming (disambiguate before writing)
 
-- **Day** — the framework (proper noun; always capitalized in prose).
-- `day` — the CLI binary. You type `day build`, `day launch`, etc. Always lowercase.
-- `day` — the Rust crate. `use day::prelude::*;` brings in the whole API. Always lowercase.
-- `day.yaml` — the project manifest. **Piece** — a UI node (SwiftUI View / Flutter Widget). **Signal** —
-  a reactive state cell. **target** — an `(OS, toolkit)` pair, e.g. `macos-appkit`, `ios-uikit`.
+- **Day**: the framework (proper noun; always capitalized in prose).
+- `day`: the CLI binary. You type `day build`, `day launch`, etc. Always lowercase.
+- `day`: the Rust crate. `use day::prelude::*;` brings in the whole API. Always lowercase.
+- `day.yaml`: the project manifest. **Piece**: a UI node (SwiftUI View / Flutter Widget). **Signal**:
+  a reactive state cell. **target**: an `(OS, toolkit)` pair, e.g. `macos-appkit`, `ios-uikit`.
 
 ## What Day is (facts)
 
 Day builds cross-platform desktop + mobile apps in Rust. You write one declarative UI as a tree of
-**Pieces**; each Piece is realized by a **real native widget** (`NSTextField`, `UILabel`, `GtkEntry`,
+**Pieces**; each Piece is realized by a native widget (`NSTextField`, `UILabel`, `GtkEntry`,
 `QSlider`, WinUI `TextBox`, `android.widget.*`) through a per-platform toolkit backend. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
-and assistive tech. There is **no virtual DOM and no diffing**: the native tree is built once and Signals
+and assistive tech. There is no virtual DOM and no diffing: the native tree is built once and Signals
 bind straight to native attributes.
 
-## Invariants (MUST — violating these is a bug)
+## Invariants (MUST; violating these is a bug)
 
 1. **One toolkit backend per binary.** A binary compiles exactly one backend (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
 2. **Build once, bind forever.** Never rebuild the view on state change. To make UI reactive, pass a
-   **closure that reads a Signal** (`label(move || …count.get()…)`), or pass a Signal to a control
+   closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
 4. **Give every interactive/asserted Piece a stable `.id("…")`.** Tests, dayscript, and deep links
@@ -66,8 +66,8 @@ window: { width: 480, height: 640 }
   Containers take a **tuple** of children. Builder methods (`.padding`, `.spacing`, `.id`, `.font`, …)
   return the Piece. End a heterogeneous Piece with `.any()` to get `AnyPiece`.
 - `Signal<T>`: `get()` (tracked read), `set(v)`, `update(|v| …)`, `with(|v| …)` (borrow),
-  `get_untracked()`. Reading a Signal **inside a binding closure** makes that binding re-run when the
-  Signal changes — and nothing else re-runs.
+  `get_untracked()`. Reading a Signal inside a binding closure makes that binding re-run when the
+  Signal changes; nothing else re-runs.
 - **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
@@ -128,7 +128,7 @@ when(move || !name.with(|s| s.is_empty()),
 each(move || items.get(), |it| it.id.clone(), |it| label(it.title).id_keyed("row", it.id))
 ```
 
-**Navigation (a projection of an app-owned Signal — you own the state)**
+**Navigation (a projection of an app-owned Signal; you own the state)**
 
 ```rust
 // one-of-N (Sidebar → split view; Tabs → native tabs):
@@ -153,7 +153,7 @@ navigate("settings");  nav_back();  current_route();   // string-route adapter (
 ```rust
 label("Chapter").font(Font::Title).bold()               // semantic style + weight
 label("caption").font(Font::Footnote).italic()
-label("18pt").font(Font::System(18.0))                  // custom size — still accessibility-scaled
+label("18pt").font(Font::System(18.0))                  // custom size, still accessibility-scaled
 label(tr("greeting").arg("name", name))                 // localized + interpolated Signal
 progress(move || v.get() / 100.0).a11y(|a| a.role(Role::Meter).label("Volume"))
 ```
@@ -162,7 +162,7 @@ Semantic `Font` styles (largest→smallest): `LargeTitle, Title, Title2, Title3,
 Body, Callout, Footnote, Caption, Caption2`, plus `System(pt)`. They map to the platform's native text
 styles and scale with the OS accessibility text size.
 
-**External Piece (native widget from a crate — no core edits)**
+**External Piece (native widget from a crate; no core edits)**
 
 ```rust
 use day_piece_combobox::combo_box;

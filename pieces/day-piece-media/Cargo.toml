@@ -9,7 +9,7 @@ build = "build.rs"
 # hand-rolled AVPlayerViewController on UIKit, QMediaPlayer + QVideoWidget on Qt,
 # android.widget.VideoView on Android, GtkVideo on GTK). Like `day-piece-webview`, it carries BOTH
 # its cross-platform front-end (Rust) and its per-toolkit backend (objc2 / C++ shim / Android Java /
-# gtk-rs) with ZERO edits to any core day crate. See docs/extending.md + docs/media.md.
+# gtk-rs) without touching any core day crate. See docs/extending.md + docs/media.md.
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-kit", "dep:objc2-av-foundation"]
@@ -65,7 +65,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md). The day CLI reads this from
 # `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java AND declares the Android permissions it needs, with zero edits to day-android or the scaffold.
+# Java AND declares the Android permissions it needs, without touching day-android or the scaffold.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
 java = ["android/java"]

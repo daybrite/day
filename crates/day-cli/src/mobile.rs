@@ -479,7 +479,7 @@ pub fn build_android(
     build_android_so(project, profile, &jni_out)?;
 
     // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
-    //    for the Gradle build to pick up — zero edits to Day for a piece to ship its backend.
+    //    for the Gradle build to pick up — a piece ships its backend without editing Day.
     crate::pieces::write_android_manifest(project)?;
 
     // 3) Gradle assemble.

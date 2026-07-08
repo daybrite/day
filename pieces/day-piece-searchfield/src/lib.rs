@@ -1,7 +1,7 @@
 //! day-piece-searchfield — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input realized as a
 //! distinct search control per toolkit (NSSearchField / UISearchTextField / GtkSearchEntry / a
 //! QLineEdit search shim / an EditText styled for search / a WinUI AutoSuggestBox), registered
-//! link-time into each backend's renderer slice with **zero edits** to day.
+//! link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>` — the same pattern as day-piece-picker: a native
 //! edit dispatches an `Event::TextChanged` back to Rust which `set`s the signal, and an external

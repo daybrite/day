@@ -824,7 +824,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
     if has("widget") {
         meta.push_str(
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
-             # and folds the piece's own Java into the app's Gradle build, with ZERO edits to day-android.\n\
+             # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
              [package.metadata.day.android]\n\
              java = [\"android/java\"]\n\
              # gradle-dependencies = [\"group:artifact:version\"]\n\
@@ -859,7 +859,7 @@ version = "0.1.0"
 edition = "2024"
 {build_line}
 # A NATIVE Day piece: a two-way text input realized as a DISTINCT native control per toolkit,
-# registered link-time into each backend's renderer slice with ZERO edits to any core day crate.
+# registered link-time into each backend's renderer slice without touching any core day crate.
 # Depend on it with a plain `{{ workspace = true }}` (or git) line — `day` unions `<pkg>/<backend>`
 # into the app build, so an app never re-lists these per-backend features.
 
@@ -1008,7 +1008,7 @@ fn part_files(r: &Repl, deps: &Deps, platforms: &[String]) -> Vec<(String, Strin
     if has("android") {
         meta.push_str(
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
-             # with ZERO edits to day-android. This headless part registers NO renderer.\n\
+             # without touching day-android. This headless part registers NO renderer.\n\
              [package.metadata.day.android]\n\
              java = [\"android/java\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
@@ -1179,7 +1179,7 @@ regenerate with `day new piece … --local <path>`).
 
 const NATIVE_LIB: &str = r#"//! __CRATE__ — a NATIVE Day piece: a two-way text input realized as a DISTINCT native control per
 //! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a WinUI
-//! TextBox), registered link-time into each backend's renderer slice with ZERO edits to day.
+//! TextBox), registered link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged` back
 //! to Rust which `set`s the signal, and an external signal change patches the control via
@@ -1663,7 +1663,7 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
 "#;
 
 const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__) is bundled under android/java and
-// pulled into the app's Gradle build via [package.metadata.day.android] — ZERO edits to day-android. A
+// pulled into the app's Gradle build via [package.metadata.day.android] — no edits to day-android. A
 // TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
 
 use super::*;
@@ -1719,7 +1719,7 @@ day_pieces::renderer!(day_android::RENDERERS, Android,
 "#;
 
 const ANDROID_JAVA: &str = r#"// This piece's OWN Android factory — bundled with the crate and pulled into the app's Gradle build
-// via [package.metadata.day.android], with ZERO edits to day-android. It uses only day-android's PUBLIC
+// via [package.metadata.day.android], without touching day-android. It uses only day-android's PUBLIC
 // Java surface: DayBridge.ctx (the Android Context) and DayBridge.nativeOnEvent (the event trampoline).
 package __PKG_DOTS__;
 
@@ -1914,7 +1914,7 @@ void day___SNAKE___winui_set_text(void *handle, const char *text) {
 "#;
 
 const BUILD_RS: &str = r#"//! Compiles this piece's OWN native shims when their feature is on — a native Day piece carrying C++
-//! with zero edits to Day's toolkit crates. Qt uses `cc` + pkg-config; WinUI uses `cc` (MSVC) + the
+//! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; WinUI uses `cc` (MSVC) + the
 //! Windows SDK cppwinrt projection, mirroring day-winui-sys.
 
 use std::path::PathBuf;
@@ -1998,7 +1998,7 @@ fn find_cppwinrt() -> Option<PathBuf> {
 const NATIVE_README: &str = r#"# __CRATE__
 
 A **native** Day piece: a two-way text input realized as a distinct native control per toolkit,
-registered link-time into each backend's renderer slice with **zero edits** to day.
+registered link-time into each backend's renderer slice without touching day.
 
 ## Use
 
@@ -2087,7 +2087,7 @@ mod tests {
 "#;
 
 const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (android/java/…/Day__PASCAL__.java) — staged into the
-// app's Gradle build by `day build` via [package.metadata.day.android], with ZERO edits to day-android
+// app's Gradle build by `day build` via [package.metadata.day.android], without touching day-android
 // (it registers NO renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
 // through day-android's re-exported `jni`.
 
@@ -2109,7 +2109,7 @@ pub fn status() -> Option<super::Sample> {
 "#;
 
 const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s OWN Android backend — a headless capability shim (no UI), bundled with this crate and
-// folded into the app's Gradle build via [package.metadata.day.android], with ZERO edits to day-android.
+// folded into the app's Gradle build via [package.metadata.day.android], without touching day-android.
 package __PKG_DOTS__;
 
 public final class Day__PASCAL__ {

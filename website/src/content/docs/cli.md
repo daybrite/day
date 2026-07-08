@@ -4,8 +4,8 @@ description: The Day command-line tool, the conventional project layout, day.yam
 order: 4
 ---
 
-The `day` CLI — modeled on the architecture of `flutter_tools` — creates, builds, launches, packs,
-lints, and scripts projects. It is designed from day one for humans, CI, IDEs, and AI agents.
+The `day` CLI (modeled on the architecture of `flutter_tools`) creates, builds, launches, packs,
+lints, and scripts projects. It's built for humans, CI, IDEs, and AI agents alike.
 
 ## The commands
 
@@ -21,7 +21,7 @@ day doctor                   # check toolchains for every target
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and toolkits to support. Every question has an equivalent flag, so the same choices
-can be made non-interactively — e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
+can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
 --appid com.example.myapp`. (`day create` remains as a thin alias for `day new app`.)
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
@@ -35,7 +35,7 @@ day launch -p macos-gtk --script scripts/walkthrough.yaml --locale fr
 
 A Day project is a normal Cargo package plus a small `day.yaml`. The build tool generates the
 per-platform scaffolds (an Xcode project, a Gradle module tree) on demand and links them to your
-SwiftPM-style dependency graph — you never hand-maintain them.
+SwiftPM-style dependency graph. You never hand-maintain them.
 
 ```yaml
 # day.yaml
@@ -61,8 +61,8 @@ contains only AppKit code and the Android build only its JNI bridge.
 
 ## dayscript
 
-**dayscript** is a YAML language that drives and asserts a *running* app over a socket — the same
-script on every platform. It powers the showcase walkthrough and the screenshots in the
+**dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
+same script on every platform. It powers the showcase walkthrough and the screenshots in the
 [gallery](/gallery).
 
 ```yaml
@@ -87,6 +87,6 @@ Android, Linux, and Windows.
 ## Continuous integration
 
 Every push builds the showcase on all ten targets and runs the walkthrough, uploading each target's
-screenshots as an artifact. This site's [gallery](/gallery) is assembled from exactly those
-artifacts, so it always shows the latest captures from each platform that succeeded — see
+screenshots as an artifact. This site's [gallery](/gallery) is assembled from those artifacts, so
+it always shows the latest captures from each platform that succeeded. See
 [Why Day](/docs/benefits) for the bigger picture.

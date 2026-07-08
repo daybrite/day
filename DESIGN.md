@@ -117,7 +117,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`day-appkit`, `day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
 | **Signal / Memo / Effect / Scope** | The reactive primitives (§4). |
-| **Day Piece package** | An external crate (plus optional per-platform native code) adding pieces or services with zero edits to Day itself (§15). |
+| **Day Piece package** | An external crate (plus optional per-platform native code) adding pieces or services without touching Day itself (§15). |
 | **dayffi** | The stable C ABI over which polyglot native code implements pieces and services (§15.3). |
 | **dayscript** | The Maestro-inspired YAML UI-scripting language and its embedded engine (§14). |
 | **day.yaml** | The project manifest (§17.3). |
@@ -1448,7 +1448,7 @@ allows only the step catalog.
 Anyone can publish a **Day Piece** — a crate exposing a unified Rust API whose implementation on
 each toolkit may be written in the *platform's own language with its own conventional build
 structure*: Swift (SwiftPM) for ios/macos, Kotlin/Java (Gradle module) for Android, C++ (CMake) for
-Qt/Windows, C for GTK — with **zero edits to Day or to the app's platform scaffolds**.
+Qt/Windows, C for GTK — without touching ** Day or to the app's platform scaffolds**.
 
 Three implementation tiers, cheapest first (a single package may mix tiers per toolkit):
 
@@ -2105,7 +2105,7 @@ day/                                # THIS repository
 ```
 
 Apps and pieces live in the workspace but depend on Day **by path exactly as external users would
-by version** — the pieces/ crates are the continuous proof of the zero-edit extensibility claim
+by version** — the pieces/ crates are the continuous proof of the claim that extensions never need core edits
 (pane's `pane-combobox` discipline). The site and individual pieces are expected to migrate to
 separate repositories eventually; nothing may depend on their in-repo location (site pulls docs via
 a sync script, pieces use only public APIs).
@@ -2359,7 +2359,7 @@ smokes carry that load. M8c remains the densest single gate even after the M8 sp
 
 ```rust
 use day::prelude::*;
-use day_piece_combobox::combo_box;      // external Day Piece — zero edits to day (§8.2, §15)
+use day_piece_combobox::combo_box;      // external Day Piece — no edits to day (§8.2, §15)
 
 pub fn root() -> impl Piece {
     let count = Signal::new(0);
@@ -2483,7 +2483,7 @@ pub fn combo_box(items: Signal<Vec<String>>, selected: Signal<Option<usize>>) ->
 ```
 
 App usage: add the crate with the matching toolkit features; `use day_piece_combobox as _;` anchors
-registration. Zero edits to day.
+registration. No edits to day.
 
 ### B.2 Battery (tier 2 — a *service*, polyglot, no UI)
 

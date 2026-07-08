@@ -8,7 +8,7 @@ rust-version.workspace = true
 # It is the reference for a piece that DELIBERATELY does not cover every backend: only AppKit and
 # UIKit render a real map; on GTK/Qt/Android/WinUI the `map` kind falls back to day's placeholder
 # leaf (their features exist but register no renderer). Like the other pieces it carries BOTH its
-# cross-platform front-end (Rust) and its per-toolkit backend, with ZERO edits to any core day crate.
+# cross-platform front-end (Rust) and its per-toolkit backend, without touching any core day crate.
 # objc2-map-kit binds MKMapView for macOS only, so UIKit hand-rolls the view via `extern_class!` (the
 # same shape the media piece uses for AVPlayerViewController). See docs/extending.md + docs/map.md.
 

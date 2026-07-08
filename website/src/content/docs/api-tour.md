@@ -4,8 +4,8 @@ description: A guided tour of Pieces, signals, layout, inputs, navigation, local
 order: 3
 ---
 
-Everything below is real Day API — the snippets are lifted from the showcase app that produces the
-[gallery](/gallery). Pull `use day::prelude::*;` in and you have all of it.
+Everything below is real Day API. The snippets are lifted from the showcase app that produces the
+[gallery](/gallery). Pull in `use day::prelude::*;` and you have all of it.
 
 ## A first app
 
@@ -29,7 +29,7 @@ fn root() -> AnyPiece {
 
 ## Signals: state that binds
 
-A `Signal<T>` is a `Copy` reactive cell — clone it into as many closures as you like.
+A `Signal<T>` is a `Copy` reactive cell. Clone it into as many closures as you like.
 
 ```rust
 let count = Signal::new(0i64);
@@ -101,13 +101,13 @@ when(
 )
 ```
 
-Keyed collections (`each`) build one child per item and reconcile by key when the list changes —
-each row keeps its own state across updates.
+Keyed collections (`each`) build one child per item and reconcile by key when the list changes,
+so each row keeps its own state across updates.
 
 ## Progress and canvas
 
 `progress` takes a fraction (a value or a reactive closure); `spinner` is indeterminate. `canvas`
-hands you a native 2D drawing surface — Day never rasterizes it itself.
+hands you a native 2D drawing surface; Day never rasterizes it itself.
 
 ```rust
 progress(move || volume.get() / 100.0);   // determinate, tracks the slider live
@@ -125,10 +125,10 @@ canvas(move |d, size| {
 
 ## Navigation
 
-Day models navigation as a *projection of an app-owned signal* — you own the state, the native
-container is reconciled to it. Two primitives cover the field:
+Day models navigation as a projection of an app-owned signal: you own the state, and the native
+container is reconciled to it. There are two primitives:
 
-**`selector`** — a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
+**`selector`** is a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
 chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` on GTK, an
 `NSSplitView` source list on macOS, a pushing list on mobile); `Tabs` becomes a native tab widget.
 
@@ -142,7 +142,7 @@ selector(section)
     .item("settings", "Settings", settings_page)
 ```
 
-**`stack`** — a genuine push/pop stack bound to a `Signal<Vec<String>>` *path*. Day reconciles the
+**`stack`** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
 native stack (`UINavigationController`, `AdwNavigationView`, the Android back stack) to the path.
 
 ```rust
@@ -152,7 +152,7 @@ stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Because each surface owns its own signal, **nesting is free** — a `Tabs` selector or a `stack`
+Because each surface owns its own signal, nesting costs nothing: a `Tabs` selector or a `stack`
 inside a `Sidebar` selector just works.
 
 ## Deep links and dayscript
@@ -182,8 +182,8 @@ progress(move || volume.get() / 100.0)
 
 ## Ids and testing
 
-Give any Piece a stable `.id("…")` and dayscript can find, drive, and assert it — the same script
-across every platform.
+Give any Piece a stable `.id("…")` and dayscript can find, drive, and assert it, using the same
+script on every platform.
 
 ```rust
 button("Increment").action(move || count.update(|c| *c += 1)).id("increment-button")
@@ -191,7 +191,7 @@ button("Increment").action(move || count.update(|c| *c += 1)).id("increment-butt
 
 ## Extending with Day Pieces
 
-A native component you write (or install) plugs in exactly like a built-in. The showcase's flavor
+A native component you write (or install) plugs in like a built-in. The showcase's flavor
 picker is an external `combo_box` Piece from a separate crate:
 
 ```rust
@@ -202,7 +202,7 @@ let flavor  = Signal::new(Some(0usize));
 combo_box(flavors, flavor).id("flavor-combo")
 ```
 
-Day Pieces can ship as ordinary Rust crates, and — across Day's small stable C ABI (**dayffi**) —
-in other languages, wrapping a real native widget on each toolkit.
+Day Pieces can ship as ordinary Rust crates, or in other languages across Day's small stable
+C ABI (**dayffi**). Either way, each one wraps a native widget on each toolkit.
 
 Next: the [CLI & projects](/docs/cli) that build, launch, and script all of this.

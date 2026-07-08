@@ -8,7 +8,7 @@ build = "build.rs"
 # A standalone Day Piece wrapping each toolkit's NATIVE web view (WKWebView on AppKit/UIKit,
 # QWebEngineView on Qt, android.webkit.WebView on Android, WebKitGTK on GTK, the UWP-XAML WebView on
 # WinUI). Like `day-piece-picker`, it carries BOTH its cross-platform front-end (Rust) and its
-# per-toolkit backend (objc2 / C++ shims / Android Java / gtk-rs) with ZERO edits to any core day
+# per-toolkit backend (objc2 / C++ shims / Android Java / gtk-rs) without touching any core day
 # crate. See docs/extending.md + docs/webview.md.
 
 [features]
@@ -67,7 +67,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md). The day CLI reads this from
 # `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java AND declares the Android permissions it needs, with zero edits to day-android or the scaffold.
+# Java AND declares the Android permissions it needs, without touching day-android or the scaffold.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
 java = ["android/java"]

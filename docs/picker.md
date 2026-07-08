@@ -1,8 +1,8 @@
 # Picker (external piece)
 
-> **Status: implemented** as `day-piece-picker` — an EXTERNAL Day Piece (like `day-piece-combobox`),
-> registered link-time into each backend's renderer slice with **zero edits** to day. One API, three
-> SwiftUI-style stylings, each a distinct NATIVE control per toolkit, bound two-way to a selection.
+> **Status: implemented** as `day-piece-picker`, an external Day Piece (like `day-piece-combobox`)
+> registered link-time into each backend's renderer slice without touching day. One API, three
+> SwiftUI-style stylings, each a distinct native control per toolkit, bound two-way to a selection.
 
 ## Authoring
 
@@ -28,32 +28,34 @@ widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(Pick
 | **Segmented** | `NSSegmentedControl` | `UISegmentedControl` | `.linked` grouped `GtkToggleButton`s | checkable `QPushButton`s in a `QButtonGroup` | button-row `LinearLayout` (dim unselected) | horizontal `RadioButton` `StackPanel` |
 | **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` |
 
-The **Qt and WinUI renderers each carry their OWN C++ shim** inside this crate (`src/lib-qt-shim.cpp`,
-`src/lib-winui-shim.cpp`), compiled by the crate's `build.rs` — no edits to Day's toolkit crates. The WinUI
-shim boxes its native XAML element into a Day handle through the **`day_winui_box` / `day_winui_unbox`
-seam** that `day-winui-sys` exports (so a piece never has to touch day-winui's private handle wrapper —
-the same way the Qt shim's handle is just a raw `QWidget*`). Android carries its OWN Java factory
-(`android/java/dev/daybrite/day/piece/picker/DayPicker.java`), folded into the app's Gradle build automatically
-via `[package.metadata.day.android]` — **zero edits to day-android** (see [docs/extending.md](extending.md)).
+The Qt and WinUI renderers each carry their own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
+`src/lib-winui-shim.cpp`), compiled by the crate's `build.rs`, so Day's toolkit crates need no edits.
+The WinUI shim boxes its native XAML element into a Day handle through the `day_winui_box` /
+`day_winui_unbox` seam that `day-winui-sys` exports, so a piece never has to touch day-winui's private
+handle wrapper (the same way the Qt shim's handle is just a raw `QWidget*`). Android carries its own
+Java factory (`android/java/dev/daybrite/day/piece/picker/DayPicker.java`), folded into the app's
+Gradle build automatically via `[package.metadata.day.android]`, with no edits to day-android (see
+[docs/extending.md](extending.md)).
 All styles report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per backend (idClicked-only / suppress flags / signal blocking) so it never loops.
 
-> The `day_winui_box`/`day_winui_unbox` seam is a **general** day-winui-sys capability: any external
-> piece can now carry its own native WinUI shim, exactly like the Qt shims. Before it, WinUI handles
+> The `day_winui_box`/`day_winui_unbox` seam is a general day-winui-sys capability: any external
+> piece can now carry its own native WinUI shim, just like the Qt shims. Before it, WinUI handles
 > (a private boxed `Node*`) could only be produced inside day-winui-sys, which is why external pieces
 > previously had to reuse day-winui-sys's built-in controls.
 
 ## Verification
 
 The showcase **Pickers** page (`pickers_page`) shows all three styles, each with a live value label.
-Screenshot-verified rendering + correct initial selection on **all 5** local targets (AppKit, GTK, Qt,
-iOS-sim, Android-emu). The walkthrough drives `select` on each picker and asserts the bound value label
-follows (`picker-*-value`) — proving the two-way binding round-trips the signal *and* the native patch on
-every backend (96/96 steps).
+Rendering and correct initial selection are screenshot-verified on all 5 local targets (AppKit, GTK,
+Qt, iOS-sim, Android-emu). The walkthrough drives `select` on each picker and asserts the bound value
+label follows (`picker-*-value`), which proves the two-way binding round-trips both the signal and the
+native patch on every backend (96/96 steps).
 
 ## Follow-ups
 
-- Reactive `options` (currently fixed at build; only `selected` patches) — mirror the combobox's `Items`.
+- Reactive `options` (currently fixed at build; only `selected` patches), mirroring the combobox's
+  `Items`.
 - Disabled/enabled state; per-option a11y labels.
 
 WinUI is CI-verified (the `windows-winui` job clippy-checks the module and runs the walkthrough's

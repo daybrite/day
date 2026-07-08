@@ -2,7 +2,7 @@
 //! indeterminate activity/loading spinner: `NSProgressIndicator` (Spinning style) on AppKit,
 //! `UIActivityIndicatorView` on UIKit, `GtkSpinner` on GTK, a busy `QProgressBar` (range 0..0) on
 //! Qt, `android.widget.ProgressBar` on Android, and `ProgressRing` on WinUI. One Rust API registered
-//! link-time into each backend's renderer slice with **zero edits** to day, carrying both a
+//! link-time into each backend's renderer slice without touching day, carrying both a
 //! front-end AND its own native backends (including an Android Java shim), see docs/extending.md.
 //!
 //! Unlike a media player, a spinner has an **intrinsic size** — the piece is a natural-size leaf

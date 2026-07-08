@@ -15,21 +15,21 @@ const groups: { heading: string; blurb: string; ids: string[] }[] = [
   {
     heading: 'Core & UI',
     blurb: 'Framework-level UI: navigation, lists, layout containers, drawing, text, and the cross-cutting concerns every app touches.',
-    ids: ['navigation', 'list', 'tabs', 'shapes', 'text', 'dialogs', 'menus', 'progress', 'files', 'accessibility', 'localization', 'lifecycle'],
+    ids: ['navigation', 'list', 'tabs', 'shapes', 'text', 'dialogs', 'menus', 'progress', 'files', 'resources', 'accessibility', 'localization', 'lifecycle'],
   },
   {
     heading: 'Pieces',
-    blurb: 'Standalone UI Pieces — native widgets that live in their own crates and plug in with zero core edits.',
+    blurb: 'Standalone UI Pieces: native widgets that live in their own crates and plug in without any core changes.',
     ids: ['picker', 'combobox', 'webview', 'media', 'lottie', 'map', 'searchfield', 'activity'],
   },
   {
     heading: 'Parts',
-    blurb: 'Headless capability crates — the non-UI counterpart of Pieces: device and system access with no widgets.',
+    blurb: 'Headless capability crates, the non-UI counterpart of Pieces. They provide device and system access without any widgets.',
     ids: ['battery', 'sensors', 'clipboard', 'network', 'haptics', 'prefs', 'deviceinfo'],
   },
   {
     heading: 'Platform & tooling',
-    blurb: 'Platform backends, the extension model for authoring your own Pieces, API conventions, and editor tooling.',
+    blurb: 'Platform backends, the extension model for writing your own Pieces, API conventions, and editor tooling.',
     ids: ['harmonyos', 'extending', 'api-style', 'vscode'],
   },
 ];
@@ -50,16 +50,16 @@ const total = entries.length;
 ---
 <DocsLayout
   title="Internal docs"
-  description="Day framework internal reference — the repo's docs/ folder, rendered for the web."
+  description="Day framework internal reference: the repo's docs/ folder, rendered for the web."
   active="internal"
 >
   <h1>Internal reference docs</h1>
   <p class="lead">
-    These are Day's <strong>framework internal docs</strong> — the design and reference notes that
-    live in the repository's <code>docs/</code> folder, rendered here for easy reading. They target
-    contributors and framework authors, and are the source of truth for how each subsystem works.
-    The curated <a href={url('docs/overview')}>Documentation</a> is the place to start if you are
-    building an app.
+    These are Day's <strong>framework internal docs</strong>: the design and reference notes that
+    live in the repository's <code>docs/</code> folder, rendered here for easy reading. They are
+    written for contributors and framework authors, and are the source of truth for how each
+    subsystem works. If you are building an app, start with the curated
+    <a href={url('docs/overview')}>Documentation</a> instead.
   </p>
 
   {sections.map((s) => (

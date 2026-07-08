@@ -2,7 +2,7 @@
 //! `day-piece-picker`) declare their per-toolkit backend contributions in `Cargo.toml` under
 //! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them
 //! into the native build — so a piece carries BOTH its front-end (Rust) and its backend (Java /
-//! Gradle deps / …) with ZERO edits to the core Day crates.
+//! Gradle deps / …) without touching the core Day crates.
 //!
 //! Android contract (`[package.metadata.day.android]`):
 //! ```toml

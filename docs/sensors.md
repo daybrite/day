@@ -1,11 +1,12 @@
 # Sensors (headless capability crate)
 
-> **Status: implemented** as `day-part-sensors` (in `parts/`, the headless counterpart of `pieces/`) — a **headless**
-> day-ecosystem crate (no UI Piece): a shared cross-platform API for polling the device's motion
-> sensors (accelerometer, gyroscope, magnetometer) through each platform's NATIVE API. Any Rust code
-> can depend on it and call `day_part_sensors::read(kind)`. Host build/clippy/tests, iOS and Android
-> clippy, and the HarmonyOS cross-compile (linked against the native `libohsensor.so`) are all
-> verified; hardware readings need a real device (simulators/emulators report unavailable).
+> **Status: implemented** as `day-part-sensors` (in `parts/`, the headless counterpart of `pieces/`).
+> It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API for polling the
+> device's motion sensors (accelerometer, gyroscope, magnetometer) through each platform's native
+> API. Any Rust code can depend on it and call `day_part_sensors::read(kind)`. Host
+> build/clippy/tests, iOS and Android clippy, and the HarmonyOS cross-compile (linked against the
+> native `libohsensor.so`) are all verified; hardware readings need a real device
+> (simulators/emulators report unavailable).
 
 ## Authoring
 
@@ -19,20 +20,21 @@ if day_part_sensors::is_available(SensorKind::Accelerometer) {
 }
 ```
 
-`read(kind) -> Option<SensorReading>` returns the LATEST sample, `None` where the sensor (or a
-platform API for it) doesn't exist. `SensorReading { x, y, z: f64 }` is in SI units per kind —
-m/s² (`Accelerometer`, includes gravity), rad/s (`Gyroscope`), µT (`Magnetometer`) — the per-OS
+`read(kind) -> Option<SensorReading>` returns the latest sample, or `None` where the sensor (or a
+platform API for it) doesn't exist. `SensorReading { x, y, z: f64 }` is in SI units per kind:
+m/s² (`Accelerometer`, includes gravity), rad/s (`Gyroscope`), µT (`Magnetometer`). The per-OS
 impls normalize (e.g. iOS g → m/s²). Axis signs stay the platform's own convention (face-up is
 `z ≈ +9.8` on Android, `z ≈ -9.8` on iOS). `is_available(kind) -> bool` checks for the hardware.
 
-The API is a **poll**. Sensors are push-model on Android and HarmonyOS, so the first `read` lazily
-registers a listener/subscription (kept for the process lifetime) that caches the newest event —
-meaning the very first `read` may return `None` until the first event lands; poll again shortly.
+The API is a poll. Sensors are push-model on Android and HarmonyOS, so the first `read` lazily
+registers a listener/subscription (kept for the process lifetime) that caches the newest event.
+That means the very first `read` may return `None` until the first event lands; poll again shortly.
 iOS behaves the same (`startUpdates` + poll the data property); Linux sysfs is a true poll.
 
-There are **no features** — platform selection is purely `#[cfg(target_os)]`, because a motion sensor
-is an OS concern, not a widget-toolkit one. `parts/day-part-sensors/examples/sensors.rs` is a plain
-`main` that uses it with no Day framework at all.
+The crate has no cargo features: platform selection is purely `#[cfg(target_os)]`, since a motion
+sensor depends on the OS, not on which widget toolkit is in use.
+`parts/day-part-sensors/examples/sensors.rs` is a plain `main` that uses it with no Day framework
+at all.
 
 ## Per-platform native realization
 
@@ -42,12 +44,12 @@ is an OS concern, not a widget-toolkit one. `parts/day-part-sensors/examples/sen
 | Android | `SensorManager` + a caching `SensorEventListener` via a Java shim | `day-android` + `[package.metadata.day.android]` |
 | HarmonyOS | native `OH_Sensor_Subscribe` push API caching the latest sample (`libohsensor.so`) | raw FFI (SensorServiceKit) |
 | Linux | Industrial I/O sysfs (`/sys/bus/iio/devices`, `in_accel_x_raw` × scale …) | std only |
-| macOS | none — no public motion-sensor API | always `None` |
+| macOS | none (no public motion-sensor API) | always `None` |
 | Windows | stub for now (`Windows.Devices.Sensors` is the future impl) | always `None` |
 
 iOS keeps a single `CMMotionManager` in a static (Apple's recommendation); it is not
 `MainThreadOnly`, so reads work from any thread. Raw accelerometer/gyro/magnetometer access needs
-**no** `NSMotionUsageDescription` (that key gates the Motion & Fitness APIs). The Simulator has no
+no `NSMotionUsageDescription` (that key gates the Motion & Fitness APIs). The Simulator has no
 sensors → unavailable → `None`.
 
 Android sensors need no manifest permission at the shim's `SENSOR_DELAY_UI` rate. The shim
@@ -66,10 +68,10 @@ Linux computes `(raw + offset) × scale` from the first iio device exposing the 
 
 ## What it shows about the extension system
 
-Like `day-part-battery`, this is a headless external crate — no UI Piece, nothing registered into any
-backend's `RENDERERS` slice. It contributes its Android Java through `[package.metadata.day.android]`
-exactly like the UI pieces but registers no renderer, and it adds a wrinkle battery didn't have:
-adapting **push-model** platform APIs (Android listeners, HarmonyOS subscriptions) behind a poll API
-by lazily subscribing on first use and caching the latest sample. On Android the crate rides on the
-Day runtime (day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully
-day-independent.
+Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing
+in any backend's `RENDERERS` slice. It contributes its Android Java through
+`[package.metadata.day.android]` just like the UI pieces but registers no renderer. It also adds a
+wrinkle battery didn't have: adapting push-model platform APIs (Android listeners, HarmonyOS
+subscriptions) behind a poll API by lazily subscribing on first use and caching the latest sample.
+On Android the crate rides on the Day runtime (day-android's cached JVM + `DayBridge.ctx`); on every
+other platform it is fully day-independent.

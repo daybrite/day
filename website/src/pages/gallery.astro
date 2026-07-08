@@ -16,7 +16,7 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
   return Object.entries(groups);
 }
 ---
-<BaseLayout title="Gallery" description="The Day Showcase app, running on real native widgets across every target — screenshots straight from CI." active="gallery">
+<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target, with screenshots taken straight from CI." active="gallery">
   <section class="section gal-hero">
     <div class="container">
       <p class="eyebrow">Screenshot gallery</p>
@@ -27,7 +27,7 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
       </p>
       {generated
         ? <p class="gen">Latest run · {generated}</p>
-        : <p class="gen preview">Preview build — placeholders shown. On the live site these fill in from CI artifacts.</p>}
+        : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
     </div>
   </section>
 

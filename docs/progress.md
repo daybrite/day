@@ -12,9 +12,9 @@ progress(move || downloaded.get() / total.get())
 spinner()
 ```
 
-Both are plain leaf pieces — no `day::task`, no state machine. A determinate bar is
-*reactive by construction*: pass a `Signal<f64>`, a closure, or a constant and it tracks
-the value with the same one-patch-per-change guarantee as `slider`.
+Both are plain leaf pieces; they need no `day::task` and no state machine. A determinate
+bar is reactive by construction: pass a `Signal<f64>`, a closure, or a constant and it
+tracks the value with the same one-patch-per-change guarantee as `slider`.
 
 ```rust
 let volume = Signal::new(40.0);
@@ -29,16 +29,16 @@ column((
 
 `crates/day-pieces`:
 
-- `spinner() -> Progress` — indeterminate.
-- `progress(fraction: impl IntoFraction<M>) -> Progress` — determinate. `IntoFraction`
+- `spinner() -> Progress`: indeterminate.
+- `progress(fraction: impl IntoFraction<M>) -> Progress`: determinate. `IntoFraction`
   mirrors `IntoText`: it is implemented for `f64` (constant), `Signal<f64>`, and any
   `Fn() -> f64`, each under a disjoint marker so the three call forms stay coherent.
-- Out-of-range fractions are **clamped to `0.0..=1.0`** before they ever reach a backend,
+- Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a backend,
   so a backend never has to defend against `1.7` or `-0.2`.
 - A determinate bar takes `grow_w` (it fills the available width like a slider); a spinner
   keeps its fixed intrinsic size.
 
-A constant `progress(0.5)` installs no binding — there is nothing to update after build,
+A constant `progress(0.5)` installs no binding. There is nothing to update after build,
 so it emits zero runtime patches (asserted in the e2e tests).
 
 ## The wire (spec)
@@ -46,18 +46,18 @@ so it emits zero runtime patches (asserted in the e2e tests).
 `day_spec`:
 
 - `kinds::PROGRESS`.
-- `props::ProgressProps { value: Option<f64> }` — `None` means indeterminate; `Some(f)` a
+- `props::ProgressProps { value: Option<f64> }`: `None` means indeterminate; `Some(f)` a
   determinate fraction. This single `Option` carries the determinate/indeterminate
   distinction, so there is no separate "style" flag.
-- `props::ProgressPatch::Value(Option<f64>)` — the one sparse patch. A determinate bar only
+- `props::ProgressPatch::Value(Option<f64>)`: the one sparse patch. A determinate bar only
   ever sends `Some`; a spinner sends nothing after realize.
 
-`Toolkit::realize`/`update`/`measure` dispatch on `kinds::PROGRESS` like any other leaf —
+`Toolkit::realize`/`update`/`measure` dispatch on `kinds::PROGRESS` like any other leaf;
 no new trait method was needed.
 
 ## Native mapping
 
-Each backend resolves the two variants to its idiomatic native widget:
+Each backend resolves the two variants to its usual native widget:
 
 | Backend | Determinate | Indeterminate |
 |---------|-------------|---------------|
@@ -70,9 +70,9 @@ Each backend resolves the two variants to its idiomatic native widget:
 
 Notes:
 
-- **Qt has no native spinner widget.** The idiomatic Qt indeterminate indicator is a busy
+- **Qt has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
   `QProgressBar` (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
-  horizontal busy bar, not a circular spinner — the one intentional cross-platform
+  horizontal busy bar rather than a circular spinner, the one intentional cross-platform
   divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in
   `0..1000`, the same encoding `slider` uses, so there is no float-ABI concern.

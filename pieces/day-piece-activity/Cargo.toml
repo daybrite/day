@@ -9,7 +9,7 @@ build = "build.rs"
 # NSProgressIndicator (Spinning) on AppKit, UIActivityIndicatorView on UIKit, GtkSpinner on GTK, a
 # busy QProgressBar on Qt, android.widget.ProgressBar on Android, ProgressRing on WinUI. Like
 # `day-piece-media`/`day-piece-picker`, it carries BOTH its cross-platform front-end (Rust) and its
-# per-toolkit backend (objc2 / gtk-rs / C++ shim / Android Java) with ZERO edits to any core day
+# per-toolkit backend (objc2 / gtk-rs / C++ shim / Android Java) without touching any core day
 # crate. See docs/extending.md + docs/activity.md.
 
 [features]
@@ -67,7 +67,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md). The day CLI reads this from
 # `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend Java
-# with zero edits to day-android or the scaffold. android.widget.ProgressBar is a framework widget,
+# without touching day-android or the scaffold. android.widget.ProgressBar is a framework widget,
 # so no Gradle dependency or permission is required.
 [package.metadata.day.android]
 # Java source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.

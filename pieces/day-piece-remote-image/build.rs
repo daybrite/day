@@ -1,5 +1,5 @@
 //! Compiles this piece's OWN native shims when their feature is on — an external Day Piece carrying
-//! native C++ with zero edits to Day's toolkit crates (DESIGN.md §15's tier-1+shim). Qt uses `cc` +
+//! native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim). Qt uses `cc` +
 //! pkg-config; WinUI uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-winui-sys.
 //! (This is the day-piece-searchfield build.rs, retargeted at this crate's two shim files.)
 

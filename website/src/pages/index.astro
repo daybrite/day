@@ -36,28 +36,28 @@ selector(section)
 const features = [
   {
     icon: '◉',
-    title: 'Real native widgets',
-    body: 'Every Piece is an actual NSTextField, UILabel, GtkEntry, QSlider, or WinUI control — not a look-alike. Native text, scrolling, and accessibility come for free.',
+    title: 'Native widgets',
+    body: 'Every Piece is an actual NSTextField, UILabel, GtkEntry, QSlider, or WinUI control. Native text, scrolling, and accessibility come for free.',
   },
   {
     icon: '↯',
     title: 'Build once, bind forever',
-    body: 'No virtual tree, no diffing. Day builds the widget tree once and binds Signals straight to native attributes; a change updates only what read it.',
+    body: 'Day builds the widget tree once and binds Signals straight to native attributes. A change updates only the attributes that read it. There is no virtual tree and no diffing.',
   },
   {
     icon: '⬢',
     title: 'One binary per target',
-    body: 'Exactly one toolkit is compiled into each build. No runtime abstraction to pay for — the compiler monomorphizes to AppKit, or GTK, or the Android bridge.',
+    body: 'Exactly one toolkit is compiled into each build. The compiler monomorphizes to AppKit, or GTK, or the Android bridge, so there is no runtime abstraction to pay for.',
   },
   {
     icon: '✦',
     title: 'Four pillars, built in',
-    body: 'Fluent localization, a real accessibility tree, dayscript UI automation, and dayffi polyglot Day Pieces — first-class, not bolted on.',
+    body: 'Fluent localization, a real accessibility tree, dayscript UI automation, and dayffi polyglot Day Pieces all ship as part of the core framework.',
   },
   {
     icon: '⌘',
     title: 'A tool for humans & agents',
-    body: 'A flutter_tools-style CLI: create, build, launch, pack, lint. Stable ids and routes make apps scriptable and testable identically everywhere.',
+    body: 'A flutter_tools-style CLI: create, build, launch, pack, lint. Stable ids and routes make apps scriptable and testable the same way on every platform.',
   },
   {
     icon: '◱',
@@ -72,10 +72,10 @@ const features = [
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
       <div class="hero-copy">
-        <p class="pill hero-pill"><Logo size={15} /> industry-strength · Rust · native</p>
+        <p class="pill hero-pill"><Logo size={15} /> cross-platform · Rust · native</p>
         <h1 class="hero-title">
           One Rust codebase.<br />
-          <span class="grad-text">Real native widgets</span><br />
+          <span class="grad-text">Native widgets</span><br />
           on every platform.
         </h1>
         <p class="lead hero-lead">{site.description}</p>
@@ -116,7 +116,7 @@ const features = [
     <div class="container">
       <p class="eyebrow">Why Day</p>
       <h2 class="sec-title">Native fidelity <span class="grad-text">and</span> a single codebase.</h2>
-      <p class="lead">Day removes the usual trade-off: you write one Rust program and ship genuinely native apps.</p>
+      <p class="lead">Day removes the usual trade-off: you write one Rust program and ship native apps.</p>
       <div class="feat-grid">
         {features.map((f) => (
           <div class="card feat">
@@ -137,13 +137,13 @@ const features = [
         <h2 class="sec-title">Signals bind straight to native attributes.</h2>
         <p class="lead">
           A <code>Signal&lt;T&gt;</code> is a cheap, <code>Copy</code> reactive cell. Any closure that
-          reads it becomes reactive — when it changes, Day updates precisely those native attributes
-          and nothing else. No component re-render, no reconciliation on the hot path.
+          reads it becomes reactive. When the signal changes, Day updates the native attributes that
+          read it and nothing else. There is no component re-render and no reconciliation on the hot path.
         </p>
         <ul class="how-list">
-          <li><b>Declarative to write</b> — plain functions and builder methods, no required macros.</li>
-          <li><b>Native to run</b> — the profile of hand-written platform code.</li>
-          <li><b>Composable navigation</b> — <code>selector</code> and <code>stack</code> are just projections of app-owned signals.</li>
+          <li><b>Declarative to write:</b> plain functions and builder methods, with no required macros.</li>
+          <li><b>Native to run:</b> it performs like hand-written platform code.</li>
+          <li><b>Composable navigation:</b> <code>selector</code> and <code>stack</code> are projections of app-owned signals.</li>
         </ul>
         <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
       </div>
@@ -157,7 +157,7 @@ const features = [
   <section class="section cta">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Build one app. Ship it everywhere, natively.</h2>
+      <h2>Build one app. Run it natively on every platform.</h2>
       <div class="hero-cta">
         <a class="btn btn-primary" href={url('docs/overview')}>Get started</a>
         <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>

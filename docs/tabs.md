@@ -1,6 +1,6 @@
 # Tabs (`selector` with `SelectorStyle::Tabs`)
 
-> **Note (migration):** tabs are now `selector(sel).style(SelectorStyle::Tabs)` — a one-of-N
+> **Note (migration):** tabs are now `selector(sel).style(SelectorStyle::Tabs)`, a one-of-N
 > selector bound to a `Signal<String>` of the active tab key (docs/navigation.md). The prose
 > below describes the tab semantics and native mapping, which are unchanged; the standalone
 > `tabs()` builder was folded into `selector`.
@@ -10,8 +10,8 @@
 
 A `tabs()` host is a native tabbed container: several keyed destinations, one visible at a
 time, switched by a native tab widget. It reuses the same route registry as `nav()`
-(docs/navigation.md), so a tab key *is* a route — you select tabs, deep-link to them, and
-drive/assert them from dayscript exactly the way you navigate.
+(docs/navigation.md), so a tab key is a route: you select tabs, deep-link to them, and
+drive/assert them from dayscript the same way you navigate.
 
 ```rust
 tabs()
@@ -27,15 +27,15 @@ dayscript `navigate {route: settings}` / `assert_route {route: settings}` drive 
 ## Semantics
 
 - **Keyed destinations.** Each `.tab(key, title, build)` is addressed by `key`. `title` is the
-  tab label; `build` runs **once** at mount.
+  tab label; `build` runs once at mount.
 - **All pages resident.** Every tab's content is built eagerly and kept alive, so each tab
-  preserves its own state across switches — the behaviour of every native tab container.
+  preserves its own state across switches, which is how every native tab container behaves.
 - **`.selected(key)`** picks the initial tab (default: the first). Startup deep links still win.
 - **Nesting & fall-through.** Hosts register on a stack (docs/navigation.md). `tabs()` inside a
-  `nav()` route registers *on top*: `navigate("<tab-key>")` selects the tab, while
-  `navigate("<some-nav-route>")` — a key the tabs host doesn't know — falls through to the
+  `nav()` route registers on top: `navigate("<tab-key>")` selects the tab, while
+  `navigate("<some-nav-route>")` (a key the tabs host doesn't know) falls through to the
   enclosing `nav()`, which replaces the page (disposing the tabs host, whose scope cleanup
-  unregisters its controller). `current_route()` reports the innermost host — the active tab.
+  unregisters its controller). `current_route()` reports the innermost host: the active tab.
 
 ## The wire (spec)
 
@@ -44,8 +44,8 @@ dayscript `navigate {route: settings}` / `assert_route {route: settings}` drive 
 - `kinds::TABS` (host) and `kinds::TABS_PAGE` (one tab's content container; its frame is
   native-owned, like a nav page).
 - `props::TabsProps { titles: Vec<String>, selected: usize }`; `TabsPatch::Selected(usize)`
-  (programmatic sync, applied without echoing a `SelectionChanged` back — the from-native rule).
-- `props::TabsPageProps { title }` — the page's tab label, read by the host on insert.
+  (programmatic sync, applied without echoing a `SelectionChanged` back, per the from-native rule).
+- `props::TabsPageProps { title }`: the page's tab label, read by the host on insert.
 
 The framework side (`day-pieces`) registers a `NavController` whose `push` selects a tab by key,
 `current` reports the active tab key, and `pop` is a no-op (tabs have no back-stack). Native tab
@@ -55,8 +55,8 @@ the tab widget reports via `Event::FrameChanged`.
 ## Native mapping
 
 The widget owns page content on every backend (the user-visible choice is a native tab widget
-per platform; GTK, having adopted libadwaita, uses the Adwaita segmented switcher — a `.linked`
-toggle group — over an `AdwViewStack`, since Adwaita has no icon-free tab widget):
+per platform; GTK, having adopted libadwaita, uses the Adwaita segmented switcher (a `.linked`
+toggle group) over an `AdwViewStack`, since Adwaita has no icon-free tab widget):
 
 | Backend | Widget | Notes |
 |---------|--------|-------|
@@ -68,7 +68,7 @@ toggle group — over an `AdwViewStack`, since Adwaita has no icon-free tab widg
 | WinUI 3 | `Pivot` (shim) | `SelectionChanged` reports selection |
 
 Each page reports its allocated content size (`FrameChanged`) so Day lays out the tab's content
-at native size — the same mechanism nav pages use. Pages with native-owned frames are skipped by
+at native size, the same mechanism nav pages use. Pages with native-owned frames are skipped by
 `set_frame`.
 
 ## Deep links & dayscript

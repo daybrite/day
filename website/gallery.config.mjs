@@ -44,7 +44,7 @@ export const suites = [
     id: 'showcase',
     label: 'Day Showcase',
     blurb:
-      'One Rust program — every implemented Piece — realized with real native widgets on each target.',
+      'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
     preferLocales: ['default', 'en', 'fr'],

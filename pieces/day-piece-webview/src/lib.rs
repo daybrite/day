@@ -1,6 +1,6 @@
 //! day-piece-webview — an EXTERNAL Day Piece (DESIGN.md §15) wrapping each toolkit's NATIVE web view:
 //! WKWebView on AppKit/UIKit, QWebEngineView on Qt, `android.webkit.WebView` on Android. One Rust API
-//! registered link-time into each backend's renderer slice with **zero edits** to day. Alongside the
+//! registered link-time into each backend's renderer slice without touching day. Alongside the
 //! picker it's a reference for pieces that carry both a front-end AND their own native backend — here
 //! including an Android manifest permission contribution (INTERNET), see docs/extending.md.
 //!

@@ -1,20 +1,20 @@
 ---
 title: "Tutorial: A part with native platform code"
-description: Build a headless capability crate — a battery monitor — with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected purely by cfg. Includes how to contribute a Java shim and iOS framework to the app build.
+description: Build a headless capability crate (a battery monitor) with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected by cfg. Includes how to contribute a Java shim and iOS framework to the app build.
 order: 31
 ---
 
 Day apps are more than pixels. Sooner or later you want to read the battery, check network
-connectivity, fire a haptic tap, or reach some other **device capability** — and every platform
+connectivity, fire a haptic tap, or reach some other device capability, and every platform
 exposes it through a different native API, often in a different language. A **part** is Day's answer:
-a small headless crate that presents one flat cross-platform Rust API and quietly picks the right
+a small headless crate that presents one flat cross-platform Rust API and picks the right
 native implementation per target.
 
-This tutorial builds `day-part-battery` from the ground up — a real crate in the Day workspace at
-`parts/day-part-battery/`. By the end you will have a `day_part_battery::status()` function that
+This tutorial builds `day-part-battery` from the ground up. It is a real crate in the Day workspace
+at `parts/day-part-battery/`. By the end you will have a `day_part_battery::status()` function that
 reads the battery through IOKit on macOS, `UIDevice` on iOS, a Java `BatteryManager` shim on Android,
-sysfs on Linux, `GetSystemPowerStatus` on Windows, and a native `.so` on HarmonyOS — each in whatever
-language fits that platform best, all behind one signature.
+sysfs on Linux, `GetSystemPowerStatus` on Windows, and a native `.so` on HarmonyOS. Each uses
+whatever language fits that platform, and all of them sit behind one signature.
 
 ## 1. What a part is (and when to build one)
 
@@ -22,29 +22,28 @@ A **part** is a *headless capability crate*. It has:
 
 - **No UI.** It renders nothing, registers no renderer, and never touches a toolkit.
 - **A flat cross-platform API.** One or two free functions like `status() -> Option<BatteryStatus>`.
-- **Per-OS native implementations**, selected at compile time by `#[cfg(target_os = "…")]` — not by a
-  Cargo feature, because a battery is an *OS* concern, not a widget-toolkit one.
+- **Per-OS native implementations**, selected at compile time by `#[cfg(target_os = "…")]` rather
+  than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 
 Contrast that with a **piece**, which is a reusable UI widget (a `combo_box`, a `web_view`) that
 *does* register a per-toolkit renderer. Pieces live in `pieces/`; parts live in `parts/`, the non-UI
 corollary. The rule of thumb:
 
-- Building a **visible control** backed by a native widget? Write a **piece** — see
+- Building a **visible control** backed by a native widget? Write a **piece**; see
   [the piece tutorial](/docs/internal/extending) and `pieces/day-piece-picker`.
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
-The elegant bit: a part reuses the *exact same build-contribution channel* pieces use — the
-`[package.metadata.day.*]` keys that fold native assets into the app build — but registers nothing
-into any `RENDERERS` slice. The mechanism that stages a piece's Android Java or iOS framework works
-identically for a headless crate. You get native-code contribution for free, with zero edits to any
-core Day crate.
+A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
+that fold native assets into the app build) but registers nothing into any `RENDERERS` slice. The
+mechanism that stages a piece's Android Java or iOS framework works the same way for a headless
+crate. You get native-code contribution without touching any core Day crate.
 
 ## 2. Scaffold: the flat API and the cfg/path dispatch
 
-**Start with the scaffolder.** `day new part` generates the whole layout below — `Cargo.toml`, a
+Start with the scaffolder. `day new part` generates the whole layout below: `Cargo.toml`, a
 `src/lib.rs` with the `#[cfg]`/`#[path]` dispatch already wired (including the mandatory
-`None`-returning fallback), a stub `src/<os>.rs` per platform, an `examples/` runner, and — when you
-target Android — the `android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
+`None`-returning fallback), a stub `src/<os>.rs` per platform, an `examples/` runner, and, when you
+target Android, the `android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
 block:
 
 ```bash
@@ -52,7 +51,7 @@ day new part day-part-battery --platforms macos,ios,android,linux,windows
 ```
 
 Omit `--platforms` to get that same default set. As with pieces, the crate builds immediately against
-a **remote** Day release; add `--local <path>` to point at a local Day checkout instead. The sections
+a remote Day release; add `--local <path>` to point at a local Day checkout instead. The sections
 below explain each generated file.
 
 A part is an ordinary library crate. Here is the whole shape:
@@ -75,7 +74,7 @@ parts/day-part-battery/
 ### The public surface
 
 `lib.rs` defines a plain data struct and a single entry point. Nothing platform-specific leaks into
-the API — callers see the same types everywhere.
+the API. Callers see the same types everywhere.
 
 ```rust
 /// A snapshot of the device battery.
@@ -114,8 +113,8 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-The public `status()` is a one-liner that forwards to `imp::status()`. `imp` is a *different module on
-every platform* — that indirection is the whole trick.
+The public `status()` is a one-liner that forwards to `imp::status()`. `imp` is a different module
+on every platform; that indirection is the whole trick.
 
 ### The cfg/path dispatch (and the mandatory fallback)
 
@@ -167,17 +166,17 @@ mod imp {
 Two details make this robust:
 
 - **HarmonyOS is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
-  `target_env = "ohos"` — one arm for desktop Linux, one for OpenHarmony. This `target_os` +
+  `target_env = "ohos"`: one arm for desktop Linux, one for OpenHarmony. This `target_os` +
   `target_env` pattern is the standard way to split a shared OS.
 - **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, `status()` would
   fail to compile on any target you did not enumerate (a WASM build, a BSD, a bare `cargo check` on an
-  exotic host). The fallback module returns `None` so the crate compiles *everywhere* and simply
+  exotic host). The fallback module returns `None` so the crate compiles everywhere and simply
   reports "no battery API here." A part that can panic or fail to build on an unexpected target is a
   broken part; the fallback is what makes the API's `Option` promise true.
 
 Every arm is mutually exclusive, so exactly one `imp` is compiled into any given binary. There is no
-runtime dispatch and no dead code — the AppKit build contains only the IOKit path, the Android build
-only the JNI path.
+runtime dispatch and no dead code: the AppKit build contains only the IOKit path, and the Android
+build only the JNI path.
 
 ### Cargo.toml: target-gated dependencies
 
@@ -190,7 +189,7 @@ name = "day-part-battery"
 version.workspace = true
 edition.workspace = true
 
-# No shared [dependencies] — the flat API is pure std.
+# No shared [dependencies]; the flat API is pure std.
 [dependencies]
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -207,15 +206,15 @@ objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
 day-android = { workspace = true }
 ```
 
-Note there is **no `[features]` table**. A part has no backends to toggle — the target *is* the
+Note there is no `[features]` table. A part has no backends to toggle; the target is the
 selector. (Linux and Windows need no crates at all: they use pure std or raw FFI.)
 
-## 3. A native implementation per platform — each in its best language
+## 3. A native implementation per platform
 
 This is where a part earns its keep. Every `imp::status()` has the same signature, but behind it each
-platform speaks its own language and its own API. Here are four, concretely.
+platform speaks its own language and its own API. Here are four of them in detail.
 
-### macOS — Rust calling C (IOKit, via `#[link]`)
+### macOS: Rust calling C (IOKit, via `#[link]`)
 
 macOS has no crate wrapping the power API, so `macos.rs` declares the three IOKit functions it needs
 with a plain `extern "C"` block and force-links the framework with `#[link(name = "IOKit", kind =
@@ -240,15 +239,15 @@ pub fn status() -> Option<BatteryStatus> {
         if blob.is_null() { return None; }
         // walk IOPSCopyPowerSourcesList(blob), read "Current Capacity" / "Max Capacity" /
         // "Is Charging" / "Power Source State" out of each source's CFDictionary …
-        // then CFRelease(blob) — Copy-rule ownership means we release what we copied.
+        // then CFRelease(blob); Copy-rule ownership means we release what we copied.
         unimplemented!()
     }
 }
 ```
 
-`day-part-network` shows the same plain-C style even more minimally — its shared `src/apple.rs`
+`day-part-network` shows the same plain-C style even more minimally: its shared `src/apple.rs`
 declares SystemConfiguration's reachability API with two `extern "C"` functions and a locally-declared
-`sockaddr_in`, needing **no crates at all**:
+`sockaddr_in`, with no crates at all:
 
 ```rust
 #[link(name = "SystemConfiguration", kind = "framework")]
@@ -261,10 +260,11 @@ unsafe extern "C" {
 }
 ```
 
-### iOS — Rust calling Objective-C (UIDevice, via objc2)
+### iOS: Rust calling Objective-C (UIDevice, via objc2)
 
-iOS *does* have idiomatic bindings, so `ios.rs` uses the `objc2-ui-kit` crate directly — no hand-rolled
-FFI. `UIDevice` is main-thread-only, which the `MainThreadMarker` encodes at the type level:
+iOS has ready-made bindings, so `ios.rs` uses the `objc2-ui-kit` crate directly; there is no
+hand-rolled FFI. `UIDevice` is main-thread-only, which the `MainThreadMarker` encodes at the type
+level:
 
 ```rust
 use super::{BatteryState, BatteryStatus};
@@ -287,15 +287,15 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-The macOS and iOS impls could not look more different — one is raw C FFI, the other a typed
-Objective-C binding — yet both satisfy `fn status() -> Option<BatteryStatus>`. That is the point: the
-*caller* never knows or cares.
+The macOS and iOS impls look nothing alike (one is raw C FFI, the other a typed Objective-C
+binding), yet both satisfy `fn status() -> Option<BatteryStatus>`. That is the point: the
+caller never knows or cares.
 
-### Android — Rust calling Java (a `BatteryManager` shim over JNI)
+### Android: Rust calling Java (a `BatteryManager` shim over JNI)
 
 Android is special: reading `BatteryManager` cleanly wants a `Context` and a sticky broadcast, which is
-far easier in Java than through raw JNI. So the part carries **its own tiny Java class** and calls it
-over the bridge. This is the one platform where a part rides on the Day runtime — it borrows the JVM
+far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
+over the bridge. This is the one platform where a part rides on the Day runtime; it borrows the JVM
 and `Context` that `day-android` already caches.
 
 The Java shim reads the sticky `ACTION_BATTERY_CHANGED` intent and packs the reading into a `long` so
@@ -309,7 +309,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.BatteryManager;
 
-import dev.daybrite.day.bridge.DayBridge;   // day-android's PUBLIC surface
+import dev.daybrite.day.bridge.DayBridge;   // day-android's public surface
 
 public final class DayBattery {
     private DayBattery() {}
@@ -341,7 +341,7 @@ public final class DayBattery {
 }
 ```
 
-The Java uses `day-android`'s **public** surface only — `DayBridge.ctx`. The Rust side calls the static
+The Java uses only `day-android`'s public surface (`DayBridge.ctx`). The Rust side calls the static
 method through `day-android`'s re-exported `jni`, using `with_env` to grab the attached `JNIEnv`, then
 unpacks the `long`:
 
@@ -371,10 +371,10 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-### Linux — pure Rust std (sysfs)
+### Linux: pure Rust std (sysfs)
 
-No FFI, no crate. The kernel publishes power supplies under `/sys/class/power_supply/<name>/`, so
-`linux.rs` reads a few files with `std::fs`:
+There is no FFI and no crate here. The kernel publishes power supplies under
+`/sys/class/power_supply/<name>/`, so `linux.rs` reads a few files with `std::fs`:
 
 ```rust
 use super::{BatteryState, BatteryStatus};
@@ -402,13 +402,13 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-### Windows & HarmonyOS — more C FFI
+### Windows & HarmonyOS: more C FFI
 
 For completeness, the two remaining targets are both raw C-ABI FFI, in the same style as macOS:
 
 - **Windows** (`windows.rs`) links `kernel32` and calls `GetSystemPowerStatus`, filling a `#[repr(C)]
-  SYSTEM_POWER_STATUS` struct. No crate, written blind against the Win32 docs, compiled only on the
-  Windows target.
+  SYSTEM_POWER_STATUS` struct. It uses no crate, was written blind against the Win32 docs, and is
+  compiled only on the Windows target.
 
   ```rust
   #[link(name = "kernel32")]
@@ -418,7 +418,7 @@ For completeness, the two remaining targets are both raw C-ABI FFI, in the same 
   ```
 
 - **HarmonyOS** (`ohos.rs`, gated on `target_env = "ohos"`) links the native BasicServicesKit library
-  and calls its two C functions — no ArkTS bridge, no Day runtime, just FFI:
+  and calls its two C functions directly; there is no ArkTS bridge and no Day runtime involved:
 
   ```rust
   #[link(name = "ohbattery_info")]
@@ -428,16 +428,16 @@ For completeness, the two remaining targets are both raw C-ABI FFI, in the same 
   }
   ```
 
-Six platforms, three different interop styles (raw C FFI, typed objc2, JNI-to-Java), one pure-std path
-— all funnelling into the same `Option<BatteryStatus>`.
+Six platforms, three different interop styles (raw C FFI, typed objc2, JNI-to-Java), and one
+pure-std path, all funnelling into the same `Option<BatteryStatus>`.
 
 ## 4. Contribute native artifacts to the app build
 
-The Rust FFI paths (macOS, Windows, HarmonyOS, iOS-objc2, Linux) need nothing extra — `cargo` links
-them. But two platforms need assets folded into the *app's* native build: Android needs the `.java`
+The Rust FFI paths (macOS, Windows, HarmonyOS, iOS-objc2, Linux) need nothing extra; `cargo` links
+them. But two platforms need assets folded into the app's native build: Android needs the `.java`
 file compiled and (for some parts) a manifest permission; iOS needs certain system frameworks linked.
-A part declares both in its own `Cargo.toml`, and `day build` merges them into the app — **with zero
-edits to any core Day crate, the CLI, or the app scaffold.**
+A part declares both in its own `Cargo.toml`, and `day build` merges them into the app with no
+edits to any core Day crate, the CLI, or the app scaffold.
 
 ### Android: staging the Java shim and a permission
 
@@ -454,9 +454,9 @@ only `java = ["android/java"]`. `day-part-network`, whose `ConnectivityManager` 
 When you run `day build -p android-widget`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks into
 `build/day/android/day-pieces.json`, plus a generated overlay manifest for the permissions. The app's
-**checked-in** Gradle scaffold reads that file *generically* — a loop over the JSON, no per-part
-entries — and adds each Java source dir and each `<uses-permission>`. Add a part to your `Cargo.toml`
-and its Java simply appears in the build; there is nothing else to wire.
+checked-in Gradle scaffold reads that file generically (a loop over the JSON, with no per-part
+entries) and adds each Java source dir and each `<uses-permission>`. Add a part to your `Cargo.toml`
+and its Java appears in the build; there is nothing else to wire.
 
 ### iOS: linking a system framework
 
@@ -467,15 +467,15 @@ frameworks = ["SystemConfiguration"]
 
 This is what `day-part-network` declares (its `apple.rs` drives SystemConfiguration). Why is it needed
 when the Rust source already has `#[link(name = "SystemConfiguration", kind = "framework")]`? Because
-that Rust link directive is only honored when **cargo** drives the final link — i.e. on the macOS
-desktop build. On iOS, `xcodebuild` links the Rust *staticlib* and does not read Rust link metadata, so
+that Rust link directive is only honored when cargo drives the final link, i.e. on the macOS
+desktop build. On iOS, `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so
 the app itself must link the framework. `day build -p ios-uikit` generates a local SwiftPM package
 (`build/day/ios/DayPieces`) whose `linkerSettings` list every part's declared frameworks; the app's
 one checked-in `.xcodeproj` depends on that package. So an iOS framework dependency is, again, pure
-`Cargo.toml` data — **no `.xcodeproj` edits, ever**.
+`Cargo.toml` data. You never edit the `.xcodeproj`.
 
 `day-part-battery` itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
-is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is *not*
+is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
 This is the same contribution channel `pieces/day-piece-picker` (Android Java + Gradle deps) and
@@ -484,7 +484,7 @@ renderer.
 
 ## 5. Use it
 
-Any Rust code — inside a Day app or a plain binary — depends on the crate and calls the function:
+Any Rust code (inside a Day app or a plain binary) depends on the crate and calls the function:
 
 ```rust
 fn main() {
@@ -500,14 +500,14 @@ fn main() {
 }
 ```
 
-That is `parts/day-part-battery/examples/battery.rs` verbatim — a `main` that uses no Day framework at
+That is `parts/day-part-battery/examples/battery.rs` verbatim: a `main` that uses no Day framework at
 all, provable with `cargo run -p day-part-battery --example battery`. Inside a Day app you would bind
 the reading into a `Signal` and drive a `label` or a `canvas` gauge with it, but the part itself knows
 nothing about UI.
 
-The safety contract is the whole reason a part is pleasant to consume: on a target with no battery API
-— or a device with no battery, or the iOS simulator — `status()` returns `None`. **It never panics and
-it always compiles**, because of the mandatory fallback module from step 2. A test in the crate
+The safety contract is what makes a part pleasant to consume: on a target with no battery API
+(or a device with no battery, or the iOS simulator), `status()` returns `None`. It never panics and
+it always compiles, because of the mandatory fallback module from step 2. A test in the crate
 enforces exactly this:
 
 ```rust
@@ -523,23 +523,23 @@ fn status_does_not_panic() {
 ## 6. A practical note: let an LLM draft the language-specific shims
 
 Covering six platforms sounds daunting because it means writing Objective-C, Java, and Win32 C
-interop, not just Rust. In practice the hardest part is knowing *which* API to call — and once you do,
-the shim is small, mechanical, and squarely in the wheelhouse of a large language model.
+interop on top of Rust. In practice the hardest part is knowing which API to call. Once you do,
+the shim is small and mechanical, exactly the kind of thing an LLM drafts well.
 
-This is a genuinely recommended workflow, not a shortcut:
+The recommended workflow:
 
 1. **Write the Rust `imp` signature first.** `fn status() -> Option<BatteryStatus>` is the contract
    every platform must satisfy. Decide the wire format up front (the packed-`long` trick the Android
    shim uses is a good pattern: it keeps the JNI/FFI boundary to a single primitive).
-2. **Ask an LLM to draft the native side** from a one-line description of the platform API — "a Java
+2. **Ask an LLM to draft the native side** from a one-line description of the platform API: "a Java
    method that reads `BatteryManager` from a `Context` and returns `(state << 8) | level` as a
    `long`", or "a C call to `GetSystemPowerStatus` filling `SYSTEM_POWER_STATUS`", or "the
-   Objective-C to read `UIDevice.batteryLevel`". These snippets are well-represented in training data
-   and models produce them reliably. The Windows and HarmonyOS impls in this very crate were written
-   *blind* — no Windows or Harmony host — precisely because the API call is small and well-specified.
+   Objective-C to read `UIDevice.batteryLevel`". These snippets are well represented in training data
+   and models produce them reliably. The Windows and HarmonyOS impls in this crate were written
+   blind (no Windows or Harmony host) precisely because the API call is small and well specified.
 3. **Wire the FFI yourself.** Declare the `extern` block or the JNI `call_static_method`, unpack the
    value, and map it to your enum. This is the part where types and ownership rules matter, and where
-   you want to read carefully — but it is short.
+   you want to read carefully, but it is short.
 
 Split this way, "support one more platform" becomes: draft a ~30-line shim, add one `#[cfg]/#[path]`
 arm, and (if it is Android or iOS) one line of `Cargo.toml` metadata. The per-platform sprawl that

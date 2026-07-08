@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 # A standalone Day Piece rendering a Lottie animation — iOS + Android only. Like the other pieces it
-# carries BOTH its cross-platform front-end (Rust) and its per-toolkit backend, with ZERO edits to
+# carries BOTH its cross-platform front-end (Rust) and its per-toolkit backend, without touching
 # any core day crate. It is the reference for a piece that pulls an EXTERNAL native package:
 #   iOS      — the lottie-ios SwiftPM package (via the new [package.metadata.day.ios] mechanism)
 #   Android  — com.airbnb.android:lottie (via the existing [package.metadata.day.android] mechanism)

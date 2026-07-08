@@ -31,7 +31,7 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 # The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages
-# this Java into the app's Gradle build, with zero edits to any core day crate. No permission is
+# this Java into the app's Gradle build, without touching any core day crate. No permission is
 # needed: SharedPreferences is app-private storage.
 [package.metadata.day.android]
 java = ["android/java"]

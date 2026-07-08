@@ -1,36 +1,37 @@
 ---
 title: Why Day
-description: The benefits — native fidelity, one codebase, fine-grained reactivity, and four pillars built in.
+description: "The benefits: native fidelity, one codebase, fine-grained reactivity, and four pillars built in."
 order: 2
 ---
 
-Day exists to remove a false choice: *native fidelity* **or** *a single codebase*. You get both.
+Cross-platform tools usually make you choose between native fidelity and a single codebase. Day
+gives you both.
 
-## Genuinely native, not native-ish
+## Native widgets
 
-Your Pieces become real platform widgets, so you inherit — for free, and forever — everything the
-platform does better than any cross-platform renderer can imitate:
+Your Pieces become platform widgets, so you inherit everything the platform does better than a
+cross-platform renderer can imitate:
 
 - system text rendering, input methods, and spellcheck;
 - native scrolling physics, selection, and drag;
-- the real accessibility tree (VoiceOver, TalkBack, Narrator, Orca) — not an approximation;
+- the platform's own accessibility tree (VoiceOver, TalkBack, Narrator, Orca);
 - platform theming, dark mode, dynamic type, and right-to-left;
 - OS updates that improve your app without you shipping anything.
 
 A Day app on macOS uses AppKit; on Android it uses `android.widget`; on Linux it adopts
-libadwaita. It looks like it belongs, because it does.
+libadwaita.
 
 ## One codebase, one language
 
-UI, state, layout, localization, and tests are all Rust. No FFI seams between your view layer and
-your logic, no template DSL to context-switch into, no per-platform UI forks to keep in sync. The
+UI, state, layout, localization, and tests are all Rust. You don't maintain an FFI seam between
+your view layer and your logic, a separate template DSL, or per-platform UI forks. The
 [showcase app](/gallery) is a single Rust program that runs on all ten targets.
 
 ## Fine-grained reactivity with a native runtime profile
 
-Because Day **builds once and binds forever**, a state change doesn't re-run your view functions or
-diff a virtual tree — it updates precisely the native attributes that depend on the changed
-`Signal`. You write declaratively; it runs like hand-tuned native code.
+Day builds the widget tree once and binds signals to it. A state change doesn't re-run your view
+functions or diff a virtual tree; it updates the native attributes that depend on the changed
+`Signal`, and nothing else. You write declaratively; it runs like hand-written native code.
 
 ```rust
 let volume = Signal::new(40.0);
@@ -43,24 +44,26 @@ row((
 
 ## Four pillars, built in
 
-Day treats these as first-class framework concerns, not add-ons:
+Four things Day builds into the framework itself:
 
 - **Fluent localization.** Text is localized through Mozilla's Fluent (`tr("key")`), with
   arguments and per-locale plurals. Switching locale re-binds affected labels live.
-- **Accessibility.** Every Piece carries an accessibility role/label surfaced to the real platform
-  AT. Validation compares native trees against a reference so regressions are caught in CI.
-- **dayscript.** A YAML automation/testing language drives and asserts a running app over a socket
-  — tap a button by id, assert a route, capture a screenshot — the same script on every platform.
+- **Accessibility.** Every Piece carries an accessibility role/label surfaced to the platform's
+  assistive technology. Validation compares native trees against a reference so regressions are
+  caught in CI.
+- **dayscript.** A YAML automation/testing language drives and asserts a running app over a
+  socket: tap a button by id, assert a route, capture a screenshot. The same script runs on every
+  platform.
 - **dayffi.** Day Pieces can be authored and shipped as packages, including across a small, stable
   C ABI, so a native component (a combo box, a chart, a web view) plugs in like a built-in.
 
-## Small, direct, and toolable
+## Small and toolable
 
-- **One backend per binary** — no runtime toolkit indirection; the compiler monomorphizes to the
-  chosen toolkit.
-- **A `flutter_tools`-style CLI** — `day new / build / launch / pack / lint`, designed from Day
-  one for humans, CI, IDEs, and AI agents.
-- **Screenshot-validated CI** — every target builds the showcase and captures screenshots on each
-  push; the [gallery](/gallery) on this site is assembled from exactly those artifacts.
+- **One backend per binary.** The compiler monomorphizes to the chosen toolkit, so there's no
+  runtime toolkit indirection.
+- **A `flutter_tools`-style CLI.** `day new / build / launch / pack / lint`, built for humans,
+  CI, IDEs, and AI agents.
+- **Screenshot-validated CI.** Every target builds the showcase and captures screenshots on each
+  push. The [gallery](/gallery) on this site is assembled from those artifacts.
 
-Ready to see the API? Continue to the [API tour](/docs/api-tour).
+Next up: the [API tour](/docs/api-tour).

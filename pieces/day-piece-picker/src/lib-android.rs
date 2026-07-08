@@ -2,7 +2,7 @@
 // Android: Spinner (menu) / button-row LinearLayout (segmented) / RadioGroup (inline). The Java
 // factory (`dev.daybrite.day.piece.picker.DayPicker`) is bundled with THIS crate under `android/java` and
 // pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the
-// piece carries its own backend Java with ZERO edits to day-android. Rust calls its own class
+// piece carries its own backend Java without touching day-android. Rust calls its own class
 // through the re-exported `jni` (day-android's `make_view` is hardcoded to DayBridge; a standalone
 // piece uses raw `call_static_method` on ITS class).
 // ---------------------------------------------------------------------------

@@ -48,7 +48,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from
 # `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java (and, for richer pieces, Gradle dependencies) with zero edits to day-android.
+# Java (and, for richer pieces, Gradle dependencies) without touching day-android.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
 java = ["android/java"]

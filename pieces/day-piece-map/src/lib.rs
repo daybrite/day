@@ -2,7 +2,7 @@
 //! **APPLE PLATFORMS ONLY**. It is the reference for a piece that deliberately does NOT support every
 //! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/WinUI the `map` kind falls
 //! back to day's placeholder leaf (those features exist but register no renderer). One Rust API,
-//! registered link-time into each Apple backend's renderer slice with **zero edits** to day.
+//! registered link-time into each Apple backend's renderer slice without touching day.
 //!
 //! `map()` shows a slippy map centered on a coordinate. Configure the region at build with
 //! `.center(lat, lon)` + `.span(degrees)` (a smaller span zooms in) and drop a pin with

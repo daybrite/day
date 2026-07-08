@@ -1,5 +1,5 @@
 //! Compiles this piece's OWN native shims per feature — a standalone Day Piece carrying native C++
-//! with zero edits to Day's toolkit crates (like day-piece-picker). Qt uses `cc` + pkg-config, and
+//! without touching Day's toolkit crates (like day-piece-picker). Qt uses `cc` + pkg-config, and
 //! (unlike the picker) links Qt6WebEngineWidgets, which day-qt-sys does NOT link. WinUI uses `cc`
 //! (MSVC) + the Windows SDK cppwinrt projection, mirroring day-winui-sys.
 

@@ -1,6 +1,6 @@
 //! day-piece-combobox — an EXTERNAL Day Piece (DESIGN.md §15 tier 1, Appendix B.1): one Rust
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with
-//! **zero edits** to Day or its toolkit crates. The Qt renderer even carries its own C++ shim.
+//! no edits to Day or its toolkit crates. The Qt renderer even carries its own C++ shim.
 
 use day_core::{AnyPiece, piece_fn, with_tree};
 use day_pieces::SignalRw;

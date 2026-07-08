@@ -11,7 +11,7 @@ build = "build.rs"
 # this piece renders bytes → native image (NSImage / UIImage / GdkTexture / QPixmap / Bitmap /
 # BitmapImage), with a placeholder rectangle while the source is `None` or a decode fails. Like the
 # other standalone pieces it carries BOTH its front-end (Rust) and its per-toolkit backend (objc2 /
-# gtk-rs / C++ shim / Android Java) with ZERO edits to any core day crate. See docs/extending.md.
+# gtk-rs / C++ shim / Android Java) without touching any core day crate. See docs/extending.md.
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
@@ -61,7 +61,7 @@ day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from
 # `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java (dev.daybrite.day.piece.remoteimage.DayRemoteImage), with ZERO edits to day-android. A plain
+# Java (dev.daybrite.day.piece.remoteimage.DayRemoteImage), without touching day-android. A plain
 # ImageView + BitmapFactory needs no Gradle dependency or manifest permission (the app fetches the
 # bytes itself and pushes them in; this piece only decodes+draws them).
 [package.metadata.day.android]

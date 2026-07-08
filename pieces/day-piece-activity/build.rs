@@ -1,5 +1,5 @@
 //! Compiles this piece's OWN native shim per feature — a standalone Day Piece carrying native C++
-//! with zero edits to Day's toolkit crates (like day-piece-media). The Qt shim needs only
+//! without touching Day's toolkit crates (like day-piece-media). The Qt shim needs only
 //! Qt6Widgets (already linked by day-qt-sys), so we pull its --cflags and emit no extra link flags.
 //! The WinUI shim uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-winui-sys.
 

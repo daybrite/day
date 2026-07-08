@@ -1,7 +1,7 @@
 # Files: native open & save pickers
 
-Day opens and saves files through each platform's **native file-interaction UI** — the same
-imperative request→response model as [dialogs](./dialogs.md), so an action opens a picker and
+Day opens and saves files through each platform's native file-interaction UI, using the same
+imperative request→response model as [dialogs](./dialogs.md): an action opens a picker and
 `.await`s the result:
 
 ```rust
@@ -22,19 +22,19 @@ button(tr("save")).action(|| day::task(async move {
 
 ## The path type: `FileUrl`
 
-A file location crosses back as a **`FileUrl`** — a bespoke newtype wrapping a single *locator
-string*. This is a deliberate choice over the obvious alternatives:
+A file location crosses back as a **`FileUrl`**, a newtype wrapping a single *locator string*.
+This is a deliberate choice over the obvious alternatives:
 
 - **Not `std::path::PathBuf`.** On Android the Storage Access Framework returns a `content://`
-  URI, not a filesystem path — a `PathBuf` literally cannot represent it and `std::fs` cannot
+  URI rather than a filesystem path; a `PathBuf` cannot represent it and `std::fs` cannot
   open it.
 - **Not a bare `String`.** No type-safety, and every call site would re-implement the same
   parsing.
 - **Not `url::Url`.** Its parsing normalizes/validates in ways that mangle `content://`
   authorities, and it pulls in a heavy dependency for no benefit.
 
-`FileUrl` is the lossless union — a filesystem path on desktop/iOS, a `content://` URI on Android
-— with ergonomic accessors:
+`FileUrl` is the lossless union (a filesystem path on desktop/iOS, a `content://` URI on Android)
+with accessors:
 
 | method | result |
 |---|---|
@@ -44,8 +44,8 @@ string*. This is a deliberate choice over the obvious alternatives:
 | `read() / read_to_string()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
-backend materializes one first — Android copies the picked document into the app cache, iOS
-imports it into the app sandbox — so `open_file().await?.read_to_string()` "just works" on every
+backend materializes one first: Android copies the picked document into the app cache, and iOS
+imports it into the app sandbox. So `open_file().await?.read_to_string()` works on every
 target.
 
 ## The builders (`day-pieces`, in the prelude)
@@ -70,22 +70,22 @@ target.
 | winui  | not yet implemented (like its alert dialogs) | — |
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
-the `day-arkui` backend calls **up** into its ArkTS host over NAPI (safe: Day's loop runs on the
-JS thread) — the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
+the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
+JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
 callback. See `apps/day-arkui-demo/harmony/entry/src/main/ets/pages/Index.ets`.
 
-All backends present the picker **non-blocking** (sheet / `open()` / delegate / Activity result),
-so the main loop keeps running — and dayscript stays live — while a picker is up.
+All backends present the picker non-blocking (sheet / `open()` / delegate / Activity result),
+so the main loop keeps running and dayscript stays live while a picker is up.
 
 ## Plumbing
 
 Files ride the existing `present` seam (docs/dialogs.md) rather than adding new `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
-- `PresentResult::Files(Vec<String>)` — the chosen locators, crossing the C ABI (Qt shim /
+- `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
   Android JNI) as tag `3` with the paths joined by the unit separator.
 - `Cap::FileDialogs` advertises native support.
-- `day_spec::present::app_temp_dir()` — the app-writable staging dir; Android sets it to
+- `day_spec::present::app_temp_dir()`: the app-writable staging dir; Android sets it to
   `getCacheDir()` (the OS temp dir isn't app-writable there).
 
 ## dayscript
@@ -98,7 +98,7 @@ A file picker is a presentation, so a script answers it with a path (docs/dialog
 - respond: { path: "notes.txt" }        # relative → the app temp dir (writable on every target)
 - tap: { id: btn-open-file }
 - assert_presented: {}
-- respond: { path: "notes.txt" }         # reads the file just written — a real round-trip
+- respond: { path: "notes.txt" }         # reads the file just written: a real round-trip
 ```
 
 This makes open/save flows headless-testable and screenshot-able on every backend without touching

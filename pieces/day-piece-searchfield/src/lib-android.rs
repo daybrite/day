@@ -2,7 +2,7 @@
 // Android: an EditText styled for search (single line, IME_ACTION_SEARCH). The Java factory
 // (`dev.daybrite.day.piece.searchfield.DaySearch`) is bundled with THIS crate under `android/java`
 // and pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the
-// piece carries its own backend Java with ZERO edits to day-android. A TextWatcher dispatches edits
+// piece carries its own backend Java without touching day-android. A TextWatcher dispatches edits
 // back to Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). It is a growing leaf:
 // `measure` fills the proposed width (see the webview grow-leaf note) with a natural single-line
 // height; `setSearchText` guards on equality so a programmatic sync is a no-op when unchanged.

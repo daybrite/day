@@ -27,7 +27,7 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 # The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
-# Java into the app's Gradle build and merges the permission into the app manifest, with zero edits to
+# Java into the app's Gradle build and merges the permission into the app manifest, without touching
 # any core day crate.
 [package.metadata.day.android]
 java = ["android/java"]
