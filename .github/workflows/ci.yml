@@ -85,11 +85,60 @@ jobs:
   # clippy job, so those combos re-run clippy on their native runner.
   # ===========================================================================
 
+  # --- day CLI: one release build per host OS, shared as an artifact --------
+  # Runs in the first wave (no `needs:`), alongside rustfmt/clippy. Each per-platform job below then
+  # DOWNLOADS the `day-<os>` binary built here (via its host's `*-day` job) instead of rebuilding it.
+  # Artifact name keys on `runner.os` (macOS / Linux / Windows) so producer and consumer agree.
+  macos-day:
+    name: macos-day
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the day CLI (release)
+        run: cargo build --locked --release -p day-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release/day
+          if-no-files-found: error
+
+  linux-day:
+    name: linux-day
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the day CLI (release)
+        run: cargo build --locked --release -p day-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release/day
+          if-no-files-found: error
+
+  windows-day:
+    name: windows-day
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the day CLI (release)
+        run: cargo build --locked --release -p day-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release/day.exe
+          if-no-files-found: error
+
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: ${{ matrix.combo }}
     runs-on: macos-15
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, macos-day]
     strategy:
       fail-fast: false
       matrix:
@@ -117,14 +166,20 @@ jobs:
       - name: Clippy (appkit backend)
         if: matrix.toolkit == 'appkit'
         run: cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to THIS
       # checkout with --local, and build each for this combo — so `day new` output keeps compiling
       # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
-          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          DAY="$GITHUB_WORKSPACE/target/release/day"
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
@@ -139,12 +194,12 @@ jobs:
           rm -rf remote-check
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
+        run: ../../target/release/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
       # combo (headless Linux has no system clipboard — see scripts/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/clipboard-roundtrip.yaml
+        run: ../../target/release/day launch -p ${{ matrix.combo }} --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -157,7 +212,7 @@ jobs:
   ios-uikit:
     name: ios-uikit
     runs-on: macos-15
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, macos-day]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -172,14 +227,20 @@ jobs:
         run: |
           cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \
             --no-default-features --features uikit
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # Scaffold a uikit piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for the iOS Simulator — a lib build, so no device/simulator needed here.
       # The app builds `--lib` (its `day::launch` desktop bin is not part of the iOS pipeline).
       - name: Scaffold smoke-test (ios-uikit)
         run: |
-          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          DAY="$GITHUB_WORKSPACE/target/release/day"
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits uikit --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
@@ -203,7 +264,7 @@ jobs:
         # fast so regressions are never masked; a run that logged a ✗ is never retried.
         run: |
           LOG="$RUNNER_TEMP/ios-walk.log"
-          walk() { ../../target/debug/day launch -p ios-uikit --script scripts/walkthrough.yaml --locale fr 2>&1 | tee "$LOG"; }
+          walk() { ../../target/release/day launch -p ios-uikit --script scripts/walkthrough.yaml --locale fr 2>&1 | tee "$LOG"; }
           if ! walk; then
             if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
               echo "::warning::iOS engine connection lost (flaky simulator app-death) — retrying the walkthrough once"
@@ -227,7 +288,7 @@ jobs:
   linux:
     name: ${{ matrix.combo }}
     runs-on: ubuntu-24.04
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, linux-day]
     strategy:
       fail-fast: false
       matrix:
@@ -248,14 +309,20 @@ jobs:
           esac
       - name: Test host-portable crates
         run: cargo test --locked
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # Scaffold a piece + a part + a full app with `day new` (deps redirected to this checkout via
       # --local) and build each for this combo, so `day new` output keeps compiling against the day
       # tree under test.
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
-          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          DAY="$GITHUB_WORKSPACE/target/release/day"
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
@@ -275,12 +342,12 @@ jobs:
         working-directory: apps/showcase
         run: |
           if [ "${{ matrix.toolkit }}" = gtk ]; then
-            xvfb-run -a ../../target/debug/day launch -p linux-gtk \
+            xvfb-run -a ../../target/release/day launch -p linux-gtk \
               --script scripts/walkthrough.yaml --locale fr \
               --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
               --env WEBKIT_DISABLE_COMPOSITING_MODE=1
           else
-            ../../target/debug/day launch -p linux-qt \
+            ../../target/release/day launch -p linux-qt \
               --script scripts/walkthrough.yaml --locale fr \
               --env QT_QPA_PLATFORM=offscreen
           fi
@@ -299,7 +366,7 @@ jobs:
   android-widget:
     name: android-widget
     runs-on: ubuntu-24.04
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, linux-day]
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
@@ -324,18 +391,25 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Test host-portable crates
         run: cargo test --locked
-      - name: Build day CLI
+      - name: Set up the Android cross-compile target
         run: |
           rustup target add x86_64-linux-android
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-          cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # Scaffold a widget piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
       - name: Scaffold smoke-test (android-widget)
         run: |
           rustup target add aarch64-linux-android
-          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          DAY="$GITHUB_WORKSPACE/target/release/day"
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits widget --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
@@ -353,7 +427,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
-          script: cd apps/showcase && ../../target/debug/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr && ../../target/debug/day launch -p android-widget --script scripts/clipboard-roundtrip.yaml
+          script: cd apps/showcase && ../../target/release/day launch -p android-widget --script scripts/walkthrough.yaml --locale fr && ../../target/release/day launch -p android-widget --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -374,7 +448,7 @@ jobs:
   ohos-arkui:
     name: ohos-arkui
     runs-on: ubuntu-24.04
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, linux-day]
     continue-on-error: true
     env:
       # hvigor + ohpm + the DEBUG signing material are NOT in the public SDK, so they come from the
@@ -438,8 +512,14 @@ jobs:
         # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
         # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
         run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
       # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
       # (@main: emulator-action publishes no release tag yet.)
@@ -455,7 +535,7 @@ jobs:
       # the working pages still produce gallery screenshots.
       - name: Emulator walkthrough (ohos-arkui)
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
+        run: ../../target/release/day launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -482,7 +562,7 @@ jobs:
   windows-winui:
     name: windows-winui
     runs-on: windows-latest
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, windows-day]
     defaults:
       run:
         shell: bash
@@ -500,14 +580,20 @@ jobs:
       # Lint the headless day-part-battery crate's Windows impl (GetSystemPowerStatus) on a real Windows host.
       - name: Clippy (day-part-battery, Windows impl)
         run: cargo clippy --locked -p day-part-battery --all-targets
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # The only CI job that can compile `day new`'s winui template branch: scaffold a winui piece +
       # a part + a full app (deps redirected to this checkout) and build each. winui is a desktop
       # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
       - name: Scaffold smoke-test (windows-winui)
         run: |
-          DAY="$GITHUB_WORKSPACE/target/debug/day"
+          DAY="$GITHUB_WORKSPACE/target/release/day"
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits winui --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
@@ -517,7 +603,7 @@ jobs:
           ( cd smoke-app   && cargo build --features winui )
       - name: Walkthrough (windows-winui)
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
+        run: ../../target/release/day launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -540,7 +626,7 @@ jobs:
   windows-msys2:
     name: ${{ matrix.combo }}
     runs-on: windows-latest
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, clippy, msrv, windows-day]
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -590,14 +676,20 @@ jobs:
           echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
       - name: Test host-portable crates
         run: cargo test --locked
-      - name: Build day CLI
-        run: cargo build --locked -p day-cli
+      - name: Download the day CLI (release, host-built)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os }}
+          path: target/release
+      - name: Mark the day CLI executable
+        shell: bash
+        run: chmod +x target/release/day* 2>/dev/null || true
       # WEBKIT_DISABLE_COMPOSITING_MODE is a harmless no-op on Windows now (neither combo has a real
       # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
       # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.
       - name: Walkthrough (${{ matrix.combo }})
         working-directory: apps/showcase
-        run: ../../target/debug/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+        run: ../../target/release/day launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
