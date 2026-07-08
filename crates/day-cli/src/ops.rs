@@ -158,6 +158,23 @@ pub fn launch(
                 .env("DAY_IMAGE_ROOT", project.root.join("images"))
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
+            // App icon (§18.2): the backend applies it to the dock / taskbar at startup
+            // (NSApp icon, QApplication window icon, GTK icon theme, Win32 WM_SETICON).
+            if let Some(icon) = crate::resources::app_icon(project, target.toolkit) {
+                cmd.env("DAY_APP_ICON", &icon);
+                if target.toolkit == "gtk" && cfg!(target_os = "linux") {
+                    // GTK4 window icons are THEMED-name only: stage the icon into a hicolor
+                    // layout keyed by the app id and point the backend's icon-theme search at it.
+                    let theme = project.root.join("build/day/gtk/icons");
+                    let apps = theme.join("hicolor/512x512/apps");
+                    let _ = std::fs::create_dir_all(&apps);
+                    let name = &project.manifest.app.id;
+                    if std::fs::copy(&icon, apps.join(format!("{name}.png"))).is_ok() {
+                        cmd.env("DAY_ICON_THEME_DIR", &theme);
+                        cmd.env("DAY_ICON_NAME", name);
+                    }
+                }
+            }
             if target.toolkit == "gtk" {
                 cmd.env("GSK_RENDERER", "cairo");
                 // Native GResource blob (§18.3) — day-gtk registers it + loads via g_resources_*.

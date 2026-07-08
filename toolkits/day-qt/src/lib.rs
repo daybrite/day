@@ -1321,6 +1321,10 @@ impl Platform for Qt {
             // title) into `day_qt_app_new` up front.
             let app_name = options.app_name.as_deref().unwrap_or(&options.title);
             let app = ffi::day_qt_app_new(cstr(app_name).as_ptr());
+            // App icon (§18.2): Dock on macOS, taskbar on Linux/Windows (set by `day launch`).
+            if let Ok(icon) = std::env::var("DAY_APP_ICON") {
+                ffi::day_qt_set_app_icon(cstr(&icon).as_ptr());
+            }
             let window = ffi::day_qt_window_new(
                 cstr(&options.title).as_ptr(),
                 options.size.width as c_int,

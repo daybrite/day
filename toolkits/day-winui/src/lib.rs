@@ -1315,6 +1315,10 @@ impl Platform for WinUi {
                 return;
             }
             self.window = win;
+            // Taskbar/title icon (§18.2): the .ico `day launch` resolved from icons/windows/.
+            if let Ok(icon) = std::env::var("DAY_APP_ICON") {
+                ffi::day_winui_set_app_icon(win, cstr(&icon).as_ptr());
+            }
             ffi::day_winui_set_menu_cb(on_menu_action);
             ffi::day_winui_set_lifecycle_cb(on_lifecycle);
             ffi::day_winui_set_present_cb(present_cb);

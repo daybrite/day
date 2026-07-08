@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Day Showcase"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
         <activity
             android:name="dev.daybrite.day.bridge.DayActivity"

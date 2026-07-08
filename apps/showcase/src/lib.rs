@@ -799,7 +799,7 @@ fn list_page() -> AnyPiece {
 /// the native source list / navigation-sidebar / bottom list.
 fn sidebar_header() -> AnyPiece {
     row((
-        image("day-logo.png").frame(28.0, 28.0),
+        image("day_logo").frame(28.0, 28.0),
         label(tr("app-title")).font(Font::Headline).id("home-title"),
     ))
     .spacing(8.0)
@@ -1379,7 +1379,7 @@ fn stack_page() -> AnyPiece {
 
 fn about_page() -> AnyPiece {
     column((
-        image("day-logo.png").frame(96.0, 96.0),
+        image("day_logo").frame(96.0, 96.0),
         label(tr("app-title")).font(Font::Headline),
         label(tr("about-text")).id("about-text"),
         // A HEADLESS capability crate (day-part-battery, docs/battery.md): app Rust calls

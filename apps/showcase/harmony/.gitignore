@@ -8,3 +8,6 @@ oh_modules/
 local.properties
 *.p7b
 
+
+# Resources staged per-build by the day CLI (§18.3) — regenerated from images/ + assets/.
+entry/src/main/resources/rawfile/day/

@@ -13,3 +13,10 @@ gtk4 = { version = "0.11", features = ["v4_10"] }
 # AdwAlertDialog. v1_5 gates AdwAlertDialog; it is the version shipped by Ubuntu 24.04, so CI
 # stays green (AdwSpinner would need v1_7, which 24.04 lacks — GtkSpinner is kept instead).
 libadwaita = { version = "0.9", features = ["v1_5"] }
+
+# Dock icon (§18.2): GTK4 has no NSApplication integration, so on macOS the app icon is applied
+# straight through AppKit (an unbundled binary otherwise shows the generic exe icon in the Dock).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSImage"] }

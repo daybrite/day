@@ -128,6 +128,45 @@ pub fn sanitize_ident(name: &str) -> String {
     s
 }
 
+/// Resolve the platform-appropriate app icon from the project's `icons/` directory (§18.2): the
+/// LARGEST file of the wanted type in the first candidate subdirectory that has one. The convention
+/// matches a per-platform icon export set — `icons/{macos,linux,windows,png}/…` — falling back to
+/// any icon at the `icons/` root.
+pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
+    let icons = project.root.join("icons");
+    // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
+    let (subdirs, ext): (&[&str], &str) = match toolkit {
+        "winui" => (&["windows", ""], "ico"),
+        _ if cfg!(target_os = "macos") => (&["macos", "png", ""], "png"),
+        _ => (&["linux", "png", ""], "png"),
+    };
+    for sub in subdirs {
+        let dir = if sub.is_empty() {
+            icons.clone()
+        } else {
+            icons.join(sub)
+        };
+        let mut best: Option<(u64, PathBuf)> = None;
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) != Some(ext) {
+                continue;
+            }
+            let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+            if best.as_ref().is_none_or(|(s, _)| size > *s) {
+                best = Some((size, p));
+            }
+        }
+        if let Some((_, p)) = best {
+            return Some(p);
+        }
+    }
+    None
+}
+
 /// Stage a project's declared resources into the native locations for `target`, before its platform
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).

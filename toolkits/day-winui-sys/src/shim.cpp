@@ -423,6 +423,21 @@ void day_winui_window_show(void* win) {
     UpdateWindow(app->host);
 }
 
+// App icon (§18.2): title-bar + taskbar icon for the unbundled Win32 host window, loaded from the
+// multi-size .ico that `day launch` resolves from the project's icons/windows/ (DAY_APP_ICON).
+void day_winui_set_app_icon(void* win, const char* ico_path) {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->host || !ico_path || !*ico_path) return;
+    // LR_DEFAULTSIZE picks the right frame from the multi-size .ico per use (32 big / 16 small).
+    HICON big = (HICON)LoadImageW(nullptr, hs(ico_path).c_str(), IMAGE_ICON, 0, 0,
+                                  LR_LOADFROMFILE | LR_DEFAULTSIZE);
+    HICON small_ = (HICON)LoadImageW(nullptr, hs(ico_path).c_str(), IMAGE_ICON,
+                                     GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                     LR_LOADFROMFILE);
+    if (big) SendMessageW(app->host, WM_SETICON, ICON_BIG, (LPARAM)big);
+    if (small_) SendMessageW(app->host, WM_SETICON, ICON_SMALL, (LPARAM)small_);
+}
+
 void day_winui_run(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
     auto interop2 = app->source.as<::IDesktopWindowXamlSourceNative2>();

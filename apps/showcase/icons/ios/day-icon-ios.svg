@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="1024" height="1024">
+  <defs>
+    <clipPath id="c"><rect x="13" y="13" width="94" height="94" rx="16"></rect></clipPath>
+  </defs>
+  <rect x="0" y="0" width="120" height="120" fill="#14110C"></rect>
+  <rect x="8" y="8" width="104" height="104" rx="20" fill="none" stroke="#D2A94F" stroke-width="2.5"></rect>
+  <g clip-path="url(#c)" stroke="#D2A94F" stroke-width="6">
+    <line x1="60" y1="44" x2="60" y2="16"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(20 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-20 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(40 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-40 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(60 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-60 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(80 60 78)"></line>
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-80 60 78)"></line>
+  </g>
+  <path d="M38 78 A22 22 0 0 1 82 78 Z" fill="#D2A94F"></path>
+  <line x1="28" y1="88" x2="92" y2="88" stroke="#D2A94F" stroke-width="4"></line>
+  <line x1="38" y1="96" x2="82" y2="96" stroke="#D2A94F" stroke-width="4"></line>
+</svg>

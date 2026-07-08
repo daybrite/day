@@ -2222,6 +2222,19 @@ impl Platform for AppKit {
         }
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        // Dock icon (§18.2): `day launch` points DAY_APP_ICON at the project's macOS icon export;
+        // an unbundled binary otherwise shows the generic executable icon in the Dock.
+        if let Ok(icon) = std::env::var("DAY_APP_ICON") {
+            use objc2::AllocAnyThread as _;
+            if let Some(img) = unsafe {
+                objc2_app_kit::NSImage::initWithContentsOfFile(
+                    objc2_app_kit::NSImage::alloc(),
+                    &NSString::from_str(&icon),
+                )
+            } {
+                unsafe { app.setApplicationIconImage(Some(&img)) };
+            }
+        }
 
         // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
         // installs its own via `app_menu(...)`.

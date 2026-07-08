@@ -10,6 +10,7 @@
 		DA0000000000000000000101 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000001 /* main.swift */; };
 		DA0000000000000000000102 /* DayPieces in Frameworks */ = {isa = PBXBuildFile; productRef = DA0000000000000000000071 /* DayPieces */; };
 		DA0000000000000000000103 /* hello.json in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000004 /* hello.json */; };
+		DA0000000000000000000104 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000005 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +18,7 @@
 		DA0000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA0000000000000000000003 /* Showcase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Showcase.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA0000000000000000000004 /* hello.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = hello.json; path = "../../assets/hello.json"; sourceTree = SOURCE_ROOT; };
+		DA0000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,6 +37,7 @@
 			isa = PBXGroup;
 			children = (
 				DA0000000000000000000011 /* Runner */,
+				DA0000000000000000000005 /* Assets.xcassets */,
 				DA0000000000000000000012 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -117,6 +120,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DA0000000000000000000103 /* hello.json in Resources */,
+				DA0000000000000000000104 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -182,6 +186,7 @@
 		DA0000000000000000000062 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "";
 				CURRENT_PROJECT_VERSION = 1;
@@ -199,6 +204,7 @@
 		DA0000000000000000000063 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGN_IDENTITY = "";
 				CURRENT_PROJECT_VERSION = 1;

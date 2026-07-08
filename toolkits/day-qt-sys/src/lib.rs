@@ -86,6 +86,8 @@ unsafe extern "C" {
         texts_joined: *const c_char,
     );
     pub fn day_qt_image_new(path: *const c_char, mode: c_int) -> *mut c_void;
+    // App icon (§18.2): Dock icon on macOS, taskbar icon on Linux/Windows.
+    pub fn day_qt_set_app_icon(path: *const c_char);
     // Native Qt Resource System (§18.3): register the .rcc blob; read data zero-copy.
     pub fn day_qt_register_resource(path: *const c_char);
     pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;

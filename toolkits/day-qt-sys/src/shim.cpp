@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <map>
 #include <vector>
+#include <QIcon>
 #include <QPixmap>
 #include <QResource>
 #include <QPushButton>
@@ -647,6 +648,12 @@ void *day_qt_image_new(const char *path, int mode) {
     QPixmap pm(QString::fromUtf8(path)); // ":/day/images/<name>" (resource) or a file path
     if (!pm.isNull()) l->setImage(pm);
     return l;
+}
+
+// App icon (§18.2): the window icon doubles as the Dock icon on macOS and the taskbar icon on
+// Linux/Windows for an unbundled binary.
+void day_qt_set_app_icon(const char *path) {
+    QApplication::setWindowIcon(QIcon(QString::fromUtf8(path)));
 }
 
 // --- native Qt Resource System packing (§18.3) ---

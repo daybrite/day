@@ -350,7 +350,7 @@ const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
 
 /// selector(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
 enum NavPresent {
-    Split(adw::NavigationSplitView),
+    Split(gtk4::Paned),
     Stack(adw::NavigationView),
 }
 
@@ -442,12 +442,22 @@ fn nav_report(host_key: usize) {
             return Vec::new();
         };
         let (hw, hh) = match &state.present {
-            NavPresent::Split(sv) => (sv.width() as f64, sv.height() as f64),
+            NavPresent::Split(paned) => (paned.width() as f64, paned.height() as f64),
             NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
         };
         if hw <= 0.0 || hh <= 0.0 {
             return Vec::new();
         }
+        // Split: the divider is user-draggable, so report the paned's CURRENT position (falling
+        // back to the default width before the first allocation) — Day re-lays each pane's
+        // content to the reported size on every drag.
+        let sidebar_w = match &state.present {
+            NavPresent::Split(paned) => {
+                let pos = paned.position() as f64;
+                if pos > 0.0 { pos } else { NAV_SIDEBAR_W }
+            }
+            NavPresent::Stack(_) => 0.0,
+        };
         state
             .pages
             .iter()
@@ -455,9 +465,9 @@ fn nav_report(host_key: usize) {
             .map(|(i, (_, id, _))| {
                 let size = if state.split {
                     if i == 0 {
-                        Size::new(NAV_SIDEBAR_W, hh)
+                        Size::new(sidebar_w, hh)
                     } else {
-                        Size::new((hw - NAV_SIDEBAR_W).max(0.0), hh)
+                        Size::new((hw - sidebar_w).max(0.0), hh)
                     }
                 } else {
                     Size::new(hw, hh)
@@ -588,6 +598,45 @@ impl Gtk {
             registry,
             window_fixed: None,
             menu_bar: None,
+        }
+    }
+}
+
+/// Apply the app icon `day launch` resolved from the project's `icons/` (§18.2) to the dock /
+/// taskbar. GTK4 window icons are themed-name only, so on Linux the launcher stages a hicolor
+/// layout (`DAY_ICON_THEME_DIR` + `DAY_ICON_NAME`) that is added to the display's icon-theme search
+/// path; on macOS GTK has no Dock integration at all, so the icon is applied straight through
+/// AppKit's `NSApplication.applicationIconImage` (`DAY_APP_ICON`).
+fn apply_app_icon(window: &adw::ApplicationWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        if let Ok(icon) = std::env::var("DAY_APP_ICON")
+            && let Some(mtm) = objc2::MainThreadMarker::new()
+        {
+            use objc2::AllocAnyThread as _;
+            if let Some(img) = objc2_app_kit::NSImage::initWithContentsOfFile(
+                objc2_app_kit::NSImage::alloc(),
+                &objc2_foundation::NSString::from_str(&icon),
+            ) {
+                let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                unsafe { app.setApplicationIconImage(Some(&img)) };
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use gtk4::prelude::*;
+        if let (Ok(dir), Ok(name)) = (
+            std::env::var("DAY_ICON_THEME_DIR"),
+            std::env::var("DAY_ICON_NAME"),
+        ) {
+            let display = gtk4::gdk::Display::default();
+            if let Some(display) = display {
+                let theme = gtk4::IconTheme::for_display(&display);
+                theme.add_search_path(&dir);
+                window.set_icon_name(Some(&name));
+            }
         }
     }
 }
@@ -746,11 +795,35 @@ impl Toolkit for Gtk {
                     .unwrap_or(true);
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 let (host, present): (Handle, NavPresent) = if is_split {
-                    // AdwNavigationSplitView: sidebar + detail, the idiomatic GNOME paradigm.
-                    let sv = adw::NavigationSplitView::new();
-                    sv.set_min_sidebar_width(NAV_SIDEBAR_W);
-                    sv.set_max_sidebar_width(NAV_SIDEBAR_W);
-                    (sv.clone().upcast(), NavPresent::Split(sv))
+                    // GtkPaned: sidebar + detail with a USER-DRAGGABLE divider (the AppKit
+                    // NSSplitView counterpart). AdwNavigationSplitView pins its sidebar width by
+                    // design (GNOME HIG has no draggable sidebars), so a paned is the native way to
+                    // honor divider adjustment; the sidebar list keeps the `.navigation-sidebar`
+                    // treatment. Day re-lays each pane's content from the sizes reported on drag.
+                    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+                    paned.set_position(NAV_SIDEBAR_W as i32);
+                    // Window resizes go to the detail pane; the sidebar holds its width.
+                    paned.set_resize_start_child(false);
+                    paned.set_resize_end_child(true);
+                    // Day frames each pane's content to EXACTLY the last reported size, which
+                    // becomes that pane's GTK minimum — with shrink forbidden the divider would
+                    // be pinned in place. Allow shrinking; Day re-lays content to the new size
+                    // reported on every drag (position notify → nav_report).
+                    paned.set_shrink_start_child(true);
+                    paned.set_shrink_end_child(true);
+                    let host_key_for_report = Rc::new(std::cell::Cell::new(0usize));
+                    {
+                        let hk = host_key_for_report.clone();
+                        paned.connect_position_notify(move |_| {
+                            let key = hk.get();
+                            if key != 0 {
+                                gtk4::glib::idle_add_local_once(move || nav_report(key));
+                            }
+                        });
+                    }
+                    let handle: Handle = paned.clone().upcast();
+                    host_key_for_report.set(widget_key(&handle));
+                    (handle, NavPresent::Split(paned))
                 } else {
                     // AdwNavigationView: a genuine push/pop stack with back gesture.
                     let nv = adw::NavigationView::new();
@@ -863,7 +936,14 @@ impl Toolkit for Gtk {
                     listbox.select_row(listbox.row_at_index(sel as i32).as_ref());
                     suppress.set(false);
                 }
-                let handle: Handle = listbox.clone().upcast();
+                // The list scrolls WITHIN the sidebar (its own scrolled window, like AppKit's
+                // NSOutlineView-in-NSScrollView). Without this, the bare ListBox's minimum height
+                // (all rows) propagates up to the window's sizing wrapper and a wheel over the
+                // sidebar scrolls the ENTIRE window.
+                let sw = gtk4::ScrolledWindow::new();
+                sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                sw.set_child(Some(&listbox));
+                let handle: Handle = sw.upcast();
                 NAV_MENUS.with(|m| {
                     m.borrow_mut().insert(
                         widget_key(&handle),
@@ -1333,11 +1413,13 @@ impl Toolkit for Gtk {
                 .unwrap_or_else(|| "Day".to_string());
             let nav_page = adw::NavigationPage::new(child, &title);
             match &state.present {
-                NavPresent::Split(sv) => {
+                NavPresent::Split(paned) => {
                     if state.split && index == 0 {
-                        sv.set_sidebar(Some(&nav_page));
+                        // libadwaita's split-sidebar background treatment on the paned child.
+                        nav_page.add_css_class("sidebar-pane");
+                        paned.set_start_child(Some(&nav_page));
                     } else {
-                        sv.set_content(Some(&nav_page));
+                        paned.set_end_child(Some(&nav_page));
                     }
                 }
                 NavPresent::Stack(nv) => {
@@ -1367,7 +1449,7 @@ impl Toolkit for Gtk {
                 let (_, _, nav_page) = state.pages.remove(pos);
                 match &state.present {
                     // The content page is being replaced; clear it (a new one follows).
-                    NavPresent::Split(sv) => sv.set_content(None::<&adw::NavigationPage>),
+                    NavPresent::Split(paned) => paned.set_end_child(None::<&gtk4::Widget>),
                     // The stack pop already removed it (day-driven pop or native gesture);
                     // dropping our ref is enough.
                     NavPresent::Stack(_) => {
@@ -1951,6 +2033,7 @@ impl Platform for Gtk {
             let window = adw::ApplicationWindow::new(app);
             window.set_title(Some(&options.title));
             window.set_default_size(options.size.width as i32, options.size.height as i32);
+            apply_app_icon(&window);
             let fixed = gtk4::Fixed::new();
             // A GtkFixed reports its children's bounding box as its MINIMUM size, which
             // would pin the window at the content size. A scroll wrapper with External
@@ -1959,6 +2042,16 @@ impl Platform for Gtk {
             let wrapper = gtk4::ScrolledWindow::new();
             wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
             wrapper.set_child(Some(&fixed));
+            // The wrapper exists ONLY to break min-size propagation — it must never actually
+            // scroll (Day sizes the content to the window). If any child's native minimum
+            // exceeds the window, a wheel would otherwise pan the whole UI; pin both axes.
+            for adj in [wrapper.hadjustment(), wrapper.vadjustment()] {
+                adj.connect_value_changed(|a| {
+                    if a.value() != 0.0 {
+                        a.set_value(0.0);
+                    }
+                });
+            }
             // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies
             // an AdwHeaderBar (window controls, drag handle, and the window title) above Day's
             // content — the standard Adwaita window structure, and the AdwDialog host that
