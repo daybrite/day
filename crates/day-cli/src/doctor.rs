@@ -72,6 +72,16 @@ fn run_line(cmd: &str, args: &[&str]) -> Option<String> {
     })
 }
 
+/// Full stdout of a command (not just the first line) — for probes that must scan multi-line
+/// output, e.g. `rustc -vV`'s `host:` line.
+fn run_out(cmd: &str, args: &[&str]) -> Option<String> {
+    Command::new(cmd).args(args).output().ok().and_then(|o| {
+        o.status
+            .success()
+            .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+    })
+}
+
 /// `Some(dir)` if `dir` exists and is a directory — for env-var / SDK-path probes.
 fn existing_dir(dir: &Path) -> Option<String> {
     dir.is_dir().then(|| dir.display().to_string())
@@ -91,12 +101,21 @@ fn have_rust_target(triple: &str) -> Option<String> {
         .then(|| triple.to_string())
 }
 
-/// Resolve `bin` on PATH (like the shell would); `Some(path)` if found. `bin` may carry `.exe`.
+/// Resolve `bin` on PATH (like the shell would); `Some(path)` if found. `bin` may carry `.exe`; on
+/// Windows a bare name also matches `<bin>.exe` (else e.g. `glib-compile-resources.exe` reads as
+/// missing).
 fn which(bin: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    let names: Vec<String> = if cfg!(windows) && !bin.ends_with(".exe") {
+        vec![bin.to_string(), format!("{bin}.exe")]
+    } else {
+        vec![bin.to_string()]
+    };
     std::env::split_paths(&path).find_map(|dir| {
-        let p = dir.join(bin);
-        p.is_file().then_some(p)
+        names.iter().find_map(|name| {
+            let p = dir.join(name);
+            p.is_file().then_some(p)
+        })
     })
 }
 
@@ -206,11 +225,15 @@ fn gtk_group() -> Group {
                 run_line("pkg-config", &["--modversion", "libadwaita-1"]),
                 "install libadwaita (`brew install libadwaita` · `apt install libadwaita-1-dev`)",
             ),
+            // Optional: resource staging (§18.3) is best-effort — a missing `glib-compile-resources`
+            // just skips the gresource blob and day loads images from the filesystem roots. So a
+            // miss is a warning, not an error (MSYS2 windows-gtk doesn't ship it on PATH).
             Probe::new(
                 "glib-compile-resources",
                 which("glib-compile-resources").map(|p| p.display().to_string()),
                 "install glib tools (bundled with glib/GTK; ships `glib-compile-resources`)",
-            ),
+            )
+            .soft(),
         ],
         setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
@@ -234,11 +257,15 @@ fn qt_group() -> Group {
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
                 "install Qt 6 (`brew install qt` · `apt install qt6-base-dev` · aqtinstall on Windows)",
             ),
+            // Optional: like glib-compile-resources, `rcc` staging is best-effort — a miss skips the
+            // qresource blob (day loads images from the filesystem roots), so it's a warning, not an
+            // error (MSYS2 windows-qt doesn't ship `rcc` on PATH).
             Probe::new(
                 "rcc",
                 find_rcc().map(|p| p.display().to_string()),
                 "install Qt 6 (rcc, the resource compiler, ships in Qt's libexec)",
-            ),
+            )
+            .soft(),
         ],
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
@@ -256,12 +283,16 @@ fn winui_group() -> Group {
         hosts: &["windows"],
         probes: vec![Probe::new(
             "msvc-toolchain",
-            run_line("rustc", &["-vV"])
-                .filter(|s| s.contains("msvc"))
-                .or_else(|| {
-                    // -vV's host line is what we want; grep it explicitly.
-                    run_line("bash", &["-c", "rustc -vV | grep -m1 windows-msvc"])
-                }),
+            // The default rustc must target *-windows-msvc (winui builds with cl.exe + the SDK).
+            // Scan the FULL `rustc -vV` output for the `host:` line — `run_line` returns only line 1
+            // (`rustc <version>`), which is why the old check false-negatived on a valid msvc host
+            // (and its `bash`+`grep` fallback isn't reliably resolvable from a native process).
+            run_out("rustc", &["-vV"]).and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("host: "))
+                    .filter(|h| h.contains("windows-msvc"))
+                    .map(str::to_string)
+            }),
             "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
         )],
         setup: "WinUI 3 builds on a Windows host with the MSVC toolchain. Install:\n\
