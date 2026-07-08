@@ -37,10 +37,22 @@ unsafe extern "C" {
 
     /// Absolute frame (day owns layout): position + explicit size, in vp.
     pub fn day_ark_set_frame(node: *mut c_void, x: f64, y: f64, w: f64, h: f64);
+    /// Explicit size only (no position) — for children whose parent places them (Swiper pages).
+    pub fn day_ark_set_size(node: *mut c_void, w: f64, h: f64);
     pub fn day_ark_set_bg_color(node: *mut c_void, argb: u32);
     pub fn day_ark_set_font_size(node: *mut c_void, vp: f64);
     pub fn day_ark_set_font_color(node: *mut c_void, argb: u32);
     pub fn day_ark_set_corner_radius(node: *mut c_void, vp: f64);
+    /// Determinate progress fraction (0..1), mapped onto ArkUI's NODE_PROGRESS_VALUE/TOTAL.
+    pub fn day_ark_set_progress(node: *mut c_void, fraction: f64);
+    /// Visibility: 0 = VISIBLE, else NONE (removed from layout — one TABS page shown at a time).
+    pub fn day_ark_set_visibility(node: *mut c_void, visible: c_int);
+    /// The active page index of a Swiper (`NODE_SWIPER_INDEX`).
+    pub fn day_ark_set_swiper_index(node: *mut c_void, i: c_int);
+    /// Configure a Swiper as a tab pager (show indicator, disable looping).
+    pub fn day_ark_swiper_setup(node: *mut c_void);
+    /// Accessibility (§13): screen-reader `label`; `hidden` drops the node + subtree from the tree.
+    pub fn day_ark_set_a11y(node: *mut c_void, label: *const c_char, hidden: c_int);
 
     /// Measure `node` under a proposal (`<=0` = unbounded); result in vp via the out-params.
     pub fn day_ark_measure(
@@ -51,8 +63,30 @@ unsafe extern "C" {
         out_h: *mut f64,
     );
 
-    /// Register a native event (0=click 1=text 2=toggle 3=slider); `id` returns as the event userData.
+    /// Register a native event (0=click 1=text 2=toggle 3=slider 6=swiper); `id` returns as userData.
     pub fn day_ark_register_event(node: *mut c_void, kind: c_int, id: u64);
+
+    /// Canvas (§11): register the custom node's on-draw receiver.
+    pub fn day_ark_canvas_init(node: *mut c_void);
+    /// Store a canvas node's encoded display list (`nums`/`count` + a 0x1F-joined `texts`) and
+    /// request a repaint. The buffers are copied; the caller keeps ownership.
+    pub fn day_ark_set_canvas_ops(
+        node: *mut c_void,
+        nums: *const f64,
+        count: u32,
+        texts: *const c_char,
+    );
+
+    /// Recycling list (docs/list.md): create the node's `NodeAdapter`, binding it to `host_id` so
+    /// the row callbacks (`day_arkui_list_count` / `_bind`) can find the source. `row_h_vp` is the
+    /// uniform row height in vp (0 = content-sized).
+    pub fn day_ark_list_init(node: *mut c_void, host_id: u64, row_h_vp: f64);
+    /// Re-query the list's row count (the adapter re-fetches its visible cells).
+    pub fn day_ark_list_reload(node: *mut c_void);
+    /// Scroll the list so its last row is fully visible (docs/list.md).
+    pub fn day_ark_list_scroll_to_end(node: *mut c_void);
+    /// Style a NAV_MENU / tab-bar row: full width, `height_vp` tall, left-aligned padded text.
+    pub fn day_ark_style_row(node: *mut c_void, height_vp: f64);
 
     /// Mount `node` into the ArkTS `NodeContent` slot. Returns 0 on success.
     pub fn day_ark_content_add(content: *mut c_void, node: *mut c_void) -> c_int;

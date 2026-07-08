@@ -170,6 +170,26 @@ pub fn build_ohos(
     let libs = harmony.join("entry/libs").join(abi);
     std::fs::create_dir_all(&libs).map_err(|e| format!("mkdir {}: {e}", libs.display()))?;
     std::fs::copy(&so, libs.join("libentry.so")).map_err(|e| format!("stage libentry.so: {e}"))?;
+    // libentry.so links the NDK's SHARED libc++ (the day-arkui-sys C++ shim), which OpenHarmony
+    // does NOT provide on-device for apps — an unbundled hap dies at load with MUSL-LDSO's
+    // "Error loading shared library libc++_shared.so". Stage it next to libentry.so so hvigor
+    // packs it into the hap (the exact analogue of the Android jniLibs bundling).
+    // The NDK's per-arch lib dir uses the CLANG triple (`x86_64-linux-ohos`), not the Rust triple
+    // (`x86_64-unknown-linux-ohos`) — drop the `unknown-` vendor field.
+    let clang_triple = triple.replace("unknown-", "");
+    let libcxx = PathBuf::from(&ndk)
+        .join("llvm/lib")
+        .join(&clang_triple)
+        .join("libc++_shared.so");
+    if libcxx.exists() {
+        std::fs::copy(&libcxx, libs.join("libc++_shared.so"))
+            .map_err(|e| format!("stage libc++_shared.so: {e}"))?;
+    } else {
+        status(
+            "Warning",
+            &format!("libc++_shared.so not found at {} — the hap may fail to load", libcxx.display()),
+        );
+    }
 
     // 2) Assemble the .hap with hvigor (compiles the ArkTS host + packs the native libs + resources).
     //    hvigor + ohpm come from the OpenHarmony command-line-tools (on PATH); the SDK from

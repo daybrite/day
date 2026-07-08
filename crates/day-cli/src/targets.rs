@@ -114,7 +114,7 @@ pub const TARGETS: &[Target] = &[
         kind: TargetKind::HarmonyOs,
         host: "any",
         label: "OpenHarmony ArkUI",
-        experimental: true,
+        experimental: false,
     },
 ];
 

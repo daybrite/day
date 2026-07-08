@@ -93,7 +93,10 @@ pub fn root() -> AnyPiece {
     // Lifecycle handlers (docs/lifecycle.md). On mobile this is the registration point; on desktop
     // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
     install_lifecycle_handlers();
-    let section = Signal::new(String::new());
+    // Deep-link: open directly on a section when `DAY_DEMO_ROUTE` is set (`day launch --env
+    // DAY_DEMO_ROUTE=gauge`), else start at the root menu. Handy for driving the emulator when
+    // synthetic input is unreliable.
+    let section = Signal::new(std::env::var("DAY_DEMO_ROUTE").unwrap_or_default());
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
         .title(tr("app-title"))

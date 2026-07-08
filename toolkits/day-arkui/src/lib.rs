@@ -45,6 +45,50 @@ mod imp {
         static DENSITY: Cell<f64> = const { Cell::new(1.0) };
         /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
         static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+        /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
+        /// plain NODE_ON_CLICK, so we register it against a fresh synthetic id and translate the
+        /// click back into `SelectionChanged(index)` against the MENU host (day-android does the
+        /// same with a per-row listener). See [`day_arkui_on_event`].
+        static MENU_ROWS: RefCell<HashMap<u64, (NodeId, i64)>> = RefCell::new(HashMap::new());
+        /// Monotonic synthetic-id counter for menu rows (kept out of day's NodeId space by using the
+        /// high bit, which day-core never allocates).
+        static SYNTH: Cell<u64> = const { Cell::new(1u64 << 63) };
+        /// LIST host node ptr → its day NodeId, so `attach_list` (which only gets the handle) can
+        /// key the source by the id the native adapter callbacks report.
+        static LIST_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// LIST host NodeId → its injected row-pull source (docs/list.md).
+        static LIST_SOURCES: RefCell<HashMap<u64, day_spec::ListSource>> =
+            RefCell::new(HashMap::new());
+        /// TABS_PAGE node ptrs: their layout is owned by the parent Swiper, so `set_frame` sizes
+        /// them but does not position them.
+        static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+    }
+
+    /// Build a NAV_MENU: a scrollable column of tappable rows. Each row's tap becomes a synthetic
+    /// click that [`day_arkui_on_event`] translates to `SelectionChanged(index)` against `menu`.
+    fn build_nav_menu(menu: NodeId, items: &[String]) -> AHandle {
+        let scroll = new_node(K_SCROLL);
+        let col = new_node(K_COLUMN);
+        for (i, title) in items.iter().enumerate() {
+            // A Button per row — natively hit-testable (a bare Text doesn't reliably take taps).
+            let row = new_node(K_BUTTON);
+            let synth = SYNTH.with(|c| {
+                let v = c.get();
+                c.set(v + 1);
+                v
+            });
+            MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
+            unsafe {
+                ffi::day_ark_set_button_label(row.0, cstr(title).as_ptr());
+                ffi::day_ark_set_font_size(row.0, 17.0);
+                ffi::day_ark_style_row(row.0, 48.0);
+                ffi::day_ark_register_event(row.0, 0, synth);
+                ffi::day_ark_insert_child(col.0, row.0, i as c_int);
+            }
+        }
+        unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
+        scroll
     }
 
     pub fn emit(id: NodeId, ev: Event) {
@@ -90,7 +134,14 @@ mod imp {
     const K_TOGGLE: c_int = 4;
     const K_SLIDER: c_int = 5;
     const K_SCROLL: c_int = 6;
+    const K_COLUMN: c_int = 7;
+    const K_LOADING: c_int = 8; // indeterminate spinner
     const K_IMAGE: c_int = 9;
+    const K_CANVAS: c_int = 10; // custom node + on-draw
+    const K_PROGRESS: c_int = 11; // determinate bar
+    const K_SWIPER: c_int = 12;
+    const K_LIST: c_int = 13;
+    // 14 = ARKUI_NODE_LIST_ITEM, created inside the shim's list adapter (never via new_node here).
 
     fn new_node(kind: c_int) -> AHandle {
         AHandle(unsafe { ffi::day_ark_node_new(kind) })
@@ -119,9 +170,19 @@ mod imp {
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkUI event
     pub extern "C" fn day_arkui_on_event(id: u64, kind: c_int, num: f64, text: *const c_char) {
+        // A NAV_MENU row click arrives with a synthetic id — translate it to a SelectionChanged
+        // against the menu host before the normal per-node dispatch.
+        if kind == 0
+            && let Some((menu, index)) = MENU_ROWS.with(|m| m.borrow().get(&id).copied())
+        {
+            emit(menu, Event::SelectionChanged(index));
+            return;
+        }
         let node = NodeId(id);
         let ev = match kind {
             0 => Event::Pressed,
+            // 6 = SelectionChanged (swiper tab / menu row), carried as the index in `num`.
+            6 => Event::SelectionChanged(num as i64),
             1 => {
                 let s = if text.is_null() {
                     String::new()
@@ -157,6 +218,29 @@ mod imp {
             _ => return,
         };
         emit(node, ev);
+    }
+
+    /// Recycling-list row count, called from the NodeAdapter (docs/list.md).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_count(host_id: u64) -> u32 {
+        LIST_SOURCES.with(|m| {
+            m.borrow()
+                .get(&host_id)
+                .map(|s| (s.len)() as u32)
+                .unwrap_or(0)
+        })
+    }
+
+    /// Build (or rebind) row `index`'s content into the native cell `cell` (an inner Stack). The
+    /// adapter reuses cells, so a repeat `cell` pointer is a rebind (day-core keys its cell cache by
+    /// the raw handle). Called on the JS/main thread from the adapter's add callback.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `cell` is a live ArkUI_NodeHandle from the adapter
+    pub extern "C" fn day_arkui_list_bind(host_id: u64, index: u32, cell: *mut c_void) {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        if let Some(source) = source {
+            (source.bind_row)(index as usize, cell as day_spec::RawHandle);
+        }
     }
 
     /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
@@ -306,6 +390,76 @@ mod imp {
                     }
                     n
                 }
+                // A 1-vp hairline: a thin Stack tinted with a faint separator colour.
+                kinds::DIVIDER => {
+                    let n = new_node(K_STACK);
+                    unsafe { ffi::day_ark_set_bg_color(n.0, 0x33_00_00_00) };
+                    n
+                }
+                // Determinate bar (ARKUI_NODE_PROGRESS) vs indeterminate spinner (LOADING_PROGRESS).
+                kinds::PROGRESS => {
+                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    match p.value {
+                        Some(v) => {
+                            let n = new_node(K_PROGRESS);
+                            unsafe { ffi::day_ark_set_progress(n.0, v) };
+                            n
+                        }
+                        None => new_node(K_LOADING),
+                    }
+                }
+                // Navigation host + page: plain Stacks. In stack presentation (mobile) day-core's
+                // NavLayout gives every page the full host bounds, and ArkUI's Stack draws the last
+                // child on top — so a pushed detail page covers the menu. Pages carry an opaque
+                // background so the covered page doesn't bleed through.
+                kinds::NAV => new_node(K_STACK),
+                kinds::NAV_PAGE => {
+                    let n = new_node(K_STACK);
+                    unsafe { ffi::day_ark_set_bg_color(n.0, 0xFF_FF_FF_FF) };
+                    n
+                }
+                // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
+                // against this menu host (via a synthetic click id, see day_arkui_on_event).
+                kinds::NAV_MENU => {
+                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    build_nav_menu(id, &p.items)
+                }
+                // Tabs: a native Swiper pager (swipe + dot indicator). Each TABS_PAGE is a Swiper
+                // child (the Swiper owns their horizontal layout, so their set_frame skips position).
+                kinds::TABS => {
+                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let n = new_node(K_SWIPER);
+                    unsafe {
+                        ffi::day_ark_swiper_setup(n.0);
+                        ffi::day_ark_set_swiper_index(n.0, p.selected as c_int);
+                        ffi::day_ark_register_event(n.0, 6, id.0);
+                    }
+                    n
+                }
+                kinds::TABS_PAGE => {
+                    let n = new_node(K_STACK);
+                    TABS_PAGES.with(|s| s.borrow_mut().insert(n.0 as usize));
+                    n
+                }
+                // Canvas: a custom node whose on-draw callback replays the encoded display list.
+                kinds::CANVAS => {
+                    let n = new_node(K_CANVAS);
+                    unsafe { ffi::day_ark_canvas_init(n.0) };
+                    n
+                }
+                // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the
+                // row source; the adapter binds cells on demand). See attach_list / the adapter cbs.
+                kinds::LIST => {
+                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let row_h = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 0.0,
+                    };
+                    let n = new_node(K_LIST);
+                    LIST_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    unsafe { ffi::day_ark_list_init(n.0, id.0, row_h) };
+                    n
+                }
                 _ => {
                     if let Some(r) = self.registry.get(kind) {
                         let make = r.make;
@@ -377,14 +531,40 @@ mod imp {
                         }
                     }
                 }
+                kinds::PROGRESS => {
+                    if let Some(ProgressPatch::Value(Some(v))) =
+                        patch.downcast_ref::<ProgressPatch>()
+                    {
+                        unsafe { ffi::day_ark_set_progress(h.0, *v) };
+                    }
+                }
+                kinds::TABS => {
+                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                        unsafe { ffi::day_ark_set_swiper_index(h.0, *i as c_int) };
+                    }
+                }
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Reload) => unsafe { ffi::day_ark_list_reload(h.0) },
+                    Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
+                    _ => {}
+                },
                 _ => {}
             }
         }
 
         fn release(&mut self, h: AHandle) {
+            let key = h.0 as usize;
             SLIDER_RANGE.with(|m| {
-                m.borrow_mut().remove(&(h.0 as usize));
+                m.borrow_mut().remove(&key);
             });
+            TABS_PAGES.with(|s| {
+                s.borrow_mut().remove(&key);
+            });
+            if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                LIST_SOURCES.with(|m| {
+                    m.borrow_mut().remove(&nid);
+                });
+            }
             unsafe { ffi::day_ark_node_dispose(h.0) };
         }
 
@@ -419,6 +599,11 @@ mod imp {
                 kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 40.0),
                 kinds::TOGGLE => Size::new(50.0, 30.0),
                 kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
+                kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                kinds::PROGRESS => Size::new(p.width.unwrap_or(40.0), p.height.unwrap_or(20.0)),
+                // These fill their container (host owns scroll/paging; content is laid out inside).
+                kinds::NAV_MENU => Size::new(p.width.unwrap_or(240.0), p.height.unwrap_or(400.0)),
+                kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         return measure(self, h, p);
@@ -429,6 +614,12 @@ mod imp {
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+            // A Swiper owns its pages' horizontal placement — size them, but don't position them
+            // (a NODE_POSITION would fight the pager transform).
+            if TABS_PAGES.with(|s| s.borrow().contains(&(h.0 as usize))) {
+                unsafe { ffi::day_ark_set_size(h.0, frame.size.width, frame.size.height) };
+                return;
+            }
             unsafe {
                 ffi::day_ark_set_frame(
                     h.0,
@@ -444,12 +635,34 @@ mod imp {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
         }
 
-        fn set_a11y(&mut self, _h: &AHandle, _a11y: &A11yProps) {
-            // ArkUI accessibility (accessibilityText/Level) — follow-up.
+        fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
+            // The screen-reader label; `hidden`/`decorative` drop the node + subtree from the tree.
+            let label = a11y.label.as_deref().unwrap_or("");
+            let hidden = (a11y.hidden || a11y.decorative) as c_int;
+            unsafe { ffi::day_ark_set_a11y(h.0, cstr(label).as_ptr(), hidden) };
         }
 
-        fn replay(&mut self, _h: &AHandle, _ops: &[DrawOp], _size: Size) {
-            // Canvas display list (§11) — follow-up (ARKUI_NODE_CUSTOM + draw callback).
+        fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
+            // Encode the display list the shared way (day-android uses the same encoder) and hand it
+            // to the custom node; its on-draw callback replays it with OH_Drawing (§11).
+            let (nums, texts) = day_spec::encode_ops(ops);
+            let joined = cstr(&texts.join("\u{1f}"));
+            unsafe {
+                ffi::day_ark_set_canvas_ops(h.0, nums.as_ptr(), nums.len() as u32, joined.as_ptr())
+            };
+        }
+
+        fn adopt(&mut self, raw: day_spec::RawHandle) -> AHandle {
+            // A recycling LIST cell's inner Stack, created natively and handed back through the
+            // adapter's bind callback — day mounts + rebinds the row's content into it.
+            AHandle(raw)
+        }
+
+        fn attach_list(&mut self, host: &AHandle, source: day_spec::ListSource) {
+            if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&(host.0 as usize)).copied()) {
+                LIST_SOURCES.with(|m| m.borrow_mut().insert(nid, source));
+            }
+            unsafe { ffi::day_ark_list_reload(host.0) };
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

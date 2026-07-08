@@ -1,0 +1,27 @@
+name: ohos-demo
+description: Navigate the ArkUI showcase to the pages exercising the native ArkUI pieces
+  (nav shell, divider/progress, canvas, list, tabs) and screenshot each.
+flow:
+  - wait_for: { id: home-title }
+  - screenshot: home
+  - navigate: { route: controls }
+  - pause: 1
+  - screenshot: controls
+  - navigate: { route: gauge }
+  - pause: 1
+  - screenshot: gauge
+  - navigate: { route: shapes }
+  - pause: 1
+  - screenshot: shapes
+  - navigate: { route: battery }
+  - pause: 1
+  - screenshot: battery
+  - navigate: { route: tabs }
+  - pause: 1
+  - screenshot: tabs
+  - navigate: { route: list }
+  - pause: 1
+  - screenshot: list
+  - navigate: { route: text }
+  - pause: 1
+  - screenshot: text

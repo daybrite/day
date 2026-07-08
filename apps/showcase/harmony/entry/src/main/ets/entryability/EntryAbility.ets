@@ -32,6 +32,15 @@ export default class EntryAbility extends UIAbility {
     set('day.dayscript.token', 'DAYSCRIPT_TOKEN');
     set('day.locale', 'DAY_LOCALE');
     set('day.autodrive', 'DAY_AUTODRIVE');
+    // Generic `day launch --env KEY=VALUE` passthrough: `day.env.KEY` → process env `KEY`.
+    for (const key of Object.keys(params)) {
+      if (key.startsWith('day.env.')) {
+        const value: Object | undefined = params[key];
+        if (typeof value === 'string' && value.length > 0) {
+          nativeEntry.setEnv(key.slice('day.env.'.length), value);
+        }
+      }
+    }
   }
 
   onWindowStageDestroy(): void {}

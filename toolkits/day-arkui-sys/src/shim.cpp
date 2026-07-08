@@ -24,6 +24,21 @@
 #include <rawfile/raw_file_manager.h>
 #include <uv.h>
 
+// OH_Drawing (native 2-D) for the canvas custom node's on-draw callback (§11).
+#include <native_drawing/drawing_brush.h>
+#include <native_drawing/drawing_canvas.h>
+#include <native_drawing/drawing_font.h>
+#include <native_drawing/drawing_matrix.h>
+#include <native_drawing/drawing_path.h>
+#include <native_drawing/drawing_pen.h>
+#include <native_drawing/drawing_point.h>
+#include <native_drawing/drawing_rect.h>
+#include <native_drawing/drawing_round_rect.h>
+#include <native_drawing/drawing_text_blob.h>
+
+#include <map>
+#include <vector>
+
 // ---- globals ---------------------------------------------------------------
 static ArkUI_NativeNodeAPI_1* g_api = nullptr;
 static napi_env g_env = nullptr;
@@ -38,6 +53,10 @@ static NativeResourceManager* g_res_mgr = nullptr;
 extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
 extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
 extern "C" void day_arkui_set_cache_dir(const char* path);
+// Recycling-list callbacks into Rust (docs/list.md): row count, and build/rebind a row's content
+// into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
+extern "C" uint32_t day_arkui_list_count(uint64_t host_id);
+extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell);
 
 // The ArkTS-registered file-picker callback (docs/files.md): `(req, mode, name, src, filters)`.
 // Held as a napi_ref because HarmonyOS file pickers live in the ArkTS @kit.CoreFileKit layer,
@@ -91,6 +110,12 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
             day_arkui_on_event(id, 3, c ? (double)c->data[0].f32 : 0.0, "");
             break;
         }
+        case NODE_SWIPER_EVENT_ON_CHANGE: {
+            // The active page index (SelectionChanged) — reuse event kind 6.
+            auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
+            day_arkui_on_event(id, 6, c ? (double)c->data[0].i32 : 0.0, "");
+            break;
+        }
         default:
             break;
     }
@@ -99,7 +124,7 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
 // day node-kind → ArkUI_NodeType.
 static ArkUI_NodeType kind_map(int32_t k) {
     switch (k) {
-        case 0: return ARKUI_NODE_STACK;   // container (day owns absolute layout)
+        case 0: return ARKUI_NODE_STACK;   // container (day owns absolute layout); also DIVIDER
         case 1: return ARKUI_NODE_TEXT;    // label
         case 2: return ARKUI_NODE_BUTTON;  // button
         case 3: return ARKUI_NODE_TEXT_INPUT;
@@ -107,8 +132,13 @@ static ArkUI_NodeType kind_map(int32_t k) {
         case 5: return ARKUI_NODE_SLIDER;
         case 6: return ARKUI_NODE_SCROLL;
         case 7: return ARKUI_NODE_COLUMN;
-        case 8: return ARKUI_NODE_LOADING_PROGRESS;
+        case 8: return ARKUI_NODE_LOADING_PROGRESS;  // indeterminate spinner
         case 9: return ARKUI_NODE_IMAGE;  // image (by name, addressed via resource://RAWFILE)
+        case 10: return ARKUI_NODE_CUSTOM;    // canvas (§11): custom node + on-draw callback
+        case 11: return ARKUI_NODE_PROGRESS;  // determinate progress bar
+        case 12: return ARKUI_NODE_SWIPER;    // tabs pager
+        case 13: return ARKUI_NODE_LIST;      // recycling list (NodeAdapter)
+        case 14: return ARKUI_NODE_LIST_ITEM; // one recycled list row
         default: return ARKUI_NODE_STACK;
     }
 }
@@ -199,9 +229,71 @@ void day_ark_set_frame(void* n, double x, double y, double w, double h) {
     set_f32(n, NODE_HEIGHT, (float)h);
 }
 void day_ark_set_bg_color(void* n, uint32_t argb) { set_u32(n, NODE_BACKGROUND_COLOR, argb); }
+// Explicit size only (no NODE_POSITION) — for children whose parent owns their placement (Swiper).
+void day_ark_set_size(void* n, double w, double h) {
+    set_f32(n, NODE_WIDTH, (float)w);
+    set_f32(n, NODE_HEIGHT, (float)h);
+}
 void day_ark_set_font_size(void* n, double vp) { set_f32(n, NODE_FONT_SIZE, (float)vp); }
 void day_ark_set_font_color(void* n, uint32_t argb) { set_u32(n, NODE_FONT_COLOR, argb); }
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
+
+// Determinate progress bar: ArkUI uses a value in [0, total]; day passes the 0..1 fraction, so
+// scale onto a fixed 0..1000 range (like day-android's LinearProgressIndicator ticks).
+void day_ark_set_progress(void* n, double fraction) {
+    set_f32(n, NODE_PROGRESS_TOTAL, 1000.0f);
+    float v = (float)(fraction < 0 ? 0 : fraction > 1 ? 1 : fraction) * 1000.0f;
+    set_f32(n, NODE_PROGRESS_VALUE, v);
+}
+
+// Visibility: 0 = VISIBLE, else NONE (removed from layout — used to show one TABS page at a time).
+void day_ark_set_visibility(void* n, int32_t visible) {
+    ArkUI_NumberValue nv;
+    nv.i32 = visible ? ARKUI_VISIBILITY_VISIBLE : ARKUI_VISIBILITY_NONE;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_VISIBILITY, &it);
+}
+
+// The active tab/page index for a Swiper (NODE_SWIPER_INDEX).
+void day_ark_set_swiper_index(void* n, int32_t i) {
+    ArkUI_NumberValue nv;
+    nv.i32 = i;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SWIPER_INDEX, &it);
+}
+
+// Configure a Swiper used as a tab pager: show the dot indicator, don't loop.
+void day_ark_swiper_setup(void* n) {
+    ArkUI_NumberValue ind[1];
+    ind[0].i32 = 1; // show indicator
+    ArkUI_AttributeItem iit{};
+    iit.value = ind;
+    iit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SWIPER_SHOW_INDICATOR, &iit);
+    ArkUI_NumberValue loop[1];
+    loop[0].i32 = 0; // no wraparound
+    ArkUI_AttributeItem lit{};
+    lit.value = loop;
+    lit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SWIPER_LOOP, &lit);
+}
+
+// Accessibility (§13): NODE_ACCESSIBILITY_TEXT is the label a screen reader announces;
+// hidden removes the node (and its subtree) from the accessibility tree via NODE_ACCESSIBILITY_MODE.
+void day_ark_set_a11y(void* n, const char* label, int32_t hidden) {
+    if (label && *label) set_str(n, NODE_ACCESSIBILITY_TEXT, label);
+    ArkUI_NumberValue nv;
+    // ArkUI_AccessibilityMode: 0 = AUTO, 1 = ENABLED, 2 = DISABLED, 3 = DISABLED_FOR_DESCENDANTS.
+    nv.i32 = hidden ? 3 : 0;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_ACCESSIBILITY_MODE, &it);
+}
 
 // Measure a node under a width/height proposal (<=0 means "unbounded"); result in vp.
 void day_ark_measure(void* n, double max_w, double max_h, double* out_w, double* out_h) {
@@ -231,6 +323,7 @@ void day_ark_register_event(void* n, int32_t kind, uint64_t id) {
         case 1: t = NODE_TEXT_INPUT_ON_CHANGE; break;
         case 2: t = NODE_TOGGLE_ON_CHANGE; break;
         case 3: t = NODE_SLIDER_EVENT_ON_CHANGE; break;
+        case 6: t = NODE_SWIPER_EVENT_ON_CHANGE; break;
         default: return;
     }
     g_api->registerNodeEvent((ArkUI_NodeHandle)n, t, 0, (void*)(uintptr_t)id);
@@ -358,6 +451,297 @@ void day_ark_res_close(void* handle) {
     if (tok->maplen) munmap(tok->base, tok->maplen);
     else free(tok->base);
     delete tok;
+}
+
+} // extern "C"
+
+// ---- canvas (§11): ARKUI_NODE_CUSTOM + on-draw via OH_Drawing --------------
+// day records a display list in day points (vp); the custom node's draw canvas is in px, so we push
+// a density scale first. The op encoding mirrors day_spec::encode_ops / DayCanvasView.java: 9 doubles
+// per op [kind,a,b,c,d,e,f,g,argb], with polygon points riding the 0x1F-joined text channel.
+struct CanvasOps {
+    std::vector<double> nums;
+    std::vector<std::string> texts;
+};
+static std::map<void*, CanvasOps> g_canvas; // custom node → its ops
+static const int32_t CANVAS_DRAW_TARGET = 77;
+
+static uint32_t argb_to_drawing(double bits) {
+    return (uint32_t)(int64_t)bits; // already 0xAARRGGBB
+}
+
+// Split the 0x1F-joined text channel into fields.
+static std::vector<std::string> split_texts(const std::string& joined) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    if (joined.empty()) return out;
+    for (size_t i = 0; i <= joined.size(); i++) {
+        if (i == joined.size() || joined[i] == '\x1f') {
+            out.push_back(joined.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    return out;
+}
+
+static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
+    auto it = g_canvas.find(node);
+    if (it == g_canvas.end()) return;
+    const std::vector<double>& n = it->second.nums;
+    const std::vector<std::string>& texts = it->second.texts;
+    OH_Drawing_Pen* pen = OH_Drawing_PenCreate();
+    OH_Drawing_PenSetAntiAlias(pen, true);
+    OH_Drawing_Brush* brush = OH_Drawing_BrushCreate();
+    OH_Drawing_BrushSetAntiAlias(brush, true);
+
+    // Base transform: scale vp → px so day's point-space ops land correctly.
+    OH_Drawing_CanvasSave(cv);
+    OH_Drawing_Matrix* scale = OH_Drawing_MatrixCreate();
+    float d = (float)g_density;
+    OH_Drawing_MatrixSetMatrix(scale, d, 0, 0, 0, d, 0, 0, 0, 1);
+    OH_Drawing_CanvasConcatMatrix(cv, scale);
+
+    size_t text_i = 0;
+    for (size_t i = 0; i + 8 < n.size(); i += 9) {
+        int kind = (int)n[i];
+        float a = (float)n[i + 1], b = (float)n[i + 2], c = (float)n[i + 3], dd = (float)n[i + 4];
+        float e = (float)n[i + 5], f = (float)n[i + 6], g = (float)n[i + 7];
+        uint32_t col = argb_to_drawing(n[i + 8]);
+        OH_Drawing_PenSetColor(pen, col);
+        OH_Drawing_PenSetWidth(pen, g > 0 ? g : 1.0f);
+        OH_Drawing_BrushSetColor(brush, col);
+        bool stroke = (kind == 1 || kind == 4 || kind == 5 || kind == 6 || kind == 12 || kind == 13);
+        if (stroke) OH_Drawing_CanvasAttachPen(cv, pen);
+        else OH_Drawing_CanvasAttachBrush(cv, brush);
+        switch (kind) {
+            case 0:
+            case 1: { // rect fill / stroke
+                OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                OH_Drawing_CanvasDrawRect(cv, r);
+                OH_Drawing_RectDestroy(r);
+                break;
+            }
+            case 2:
+            case 13: { // rounded rect fill / stroke (radius = e)
+                OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                OH_Drawing_RoundRect* rr = OH_Drawing_RoundRectCreate(r, e, e);
+                OH_Drawing_CanvasDrawRoundRect(cv, rr);
+                OH_Drawing_RoundRectDestroy(rr);
+                OH_Drawing_RectDestroy(r);
+                break;
+            }
+            case 3:
+            case 4: { // ellipse fill / stroke
+                OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                OH_Drawing_CanvasDrawOval(cv, r);
+                OH_Drawing_RectDestroy(r);
+                break;
+            }
+            case 5: { // arc (start=e sweep=f)
+                OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                OH_Drawing_CanvasDrawArc(cv, r, e, f);
+                OH_Drawing_RectDestroy(r);
+                break;
+            }
+            case 6: // line from (a,b) to (c,d)
+                OH_Drawing_CanvasDrawLine(cv, a, b, c, dd);
+                break;
+            case 7: { // text: size=e, anchor=f (0 leading, 1 centered); string on the text channel
+                std::string s = text_i < texts.size() ? texts[text_i++] : std::string();
+                OH_Drawing_Font* font = OH_Drawing_FontCreate();
+                OH_Drawing_FontSetTextSize(font, e);
+                OH_Drawing_TextBlob* blob = OH_Drawing_TextBlobCreateFromString(
+                    s.c_str(), font, TEXT_ENCODING_UTF8);
+                float x = a;
+                if (f == 1.0f) x = a - (float)s.size() * e * 0.28f; // rough centering
+                OH_Drawing_CanvasDrawTextBlob(cv, blob, x, b);
+                OH_Drawing_TextBlobDestroy(blob);
+                OH_Drawing_FontDestroy(font);
+                break;
+            }
+            case 8:
+                OH_Drawing_CanvasSave(cv);
+                break;
+            case 9:
+                OH_Drawing_CanvasRestore(cv);
+                break;
+            case 10: { // concat affine [a b c d tx ty] (day_geometry::Affine, column vectors)
+                OH_Drawing_Matrix* m = OH_Drawing_MatrixCreate();
+                OH_Drawing_MatrixSetMatrix(m, a, c, e, b, dd, f, 0, 0, 1);
+                OH_Drawing_CanvasConcatMatrix(cv, m);
+                OH_Drawing_MatrixDestroy(m);
+                break;
+            }
+            case 11:
+            case 12: { // polygon fill / stroke — points ride the text channel as "x,y x,y …"
+                std::string pts = text_i < texts.size() ? texts[text_i++] : std::string();
+                OH_Drawing_Path* path = OH_Drawing_PathCreate();
+                bool first = true;
+                size_t p = 0;
+                while (p < pts.size()) {
+                    size_t sp = pts.find(' ', p);
+                    std::string tok = pts.substr(p, sp == std::string::npos ? sp : sp - p);
+                    size_t comma = tok.find(',');
+                    if (comma != std::string::npos) {
+                        float px = strtof(tok.substr(0, comma).c_str(), nullptr);
+                        float py = strtof(tok.substr(comma + 1).c_str(), nullptr);
+                        if (first) { OH_Drawing_PathMoveTo(path, px, py); first = false; }
+                        else OH_Drawing_PathLineTo(path, px, py);
+                    }
+                    if (sp == std::string::npos) break;
+                    p = sp + 1;
+                }
+                OH_Drawing_PathClose(path);
+                OH_Drawing_CanvasDrawPath(cv, path);
+                OH_Drawing_PathDestroy(path);
+                break;
+            }
+            default:
+                break;
+        }
+        if (stroke) OH_Drawing_CanvasDetachPen(cv);
+        else OH_Drawing_CanvasDetachBrush(cv);
+    }
+    OH_Drawing_CanvasRestore(cv);
+    OH_Drawing_MatrixDestroy(scale);
+    OH_Drawing_PenDestroy(pen);
+    OH_Drawing_BrushDestroy(brush);
+}
+
+static void canvas_custom_receiver(ArkUI_NodeCustomEvent* ev) {
+    if (!ev) return;
+    if (OH_ArkUI_NodeCustomEvent_GetEventType(ev) != ARKUI_NODE_CUSTOM_EVENT_ON_DRAW) return;
+    void* node = OH_ArkUI_NodeCustomEvent_GetUserData(ev);
+    ArkUI_DrawContext* dc = OH_ArkUI_NodeCustomEvent_GetDrawContextInDraw(ev);
+    if (!dc) return;
+    OH_Drawing_Canvas* cv = (OH_Drawing_Canvas*)OH_ArkUI_DrawContext_GetCanvas(dc);
+    if (cv) canvas_draw(node, cv);
+}
+
+extern "C" {
+
+// Register the on-draw custom-event receiver for a canvas custom node.
+void day_ark_canvas_init(void* node) {
+    if (!g_api || !node) return;
+    g_api->addNodeCustomEventReceiver((ArkUI_NodeHandle)node, canvas_custom_receiver);
+    g_api->registerNodeCustomEvent((ArkUI_NodeHandle)node, ARKUI_NODE_CUSTOM_EVENT_ON_DRAW,
+                                   CANVAS_DRAW_TARGET, node);
+}
+
+// Store the encoded display list for `node` and request a repaint.
+void day_ark_set_canvas_ops(void* node, const double* nums, uint32_t count, const char* texts) {
+    CanvasOps ops;
+    ops.nums.assign(nums, nums + count);
+    ops.texts = split_texts(texts ? texts : "");
+    g_canvas[node] = std::move(ops);
+    if (g_api) g_api->markDirty((ArkUI_NodeHandle)node, NODE_NEED_RENDER);
+}
+
+// ---- recycling list: ARKUI_NODE_LIST + a NodeAdapter -----------------------
+// A cell is a LIST_ITEM wrapping an inner Stack that day mounts the row subtree into. Cells scrolled
+// out of view are pushed to a REUSE POOL rather than disposed — so the inner Stack pointer stays
+// stable and day-core's cell cache rebinds it (day's `recycle` is a no-op; cells "stay cached").
+struct DayList {
+    ArkUI_NodeAdapterHandle adapter;
+    uint64_t host_id;
+    float row_h; // px; 0 = content-sized
+    std::vector<ArkUI_NodeHandle> pool;
+};
+static std::map<void*, DayList*> g_lists; // list node → its adapter binding
+
+static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
+    auto* dl = (DayList*)OH_ArkUI_NodeAdapterEvent_GetUserData(ev);
+    if (!dl) return;
+    switch (OH_ArkUI_NodeAdapterEvent_GetType(ev)) {
+        case NODE_ADAPTER_EVENT_ON_GET_NODE_ID:
+            OH_ArkUI_NodeAdapterEvent_SetNodeId(ev, OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev));
+            break;
+        case NODE_ADAPTER_EVENT_ON_ADD_NODE_TO_ADAPTER: {
+            uint32_t idx = OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev);
+            ArkUI_NodeHandle cell;
+            if (!dl->pool.empty()) {
+                cell = dl->pool.back();
+                dl->pool.pop_back();
+            } else {
+                cell = g_api->createNode(ARKUI_NODE_LIST_ITEM);
+                ArkUI_NodeHandle inner = g_api->createNode(ARKUI_NODE_STACK);
+                if (dl->row_h > 0) {
+                    set_f32(cell, NODE_HEIGHT, dl->row_h / g_density);
+                    set_f32(inner, NODE_HEIGHT, dl->row_h / g_density);
+                }
+                g_api->addChild(cell, inner);
+            }
+            ArkUI_NodeHandle inner = g_api->getChildAt(cell, 0);
+            day_arkui_list_bind(dl->host_id, idx, inner); // build (fresh) or rebind (recycled)
+            OH_ArkUI_NodeAdapterEvent_SetItem(ev, cell);
+            break;
+        }
+        case NODE_ADAPTER_EVENT_ON_REMOVE_NODE_FROM_ADAPTER: {
+            // Return the cell to the pool for reuse; keep the inner Stack + day's cache intact.
+            ArkUI_NodeHandle removed = OH_ArkUI_NodeAdapterEvent_GetRemovedNode(ev);
+            if (removed) dl->pool.push_back(removed);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp) {
+    if (!g_api || !node) return;
+    DayList* dl = new DayList{OH_ArkUI_NodeAdapter_Create(), host_id,
+                              (float)(row_h_vp * g_density), {}};
+    OH_ArkUI_NodeAdapter_RegisterEventReceiver(dl->adapter, dl, list_adapter_receiver);
+    g_lists[node] = dl;
+    ArkUI_AttributeItem it{};
+    it.object = dl->adapter;
+    g_api->setAttribute((ArkUI_NodeHandle)node, NODE_LIST_NODE_ADAPTER, &it);
+}
+
+// Re-query the row count (the adapter re-fetches its visible cells).
+void day_ark_list_reload(void* node) {
+    auto it = g_lists.find(node);
+    if (it == g_lists.end()) return;
+    uint32_t count = day_arkui_list_count(it->second->host_id);
+    OH_ArkUI_NodeAdapter_SetTotalNodeCount(it->second->adapter, count);
+}
+
+// Scroll the list so its last row is fully visible (docs/list.md, chat "stick to bottom").
+void day_ark_list_scroll_to_end(void* node) {
+    auto it = g_lists.find(node);
+    if (it == g_lists.end()) return;
+    int32_t last = (int32_t)OH_ArkUI_NodeAdapter_GetTotalNodeCount(it->second->adapter) - 1;
+    if (last < 0) return;
+    ArkUI_NumberValue v[1];
+    v[0].i32 = last;
+    ArkUI_AttributeItem item{};
+    item.value = v;
+    item.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)node, NODE_LIST_SCROLL_TO_INDEX, &item);
+}
+
+// A NAV_MENU / tab-bar row: full width, fixed height, left-aligned text with padding.
+void day_ark_style_row(void* n, double height_vp) {
+    ArkUI_NumberValue wp[1];
+    wp[0].f32 = 1.0f; // 100% of the parent width
+    ArkUI_AttributeItem wit{};
+    wit.value = wp;
+    wit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_WIDTH_PERCENT, &wit);
+    set_f32(n, NODE_HEIGHT, (float)height_vp);
+    ArkUI_NumberValue pad[1];
+    pad[0].f32 = 16.0f;
+    ArkUI_AttributeItem pit{};
+    pit.value = pad;
+    pit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_PADDING, &pit);
+    // NODE_TEXT_ALIGN: 0 = START (left).
+    ArkUI_NumberValue ta[1];
+    ta[0].i32 = 0;
+    ArkUI_AttributeItem tit{};
+    tit.value = ta;
+    tit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_ALIGN, &tit);
 }
 
 } // extern "C"
