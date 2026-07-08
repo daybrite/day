@@ -69,10 +69,13 @@ cd apps/day-arkui-demo/harmony
 ohpm install
 hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
 
-# 3) Sign it with the bundled default OpenHarmony DEBUG material (no account/secrets needed).
-#    sign-hap.sh runs generate-app-cert + sign-profile + sign-app for this bundle id:
-./sign-hap.sh entry/build/*/outputs/*/entry-default-unsigned.hap \
-  entry/build/day-arkui-demo-signed.hap dev.daybrite.day.arkui.demo
+# 3) Patch + sign it with the OpenHarmony public RELEASE material (no account/secrets needed).
+#    sign-hap.mjs rewrites module.json's compileSdkType to "OpenHarmony" so the emulator skips
+#    code-sign verification (an OpenHarmony device does not trust the public cert's code signature —
+#    install error 9568393 — but skips the check entirely for OpenHarmony-declared apps), then signs
+#    the provision profile + the .hap. Run from the harmony/ project (it reads AppScope/app.json5):
+node sign-hap.mjs entry/build/*/outputs/*/entry-default-unsigned.hap \
+  entry/build/day-arkui-demo-signed.hap
 
 # 4) Launch the HarmonyOS emulator, then install/run:
 hdc install entry/build/day-arkui-demo-signed.hap
@@ -91,11 +94,10 @@ x86_64), exporting `day_arkui_start` / `day_arkui_on_event` and registering the 
 The ArkTS host project + `build.sh` assemble the `.so` into a DevEco-buildable project.
 
 **Packaging + signing now run headlessly** via the command-line-tools (see Build & run) — no Huawei
-developer account: hvigor assembles the `.hap` and `sign-hap.sh` signs it with the bundled default
-debug material. What still needs real hardware is **running on the emulator** (the HarmonyOS emulator
-ships with DevEco Studio, Huawei-account-gated; no HarmonyOS emulator is connectable to `hdc` in this
-sandbox). The `day` CLI registers the `ohos-arkui` target (end-to-end build/launch orchestration
-through hvigor is a follow-up); today the flow is the `harmony/` scripts above or DevEco Studio.
+developer account: hvigor assembles the `.hap` and `sign-hap.mjs` patches (compileSdkType →
+OpenHarmony) + signs it with the public release material. On CI the `day` CLI drives the whole flow
+(`day launch -p ohos-arkui`) against the openharmony-rs/emulator-action Oniro emulator; locally the
+`harmony/` scripts above or DevEco Studio work too.
 
 ## CI
 
@@ -106,12 +108,13 @@ The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubunt
 1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
    the emulator (x86_64) and device (arm64) using the CLT's native NDK clang;
 2. `ohpm install`, then `hvigorw assembleHap` — a genuine hvigor build of the ArkTS host + `.hap`;
-3. sign the `.hap` with the bundled default debug material (`sign-hap.sh`), uploaded as an artifact.
+3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
+   material), then install/launch it on the openharmony-rs/emulator-action Oniro emulator over `hdc`
+   and drive the dayscript walkthrough, uploading screenshots for the gallery — like the other targets.
 
-The final step **tries** a run against a locally-configured HarmonyOS emulator (`hdc install` → launch
-→ snapshot); it no-ops on a stock GitHub runner (no HarmonyOS target connected) and lights up on a
-**self-hosted runner** with a booted emulator. A pre-set `DEVECO_SDK_HOME`/`OHOS_NDK_HOME` (a
-self-hosted DevEco install) is used as-is.
+Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it install: the emulator
+enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
+verification for OpenHarmony-declared apps on devices without Huawei OH code signing.
 
 ## Follow-ups
 

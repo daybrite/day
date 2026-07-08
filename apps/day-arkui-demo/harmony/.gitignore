@@ -8,6 +8,3 @@ oh_modules/
 local.properties
 *.p7b
 
-# Signing material, regenerated each build by setup-signing.mjs from the SDK certs + fixed cipher
-# material (keystore/profile-cert copies, the signed provision profile, and material/).
-signatures/
