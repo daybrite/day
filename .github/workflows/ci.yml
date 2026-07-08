@@ -34,65 +34,25 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  # `--workspace` cannot compile here: cargo feature unification would enable several `day`
-  # backend features at once and trip the one-backend-per-binary compile_error! guard (§3).
-  # Instead clippy runs once per backend feature selection; together the runs cover every
-  # workspace crate that compiles on Linux (day-appkit/day-uikit are cfg-empty off their
-  # platforms; the macos job lints those).
-  clippy:
-    name: clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: aarch64-linux-android
-      - uses: Swatinem/rust-cache@v2
-      - name: Install GTK 4 and Qt 6 dev libraries
-        run: |
-          sudo apt-get update
-          # WebKitGTK 6 (GTK web view) + Qt WebEngine (Qt web view) for day-piece-webview.
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-4-dev libadwaita-1-dev qt6-base-dev pkg-config \
-            libwebkitgtk-6.0-dev qt6-webengine-dev
-      - name: Clippy (host-portable crates)
-        run: cargo clippy --locked --all-targets
-      - name: Clippy (day CLI + dayscript)
-        run: cargo clippy --locked -p day-cli -p day-script --all-targets
-      - name: Clippy (gtk / qt / mock backends)
-        run: |
-          for feature in gtk qt mock; do
-            cargo clippy --locked -p showcase --no-default-features --features "$feature" --all-targets
-          done
-      - name: Clippy (android backend, cross-check)
-        run: |
-          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
-            --no-default-features --features widget
-      # day-part-battery is headless (no toolkit feature) — lint its Linux + Android impls here; the
-      # macOS/iOS/Windows impls compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
-      - name: Clippy (day-part-battery, headless)
-        run: |
-          cargo clippy --locked -p day-part-battery --all-targets
-          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
-
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
   # Each: installs the toolkit's deps, tests the host-portable crates, builds and
   # launches the showcase for the combo, drives the dayscript walkthrough, and
   # uploads that combo's screenshots (screenshots-<combo>). Gated on the fast
-  # checks (fmt/clippy/msrv). The apple/winui backends are cfg-empty on the ubuntu
-  # clippy job, so those combos re-run clippy on their native runner.
+  # checks (fmt/msrv). Clippy runs inside the build jobs: each combo lints its own
+  # backend feature (a `--workspace` clippy cannot compile — feature unification
+  # would enable several `day` backends at once and trip the one-backend-per-binary
+  # compile_error! guard, §3), and linux-day carries the host-portable lints.
   # ===========================================================================
 
   # --- day CLI: cross-compiled release builds, shared as artifacts ----------
-  # First wave (no `needs:`), alongside rustfmt/clippy. Each host job cross-compiles the day CLI for
+  # Runs right after the fast checks (fmt/msrv). Each host job cross-compiles the day CLI for
   # BOTH x86_64 and aarch64 of its OS (fail-fast: false → the two arches are independent) and uploads
   # each as `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64). The per-platform jobs below
   # DOWNLOAD the artifact matching their own runner's os+arch instead of rebuilding day-cli.
   macos-day:
     name: macos-day (${{ matrix.arch }})
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, msrv]
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -116,7 +76,7 @@ jobs:
 
   linux-day:
     name: linux-day (${{ matrix.arch }})
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, msrv]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -129,7 +89,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+      # The Linux lints that need no toolkit libraries ride this job (x86_64 leg only — they are
+      # arch-independent): the host-portable crates, the CLI + dayscript, and the mock backend.
+      - name: Clippy (host-portable crates, CLI, mock backend)
+        if: matrix.arch == 'x86_64'
+        run: |
+          cargo clippy --locked --all-targets
+          cargo clippy --locked -p day-cli -p day-script --all-targets
+          cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
+      # The Android cross-check lint also gates HERE (the android-widget job is continue-on-error
+      # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
+      # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls
+      # compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
+      - name: Clippy (android cross-check + day-part-battery)
+        if: matrix.arch == 'x86_64'
+        run: |
+          rustup target add aarch64-linux-android
+          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
+            --no-default-features --features widget
+          cargo clippy --locked -p day-part-battery --all-targets
+          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
       # Cross to aarch64 needs a cross-linker (+ C cross-compiler for any build-script C) AND the
       # aarch64 libc dev files — gcc-aarch64-linux-gnu ships the compiler/linker but NOT the target
       # CRT startup objects (Scrt1.o/crti.o/crtn.o) + libc that the final link needs; those live in
@@ -154,7 +135,7 @@ jobs:
 
   windows-day:
     name: windows-day (${{ matrix.arch }})
-    needs: [fmt, clippy, msrv]
+    needs: [fmt, msrv]
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -352,6 +333,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install toolkit deps
         run: |
@@ -363,6 +346,10 @@ jobs:
           esac
       - name: Test host-portable crates
         run: cargo test --locked
+      # Each combo lints its own backend feature (the toolkit dev libs are installed above; a
+      # workspace-wide clippy cannot compile — see the section comment).
+      - name: Clippy (${{ matrix.toolkit }} backend)
+        run: cargo clippy --locked -p showcase --no-default-features --features ${{ matrix.toolkit }} --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v7
         with:
