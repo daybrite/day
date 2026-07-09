@@ -1,13 +1,13 @@
-# Day — Rising Sun icon exports
+# Day — Ember Dawn (4d) icon exports
 
-Master art: `day-icon.svg` (rounded square, gold #D2A94F on warm black #14110C).
+Master art: `day-icon.svg` — rising-sun / rotated-D dome in a rust→amber gradient (#B7410E → #EFA94A), amber alternating long/short rays, ember horizon (#D95B29), charcoal ground (#201512).
 
 ## iOS (`ios/`)
 - `AppIcon-1024.png` — full-bleed square, no transparency. Drop into Xcode's AppIcon asset (single 1024 size); iOS applies its own corner mask.
 
 ## Android (`android/`)
 - `ic_launcher_foreground.svg/png` (432×432, 108dp adaptive canvas, motif inside the 66dp safe zone, transparent bg)
-- `ic_launcher_background.svg/png` (solid #14110C)
+- `ic_launcher_background.svg/png` (solid #201512)
 - `ic_launcher-legacy-192.png` — legacy launcher fallback
 - `play-store-512.png` — Play listing icon (full-bleed, opaque)
 

@@ -1,11 +1,11 @@
 ---
-// The Day mark: an art-deco "rising sun" — a gold sunburst on warm black, the same icon the
-// Showcase app uses (master art: apps/showcase/icons/day-icon.svg). Inline SVG so it stays crisp at
-// any size and needs no network request. `cid` keeps the clip-path id unique per instance (the mark
-// renders several times per page).
+// The Day mark: an "Ember Dawn" rising sun — a rust→amber gradient dome under amber rays on a
+// charcoal ground, the same icon the Showcase app uses (master art: apps/showcase/icons/day-icon.svg).
+// Inline SVG so it stays crisp at any size and needs no network request. `gid` keeps the gradient id
+// unique per instance (the mark renders several times per page, and a shared id would cross-wire them).
 interface Props { size?: number; class?: string }
 const { size = 28, class: cls = '' } = Astro.props;
-const cid = 'dayclip-' + Math.random().toString(36).slice(2, 8);
+const gid = 'daygrad-' + Math.random().toString(36).slice(2, 8);
 ---
 <svg
   width={size}
@@ -17,24 +17,26 @@ const cid = 'dayclip-' + Math.random().toString(36).slice(2, 8);
   xmlns="http://www.w3.org/2000/svg"
 >
   <defs>
-    <clipPath id={cid}><rect x="13" y="13" width="94" height="94" rx="16" /></clipPath>
+    <linearGradient id={gid} x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#B7410E" />
+      <stop offset="1" stop-color="#EFA94A" />
+    </linearGradient>
   </defs>
-  <rect x="0" y="0" width="120" height="120" rx="27" fill="#14110C" />
-  <rect x="8" y="8" width="104" height="104" rx="20" fill="none" stroke="#D2A94F" stroke-width="2.5" />
-  <!-- sunburst rays, clipped to the inner rounded square -->
-  <g clip-path={`url(#${cid})`} stroke="#D2A94F" stroke-width="6">
-    <line x1="60" y1="44" x2="60" y2="16" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(20 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-20 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(40 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-40 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(60 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-60 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(80 60 78)" />
-    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-80 60 78)" />
+  <rect x="0" y="0" width="120" height="120" rx="27" fill="#201512" />
+  <!-- amber rays, alternating long/short -->
+  <g stroke="#EFA94A" stroke-width="6" stroke-linecap="round">
+    <line x1="60" y1="48" x2="60" y2="30" />
+    <line x1="60" y1="48" x2="60" y2="40" transform="rotate(20 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="40" transform="rotate(-20 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="30" transform="rotate(40 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="30" transform="rotate(-40 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="40" transform="rotate(60 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="40" transform="rotate(-60 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="30" transform="rotate(80 60 78)" />
+    <line x1="60" y1="48" x2="60" y2="30" transform="rotate(-80 60 78)" />
   </g>
-  <!-- rising sun + two horizon lines -->
-  <path d="M38 78 A22 22 0 0 1 82 78 Z" fill="#D2A94F" />
-  <line x1="28" y1="88" x2="92" y2="88" stroke="#D2A94F" stroke-width="4" />
-  <line x1="38" y1="96" x2="82" y2="96" stroke="#D2A94F" stroke-width="4" />
+  <!-- gradient dome + two ember horizon lines -->
+  <path d="M38 78 A22 22 0 0 1 82 78 Z" fill={`url(#${gid})`} stroke={`url(#${gid})`} stroke-width="5" stroke-linejoin="round" />
+  <line x1="28" y1="90" x2="92" y2="90" stroke="#D95B29" stroke-width="4" stroke-linecap="round" />
+  <line x1="38" y1="98" x2="82" y2="98" stroke="#D95B29" stroke-width="4" stroke-linecap="round" />
 </svg>
