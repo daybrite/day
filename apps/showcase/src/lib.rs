@@ -1052,7 +1052,10 @@ fn compose_page() -> AnyPiece {
     // `bind` pushes each newly-tapped value into `rating_text`, so tapping a star updates the field.
     let stars = Signal::new(3usize);
     let rating_text = Signal::new(stars.get().to_string());
-    bind(move || stars.get(), move |n: &usize| rating_text.set(n.to_string()));
+    bind(
+        move || stars.get(),
+        move |n: &usize| rating_text.set(n.to_string()),
+    );
     // A custom ambient value flowed via `with_environment` and read back by a descendant.
     #[derive(Clone, Copy)]
     struct Accent(Color);

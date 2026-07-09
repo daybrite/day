@@ -99,11 +99,10 @@ impl Piece for Rating {
         } = self;
         let stars: Vec<AnyPiece> = (0..max as usize)
             .map(|i| {
-                let s = star(i, value, star_size, color, editable);
-                match &id_prefix {
-                    Some(p) => s.id(format!("{p}:{}", i + 1)),
-                    None => s,
-                }
+                // The per-star id goes ON THE CANVAS LEAF (inside `star`), not on the frame wrapper,
+                // so a dayscript `tap prefix:N` reaches the same node the tap handler lives on.
+                let id = id_prefix.as_ref().map(|p| format!("{p}:{}", i + 1));
+                star(i, value, star_size, color, editable, id)
             })
             .collect();
         let stars = row(PieceVec(stars)).spacing((star_size * 0.15).max(2.0));
@@ -116,8 +115,15 @@ impl Piece for Rating {
 
 /// One star: a fixed-size [`canvas`] that fills a 5-point polygon when `index < value`, else strokes
 /// it (an empty outline). Editable stars carry an `on_tap` that sets the signal to `index + 1`.
-fn star(index: usize, value: Signal<usize>, size: f64, color: Color, editable: bool) -> AnyPiece {
-    let star = canvas(move |d, sz| {
+fn star(
+    index: usize,
+    value: Signal<usize>,
+    size: f64,
+    color: Color,
+    editable: bool,
+    id: Option<String>,
+) -> AnyPiece {
+    let draw = canvas(move |d, sz| {
         let pts = star_points(sz);
         // Stars 1..=value are filled; `index` is 0-based, so filled when `index < value`.
         if index < value.get() {
@@ -126,13 +132,22 @@ fn star(index: usize, value: Signal<usize>, size: f64, color: Color, editable: b
             let width = (sz.width.min(sz.height) * 0.08).max(1.5);
             d.stroke(Shape::Polygon(pts), color, width);
         }
-    })
-    .frame(size, size);
-    if editable {
-        star.on_tap(move || value.set(index + 1))
+    });
+    // The id AND the `.on_tap` MUST be applied to the canvas LEAF, BEFORE `.frame`. `.frame` wraps
+    // its content in a layout-only sizing node with no native view — a gesture (or a dayscript tap
+    // addressed by id) attached to *that* wrapper never fires, because the click lands on the real
+    // canvas view underneath and the tap handler lives on the canvas node. So tag + wire the canvas,
+    // then size it. (The shapes page does the same for exactly this reason.)
+    let leaf = match id {
+        Some(id) => draw.id(id),
+        None => draw,
+    };
+    let leaf = if editable {
+        leaf.on_tap(move || value.set(index + 1))
     } else {
-        star
-    }
+        leaf
+    };
+    leaf.frame(size, size)
 }
 
 /// The 10 vertices of a 5-point star inscribed in `size`, centered, pointing up. Even indices sit on
