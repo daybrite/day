@@ -46,7 +46,8 @@ picker-inline = Inline
 
 compose-caption = Pure-composition pieces — no native code, no cargo features, every backend for free.
 compose-rating-label = Star rating
-compose-rating-value = Rating: { $value } / 5
+compose-rating-count = Stars selected:
+compose-rating-placeholder = 1–5
 compose-card-label = Card modifier
 compose-card-title = Reusable surface
 compose-card-body = Padding + background + rounded corners, applied as a Modifier.

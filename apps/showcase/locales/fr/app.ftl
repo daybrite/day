@@ -46,7 +46,8 @@ picker-inline = Aligné
 
 compose-caption = Pièces de pure composition — sans code natif, sans fonctionnalités cargo, sur tous les backends gratuitement.
 compose-rating-label = Note en étoiles
-compose-rating-value = Note : { $value } / 5
+compose-rating-count = Étoiles sélectionnées :
+compose-rating-placeholder = 1–5
 compose-card-label = Modificateur Carte
 compose-card-title = Surface réutilisable
 compose-card-body = Marge + arrière-plan + coins arrondis, appliqués comme Modificateur.

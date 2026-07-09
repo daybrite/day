@@ -1048,8 +1048,11 @@ fn pickers_page() -> AnyPiece {
 /// dependency with no per-backend feature wiring, so it works on every backend for free; native
 /// pieces are the exception, not the rule.
 fn compose_page() -> AnyPiece {
-    // A shared rating signal, driven by tapping stars and read back by the value label.
+    // A shared rating signal, driven by tapping stars. Its count is mirrored into a text field:
+    // `bind` pushes each newly-tapped value into `rating_text`, so tapping a star updates the field.
     let stars = Signal::new(3usize);
+    let rating_text = Signal::new(stars.get().to_string());
+    bind(move || stars.get(), move |n: &usize| rating_text.set(n.to_string()));
     // A custom ambient value flowed via `with_environment` and read back by a descendant.
     #[derive(Clone, Copy)]
     struct Accent(Color);
@@ -1060,15 +1063,17 @@ fn compose_page() -> AnyPiece {
             .font(Font::Title)
             .id("compose-title"),
         label(tr("compose-caption")),
-        // 1) Interactive star rating (canvas-polygon compose piece) + live value label.
+        // 1) Interactive star rating (canvas-polygon compose piece): tap a star, and the text field
+        //    beside "Stars selected:" updates with the count (the `bind` above drives it).
         label(tr("compose-rating-label")).font(Font::Headline),
         rating(stars).id("compose-rating"),
-        label(move || {
-            tr("compose-rating-value")
-                .arg("value", stars.get() as i64)
-                .format()
-        })
-        .id("compose-rating-value"),
+        row((
+            label(tr("compose-rating-count")),
+            text_field(rating_text)
+                .placeholder(tr("compose-rating-placeholder"))
+                .id("compose-rating-value"),
+        ))
+        .spacing(8.0),
         // 2) Card modifier — a reusable surface wrapping arbitrary content.
         label(tr("compose-card-label")).font(Font::Headline),
         column((

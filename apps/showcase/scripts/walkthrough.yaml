@@ -150,7 +150,8 @@ flow:
   - assert_route: { route: compose }
   - assert_visible: { id: compose-title }
   - tap: { id: "compose-rating:4" }
-  - assert_text: { id: compose-rating-value, key: compose-rating-value, args: { value: 4 } }
+  # The star tap drives the bound text field (id compose-rating-value) to the selected count.
+  - assert_text: { id: compose-rating-value, text: "4" }
   - screenshot: compose
   # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
   - navigate: { route: modals }

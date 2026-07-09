@@ -28,8 +28,9 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, FontSpec, NodeId, PieceKind,
-        Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, FontSpec, GestureKind, NodeId,
+        PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit,
+        WindowOptions, kinds,
     };
 
     /// An `ArkUI_NodeHandle`. day owns the tree, so the raw pointer is the identity.
@@ -63,6 +64,14 @@ mod imp {
         /// them but does not position them.
         static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
+        /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
+        /// (not `Event::Pressed`) — how a canvas/shape `.on_tap` (e.g. day-piece-rating's stars)
+        /// receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`day_arkui_on_event`].
+        static TAP_NODES: RefCell<std::collections::HashSet<u64>> =
+            RefCell::new(std::collections::HashSet::new());
+        /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
+        /// matching TAP_NODES entry (else a recycling list would grow the set unbounded).
+        static TAP_HANDLES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     }
 
     /// Build a NAV_MENU: a scrollable column of tappable rows. Each row's tap becomes a synthetic
@@ -176,6 +185,11 @@ mod imp {
             && let Some((menu, index)) = MENU_ROWS.with(|m| m.borrow().get(&id).copied())
         {
             emit(menu, Event::SelectionChanged(index));
+            return;
+        }
+        // A node with a registered Tap gesture emits `Event::Tap`, not `Event::Pressed`.
+        if kind == 0 && TAP_NODES.with(|s| s.borrow().contains(&id)) {
+            emit(NodeId(id), Event::Tap(Point::ZERO));
             return;
         }
         let node = NodeId(id);
@@ -560,6 +574,11 @@ mod imp {
             TABS_PAGES.with(|s| {
                 s.borrow_mut().remove(&key);
             });
+            if let Some(nid) = TAP_HANDLES.with(|m| m.borrow_mut().remove(&key)) {
+                TAP_NODES.with(|s| {
+                    s.borrow_mut().remove(&nid);
+                });
+            }
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);
@@ -640,6 +659,17 @@ mod imp {
             let label = a11y.label.as_deref().unwrap_or("");
             let hidden = (a11y.hidden || a11y.decorative) as c_int;
             unsafe { ffi::day_ark_set_a11y(h.0, cstr(label).as_ptr(), hidden) };
+        }
+
+        fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: GestureKind) {
+            // Tap is a NODE_ON_CLICK that emits `Event::Tap` (tracked in TAP_NODES so the shared
+            // click receiver knows to send Tap, not Pressed). Long-press / drag aren't wired on
+            // ArkUI yet — a piece that needs them degrades to no gesture.
+            if matches!(kind, GestureKind::Tap) {
+                TAP_NODES.with(|s| s.borrow_mut().insert(node.0));
+                TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node.0));
+                unsafe { ffi::day_ark_register_event(h.0, 0, node.0) };
+            }
         }
 
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
