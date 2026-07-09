@@ -8,9 +8,10 @@ name: ci
 on:
   push:
     branches: [main]
-    # Semantic-release tags run ONLY fmt/msrv → the 3×2 day-CLI builds → release-cli
-    # (the per-combo walkthrough jobs skip tag refs — the tagged commit was already
-    # validated on main).
+    # Semantic-release tags run the release pipeline INSTEAD of the per-combo walkthrough
+    # jobs (the tagged commit was already validated on main): fmt/msrv → the 3×2 day-CLI
+    # release builds → the pack-* packaging jobs → the final `release` job, which drafts
+    # the GitHub release with CLI binaries, installers, app packages, and attestations.
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
@@ -161,17 +162,345 @@ jobs:
           path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
-  # --- CLI release: on a semantic-release tag, publish the day CLI ----------
-  # Downloads the six day-<os>-<arch> artifacts from the 3×2 build jobs above, repackages them
-  # as target-triple archives, renders the installer scripts + Homebrew formula from
-  # scripts/release/templates (cargo-dist style: version/URLs/sizes/checksums baked in),
-  # attests build provenance for every file, and attaches everything to a draft GitHub
-  # release for the tag. Coexists with release.yml (showcase packages): whichever job runs
-  # first creates the release, the other uploads into it.
-  release-cli:
-    name: release (day CLI)
+  # ===========================================================================
+  # Release pipeline — runs ONLY on semantic-release tag pushes (vX.Y.Z), where
+  # the per-combo walkthrough jobs are skipped (the tagged commit was already
+  # validated on main). The pack-* jobs below download the day CLI binaries the
+  # 3×2 *-day release builds above produced and use THEM to `day pack` the
+  # showcase app for every releasable target (§16.5) — the released CLI packages
+  # the released apps. The final `release` job gathers CLI archives + installers
+  # + app packages into one draft GitHub release.
+  #
+  # Signing tiers (§20): with no repository secrets every artifact is DEV-SIGNED
+  # (ad-hoc / dev keystore / self-signed) and the pack output says so loudly.
+  # Populating the DAY_* secrets below lights up release signing with no workflow
+  # changes — the env plumbing passes them through to day.yaml's ${DAY_*}
+  # references (empty secrets degrade, §20):
+  #   macOS/iOS : DAY_APPLE_CERT_P12 + DAY_APPLE_CERT_PASSWORD (base64 Developer ID .p12),
+  #               DAY_SIGN_MACOS_IDENTITY, DAY_NOTARY_KEY_ID, DAY_NOTARY_ISSUER,
+  #               DAY_NOTARY_KEY_B64, DAY_APPLE_TEAM, DAY_ASC_KEY_ID, DAY_ASC_ISSUER,
+  #               DAY_ASC_KEY_B64
+  #   Android   : DAY_ANDROID_KEYSTORE_B64, DAY_ANDROID_KEY_ALIAS, DAY_KS_PASS, DAY_KEY_PASS
+  #   Windows   : (dev cert until an Azure Artifact Signing account exists — day.yaml provider)
+  #   OHOS      : DAY_OHOS_KEYSTORE_B64, DAY_OHOS_KEY_ALIAS, DAY_OHOS_KS_PASS,
+  #               DAY_OHOS_KEY_PASS, DAY_OHOS_CERT_B64, DAY_OHOS_PROFILE_B64
+  # ===========================================================================
+
+  # --- macOS: .dmg (appkit) + .ipa / sim-.app.zip (uikit) --------------------
+  pack-macos:
+    name: pack (macos + ios)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos-day, linux-day, windows-day]
+    needs: [macos-day]
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      DAY_SIGN_MACOS_IDENTITY: ${{ secrets.DAY_SIGN_MACOS_IDENTITY }}
+      DAY_NOTARY_KEY_ID: ${{ secrets.DAY_NOTARY_KEY_ID }}
+      DAY_NOTARY_ISSUER: ${{ secrets.DAY_NOTARY_ISSUER }}
+      DAY_APPLE_TEAM: ${{ secrets.DAY_APPLE_TEAM }}
+      DAY_ASC_KEY_ID: ${{ secrets.DAY_ASC_KEY_ID }}
+      DAY_ASC_ISSUER: ${{ secrets.DAY_ASC_ISSUER }}
+      HAS_APPLE_CERT: ${{ secrets.DAY_APPLE_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # ios-uikit packs the Simulator .app without ASC secrets, the device .ipa with them.
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
+      - name: Import the Developer ID certificate
+        if: env.HAS_APPLE_CERT == 'true'
+        uses: apple-actions/import-codesign-certs@v5
+        with:
+          p12-file-base64: ${{ secrets.DAY_APPLE_CERT_P12 }}
+          p12-password: ${{ secrets.DAY_APPLE_CERT_PASSWORD }}
+      - name: Materialize API keys (.p8)
+        env:
+          NOTARY_KEY_B64: ${{ secrets.DAY_NOTARY_KEY_B64 }}
+          ASC_KEY_B64: ${{ secrets.DAY_ASC_KEY_B64 }}
+        run: |
+          if [ -n "$NOTARY_KEY_B64" ]; then
+            echo "$NOTARY_KEY_B64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+            echo "DAY_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$ASC_KEY_B64" ]; then
+            echo "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
+            echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
+          fi
+      - name: Pack (macos-appkit → dmg)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p macos-appkit --format json
+      - name: Pack (ios-uikit)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p ios-uikit --format json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-macos
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
+
+  # --- Linux: .flatpak bundles (gtk + qt) -------------------------------------
+  pack-linux:
+    name: pack (linux flatpaks)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-day]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install toolkit + flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev \
+            qt6-base-dev qt6-webengine-dev pkg-config \
+            flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
+      - name: Pack (linux-gtk + linux-qt → flatpak)
+        working-directory: apps/showcase
+        run: |
+          $DAY_BIN pack -p linux-gtk --format json
+          $DAY_BIN pack -p linux-qt --format json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-linux
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
+
+  # --- Android: release .apk + .aab --------------------------------------------
+  pack-android:
+    name: pack (android)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-day]
+    runs-on: ubuntu-24.04
+    env:
+      DAY_ANDROID_KEY_ALIAS: ${{ secrets.DAY_ANDROID_KEY_ALIAS }}
+      DAY_KS_PASS: ${{ secrets.DAY_KS_PASS }}
+      DAY_KEY_PASS: ${{ secrets.DAY_KEY_PASS }}
+      DAY_ANDROID_ABI: arm64-v8a
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.1"
+          add-job-summary: "never"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Point at the runner's NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
+      - name: Materialize the upload keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.DAY_ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/upload.keystore"
+            echo "DAY_ANDROID_KEYSTORE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
+          fi
+      - name: Pack (android-widget → apk + aab)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p android-widget --format json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-android
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
+
+  # --- Windows: .msix + NSIS -setup.exe ----------------------------------------
+  pack-windows:
+    name: pack (windows)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-day]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
+      - name: Pack (windows-winui → msix + setup.exe)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p windows-winui --format json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-windows
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
+
+  # --- OHOS: .hap ------------------------------------------------------------------
+  # SDK/CLT setup mirrors the ohos-arkui job below exactly (see the rationale there).
+  pack-ohos:
+    name: pack (ohos)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-day]
+    runs-on: ubuntu-24.04
+    env:
+      CLT_VERSION: "5.1.0.840"
+      CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+      DAY_OHOS_KEY_ALIAS: ${{ secrets.DAY_OHOS_KEY_ALIAS }}
+      DAY_OHOS_KS_PASS: ${{ secrets.DAY_OHOS_KS_PASS }}
+      DAY_OHOS_KEY_PASS: ${{ secrets.DAY_OHOS_KEY_PASS }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-ohos
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: openharmony-rs/setup-ohos-sdk@v1
+        id: ohos-sdk
+        with:
+          version: "6.1"
+      - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
+        run: |
+          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
+          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
+          echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm / signing)
+        uses: actions/cache@v4
+        with:
+          path: ~/ohos-clt
+          key: ohos-clt-${{ env.CLT_VERSION }}
+      - name: Install hvigor from the command-line-tools
+        run: |
+          set -euo pipefail
+          C="$HOME/ohos-clt/command-line-tools"
+          if [ ! -x "$C/bin/hvigorw" ]; then
+            mkdir -p ~/ohos-clt && cd ~/ohos-clt
+            curl -fSL -o clt.zip "$CLT_URL"
+            unzip -q -o clt.zip && rm -f clt.zip
+            chmod -R +x "$C/bin" "$C/tool/node/bin" \
+              "$C/sdk/default/openharmony/toolchains" 2>/dev/null || true
+          fi
+          echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
+          { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
+      - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
+        run: |
+          set -euo pipefail
+          OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
+          BASE="$HOME/ohos-ohsdk"
+          mkdir -p "$BASE"
+          ln -sfn "$OH" "$BASE/18"
+          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v7
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
+      - name: Materialize OHOS signing material
+        env:
+          KEYSTORE_B64: ${{ secrets.DAY_OHOS_KEYSTORE_B64 }}
+          CERT_B64: ${{ secrets.DAY_OHOS_CERT_B64 }}
+          PROFILE_B64: ${{ secrets.DAY_OHOS_PROFILE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ohos.p12"
+            echo "DAY_OHOS_KEYSTORE=$RUNNER_TEMP/ohos.p12" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$CERT_B64" ]; then
+            echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/ohos.cer"
+            echo "DAY_OHOS_CERT=$RUNNER_TEMP/ohos.cer" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$PROFILE_B64" ]; then
+            echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/ohos.p7b"
+            echo "DAY_OHOS_PROFILE=$RUNNER_TEMP/ohos.p7b" >> "$GITHUB_ENV"
+          fi
+      - name: Pack (ohos-arkui → hap)
+        working-directory: apps/showcase
+        env:
+          DAY_OHOS_ARCH: arm64
+        run: $DAY_BIN pack -p ohos-arkui --format json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-ohos
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
+
+  # --- Draft GitHub release: day CLI + installers + every app package ---------
+  # Downloads the six day-<os>-<arch> binaries from the 3×2 release builds, repackages
+  # them as target-triple archives, renders the installer scripts + Homebrew formula
+  # from scripts/release/templates (cargo-dist style: version/URLs/sizes/checksums
+  # baked in), pulls in the pack-* jobs' app packages, writes one SHA256SUMS over
+  # everything, attests build provenance for every file, and attaches the lot to a
+  # draft GitHub release for the tag.
+  release:
+    name: release (draft)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos-day, linux-day, windows-day, pack-macos, pack-linux, pack-android, pack-windows, pack-ohos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -203,16 +532,31 @@ jobs:
           sh -n dist/day-installer.sh
           pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw dist/day-installer.ps1)); "ps1 parses"'
           ruby -c dist/day.rb
+      - name: Download the app packages (pack-* jobs)
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums (one manifest for every release file)
+        working-directory: dist
+        run: |
+          # render-installers' CLI-only manifest is superseded by the full one.
+          rm -f day-SHA256SUMS.txt
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
       # Build provenance for EVERY file attached to the release (archives, installers,
-      # formula, checksums) — verifiable with `gh attestation verify <file> -R daybrite/day`.
+      # formula, app packages, checksums) — verifiable with
+      # `gh attestation verify <file> -R daybrite/day`.
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
-      - name: Create or update the draft release
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # view-or-create + --clobber keep re-runs of this job idempotent.
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
                  --title "Day $GITHUB_REF_NAME" --generate-notes
@@ -222,7 +566,7 @@ jobs:
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: ${{ matrix.combo }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: macos-15
     needs: [macos-day]
     strategy:
@@ -324,7 +668,7 @@ jobs:
   # --- iOS Simulator: uikit -------------------------------------------------
   ios-uikit:
     name: ios-uikit
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: macos-15
     needs: [macos-day]
     steps:
@@ -421,7 +765,7 @@ jobs:
   # --- Linux desktop: qt / gtk ----------------------------------------------
   linux:
     name: ${{ matrix.combo }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: ubuntu-24.04
     needs: [linux-day]
     strategy:
@@ -537,7 +881,7 @@ jobs:
   # the known postMain flake (intermittent "main thread did not respond") is chased.
   android-widget:
     name: android-widget
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: ubuntu-24.04
     needs: [linux-day]
     continue-on-error: true
@@ -645,7 +989,7 @@ jobs:
   # emulator is slow and occasionally flaky, which must not be able to red the build.
   ohos-arkui:
     name: ohos-arkui
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: ubuntu-24.04
     needs: [linux-day]
     env:
@@ -801,7 +1145,7 @@ jobs:
   # matrix cannot switch shells per combo — the toolchains are split into two jobs.
   windows-winui:
     name: windows-winui
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: windows-latest
     needs: [windows-day]
     defaults:
@@ -889,7 +1233,7 @@ jobs:
   # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
   windows-msys2:
     name: ${{ matrix.combo }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     runs-on: windows-latest
     needs: [windows-day]
     continue-on-error: true
@@ -1012,7 +1356,7 @@ jobs:
   # ---------------------------------------------------------------------------
   api-docs:
     name: api-docs (rustdoc)
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes run the release pipeline instead
     needs: [fmt, msrv]
     runs-on: ubuntu-latest
     steps:
@@ -1042,8 +1386,8 @@ jobs:
   website:
     name: website (build)
     needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2, api-docs]
-    # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those only
-    # release the CLI).
+    # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
+    # the release pipeline instead).
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
