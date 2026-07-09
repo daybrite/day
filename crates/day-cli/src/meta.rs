@@ -17,6 +17,121 @@ pub struct Manifest {
     #[serde(default)]
     #[allow(dead_code)]
     pub window: Window,
+    /// Code-signing / notarization configuration (§16.5, §17.3). Values may reference environment
+    /// variables as `${VAR}` — resolved at use time (see `pack::settings::interpolate`), never at
+    /// parse time, so `day sign --check` can report missing variables without failing the parse.
+    #[serde(default)]
+    pub signing: Option<Signing>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Signing {
+    #[serde(default)]
+    pub macos: Option<MacosSigning>,
+    #[serde(default)]
+    pub ios: Option<IosSigning>,
+    #[serde(default)]
+    pub android: Option<AndroidSigning>,
+    #[serde(default)]
+    pub windows: Option<WindowsSigning>,
+    #[serde(default)]
+    pub ohos: Option<OhosSigning>,
+}
+
+/// macOS Developer-ID signing + notarization (§16.5: codesign + notarytool + stapler).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct MacosSigning {
+    /// Signing identity ("Developer ID Application: …"); "-" or absent = ad-hoc (dev tier).
+    #[serde(default)]
+    pub identity: Option<String>,
+    /// Entitlements plist path, relative to the project root.
+    #[serde(default)]
+    pub entitlements: Option<String>,
+    #[serde(default)]
+    pub notarize: Option<Notarize>,
+}
+
+/// notarytool App Store Connect API-key auth (never interactive Apple-ID — §16.5).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Notarize {
+    pub key_id: String,
+    pub issuer: String,
+    /// Path to the AuthKey_<id>.p8 file.
+    pub key_path: String,
+}
+
+/// iOS App Store export signing: xcodebuild automatic signing with an ASC API key.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct IosSigning {
+    /// Apple Developer team id (DEVELOPMENT_TEAM).
+    pub team: String,
+    /// ExportOptions method; default "app-store-connect".
+    #[serde(default)]
+    pub export_method: Option<String>,
+    /// ASC API key for `-allowProvisioningUpdates` in CI (optional locally, where the
+    /// Xcode-account session signs). All three fields travel together.
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub issuer: Option<String>,
+    #[serde(default)]
+    pub key_path: Option<String>,
+}
+
+/// Android release keystore (Gradle signingConfig; .aab is jar-signed by Gradle — §16.5).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct AndroidSigning {
+    pub keystore: String,
+    pub key_alias: String,
+    pub store_pass: String,
+    pub key_pass: String,
+}
+
+/// Windows Authenticode: certs are HSM/service-held since 2023 — a provider enum, not a .pfx path.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct WindowsSigning {
+    /// "self-signed-dev" | "signtool-cert-store" | "azure-artifact-signing"
+    pub provider: String,
+    /// Cert subject for the MSIX Identity Publisher (must byte-match the signing cert subject).
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// signtool-cert-store: SHA-1 thumbprint of the installed certificate.
+    #[serde(default)]
+    pub thumbprint: Option<String>,
+    /// azure-artifact-signing: endpoint / account / certificate-profile (+ dlib path).
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// Path to Azure.CodeSigning.Dlib.dll (azure-artifact-signing).
+    #[serde(default)]
+    pub dlib: Option<String>,
+    /// RFC-3161 timestamp URL; defaults per provider.
+    #[serde(default)]
+    pub timestamp_url: Option<String>,
+}
+
+/// OpenHarmony release signing material (hap-sign-tool).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct OhosSigning {
+    /// .p12 keystore path.
+    pub keystore: String,
+    pub key_alias: String,
+    pub store_pass: String,
+    pub key_pass: String,
+    /// Release certificate (.cer) path.
+    pub cert: String,
+    /// Provisioning profile (.p7b) path.
+    pub profile: String,
 }
 
 #[derive(Debug, Deserialize)]

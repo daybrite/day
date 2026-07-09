@@ -273,6 +273,13 @@ fn gtk_group() -> Group {
                 "install glib tools (bundled with glib/GTK; ships `glib-compile-resources`)",
             )
             .soft(),
+            // Optional: only `day pack -p linux-gtk` (the .flatpak bundle, §16.5) needs it.
+            Probe::new(
+                "flatpak-builder",
+                which("flatpak-builder").map(|p| p.display().to_string()),
+                "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
+            )
+            .soft(),
         ],
         setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
@@ -305,6 +312,13 @@ fn qt_group() -> Group {
                 "install Qt 6 (rcc, the resource compiler, ships in Qt's libexec)",
             )
             .soft(),
+            // Optional: only `day pack -p linux-qt` (the .flatpak bundle, §16.5) needs it.
+            Probe::new(
+                "flatpak-builder",
+                which("flatpak-builder").map(|p| p.display().to_string()),
+                "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
+            )
+            .soft(),
         ],
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
@@ -320,20 +334,36 @@ fn winui_group() -> Group {
         id: "winui",
         label: "Windows · WinUI 3",
         hosts: &["windows"],
-        probes: vec![Probe::new(
-            "msvc-toolchain",
-            // The default rustc must target *-windows-msvc (winui builds with cl.exe + the SDK).
-            // Scan the FULL `rustc -vV` output for the `host:` line — `run_line` returns only line 1
-            // (`rustc <version>`), which is why the old check false-negatived on a valid msvc host
-            // (and its `bash`+`grep` fallback isn't reliably resolvable from a native process).
-            run_out("rustc", &["-vV"]).and_then(|s| {
-                s.lines()
-                    .find_map(|l| l.strip_prefix("host: "))
-                    .filter(|h| h.contains("windows-msvc"))
-                    .map(str::to_string)
-            }),
-            "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
-        )],
+        probes: vec![
+            Probe::new(
+                "msvc-toolchain",
+                // The default rustc must target *-windows-msvc (winui builds with cl.exe + the SDK).
+                // Scan the FULL `rustc -vV` output for the `host:` line — `run_line` returns only line 1
+                // (`rustc <version>`), which is why the old check false-negatived on a valid msvc host
+                // (and its `bash`+`grep` fallback isn't reliably resolvable from a native process).
+                run_out("rustc", &["-vV"]).and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.strip_prefix("host: "))
+                        .filter(|h| h.contains("windows-msvc"))
+                        .map(str::to_string)
+                }),
+                "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
+            ),
+            // Optional: only `day pack -p windows-winui` needs these (§16.5) — makeappx/signtool
+            // ship with the Windows SDK, makensis via `choco install nsis`.
+            Probe::new(
+                "makeappx (Windows SDK)",
+                crate::pack::windows_kit_tool_probe("makeappx.exe"),
+                "install the Windows 10/11 SDK (for `day pack` msix)",
+            )
+            .soft(),
+            Probe::new(
+                "makensis",
+                which("makensis").map(|p| p.display().to_string()),
+                "choco install nsis (for `day pack` setup.exe)",
+            )
+            .soft(),
+        ],
         setup: "WinUI 3 builds on a Windows host with the MSVC toolchain. Install:\n\
                 • the Visual Studio 2022 C++ Build Tools (MSVC + Windows SDK)\n\
                 • the MSVC Rust toolchain: `rustup default stable-msvc`\n\

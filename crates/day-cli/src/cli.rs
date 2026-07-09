@@ -69,12 +69,34 @@ enum Cmd {
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
     },
-    /// Build + sign + produce an installable artifact (.dmg / .apk / sim-.app.zip)
+    /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
         #[arg(short = 'p', long = "platform", required = true)]
         platforms: Vec<String>,
-        #[arg(long, default_value = "debug")]
+        /// Pack defaults to release (distribution artifacts); pass debug for a dev-install pack.
+        #[arg(long, default_value = "release")]
         profile: String,
+        /// Comma-separated format subset (e.g. `--formats apk` to skip the aab)
+        #[arg(long)]
+        formats: Option<String>,
+        /// Skip signing entirely (artifacts are marked unsigned)
+        #[arg(long)]
+        no_sign: bool,
+        /// Sign but skip notarization (macOS)
+        #[arg(long)]
+        no_notarize: bool,
+        /// Submit for notarization without waiting (check later: day sign --notarize-status <id>)
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// Signing utilities: --check validates day.yaml signing config (never prints secrets)
+    Sign {
+        /// Validate signing config resolvability (env vars set, files present)
+        #[arg(long)]
+        check: bool,
+        /// Poll an async notarization submission by id
+        #[arg(long = "notarize-status")]
+        notarize_status: Option<String>,
     },
     /// Check the development environment, grouped by toolkit
     Doctor {
@@ -209,18 +231,54 @@ pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
         Cmd::Doctor { toolkits } => crate::doctor::run(&toolkits),
-        Cmd::Pack { platforms, profile } => with_project(cli.project.as_deref(), |project| {
+        Cmd::Pack {
+            platforms,
+            profile,
+            formats,
+            no_sign,
+            no_notarize,
+            no_wait,
+        } => with_project(cli.project.as_deref(), |project| {
+            let opts = crate::pack::PackOptions {
+                profile,
+                formats: formats
+                    .as_deref()
+                    .map(|s| s.split(',').map(|f| f.trim().to_string()).collect()),
+                no_sign,
+                no_notarize,
+                no_wait,
+            };
+            let mut outcomes = Vec::new();
             for p in &platforms {
                 let Some(target) = targets::find(p) else {
                     eprintln!("error: unknown target {p:?}");
                     return 2;
                 };
-                if let Err(e) = crate::pack::run(project, target, &profile) {
-                    eprintln!("error: {e}");
-                    return 4;
+                match crate::pack::run(project, target, &opts) {
+                    Ok(o) => outcomes.push(o),
+                    Err(e) => {
+                        eprintln!("error: {}", e.message());
+                        return e.exit_code();
+                    }
                 }
             }
+            if cli.format == "json" {
+                print_pack_json(&outcomes);
+            }
             0
+        }),
+        Cmd::Sign {
+            check,
+            notarize_status,
+        } => with_project(cli.project.as_deref(), |project| {
+            if let Some(id) = &notarize_status {
+                return crate::sign::notarize_status(project, id);
+            }
+            if check {
+                return crate::sign::check(project);
+            }
+            eprintln!("error: day sign needs --check or --notarize-status <id>");
+            2
         }),
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
@@ -448,6 +506,32 @@ fn with_project(start: Option<&std::path::Path>, f: impl FnOnce(&meta::Project) 
             2
         }
     }
+}
+
+fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
+    let targets: Vec<serde_json::Value> = outcomes
+        .iter()
+        .map(|o| {
+            let artifacts: Vec<serde_json::Value> = o
+                .artifacts
+                .iter()
+                .map(|a| {
+                    serde_json::json!({
+                        "path": a.path, "kind": a.kind,
+                        "sha256": a.sha256, "signed": a.tier.as_str(),
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "target": o.target, "ok": true, "code": 0,
+                "artifacts": artifacts, "seconds": o.seconds,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({"event": "result", "command": "pack", "ok": true, "targets": targets})
+    );
 }
 
 fn print_result_json(command: &str, results: &[ops::BuildOutcome]) {

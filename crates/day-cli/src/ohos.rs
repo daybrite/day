@@ -448,6 +448,13 @@ pub fn build_ohos(
     })
 }
 
+/// The hvigor-built UNSIGNED hap of `project` (release re-signing input — pack/ohos.rs).
+pub(crate) fn find_unsigned_hap(project: &crate::meta::Project) -> Option<PathBuf> {
+    find_hap(&project.root.join("harmony/entry/build"), |n| {
+        n.contains("unsigned")
+    })
+}
+
 /// Recursively find the first `*.hap` under `dir` whose file name satisfies `pred`.
 fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
     let mut stack = vec![dir.to_path_buf()];

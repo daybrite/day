@@ -234,6 +234,22 @@ jobs:
       - name: Clipboard round-trip (${{ matrix.combo }})
         working-directory: apps/showcase
         run: $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/clipboard-roundtrip.yaml
+      # Distribution packaging (§16.5): appkit → .dmg. No signing secrets on PR/branch runs — the
+      # artifact is ad-hoc signed (dev tier) and the result JSON says so loudly (§20).
+      - name: Pack (${{ matrix.combo }} → dmg)
+        if: matrix.toolkit == 'appkit'
+        working-directory: apps/showcase
+        run: |
+          $DAY_BIN pack -p ${{ matrix.combo }} --format json | tee "$RUNNER_TEMP/pack.json"
+          codesign -vvv --deep --strict build/day/pack/macos-appkit/*.app
+          hdiutil verify build/day/dist/*.dmg
+      - name: Upload packages
+        if: matrix.toolkit == 'appkit'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.combo }}
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -319,6 +335,17 @@ jobs:
               exit 1
             fi
           fi
+      # Distribution packaging (§16.5): without signing.ios (ASC API key) this is the zipped
+      # Simulator .app — a device .ipa lights up when the ASC secrets are configured (§20).
+      - name: Pack (ios-uikit)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p ios-uikit --format json
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-ios-uikit
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -409,6 +436,28 @@ jobs:
               --script scripts/walkthrough.yaml --locale fr \
               --env QT_QPA_PLATFORM=offscreen
           fi
+      # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
+      # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
+      # install time (--runtime-repo), so the bundle stays app-only. ubuntu-24.04 runners don't
+      # preinstall flatpak-builder.
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Pack (${{ matrix.combo }} → flatpak)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p ${{ matrix.combo }} --format json
+      - name: Install + inspect the bundle
+        working-directory: apps/showcase
+        run: |
+          flatpak install --user -y ./build/day/dist/*.flatpak
+          flatpak info dev.daybrite.showcase
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.combo }}
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -484,6 +533,21 @@ jobs:
           ( cd smoke-piece && cargo build --features widget --target aarch64-linux-android )
           ( cd smoke-part  && cargo build --target aarch64-linux-android )
           ( cd smoke-app   && cargo build --lib --features widget --target aarch64-linux-android )
+      # Distribution packaging (§16.5): release .apk + .aab, arm64-v8a. Without signing.android
+      # secrets the keystore is a CI-generated dev key — installable, marked dev-signed, never
+      # distributable (§20). apksigner verify runs inside pack. Runs BEFORE the emulator
+      # walkthrough so the dist artifacts survive an emulator flake.
+      - name: Pack (android-widget → apk + aab)
+        working-directory: apps/showcase
+        env:
+          DAY_ANDROID_ABI: arm64-v8a
+        run: $DAY_BIN pack -p android-widget --format json
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-android-widget
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Emulator walkthrough (android-widget)
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -634,6 +698,17 @@ jobs:
         working-directory: apps/showcase
         continue-on-error: true # the walkthrough drives the flaky TCG emulator; the build already gated
         run: $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
+      # Distribution packaging (§16.5): the .hap, release-signed when signing.ohos material is
+      # configured; the public-cert dev signature otherwise (emulator installs only, dev tier).
+      - name: Pack (ohos-arkui → hap)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p ohos-arkui --format json
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-ohos-arkui
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7
@@ -711,6 +786,20 @@ jobs:
       - name: Walkthrough (windows-winui)
         working-directory: apps/showcase
         run: $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
+      # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
+      # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+      - name: Pack (windows-winui → msix + setup.exe)
+        working-directory: apps/showcase
+        run: $DAY_BIN pack -p windows-winui --format json
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-windows-winui
+          path: apps/showcase/build/day/dist/
+          if-no-files-found: error
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v7

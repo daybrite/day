@@ -15,6 +15,7 @@ mod pack;
 mod pieces;
 mod resources;
 mod script;
+mod sign;
 mod signals;
 mod targets;
 

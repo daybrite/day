@@ -14,10 +14,23 @@ day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
-day pack    -p ios-uikit     # produce an installable artifact (.app.zip / .apk / .dmg)
+day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
+day sign    --check          # report release-signing readiness without printing secrets
 day lint                     # check ids, Fluent coverage, project shape
 day doctor                   # check toolchains for every target
 ```
+
+`day pack` produces a standalone, installable package per target — see
+[Packaging & distribution](/docs/packaging) for formats, signing, and CI:
+
+| target | artifact |
+|---|---|
+| `macos-appkit` | `.dmg` (codesign → notarize → staple) |
+| `ios-uikit` | `.ipa` (App Store export; Simulator `.app.zip` without signing config) |
+| `android-widget` | `.apk` + `.aab` (release-signed) |
+| `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle |
+| `windows-winui` | `.msix` + NSIS `-setup.exe` |
+| `ohos-arkui` | `.hap` |
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and toolkits to support. Every question has an equivalent flag, so the same choices

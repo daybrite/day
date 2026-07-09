@@ -624,6 +624,10 @@ pub fn build_android(
     );
     build_android_so(project, profile, &jni_out, &abis)?;
 
+    // Convey day.yaml identity/version to the Gradle scaffold (§17.5) on every build, so
+    // applicationId/versionCode/versionName never go stale in the checked-in scaffold.
+    crate::pack::android::write_app_properties(project)?;
+
     // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
     //    for the Gradle build to pick up — a piece ships its backend without editing Day.
     crate::pieces::write_android_manifest(project)?;
@@ -664,11 +668,26 @@ pub fn build_android(
     } else {
         "app-debug.apk"
     };
-    let apk = project
+    let apk_dir = project
         .root
         .join("platform/android/app/build/outputs/apk")
-        .join(profile)
-        .join(apk_name);
+        .join(profile);
+    // An unsigned release build is emitted as `app-release-unsigned.apk` — fall back to whatever
+    // single .apk the build produced rather than assuming the signed name.
+    let conventional = apk_dir.join(apk_name);
+    let apk = if conventional.exists() {
+        conventional
+    } else {
+        std::fs::read_dir(&apk_dir)
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .find(|p| p.extension().and_then(|x| x.to_str()) == Some("apk"))
+            })
+            .unwrap_or(conventional)
+    };
     Ok(BuildOutcome {
         target: target.name,
         artifact: apk,

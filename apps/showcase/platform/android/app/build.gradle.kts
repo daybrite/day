@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
@@ -17,15 +19,29 @@ val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
 val piecePermissions = (dayPieces["permissions"] as? List<String>) ?: emptyList()
 
+// day.yaml identity/version, conveyed by `day build` / `day pack` (§17.5). Read generically with
+// scaffold fallbacks, so a bare `./gradlew` build still configures.
+val dayAppFile = rootProject.projectDir.resolve("../../build/day/android/day-app.properties")
+val dayApp = Properties().apply {
+    if (dayAppFile.exists()) dayAppFile.inputStream().use { s -> load(s) }
+}
+
+// Release signing, resolved by `day pack` (day.yaml `signing.android` env refs, or its generated
+// dev keystore). Absent file ⇒ unsigned release build (a plain `day build --profile release`).
+val daySigningFile = rootProject.projectDir.resolve("../../build/day/android/day-signing.properties")
+val daySigning = Properties().apply {
+    if (daySigningFile.exists()) daySigningFile.inputStream().use { s -> load(s) }
+}
+
 android {
     namespace = "dev.daybrite.showcase"
     compileSdk = 35
     defaultConfig {
-        applicationId = "dev.daybrite.showcase"
+        applicationId = dayApp.getProperty("applicationId") ?: "dev.daybrite.showcase"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = dayApp.getProperty("versionCode")?.toInt() ?: 1
+        versionName = dayApp.getProperty("versionName") ?: "0.1.0"
     }
     sourceSets {
         getByName("main") {
@@ -48,9 +64,22 @@ android {
             getByName("release").manifest.srcFile(pieceManifest)
         }
     }
+    if (daySigningFile.exists()) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(daySigning.getProperty("storeFile"))
+                storePassword = daySigning.getProperty("storePassword")
+                keyAlias = daySigning.getProperty("keyAlias")
+                keyPassword = daySigning.getProperty("keyPassword")
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (daySigningFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
