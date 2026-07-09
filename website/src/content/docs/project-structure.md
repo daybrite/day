@@ -1,7 +1,8 @@
 ---
 title: Project structure & builds
 description: The anatomy of a conventional Day app, how each target is built, and how resources are packaged for runtime access.
-order: 5
+order: 31
+section: Build & ship
 ---
 
 A Day app is a normal Cargo package plus a small `day.yaml` manifest and a few conventional

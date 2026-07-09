@@ -10,16 +10,33 @@ const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.
 const idx = docs.findIndex((d) => d.id === slug);
 const prev = idx > 0 ? docs[idx - 1] : null;
 const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
+
+// Group the (already order-sorted) pages into sidebar sections. A section's position is set
+// by its first page, so ordering lives entirely in frontmatter.
+const sections: { name: string; pages: typeof docs }[] = [];
+for (const d of docs) {
+  const last = sections[sections.length - 1];
+  if (last && last.name === d.data.section) last.pages.push(d);
+  else {
+    const existing = sections.find((s) => s.name === d.data.section);
+    if (existing) existing.pages.push(d);
+    else sections.push({ name: d.data.section, pages: [d] });
+  }
+}
 ---
 <BaseLayout title={title} description={description} active={active}>
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
       <nav aria-label="Documentation">
-        <p class="side-h">Documentation</p>
-        {docs.map((d) => (
-          <a href={url(`docs/${d.id}`)} class:list={['side-link', { on: d.id === slug }]}>
-            {d.data.title}
-          </a>
+        {sections.map((s) => (
+          <>
+            <p class="side-h">{s.name}</p>
+            {s.pages.map((d) => (
+              <a href={url(`docs/${d.id}`)} class:list={['side-link', { on: d.id === slug }]}>
+                {d.data.title}
+              </a>
+            ))}
+          </>
         ))}
       </nav>
     </aside>
@@ -58,9 +75,10 @@ const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
     letter-spacing: 0.14em;
     font-size: 0.72rem;
     color: var(--faint);
-    margin: 0 0 12px;
+    margin: 0 0 8px;
     font-weight: 700;
   }
+  .side-h:not(:first-child) { margin-top: 20px; }
   .side-link {
     display: block;
     padding: 8px 12px;

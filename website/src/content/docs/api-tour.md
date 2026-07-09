@@ -1,11 +1,15 @@
 ---
 title: API tour
 description: A guided tour of Pieces, signals, layout, inputs, navigation, localization, and extensibility.
-order: 3
+order: 10
+section: Concepts
 ---
 
-Everything below is real Day API. The snippets are lifted from the showcase app that produces the
-[gallery](/gallery). Pull in `use day::prelude::*;` and you have all of it.
+The whole authoring surface in one pass, for people who learn from code. Everything below is real
+Day API — the snippets are lifted from the showcase app that produces the [gallery](/gallery),
+and `use day::prelude::*;` brings all of it in. The pages after this one
+([Pieces](/docs/pieces), [Reactivity](/docs/reactivity), [Layout](/docs/layout)) explain the
+model behind what you'll see here.
 
 ## A first app
 
@@ -17,7 +21,11 @@ use day::prelude::*;
 
 fn main() {
     day::launch(
-        WindowOptions { title: "Hello".into(), size: Size::new(480.0, 640.0), min_size: None },
+        WindowOptions {
+            title: "Hello".into(),
+            size: Size::new(480.0, 640.0),
+            ..Default::default()
+        },
         root,
     );
 }
@@ -202,7 +210,8 @@ let flavor  = Signal::new(Some(0usize));
 combo_box(flavors, flavor).id("flavor-combo")
 ```
 
-Day Pieces can ship as ordinary Rust crates, or in other languages across Day's small stable
-C ABI (**dayffi**). Either way, each one wraps a native widget on each toolkit.
+Day Pieces ship as ordinary Rust crates — [the extension model](/docs/extending) explains the
+tiers, from pure composition to per-toolkit native code.
 
-Next: the [CLI & projects](/docs/cli) that build, launch, and script all of this.
+Next: [Pieces](/docs/pieces) for the model behind all of this, or the
+[CLI & projects](/docs/cli) that build, launch, and script it.

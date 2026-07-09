@@ -1,7 +1,8 @@
 ---
 title: "Tutorial: A part with native platform code"
 description: Build a headless capability crate (a battery monitor) with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected by cfg. Includes how to contribute a Java shim and iOS framework to the app build.
-order: 31
+order: 43
+section: Extend
 ---
 
 Day apps are more than pixels. Sooner or later you want to read the battery, check network
@@ -163,7 +164,7 @@ mod imp {
 }
 ```
 
-Two details make this robust:
+Two details make this reliable:
 
 - **HarmonyOS is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
   `target_env = "ohos"`: one arm for desktop Linux, one for OpenHarmony. This `target_os` +

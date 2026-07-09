@@ -1,0 +1,115 @@
+---
+title: Getting started
+description: Install the day CLI, scaffold an app, run it on your desktop, and make your first change.
+order: 3
+section: Start here
+---
+
+This page takes you from nothing to a running app on your desktop, then points at the mobile
+targets. Expect it to take a few minutes, most of which is the first compile.
+
+## Install the CLI
+
+Day isn't published to crates.io yet, so you install the `day` CLI from the repository:
+
+```bash
+cargo install --locked --git https://github.com/daybrite/day day-cli
+day --version
+```
+
+You need a recent stable Rust via rustup (the toolchain requirement moves with the repo's MSRV;
+`rustup update stable` keeps you current). Everything else is per-target, and you don't need any
+of it until you build for that target:
+
+| Target | Needs |
+|---|---|
+| `macos-appkit` | Xcode command-line tools (you likely have them) |
+| `linux-gtk` | GTK 4 dev packages (`apt install libgtk-4-dev libadwaita-1-dev pkg-config`) |
+| `linux-qt` | Qt 6 dev packages (`apt install qt6-base-dev pkg-config`) |
+| `windows-winui` | Visual Studio C++ Build Tools, MSVC Rust toolchain |
+| `ios-uikit` | Xcode + an iOS Simulator |
+| `android-widget` | Android SDK + NDK, JDK 21, `cargo-ndk`, an emulator or device |
+| `ohos-arkui` | OpenHarmony SDK + command-line tools |
+
+`day doctor` is the source of truth here: it probes each toolchain and prints exactly what's
+missing and how to get it. Run it before you file a build issue —
+
+```bash
+day doctor                       # everything buildable on this machine
+day doctor --toolkit android     # focus one toolkit; misses become errors with fix-it text
+```
+
+## Create and run an app
+
+```bash
+day new app hello --toolkit macos-appkit --appid com.example.hello
+cd hello
+day launch -p macos-appkit
+```
+
+(`day new` with no arguments walks you through the same choices interactively. On Linux, use
+`--toolkit linux-gtk` and launch that instead.)
+
+A window appears with the scaffold's starter UI. The scaffold is a normal Cargo project — `cargo
+build`, `cargo test`, and `cargo clippy` work in it without the `day` CLI — plus a `day.yaml`
+manifest and a few conventional directories. The [project structure](/docs/project-structure)
+page maps them all; for now the two that matter:
+
+```text
+hello/
+  day.yaml          # app identity: name, id, version, targets, window size
+  src/lib.rs        # pub fn root() -> AnyPiece — your UI starts here
+```
+
+## Make a change
+
+Open `src/lib.rs`. The root function is ordinary Rust:
+
+```rust
+use day::prelude::*;
+
+pub fn root() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())).font(Font::Title),
+        button("Click me").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(24.0)
+    .any()
+}
+```
+
+Change the label, add a `toggle`, whatever — then run `day launch` again. Rust has no hot reload,
+so the loop is an incremental compile plus a relaunch: a few seconds on a warm build for a small
+app. It's a real difference from Flutter's sub-second hot reload, and worth knowing before you
+commit to Day; the mitigation that works well in practice is
+[dayscript](/docs/dayscript) — a script that clicks back to the screen you're iterating on
+restores your place after every relaunch:
+
+```bash
+day launch -p macos-appkit --script scripts/goto-settings.yaml
+```
+
+## Second target
+
+Add a target to `day.yaml` (or scaffold with several `--toolkit` flags up front), then launch
+them side by side — the CLI builds each target in parallel and streams both apps' logs:
+
+```bash
+day launch -p macos-appkit -p ios-uikit
+```
+
+For iOS you'll want a booted Simulator (`open -a Simulator`); for Android, a running emulator or
+a connected device — `day launch -p android-widget` installs and starts the app on every
+connected device at once. Each target compiles a separate binary with only that platform's
+toolkit backend in it, which is why the first build per target starts from scratch.
+
+## Where to go next
+
+- [Pieces](/docs/pieces), [Reactivity](/docs/reactivity), and [Layout](/docs/layout) — the three
+  ideas everything else builds on. Read these before writing anything nontrivial.
+- The [API tour](/docs/api-tour) — the whole surface in one pass, if you'd rather learn from
+  code.
+- [CLI & projects](/docs/cli) — every command, and what `day.yaml` can say.
+- [Platform support](/docs/platforms) — an honest statement of how solid each target is today.

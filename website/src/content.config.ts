@@ -10,6 +10,9 @@ const docs = defineCollection({
     description: z.string(),
     // Sidebar order (ascending). Frontmatter is the single source of truth for doc ordering.
     order: z.number().default(99),
+    // Sidebar section heading. Sections appear in the order their first page appears
+    // (by `order`), so frontmatter stays the single source of truth for the whole nav.
+    section: z.string().default('Docs'),
   }),
 });
 

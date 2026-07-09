@@ -1,7 +1,8 @@
 ---
 title: For AI Agents
 description: A terse, rule-based reference for LLMs and coding agents writing Day apps. Follow the invariants verbatim; prefer the patterns shown.
-order: 7
+order: 60
+section: Reference
 ---
 
 This page is written for coding agents rather than humans, so it is terse and imperative. Prefer

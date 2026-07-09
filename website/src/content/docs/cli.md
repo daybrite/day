@@ -1,7 +1,8 @@
 ---
 title: CLI & projects
 description: The Day command-line tool, the conventional project layout, day.yaml, and dayscript.
-order: 4
+order: 30
+section: Build & ship
 ---
 
 The `day` CLI (modeled on the architecture of `flutter_tools`) creates, builds, launches, packs,
@@ -77,31 +78,14 @@ the per-target build pipelines, and how resources are packaged are covered in
 ## dayscript
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
-same script on every platform. It powers the showcase walkthrough and the screenshots in the
-[gallery](/gallery).
-
-```yaml
-name: walkthrough
-flow:
-  - wait_for:   { id: home-title }
-  - navigate:   { route: controls }
-  - assert_route: { route: controls }
-  - input:      { id: name-field, text: "Ada" }
-  - tap:        { id: increment-button }
-  - assert_value: { id: counter-label, value: "1 click" }
-  - tap:        { id: btn-alert }
-  - assert_presented:
-  - respond:    { button: 0 }
-  - screenshot: controls
-```
-
-Because Pieces are addressed by the same stable `.id` you give them in Rust, and routes are the
-same keys your `selector`/`stack` use, one script exercises the app identically on macOS, iOS,
-Android, Linux, and Windows.
+same script on every platform. Pieces are addressed by the same stable `.id` you give them in
+Rust, and routes are the same keys your `selector`/`stack` use, so one script exercises the app
+identically everywhere. It has its own guide: [Testing with dayscript](/docs/dayscript).
 
 ## Continuous integration
 
-Every push builds the showcase on all ten targets and runs the walkthrough, uploading each target's
-screenshots as an artifact. This site's [gallery](/gallery) is assembled from those artifacts, so
-it always shows the latest captures from each platform that succeeded. See
-[Why Day](/docs/benefits) for the bigger picture.
+Every push builds the showcase on every target and runs the walkthrough, uploading each target's
+screenshots — and its installable packages — as artifacts. This site's [gallery](/gallery) is
+assembled from those screenshot artifacts, so it always shows the latest captures from each
+platform that succeeded. [Packaging & distribution](/docs/packaging) covers the artifact
+pipeline, and [Platform support](/docs/platforms) reads the same CI honestly.

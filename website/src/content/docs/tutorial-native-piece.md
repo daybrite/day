@@ -1,7 +1,8 @@
 ---
 title: "Tutorial: A native piece (per-toolkit)"
 description: "Build a piece backed by a native control on each platform: a front-end in Rust plus per-toolkit backends (objc2 for AppKit/UIKit, gtk-rs, a Qt C++ shim, an Android Java factory, WinUI), registered without touching any core Day crate."
-order: 32
+order: 42
+section: Extend
 ---
 
 Some Pieces cannot be composed from `label`, `button`, and `stack`. A map, an embedded web view, or

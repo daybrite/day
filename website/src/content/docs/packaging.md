@@ -1,7 +1,8 @@
 ---
 title: Packaging & distribution
 description: day pack — building signed, standalone, installable packages for every platform, and the signing configuration in day.yaml.
-order: 6
+order: 32
+section: Build & ship
 ---
 
 `day pack -p <target>` builds the app in release mode, signs it, and produces a **standalone
