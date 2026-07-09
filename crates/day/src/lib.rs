@@ -17,6 +17,10 @@ compile_error!("day: enable exactly one backend feature");
 pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
 pub use day_core::{Resource, resource};
 pub use day_core::{lifecycle_supported, on_lifecycle};
+// Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
+// mutations Day can't see, and the retained ref live in the prelude via day-pieces.
+pub use day_core::{RNode, invalidate_size};
+pub use day_pieces::NativeRef;
 pub use day_spec::{Lifecycle, WindowOptions};
 
 /// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,

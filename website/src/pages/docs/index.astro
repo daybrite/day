@@ -9,6 +9,10 @@ const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.
   <h1>Documentation</h1>
   <p class="lead">Start with the overview, then tour the API and the tooling.</p>
   <div class="doc-cards">
+    <a class="doc-card ref-card" href={url('docs/api')}>
+      <h3>API reference ↗</h3>
+      <p>Generated rustdoc for every public Day crate — the exhaustive type-level reference.</p>
+    </a>
     {docs.map((d) => (
       <a class="doc-card" href={url(`docs/${d.id}`)}>
         <h3>{d.data.title}</h3>
@@ -31,4 +35,5 @@ const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.
   .doc-card:hover { border-color: var(--brand); transform: translateY(-2px); }
   .doc-card h3 { margin: 0 0 6px; color: var(--text); }
   .doc-card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+  .ref-card { border-color: color-mix(in srgb, var(--brand) 55%, var(--border-soft)); background: color-mix(in srgb, var(--brand) 7%, var(--surface)); }
 </style>

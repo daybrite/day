@@ -6,6 +6,9 @@ import { url } from '../lib/site';
 interface Props { title: string; description?: string; slug?: string; active?: string }
 const { title, description, slug, active = 'docs' } = Astro.props;
 
+// Highlight the pinned "API reference" sidebar link when we're on that page.
+const isApi = Astro.url.pathname.replace(/\/$/, '').endsWith('/docs/api');
+
 const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
 const idx = docs.findIndex((d) => d.id === slug);
 const prev = idx > 0 ? docs[idx - 1] : null;
@@ -38,6 +41,8 @@ for (const d of docs) {
             ))}
           </>
         ))}
+        <p class="side-h">Reference</p>
+        <a href={url('docs/api')} class:list={['side-link', { on: isApi }]}>API reference</a>
       </nav>
     </aside>
 

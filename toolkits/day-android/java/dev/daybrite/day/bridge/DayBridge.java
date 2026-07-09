@@ -277,6 +277,14 @@ public final class DayBridge {
     public static void setSlider(View v, double value, double ignoredMin) {
         Slider s = (Slider) v;
         float f = (float) Math.max(s.getValueFrom(), Math.min(s.getValueTo(), value));
+        // A stepped slider (e.g. day-tweak-slider-tickmarks) hard-crashes at the next layout pass
+        // unless EVERY value is valueFrom + n*stepSize (BaseSlider.validateValues throws) — snap
+        // programmatic writes onto the step grid defensively.
+        float step = s.getStepSize();
+        if (step > 0f) {
+            f = s.getValueFrom() + Math.round((f - s.getValueFrom()) / step) * step;
+            f = Math.max(s.getValueFrom(), Math.min(s.getValueTo(), f));
+        }
         if (s.getValue() != f) s.setValue(f); // programmatic: listener sees fromUser=false, no echo
     }
 

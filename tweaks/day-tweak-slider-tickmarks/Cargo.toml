@@ -1,0 +1,36 @@
+[package]
+name = "day-tweak-slider-tickmarks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Tweak: native slider tick marks (and snapping) across seven toolkits — the full-range packaged-tweak example, including bring-your-own C++."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSSlider", "NSSliderCell", "NSControl", "NSView", "NSResponder", "NSCell", "NSActionCell"] }
+day-gtk = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
+day-android = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-winui = { workspace = true, optional = true }
+day-arkui = { workspace = true, optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+widget = ["dep:day-android"]
+qt = ["dep:day-qt"]
+winui = ["dep:day-winui"]
+arkui = ["dep:day-arkui"]
+# uikit intentionally absent: UISlider has no native tick API — the tweak is a documented no-op
+# there (see lib.rs), and declaring no backend keeps `day build` from enabling a dead feature.
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "widget", "qt", "winui", "arkui"]

@@ -933,6 +933,32 @@ jobs:
           command: check advisories bans
 
   # ---------------------------------------------------------------------------
+  # api-docs: generate the Rust API reference (rustdoc) for the public-facing Day crates and share it
+  # as an artifact the website job drops into dist/api (linked from /docs/api). The build is PORTABLE —
+  # the core crates need no features and the `day` umbrella uses its headless `mock` backend — so no
+  # native toolkit is installed and it runs on a stock runner. Crate list + `cargo doc` invocations
+  # live in scripts/build-api-docs.sh, driven by website/src/data/api-crates.json (same file the bridge
+  # page reads). Runs in parallel with the platform jobs; a failure degrades gracefully (the website
+  # still deploys — the API pages 404 until the next green run) rather than blocking the site.
+  # ---------------------------------------------------------------------------
+  api-docs:
+    name: api-docs (rustdoc)
+    needs: [fmt, msrv]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate rustdoc for the public crates
+        run: scripts/build-api-docs.sh
+      - name: Upload the API reference
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-docs
+          path: target/doc
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # website: build the Astro site (website/) and deploy it to GitHub Pages at the custom
   # domain https://daybrite.dev (public/CNAME pins it). Runs AFTER every screenshot-producing job so
   # it can download their `screenshots-<combo>` artifacts and assemble the gallery
@@ -945,7 +971,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website:
     name: website (build)
-    needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2]
+    needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2, api-docs]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
@@ -969,8 +995,18 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Add the Rust API reference (dist/api)
+        # Drop the api-docs job's rustdoc bundle into the built site at /api (linked from /docs/api).
+        # continue-on-error: a run where the doc build failed still deploys — the API pages 404 until
+        # the next green run rather than blocking the whole site (matches the gallery's resilience).
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: api-docs
+          path: website/dist/api
       # Validate every internal link on every generated page (external links are skipped — flaky and
-      # not ours). A broken internal link fails the build BEFORE the Pages artifact is uploaded.
+      # not ours; the generated /api rustdoc subtree is skipped — cargo doc validates its own links).
+      # A broken internal link fails the build BEFORE the Pages artifact is uploaded.
       - name: Check for broken links
         working-directory: website
         run: npm run linkcheck

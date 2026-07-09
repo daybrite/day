@@ -259,6 +259,8 @@ dependencies = [
 name = "day-android"
 version = "0.1.0"
 dependencies = [
+ "day-core",
+ "day-pieces",
  "day-spec",
  "jni",
  "linkme",
@@ -269,7 +271,9 @@ name = "day-appkit"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "day-core",
  "day-l10n",
+ "day-pieces",
  "day-spec",
  "dispatch2",
  "linkme",
@@ -283,6 +287,8 @@ name = "day-arkui"
 version = "0.1.0"
 dependencies = [
  "day-arkui-sys",
+ "day-core",
+ "day-pieces",
  "day-spec",
  "linkme",
 ]
@@ -342,6 +348,8 @@ version = "0.1.0"
 name = "day-gtk"
 version = "0.1.0"
 dependencies = [
+ "day-core",
+ "day-pieces",
  "day-spec",
  "gtk4",
  "libadwaita",
@@ -708,6 +716,8 @@ dependencies = [
 name = "day-qt"
 version = "0.1.0"
 dependencies = [
+ "day-core",
+ "day-pieces",
  "day-qt-sys",
  "day-spec",
  "linkme",
@@ -748,10 +758,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-tweak-button-bezel"
+version = "0.1.0"
+dependencies = [
+ "day-appkit",
+ "day-core",
+ "day-pieces",
+ "objc2-app-kit",
+]
+
+[[package]]
+name = "day-tweak-label-selectable"
+version = "0.1.0"
+dependencies = [
+ "day-android",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-pieces",
+ "gtk4",
+ "objc2-app-kit",
+]
+
+[[package]]
+name = "day-tweak-slider-tickmarks"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-arkui",
+ "day-core",
+ "day-gtk",
+ "day-pieces",
+ "day-qt",
+ "day-winui",
+ "gtk4",
+ "objc2-app-kit",
+]
+
+[[package]]
 name = "day-uikit"
 version = "0.1.0"
 dependencies = [
  "block2",
+ "day-core",
+ "day-pieces",
  "day-spec",
  "dispatch2",
  "linkme",
@@ -766,6 +818,8 @@ dependencies = [
 name = "day-winui"
 version = "0.1.0"
 dependencies = [
+ "day-core",
+ "day-pieces",
  "day-spec",
  "day-winui-sys",
  "linkme",
@@ -1984,6 +2038,9 @@ dependencies = [
  "day-piece-rating",
  "day-piece-searchfield",
  "day-piece-webview",
+ "day-tweak-button-bezel",
+ "day-tweak-label-selectable",
+ "day-tweak-slider-tickmarks",
 ]
 
 [[package]]

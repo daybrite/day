@@ -1401,6 +1401,58 @@ where
     }
 }
 
+/// A liveness-checked reference to a mounted piece's realized node — the retained half of the
+/// tweaks API (docs/tweaks.md). Capture one with [`Decorate::native_ref`], then reach the native
+/// widget later (from event handlers, timers) through a toolkit ext accessor. `node`/`with` yield
+/// `None` before mount and after the node's subtree is disposed, so async races are safe no-ops.
+///
+/// Reads are REACTIVE: inside a binding or memo, `node()` subscribes to the ref's mount/clear
+/// transitions (a `Trigger` underneath), so a label like
+/// `label(move || if r.node().is_some() { "live" } else { "cleared" })` updates when the
+/// referenced piece unmounts — the toggle demo on the showcase Tweaks page. (The `when`-arm's
+/// disposal lands at the turn boundary, after ordinary bindings re-ran — piggybacking on some
+/// other signal would read a stale mount state; the trigger fires at the actual transition.)
+/// Main-thread only, like every realized-tree type.
+#[derive(Clone)]
+pub struct NativeRef {
+    cell: Rc<std::cell::Cell<Option<day_core::RNode>>>,
+    changed: day_reactive::Trigger,
+}
+
+impl Default for NativeRef {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NativeRef {
+    pub fn new() -> Self {
+        NativeRef {
+            cell: Rc::new(std::cell::Cell::new(None)),
+            changed: day_reactive::Trigger::new(),
+        }
+    }
+
+    /// The mounted node, if it is currently live. A tracked read (see the type docs).
+    pub fn node(&self) -> Option<day_core::RNode> {
+        self.changed.track();
+        let node = self.cell.get()?;
+        // Generational slotmap keys make a disposed node a clean miss, never a stale hit.
+        let live = day_core::try_with_tree(|t| t.node_kind(node).is_some()).unwrap_or(false);
+        live.then_some(node)
+    }
+
+    /// Run `f` with the live node (e.g. inside `day_appkit::with_native`); `None` if disposed.
+    pub fn with<R>(&self, f: impl FnOnce(day_core::RNode) -> R) -> Option<R> {
+        self.node().map(f)
+    }
+
+    fn transition(&self, node: Option<day_core::RNode>) {
+        self.cell.set(node);
+        self.changed.notify();
+    }
+}
+
 pub trait Decorate: Piece + Sized {
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
     fn id(self, id: impl Into<String>) -> AnyPiece {
@@ -1416,6 +1468,34 @@ pub trait Decorate: Piece + Sized {
     fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> AnyPiece {
         let id = format!("{prefix}:{key}");
         self.id(id)
+    }
+
+    /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
+    /// realized node (docs/tweaks.md). Reach the typed native handle through the compiled
+    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …) — or apply
+    /// a packaged `day-tweak-*` crate's modifier instead of calling this directly. If the native
+    /// change affects the widget's intrinsic size, follow it with
+    /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
+    /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
+    fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            f(n);
+            n
+        })
+    }
+
+    /// Capture a [`NativeRef`] to this piece's realized node for later imperative access
+    /// (docs/tweaks.md). The ref clears automatically when the piece's scope is disposed.
+    fn native_ref(self, r: &NativeRef) -> AnyPiece {
+        let r = r.clone();
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            r.transition(Some(n));
+            let cleared = r.clone();
+            Scope::current().on_cleanup(move || cleared.transition(None));
+            n
+        })
     }
 
     fn padding(self, insets: impl IntoInsets) -> AnyPiece {
@@ -1731,14 +1811,17 @@ pub mod prelude {
     pub use crate::{
         A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
         FilledButtonStyle, HAlign, IntoFraction, IntoReactive, IntoText, ItemSlot, List, MenuEntry,
-        Modifier, OpenFile, Prompt, Reactive, SaveFile, Selector, SelectorStyle, ShapeKind,
-        ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule,
-        circle, column, confirm, divider, each, ellipse, environment, image, label, list,
-        menu_item, menu_role, menu_separator, nav_back, nav_link, navigate, open_file, progress,
-        prompt, rectangle, rounded_rectangle, row, save_file, scroll, selector, shape, slider,
-        spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment, zstack,
+        Modifier, NativeRef, OpenFile, Prompt, Reactive, SaveFile, Selector, SelectorStyle,
+        ShapeKind, ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button,
+        canvas, capsule, circle, column, confirm, divider, each, ellipse, environment, image,
+        label, list, menu_item, menu_role, menu_separator, nav_back, nav_link, navigate, open_file,
+        progress, prompt, rectangle, rounded_rectangle, row, save_file, scroll, selector, shape,
+        slider, spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment,
+        zstack,
     };
-    pub use day_core::{Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, piece_fn};
+    pub use day_core::{
+        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, invalidate_size, piece_fn,
+    };
     pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,

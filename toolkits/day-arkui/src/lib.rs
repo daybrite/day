@@ -16,6 +16,11 @@
 pub use imp::*;
 
 #[cfg(target_env = "ohos")]
+pub mod ext;
+#[cfg(target_env = "ohos")]
+pub use ext::*;
+
+#[cfg(target_env = "ohos")]
 mod imp {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;

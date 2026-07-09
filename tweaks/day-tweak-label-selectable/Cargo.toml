@@ -1,0 +1,25 @@
+[package]
+name = "day-tweak-label-selectable"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Tweak: user-selectable label text on AppKit, GTK, and Android — one modifier, three access tiers."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSTextField", "NSControl", "NSView", "NSResponder", "NSCell", "NSTextFieldCell", "NSActionCell"] }
+day-gtk = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
+day-android = { workspace = true, optional = true }
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+widget = ["dep:day-android"]
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "widget"]

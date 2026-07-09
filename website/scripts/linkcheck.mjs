@@ -20,6 +20,9 @@ function htmlFiles(dir, base = dir) {
   let out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, entry.name);
+    // The generated Rust API reference (dist/api, from `cargo doc`) is not ours to lint — rustdoc
+    // validates its own links, and the bundle is absent in local builds. Skip the whole subtree.
+    if (dir === base && entry.name === 'api') continue;
     if (entry.isDirectory()) out = out.concat(htmlFiles(p, base));
     else if (entry.name.endsWith('.html')) out.push(relative(base, p));
   }
@@ -48,7 +51,9 @@ const result = await checker.check({
   path: paths,
   serverRoot: DIST,
   recurse: true,
-  linksToSkip: ['^https?://(?!localhost)'],
+  // Skip external links (flaky, not ours) and any link INTO the generated /api/ rustdoc bundle
+  // (validated by `cargo doc`; absent in local builds).
+  linksToSkip: ['^https?://(?!localhost)', '://[^/]+/api/'],
 });
 
 if (broken.length === 0) {

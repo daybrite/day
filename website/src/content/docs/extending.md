@@ -10,7 +10,9 @@ extension model has one organizing idea: **an extension is an ordinary Cargo cra
 on it, it registers itself, and the build tooling aggregates whatever native baggage it brings.
 Nothing about extending Day involves forking it or editing generated projects.
 
-There are three tiers, ordered by cost. Use the cheapest one that works.
+There are three tiers, ordered by cost. Use the cheapest one that works — and note that when you
+only need to *configure* an existing widget rather than build a new one, that's not an extension
+tier at all but a [tweak](/docs/tweaks), which is cheaper than everything below.
 
 ## Tier 0 — composite pieces: pure composition
 
@@ -116,11 +118,13 @@ functions (plus the same Cargo-metadata mechanism when Android needs Java or per
 ```text
 does it render anything?
  ├─ no  → part
- └─ yes → can you build it from existing pieces (incl. canvas)?
-           ├─ yes → composite piece            (works everywhere, free)
-           └─ no  → native piece               (per-toolkit renderers, placeholder elsewhere)
-                     └─ implementation must live in Swift/Kotlin itself?
-                         → dayffi tier — designed, not yet available
+ └─ yes → is it an EXISTING widget that just needs configuring?
+           ├─ yes → tweak                      (/docs/tweaks — cheapest of all)
+           └─ no  → can you build it from existing pieces (incl. canvas)?
+                     ├─ yes → composite piece  (works everywhere, free)
+                     └─ no  → native piece     (per-toolkit renderers, placeholder elsewhere)
+                               └─ implementation must live in Swift/Kotlin itself?
+                                   → dayffi tier — designed, not yet available
 ```
 
 Whichever tier, the packaging story is identical: publish a crate. Consumers add one dependency

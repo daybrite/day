@@ -10,13 +10,13 @@ rust-version.workspace = true
 # feature fan-out here. (Building with bare `cargo` still works: run through `day build` so the union
 # is applied, or add the piece features by hand.)
 [features]
-appkit = ["day/appkit"]
-gtk = ["day/gtk"]
-qt = ["day/qt"]
+appkit = ["day/appkit", "day-tweak-button-bezel/appkit", "day-tweak-label-selectable/appkit", "day-tweak-slider-tickmarks/appkit"]
+gtk = ["day/gtk", "day-tweak-label-selectable/gtk", "day-tweak-slider-tickmarks/gtk"]
+qt = ["day/qt", "day-tweak-slider-tickmarks/qt"]
 uikit = ["day/uikit"]
-widget = ["day/widget"]
-winui = ["day/winui"]
-arkui = ["day/arkui"]
+widget = ["day/widget", "day-tweak-label-selectable/widget", "day-tweak-slider-tickmarks/widget"]
+winui = ["day/winui", "day-tweak-slider-tickmarks/winui"]
+arkui = ["day/arkui", "day-tweak-slider-tickmarks/arkui"]
 mock = ["day/mock"]
 
 # rlib for the desktop bin; the iOS staticlib and Android cdylib are requested explicitly by
@@ -38,6 +38,10 @@ day-piece-picker = { workspace = true }
 # A COMPOSE piece (pure composition — no native code, no cargo features): a plain dep, available on
 # every backend for free. No per-backend feature wiring above, the composition-first payoff.
 day-piece-rating = { workspace = true }
+# Tweaks (docs/tweaks.md): packaged per-toolkit configuration of built-in pieces.
+day-tweak-button-bezel = { workspace = true }
+day-tweak-label-selectable = { workspace = true }
+day-tweak-slider-tickmarks = { workspace = true }
 day-piece-webview = { workspace = true }
 day-piece-media = { workspace = true }
 day-part-haptics = { workspace = true }

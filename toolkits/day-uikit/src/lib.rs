@@ -12,6 +12,11 @@
 pub use imp::*;
 
 #[cfg(target_os = "ios")]
+pub mod ext;
+#[cfg(target_os = "ios")]
+pub use ext::*;
+
+#[cfg(target_os = "ios")]
 mod imp {
     use std::any::Any;
     use std::cell::RefCell;

@@ -1,0 +1,58 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import { url } from '../../lib/site';
+import api from '../../data/api-crates.json';
+
+// The bridge page into the generated Rust API reference. The crate list comes from the same
+// api-crates.json that CI's scripts/build-api-docs.sh documents, so this page and the rustdoc bundle
+// stay in lockstep. Each crate links into /api/<crate>/ (rustdoc uses underscores for '-'). The bundle
+// itself is produced by `cargo doc` in CI and dropped into dist/api; locally it only exists if you run
+// `scripts/build-api-docs.sh --out website/public/api` first.
+const groups = api.groups;
+const docDir = (pkg: string) => pkg.replace(/-/g, '_');
+---
+<DocsLayout title="API reference" description="Generated Rust API documentation (rustdoc) for the public Day crates.">
+  <h1>API reference</h1>
+  <p class="lead">
+    Complete, generated <code>rustdoc</code> for the public Day crates. The guides explain the
+    concepts; this is the exhaustive type-level reference — every trait, struct, and function.
+  </p>
+
+  {groups.map((g) => (
+    <section class="api-group">
+      <h2>{g.name}</h2>
+      <p class="group-blurb">{g.blurb}</p>
+      <div class="api-cards">
+        {g.crates.map((c) => (
+          <a class="api-card" href={url(`api/${docDir(c.pkg)}/index.html`)}>
+            <code>{c.pkg}</code>
+            <span>{c.blurb}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  ))}
+</DocsLayout>
+
+<style>
+  .lead { color: var(--muted); font-size: 1.05rem; }
+  .api-group { margin-top: 34px; }
+  .api-group h2 { margin: 0 0 4px; font-size: 1.25rem; }
+  .group-blurb { margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
+  .api-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .api-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px 18px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.12s ease;
+  }
+  .api-card:hover code, .api-card:hover span { text-decoration: none; }
+  .api-card:hover { border-color: var(--brand); transform: translateY(-2px); }
+  .api-card code { color: var(--text); font-weight: 700; font-size: 0.98rem; }
+  .api-card span { color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+</style>

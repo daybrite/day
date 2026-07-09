@@ -232,3 +232,20 @@ nav-map = Carte
 map-caption = Une MKMapView native — plateformes Apple uniquement. Touchez un préréglage pour recentrer la carte en direct.
 map-sf = San Francisco
 map-nyc = New York
+
+# — page tweaks (docs/tweaks.md) —
+nav-tweaks = Tweaks
+tweaks-intro = Les tweaks empaquetés configurent le composant natif derrière une pièce intégrée, par toolkit. Là où un tweak n'est pas couvert, il est sans effet — les pièces ci-dessous restent d'origine.
+tweaks-stock = D'origine
+tweaks-tweaked = Ajustée
+tweaks-bezel-title = Biseau du bouton
+tweaks-bezel-caption = day-tweak-button-bezel — AppKit uniquement : les constantes NSBezelStyle sur le vrai NSButton.
+tweaks-selectable-title = Libellé sélectionnable
+tweaks-selectable-caption = day-tweak-label-selectable — AppKit, GTK, Android : la sélection de texte native sur un libellé standard.
+tweaks-selectable-text = Le texte de ce libellé peut être sélectionné et copié — essayez.
+tweaks-ticks-title = Graduations du curseur
+tweaks-ticks-caption = day-tweak-slider-tickmarks — AppKit, GTK, Android, Qt, WinUI, ArkUI : graduations natives, avec aimantation là où la plateforme la propose. Le curseur ajusté s'aimante ; celui d'origine glisse.
+tweaks-ref-title = Vivacité du NativeRef
+tweaks-ref-caption = Un NativeRef atteint le curseur ajusté après montage ; démontez-le et la référence se vide au lieu de pendre.
+tweaks-ref-live = réf : vivante
+tweaks-ref-cleared = réf : vidée

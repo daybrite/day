@@ -377,6 +377,12 @@ pub trait TreeOps {
     fn child_count(&self, node: RNode) -> usize;
     fn first_child(&self, node: RNode) -> Option<RNode>;
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
+    /// A CLONE of the node's native handle boxed as `Any` (None for layout-only or disposed
+    /// nodes). TreeOps is object-safe, so the generic `Toolkit::Handle` can't appear here —
+    /// toolkit ext modules downcast to their concrete Handle type. This is the tweaks door
+    /// (docs/tweaks.md): cloning is cheap on every backend (a retain / gobject ref / GlobalRef
+    /// clone / Copy pointer) and the clone never outlives the native widget's own refcounting.
+    fn node_handle_any(&self, node: RNode) -> Option<Box<dyn Any>>;
     fn node_frame(&self, node: RNode) -> Option<Rect>;
     fn node_probe(&self, node: RNode) -> Option<NodeProbe>;
     /// The node's accumulated accessibility annotations (§13) — `a11y_audit`'s expectation.
@@ -691,6 +697,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.nodes.get(node).map(|n| n.kind)
     }
 
+    fn node_handle_any(&self, node: RNode) -> Option<Box<dyn Any>> {
+        self.nodes
+            .get(node)
+            .and_then(|n| n.handle.clone())
+            .map(|h| Box::new(h) as Box<dyn Any>)
+    }
+
     fn node_frame(&self, node: RNode) -> Option<Rect> {
         self.nodes.get(node).and_then(|n| n.last_native_frame)
     }
@@ -886,6 +899,17 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
         pump_events();
     }
     r
+}
+
+/// Tell layout that a node's intrinsic size may have changed. For tweaks (docs/tweaks.md):
+/// after a native call that alters a widget's preferred size (fonts, tick marks, bezel styles),
+/// the measure cache along the node's path must be invalidated — Day can't see native mutations
+/// it didn't make. Relayout runs at the next turn boundary as usual. No-op on a disposed node.
+pub fn invalidate_size(node: RNode) {
+    with_tree(|t| {
+        t.mark_needs_measure(node);
+        t.mark_layout_dirty();
+    });
 }
 
 /// Like `with_tree`, but returns `None` instead of panicking when the tree is already borrowed.

@@ -62,6 +62,7 @@ export const suites = [
       { id: 'stack-detail', label: 'Navigation stack' },
       { id: 'resources', label: 'Bundled resources' },
       { id: 'webview', label: 'Web view' },
+      { id: 'tweaks', label: 'Tweaks (native config)' },
       { id: 'about', label: 'About' },
     ],
   },

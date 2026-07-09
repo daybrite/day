@@ -1048,7 +1048,9 @@ pub mod present {
 // ---------------------------------------------------------------------------
 
 pub trait Toolkit: Sized + 'static {
-    type Handle: Clone;
+    // `'static` so a handle CLONE can cross the object-safe TreeOps seam boxed as `Any`
+    // (`node_handle_any` — the tweaks door, docs/tweaks.md).
+    type Handle: Clone + 'static;
 
     fn capability(&self, _cap: Cap) -> Support {
         Support::Unsupported

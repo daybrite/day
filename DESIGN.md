@@ -2353,6 +2353,38 @@ smokes carry that load. M8c remains the densest single gate even after the M8 sp
 
 ---
 
+## Addendum (2026-07-09) — Tweaks: per-toolkit configuration of built-in pieces
+
+Adopted post-review (owner-ratified): **tweaks** amend §15's tier ladder with a rung BELOW
+composition — configuring the native widget behind an existing built-in piece, case by case,
+without a new piece kind. A piece with a tweak applied is a **Tweaked Piece**. This supersedes
+the earlier composition-only stance for built-ins: "call two extra methods on the real NSButton /
+WinUI Button" is a legitimate, supported need that a full tier-1 renderer over-serves.
+
+Mechanism (implemented; docs/tweaks.md is normative):
+- `Toolkit::Handle: Clone + 'static`; the object-safe tree seam gains
+  `node_handle_any(node) -> Option<Box<dyn Any>>` (a handle CLONE — retain / gobject ref /
+  GlobalRef clone / Copy pointer). Toolkit `ext` modules downcast to their concrete handle.
+- Portable surface: `Decorate::tweak(FnOnce(RNode))` (runs once at mount, post-realize — the
+  §17.4/§5.2 synchronous-realize guarantee makes this sound), `Decorate::native_ref(&NativeRef)`
+  (retained, liveness-checked, reactive on mount/clear transitions), and
+  `day_core::invalidate_size(node)` for native mutations that change intrinsic size (§7.4's
+  measure cache cannot see mutations Day didn't make).
+- Per-toolkit sugar: `.appkit(…)/.uikit(…)/.gtk(…)/.android(…)` typed ext traits;
+  `.qt_raw(…)/.winui_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no
+  Windows.UI.Xaml bindings, so WinUI hands out the borrowed ABI pointer via the existing
+  `day_winui_unbox` seam; C++/WinRT recipes are the supported path).
+- Packaged tweaks: `tweaks/day-tweak-*` crates mirror piece crates' Cargo shape and reuse
+  `[package.metadata.day.piece] backends` for §15.2's feature union. Three in-tree examples
+  (button-bezel / label-selectable / slider-tickmarks) span single-toolkit trivial to
+  six-toolkit with crate-owned Qt/WinRT/ArkUI native code; the showcase Tweaks page exercises
+  them in CI.
+- Boundaries: main-thread only; never destroy/reparent; managed properties (title, value,
+  enabled, frame, a11y) may be re-applied by Day and are NOT tweak-stable; unmanaged properties
+  are. Packaged tweaks must document per-toolkit coverage and no-op silently elsewhere.
+
+---
+
 # Appendix A — The showcase app, end to end
 
 ### A.1 `apps/showcase/src/lib.rs` (complete MVP surface)

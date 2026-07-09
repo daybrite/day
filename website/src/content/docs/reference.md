@@ -30,6 +30,7 @@ they tend to lead the guides when something changes.
 | [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |
 | [files](/docs/internal/files) | file I/O and platform paths |
 | [extending](/docs/internal/extending) | piece registration internals |
+| [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
 | [vscode](/docs/internal/vscode) | editor setup |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |

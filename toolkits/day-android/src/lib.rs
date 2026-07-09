@@ -10,6 +10,11 @@
 pub use imp::*;
 
 #[cfg(target_os = "android")]
+pub mod ext;
+#[cfg(target_os = "android")]
+pub use ext::*;
+
+#[cfg(target_os = "android")]
 mod imp {
     pub use jni;
 

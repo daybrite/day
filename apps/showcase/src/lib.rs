@@ -11,6 +11,9 @@ use day_piece_picker::picker;
 use day_piece_rating::{Card, badge, rating};
 use day_piece_searchfield::search_field;
 use day_piece_webview::web_view;
+use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
+use day_tweak_label_selectable::LabelSelectableTweak;
+use day_tweak_slider_tickmarks::{SliderTickmarksTweak, TickPosition, Tickmarks};
 use std::cell::OnceCell;
 
 thread_local! {
@@ -115,6 +118,7 @@ pub fn root() -> AnyPiece {
         .item("shapes", tr("nav-shapes"), shapes_page)
         .item("pickers", tr("nav-pickers"), pickers_page)
         .item("compose", tr("nav-compose"), compose_page)
+        .item("tweaks", tr("nav-tweaks"), tweaks_page)
         .item("activity", tr("nav-activity"), activity_page)
         .item("search", tr("nav-search"), search_page)
         .item("modals", tr("nav-modals"), modals_page)
@@ -365,6 +369,128 @@ fn resource_lines() -> (String, String) {
         None => "greeting.txt: (not bundled)".to_string(),
     };
     (numbers, greeting)
+}
+
+// Tweaks (docs/tweaks.md): packaged per-toolkit configuration of BUILT-IN pieces. Each card shows
+// a stock piece beside its Tweaked Piece; the captions name the toolkits the tweak affects — on
+// every other toolkit the tweak is a documented no-op and the two sides look identical.
+fn tweaks_page() -> AnyPiece {
+    let free = Signal::new(50.0f64);
+    let snapped = Signal::new(50.0f64);
+    let ref_mounted = Signal::new(true);
+    let slider_ref = NativeRef::new();
+
+    // day-tweak-button-bezel: the trivial single-toolkit tweak (AppKit bezel constants).
+    let bezel_card = column((
+        label(tr("tweaks-bezel-title")).font(Font::Headline),
+        label(tr("tweaks-bezel-caption")).font(Font::Footnote),
+        row((
+            button(tr("tweaks-stock")).id("tweak-bezel-stock"),
+            button(tr("tweaks-tweaked"))
+                .bezel(Bezel::Toolbar)
+                .id("tweak-bezel-toolbar"),
+            button(tr("tweaks-tweaked"))
+                .bezel(Bezel::Badge)
+                .id("tweak-bezel-badge"),
+        ))
+        .spacing(10.0),
+    ))
+    .spacing(8.0)
+    .align(HAlign::Leading)
+    .modifier(Card);
+
+    // day-tweak-label-selectable: three toolkits, three access tiers (objc2 / gtk4-rs / JNI).
+    let selectable_card = column((
+        label(tr("tweaks-selectable-title")).font(Font::Headline),
+        label(tr("tweaks-selectable-caption")).font(Font::Footnote),
+        label(tr("tweaks-selectable-text"))
+            .selectable()
+            .id("tweak-selectable-label"),
+    ))
+    .spacing(8.0)
+    .align(HAlign::Leading)
+    .modifier(Card);
+
+    // day-tweak-slider-tickmarks: the full-range tweak — six toolkits, incl. its own Qt/WinUI/
+    // ArkUI native code. The tweaked slider snaps to its marks where the platform supports it.
+    let ticks_card = column((
+        label(tr("tweaks-ticks-title")).font(Font::Headline),
+        label(tr("tweaks-ticks-caption")).font(Font::Footnote),
+        row((
+            label(tr("tweaks-stock")).font(Font::Caption),
+            slider(free).range(0.0..=100.0).id("tweak-ticks-stock"),
+            label(move || format!("{:.0}", free.get())).id("tweak-ticks-stock-value"),
+        ))
+        .spacing(8.0),
+        row((
+            label(tr("tweaks-tweaked")).font(Font::Caption),
+            slider(snapped)
+                .range(0.0..=100.0)
+                .tickmarks(
+                    Tickmarks::count(11)
+                        .snap(true)
+                        .position(TickPosition::Below),
+                )
+                .id("tweak-ticks-slider"),
+            label(move || format!("{:.0}", snapped.get())).id("tweak-ticks-value"),
+        ))
+        .spacing(8.0),
+    ))
+    .spacing(8.0)
+    .align(HAlign::Leading)
+    .modifier(Card);
+
+    // NativeRef: imperative access with liveness — unmount the Tweaked Piece and the ref clears.
+    let ref_card = column((
+        label(tr("tweaks-ref-title")).font(Font::Headline),
+        label(tr("tweaks-ref-caption")).font(Font::Footnote),
+        toggle(ref_mounted)
+            .id("tweak-ref-toggle")
+            .a11y(|a| a.label("Mount the tweaked piece")),
+        when(move || ref_mounted.get(), {
+            let r = slider_ref.clone();
+            // On the tick grid (count 5 over 0..=100 → step 25): a stepped Material slider
+            // requires values on the grid, and programmatic snapping doesn't write back.
+            let v = Signal::new(25.0f64);
+            move || {
+                slider(v)
+                    .range(0.0..=100.0)
+                    .tickmarks(Tickmarks::count(5))
+                    .native_ref(&r)
+                    .id("tweak-ref-slider")
+            }
+        }),
+        label({
+            let r = slider_ref.clone();
+            // NativeRef reads are tracked: this re-runs on the ref's mount/clear transitions.
+            move || {
+                if r.node().is_some() {
+                    tr("tweaks-ref-live").format()
+                } else {
+                    tr("tweaks-ref-cleared").format()
+                }
+            }
+        })
+        .id("tweak-ref-status"),
+    ))
+    .spacing(8.0)
+    .align(HAlign::Leading)
+    .modifier(Card);
+
+    scroll(
+        column((
+            label(tr("nav-tweaks")).font(Font::Title).id("tweaks-title"),
+            label(tr("tweaks-intro")).font(Font::Footnote),
+            bezel_card,
+            selectable_card,
+            ticks_card,
+            ref_card,
+        ))
+        .spacing(14.0)
+        .align(HAlign::Leading)
+        .padding(16.0),
+    )
+    .any()
 }
 
 fn activity_page() -> AnyPiece {

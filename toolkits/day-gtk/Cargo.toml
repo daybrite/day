@@ -6,6 +6,10 @@ rust-version.workspace = true
 
 [dependencies]
 day-spec = { workspace = true }
+# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
+# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
+day-core = { workspace = true }
+day-pieces = { workspace = true }
 linkme = { workspace = true }
 gtk4 = { version = "0.11", features = ["v4_10"] }
 # libadwaita: the desktop navigation paradigm (AdwNavigationSplitView / AdwNavigationView),

@@ -28,6 +28,9 @@ pub struct WinHandle(pub *mut c_void);
 
 pub type Handle = WinHandle;
 
+pub mod ext;
+pub use ext::*;
+
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 

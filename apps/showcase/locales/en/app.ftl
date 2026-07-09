@@ -232,3 +232,20 @@ nav-map = Map
 map-caption = A native MKMapView — Apple platforms only. Tap a preset to recenter the map live.
 map-sf = San Francisco
 map-nyc = New York
+
+# — tweaks page (docs/tweaks.md) —
+nav-tweaks = Tweaks
+tweaks-intro = Packaged tweaks configure the native widget behind a built-in piece, per toolkit. On toolkits a tweak doesn't cover, it is a no-op — the pieces below simply look stock.
+tweaks-stock = Stock
+tweaks-tweaked = Tweaked
+tweaks-bezel-title = Button bezel
+tweaks-bezel-caption = day-tweak-button-bezel — AppKit only: NSBezelStyle constants on the real NSButton.
+tweaks-selectable-title = Selectable label
+tweaks-selectable-caption = day-tweak-label-selectable — AppKit, GTK, Android: the platform's own text selection on a stock label.
+tweaks-selectable-text = This label's text can be selected and copied — try it.
+tweaks-ticks-title = Slider tick marks
+tweaks-ticks-caption = day-tweak-slider-tickmarks — AppKit, GTK, Android, Qt, WinUI, ArkUI: native ticks, snapping where the platform supports it. The tweaked slider snaps; the stock one glides.
+tweaks-ref-title = NativeRef liveness
+tweaks-ref-caption = A NativeRef reaches the tweaked slider after mount; unmount it and the ref clears instead of dangling.
+tweaks-ref-live = ref: live
+tweaks-ref-cleared = ref: cleared

@@ -22,6 +22,9 @@ pub struct QtHandle(pub *mut c_void);
 
 pub type Handle = QtHandle;
 
+pub mod ext;
+pub use ext::*;
+
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 

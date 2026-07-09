@@ -1414,3 +1414,80 @@ fn save_file_writes_data_to_the_chosen_path() {
     );
     let _ = std::fs::remove_file(&dest);
 }
+
+// ---------------------------------------------------------------------------
+// Tweaks (docs/tweaks.md): the mount hook, the NativeRef lifecycle, and size invalidation.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn tweak_runs_once_at_mount_with_live_downcastable_handle() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let runs = Rc::new(Cell::new(0u32));
+    let typed = Rc::new(Cell::new(false));
+    let _probe = boot({
+        let (runs, typed) = (runs.clone(), typed.clone());
+        move || {
+            label("Hello")
+                .tweak(move |n| {
+                    runs.set(runs.get() + 1);
+                    // The native handle exists at hook time and downcasts to the compiled
+                    // backend's concrete Handle type — the tweaks-door contract.
+                    let ok = day_core::with_tree(|t| t.node_handle_any(n))
+                        .is_some_and(|h| h.downcast::<MockHandle>().is_ok());
+                    typed.set(ok);
+                })
+                .any()
+        }
+    });
+    assert_eq!(runs.get(), 1, "tweak must run exactly once, at mount");
+    assert!(
+        typed.get(),
+        "handle must be live and downcast to MockHandle"
+    );
+}
+
+#[test]
+fn native_ref_tracks_mount_and_clears_on_disposal() {
+    let r = NativeRef::new();
+    assert!(r.node().is_none(), "unmounted ref resolves to None");
+    let probe = boot({
+        let r = r.clone();
+        move || {
+            let show = Signal::new(true);
+            column((
+                button("toggle").action(move || show.update(|s| *s = !*s)),
+                when(move || show.get(), {
+                    let r = r.clone();
+                    move || label("tweaked").native_ref(&r)
+                }),
+            ))
+            .any()
+        }
+    });
+    let first = r.node().expect("mounted ref resolves");
+    let btn = node_id(&probe, "day.button", 0);
+    probe.emit(btn, Event::Pressed); // when-arm disposed → scope cleanup clears the ref
+    assert!(r.node().is_none(), "disposal must clear the ref");
+    assert!(r.with(|_| ()).is_none());
+    probe.emit(btn, Event::Pressed); // arm rebuilt → ref points at the NEW node
+    let second = r.node().expect("re-mounted ref resolves");
+    assert_ne!(first, second, "rebuild yields a fresh node");
+}
+
+#[test]
+fn invalidate_size_remeasures_the_tweaked_path() {
+    let r = NativeRef::new();
+    let probe = boot({
+        let r = r.clone();
+        move || label("resize me").native_ref(&r).any()
+    });
+    probe.clear_log();
+    assert_eq!(probe.measure_calls(), 0);
+    r.with(day_core::invalidate_size).expect("live node");
+    flush_sync(); // turn boundary → layout re-enters at the boundary above the dirty node
+    assert!(
+        probe.measure_calls() > 0,
+        "invalidate_size must trigger a re-measure of the node's path"
+    );
+}

@@ -51,6 +51,9 @@ use day_spec::{
 
 pub type Handle = Retained<NSView>;
 
+pub mod ext;
+pub use ext::*;
+
 // ---------------------------------------------------------------------------
 // Event plumbing: node-id keyed sink, thread-local (single UI thread)
 // ---------------------------------------------------------------------------

@@ -259,3 +259,18 @@ flow:
   - assert_visible: { id: webview-title }
   - pause: 5
   - screenshot: webview
+  # Tweaks (docs/tweaks.md): packaged per-toolkit native configuration of built-in pieces, plus
+  # NativeRef liveness — unmounting the Tweaked Piece clears the ref (asserted via Fluent keys so
+  # the same script passes in every locale).
+  - navigate: { route: tweaks }
+  - assert_route: { route: tweaks }
+  - assert_visible: { id: tweaks-title }
+  - assert_visible: { id: tweak-bezel-toolbar }
+  - assert_visible: { id: tweak-selectable-label }
+  - assert_visible: { id: tweak-ticks-slider }
+  - assert_text: { id: tweak-ref-status, key: tweaks-ref-live }
+  - toggle: { id: tweak-ref-toggle, value: false }
+  - assert_text: { id: tweak-ref-status, key: tweaks-ref-cleared }
+  - toggle: { id: tweak-ref-toggle, value: true }
+  - assert_text: { id: tweak-ref-status, key: tweaks-ref-live }
+  - screenshot: tweaks

@@ -108,13 +108,16 @@ presentation — and these map to native variants, not custom drawing.
 
 ## What you can't restyle (on purpose)
 
-There is no API to recolor a slider track, restyle a scrollbar, or reshape a checkbox. If a
-property can't be honored by a toolkit, Day logs it once in debug rather than silently
+There is no portable API to recolor a slider track, restyle a scrollbar, or reshape a checkbox.
+If a property can't be honored by a toolkit, Day logs it once in debug rather than silently
 approximating it with custom drawing. That's a real constraint, and it's the flip side of every
-Day control behaving — and evolving with the OS — exactly like a native one. When you truly need
-fully custom visuals, that's what [`canvas`](/docs/internal/shapes) and
-[composite pieces](/docs/tutorial-composite-piece) are for: draw your own leaf, keep native
-behavior around it.
+Day control behaving — and evolving with the OS — exactly like a native one.
+
+When a *specific platform* offers the knob you want — an AppKit bezel style, WinUI tick marks —
+[tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit, without leaving the
+native-widget premise. And when you truly need fully custom visuals, that's what
+[`canvas`](/docs/internal/shapes) and [composite pieces](/docs/tutorial-composite-piece) are for:
+draw your own leaf, keep native behavior around it.
 
 If your product requires a heavily branded design system on every pixel — custom controls
 everywhere, identical on all platforms — a renderer-based framework will fight you less. Day is

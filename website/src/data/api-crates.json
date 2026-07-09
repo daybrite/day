@@ -1,0 +1,56 @@
+{
+  "//": "Single source of truth for the generated Rust API reference. Consumed by BOTH the CI doc",
+  "//2": "generator (scripts/build-api-docs.sh, via jq) and the /docs/api bridge page (api.astro).",
+  "//3": "`pkg` is the crate name; its rustdoc directory is pkg with '-' replaced by '_'. `features`",
+  "//4": "(optional) is passed to `cargo doc --features` for crates that need one backend to compile",
+  "//5": "(only the `day` umbrella does — the headless `mock` backend keeps the doc build portable).",
+  "outDir": "api",
+  "groups": [
+    {
+      "name": "Core",
+      "blurb": "The framework your app is built on.",
+      "crates": [
+        { "pkg": "day", "features": "mock", "blurb": "The umbrella crate your app depends on — re-exports the core API plus one native backend." },
+        { "pkg": "day-core", "blurb": "The Piece model: the realized view tree, the mounter, the layout engine, and event routing." },
+        { "pkg": "day-reactive", "blurb": "The Copy-signal reactive core — signals, memos, and effects: build once, bind forever." },
+        { "pkg": "day-pieces", "blurb": "The built-in piece library (text, stacks, controls, list…) and the renderer! extension macro." },
+        { "pkg": "day-geometry", "blurb": "Plain Copy value types — points, sizes, rects, and affine transforms — shared across backends." },
+        { "pkg": "day-spec", "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders." },
+        { "pkg": "day-fluent", "blurb": "The piece-facing Project Fluent localization layer over the day-l10n engine." },
+        { "pkg": "day-l10n", "blurb": "The low-level localization engine and the built-in core string catalog." },
+        { "pkg": "day-script", "blurb": "The embedded dayscript engine that drives scripted UI walkthroughs and tests." },
+        { "pkg": "day-mock", "blurb": "The headless toolkit — a backend with no native UI, for tests and documentation." }
+      ]
+    },
+    {
+      "name": "Pieces",
+      "blurb": "Optional native widgets you add to an app à la carte.",
+      "crates": [
+        { "pkg": "day-piece-picker", "blurb": "A SwiftUI-style Picker — menu, segmented, or inline styles, each a distinct native control." },
+        { "pkg": "day-piece-combobox", "blurb": "An editable combo box: free text with a native dropdown of suggestions." },
+        { "pkg": "day-piece-searchfield", "blurb": "A native search input with a search glyph and a clear button." },
+        { "pkg": "day-piece-textarea", "blurb": "A native, scrollable multi-line text editor." },
+        { "pkg": "day-piece-rating", "blurb": "A tappable star-rating control, composed from primitive pieces." },
+        { "pkg": "day-piece-webview", "blurb": "An embedded native web view — WKWebView, WebView2, WebKitGTK, or Android WebView." },
+        { "pkg": "day-piece-media", "blurb": "Each platform's native media/video player, behind one Rust API." },
+        { "pkg": "day-piece-remote-image", "blurb": "A native image view that decodes and caches an image from a URL." },
+        { "pkg": "day-piece-map", "blurb": "The platform's native map view (Apple platforms)." },
+        { "pkg": "day-piece-lottie", "blurb": "A Lottie vector animation, on iOS and Android." },
+        { "pkg": "day-piece-activity", "blurb": "The platform's native share / activity sheet." }
+      ]
+    },
+    {
+      "name": "Parts",
+      "blurb": "Headless native capabilities — no UI; any Rust code can depend on them.",
+      "crates": [
+        { "pkg": "day-part-battery", "blurb": "Battery level and charging state." },
+        { "pkg": "day-part-sensors", "blurb": "Motion sensors — accelerometer, gyroscope, and friends." },
+        { "pkg": "day-part-clipboard", "blurb": "Read and write the system plain-text clipboard." },
+        { "pkg": "day-part-network", "blurb": "Network connectivity and connection type." },
+        { "pkg": "day-part-haptics", "blurb": "Trigger native haptic feedback." },
+        { "pkg": "day-part-prefs", "blurb": "A persistent native key/value preference store." },
+        { "pkg": "day-part-deviceinfo", "blurb": "Device identity — model, OS version, and locale." }
+      ]
+    }
+  ]
+}

@@ -23,6 +23,9 @@ use day_spec::{
 
 pub type Handle = gtk4::Widget;
 
+pub mod ext;
+pub use ext::*;
+
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
