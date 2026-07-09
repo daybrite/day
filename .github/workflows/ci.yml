@@ -247,7 +247,7 @@ jobs:
         if: matrix.toolkit == 'appkit'
         uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ matrix.combo }}
+          name: showcase-dist-${{ matrix.combo }}
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
@@ -343,7 +343,7 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: dist-ios-uikit
+          name: showcase-dist-ios-uikit
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
@@ -455,7 +455,7 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ matrix.combo }}
+          name: showcase-dist-${{ matrix.combo }}
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
@@ -545,7 +545,7 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: dist-android-widget
+          name: showcase-dist-android-widget
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Emulator walkthrough (android-widget)
@@ -706,7 +706,7 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: dist-ohos-arkui
+          name: showcase-dist-ohos-arkui
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
@@ -797,7 +797,7 @@ jobs:
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: dist-windows-winui
+          name: showcase-dist-windows-winui
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots

@@ -867,11 +867,8 @@ impl<T: Send + 'static> Setter<T> {
         on_main(move || {
             let poster = with_rt(|rt| {
                 let node = rt.nodes.get_mut(key)?;
-                if let Some(slot) = node.value.as_mut().and_then(|b| b.downcast_mut::<T>()) {
-                    *slot = value;
-                } else {
-                    return None;
-                }
+                let slot = node.value.as_mut().and_then(|b| b.downcast_mut::<T>())?;
+                *slot = value;
                 node.last_changed = rt.tick;
                 rt.tick += 1;
                 mark_observers(rt, key, NodeState::Dirty);
