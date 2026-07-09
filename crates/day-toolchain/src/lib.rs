@@ -165,10 +165,10 @@ pub fn android_sdk_dir() -> PathBuf {
     if let Ok(v) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
         return PathBuf::from(v);
     }
-    if cfg!(target_os = "windows") {
-        if let Ok(v) = std::env::var("LOCALAPPDATA") {
-            return PathBuf::from(v).join("Android").join("Sdk");
-        }
+    if cfg!(target_os = "windows")
+        && let Ok(v) = std::env::var("LOCALAPPDATA")
+    {
+        return PathBuf::from(v).join("Android").join("Sdk");
     }
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
     if cfg!(target_os = "macos") {
