@@ -162,5 +162,5 @@ the handles, and both are torn down together, once, at a safe point.
 
 ---
 
-That's the whole loop: build once, patch forever, one turn at a time. The
+That's the whole loop: the tree is built once and patched in place, one turn at a time. The
 [reference section](/docs/reference) documents each subsystem in more depth.

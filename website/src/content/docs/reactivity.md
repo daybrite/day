@@ -181,7 +181,7 @@ the main thread comes back through a `Setter` or `on_main`, the same way it woul
 
 ## What this model asks of you
 
-The honest cost of build-once reactivity is that *you* mark what's dynamic. A closure makes text
+The honest cost of this build-once model is that *you* mark what's dynamic. A closure makes text
 live; a bare value doesn't. Structure changes only through `when`, `each`, and `list` — deriving
 structure from a signal in plain Rust freezes it at build time. In diffing frameworks these
 distinctions don't exist because everything re-runs; here they're the price of nothing

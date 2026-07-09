@@ -30,7 +30,7 @@ bind straight to native attributes.
 
 1. **One toolkit backend per binary.** A binary compiles exactly one backend (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
-2. **Build once, bind forever.** Never rebuild the view on state change. To make UI reactive, pass a
+2. **Views are built once, then kept live by bindings — never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
    closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.

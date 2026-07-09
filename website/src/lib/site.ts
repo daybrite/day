@@ -61,9 +61,9 @@ export function internalExcerpt(body: string, max = 155): string {
 
 export const site = {
   name: 'Day',
-  tagline: 'One Rust codebase. Native widgets on every platform.',
+  tagline: 'Platform-native apps on every desktop and mobile system, all from a single Rust codebase.',
   description:
-    'Day is a Rust framework for cross-platform native apps. You write SwiftUI-style Pieces once, and Day renders them with AppKit, UIKit, GTK, Qt, WinUI, and Android widgets, kept up to date by build-once/bind-forever reactivity.',
+    'Day is a Rust framework that builds genuinely native applications for macOS, Windows, Linux, iOS, Android, and HarmonyOS from one codebase — using each platform’s own interface components, so your product looks and works the way users of each platform expect.',
   repo: 'https://github.com/daybrite/day',
   targets: [
     'macOS · AppKit',

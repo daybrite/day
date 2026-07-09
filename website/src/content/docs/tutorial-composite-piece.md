@@ -223,7 +223,7 @@ impl Piece for Rating {
 That is the entire piece. Note the reactivity model: the row and its `max` canvases are built once.
 Tapping the third star calls `value.set(3)`; only the star canvases that read `value` re-record (the
 first three fill, the last two outline), with no tree diff and no re-execution of `build`. This is
-Day's build-once, bind-forever model, and you got it without writing a binding by hand: `canvas`'s
+Day's build-once reactive model, and you got it without writing a binding by hand: `canvas`'s
 tracked read wired it for you.
 
 ## 5. Use it in an app

@@ -15,7 +15,7 @@
       "crates": [
         { "pkg": "day", "features": "mock", "blurb": "The umbrella crate your app depends on — re-exports the core API plus one native backend." },
         { "pkg": "day-core", "blurb": "The Piece model: the realized view tree, the mounter, the layout engine, and event routing." },
-        { "pkg": "day-reactive", "blurb": "The Copy-signal reactive core — signals, memos, and effects: build once, bind forever." },
+        { "pkg": "day-reactive", "blurb": "The Copy-signal reactive core — signals, memos, and effects that keep a built-once tree live." },
         { "pkg": "day-pieces", "blurb": "The built-in piece library (text, stacks, controls, list…) and the renderer! extension macro." },
         { "pkg": "day-geometry", "blurb": "Plain Copy value types — points, sizes, rects, and affine transforms — shared across backends." },
         { "pkg": "day-spec", "blurb": "The backend-neutral toolkit specification that pieces emit and each toolkit renders." },

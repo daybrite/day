@@ -5,7 +5,7 @@ import Logo from '../components/Logo.astro';
 import { url, site } from '../lib/site';
 import { platforms } from '../../gallery.config.mjs';
 
-// Group the ten CI targets by OS for the "runs on" grid.
+// Group the eleven CI targets by OS for the "runs on" grid.
 const byOs = platforms.reduce((acc, p) => {
   (acc[p.os] ??= []).push(p);
   return acc;
@@ -36,33 +36,53 @@ selector(section)
 const features = [
   {
     icon: '◉',
-    title: 'Native widgets',
-    body: 'Every Piece is an actual NSTextField, UILabel, GtkEntry, QSlider, or WinUI control. Native text, scrolling, and accessibility come for free.',
+    title: 'Apps your users recognize',
+    body: 'Every control is the platform’s own — a real Mac button on macOS, real Material on Android. Text, scrolling, shortcuts, and dark mode behave the way each platform’s users already expect, and keep improving with OS updates you never have to ship.',
   },
   {
     icon: '↯',
-    title: 'Build once, bind forever',
-    body: 'Day builds the widget tree once and binds Signals straight to native attributes. A change updates only the attributes that read it. There is no virtual tree and no diffing.',
+    title: 'No browser, no bundled engine',
+    body: 'Day apps are small native binaries that talk directly to the operating system. There is no embedded browser to patch and no rendering engine to carry, so apps start fast, stay lean, and leave a smaller security surface to maintain.',
   },
   {
     icon: '⬢',
-    title: 'One binary per target',
-    body: 'Exactly one toolkit is compiled into each build. The compiler monomorphizes to AppKit, or GTK, or the Android bridge, so there is no runtime abstraction to pay for.',
+    title: 'One codebase, one team',
+    body: 'Six operating systems from a single Rust program. A feature lands once and ships everywhere at the same time — instead of three implementations drifting apart across three teams and three schedules.',
   },
   {
     icon: '✦',
-    title: 'Four pillars, built in',
-    body: 'Fluent localization, a real accessibility tree, dayscript UI automation, and dayffi polyglot Day Pieces all ship as part of the core framework.',
-  },
-  {
-    icon: '⌘',
-    title: 'A tool for humans & agents',
-    body: 'A flutter_tools-style CLI: create, build, launch, pack, lint. Stable ids and routes make apps scriptable and testable the same way on every platform.',
+    title: 'Accessibility & localization, built in',
+    body: 'Screen-reader support rides each platform’s own accessibility tree, and every user-facing string flows through Mozilla Fluent localization. The groundwork for accessibility requirements and new markets is in the framework, not on your backlog.',
   },
   {
     icon: '◱',
-    title: 'Screenshot-validated CI',
-    body: 'Every push builds the showcase on every target and captures screenshots. The gallery on this site is assembled from those exact artifacts.',
+    title: 'Proven on every platform, every change',
+    body: 'Each commit builds a full demo app on all eleven targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
+  },
+  {
+    icon: '⌘',
+    title: 'Tooling teams actually use',
+    body: 'One command line creates, runs, tests, and packages signed installers for every platform — dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, built for CI and AI-assisted development alike.',
+  },
+];
+
+// Honest one-paragraph contrasts for teams evaluating a cross-platform stack. Factual and
+// non-disparaging — the docs' "Why Day (and why not)" page carries the full, frank comparison.
+const compare = [
+  {
+    name: 'Web-view shells',
+    examples: 'Electron, Tauri',
+    body: 'Fast to staff from a web team, but the interface runs in a browser engine — bundled with the app (Electron) or the system’s (Tauri) — with the memory profile, patch cadence, and not-quite-native feel that implies.',
+  },
+  {
+    name: 'Custom renderers',
+    examples: 'Flutter',
+    body: 'Pixel-identical screens everywhere — drawn by the framework rather than the platform. Text, scrolling, and accessibility are re-implementations, and the app looks the same everywhere instead of at home anywhere.',
+  },
+  {
+    name: 'Per-platform native',
+    examples: 'Swift + Kotlin + C++ teams',
+    body: 'The best fidelity available — paid for once per platform. Every feature is built, reviewed, and maintained N times, and the versions drift apart the moment schedules diverge.',
   },
 ];
 ---
@@ -74,9 +94,9 @@ const features = [
       <div class="hero-copy">
         <p class="pill hero-pill"><Logo size={15} /> cross-platform · Rust · native</p>
         <h1 class="hero-title">
-          One Rust codebase.<br />
-          <span class="grad-text">Native widgets</span><br />
-          on every platform.
+          <span class="grad-text">Platform-native apps</span><br />
+          on every desktop and mobile system,<br />
+          all from a single Rust codebase.
         </h1>
         <p class="lead hero-lead">{site.description}</p>
         <div class="hero-cta">
@@ -84,12 +104,12 @@ const features = [
           <a class="btn btn-ghost" href={url('gallery')}>See it running →</a>
         </div>
         <p class="hero-sub">
-          SwiftUI-like Pieces · fine-grained reactivity · AppKit · UIKit · GTK · Qt · WinUI · Android
+          Real AppKit · UIKit · Android · GTK · Qt · WinUI · ArkUI components — not lookalikes
         </p>
       </div>
       <div class="hero-code">
         <CodeSample code={heroCode} title="counter.rs" />
-        <p class="hero-code-note">↑ compiles to native widgets on all eleven targets below.</p>
+        <p class="hero-code-note">↑ one Rust function — a native counter on all eleven targets below.</p>
       </div>
     </div>
   </section>
@@ -115,8 +135,11 @@ const features = [
   <section class="section features">
     <div class="container">
       <p class="eyebrow">Why Day</p>
-      <h2 class="sec-title">Native fidelity <span class="grad-text">and</span> a single codebase.</h2>
-      <p class="lead">Day removes the usual trade-off: you write one Rust program and ship native apps.</p>
+      <h2 class="sec-title">Native quality <span class="grad-text">and</span> a single codebase.</h2>
+      <p class="lead">
+        Cross-platform tools usually make you choose between apps that feel native and a codebase
+        you only write once. Day is built to deliver both — and to be frank about the trade-offs.
+      </p>
       <div class="feat-grid">
         {features.map((f) => (
           <div class="card feat">
@@ -129,23 +152,52 @@ const features = [
     </div>
   </section>
 
+  <!-- COMPARE -->
+  <section class="section compare">
+    <div class="container">
+      <p class="eyebrow">Evaluating your options</p>
+      <h2 class="sec-title">Every approach trades something. Know what.</h2>
+      <div class="cmp-grid">
+        {compare.map((c) => (
+          <div class="card cmp">
+            <h3>{c.name}</h3>
+            <p class="cmp-ex">{c.examples}</p>
+            <p>{c.body}</p>
+          </div>
+        ))}
+      </div>
+      <p class="lead cmp-close">
+        Day keeps the platform's own components <em>and</em> the single codebase. It has real limits
+        too — no hot reload, a young ecosystem, deliberate constraints on pixel-level branding — and
+        the documentation states them plainly, including the cases where a different choice is right
+        for you.
+      </p>
+      <a class="btn btn-ghost" href={url('docs/benefits')}>Read the frank comparison →</a>
+    </div>
+  </section>
+
   <!-- HOW IT WORKS -->
   <section class="section how">
     <div class="container how-grid">
       <div>
         <p class="eyebrow">How it works</p>
-        <h2 class="sec-title">Signals bind straight to native attributes.</h2>
+        <h2 class="sec-title">When data changes, the right control updates. That's it.</h2>
         <p class="lead">
-          A <code>Signal&lt;T&gt;</code> is a cheap, <code>Copy</code> reactive cell. Any closure that
-          reads it becomes reactive. When the signal changes, Day updates the native attributes that
-          read it and nothing else. There is no component re-render and no reconciliation on the hot path.
+          Day builds your interface from real platform components once, then keeps each one
+          connected to your application's state. When a value changes, the exact label or control
+          showing it updates — no re-rendering, no shadow copy of the interface to reconcile, no
+          engine in between. Day apps perform like hand-written platform code because, at runtime,
+          that's essentially what they are.
         </p>
         <ul class="how-list">
-          <li><b>Declarative to write:</b> plain functions and builder methods, with no required macros.</li>
-          <li><b>Native to run:</b> it performs like hand-written platform code.</li>
-          <li><b>Composable navigation:</b> <code>selector</code> and <code>stack</code> are projections of app-owned signals.</li>
+          <li><b>Plain Rust:</b> functions and builder calls any engineer can read — no macros, no separate UI language.</li>
+          <li><b>Native navigation:</b> sidebars, tabs, and back-gestures are the platform's own containers.</li>
+          <li><b>Testable end to end:</b> one automation script drives the app identically on every platform.</li>
         </ul>
-        <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
+        <div class="hero-cta">
+          <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
+          <a class="btn btn-ghost" href={url('docs/rendering')}>Under the hood →</a>
+        </div>
       </div>
       <div class="how-code">
         <CodeSample code={navCode} title="navigation.rs" />
@@ -157,7 +209,7 @@ const features = [
   <section class="section cta">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Build one app. Run it natively on every platform.</h2>
+      <h2>Build it once. Ship it everywhere your users are.</h2>
       <div class="hero-cta">
         <a class="btn btn-primary" href={url('docs/getting-started')}>Get started</a>
         <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>
@@ -217,6 +269,13 @@ const features = [
   }
   .feat h3 { margin: 0 0 8px; font-size: 1.12rem; }
   .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+  /* COMPARE */
+  .cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr)); gap: 18px; margin-top: 34px; }
+  .cmp h3 { margin: 0 0 2px; font-size: 1.08rem; }
+  .cmp-ex { margin: 0 0 10px; color: var(--faint); font-size: 0.84rem; }
+  .cmp p:last-child { margin: 0; color: var(--muted); font-size: 0.95rem; }
+  .cmp-close { margin: 30px 0 18px; max-width: 68ch; }
 
   /* HOW */
   .how-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
