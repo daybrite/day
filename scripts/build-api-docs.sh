@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-for tool in cargo jq; do
+for tool in cargo jq python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: '$tool' not found on PATH" >&2; exit 1; }
 done
 [ -f "$manifest" ] || { echo "error: missing $manifest" >&2; exit 1; }
@@ -73,6 +73,13 @@ while IFS=$'\t' read -r pkg feats; do
   echo "==> cargo doc -p $pkg --features $feats"
   cargo doc --no-deps -p "$pkg" --features "$feats"
 done < <(jq -r '.groups[].crates[] | select(.features!=null) | "\(.pkg)\t\(.features)"' "$manifest")
+
+# Repoint every "Source" link at the canonical source on GitHub (and drop the local source viewer),
+# so the hosted reference links back to the repo rather than a local src/*.html copy.
+repo=$(jq -r '.repo // "https://github.com/daybrite/day"' "$manifest")
+ref=$(jq -r '.branch // "main"' "$manifest")
+echo "==> repoint Source links to $repo (@$ref)"
+python3 "$here/scripts/rustdoc-github-source.py" --doc-dir target/doc --repo "$repo" --ref "$ref"
 
 # cargo doc makes no root landing page for a multi-crate build; send /api/ to the styled bridge page.
 cat > target/doc/index.html <<'HTML'

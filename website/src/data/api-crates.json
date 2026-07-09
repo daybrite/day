@@ -4,7 +4,10 @@
   "//3": "`pkg` is the crate name; its rustdoc directory is pkg with '-' replaced by '_'. `features`",
   "//4": "(optional) is passed to `cargo doc --features` for crates that need one backend to compile",
   "//5": "(only the `day` umbrella does — the headless `mock` backend keeps the doc build portable).",
+  "//6": "`repo`/`branch` point rustdoc's Source links at GitHub (see scripts/rustdoc-github-source.py).",
   "outDir": "api",
+  "repo": "https://github.com/daybrite/day",
+  "branch": "main",
   "groups": [
     {
       "name": "Core",
