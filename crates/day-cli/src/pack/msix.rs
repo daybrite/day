@@ -367,43 +367,11 @@ fn ensure_dev_cert(publisher: &str) -> Result<String, String> {
     Ok(thumb)
 }
 
-/// Locate a Windows-Kits bin tool (newest SDK version, host arch); DAY_WINDOWS_KIT overrides the
-/// bin root. Also accepts the tool on PATH.
+/// A Windows-Kits bin tool — delegated to the shared, env-overridable lookup
+/// (`DAY_WINDOWS_KIT` bin-dir override, then PATH, then `DAY_WINDOWS_KITS_ROOT` /
+/// `WindowsSdkDir` / `%ProgramFiles%`-derived roots — docs/environment.md).
 pub(crate) fn windows_kit_tool(tool: &str) -> Option<PathBuf> {
-    if let Ok(root) = std::env::var("DAY_WINDOWS_KIT") {
-        let p = PathBuf::from(root).join(tool);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    if let Ok(path) = std::env::var("PATH")
-        && let Some(dir) = std::env::split_paths(&path).find(|d| d.join(tool).is_file())
-    {
-        return Some(dir.join(tool));
-    }
-    let kits = PathBuf::from(std::env::var("ProgramFiles(x86)").ok()?).join("Windows Kits/10/bin");
-    let mut versions: Vec<_> = std::fs::read_dir(&kits)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with("10."))
-        })
-        .collect();
-    versions.sort();
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
-    while let Some(v) = versions.pop() {
-        let candidate = v.join(arch).join(tool);
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    day_toolchain::windows_kit_tool(tool)
 }
 
 #[cfg(test)]

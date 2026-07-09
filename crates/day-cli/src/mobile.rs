@@ -11,15 +11,8 @@ use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status};
 use crate::targets::Target;
 
 pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    let toolchains = PathBuf::from(&home).join(".rustup/toolchains");
-    let entry = std::fs::read_dir(&toolchains)
-        .map_err(|_| "no rustup toolchains (cross-std needs rustup, not Homebrew rust)")?
-        .flatten()
-        .next()
-        .ok_or("empty rustup toolchains dir")?;
-    let bin = entry.path().join("bin");
-    Ok((bin.join("cargo"), bin))
+    // Shared lookup: honors RUSTUP_HOME and prefers a stable-* toolchain (docs/environment.md).
+    day_toolchain::rustup_cargo()
 }
 
 pub(crate) fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
@@ -584,12 +577,9 @@ fn build_android_so(
 /// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the macOS default location.
 /// Shared with `day doctor` so its diagnosis matches what the build actually probes.
 pub(crate) fn android_sdk_dir() -> PathBuf {
-    std::env::var("ANDROID_HOME")
-        .or_else(|_| std::env::var("ANDROID_SDK_ROOT"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Android/sdk")
-        })
+    // Shared lookup: ANDROID_HOME / ANDROID_SDK_ROOT, then the per-OS default install location
+    // (docs/environment.md).
+    day_toolchain::android_sdk_dir()
 }
 
 pub(crate) fn find_ndk() -> Result<PathBuf, String> {
@@ -648,11 +638,10 @@ pub fn build_android(
         .args([task, "-q", "--console=plain"]);
     // Gradle 9 + AGP 9 need JDK 17–21 (newer JDKs break the AGP jdk-image transform). Respect
     // the caller's JAVA_HOME (CI pins 21 via setup-java); default to Homebrew's 21 when unset.
-    if std::env::var_os("JAVA_HOME").is_none() {
-        let brew_jdk = Path::new("/opt/homebrew/opt/openjdk@21");
-        if brew_jdk.exists() {
-            cmd.env("JAVA_HOME", brew_jdk);
-        }
+    if std::env::var_os("JAVA_HOME").is_none()
+        && let Some(jdk) = day_toolchain::jdk21_home()
+    {
+        cmd.env("JAVA_HOME", jdk);
     }
     let out = cmd.output().map_err(|e| format!("gradle: {e}"))?;
     if !out.status.success() {

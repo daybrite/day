@@ -33,6 +33,7 @@ they tend to lead the guides when something changes.
 | [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
 | [vscode](/docs/internal/vscode) | editor setup |
+| [environment](/docs/internal/environment) | toolchain/SDK discovery env vars (DAY_CPPWINRT, DAY_WINDOWS_KITS_ROOT, …) |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
 
 ## Optional pieces

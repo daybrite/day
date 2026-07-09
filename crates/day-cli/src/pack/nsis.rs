@@ -20,7 +20,7 @@ pub fn pack(
 ) -> Result<Artifact, PackError> {
     let makensis = find_makensis().ok_or_else(|| {
         PackError::Other(
-            "makensis not found — install NSIS (choco install nsis / apt install nsis / brew install makensis)"
+            "makensis not found — install NSIS (choco install nsis / apt install nsis / brew install makensis), or set DAY_MAKENSIS (docs/environment.md)"
                 .into(),
         )
     })?;
@@ -138,27 +138,9 @@ SectionEnd
 }
 
 fn find_makensis() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("PATH")
-        && let Some(dir) = std::env::split_paths(&path)
-            .find(|d| d.join("makensis").is_file() || d.join("makensis.exe").is_file())
-    {
-        let exe = dir.join("makensis.exe");
-        return Some(if exe.is_file() {
-            exe
-        } else {
-            dir.join("makensis")
-        });
-    }
-    // Default Windows install location (choco/installer).
-    for base in ["ProgramFiles(x86)", "ProgramFiles"] {
-        if let Ok(pf) = std::env::var(base) {
-            let p = PathBuf::from(pf).join("NSIS/makensis.exe");
-            if p.exists() {
-                return Some(p);
-            }
-        }
-    }
-    None
+    // Shared, env-overridable lookup: DAY_MAKENSIS, then PATH, then the conventional
+    // %ProgramFiles% install dir (docs/environment.md).
+    day_toolchain::makensis()
 }
 
 #[cfg(test)]

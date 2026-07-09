@@ -41,9 +41,10 @@ fn build_qt() {
 }
 
 fn build_winui() {
-    let cppwinrt = find_cppwinrt().expect(
+    let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
-         (Visual Studio 'Desktop development with C++').",
+         (Visual Studio 'Desktop development with C++'), or point DAY_CPPWINRT / \
+         DAY_WINDOWS_KITS_ROOT at a relocated install (docs/environment.md).",
     );
     let mut build = cc::Build::new();
     build
@@ -73,31 +74,4 @@ fn build_arkui() {
         .include(ndk.join("sysroot/usr/include"))
         .file("src/ticks-arkui.cpp")
         .compile("daytweaktickarkui");
-}
-
-/// Newest `Windows Kits\10\Include\<ver>\cppwinrt` on the machine (mirrors day-winui-sys).
-fn find_cppwinrt() -> Option<PathBuf> {
-    let mut bases: Vec<PathBuf> = Vec::new();
-    if let Ok(sdk) = std::env::var("WindowsSdkDir") {
-        bases.push(PathBuf::from(sdk).join("Include"));
-    }
-    bases.push(PathBuf::from(
-        r"C:\Program Files (x86)\Windows Kits\10\Include",
-    ));
-    bases.push(PathBuf::from(r"C:\Program Files\Windows Kits\10\Include"));
-
-    let mut found: Vec<PathBuf> = Vec::new();
-    for base in bases {
-        let Ok(rd) = std::fs::read_dir(&base) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let cppwinrt = entry.path().join("cppwinrt");
-            if cppwinrt.join("winrt").join("base.h").exists() {
-                found.push(cppwinrt);
-            }
-        }
-    }
-    found.sort();
-    found.pop()
 }

@@ -847,9 +847,14 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
         ""
     };
     let build_deps = if needs_build_rs {
-        "\n[build-dependencies]\ncc = \"1\"\n"
+        // day-toolchain: shared SDK discovery (cppwinrt headers etc.) with env overrides
+        // (docs/environment.md) — same remote/local source as the other day deps.
+        format!(
+            "\n[build-dependencies]\ncc = \"1\"\n{}\n",
+            deps.dep("day-toolchain", "")
+        )
     } else {
-        ""
+        String::new()
     };
 
     let cargo = format!(
@@ -1917,8 +1922,6 @@ const BUILD_RS: &str = r#"//! Compiles this piece's OWN native shims when their 
 //! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; WinUI uses `cc` (MSVC) + the
 //! Windows SDK cppwinrt projection, mirroring day-winui-sys.
 
-use std::path::PathBuf;
-
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
     println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
@@ -1949,9 +1952,12 @@ fn build_qt() {
 }
 
 fn build_winui() {
-    let cppwinrt = find_cppwinrt().expect(
+    // Shared, env-overridable lookup (DAY_CPPWINRT / DAY_WINDOWS_KITS_ROOT / WindowsSdkDir —
+    // docs/environment.md); also emits the matching rerun-if-env-changed lines.
+    let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
-         (Visual Studio 'Desktop development with C++').",
+         (Visual Studio 'Desktop development with C++'), or point DAY_CPPWINRT / \
+         DAY_WINDOWS_KITS_ROOT at a relocated install.",
     );
     let mut build = cc::Build::new();
     build
@@ -1967,32 +1973,6 @@ fn build_winui() {
     // WindowsApp.lib + the day_winui_box/unbox seam are already linked by day-winui-sys.
 }
 
-/// Newest `Windows Kits\10\Include\<ver>\cppwinrt` on the machine (mirrors day-winui-sys).
-fn find_cppwinrt() -> Option<PathBuf> {
-    let mut bases: Vec<PathBuf> = Vec::new();
-    if let Ok(sdk) = std::env::var("WindowsSdkDir") {
-        bases.push(PathBuf::from(sdk).join("Include"));
-    }
-    bases.push(PathBuf::from(
-        r"C:\Program Files (x86)\Windows Kits\10\Include",
-    ));
-    bases.push(PathBuf::from(r"C:\Program Files\Windows Kits\10\Include"));
-
-    let mut found: Vec<PathBuf> = Vec::new();
-    for base in bases {
-        let Ok(rd) = std::fs::read_dir(&base) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let cppwinrt = entry.path().join("cppwinrt");
-            if cppwinrt.join("winrt").join("base.h").exists() {
-                found.push(cppwinrt);
-            }
-        }
-    }
-    found.sort();
-    found.pop()
-}
 "#;
 
 const NATIVE_README: &str = r#"# __CRATE__

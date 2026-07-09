@@ -12,4 +12,5 @@ build = "build.rs"
 # App SDK / MSIX is required — it builds with the Windows SDK's cppwinrt headers alone.
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"

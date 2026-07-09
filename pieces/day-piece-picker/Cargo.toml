@@ -41,6 +41,7 @@ objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTyp
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UISegmentedControl", "UIButton", "UIControl", "UIView", "UIResponder", "UIStackView", "UIMenu", "UIMenuElement", "UIAction", "UIImage", "NSLayoutConstraint"] }
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"
 
 [dev-dependencies]

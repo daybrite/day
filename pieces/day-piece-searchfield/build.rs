@@ -3,8 +3,6 @@
 //! pkg-config; WinUI uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-winui-sys.
 //! (This is the day-piece-picker build.rs verbatim, retargeted at this crate's two shim files.)
 
-use std::path::PathBuf;
-
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
     println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
@@ -37,9 +35,10 @@ fn build_qt() {
 fn build_winui() {
     // Same recipe as day-winui-sys: the cppwinrt projection headers live under the SDK's
     // Include\<ver>\cppwinrt (not on the default INCLUDE path); C++20 + /bigobj + /EHsc.
-    let cppwinrt = find_cppwinrt().expect(
+    let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
-         (Visual Studio 'Desktop development with C++').",
+         (Visual Studio 'Desktop development with C++'), or point DAY_CPPWINRT / \
+         DAY_WINDOWS_KITS_ROOT at a relocated install (docs/environment.md).",
     );
     let mut build = cc::Build::new();
     build
@@ -54,31 +53,4 @@ fn build_winui() {
     build.compile("daysearchwinuishim");
     // WindowsApp.lib (WinRT umbrella) + the day_winui_box/unbox seam are already linked by
     // day-winui-sys; nothing extra to link here.
-}
-
-/// Newest `Windows Kits\10\Include\<ver>\cppwinrt` on the machine (mirrors day-winui-sys).
-fn find_cppwinrt() -> Option<PathBuf> {
-    let mut bases: Vec<PathBuf> = Vec::new();
-    if let Ok(sdk) = std::env::var("WindowsSdkDir") {
-        bases.push(PathBuf::from(sdk).join("Include"));
-    }
-    bases.push(PathBuf::from(
-        r"C:\Program Files (x86)\Windows Kits\10\Include",
-    ));
-    bases.push(PathBuf::from(r"C:\Program Files\Windows Kits\10\Include"));
-
-    let mut found: Vec<PathBuf> = Vec::new();
-    for base in bases {
-        let Ok(rd) = std::fs::read_dir(&base) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let cppwinrt = entry.path().join("cppwinrt");
-            if cppwinrt.join("winrt").join("base.h").exists() {
-                found.push(cppwinrt);
-            }
-        }
-    }
-    found.sort();
-    found.pop()
 }

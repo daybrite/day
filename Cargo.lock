@@ -314,6 +314,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "day-script",
+ "day-toolchain",
  "libc",
  "serde",
  "serde_json",
@@ -457,6 +458,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -543,6 +545,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -572,6 +575,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -607,6 +611,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -633,6 +638,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -659,6 +665,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -685,6 +692,7 @@ dependencies = [
  "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
  "day-uikit",
  "day-winui",
  "day-winui-sys",
@@ -758,6 +766,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-toolchain"
+version = "0.1.0"
+
+[[package]]
 name = "day-tweak-button-bezel"
 version = "0.1.0"
 dependencies = [
@@ -792,6 +804,7 @@ dependencies = [
  "day-gtk",
  "day-pieces",
  "day-qt",
+ "day-toolchain",
  "day-winui",
  "gtk4",
  "objc2-app-kit",
@@ -830,6 +843,7 @@ name = "day-winui-sys"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "day-toolchain",
 ]
 
 [[package]]

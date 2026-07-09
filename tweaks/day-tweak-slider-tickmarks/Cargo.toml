@@ -18,6 +18,7 @@ day-winui = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"
 
 [features]

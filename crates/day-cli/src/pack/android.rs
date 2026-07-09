@@ -84,11 +84,10 @@ pub fn pack(
             .env("DAY_PROJECT_ROOT", &project.root)
             .env("DAY_PROFILE", &opts.profile)
             .args(["bundleRelease", "-q", "--console=plain"]);
-        if std::env::var_os("JAVA_HOME").is_none() {
-            let brew_jdk = Path::new("/opt/homebrew/opt/openjdk@21");
-            if brew_jdk.exists() {
-                cmd.env("JAVA_HOME", brew_jdk);
-            }
+        if std::env::var_os("JAVA_HOME").is_none()
+            && let Some(jdk) = day_toolchain::jdk21_home()
+        {
+            cmd.env("JAVA_HOME", jdk);
         }
         run_tool(&mut cmd, "gradle bundleRelease").map_err(PackError::Other)?;
         let aab = project

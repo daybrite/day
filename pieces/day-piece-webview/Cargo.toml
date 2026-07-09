@@ -60,6 +60,7 @@ objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WK
 webkit6 = { version = "0.6", optional = true }
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"
 
 [dev-dependencies]

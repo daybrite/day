@@ -1,0 +1,9 @@
+[package]
+name = "day-toolchain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared host-toolchain and SDK discovery for Day's build scripts and CLI — every lookup env-overridable, no literal install paths."
+
+[dependencies]
+# Deliberately none: this crate is a build-dependency of piece/tweak crates and must stay tiny.

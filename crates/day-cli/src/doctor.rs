@@ -107,16 +107,17 @@ fn have_any_rust_target(triples: &[&str]) -> Option<String> {
     triples.iter().find_map(|t| have_rust_target(t))
 }
 
-/// Locate a JDK 21 (Android's AGP needs 21 exactly — 22+ breaks the jdk-image transform). Checks, in
-/// order: `$JAVA_HOME` (what Gradle uses; set by CI's setup-java), the Homebrew openjdk@21 path, then
-/// `java` on PATH. Accepts a JDK whose major version is 21, parsed robustly from `java -version`
-/// (which prints `openjdk version "21.0.8" …` — or bare `"21"` for some builds — to stderr).
+/// Locate a JDK 21 (Android's AGP needs 21 exactly — 22+ breaks the jdk-image transform). Checks,
+/// in order: the shared `day_toolchain::jdk21_home()` lookup (`$JAVA_HOME`, macOS's java_home
+/// registry, Homebrew — the SAME resolution the gradle builds use, so doctor diagnoses what the
+/// build will actually run), then `java` on PATH. Accepts a JDK whose major version is 21, parsed
+/// robustly from `java -version` (which prints `openjdk version "21.0.8" …` — or bare `"21"` for
+/// some builds — to stderr).
 fn have_jdk21() -> Option<String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(home) = std::env::var("JAVA_HOME") {
-        candidates.push(PathBuf::from(home).join("bin").join("java"));
+    if let Some(home) = day_toolchain::jdk21_home() {
+        candidates.push(home.join("bin").join("java"));
     }
-    candidates.push(PathBuf::from("/opt/homebrew/opt/openjdk@21/bin/java"));
     if let Some(p) = which("java") {
         candidates.push(p);
     }
@@ -428,7 +429,7 @@ fn android_group() -> Group {
         setup: "Android (android.widget) cross-compiles the app to a JNI .so and runs it in a Gradle\n\
                 app. Install:\n\
                 • the Android SDK — set ANDROID_HOME (or ANDROID_SDK_ROOT); Android Studio installs it\n\
-                  at ~/Library/Android/sdk (macOS) by default\n\
+                  at the platform default (~/Library/Android/sdk on macOS; docs/environment.md) otherwise\n\
                 • an NDK — via `sdkmanager --install 'ndk;<ver>'`; set ANDROID_NDK_HOME to override\n\
                 • the Android Rust target — `rustup target add aarch64-linux-android`\n\
                 • `cargo install cargo-ndk`\n\

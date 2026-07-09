@@ -58,6 +58,7 @@ objc2-av-kit = { version = "0.3", optional = true, features = ["AVPlayerView", "
 objc2-av-foundation = { version = "0.3", optional = true, features = ["AVPlayer", "AVPlayerItem", "AVTime", "objc2-core-media"] }
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"
 
 [dev-dependencies]

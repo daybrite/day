@@ -60,6 +60,7 @@ objc2-ui-kit = { version = "0.3", optional = true, features = [
 ] }
 
 [build-dependencies]
+day-toolchain = { workspace = true }
 cc = "1"
 
 [dev-dependencies]

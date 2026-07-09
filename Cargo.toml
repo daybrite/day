@@ -44,6 +44,7 @@ members = [
     "tweaks/day-tweak-button-bezel",
     "tweaks/day-tweak-label-selectable",
     "tweaks/day-tweak-slider-tickmarks",
+    "crates/day-toolchain",
     "crates/day-cli",
 ]
 # apps/matrix is its OWN workspace (it pulls the heavy matrix-rust-sdk tree — ~400 crates — which must
@@ -101,6 +102,7 @@ day-piece-rating = { path = "pieces/day-piece-rating" }
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel" }
 day-tweak-label-selectable = { path = "tweaks/day-tweak-label-selectable" }
 day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks" }
+day-toolchain = { path = "crates/day-toolchain" }
 day-appkit = { path = "toolkits/day-appkit" }
 day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }
