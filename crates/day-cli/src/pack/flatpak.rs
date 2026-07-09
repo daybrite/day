@@ -208,6 +208,12 @@ runtime: {runtime}
 runtime-version: '{runtime_version}'
 sdk: {sdk}
 {base}command: {id}
+# The payload is a prebuilt release binary with no debug info — skip flatpak-builder's
+# debuginfo split (it shells out to elfutils' eu-strip, which isn't installed everywhere,
+# e.g. ubuntu-24.04 CI runners) and its strip pass.
+build-options:
+  no-debuginfo: true
+  strip: false
 finish-args:
   - --share=ipc
   - --socket=fallback-x11
@@ -284,5 +290,12 @@ mod tests {
         assert!(qt.contains("runtime: org.kde.Platform"));
         assert!(qt.contains("base: io.qt.qtwebengine.BaseApp"));
         assert!(qt.contains("command: dev.x.app"));
+        // Both manifests must be valid YAML and skip the debuginfo split (its eu-strip
+        // dependency isn't installed on CI runners).
+        for manifest in [&gtk, &qt] {
+            let parsed: serde_json::Value = serde_norway::from_str(manifest).unwrap();
+            assert_eq!(parsed["build-options"]["no-debuginfo"], true);
+            assert_eq!(parsed["build-options"]["strip"], false);
+        }
     }
 }

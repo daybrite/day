@@ -1,38 +1,40 @@
 ---
-// The Day mark: a rising sun (dawn = "daybrite") in the brand gradient. Inline SVG so it stays
-// crisp at any size and needs no network request. `id` keeps the gradient unique per instance.
+// The Day mark: an art-deco "rising sun" — a gold sunburst on warm black, the same icon the
+// Showcase app uses (master art: apps/showcase/icons/day-icon.svg). Inline SVG so it stays crisp at
+// any size and needs no network request. `cid` keeps the clip-path id unique per instance (the mark
+// renders several times per page).
 interface Props { size?: number; class?: string }
 const { size = 28, class: cls = '' } = Astro.props;
-const gid = 'daysun-' + Math.random().toString(36).slice(2, 8);
+const cid = 'dayclip-' + Math.random().toString(36).slice(2, 8);
 ---
 <svg
   width={size}
   height={size}
-  viewBox="0 0 48 48"
-  fill="none"
+  viewBox="0 0 120 120"
   class={cls}
   role="img"
   aria-label="Day logo"
   xmlns="http://www.w3.org/2000/svg"
 >
   <defs>
-    <linearGradient id={gid} x1="6" y1="6" x2="42" y2="44" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffce6e" />
-      <stop offset="0.42" stop-color="#ff8f5e" />
-      <stop offset="1" stop-color="#6aa4ff" />
-    </linearGradient>
+    <clipPath id={cid}><rect x="13" y="13" width="94" height="94" rx="16" /></clipPath>
   </defs>
-  <!-- rays -->
-  <g stroke={`url(#${gid})`} stroke-width="3" stroke-linecap="round">
-    <path d="M24 3.5v5" />
-    <path d="M24 39.5v5" />
-    <path d="M3.5 24h5" />
-    <path d="M39.5 24h5" />
-    <path d="M9.6 9.6l3.5 3.5" />
-    <path d="M34.9 34.9l3.5 3.5" />
-    <path d="M38.4 9.6l-3.5 3.5" />
-    <path d="M13.1 34.9l-3.5 3.5" />
+  <rect x="0" y="0" width="120" height="120" rx="27" fill="#14110C" />
+  <rect x="8" y="8" width="104" height="104" rx="20" fill="none" stroke="#D2A94F" stroke-width="2.5" />
+  <!-- sunburst rays, clipped to the inner rounded square -->
+  <g clip-path={`url(#${cid})`} stroke="#D2A94F" stroke-width="6">
+    <line x1="60" y1="44" x2="60" y2="16" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(20 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-20 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(40 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-40 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(60 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-60 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(80 60 78)" />
+    <line x1="60" y1="44" x2="60" y2="16" transform="rotate(-80 60 78)" />
   </g>
-  <!-- disc -->
-  <circle cx="24" cy="24" r="10.5" fill={`url(#${gid})`} />
+  <!-- rising sun + two horizon lines -->
+  <path d="M38 78 A22 22 0 0 1 82 78 Z" fill="#D2A94F" />
+  <line x1="28" y1="88" x2="92" y2="88" stroke="#D2A94F" stroke-width="4" />
+  <line x1="38" y1="96" x2="82" y2="96" stroke="#D2A94F" stroke-width="4" />
 </svg>
