@@ -97,9 +97,16 @@ pub fn build(
             if !out.success() {
                 return Err(format!("cargo build failed for {}", target.name));
             }
+            // The desktop binary carries the platform's executable extension (`.exe` on Windows,
+            // none elsewhere). `day launch`'s `Command::new` auto-appends it on Windows, but the raw
+            // `fs::copy` in `pack` (msix/nsis stage the exe) needs the REAL path — so bake it in here.
             let artifact = cargo_dir(project, target, profile)
                 .join(profile)
-                .join(&project.manifest.app.name);
+                .join(format!(
+                    "{}{}",
+                    project.manifest.app.name,
+                    std::env::consts::EXE_SUFFIX
+                ));
             Ok(BuildOutcome {
                 target: target.name,
                 artifact,
