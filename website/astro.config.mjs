@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import mdx from '@astrojs/mdx';
 import gallery from './integrations/gallery.mjs';
 import rewriteInternalLinks from './plugins/rewrite-internal-links.mjs';
 
@@ -10,7 +11,9 @@ import rewriteInternalLinks from './plugins/rewrite-internal-links.mjs';
 export default defineConfig({
   site: 'https://daybrite.dev',
   trailingSlash: 'ignore',
-  integrations: [gallery()],
+  // mdx() lets individual docs pages pull in interactive components (e.g. the InstallPicker in
+  // getting-started); plain .md remains the default for prose-only pages.
+  integrations: [gallery(), mdx()],
   markdown: {
     // Shiki (build-time, zero client JS) for docs code fences; matches the CodeSample component.
     shikiConfig: { theme: 'night-owl', wrap: false },

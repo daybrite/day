@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import CodeSample from '../components/CodeSample.astro';
+import InstallPicker from '../components/InstallPicker.astro';
 import Logo from '../components/Logo.astro';
 import { url, site } from '../lib/site';
 import { platforms } from '../../gallery.config.mjs';
@@ -102,6 +103,9 @@ const compare = [
         <div class="hero-cta">
           <a class="btn btn-primary" href={url('docs/overview')}>Read the docs</a>
           <a class="btn btn-ghost" href={url('gallery')}>See it running →</a>
+        </div>
+        <div class="hero-install">
+          <InstallPicker />
         </div>
         <p class="hero-sub">
           Real AppKit · UIKit · Android · GTK · Qt · WinUI · ArkUI components — not lookalikes
@@ -244,6 +248,7 @@ const compare = [
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; }
   .hero-lead { margin: 0 0 28px; }
   .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .hero-install { margin-top: 22px; }
   .hero-sub { margin-top: 22px; color: var(--faint); font-size: 0.86rem; }
   .hero-code-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
 

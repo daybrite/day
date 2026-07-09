@@ -291,5 +291,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --draft --title "Day $GITHUB_REF_NAME" --generate-notes
+          # ci.yml's release-cli job targets the same tag (the day CLI binaries + installers) —
+          # whichever job runs first creates the draft release, the other uploads into it.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+                 --title "Day $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

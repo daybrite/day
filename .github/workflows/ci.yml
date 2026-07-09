@@ -8,6 +8,10 @@ name: ci
 on:
   push:
     branches: [main]
+    # Semantic-release tags run ONLY fmt/msrv → the 3×2 day-CLI builds → release-cli
+    # (the per-combo walkthrough jobs skip tag refs — the tagged commit was already
+    # validated on main).
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
 
@@ -157,9 +161,68 @@ jobs:
           path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
+  # --- CLI release: on a semantic-release tag, publish the day CLI ----------
+  # Downloads the six day-<os>-<arch> artifacts from the 3×2 build jobs above, repackages them
+  # as target-triple archives, renders the installer scripts + Homebrew formula from
+  # scripts/release/templates (cargo-dist style: version/URLs/sizes/checksums baked in),
+  # attests build provenance for every file, and attaches everything to a draft GitHub
+  # release for the tag. Coexists with release.yml (showcase packages): whichever job runs
+  # first creates the release, the other uploads into it.
+  release-cli:
+    name: release (day CLI)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos-day, linux-day, windows-day]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches the workspace version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match [workspace.package] version $crate — bump Cargo.toml before tagging"
+            exit 1
+          fi
+      - name: Download the day CLI artifacts (all six os/arch builds)
+        uses: actions/download-artifact@v7
+        with:
+          pattern: day-*
+          path: cli-artifacts
+      - name: Package target-triple archives
+        run: bash scripts/release/package-cli.sh cli-artifacts dist
+      - name: Render installers (shell + PowerShell + Homebrew formula)
+        run: |
+          python3 scripts/release/render-installers.py \
+            --version "${GITHUB_REF_NAME#v}" --dist dist --out dist
+      - name: Validate the rendered installers
+        run: |
+          sh -n dist/day-installer.sh
+          pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw dist/day-installer.ps1)); "ps1 parses"'
+          ruby -c dist/day.rb
+      # Build provenance for EVERY file attached to the release (archives, installers,
+      # formula, checksums) — verifiable with `gh attestation verify <file> -R daybrite/day`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+                 --title "Day $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          echo "attached:" && ls -l dist
+
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: ${{ matrix.combo }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: macos-15
     needs: [macos-day]
     strategy:
@@ -261,6 +324,7 @@ jobs:
   # --- iOS Simulator: uikit -------------------------------------------------
   ios-uikit:
     name: ios-uikit
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: macos-15
     needs: [macos-day]
     steps:
@@ -357,6 +421,7 @@ jobs:
   # --- Linux desktop: qt / gtk ----------------------------------------------
   linux:
     name: ${{ matrix.combo }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: ubuntu-24.04
     needs: [linux-day]
     strategy:
@@ -472,6 +537,7 @@ jobs:
   # the known postMain flake (intermittent "main thread did not respond") is chased.
   android-widget:
     name: android-widget
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: ubuntu-24.04
     needs: [linux-day]
     continue-on-error: true
@@ -579,6 +645,7 @@ jobs:
   # emulator is slow and occasionally flaky, which must not be able to red the build.
   ohos-arkui:
     name: ohos-arkui
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: ubuntu-24.04
     needs: [linux-day]
     env:
@@ -734,6 +801,7 @@ jobs:
   # matrix cannot switch shells per combo — the toolchains are split into two jobs.
   windows-winui:
     name: windows-winui
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: windows-latest
     needs: [windows-day]
     defaults:
@@ -821,6 +889,7 @@ jobs:
   # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
   windows-msys2:
     name: ${{ matrix.combo }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     runs-on: windows-latest
     needs: [windows-day]
     continue-on-error: true
@@ -943,6 +1012,7 @@ jobs:
   # ---------------------------------------------------------------------------
   api-docs:
     name: api-docs (rustdoc)
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # tag pushes only release the CLI
     needs: [fmt, msrv]
     runs-on: ubuntu-latest
     steps:
@@ -972,7 +1042,9 @@ jobs:
   website:
     name: website (build)
     needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2, api-docs]
-    if: ${{ !cancelled() }}
+    # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those only
+    # release the CLI).
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
