@@ -11,8 +11,10 @@ on:
     # Semantic-release tags run a lean release lane: fmt/msrv → the 3×2 day-CLI release
     # builds → the per-combo jobs in PACK-ONLY mode (tests, walkthroughs, and emulators are
     # skipped — the tagged commit was already validated on main; the packaging steps run
-    # release-signed when the DAY_* secrets are set) → the final `release` job, which
-    # drafts the GitHub release with CLI binaries, installers, app packages, and attestations.
+    # release-signed when the DAY_* secrets are set) → the final `release` job, which drafts the
+    # GitHub release (CLI binaries, installers, app packages, attestations) and, when the
+    # CARGO_REGISTRY_TOKEN secret is set, runs `cargo publish --workspace`. That `release` job also
+    # runs on every push/PR — there it only verifies publishability with `cargo publish --dry-run`.
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
@@ -163,29 +165,49 @@ jobs:
           path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
-  # --- Draft GitHub release: day CLI + installers + every app package ---------
-  # Runs on semantic-release tags only. The per-combo jobs below run in PACK-ONLY mode on
-  # tag pushes (their test/walkthrough/emulator steps are skipped) and upload the same
-  # showcase-dist-* packages they build on every push — release-signed on tags when the
-  # DAY_* secrets are configured (see each job's env plumbing), dev-signed otherwise
-  # (degrade loudly, §20). This job downloads the six day-<os>-<arch> binaries from the
-  # 3×2 release builds, repackages them as target-triple archives, renders the installer
-  # scripts + Homebrew formula from scripts/release/templates (cargo-dist style:
-  # version/URLs/sizes/checksums baked in), pulls in the app packages, writes one
-  # SHA256SUMS over everything, attests build provenance for every file, and attaches
-  # the lot to a draft GitHub release for the tag.
+  # --- Release: verify publishability always; draft + publish on a semantic tag --------------------
+  # Runs on EVERY push / PR / tag (not just tags). Off a tag it ONLY runs
+  # `cargo publish --workspace --dry-run` to prove the whole workspace could be published (versions,
+  # MPL-2.0 license, metadata, packaging) — no GitHub release, no crates.io upload. On a
+  # semantic-release tag (`vX.Y.Z`) it additionally: checks the tag matches the workspace version;
+  # downloads the six day-<os>-<arch> CLI binaries from the 3×2 release builds; repackages them as
+  # target-triple archives; renders installer scripts + Homebrew formula from scripts/release/templates
+  # (cargo-dist style: version/URLs/sizes/checksums baked in); pulls in the per-combo app packages
+  # (release-signed on tags when the DAY_* secrets are set, dev-signed otherwise); writes one
+  # SHA256SUMS; attests build provenance for every file; attaches the lot to a DRAFT GitHub release —
+  # and, WHEN the `CARGO_REGISTRY_TOKEN` secret is configured, runs `cargo publish --workspace` to push
+  # every crate to crates.io. `--no-verify`: the workspace's per-platform toolkit crates can't all
+  # compile on one runner (iOS/Android/Qt/GTK/WinUI/ArkUI) and the CI matrix already build-verifies
+  # them, so the publish only needs to package + upload. `!cancelled()`: the dry-run is independent of
+  # the matrix, so a flaky leg still lets the publishability gate report.
   release:
-    name: release (draft)
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: release
+    if: ${{ !cancelled() }}
     needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
       attestations: write
+    env:
+      # A semantic-release tag (`vX.Y.Z…`) vs any other ref, and whether the crates.io token is set.
+      # (Secrets can't be read in a job-level `if:`, but they can seed a job-level env var — the same
+      # pattern the pack jobs use for HAS_APPLE_CERT — which step-level `if:`s can then test.)
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      HAS_CARGO_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Publishability gate — off a tag, or on a tag with no token, VERIFY the workspace could publish.
+      - name: Verify publishability (cargo publish --workspace --dry-run)
+        if: ${{ env.IS_TAG != 'true' || env.HAS_CARGO_TOKEN != 'true' }}
+        run: cargo publish --workspace --dry-run --no-verify --locked
+
+      # --- GitHub release draft (semantic tags only) ---
       - name: Check the tag matches the workspace version
+        if: ${{ env.IS_TAG == 'true' }}
         run: |
           tag="${GITHUB_REF_NAME#v}"
           crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
@@ -194,28 +216,34 @@ jobs:
             exit 1
           fi
       - name: Download the day CLI artifacts (all six os/arch builds)
+        if: ${{ env.IS_TAG == 'true' }}
         uses: actions/download-artifact@v7
         with:
           pattern: day-*
           path: cli-artifacts
       - name: Package target-triple archives
+        if: ${{ env.IS_TAG == 'true' }}
         run: bash scripts/release/package-cli.sh cli-artifacts dist
       - name: Render installers (shell + PowerShell + Homebrew formula)
+        if: ${{ env.IS_TAG == 'true' }}
         run: |
           python3 scripts/release/render-installers.py \
             --version "${GITHUB_REF_NAME#v}" --dist dist --out dist
       - name: Validate the rendered installers
+        if: ${{ env.IS_TAG == 'true' }}
         run: |
           sh -n dist/day-installer.sh
           pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw dist/day-installer.ps1)); "ps1 parses"'
           ruby -c dist/day.rb
       - name: Download the app packages (the per-combo jobs' pack steps)
+        if: ${{ env.IS_TAG == 'true' }}
         uses: actions/download-artifact@v7
         with:
           pattern: showcase-dist-*
           path: dist
           merge-multiple: true
       - name: Checksums (one manifest for every release file)
+        if: ${{ env.IS_TAG == 'true' }}
         working-directory: dist
         run: |
           # render-installers' CLI-only manifest is superseded by the full one.
@@ -226,10 +254,12 @@ jobs:
       # formula, app packages, checksums) — verifiable with
       # `gh attestation verify <file> -R daybrite/day`.
       - name: Attest build provenance
+        if: ${{ env.IS_TAG == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - name: Create the draft release
+        if: ${{ env.IS_TAG == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -238,6 +268,15 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
                  --title "Day $GITHUB_REF_NAME" --generate-notes
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+      # --- crates.io publish (semantic tag + token) ---
+      # Publishes every workspace crate (apps are publish=false) in dependency order. cargo waits for
+      # each crate to appear on the index before publishing its dependents.
+      - name: Publish to crates.io (cargo publish --workspace)
+        if: ${{ env.IS_TAG == 'true' && env.HAS_CARGO_TOKEN == 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --workspace --no-verify --locked
           echo "attached:" && ls -l dist
 
   # --- macOS desktop: appkit / qt / gtk -------------------------------------

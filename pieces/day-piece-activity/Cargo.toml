@@ -3,6 +3,9 @@ name = "day-piece-activity"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 build = "build.rs"
 
 # A standalone Day Piece wrapping each toolkit's NATIVE indeterminate activity/loading spinner:

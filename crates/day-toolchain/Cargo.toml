@@ -3,6 +3,8 @@ name = "day-toolchain"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 description = "Shared host-toolchain and SDK discovery for Day's build scripts and CLI — every lookup env-overridable, no literal install paths."
 
 [dependencies]

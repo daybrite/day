@@ -9,10 +9,11 @@
 //!
 //! Every scaffold is its OWN cargo workspace, carries a README + .gitignore, and BUILDS out of the box.
 //!
-//! Dependencies default to the **remote** `day` git repo (`git = "https://github.com/daybrite/day.git"`)
-//! so a scaffold is self-contained. The hidden `--local <path>` flag (or the `DAY_LOCAL` env var) instead
-//! emits `path` deps rooted at a local `day` checkout — this is what CI uses to build a freshly-scaffolded
-//! crate against the day tree under test.
+//! Dependencies default to **versioned crates.io** deps pinned to this CLI's own version (`day-cli x.y.z`
+//! scaffolds against `day x.y.z`), so a scaffold builds standalone with no repo checkout and no network to
+//! GitHub. `--git` points them at the `day` git remote instead; the hidden `--local <path>` flag (or the
+//! `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout — this is what CI uses to build
+//! a freshly-scaffolded crate against the day tree under test.
 
 use std::path::{Path, PathBuf};
 
@@ -20,7 +21,7 @@ use crate::interactive::Prompt;
 use crate::ops;
 use crate::targets;
 
-/// The canonical remote used for a scaffold's default (non-`--local`) dependencies.
+/// The `day` git remote, used for scaffold deps under `--git`.
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
 /// The toolkits a NATIVE piece can carry a backend renderer for.
@@ -29,39 +30,51 @@ const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "widget", "winui"];
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
 // ---------------------------------------------------------------------------
-// Dependency source: git remote (default) or a local path (CI / --local).
+// Dependency source: versioned crates.io (default), git remote (--git), or a local path (--local / CI).
 // ---------------------------------------------------------------------------
 
-struct Deps {
-    /// A normalized, forward-slash, TOML-safe local day checkout root, or `None` for the git remote.
-    local: Option<String>,
+enum Deps {
+    /// Versioned crates.io deps pinned to this CLI's version (the default) — `day = { version = "x.y.z" }`.
+    Version(&'static str),
+    /// The `day` git remote (`--git`) — `day = { git = "https://github.com/daybrite/day.git" }`.
+    Git,
+    /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`) — `day = { path = "<root>/<sub>" }`. A
+    /// normalized, forward-slash, TOML-safe absolute path. Used by CI and framework development.
+    Local(String),
 }
 
 impl Deps {
-    /// Resolve from `--local` (highest priority) then the `DAY_LOCAL` env var; absent ⇒ git remote.
-    fn resolve(local: Option<&Path>) -> Self {
+    /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then `--git`,
+    /// otherwise the default — versioned crates.io deps pinned to this CLI's own version, so a
+    /// `day-cli x.y.z` binary scaffolds an app that depends on `day x.y.z`.
+    fn resolve(local: Option<&Path>, git: bool) -> Self {
         let picked = local
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("DAY_LOCAL").map(PathBuf::from));
-        let local = picked.map(|p| {
+        if let Some(p) = picked {
             // Cargo accepts forward slashes on every host; normalize separators and strip Windows'
             // `\\?\` verbatim prefix so the path is a valid (unescaped) TOML basic string.
             let p = p.canonicalize().unwrap_or(p);
             let s = p.to_string_lossy().replace('\\', "/");
-            s.strip_prefix("//?/").map(str::to_string).unwrap_or(s)
-        });
-        Deps { local }
+            let s = s.strip_prefix("//?/").map(str::to_string).unwrap_or(s);
+            return Deps::Local(s);
+        }
+        if git {
+            return Deps::Git;
+        }
+        Deps::Version(env!("CARGO_PKG_VERSION"))
     }
 
     /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
-    /// spliced inside the braces. Remote form ignores the subpath (cargo resolves by package name).
+    /// spliced inside the braces. Version/git forms ignore the subpath (cargo resolves by package name).
     fn dep(&self, name: &str, extra: &str) -> String {
-        match &self.local {
-            Some(root) => format!(
+        match self {
+            Deps::Version(v) => format!("{name} = {{ version = \"{v}\"{extra} }}"),
+            Deps::Git => format!("{name} = {{ git = \"{GIT_URL}\"{extra} }}"),
+            Deps::Local(root) => format!(
                 "{name} = {{ path = \"{root}/{sub}\"{extra} }}",
                 sub = subpath(name)
             ),
-            None => format!("{name} = {{ git = \"{GIT_URL}\"{extra} }}"),
         }
     }
 }
@@ -188,9 +201,9 @@ pub fn interactive() -> i32 {
         0,
     );
     match kind {
-        0 => app(None, &[], None, None, None, None, None, false),
-        1 => part(None, None, None, None, false),
-        _ => piece(None, None, false, None, None, false),
+        0 => app(None, &[], None, None, None, None, None, false, false),
+        1 => part(None, None, None, None, false, false),
+        _ => piece(None, None, false, None, None, false, false),
     }
 }
 
@@ -330,6 +343,7 @@ pub fn piece(
     composite: bool,
     id: Option<&str>,
     local: Option<&Path>,
+    git: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -341,7 +355,7 @@ pub fn piece(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local);
+    let deps = Deps::resolve(local, git);
 
     // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
     // non-interactive, default to a composite piece — the zero-config choice).
@@ -406,6 +420,7 @@ pub fn part(
     platforms_csv: Option<&str>,
     id: Option<&str>,
     local: Option<&Path>,
+    git: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -417,7 +432,7 @@ pub fn part(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local);
+    let deps = Deps::resolve(local, git);
 
     let platforms: Vec<String> = if let Some(csv) = platforms_csv {
         match parse_platforms(csv) {
@@ -464,6 +479,7 @@ pub fn app(
     id: Option<&str>,
     targets_csv: Option<&str>,
     local: Option<&Path>,
+    git: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -475,7 +491,7 @@ pub fn app(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local);
+    let deps = Deps::resolve(local, git);
 
     // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
     let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
@@ -1103,7 +1119,7 @@ fn part_stub(os: &str) -> String {
 
 const GITIGNORE: &str = "/target\nCargo.lock\n";
 
-const COMPOSITE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # builds against the day git remote (or --local checkout)\n    # then, from an app:  __CRATE_IDENT__::__SNAKE__(\"Hello\")\n";
+const COMPOSITE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # builds against day on crates.io (--git / --local override the source)\n    # then, from an app:  __CRATE_IDENT__::__SNAKE__(\"Hello\")\n";
 const NATIVE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build --features <toolkit>   # e.g. appkit / gtk / qt\n    # wire it into an app: add __CRATE__ as a dependency and call __CRATE_IDENT__::__SNAKE__(signal)\n";
 const PART_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # host platform\n    cargo run --example __SNAKE__\n";
 
@@ -1149,7 +1165,7 @@ UIKit, Android, WinUI) for free.
 
 ## Use
 
-Add it as a dependency (from the day git remote by default) and call the builder from your app:
+Add it as a dependency (versioned, from crates.io by default) and call the builder from your app:
 
 ```rust
 use day::prelude::*;
@@ -1166,12 +1182,12 @@ fn view() -> AnyPiece {
 ## Build
 
 ```sh
-cargo build                 # compiles the library against the day git remote
+cargo build                 # compiles the library against day on crates.io
 ```
 
 Composite pieces have no runnable binary of their own — they are verified by compiling and by being
-used from an app. To develop against a local day checkout, build with `DAY_LOCAL` pointed at it (or
-regenerate with `day new piece … --local <path>`).
+used from an app. Scaffold against the day git remote with `--git`, or against a local day checkout
+with `DAY_LOCAL` set / `day new piece … --local <path>`.
 
 ## Next steps
 
@@ -1982,7 +1998,7 @@ registered link-time into each backend's renderer slice without touching day.
 
 ## Use
 
-Add it as a dependency (from the day git remote by default) and call the builder from your app. Because
+Add it as a dependency (versioned, from crates.io by default) and call the builder from your app. Because
 it declares its backends in `[package.metadata.day.piece]`, `day` unions `<pkg>/<backend>` into the app
 build automatically — you never re-list the per-backend features:
 

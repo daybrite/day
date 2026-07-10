@@ -3,6 +3,9 @@ name = "day-piece-rating"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A COMPOSE piece (DESIGN §8 / the composition-first tier): a reusable widget built PURELY from Day's
 # core primitives — NO native/per-backend code, NO cargo features. Works on every backend for free.

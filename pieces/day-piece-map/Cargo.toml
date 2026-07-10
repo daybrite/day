@@ -3,6 +3,9 @@ name = "day-piece-map"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A standalone Day Piece wrapping the platform's NATIVE map view (MKMapView) — APPLE PLATFORMS ONLY.
 # It is the reference for a piece that DELIBERATELY does not cover every backend: only AppKit and

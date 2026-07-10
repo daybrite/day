@@ -202,7 +202,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   date dividers, sender grouping, composer) → **send** ("Hello from the Day Matrix client!",
   confirmed server-side, fresh timestamp). Fixes applied for the mobile bring-up:
   - **Mobile entry points**: `src/lib.rs` was missing `day::ios_main!("Matrix", root);` +
-    `day::android_main!(root);` (matrix is hand-authored, not `day create`d) — added at crate root.
+    `day::android_main!(root);` (matrix is hand-authored, not scaffolded by `day new`) — added at crate root.
   - **iOS platform scaffold**: matrix had no `platform/` dir. Created `platform/ios/{Runner/main.swift,
     Runner/Info.plist, DayApp.xcodeproj/project.pbxproj}` modeled on showcase (PRODUCT_NAME=Matrix,
     bundle id dev.daybrite.matrix, `-lmatrix`, showcase-only `hello.json` removed; keeps the always-

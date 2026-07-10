@@ -1,4 +1,4 @@
-//! Command tree (DESIGN.md §16.5). v0: create / build / launch / doctor; the remaining
+//! Command tree (DESIGN.md §16.5). v0: new / build / launch / doctor; the remaining
 //! porcelain (sign / pack / lint / script) lands with M6–M8.
 
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ use crate::targets;
 #[derive(Parser)]
 #[command(
     name = "day",
-    version,
+    version = env!("DAY_VERSION_LONG"),
     about = "Day — cross-platform apps in Rust with native toolkits"
 )]
 struct Cli {
@@ -28,16 +28,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Legacy alias for `day new app` (wired to this day checkout, non-interactive)
-    Create {
-        name: String,
-        /// Comma-separated target list (default: the host's native target)
-        #[arg(long)]
-        targets: Option<String>,
-        /// Application id (reverse-DNS)
-        #[arg(long)]
-        id: Option<String>,
-    },
+    /// Print the version, build profile (`*` = debug), and the git ref it was built from
+    Version,
     /// Scaffold a new Day project — an app, a piece, or a part (interactive when run bare)
     New {
         #[command(subcommand)]
@@ -155,7 +147,11 @@ enum NewKind {
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece KIND + Java package.
         #[arg(long)]
         id: Option<String>,
-        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
+        /// CLI's version) — useful before a matching release is published.
+        #[arg(long)]
+        git: bool,
+        /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
         /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
@@ -172,14 +168,18 @@ enum NewKind {
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
         #[arg(long)]
         id: Option<String>,
-        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
+        /// CLI's version) — useful before a matching release is published.
+        #[arg(long)]
+        git: bool,
+        /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
         /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
         #[arg(long)]
         no_input: bool,
     },
-    /// Scaffold a new Day app (the canonical app command; `day create` is a thin alias).
+    /// Scaffold a new Day app (the canonical app command).
     App {
         /// App name (prompted if omitted in an interactive terminal).
         name: Option<String>,
@@ -199,7 +199,11 @@ enum NewKind {
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
-        /// Use `path` deps rooted at a local day checkout instead of the git remote (CI).
+        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
+        /// CLI's version) — useful before a matching release is published.
+        #[arg(long)]
+        git: bool,
+        /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
         /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
@@ -230,6 +234,10 @@ pub enum EmulatorCmd {
 pub fn run() -> i32 {
     let cli = Cli::parse();
     match cli.command {
+        Cmd::Version => {
+            println!("day {}", env!("DAY_VERSION_LONG"));
+            0
+        }
         Cmd::Doctor { toolkits } => crate::doctor::run(&toolkits),
         Cmd::Pack {
             platforms,
@@ -297,21 +305,6 @@ pub fn run() -> i32 {
         },
         Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
-        Cmd::Create { name, targets, id } => {
-            // Legacy alias for `day new app`: an app wired to THIS day checkout (local path deps),
-            // never interactive. New projects should prefer `day new app` (remote deps).
-            let home = day_home();
-            crate::new::app(
-                Some(&name),
-                &[],
-                None,
-                None,
-                id.as_deref(),
-                targets.as_deref(),
-                Some(home.as_path()),
-                true,
-            )
-        }
         Cmd::New { what } => match what {
             None => crate::new::interactive(),
             Some(NewKind::Piece {
@@ -319,6 +312,7 @@ pub fn run() -> i32 {
                 toolkits,
                 composite,
                 id,
+                git,
                 local,
                 no_input,
             }) => crate::new::piece(
@@ -327,12 +321,14 @@ pub fn run() -> i32 {
                 composite,
                 id.as_deref(),
                 local.as_deref(),
+                git,
                 no_input,
             ),
             Some(NewKind::Part {
                 name,
                 platforms,
                 id,
+                git,
                 local,
                 no_input,
             }) => crate::new::part(
@@ -340,6 +336,7 @@ pub fn run() -> i32 {
                 platforms.as_deref(),
                 id.as_deref(),
                 local.as_deref(),
+                git,
                 no_input,
             ),
             Some(NewKind::App {
@@ -349,6 +346,7 @@ pub fn run() -> i32 {
                 bundleid,
                 id,
                 targets,
+                git,
                 local,
                 no_input,
             }) => crate::new::app(
@@ -359,6 +357,7 @@ pub fn run() -> i32 {
                 id.as_deref(),
                 targets.as_deref(),
                 local.as_deref(),
+                git,
                 no_input,
             ),
         },
@@ -548,11 +547,4 @@ fn print_result_json(command: &str, results: &[ops::BuildOutcome]) {
         "{}",
         serde_json::json!({"event": "result", "command": command, "ok": true, "targets": targets})
     );
-}
-
-/// The root of the Day repo (for path deps in created projects; DAY_HOME overrides).
-fn day_home() -> PathBuf {
-    std::env::var_os("DAY_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."))
 }

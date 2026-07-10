@@ -3,6 +3,9 @@ name = "day-part-battery"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
 # battery status via each platform's NATIVE API. Any Rust code can depend on it and call

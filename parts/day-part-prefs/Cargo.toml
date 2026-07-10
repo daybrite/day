@@ -3,6 +3,9 @@ name = "day-part-prefs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
 # key/value string store, backed by each platform's NATIVE preferences facility. Any Rust code can

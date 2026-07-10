@@ -3,6 +3,8 @@ name = "day-tweak-label-selectable"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 description = "Tweak: user-selectable label text on AppKit, GTK, and Android — one modifier, three access tiers."
 
 [dependencies]

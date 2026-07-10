@@ -3,6 +3,9 @@ name = "day-winui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # day-winui — the Windows backend (target `windows-winui`; DESIGN.md §1, §9), over the
 # day-winui-sys C++/WinRT shim. `Handle = *mut UIElement`; real Windows.UI.Xaml controls

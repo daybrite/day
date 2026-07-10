@@ -36,7 +36,8 @@ day doctor                   # check toolchains for every target
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and toolkits to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
---appid com.example.myapp`. (`day create` remains as a thin alias for `day new app`.)
+--appid com.example.myapp`. Scaffolds depend on `day` from crates.io (pinned to your CLI's version) by
+default; add `--git` to depend on the `day` git remote instead.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 

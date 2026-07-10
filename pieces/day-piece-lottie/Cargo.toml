@@ -3,6 +3,9 @@ name = "day-piece-lottie"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A standalone Day Piece rendering a Lottie animation — iOS + Android only. Like the other pieces it
 # carries BOTH its cross-platform front-end (Rust) and its per-toolkit backend, without touching

@@ -1627,13 +1627,13 @@ command tree with flags and descriptions for agent consumption).
 
 | concern | crate | notes |
 |---|---|---|
-| argument parsing | `clap` v4 (derive) + `clap_complete` | shell completions ship in `day create`'s CI template |
+| argument parsing | `clap` v4 (derive) + `clap_complete` | shell completions ship in `day new app`'s CI template |
 | progress | `indicatif` (MultiProgress) | auto-disabled when not a TTY or `--format != auto` |
 | colors/terminal | `anstream`/`owo-colors` | honors `NO_COLOR`, `--color {auto,always,never}` |
 | diagnostics | `miette` | every error has a code (`day::build::gradle_jdk_mismatch`), a message, and a help footer; `gradle_errors.dart`-style translation tables for xcodebuild/gradle failures |
 | logging | `tracing` + `tracing-subscriber` | `-v/-vv`, `--log-file`, `DAY_LOG=…` env filter |
 | async + processes | `tokio` (process, signal) | per-OS cancellation spec below |
-| interactive prompts | `inquire` | only in `create` and confirmation points; disabled by `--no-input` |
+| interactive prompts | `inquire` | only in `new` and confirmation points; disabled by `--no-input` |
 | YAML | `serde` + **`serde_norway`** (maintained `serde_yaml` fork; `serde_yml` is a distrusted automated fork, `serde_yaml_ng` dormant) | wrapped in one `day_yaml` module in a shared crate — day-cli, day-script, and the piece.yaml aggregator all parse YAML; manifests parse to a `Value` first for closed-schema walks with miette source locations; YAML 1.2 core-schema semantics required (DP-14: resolved) |
 
 **Cancellation, per OS** (SIGINT and process groups don't exist on Windows; SIGKILLing the Gradle
@@ -1705,10 +1705,10 @@ The seven mandated commands, plus three additions proposed for approval (**DP-10
 (indispensable given five toolchains; flutter-proven), `day clean`, and `day config` (the
 machine-local settings store doctor's fix-suggestions target).
 
-#### `day create` — interactive project initialization
+#### `day new` — interactive project initialization
 
 ```
-$ day create
+$ day new
 ✔ Project name · fieldnotes
 ✔ Bundle / application id · dev.example.fieldnotes
 ✔ Targets · macos-appkit, ios-uikit, android-widget   (multi-select)
@@ -1724,9 +1724,9 @@ $ day create
 ```
 
 Non-interactive (CI/agents):
-`day create fieldnotes --id dev.example.fieldnotes --targets macos-appkit,ios-uikit,android-widget
+`day new app fieldnotes --id dev.example.fieldnotes --targets macos-appkit,ios-uikit,android-widget
 --locales en,fr --with ci,script --no-input`. Templates live in `templates/` as `.tmpl` trees with
-token substitution (flutter's mechanism; no mustache engine needed for v1). `day create --list`
+token substitution (flutter's mechanism; no mustache engine needed for v1). `day new app --list`
 enumerates templates (`app` default; `piece` scaffolds a Day Piece package with polyglot stubs).
 
 #### `day build`
@@ -1865,7 +1865,7 @@ signals), recorded as a research item, not promised.
 
 ## §17 The Conventional Day Project and `day.yaml`
 
-### §17.1 Project layout (`day create` output)
+### §17.1 Project layout (`day new` output)
 
 ```
 fieldnotes/
@@ -1918,7 +1918,7 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 
 ```yaml
 day: 1                              # manifest schema version
-scaffold: 1                         # platform-scaffold version stamped by `day create`; `day build`/
+scaffold: 1                         # platform-scaffold version stamped by `day new`; `day build`/
                                     #   `doctor` verify it against the CLI's supported range and fail
                                     #   with instructions on mismatch (Flutter needed 30+ migrators for
                                     #   exactly this — the handshake ships in v1; an idempotent
@@ -2113,7 +2113,7 @@ day/                                # THIS repository
     showcase/                       # THE demo: every implemented piece; MVP acceptance app
     fieldnotes/                     # mobile-only sample (ios-uikit, android-widget; uses list when it lands)
     deskclock/                      # desktop-only sample (appkit/gtk/qt; canvas-heavy, menus later)
-  templates/                        # `day create` scaffolds (.tmpl trees)
+  templates/                        # `day new` scaffolds (.tmpl trees)
   site/                             # Astro Starlight docs site (skip.dev precedent)
   docs/                             # design docs, per-toolkit conventions, dayffi spec
   scripts/                          # repo dev scripts (setup-winui.ps1 analogue, emulator helpers)
@@ -2186,7 +2186,7 @@ for libraries.
 On the current macOS host: `day launch -p macos-appkit -p macos-gtk -p macos-qt -p ios-uikit -p
 android-widget` builds and launches the **showcase** app on all five targets; `day launch -p
 ios-uikit --locale fr-FR --script scripts/walkthrough.yaml` runs the localized walkthrough,
-passes its assertions, and produces screenshots; `day create` scaffolds a working project;
+passes its assertions, and produces screenshots; `day new` scaffolds a working project;
 `day lint` reports fluent/a11y findings; `day pack -p macos-appkit` emits a `.dmg` and
 `-p android-widget` an `.apk`; canvas renders the gauge demo natively on all five; **the showcase
 includes an externally-registered tier-1 piece (`day-piece-combobox`) on all five targets**
@@ -2203,7 +2203,7 @@ annotations, and ids throughout.
 | M1 | `day-core`: build-once mounter, realized tree, layout engine (`column`/`row`/leaf protocol, measurement cache, RTL flip, boundary re-entry), event routing; `label`+`button`+`column`+`row`+`divider` on mock; `IntoText` compile-pass suite | e2e-on-mock: counter updates exactly-one-op per click **and bounded measure-call counts** (op-log golden tests — the fine-grained guarantee is a *test*); sibling-re-proposal relayout test |
 | M2 | `day-appkit` + desktop `launch()` + **default main menu** (Cmd+C/V/X/A via responder-chain selectors, Cmd+Q — NSTextField editing is broken without it); pieces: toggle/slider/text_field/spacer/scroll/when/each; styling core + `PerTarget`; `snapshot_window`; showcase v0 | manual + screenshot verification on host; **manual Japanese-IME smoke** |
 | M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **`day-piece-combobox` tier-1 renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
-| M4 | CLI v0: `create`/`build`/`launch` (desktop targets), day.yaml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day create t && cd t && day launch` works |
+| M4 | CLI v0: `new`/`build`/`launch` (desktop targets), day.yaml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
 | M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance (§18.1)**; safe-area/keyboard insets (§7.7); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
 | M6 | `day-fluent` (tr/locale signal/negotiation/ICU4X functions/en-XA/ar-XB), a11y props + lint v0, ids, per-target locale plumbing | live locale switch + relayout benchmark; VoiceOver smoke on appkit/uikit; **`a11y_audit` green on apple targets**; fr/de number-format conformance |
 | M7 | dayscript: engine, rendezvous/transport, `day script`, screenshots, JUnit; `--locale`/`--script` on launch | walkthrough (showcase-v1, no gauge step yet) passes on all 5 targets locally |

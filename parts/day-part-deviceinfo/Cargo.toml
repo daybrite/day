@@ -3,6 +3,9 @@ name = "day-part-deviceinfo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for a snapshot of the
 # device's identity (model, OS name/version, simulator flag) via each platform's NATIVE API. Any Rust

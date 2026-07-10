@@ -3,6 +3,8 @@ name = "day-tweak-slider-tickmarks"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 description = "Tweak: native slider tick marks (and snapping) across seven toolkits — the full-range packaged-tweak example, including bring-your-own C++."
 
 [dependencies]
