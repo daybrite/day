@@ -1093,16 +1093,22 @@ impl Toolkit for Qt {
                 )
             }
             kinds::LABEL => {
+                // Natural width from font metrics — QLabel::sizeHint() suggests a narrow
+                // "readable column" for word-wrapped labels, which is not day's contract
+                // (natural = unwrapped). Height always via heightForWidth at the width day
+                // actually grants; sizeHint's heuristic height is never mixed in.
+                let nat_w = unsafe { ffi::day_qt_label_natural_width(h.0) } as f64;
                 let width = match p.width {
-                    Some(pw) => w.min(pw),
-                    None => w,
+                    Some(pw) => nat_w.min(pw),
+                    None => nat_w,
                 };
-                if p.width.is_some() && w > width {
-                    let hfw =
-                        unsafe { ffi::day_qt_label_height_for_width(h.0, width.round() as c_int) };
-                    Size::new(width.ceil(), (hfw as f64).max(hh))
+                let hfw = unsafe {
+                    ffi::day_qt_label_height_for_width(h.0, width.round().max(1.0) as c_int)
+                };
+                if hfw > 0 {
+                    Size::new(width.ceil(), hfw as f64)
                 } else {
-                    Size::new(w.ceil(), hh.ceil())
+                    Size::new(width.ceil(), hh.ceil())
                 }
             }
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), hh.max(20.0)),

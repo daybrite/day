@@ -27,6 +27,9 @@ unsafe extern "C" {
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
+    /// The label's unwrapped single-line natural width (font metrics — NOT the sizeHint
+    /// heuristic, which suggests a narrow "readable" column for word-wrapped labels).
+    pub fn day_qt_label_natural_width(w: *mut c_void) -> c_int;
     /// Text color via the label palette (`on == 0` restores the theme default).
     pub fn day_qt_label_set_color(
         w: *mut c_void,

@@ -1660,13 +1660,25 @@ impl Toolkit for Gtk {
                 )
             }
             kinds::LABEL => {
-                // Height-for-width through GTK's measure protocol.
-                let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
+                // Measure the TEXT, not the widget. GtkFixed children are sized through
+                // `set_size_request` (see set_frame), and `gtk_widget_measure` never reports
+                // less than the current size request — so measuring the widget RATCHETS: after
+                // a narrow layout requests a tall wrapped height, re-measuring at a wider width
+                // keeps returning that tall height and content below never moves back up. A
+                // fresh Pango layout on the label's own (styled) context measures exactly the
+                // text the label renders, free of any request state.
+                let label = h.downcast_ref::<gtk4::Label>().expect("label widget");
+                let layout = gtk4::pango::Layout::new(&label.pango_context());
+                layout.set_text(&label.text());
+                layout.set_attributes(label.attributes().as_ref());
+                layout.set_wrap(gtk4::pango::WrapMode::WordChar);
+                let (nat_w, _) = layout.pixel_size();
                 let w = match p.width {
                     Some(pw) => (nat_w as f64).min(pw),
                     None => nat_w as f64,
                 };
-                let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, w.round() as i32);
+                layout.set_width((w * gtk4::pango::SCALE as f64).round() as i32);
+                let (_, nat_h) = layout.pixel_size();
                 Size::new(w.ceil(), nat_h as f64)
             }
             kinds::SLIDER => {

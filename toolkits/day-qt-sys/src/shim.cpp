@@ -168,6 +168,19 @@ void day_qt_label_set_font_family(void *w, const char *family) {
 int day_qt_register_font(const char *path) {
     return QFontDatabase::addApplicationFont(QString::fromUtf8(path));
 }
+// The label's UNWRAPPED natural width. QLabel::sizeHint() with wordWrap on is NOT that: Qt
+// applies a "readable column" heuristic and suggests a narrow wrapped block — day's measure
+// contract wants the real single-line width, then asks heightForWidth at the width day grants.
+// Toggle wordWrap off around the query so QLabel's own text engine answers (shaping, margins,
+// indent — plain QFontMetrics::horizontalAdvance comes up a few px short of it and the last
+// word wraps). No event loop runs between the toggles, so nothing paints in the off state.
+int day_qt_label_natural_width(void *w) {
+    QLabel *l = static_cast<QLabel *>(w);
+    l->setWordWrap(false);
+    const int width = l->sizeHint().width();
+    l->setWordWrap(true);
+    return width;
+}
 int day_qt_label_height_for_width(void *w, int width) {
     return static_cast<QLabel *>(w)->heightForWidth(width);
 }
