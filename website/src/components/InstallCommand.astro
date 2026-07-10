@@ -1,0 +1,104 @@
+---
+// InstallCommand — the one-liner that installs the day CLI with Cargo, pinned to the latest
+// release tag via `--tag`. The version is read from the workspace Cargo.toml at build time,
+// so every site deploy points at the release the repo is tagged for — no hand-maintained
+// version strings. Usable from .astro pages and .mdx docs alike; the script is idempotent
+// per element, so several copies can coexist on one page.
+// Vite's ?raw import — resolved against the source tree at bundle time (a plain fs read
+// against import.meta.url breaks once the component is bundled into a prerender chunk).
+import manifest from '../../../Cargo.toml?raw';
+
+const version = manifest.match(/^version = "([^"]+)"$/m)?.[1];
+if (!version) throw new Error('InstallCommand: no workspace version found in Cargo.toml');
+
+const command = `cargo install --locked --git https://github.com/daybrite/day --tag v${version} day-cli`;
+---
+<div class="install-cmd" data-install-cmd>
+  <div class="ic-row">
+    <code class="ic-code" data-command>{command}</code>
+    <button class="ic-copy" type="button" data-copy aria-label="Copy command" title="Copy">
+      <span class="ic-copy-icon" aria-hidden="true">⧉</span>
+      <span class="ic-copy-done" aria-hidden="true">✓</span>
+    </button>
+  </div>
+  <p class="ic-note">
+    Builds the <code>day</code> CLI from the latest release tag (v{version}) — requires a
+    stable Rust toolchain via rustup.
+  </p>
+</div>
+
+<script>
+  function initInstallCmd(root: Element) {
+    if ((root as HTMLElement).dataset.icInit) return;
+    (root as HTMLElement).dataset.icInit = '1';
+
+    const btn = root.querySelector<HTMLButtonElement>('[data-copy]');
+    const code = root.querySelector('[data-command]');
+    if (!btn || !code) return;
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? '');
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        document.execCommand('copy');
+        sel?.removeAllRanges();
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 2000);
+    });
+  }
+  const initAll = () => document.querySelectorAll('[data-install-cmd]').forEach(initInstallCmd);
+  initAll();
+  document.addEventListener('astro:page-load', initAll);
+</script>
+
+<style>
+  .install-cmd { width: 100%; }
+  .ic-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 12px 14px;
+  }
+  .ic-code {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    white-space: nowrap;
+    overflow-x: auto;
+    /* Hide the horizontal scrollbar: on overlay-scrollbar platforms it draws on top of the
+       single line of text, occluding the command. The row still pans by wheel/touch/drag. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    background: none;
+    padding: 0;
+  }
+  .ic-code::-webkit-scrollbar { display: none; }
+  .ic-copy {
+    appearance: none;
+    border: 1px solid var(--border-soft);
+    background: transparent;
+    color: var(--muted);
+    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    flex: none;
+  }
+  .ic-copy:hover { color: var(--text); border-color: var(--border); }
+  .ic-copy .ic-copy-done { display: none; color: var(--sun); }
+  .ic-copy.copied .ic-copy-icon { display: none; }
+  .ic-copy.copied .ic-copy-done { display: block; }
+  .ic-note { margin: 10px 2px 0; color: var(--faint); font-size: 0.8rem; }
+  .ic-note code { font-size: 0.78rem; }
+</style>

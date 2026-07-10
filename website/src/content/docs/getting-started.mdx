@@ -5,29 +5,26 @@ order: 3
 section: Start here
 ---
 
-import InstallPicker from '../../components/InstallPicker.astro';
+import InstallCommand from '../../components/InstallCommand.astro';
 
 This page takes you from nothing to a running app on your desktop, then points at the mobile
 targets. Expect it to take a few minutes, most of which is the first compile.
 
 ## Install the CLI
 
-Pick whichever method fits your machine — each one ends with a `day` binary on your PATH:
+Day isn't published to crates.io yet, so you install the `day` CLI from the repository with
+Cargo, pinned to the latest release tag:
 
-<InstallPicker compact />
+<InstallCommand />
 
-The shell and PowerShell one-liners download a prebuilt binary for your platform from the latest
-GitHub release, verify its checksum, and install it into `~/.cargo/bin` (or the first writable
-equivalent; set `DAY_INSTALL_DIR` to choose). The Homebrew command installs the same prebuilt
-binary through `brew`. The Cargo route compiles from source — slower, but works anywhere Rust
-does. Day isn't on crates.io or in a Homebrew tap yet, which is why the commands point at the
-repository and release assets directly. Whichever you pick, check it worked:
+`--tag` builds the latest released version rather than whatever `main` is mid-flight, and
+`--locked` uses the exact dependency versions that release was tested with. Check it worked:
 
 ```bash
 day --version
 ```
 
-To build apps you also need a recent stable Rust via rustup (the toolchain requirement moves with the repo's MSRV;
+You need a recent stable Rust via rustup (the toolchain requirement moves with the repo's MSRV;
 `rustup update stable` keeps you current). Everything else is per-target, and you don't need any
 of it until you build for that target:
 
