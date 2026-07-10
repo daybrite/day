@@ -1,6 +1,14 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { font, window } from '@kit.ArkUI';
+import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
+
+// One entry of the rawfile `day/fonts.json` manifest `day build` stages from the project's
+// `fonts/` directory (§18.4).
+interface DayFontEntry {
+  family: string;
+  file: string;
+}
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
@@ -12,7 +20,34 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    // Bundled custom fonts (§18.4) must be registered before the native UI loads, so the
+    // NODE_FONT_FAMILY attribute day-arkui sets can resolve the family names.
+    this.registerBundledFonts();
     windowStage.loadContent('pages/Index');
+  }
+
+  // Register every font `day build` staged into rawfile `day/fonts/` (manifest: `day/fonts.json`).
+  // `$rawfile()` only accepts compile-time literals, so build the equivalent rawfile Resource
+  // object (type 30000) for each dynamic path — the documented pattern for runtime rawfile refs.
+  private registerBundledFonts(): void {
+    let manifest: DayFontEntry[];
+    try {
+      const bytes: Uint8Array = this.context.resourceManager.getRawFileContentSync('day/fonts.json');
+      const decoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+      manifest = JSON.parse(decoder.decodeToString(bytes)) as DayFontEntry[];
+    } catch (_e) {
+      return; // No day/fonts.json staged — the app bundles no custom fonts.
+    }
+    for (const entry of manifest) {
+      const src: Resource = {
+        id: -1,
+        type: 30000, // rawfile
+        params: [`day/fonts/${entry.file}`],
+        bundleName: this.context.applicationInfo.name,
+        moduleName: 'entry',
+      };
+      font.registerFont({ familyName: entry.family, familySrc: src });
+    }
   }
 
   // `day launch` passes each value as a distinct `aa start --ps` string parameter (all shell-safe

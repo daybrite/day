@@ -12,6 +12,10 @@ pub use day_geometry::*;
 pub mod resource;
 pub use resource::{Resource, ResourceOpener, resolve_image_file, resource, set_resource_opener};
 
+/// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution
+/// (§18.4). Shared by the CLI stagers and the backends' startup registration.
+pub mod fonts;
+
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
@@ -556,10 +560,20 @@ pub enum Font {
     /// A custom point size. Backends scale it by the platform's accessibility text-scale (iOS via
     /// `UIFontMetrics`, Android via `sp`, GTK via text-scaling-factor) so it stays legible.
     System(f64),
+    /// A bundled custom font by **family name**, at a point size (`Font::Custom("Pacifico",
+    /// 24.0)`). The family must ship in the project's `fonts/` directory — `day build` stages the
+    /// file into each platform's native font store and the backend registers it at startup
+    /// (§18.4). The name is the family name baked into the font file (what Font Book /
+    /// fontconfig report), not the file name. The size scales with the platform accessibility
+    /// text-scale exactly like [`Font::System`]; weight/italic apply only where the family ships
+    /// (or the platform synthesizes) such a face. An unknown family falls back to the system font
+    /// of the same size, with a warning in the log.
+    Custom(&'static str, f64),
 }
 
 /// Font weight, matching `UIFont.Weight` / SwiftUI `Font.Weight` (lightest → heaviest).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Ordered by heaviness, so backends can e.g. map `>= Semibold` to a synthesized bold face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FontWeight {
     UltraLight,
     Thin,

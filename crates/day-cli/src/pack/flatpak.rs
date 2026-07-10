@@ -69,10 +69,16 @@ pub fn pack(
     if images.is_dir() {
         super::copy_tree(&images, &share_app.join("images")).map_err(PackError::Other)?;
     }
+    // Bundled fonts (§18.4): the backend registers every file under DAY_FONT_ROOT at startup.
+    let fonts = project.root.join("fonts");
+    if fonts.is_dir() {
+        super::copy_tree(&fonts, &share_app.join("fonts")).map_err(PackError::Other)?;
+    }
     // Compiled resource blobs, when the toolkit's resource compiler produced them (§18.3).
     let mut wrapper_env = vec![
         format!("export DAY_ASSET_ROOT=/app/share/{name}/assets"),
         format!("export DAY_IMAGE_ROOT=/app/share/{name}/images"),
+        format!("export DAY_FONT_ROOT=/app/share/{name}/fonts"),
         format!("export DAY_ICON_NAME={id}"),
     ];
     let gresource = project

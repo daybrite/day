@@ -9,16 +9,26 @@
 
 use std::fs;
 
-use super::{ResourceSet, sanitize_ident};
+use super::{FontFile, ResourceSet, sanitize_ident};
 use crate::meta::Project;
 
-pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
-    if set.images.is_empty() {
+pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result<(), String> {
+    if set.images.is_empty() && fonts.is_empty() {
         return Ok(());
     }
     let res = project.root.join("build/day/android/res");
     // Regenerate the tree each build so removed images don't linger.
     let _ = fs::remove_dir_all(&res);
+    // Fonts (§18.4) → res/font/<ident>.<ext>: aapt2 assigns an `R.font` id, and
+    // `DayBridge.bundledFont` re-derives <ident> from the requested family name at runtime.
+    if !fonts.is_empty() {
+        let dir = res.join("font");
+        fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+        for f in fonts {
+            let dest = dir.join(f.staged_name());
+            fs::copy(&f.path, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
+        }
+    }
     for img in &set.images {
         let bucket = match img.scale {
             2 => "drawable-xhdpi",

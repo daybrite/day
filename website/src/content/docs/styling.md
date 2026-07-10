@@ -30,7 +30,8 @@ label("legalese").italic()
 The semantic roles (`Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`,
 `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography scale, which is what
 keeps text looking correct next to native controls. `Font::System(18.0)` is the escape hatch when
-you need an exact size.
+you need an exact size, and `Font::Custom("Family", 18.0)` renders a font you bundle in the
+project's `fonts/` directory ([resources guide](/docs/resources)).
 
 ## Color, backgrounds, shape
 

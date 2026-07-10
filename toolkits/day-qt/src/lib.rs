@@ -276,6 +276,16 @@ fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::Caption => (10.0, Regular),
         Font::Caption2 => (10.0, Regular),
         Font::System(pt) => (pt, Regular),
+        Font::Custom(_, pt) => (pt, Regular),
+    }
+}
+
+/// Apply a `Font::Custom` family on top of `day_qt_label_set_font` (which set size/weight/italic).
+/// The family was registered with the QFontDatabase in `run()`; an unknown name falls back to the
+/// default family inside Qt.
+unsafe fn apply_custom_family(w: *mut c_void, spec: day_spec::FontSpec) {
+    if let Font::Custom(family, _) = spec.style {
+        unsafe { ffi::day_qt_label_set_font_family(w, cstr(family).as_ptr()) };
     }
 }
 
@@ -710,6 +720,7 @@ impl Toolkit for Qt {
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic) = font_params(p.font);
                     ffi::day_qt_label_set_font(w, pt, weight, italic);
+                    apply_custom_family(w, p.font);
                     QtHandle(w)
                 }
                 kinds::BUTTON => {
@@ -883,6 +894,7 @@ impl Toolkit for Qt {
                             LabelPatch::Font(f) => {
                                 let (pt, weight, italic) = font_params(*f);
                                 ffi::day_qt_label_set_font(h.0, pt, weight, italic);
+                                apply_custom_family(h.0, *f);
                             }
                             LabelPatch::Color(_) => {}
                         }
@@ -1324,6 +1336,13 @@ impl Platform for Qt {
             // title) into `day_qt_app_new` up front.
             let app_name = options.app_name.as_deref().unwrap_or(&options.title);
             let app = ffi::day_qt_app_new(cstr(app_name).as_ptr());
+            // Bundled custom fonts (§18.4): register with the QFontDatabase (needs the
+            // QApplication above) before the first label realizes.
+            for path in day_spec::fonts::bundled_fonts() {
+                if ffi::day_qt_register_font(cstr(&path.to_string_lossy()).as_ptr()) < 0 {
+                    eprintln!("day: could not register bundled font {}", path.display());
+                }
+            }
             // App icon (§18.2): Dock on macOS, taskbar on Linux/Windows (set by `day launch`).
             if let Ok(icon) = std::env::var("DAY_APP_ICON") {
                 ffi::day_qt_set_app_icon(cstr(&icon).as_ptr());

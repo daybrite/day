@@ -5,5 +5,8 @@ flow:
   - navigate: { route: text }
   - assert_visible: { id: text-title }
   - assert_visible: { id: text-emphasis }
+  - assert_visible: { id: text-font-pacifico }
+  - assert_visible: { id: text-font-bungee }
+  - assert_visible: { id: text-font-specialelite }
   - screenshot: text
   - pause: 1

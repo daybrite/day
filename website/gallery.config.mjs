@@ -63,6 +63,7 @@ export const suites = [
       { id: 'resources', label: 'Bundled resources' },
       { id: 'webview', label: 'Web view' },
       { id: 'tweaks', label: 'Tweaks (native config)' },
+      { id: 'text', label: 'Typography & custom fonts' },
       { id: 'about', label: 'About' },
     ],
   },

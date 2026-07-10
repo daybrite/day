@@ -483,9 +483,23 @@ pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
     let images = crate::resources::ResourceSet::scan(project).images;
     let has_resources = crate::resources::apple::write_media_xcassets(&sources, &images)?;
 
+    // Bundled fonts (§18.4): copied VERBATIM into the target so SwiftPM `.copy`s the directory
+    // into the DayPieces bundle (`DayPieces_DayPieces.bundle/fonts/…` — fonts must not be
+    // `.process`ed). day-uikit registers every file in there with CoreText at launch, and
+    // build_ios lists the same paths in the app Info.plist's UIAppFonts.
+    let fonts = crate::resources::scan_fonts(project)?;
+    if !fonts.is_empty() {
+        let fdir = sources.join("fonts");
+        std::fs::create_dir_all(&fdir).map_err(|e| e.to_string())?;
+        for f in &fonts {
+            let name = f.path.file_name().ok_or("font file name")?;
+            std::fs::copy(&f.path, fdir.join(name)).map_err(|e| e.to_string())?;
+        }
+    }
+
     std::fs::write(
         pkg_dir.join("Package.swift"),
-        package_swift(&pieces, has_resources),
+        package_swift(&pieces, has_resources, !fonts.is_empty()),
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -509,8 +523,9 @@ fn stage_swift_dir(src: &Path, dest: &Path) -> Result<(), String> {
 
 /// Render the generated `DayPieces/Package.swift`. When `has_resources`, the target processes the
 /// generated `Media.xcassets` (§18.3) — SwiftPM runs `actool` → an optimized `Assets.car` in the
-/// package's resource bundle, which `day-uikit` loads images from by name.
-fn package_swift(pieces: &IosPieces, has_resources: bool) -> String {
+/// package's resource bundle, which `day-uikit` loads images from by name. When `has_fonts`, the
+/// staged `fonts/` directory is `.copy`d verbatim into the same bundle (§18.4).
+fn package_swift(pieces: &IosPieces, has_resources: bool, has_fonts: bool) -> String {
     let deps: String = pieces
         .packages
         .iter()
@@ -544,11 +559,19 @@ fn package_swift(pieces: &IosPieces, has_resources: bool) -> String {
             .collect();
         format!(", linkerSettings: [{fws}]")
     };
-    // App images (§18.3) staged as a `.process`ed asset catalog next to the shims.
-    let resources = if has_resources {
-        ", resources: [.process(\"Media.xcassets\")]"
+    // App images (§18.3) staged as a `.process`ed asset catalog next to the shims; app fonts
+    // (§18.4) as a `.copy`d directory (font files must reach the bundle byte-identical).
+    let mut entries: Vec<&str> = Vec::new();
+    if has_resources {
+        entries.push(".process(\"Media.xcassets\")");
+    }
+    if has_fonts {
+        entries.push(".copy(\"fonts\")");
+    }
+    let resources = if entries.is_empty() {
+        String::new()
     } else {
-        ""
+        format!(", resources: [{}]", entries.join(", "))
     };
     format!(
         "// swift-tools-version:5.9\n\

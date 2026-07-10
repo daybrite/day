@@ -27,6 +27,11 @@ unsafe extern "C" {
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
+    /// Swap the label's font family to a bundled one (after `day_qt_label_set_font`).
+    pub fn day_qt_label_set_font_family(w: *mut c_void, family: *const c_char);
+    /// `QFontDatabase::addApplicationFont` — returns the font id (>= 0) or -1 on failure.
+    /// Requires a constructed QApplication.
+    pub fn day_qt_register_font(path: *const c_char) -> c_int;
     pub fn day_qt_label_height_for_width(w: *mut c_void, width: c_int) -> c_int;
 
     pub fn day_qt_button_new(title: *const c_char, id: u64, cb: extern "C" fn(u64)) -> *mut c_void;

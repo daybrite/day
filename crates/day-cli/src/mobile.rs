@@ -227,6 +227,55 @@ pub fn xcode_backend_build() -> i32 {
 // ios-uikit build + launch (porcelain side)
 // ---------------------------------------------------------------------------
 
+/// Keep the app Info.plist's `UIAppFonts` array in sync with the project's `fonts/` directory
+/// (§18.4). iOS resolves the listed paths relative to the main bundle; the files themselves ride
+/// the DayPieces resource bundle (`DayPieces_DayPieces.bundle/fonts/…`, staged by
+/// `write_ios_pieces`), and day-uikit ALSO registers them with CoreText at launch, so a plist
+/// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
+/// build — idempotent, so a committed plist only changes when `fonts/` changes.
+fn sync_uiappfonts(project: &Project) -> Result<(), String> {
+    // The scaffold's app target is Runner/ (older scaffolds used DayApp/).
+    let plist = [
+        "platform/ios/Runner/Info.plist",
+        "platform/ios/DayApp/Info.plist",
+    ]
+    .iter()
+    .map(|rel| project.root.join(rel))
+    .find(|p| p.exists());
+    let Some(plist) = plist else {
+        return Ok(());
+    };
+    let fonts = crate::resources::scan_fonts(project)?;
+    // Remove-then-insert keeps the array exactly equal to fonts/ (plutil -remove fails
+    // harmlessly when the key is absent).
+    let _ = Command::new("plutil")
+        .args(["-remove", "UIAppFonts"])
+        .arg(&plist)
+        .output();
+    if fonts.is_empty() {
+        return Ok(());
+    }
+    let paths: Vec<String> = fonts
+        .iter()
+        .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()))
+        .map(|n| format!("DayPieces_DayPieces.bundle/fonts/{n}"))
+        .collect();
+    let json = serde_json::to_string(&paths).expect("UIAppFonts json");
+    let out = Command::new("plutil")
+        .args(["-replace", "UIAppFonts", "-json", &json])
+        .arg(&plist)
+        .output()
+        .map_err(|e| format!("plutil: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "could not update UIAppFonts in {}: {}",
+            plist.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
 pub fn build_ios(
     project: &Project,
     target: &'static Target,
@@ -248,6 +297,9 @@ pub fn build_ios(
     // Generate the local DayPieces SwiftPM package (piece Swift shims + SwiftPM deps) that the
     // .xcodeproj links, from every piece's [package.metadata.day.ios] — before xcodebuild resolves it.
     crate::pieces::write_ios_pieces(project)?;
+    // Bundled fonts (§18.4): iOS additionally requires every custom font file to be listed in
+    // the app Info.plist's UIAppFonts array. Keep the checked-in plist in sync with fonts/.
+    sync_uiappfonts(project)?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration})", target.name),

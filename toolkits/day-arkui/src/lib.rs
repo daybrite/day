@@ -137,6 +137,16 @@ mod imp {
             Font::Caption => 12.0,
             Font::Caption2 => 11.0,
             Font::System(pt) => pt,
+            Font::Custom(_, pt) => pt,
+        }
+    }
+
+    /// Apply a `Font::Custom` family (§18.4): the family was registered by the harmony
+    /// scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
+    /// by name; ArkUI falls back to the default family when it doesn't.
+    fn apply_custom_family(node: *mut c_void, spec: FontSpec) {
+        if let Font::Custom(family, _) = spec.style {
+            unsafe { ffi::day_ark_set_font_family(node, cstr(family).as_ptr()) };
         }
     }
 
@@ -368,6 +378,7 @@ mod imp {
                             ffi::day_ark_set_font_color(n.0, argb(c));
                         }
                     }
+                    apply_custom_family(n.0, p.font);
                     n
                 }
                 kinds::BUTTON => {
@@ -516,9 +527,10 @@ mod imp {
                                     unsafe { ffi::day_ark_set_font_color(h.0, argb(*c)) };
                                 }
                             }
-                            LabelPatch::Font(f) => unsafe {
-                                ffi::day_ark_set_font_size(h.0, font_vp(*f))
-                            },
+                            LabelPatch::Font(f) => {
+                                unsafe { ffi::day_ark_set_font_size(h.0, font_vp(*f)) };
+                                apply_custom_family(h.0, *f);
+                            }
                         }
                     }
                 }

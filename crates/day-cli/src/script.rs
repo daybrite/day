@@ -57,10 +57,22 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
     Ok(steps)
 }
 
+/// How long to keep (re)trying the engine connection, in seconds. Default 20; override with
+/// `DAYSCRIPT_CONNECT_SECS` for targets whose cold start outlasts it (a fresh Android emulator
+/// spends 30–60 s in dex verification before the app-side engine can even bind its socket).
+fn connect_window_secs() -> u64 {
+    std::env::var("DAYSCRIPT_CONNECT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20)
+}
+
 fn connect(port: u16) -> Result<TcpStream, String> {
-    for _ in 0..60 {
+    let attempts = connect_window_secs() * 4; // 250 ms apart
+    for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-            s.set_read_timeout(Some(Duration::from_secs(20))).ok();
+            s.set_read_timeout(Some(Duration::from_secs(connect_window_secs().max(20))))
+                .ok();
             return Ok(s);
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -182,7 +194,7 @@ pub fn run_scripts(
                      reader: &mut BufReader<TcpStream>,
                      line: &str|
      -> Result<String, String> {
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let deadline = std::time::Instant::now() + Duration::from_secs(connect_window_secs());
         loop {
             let attempt = (|| -> Result<String, String> {
                 stream
@@ -201,7 +213,10 @@ pub fn run_scripts(
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-                        s.set_read_timeout(Some(Duration::from_secs(20))).ok();
+                        s.set_read_timeout(Some(Duration::from_secs(
+                            connect_window_secs().max(20),
+                        )))
+                        .ok();
                         *reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
                         *stream = s;
                     }

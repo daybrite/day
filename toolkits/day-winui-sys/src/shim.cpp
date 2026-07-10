@@ -811,6 +811,15 @@ void day_winui_label_set_font(void* h, double pt, int weight, int italic) {
         tb.FontStyle(italic ? WUI::Text::FontStyle::Italic : WUI::Text::FontStyle::Normal);
     }
 }
+// Bundled custom font (§18.4): `spec` is the XAML custom-font syntax
+// "<absolute path to font file>#<family name>" — the form unpackaged Win32 XAML apps use, since
+// they have no package manifest to register fonts through. XAML falls back to the default
+// family when the file or family doesn't resolve.
+void day_winui_label_set_font_family(void* h, const char* spec) {
+    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
+        tb.FontFamily(WUXM::FontFamily(hs(spec)));
+    }
+}
 
 // ---- button ----
 

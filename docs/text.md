@@ -25,7 +25,9 @@ label("18 pt").font(Font::System(18.0))                // a custom size (still a
 Largest → smallest, mirroring SwiftUI's `Font.TextStyle`:
 
 `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`,
-`Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size.
+`Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size, and
+`Custom("Family", pt)` for a bundled custom font referenced by family name (ship the file in the
+project's `fonts/` directory — see docs/resources.md §18.4 for the packaging and naming rules).
 
 Each maps to the platform's native text style where one exists, so sizes and weights match the OS:
 
@@ -57,4 +59,8 @@ light/dark). Colors are given as `Color::hex(0xRRGGBB)` or `Color::rgba(r, g, b,
 accessibility text-size setting (iOS runs it through `UIFontMetrics`, Android uses `sp`, GTK uses the
 text-scaling factor), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
-The showcase's **Text** page is a live specimen of every style, weight, italic, color, and custom size.
+`Font::Custom("Family", pt)` scales the same way — a bundled font never opts out of accessibility
+sizing.
+
+The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
+and the three bundled custom fonts.

@@ -8,6 +8,7 @@
 #include <QCheckBox>
 #include <QFileDialog>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFrame>
 #include <QLabel>
 #include <QLineEdit>
@@ -139,6 +140,20 @@ void day_qt_label_set_font(void *w, double pt, int weight, int italic) {
         f.setWeight(static_cast<QFont::Weight>(weight));
     f.setItalic(italic != 0);
     l->setFont(f);
+}
+// Point the label at a bundled font family (registered via day_qt_register_font). Called after
+// day_qt_label_set_font, so it only swaps the family; Qt falls back to the default family when
+// the name doesn't resolve.
+void day_qt_label_set_font_family(void *w, const char *family) {
+    QLabel *l = static_cast<QLabel *>(w);
+    QFont f = l->font();
+    f.setFamily(QString::fromUtf8(family));
+    l->setFont(f);
+}
+// Register an application font file with the QFontDatabase (§18.4). Returns the font id
+// (>= 0) or -1 on failure. Requires a constructed QApplication.
+int day_qt_register_font(const char *path) {
+    return QFontDatabase::addApplicationFont(QString::fromUtf8(path));
 }
 int day_qt_label_height_for_width(void *w, int width) {
     return static_cast<QLabel *>(w)->heightForWidth(width);

@@ -147,19 +147,63 @@ public final class DayBridge {
         return t;
     }
     public static void setLabel(View v, String text) { ((TextView) v).setText(text); }
-    /** `sp` size (scales with the accessibility Font Size setting), font weight (100–900), and italic. */
-    public static void setLabelFont(View v, float sp, int weight, boolean italic) {
+    /**
+     * `sp` size (scales with the accessibility Font Size setting), font weight (100–900), italic,
+     * and an optional bundled font family (null for the system font — §18.4).
+     */
+    public static void setLabelFont(View v, float sp, int weight, boolean italic, String family) {
         TextView t = (TextView) v;
         // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size) — the Android
         // accessibility text-scale — unlike DIP which does not.
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        Typeface base = (family != null && !family.isEmpty()) ? bundledFont(family) : Typeface.DEFAULT;
         if (android.os.Build.VERSION.SDK_INT >= 28) {
-            // Exact numeric weight + italic (API 28+).
-            t.setTypeface(Typeface.create(Typeface.DEFAULT, weight, italic));
+            // Exact numeric weight + italic (API 28+); a custom base picks (or synthesizes) the
+            // nearest face the family provides.
+            t.setTypeface(Typeface.create(base, weight, italic));
         } else {
             int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
-            t.setTypeface(Typeface.create(Typeface.DEFAULT, style));
+            t.setTypeface(Typeface.create(base, style));
         }
+    }
+
+    private static final java.util.Map<String, Typeface> FONT_CACHE = new java.util.HashMap<>();
+    /**
+     * Resolve a bundled font family (§18.4). `day build` stages each `fonts/` file as
+     * `res/font/<ident>.ttf`, where `<ident>` is the font's family name sanitized to Android
+     * resource rules (lowercase `[a-z0-9_]`, leading letter — the same derivation as day-spec's
+     * `font_ident`). Re-derive the ident here and look up `R.font.<ident>`, so no side table is
+     * needed. Unknown families (or API < 26, which predates font resources) log and fall back to
+     * the system typeface.
+     */
+    private static Typeface bundledFont(String family) {
+        Typeface cached = FONT_CACHE.get(family);
+        if (cached != null) return cached;
+        StringBuilder sb = new StringBuilder();
+        for (char c : family.toCharArray()) {
+            char lc = (c >= 'A' && c <= 'Z') ? (char) (c - 'A' + 'a') : c;
+            boolean ok = (lc >= 'a' && lc <= 'z') || (lc >= '0' && lc <= '9') || lc == '_';
+            sb.append(ok ? lc : '_');
+        }
+        if (sb.length() == 0 || sb.charAt(0) < 'a' || sb.charAt(0) > 'z') sb.insert(0, 'r');
+        Typeface tf = null;
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            int id = ctx.getResources().getIdentifier(sb.toString(), "font", ctx.getPackageName());
+            if (id != 0) {
+                try {
+                    tf = ctx.getResources().getFont(id);
+                } catch (Exception e) {
+                    // Broken resource — fall through to the loud default below.
+                }
+            }
+        }
+        if (tf == null) {
+            android.util.Log.w("DayBridge", "unknown font family \"" + family
+                    + "\" — falling back to the system font (is the file in the project's fonts/ directory?)");
+            tf = Typeface.DEFAULT;
+        }
+        FONT_CACHE.put(family, tf);
+        return tf;
     }
     /** Text color as a packed 0xAARRGGBB int; `on=false` restores the theme default. */
     public static void setLabelColor(View v, int argb, boolean on) {

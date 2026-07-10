@@ -308,7 +308,43 @@ fn winui_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::Caption => (10.0, Regular),
         Font::Caption2 => (10.0, Regular),
         Font::System(pt) => (pt, Regular),
+        Font::Custom(_, pt) => (pt, Regular),
     }
+}
+
+/// Apply a `Font::Custom` family on top of `day_winui_label_set_font`. Unpackaged Win32 XAML has
+/// no font-registration API; instead XAML loads the file directly via the
+/// "<absolute path>#<family>" FontFamily form, so map the family back to the staged file
+/// (`DAY_FONT_ROOT` under `day launch`, `fonts/` next to the exe when packed) and hand the shim
+/// the combined spec. Resolution parses font name tables, so it is cached per family; a missing
+/// family logs once and leaves the system font in place.
+fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
+    let Font::Custom(family, _) = spec.style else {
+        return;
+    };
+    thread_local! {
+        static RESOLVED: RefCell<HashMap<&'static str, Option<CString>>> =
+            RefCell::new(HashMap::new());
+    }
+    RESOLVED.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let entry =
+            cache.entry(family).or_insert_with(|| {
+                match day_spec::fonts::resolve_font_file(family) {
+                    Some(path) => Some(cstr(&format!("{}#{}", path.display(), family))),
+                    None => {
+                        eprintln!(
+                            "day: unknown font family {family:?} — falling back to the system font \
+                         (is the file in the project's fonts/ directory?)"
+                        );
+                        None
+                    }
+                }
+            });
+        if let Some(s) = entry {
+            unsafe { ffi::day_winui_label_set_font_family(h, s.as_ptr()) };
+        }
+    });
 }
 
 /// Day weight → Windows.UI.Text.FontWeight numeric value (Thin=100 … Black=900).
@@ -606,6 +642,7 @@ impl Toolkit for WinUi {
                     let h = ffi::day_winui_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic) = font_params(p.font);
                     ffi::day_winui_label_set_font(h, pt, weight, italic);
+                    apply_custom_family(h, p.font);
                     if let Some(c) = p.color {
                         ffi::day_winui_label_set_color(h, argb(c));
                     }
@@ -755,6 +792,7 @@ impl Toolkit for WinUi {
                             LabelPatch::Font(f) => {
                                 let (pt, weight, italic) = font_params(*f);
                                 ffi::day_winui_label_set_font(h.0, pt, weight, italic);
+                                apply_custom_family(h.0, *f);
                             }
                             LabelPatch::Color(c) => ffi::day_winui_label_set_color(
                                 h.0,

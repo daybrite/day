@@ -236,6 +236,10 @@ void day_ark_set_size(void* n, double w, double h) {
 }
 void day_ark_set_font_size(void* n, double vp) { set_f32(n, NODE_FONT_SIZE, (float)vp); }
 void day_ark_set_font_color(void* n, uint32_t argb) { set_u32(n, NODE_FONT_COLOR, argb); }
+// Bundled custom font family (§18.4) — registered from rawfile day/fonts.json by the harmony
+// scaffold's EntryAbility (ArkTS font.registerFont) before the native UI loads; ArkUI falls
+// back to the default family when the name isn't registered.
+void day_ark_set_font_family(void* n, const char* family) { set_str(n, NODE_FONT_FAMILY, family); }
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
 
 // Determinate progress bar: ArkUI uses a value in [0, total]; day passes the 0..1 fraction, so

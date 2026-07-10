@@ -169,6 +169,9 @@ pub fn launch(
             cmd.current_dir(&project.root)
                 .env("DAY_ASSET_ROOT", project.root.join("assets"))
                 .env("DAY_IMAGE_ROOT", project.root.join("images"))
+                // Bundled fonts (§18.4): the desktop backends register every file in this
+                // directory with the platform font system at startup.
+                .env("DAY_FONT_ROOT", project.root.join("fonts"))
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
             // App icon (§18.2): the backend applies it to the dock / taskbar at startup

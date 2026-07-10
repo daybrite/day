@@ -1,20 +1,21 @@
 ---
-title: Resources, images & icons
-description: "How assets/, images/, and icons/ travel from your project into each platform's native resource system — and how to read them back."
+title: Resources, images, fonts & icons
+description: "How assets/, images/, fonts/, and icons/ travel from your project into each platform's native resource system — and how to read them back."
 order: 24
 section: Guides
 ---
 
-A Day project has three conventional resource directories, each with a different destiny:
+A Day project has four conventional resource directories, each with a different destiny:
 
 ```text
 myapp/
-  assets/      # data files: JSON, fonts, databases — anything you open as bytes
+  assets/      # data files: JSON, databases — anything you open as bytes
   images/      # UI images, with @2x/@3x density variants
+  fonts/       # custom fonts (.ttf/.otf), referenced by family name
   icons/       # the app icon (and its per-platform renditions)
 ```
 
-The principle behind all three: **resources ride each platform's native resource system**, not a
+The principle behind all four: **resources ride each platform's native resource system**, not a
 custom archive format. On Android your images become real `res/drawable-*` entries crunched by
 aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
 Qt resource file. `day build` does the staging automatically, per target, before the platform
@@ -58,6 +59,39 @@ Two notes worth knowing:
   [`day-piece-remote-image`](/docs/internal/resources) — because they involve networking and
   cache policy the core deliberately doesn't own.
 
+## Custom fonts: `fonts/`
+
+Drop `.ttf` or `.otf` files into `fonts/` and reference them **by family name** — the name baked
+into the font file itself (what Font Book or fontconfig report), not the file name:
+
+```rust
+label("Welcome aboard").font(Font::Custom("Pacifico", 24.0))
+```
+
+`day build` stages each font where the platform wants it — `res/font/` on Android (with the
+resource-naming rules handled for you), the app bundle plus a `UIAppFonts` Info.plist entry on
+iOS, a fonts directory registered with CoreText / fontconfig / the `QFontDatabase` on the
+desktops, rawfile plus an ArkTS `registerFont` manifest on HarmonyOS — and each backend registers
+everything at startup. The point size scales with the platform's accessibility text size, exactly
+like `Font::System(pt)`.
+
+The restrictions, all enforced as **hard errors at build time** (each would otherwise surface as
+a confusing runtime-only failure on one platform):
+
+- **`.ttf` and `.otf` only.** Android's `res/font/` accepts nothing else, so Day holds every
+  platform to the same rule. Convert collections (`.ttc`) and variable fonts to single static
+  faces before bundling.
+- **One face per family.** Staged file names are derived from the family name (lowercased,
+  `[a-z0-9_]`), so a second face of the same family would collide. Ship the regular face; bold
+  and italic are synthesized where the platform can.
+- **File names don't matter; family names do.** `fonts/SpecialElite-Regular.ttf` whose embedded
+  family is "Special Elite" is used as `Font::Custom("Special Elite", 20.0)`.
+
+Two things worth knowing beyond the rules: an unknown family never breaks the app — the label
+renders in the system font and the log names the family that didn't resolve. And `.weight(...)` /
+`.italic()` still apply, but a single-face family only gets what the platform can synthesize (a
+heavier stroke, a slant), not true bold or italic cuts.
+
 ## The app icon: `icons/`
 
 `icons/` holds the app icon renditions each platform wants (`icons/macos/`, `icons/windows/*.ico`,
@@ -79,16 +113,15 @@ resources, which aggregate into your app without name collisions.
 ## What happens at build, concretely
 
 ```text
-images/wave@2x.png ──┐                       assets/stations.json ──┐
-                     ▼ day build -p <target> ▼
-   ┌──────────────────────────────────────────────────────────┐
-   │ android  → res/drawable-xhdpi/wave.png   + assets/        │
-   │ ios      → DayPieces asset catalog (actool → Assets.car)  │
-   │ gtk      → app.gresource (images + data)                  │
-   │ qt       → app.rcc                                        │
-   │ arkui    → hap rawfile/                                   │
-   │ desktop dev-launch → read from project dirs directly      │
-   └──────────────────────────────────────────────────────────┘
+images/wave@2x.png ──┐     fonts/Pacifico-Regular.ttf ──┐     assets/stations.json ──┐
+                     ▼          day build -p <target>   ▼                            ▼
+   ┌───────────────────────────────────────────────────────────────────────┐
+   │ android  → res/drawable-xhdpi/wave.png · res/font/pacifico.ttf        │
+   │ ios      → DayPieces asset catalog + fonts/ bundle dir + UIAppFonts   │
+   │ gtk/qt   → app.gresource / app.rcc; fonts registered at startup       │
+   │ arkui    → hap rawfile/ (+ day/fonts.json → registerFont)             │
+   │ desktop dev-launch → read from project dirs directly                  │
+   └───────────────────────────────────────────────────────────────────────┘
 ```
 
 Staging is best-effort in development — if a resource compiler is missing (say `rcc` on an

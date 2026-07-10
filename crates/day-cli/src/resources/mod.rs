@@ -107,6 +107,96 @@ fn parse_scale(stem: &str) -> (String, u32) {
     (stem.to_string(), 1)
 }
 
+/// A bundled font file (§18.4): its source path, the family name parsed from the font's `name`
+/// table (what `Font::Custom` matches on), and the Android/ArkUI resource identifier derived
+/// from that family (the same rule the runtimes re-derive — `day_spec::fonts::font_ident`).
+#[derive(Debug, Clone)]
+pub struct FontFile {
+    pub path: PathBuf,
+    pub family: String,
+    pub ident: String,
+}
+
+impl FontFile {
+    /// The staged file name on identifier-based platforms: `<ident>.<ext>`.
+    pub fn staged_name(&self) -> String {
+        let ext = self
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("ttf")
+            .to_ascii_lowercase();
+        format!("{}.{ext}", self.ident)
+    }
+}
+
+/// Scan and validate the project's `fonts/` directory (§18.4). Every problem is a hard error —
+/// each would otherwise surface only at runtime on some platform: a non-`.ttf`/`.otf` file
+/// (Android font resources accept nothing else), an unparseable font (no family name to resolve
+/// by), or two families that collide after identifier sanitization (they'd overwrite each other
+/// in `res/font/`).
+pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
+    let dir = project.root.join("fonts");
+    let mut out: Vec<FontFile> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(out);
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && !p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .starts_with('.')
+        })
+        .collect();
+    files.sort();
+    for path in files {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !matches!(ext.as_str(), "ttf" | "otf") {
+            return Err(format!(
+                "fonts/{fname}: only .ttf and .otf files can be bundled (Android's res/font/ \
+                 accepts nothing else — convert collections/other formats to single faces)"
+            ));
+        }
+        let bytes = std::fs::read(&path).map_err(|e| format!("fonts/{fname}: {e}"))?;
+        let names = day_spec::fonts::parse_font_names(&bytes).ok_or_else(|| {
+            format!("fonts/{fname}: not a recognizable font file (no readable name table)")
+        })?;
+        let ident = day_spec::fonts::font_ident(&names.family);
+        if let Some(prev) = out.iter().find(|f| f.ident == ident) {
+            return Err(format!(
+                "fonts/{fname}: family {:?} collides with {}'s family {:?} on the sanitized \
+                 resource name `{ident}` — bundle one face per family, or rename a family",
+                names.family,
+                prev.path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?"),
+                prev.family,
+            ));
+        }
+        out.push(FontFile {
+            path,
+            family: names.family,
+            ident,
+        });
+    }
+    Ok(out)
+}
+
 /// Sanitize a name to the strictest platform identifier rules (Android `R` / ArkUI): lowercase, and
 /// only `[a-z0-9_]`, leading letter. Used by the backends that need identifier-safe names.
 #[allow(dead_code)] // consumed by the android/arkui stagers (landing).
@@ -172,15 +262,19 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
 pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     let set = ResourceSet::scan(project);
-    if set.is_empty() {
+    let fonts = scan_fonts(project)?;
+    if set.is_empty() && fonts.is_empty() {
         return Ok(());
     }
     match target.toolkit {
         // iOS images are staged into the DayPieces `.process` catalog by pieces::write_ios_pieces
-        // (during build_ios); data rides the existing bundle copy phase + default file opener.
+        // (during build_ios), fonts as its `.copy("fonts")` bundle dir + the app's UIAppFonts;
+        // data rides the existing bundle copy phase + default file opener.
         "uikit" => Ok(()),
-        "widget" => android::stage(project, &set),
-        "arkui" => arkui::stage(project, &set),
+        "widget" => android::stage(project, &set, &fonts),
+        "arkui" => arkui::stage(project, &set, &fonts),
+        // Desktop toolkits load fonts as loose files: DAY_FONT_ROOT under `day launch`, a
+        // `fonts/` dir next to the binary / in Resources when packed (§18.4).
         "gtk" => gtk::stage(project, &set),
         "qt" => qt::stage(project, &set),
         "winui" => winui::stage(project, &set),

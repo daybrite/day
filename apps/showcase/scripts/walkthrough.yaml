@@ -274,3 +274,16 @@ flow:
   - toggle: { id: tweak-ref-toggle, value: true }
   - assert_text: { id: tweak-ref-status, key: tweaks-ref-live }
   - screenshot: tweaks
+
+  # Text playground: semantic styles, weights, and the BUNDLED CUSTOM FONTS (docs/resources.md) —
+  # the three Font::Custom families ship in fonts/ and must have been registered by the backend
+  # at startup for these labels to realize.
+  - navigate: { route: text }
+  - assert_route: { route: text }
+  - assert_visible: { id: text-title }
+  - assert_visible: { id: text-emphasis }
+  - assert_visible: { id: text-custom-28 }
+  - assert_visible: { id: text-font-pacifico }
+  - assert_visible: { id: text-font-bungee }
+  - assert_visible: { id: text-font-specialelite }
+  - screenshot: text

@@ -1067,7 +1067,7 @@ mod imp {
                 Font::Footnote => UIFontTextStyleFootnote,
                 Font::Caption => UIFontTextStyleCaption1,
                 Font::Caption2 => UIFontTextStyleCaption2,
-                Font::System(_) => return None,
+                Font::System(_) | Font::Custom(..) => return None,
             })
         }
     }
@@ -1106,6 +1106,7 @@ mod imp {
             Font::Caption => 12.0,
             Font::Caption2 => 11.0,
             Font::System(pt) => pt,
+            Font::Custom(_, pt) => pt,
         }
     }
 
@@ -1117,6 +1118,24 @@ mod imp {
                 // Type (accessibility text scale) instead of being a fixed pixel size.
                 let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
                 let raw = UIFont::systemFontOfSize_weight(pt, w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            },
+            // A bundled family (§18.4): registered at launch from the DayPieces bundle (and
+            // listed in UIAppFonts), then scaled through UIFontMetrics like Font::System so it
+            // tracks Dynamic Type. Unknown families fall back to the system font, loudly. A
+            // weight override maps to the bold trait below (the family decides what it has).
+            Font::Custom(name, pt) => unsafe {
+                let raw = match UIFont::fontWithName_size(&NSString::from_str(name), pt) {
+                    Some(f) => f,
+                    None => {
+                        eprintln!(
+                            "day: unknown font family {name:?} — falling back to the system \
+                             font (is the file in the project's fonts/ directory?)"
+                        );
+                        let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                        UIFont::systemFontOfSize_weight(pt, w)
+                    }
+                };
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             },
             style => unsafe {
@@ -1135,10 +1154,23 @@ mod imp {
                 }
             },
         };
-        let font = if spec.italic {
+        // Symbolic-trait tweaks on the resolved font: italic, plus synthesized bold for a custom
+        // family with a heavy weight override (system fonts got their weight above).
+        let mut extra = UIFontDescriptorSymbolicTraits::empty();
+        if spec.italic {
+            extra |= UIFontDescriptorSymbolicTraits::TraitItalic;
+        }
+        if matches!(spec.style, Font::Custom(..))
+            && spec
+                .weight
+                .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+        {
+            extra |= UIFontDescriptorSymbolicTraits::TraitBold;
+        }
+        let font = if !extra.is_empty() {
             unsafe {
                 let desc = base.fontDescriptor();
-                let traits = desc.symbolicTraits() | UIFontDescriptorSymbolicTraits::TraitItalic;
+                let traits = desc.symbolicTraits() | extra;
                 match desc.fontDescriptorWithSymbolicTraits(traits) {
                     Some(d2) => UIFont::fontWithDescriptor_size(&d2, base.pointSize()),
                     None => base,
@@ -2441,11 +2473,59 @@ mod imp {
         true
     }
 
+    /// Register bundled font files (§18.4) with CoreText so `Font::Custom` families resolve via
+    /// `UIFont(name:)`. The files ride the DayPieces SwiftPM bundle (`fonts/` copied by `day
+    /// build`, which also lists them in the app's `UIAppFonts` — this call covers dev builds and
+    /// doubles as the loud failure path). Duplicate registration (UIAppFonts already loaded the
+    /// file) fails harmlessly, so failures here are only logged when the family is then missing.
+    fn register_bundled_fonts() {
+        // CFURLRef is toll-free bridged with NSURL.
+        #[link(name = "CoreText", kind = "framework")]
+        unsafe extern "C" {
+            fn CTFontManagerRegisterFontsForURL(
+                font_url: *const std::ffi::c_void,
+                scope: u32, // kCTFontManagerScopeProcess = 1
+                error: *mut *const std::ffi::c_void,
+            ) -> bool;
+        }
+        let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+        // The DayPieces bundle's fonts/ directory (SwiftPM `.copy` resource inside the app).
+        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+        if let Some(res) = unsafe { main.resourcePath() } {
+            dirs.push(
+                std::path::PathBuf::from(res.to_string())
+                    .join("DayPieces_DayPieces.bundle")
+                    .join("fonts"),
+            );
+        }
+        if let Some(dev) = day_spec::fonts::font_dir() {
+            dirs.push(dev);
+        }
+        for dir in dirs {
+            for path in day_spec::fonts::font_files_in(&dir) {
+                let url = unsafe {
+                    objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(
+                        &path.to_string_lossy(),
+                    ))
+                };
+                unsafe {
+                    let _ = CTFontManagerRegisterFontsForURL(
+                        Retained::as_ptr(&url) as *const std::ffi::c_void,
+                        1,
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
+        }
+    }
+
     impl Platform for Uikit {
         const TARGET: &'static str = "ios-uikit";
         const TOOLKIT: &'static str = "uikit";
 
         fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
+            // Bundled custom fonts (§18.4) must be registered before the first label realizes.
+            register_bundled_fonts();
             PENDING.with(|p| *p.borrow_mut() = Some((self, options, ready)));
             // Force-register the delegate class: UIApplicationMain looks it up by name before
             // any Rust code touches it (pane's exact fix).

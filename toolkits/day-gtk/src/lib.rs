@@ -696,6 +696,7 @@ fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::Caption => (10.0, Regular),
         Font::Caption2 => (10.0, Regular),
         Font::System(pt) => (pt, Regular),
+        Font::Custom(_, pt) => (pt, Regular),
     }
 }
 
@@ -721,6 +722,13 @@ fn apply_font(label: &gtk4::Label, spec: day_spec::FontSpec) {
     let weight = spec.weight.unwrap_or(inherent);
     // Pango attribute list (markup-free): size, weight, and italic style.
     let attrs = pango::AttrList::new();
+    // A bundled family (§18.4), registered with the platform font system in run(). Pango falls
+    // back to the default family if the name doesn't resolve.
+    if let Font::Custom(family, _) = spec.style {
+        let mut fam = pango::AttrString::new_family(family);
+        fam.set_start_index(0);
+        attrs.insert(fam);
+    }
     let mut size = pango::AttrSize::new((size_pt * pango::SCALE as f64) as i32);
     size.set_start_index(0);
     attrs.insert(size);
@@ -733,6 +741,93 @@ fn apply_font(label: &gtk4::Label, spec: day_spec::FontSpec) {
         attrs.insert(it);
     }
     label.set_attributes(Some(&attrs));
+}
+
+/// Register bundled fonts (§18.4) with whatever font system Pango draws from on this OS, so
+/// `Font::Custom` family names resolve: fontconfig on Linux; on macOS BOTH CoreText and
+/// fontconfig (Homebrew Pango may use either fontmap depending on how it was built); GDI
+/// private fonts on Windows (MSYS2 Pango, best effort). Failures log and move on — the family
+/// simply won't resolve and Pango falls back to the default face.
+fn register_bundled_fonts() {
+    let fonts = day_spec::fonts::bundled_fonts();
+    if fonts.is_empty() {
+        return;
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        #[link(name = "fontconfig")]
+        unsafe extern "C" {
+            fn FcConfigAppFontAddFile(
+                config: *mut std::ffi::c_void,
+                file: *const std::ffi::c_char,
+            ) -> std::ffi::c_int;
+        }
+        for path in &fonts {
+            let Ok(c) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
+                continue;
+            };
+            // NULL config = the current default configuration.
+            if unsafe { FcConfigAppFontAddFile(std::ptr::null_mut(), c.as_ptr()) } == 0 {
+                eprintln!("day: could not register bundled font {}", path.display());
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreFoundation", kind = "framework")]
+        unsafe extern "C" {
+            fn CFURLCreateFromFileSystemRepresentation(
+                alloc: *const std::ffi::c_void,
+                buffer: *const u8,
+                buf_len: isize,
+                is_directory: bool,
+            ) -> *const std::ffi::c_void;
+            fn CFRelease(cf: *const std::ffi::c_void);
+        }
+        #[link(name = "CoreText", kind = "framework")]
+        unsafe extern "C" {
+            fn CTFontManagerRegisterFontsForURL(
+                font_url: *const std::ffi::c_void,
+                scope: u32, // kCTFontManagerScopeProcess = 1
+                error: *mut *const std::ffi::c_void,
+            ) -> bool;
+        }
+        for path in &fonts {
+            let bytes = path.as_os_str().as_encoded_bytes();
+            unsafe {
+                let url = CFURLCreateFromFileSystemRepresentation(
+                    std::ptr::null(),
+                    bytes.as_ptr(),
+                    bytes.len() as isize,
+                    false,
+                );
+                if !url.is_null() {
+                    // Duplicate registration (hot relaunch) fails harmlessly; fontconfig above
+                    // is the loud path, so no second log line here.
+                    let _ = CTFontManagerRegisterFontsForURL(url, 1, std::ptr::null_mut());
+                    CFRelease(url);
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        #[link(name = "gdi32")]
+        unsafe extern "system" {
+            fn AddFontResourceExW(
+                name: *const u16,
+                fl: u32, // FR_PRIVATE = 0x10
+                res: *mut std::ffi::c_void,
+            ) -> std::ffi::c_int;
+        }
+        use std::os::windows::ffi::OsStrExt as _;
+        for path in &fonts {
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+            if unsafe { AddFontResourceExW(wide.as_ptr(), 0x10, std::ptr::null_mut()) } == 0 {
+                eprintln!("day: could not register bundled font {}", path.display());
+            }
+        }
+    }
 }
 
 /// If `parent` is a scrolled window, children go into its content fixed. NOTE: GTK4 auto-wraps
@@ -2043,6 +2138,8 @@ impl Platform for Gtk {
             let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                 return;
             };
+            // Bundled custom fonts (§18.4) must be registered before the first label realizes.
+            register_bundled_fonts();
             let window = adw::ApplicationWindow::new(app);
             window.set_title(Some(&options.title));
             window.set_default_size(options.size.width as i32, options.size.height as i32);

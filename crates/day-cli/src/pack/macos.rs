@@ -41,6 +41,11 @@ pub fn pack(
     if assets.is_dir() {
         super::copy_tree(&assets, &res_dir.join("assets")).map_err(PackError::Other)?;
     }
+    // Bundled fonts (§18.4): day-appkit registers Resources/fonts with CoreText at startup.
+    let fonts = project.root.join("fonts");
+    if fonts.is_dir() {
+        super::copy_tree(&fonts, &res_dir.join("fonts")).map_err(PackError::Other)?;
+    }
     let icon_entry = build_icns(project, &res_dir)
         .map(|_| "  <key>CFBundleIconFile</key><string>AppIcon</string>\n")
         .unwrap_or_default();

@@ -2073,6 +2073,22 @@ ArkUI. Images map to SwiftPM `.process`→`Assets.car` (iOS), `res/drawable`→`
 (GTK), `.qrc` (Qt), MRT (WinUI), rawfile (ArkUI). Core API in `day-core::resource`; build-time
 staging in `crates/day-cli/src/resources/`. Full design + per-platform detail: **docs/resources.md**.
 
+### §18.4 Bundled custom fonts (docs/resources.md)
+
+A third declared bucket — `fonts/` (`.ttf`/`.otf`) — makes `Font::Custom("Family", pt)` resolve by
+the font's **family name** on every target. The invariant that makes the name "just work" with no
+side table: `day build` parses each file's sfnt `name` table (`day_spec::fonts`, shared by the CLI
+and the runtimes) and derives every staged name from the family, so runtimes can re-derive it.
+Staging per platform: Android `res/font/<ident>.<ext>` (aapt2 → `R.font`; `DayBridge` re-derives
+`<ident>` from the requested family), iOS the DayPieces bundle (`.copy("fonts")`) **plus** a
+`UIAppFonts` array synced into the app Info.plist, ArkUI rawfile `day/fonts/` + a `fonts.json`
+manifest the scaffold's EntryAbility feeds to ArkTS `font.registerFont`, desktops loose files
+(`DAY_FONT_ROOT` under `day launch`; `Resources/fonts` / next-to-exe when packed). Backends
+register at startup: CoreText (AppKit/UIKit), fontconfig + CoreText (GTK, per-OS), `QFontDatabase`
+(Qt), XAML `path#family` (WinUI — unpackaged apps have no registration API). Validation is
+build-time and hard: only ttf/otf, a parseable name table, no family-ident collisions. An unknown
+family at runtime falls back to the system font with a log line, never a crash.
+
 ---
 
 ## §19 Repository layout, examples, and docs site

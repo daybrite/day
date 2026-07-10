@@ -42,6 +42,8 @@ unsafe extern "C" {
     pub fn day_ark_set_bg_color(node: *mut c_void, argb: u32);
     pub fn day_ark_set_font_size(node: *mut c_void, vp: f64);
     pub fn day_ark_set_font_color(node: *mut c_void, argb: u32);
+    /// Bundled custom font family (§18.4; registered by the harmony scaffold's EntryAbility).
+    pub fn day_ark_set_font_family(node: *mut c_void, family: *const c_char);
     pub fn day_ark_set_corner_radius(node: *mut c_void, vp: f64);
     /// Determinate progress fraction (0..1), mapped onto ArkUI's NODE_PROGRESS_VALUE/TOTAL.
     pub fn day_ark_set_progress(node: *mut c_void, fraction: f64);

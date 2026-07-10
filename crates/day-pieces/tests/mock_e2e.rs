@@ -1491,3 +1491,23 @@ fn invalidate_size_remeasures_the_tweaked_path() {
         "invalidate_size must trigger a re-measure of the node's path"
     );
 }
+
+#[test]
+fn custom_font_flows_to_the_toolkit() {
+    // A bundled custom font (§18.4) reaches the toolkit as `FontSpec { style: Font::Custom }`,
+    // with weight/italic riding the same spec; an unstyled label stays on Font::Body.
+    let probe = boot(|| {
+        column((
+            label("scripted")
+                .font(Font::Custom("Pacifico", 24.0))
+                .italic(),
+            label("plain"),
+        ))
+        .any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    let custom = labels[0].1.font.expect("label carries a font spec");
+    assert_eq!(custom.style, Font::Custom("Pacifico", 24.0));
+    assert!(custom.italic);
+    assert_eq!(labels[1].1.font.map(|f| f.style), Some(Font::Body));
+}

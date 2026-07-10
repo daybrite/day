@@ -921,7 +921,7 @@ fn ns_text_style(f: Font) -> Option<&'static objc2_app_kit::NSFontTextStyle> {
             Font::Footnote => NSFontTextStyleFootnote,
             Font::Caption => NSFontTextStyleCaption1,
             Font::Caption2 => NSFontTextStyleCaption2,
-            Font::System(_) => return None,
+            Font::System(_) | Font::Custom(..) => return None,
         })
     }
 }
@@ -956,6 +956,39 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
                 .unwrap_or(unsafe { NSFontWeightRegular });
             unsafe { NSFont::systemFontOfSize_weight(pt, w) }
         }
+        // A bundled family (§18.4), registered with CoreText in run(). fontWithName resolves
+        // family, full, and PostScript names. A weight override maps to the bold trait (the
+        // family decides what it can supply); unknown families fall back to the system font.
+        Font::Custom(name, pt) => {
+            match unsafe { NSFont::fontWithName_size(&NSString::from_str(name), pt) } {
+                Some(f) => {
+                    if spec
+                        .weight
+                        .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+                    {
+                        let mtm = objc2::MainThreadMarker::new()
+                            .expect("labels realize on the main thread");
+                        unsafe {
+                            NSFontManager::sharedFontManager(mtm)
+                                .convertFont_toHaveTrait(&f, NSFontTraitMask::BoldFontMask)
+                        }
+                    } else {
+                        f
+                    }
+                }
+                None => {
+                    eprintln!(
+                        "day: unknown font family {name:?} — falling back to the system font \
+                         (is the file in the project's fonts/ directory?)"
+                    );
+                    let w = spec
+                        .weight
+                        .map(ns_weight)
+                        .unwrap_or(unsafe { NSFontWeightRegular });
+                    unsafe { NSFont::systemFontOfSize_weight(pt, w) }
+                }
+            }
+        }
         style => {
             let ts = ns_text_style(style).expect("semantic style");
             let opts = objc2_foundation::NSDictionary::new();
@@ -975,6 +1008,37 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
         }
     } else {
         base
+    }
+}
+
+/// Register every bundled font file (the project's `fonts/`, staged per §18.4) with CoreText for
+/// this process, so `Font::Custom` family names resolve through `NSFont::fontWithName`. Called
+/// once from `run()`; a failure (already registered on a hot relaunch, or a broken file) only
+/// means that family won't resolve, so it logs and moves on.
+fn register_bundled_fonts() {
+    // CFURLRef is toll-free bridged with NSURL, so the NSURL pointer passes straight through.
+    #[link(name = "CoreText", kind = "framework")]
+    unsafe extern "C" {
+        fn CTFontManagerRegisterFontsForURL(
+            font_url: *const std::ffi::c_void,
+            scope: u32, // kCTFontManagerScopeProcess = 1
+            error: *mut *const std::ffi::c_void,
+        ) -> bool;
+    }
+    for path in day_spec::fonts::bundled_fonts() {
+        let url = unsafe {
+            objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
+        };
+        let ok = unsafe {
+            CTFontManagerRegisterFontsForURL(
+                Retained::as_ptr(&url) as *const std::ffi::c_void,
+                1,
+                std::ptr::null_mut(),
+            )
+        };
+        if !ok {
+            eprintln!("day: could not register bundled font {}", path.display());
+        }
     }
 }
 
@@ -2238,6 +2302,9 @@ impl Platform for AppKit {
                 unsafe { app.setApplicationIconImage(Some(&img)) };
             }
         }
+
+        // Bundled custom fonts (§18.4) must be registered before the first label realizes.
+        register_bundled_fonts();
 
         // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
         // installs its own via `app_menu(...)`.

@@ -35,6 +35,8 @@ pub struct MockWidget {
     pub background: Option<Color>,
     pub corner_radius: f64,
     pub clips: bool,
+    /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
+    pub font: Option<day_spec::FontSpec>,
 }
 
 #[derive(Default)]
@@ -205,6 +207,7 @@ impl Toolkit for MockToolkit {
         let mut detail = String::new();
         if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
+            w.font = Some(p.font);
             detail = format!(" text={:?}", p.text);
         } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
             w.text = p.title.clone();
@@ -277,7 +280,10 @@ impl Toolkit for MockToolkit {
                         format!("text={t:?}")
                     }
                     LabelPatch::Color(_) => "color".into(),
-                    LabelPatch::Font(_) => "font".into(),
+                    LabelPatch::Font(f) => {
+                        w.font = Some(*f);
+                        "font".into()
+                    }
                 }
             } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                 match p {

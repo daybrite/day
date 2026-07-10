@@ -612,6 +612,17 @@ mod imp {
             Font::Caption => (12.0, Regular),
             Font::Caption2 => (11.0, Regular),
             Font::System(pt) => (pt as f32, Regular),
+            Font::Custom(_, pt) => (pt as f32, Regular),
+        }
+    }
+
+    /// The bundled family name when the spec is `Font::Custom` (§18.4) — passed to Java as the
+    /// nullable `family` argument of `DayBridge.setLabelFont`, which resolves it to the
+    /// `res/font/` resource `day build` staged from the project's `fonts/` directory.
+    fn custom_family(spec: day_spec::FontSpec) -> Option<&'static str> {
+        match spec.style {
+            Font::Custom(name, _) => Some(name),
+            _ => None,
         }
     }
 
@@ -891,15 +902,20 @@ mod imp {
                             "(Ljava/lang/String;)Landroid/view/View;",
                             &[JValue::Object(&s)],
                         );
+                        let fam = match custom_family(p.font) {
+                            Some(f) => JObject::from(jstr(env, f)),
+                            None => JObject::null(),
+                        };
                         let _ = env.call_static_method(
                             BRIDGE,
                             "setLabelFont",
-                            "(Landroid/view/View;FIZ)V",
+                            "(Landroid/view/View;FIZLjava/lang/String;)V",
                             &[
                                 JValue::Object(view.as_obj()),
                                 JValue::Float(sp),
                                 JValue::Int(weight),
                                 JValue::Bool(italic as u8),
+                                JValue::Object(&fam),
                             ],
                         );
                         if let Some(col) = p.color {
@@ -1086,16 +1102,25 @@ mod imp {
                             }),
                             LabelPatch::Font(f) => {
                                 let (sp, weight, italic) = font_params(*f);
-                                call_void(
-                                    "setLabelFont",
-                                    "(Landroid/view/View;FIZ)V",
-                                    &[
-                                        JValue::Object(h.0.as_obj()),
-                                        JValue::Float(sp),
-                                        JValue::Int(weight),
-                                        JValue::Bool(italic as u8),
-                                    ],
-                                );
+                                let family = custom_family(*f);
+                                with_env(|env| {
+                                    let fam = match family {
+                                        Some(name) => JObject::from(jstr(env, name)),
+                                        None => JObject::null(),
+                                    };
+                                    let _ = env.call_static_method(
+                                        BRIDGE,
+                                        "setLabelFont",
+                                        "(Landroid/view/View;FIZLjava/lang/String;)V",
+                                        &[
+                                            JValue::Object(h.0.as_obj()),
+                                            JValue::Float(sp),
+                                            JValue::Int(weight),
+                                            JValue::Bool(italic as u8),
+                                            JValue::Object(&fam),
+                                        ],
+                                    );
+                                });
                             }
                             LabelPatch::Color(c) => {
                                 call_void(

@@ -30,9 +30,9 @@ pub fn stage_payload(
     let name = &project.manifest.app.name;
     std::fs::copy(&outcome.artifact, stage.join(format!("{name}.exe")))
         .map_err(|e| PackError::Other(e.to_string()))?;
-    // The winui runtime resolves assets/images relative to the exe when DAY_* env is absent
-    // (resources/winui.rs is a launch-env no-op — pack ships the trees beside the binary).
-    for dir in ["assets", "images"] {
+    // The winui runtime resolves assets/images/fonts relative to the exe when DAY_* env is
+    // absent (resources/winui.rs is a launch-env no-op — pack ships the trees beside the binary).
+    for dir in ["assets", "images", "fonts"] {
         let src = project.root.join(dir);
         if src.is_dir() {
             super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
