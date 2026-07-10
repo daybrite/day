@@ -11,9 +11,9 @@ on:
     # Semantic-release tags run a lean release lane: fmt/msrv → the 3×2 day-CLI release
     # builds → the per-combo jobs in PACK-ONLY mode (tests, walkthroughs, and emulators are
     # skipped — the tagged commit was already validated on main; the packaging steps run
-    # release-signed when the DAY_* secrets are set) → the final `release` job, which drafts the
-    # GitHub release (CLI binaries, installers, app packages, attestations) and, when the
-    # CARGO_REGISTRY_TOKEN secret is set, runs `cargo publish --workspace`. That `release` job also
+    # release-signed when the DAY_* secrets are set) → the `release` job, which publishes the GitHub
+    # release (CLI binaries, installers, app packages, attestations) → the `publish` job, which uploads
+    # the crates to crates.io via Trusted Publishing (OIDC — no API-key secret). The `release` job also
     # runs on every push/PR — there it only verifies publishability with `cargo publish --dry-run`.
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
@@ -165,21 +165,19 @@ jobs:
           path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
-  # --- Release: verify publishability always; draft + publish on a semantic tag --------------------
-  # Runs on EVERY push / PR / tag (not just tags). Off a tag it ONLY runs
-  # `cargo publish --workspace --dry-run` to prove the whole workspace could be published (versions,
-  # MPL-2.0 license, metadata, packaging) — no GitHub release, no crates.io upload. On a
+  # --- Release: verify publishability always; publish the GitHub release on a semantic tag ---------
+  # Runs on EVERY push / PR / tag. It ALWAYS runs `cargo publish --workspace --dry-run` to prove the
+  # whole workspace could be published (versions, MPL-2.0 license, metadata, packaging). On a
   # semantic-release tag (`vX.Y.Z`) it additionally: checks the tag matches the workspace version;
   # downloads the six day-<os>-<arch> CLI binaries from the 3×2 release builds; repackages them as
   # target-triple archives; renders installer scripts + Homebrew formula from scripts/release/templates
   # (cargo-dist style: version/URLs/sizes/checksums baked in); pulls in the per-combo app packages
   # (release-signed on tags when the DAY_* secrets are set, dev-signed otherwise); writes one
-  # SHA256SUMS; attests build provenance for every file; attaches the lot to a DRAFT GitHub release —
-  # and, WHEN the `CARGO_REGISTRY_TOKEN` secret is configured, runs `cargo publish --workspace` to push
-  # every crate to crates.io. `--no-verify`: the workspace's per-platform toolkit crates can't all
-  # compile on one runner (iOS/Android/Qt/GTK/WinUI/ArkUI) and the CI matrix already build-verifies
-  # them, so the publish only needs to package + upload. `!cancelled()`: the dry-run is independent of
-  # the matrix, so a flaky leg still lets the publishability gate report.
+  # SHA256SUMS; attests build provenance for every file; and attaches the lot to a published GitHub
+  # release. The actual crates.io upload is the separate `publish` job (Trusted Publishing). `--no-verify`:
+  # the workspace's per-platform toolkit crates can't all compile on one runner (iOS/Android/Qt/GTK/
+  # WinUI/ArkUI) and the CI matrix already build-verifies them, so publishing only packages + uploads.
+  # `!cancelled()`: the dry-run is independent of the matrix, so a flaky leg still lets the gate report.
   release:
     name: release
     if: ${{ !cancelled() }}
@@ -190,22 +188,20 @@ jobs:
       id-token: write
       attestations: write
     env:
-      # A semantic-release tag (`vX.Y.Z…`) vs any other ref, and whether the crates.io token is set.
-      # (Secrets can't be read in a job-level `if:`, but they can seed a job-level env var — the same
-      # pattern the pack jobs use for HAS_APPLE_CERT — which step-level `if:`s can then test.)
+      # A semantic-release tag (`vX.Y.Z…`) vs any other ref — the step-level `if:`s gate the tag-only
+      # GitHub-release steps; the dry-run below runs on every ref.
       IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
-      HAS_CARGO_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # Publishability gate — off a tag, or on a tag with no token, VERIFY the workspace could publish.
+      # Publishability gate — verify the workspace could publish on every push/PR/tag (a green gate on
+      # the tagged commit precedes the real upload in the `publish` job).
       - name: Verify publishability (cargo publish --workspace --dry-run)
-        if: ${{ env.IS_TAG != 'true' || env.HAS_CARGO_TOKEN != 'true' }}
         run: cargo publish --workspace --dry-run --no-verify --locked
 
-      # --- GitHub release draft (semantic tags only) ---
+      # --- GitHub release (semantic tags only) ---
       - name: Check the tag matches the workspace version
         if: ${{ env.IS_TAG == 'true' }}
         run: |
@@ -258,26 +254,49 @@ jobs:
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
-      - name: Create the draft release
+      - name: Publish the GitHub release
         if: ${{ env.IS_TAG == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # view-or-create + --clobber keep re-runs of this job idempotent.
+          # Create as a draft, attach every artifact, THEN un-draft — so the release is never
+          # publicly visible in a half-uploaded state. view-or-create + --clobber + --draft=false
+          # keep re-runs idempotent (a re-run re-uploads and re-publishes without error).
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
                  --title "Day $GITHUB_REF_NAME" --generate-notes
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false
 
-      # --- crates.io publish (semantic tag + token) ---
-      # Publishes every workspace crate (apps are publish=false) in dependency order. cargo waits for
-      # each crate to appear on the index before publishing its dependents.
-      - name: Publish to crates.io (cargo publish --workspace)
-        if: ${{ env.IS_TAG == 'true' && env.HAS_CARGO_TOKEN == 'true' }}
+  # --- crates.io publish (semantic tags only) via Trusted Publishing --------------------------------
+  # No API-key secret. crates.io Trusted Publishing exchanges this job's GitHub OIDC token (minted by
+  # rust-lang/crates-io-auth-action) for a short-lived, publish-scoped token. The job runs in the
+  # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this job —
+  # on a semantic tag — can mint that token. It publishes the three publishable crates
+  # (day-fonts → day-toolchain → day-cli; every other member is publish=false) in dependency order;
+  # --no-verify because the CI matrix already build-verifies them. `needs: [release]` orders it after
+  # the version-match check + GitHub release, and only runs if the publishability dry-run passed.
+  publish:
+    name: publish (crates.io)
+    needs: [release]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Exchange the GitHub OIDC token for a temporary crates.io token (no stored API key).
+      - name: Authenticate to crates.io (Trusted Publishing / OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish to crates.io
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --no-verify --locked
-          echo "attached:" && ls -l dist
 
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
