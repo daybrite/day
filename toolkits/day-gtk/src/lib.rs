@@ -716,11 +716,21 @@ fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     }
 }
 
-fn apply_font(label: &gtk4::Label, spec: day_spec::FontSpec) {
+thread_local! {
+    /// Per-label (font, color) state, keyed by widget ptr. Both render through ONE Pango
+    /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
+    /// the half that changed — so each patch updates its half here and re-applies the pair.
+    /// Entries drop in `release`.
+    static LABEL_STYLE: RefCell<HashMap<usize, (day_spec::FontSpec, Option<day_spec::Color>)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Rebuild a label's full Pango attribute list: font family/size/weight/style + foreground color.
+fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option<day_spec::Color>) {
     use gtk4::pango;
     let (size_pt, inherent) = gtk_style(spec.style);
     let weight = spec.weight.unwrap_or(inherent);
-    // Pango attribute list (markup-free): size, weight, and italic style.
+    // Pango attribute list (markup-free): size, weight, italic style, and foreground.
     let attrs = pango::AttrList::new();
     // A bundled family (§18.4), registered with the platform font system in run(). Pango falls
     // back to the default family if the name doesn't resolve.
@@ -740,7 +750,39 @@ fn apply_font(label: &gtk4::Label, spec: day_spec::FontSpec) {
         it.set_start_index(0);
         attrs.insert(it);
     }
+    if let Some(c) = color {
+        let ch = |x: f64| (x.clamp(0.0, 1.0) * 65535.0).round() as u16;
+        let mut fg = pango::AttrColor::new_foreground(ch(c.r), ch(c.g), ch(c.b));
+        fg.set_start_index(0);
+        attrs.insert(fg);
+        if c.a < 1.0 {
+            let mut alpha = pango::AttrInt::new_foreground_alpha(ch(c.a).max(1));
+            alpha.set_start_index(0);
+            attrs.insert(alpha);
+        }
+    }
     label.set_attributes(Some(&attrs));
+}
+
+/// Update one half of a label's remembered (font, color) pair and re-apply both.
+fn update_text_attrs(
+    label: &gtk4::Label,
+    font: Option<day_spec::FontSpec>,
+    color: Option<Option<day_spec::Color>>,
+) {
+    let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+    let (spec, col) = LABEL_STYLE.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(key).or_default();
+        if let Some(f) = font {
+            entry.0 = f;
+        }
+        if let Some(c) = color {
+            entry.1 = c;
+        }
+        *entry
+    });
+    apply_text_attrs(label, spec, col);
 }
 
 /// Register bundled fonts (§18.4) with whatever font system Pango draws from on this OS, so
@@ -1067,7 +1109,7 @@ impl Toolkit for Gtk {
                 label.set_yalign(0.0);
                 label.set_wrap(true);
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                apply_font(&label, p.font);
+                update_text_attrs(&label, Some(p.font), Some(p.color));
                 label.upcast()
             }
             kinds::BUTTON => {
@@ -1288,8 +1330,8 @@ impl Toolkit for Gtk {
                                 label.set_text(t);
                             }
                         }
-                        LabelPatch::Font(f) => apply_font(label, *f),
-                        LabelPatch::Color(_) => {}
+                        LabelPatch::Font(f) => update_text_attrs(label, Some(*f), None),
+                        LabelPatch::Color(c) => update_text_attrs(label, None, Some(*c)),
                     }
                 }
             }
@@ -1391,6 +1433,9 @@ impl Toolkit for Gtk {
 
     fn release(&mut self, h: Handle) {
         let key = widget_key(&h);
+        LABEL_STYLE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         LIST_STATE.with(|m| {
             m.borrow_mut().remove(&key);
         });

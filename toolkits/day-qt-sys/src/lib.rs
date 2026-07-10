@@ -27,6 +27,15 @@ unsafe extern "C" {
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
+    /// Text color via the label palette (`on == 0` restores the theme default).
+    pub fn day_qt_label_set_color(
+        w: *mut c_void,
+        r: c_double,
+        g: c_double,
+        b: c_double,
+        a: c_double,
+        on: c_int,
+    );
     /// Swap the label's font family to a bundled one (after `day_qt_label_set_font`).
     pub fn day_qt_label_set_font_family(w: *mut c_void, family: *const c_char);
     /// `QFontDatabase::addApplicationFont` — returns the font id (>= 0) or -1 on failure.

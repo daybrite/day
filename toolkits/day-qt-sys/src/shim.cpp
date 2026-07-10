@@ -141,6 +141,19 @@ void day_qt_label_set_font(void *w, double pt, int weight, int italic) {
     f.setItalic(italic != 0);
     l->setFont(f);
 }
+// Text color via the label's palette (WindowText is the role QLabel draws with). Palette, not a
+// stylesheet: it composes with the style engine and never fights day_qt_widget_set_surface.
+// `on == 0` restores the application default palette (theme-adaptive).
+void day_qt_label_set_color(void *w, double r, double g, double b, double a, int on) {
+    QLabel *l = static_cast<QLabel *>(w);
+    if (on) {
+        QPalette pal = l->palette();
+        pal.setColor(QPalette::WindowText, QColor::fromRgbF(r, g, b, a));
+        l->setPalette(pal);
+    } else {
+        l->setPalette(QPalette());
+    }
+}
 // Point the label at a bundled font family (registered via day_qt_register_font). Called after
 // day_qt_label_set_font, so it only swaps the family; Qt falls back to the default family when
 // the name doesn't resolve.

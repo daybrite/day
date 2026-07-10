@@ -1375,6 +1375,9 @@ mod imp {
                         label.setNumberOfLines(0);
                     }
                     apply_font(&label, p.font);
+                    if let Some(c) = p.color {
+                        unsafe { label.setTextColor(Some(&uicolor(c))) };
+                    }
                     view_of(label)
                 }
                 kinds::BUTTON => {
@@ -1616,7 +1619,13 @@ mod imp {
                                 label.setText(Some(&NSString::from_str(t)))
                             },
                             LabelPatch::Font(f) => apply_font(label, *f),
-                            LabelPatch::Color(_) => {}
+                            // `None` restores the adaptive default (labelColor tracks dark mode).
+                            LabelPatch::Color(c) => unsafe {
+                                match c {
+                                    Some(c) => label.setTextColor(Some(&uicolor(*c))),
+                                    None => label.setTextColor(Some(&UIColor::labelColor())),
+                                }
+                            },
                         }
                     }
                 }

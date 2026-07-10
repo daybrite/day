@@ -721,6 +721,9 @@ impl Toolkit for Qt {
                     let (pt, weight, italic) = font_params(p.font);
                     ffi::day_qt_label_set_font(w, pt, weight, italic);
                     apply_custom_family(w, p.font);
+                    if let Some(c) = p.color {
+                        ffi::day_qt_label_set_color(w, c.r, c.g, c.b, c.a, 1);
+                    }
                     QtHandle(w)
                 }
                 kinds::BUTTON => {
@@ -896,7 +899,10 @@ impl Toolkit for Qt {
                                 ffi::day_qt_label_set_font(h.0, pt, weight, italic);
                                 apply_custom_family(h.0, *f);
                             }
-                            LabelPatch::Color(_) => {}
+                            LabelPatch::Color(c) => match c {
+                                Some(c) => ffi::day_qt_label_set_color(h.0, c.r, c.g, c.b, c.a, 1),
+                                None => ffi::day_qt_label_set_color(h.0, 0.0, 0.0, 0.0, 0.0, 0),
+                            },
                         }
                     }
                 }
