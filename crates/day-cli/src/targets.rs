@@ -6,7 +6,7 @@ pub enum TargetKind {
     IosSim,
     Android,
     /// HarmonyOS Next / ArkUI: a Rust cdylib (`libentry.so`) loaded by an ArkTS host and mounted
-    /// into a NodeContent, packaged into a `.hap` (see apps/day-arkui-demo/harmony). Cross-compiled
+    /// into a NodeContent, packaged into a `.hap` (see apps/day-arkui-demo/platform/ohos). Cross-compiled
     /// with the OpenHarmony NDK (`OHOS_NDK_HOME`); packaged/signed/run via DevEco Studio or hvigor.
     HarmonyOs,
 }

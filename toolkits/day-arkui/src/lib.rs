@@ -141,8 +141,8 @@ mod imp {
         }
     }
 
-    /// Apply a `Font::Custom` family (§18.4): the family was registered by the harmony
-    /// scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
+    /// Apply a `Font::Custom` family (§18.4): the family was registered by the
+    /// platform/ohos scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
     /// by name; ArkUI falls back to the default family when it doesn't.
     fn apply_custom_family(node: *mut c_void, spec: FontSpec) {
         if let Font::Custom(family, _) = spec.style {

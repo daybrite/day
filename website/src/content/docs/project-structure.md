@@ -30,7 +30,7 @@ my-app/
 ├── platform/
 │   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner
 │   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme
-├── harmony/                  # HarmonyOS scaffold: hvigor ArkTS host + sign-hap.mjs
+├── platform/ohos/            # HarmonyOS scaffold: hvigor ArkTS host + sign-hap.mjs
 └── build/day/                # generated: cargo target dirs, staged resources, screenshots
 ```
 
@@ -39,7 +39,7 @@ Three rules keep this layout predictable:
 - **`day.yaml` is the single manifest.** The app's identity (`id`, `title`, `version`), its
   declared `targets`, and the default window geometry live here, not scattered across platform
   files. The platform scaffolds read from it at build time.
-- **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `harmony/` contain
+- **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.
 - **Everything generated lands in `build/day/`.** Cargo target directories (one per target and
@@ -151,7 +151,7 @@ Studio rebuilds the Rust `.so` the same way.
 ### HarmonyOS: `ohos-arkui`
 
 The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project in
-`harmony/`, a cross-compiled NAPI library, and a post-build signing step that needs no vendor
+`platform/ohos/`, a cross-compiled NAPI library, and a post-build signing step that needs no vendor
 account:
 
 ```text
@@ -159,9 +159,9 @@ day build -p ohos-arkui
 │
 ├── cargo rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
 │       linker = $OHOS_NDK_HOME/llvm/bin/<triple>-clang
-│       ────────► harmony/entry/libs/<abi>/libentry.so
+│       ────────► platform/ohos/entry/libs/<abi>/libentry.so
 │
-├── hvigor assembleHap   harmony/   (ohpm install first)
+├── hvigor assembleHap   platform/ohos/   (ohpm install first)
 │       ├── compiles the ArkTS host (Index.ets mounts Day via a NodeContent slot)
 │       ├── packs libentry.so + resources/rawfile/day/ (staged images & assets)
 │       └── → entry-default-unsigned.hap
@@ -169,7 +169,7 @@ day build -p ohos-arkui
 └── sign-hap.mjs         patch compileSdkType → "OpenHarmony", sign with the SDK's
         │                public release material (no developer account required)
         ▼
-harmony/entry/build/…/my-app-signed.hap
+platform/ohos/entry/build/…/my-app-signed.hap
         ▼
 hdc install … && aa start EntryAbility                  (day launch)
 ```

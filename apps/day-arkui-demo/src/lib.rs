@@ -2,7 +2,7 @@
 //! container / label / button pieces, native events, and build-once/bind-forever reactivity — all
 //! rendered as real ArkUI nodes (Stack / Text / Button) mounted into an ArkTS `NodeContent`.
 //!
-//! Built as `libentry.so` and loaded by the ArkTS host (`harmony/`), which calls
+//! Built as `libentry.so` and loaded by the ArkTS host (`platform/ohos/`), which calls
 //! `native.start(nodeContent, width, height, density)`.
 
 use day::prelude::*;

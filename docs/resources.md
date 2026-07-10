@@ -93,7 +93,7 @@ Per platform:
   through `day_spec::fonts::resolve_font_file` against `DAY_FONT_ROOT` / the exe-relative
   `fonts/` dir.
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
-  (`[{family, file}]`); the harmony scaffold's EntryAbility feeds it to ArkTS
+  (`[{family, file}]`); the platform/ohos scaffold's EntryAbility feeds it to ArkTS
   `font.registerFont` (building the rawfile `Resource` object by hand — `$rawfile()` only takes
   literals) before the native UI loads, and day-arkui sets `NODE_FONT_FAMILY`.
 

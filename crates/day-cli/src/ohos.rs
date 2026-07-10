@@ -1,6 +1,6 @@
 //! HarmonyOS / OpenHarmony (`ohos-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
 //! pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages + signs a `.hap`
-//! via the ArkTS host project under `<project>/harmony/`; `launch_ohos` installs + starts it on a
+//! via the ArkTS host project under `<project>/platform/ohos/`; `launch_ohos` installs + starts it on a
 //! connected emulator/device over `hdc`.
 //!
 //! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an **x86_64**,
@@ -294,11 +294,12 @@ pub fn build_ohos(
     profile: &str,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    let harmony = project.root.join("harmony");
+    let harmony = project.root.join("platform/ohos");
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
-            "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `harmony/` project \
-             (the hvigor project + sign-hap.mjs), like apps/showcase/harmony. See docs/harmonyos.md.",
+            "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/ohos/` \
+             project (the hvigor project + sign-hap.mjs), like apps/showcase/platform/ohos. See \
+             docs/harmonyos.md.",
             harmony.display()
         ));
     }
@@ -436,7 +437,7 @@ pub fn build_ohos(
     ]);
     run_logged(&mut hv, "hvigorw assembleHap")?;
 
-    // 3) Patch + sign the assembled (unsigned) .hap via harmony/sign-hap.mjs: it rewrites module.json's
+    // 3) Patch + sign the assembled (unsigned) .hap via platform/ohos/sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
     //    then signs with the OpenHarmony public release material.
     let hap = sign_hap(&harmony, &ndk)?;
@@ -450,7 +451,7 @@ pub fn build_ohos(
 
 /// The hvigor-built UNSIGNED hap of `project` (release re-signing input — pack/ohos.rs).
 pub(crate) fn find_unsigned_hap(project: &crate::meta::Project) -> Option<PathBuf> {
-    find_hap(&project.root.join("harmony/entry/build"), |n| {
+    find_hap(&project.root.join("platform/ohos/entry/build"), |n| {
         n.contains("unsigned")
     })
 }

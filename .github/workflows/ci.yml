@@ -759,7 +759,7 @@ jobs:
       # material that sign-hap.mjs signs the .hap with ships in setup-ohos-sdk's own toolchains/lib.
       CLT_VERSION: "5.1.0.840"
       CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
-      HARMONY: apps/showcase/harmony
+      HARMONY: apps/showcase/platform/ohos
       # Release signing (§20), active on tag pushes only: OHOS keystore/cert/profile.
       # Empty secrets (and every branch/PR run) degrade to the public dev cert.
       DAY_OHOS_KEY_ALIAS: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_OHOS_KEY_ALIAS || '' }}
@@ -823,7 +823,7 @@ jobs:
       - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
         run: |
           set -euo pipefail
-          # The showcase's harmony/ project builds as `runtimeOS: "OpenHarmony"` (login-free: no
+          # The showcase's platform/ohos/ project builds as `runtimeOS: "OpenHarmony"` (login-free: no
           # HMS-only image-transcoder library — see docs/harmonyos.md). In that mode hvigor reads
           # OHOS_BASE_SDK_HOME and requires the NEW *versioned* SDK layout (<base>/<api>/{ets,js,
           # native,toolchains,…}). setup-ohos-sdk exports OHOS_BASE_SDK_HOME pointed at its FLAT
@@ -926,7 +926,7 @@ jobs:
         with:
           name: ohos-arkui-artifacts
           path: |
-            apps/showcase/harmony/entry/build/**/*.hap
+            apps/showcase/platform/ohos/entry/build/**/*.hap
             /tmp/oniro-emulator.log
           if-no-files-found: ignore
 

@@ -2,7 +2,7 @@
   "app": {
     // No `signingConfig` here → hvigor builds an UNSIGNED .hap; `day build -p ohos-arkui` then patches
     // it (compileSdkType → OpenHarmony, so the emulator skips code-sign verification) and signs it with
-    // the OpenHarmony public release material via harmony/sign-hap.mjs. In DevEco Studio, use
+    // the OpenHarmony public release material via platform/ohos/sign-hap.mjs. In DevEco Studio, use
     // File ▸ Project Structure ▸ Signing Configs ▸ auto-sign for on-device runs instead.
     // compatibleSdkVersion matches the command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
     "signingConfigs": [],

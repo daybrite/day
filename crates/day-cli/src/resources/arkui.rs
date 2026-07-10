@@ -1,6 +1,6 @@
 //! ArkUI (HarmonyOS) resource staging (§18.3).
 //!
-//! Both images and data go into `harmony/entry/src/main/resources/rawfile/day/` (hvigor packages
+//! Both images and data go into `platform/ohos/entry/src/main/resources/rawfile/day/` (hvigor packages
 //! rawfile uncompressed, and the OpenHarmony NDK can only reach `rawfile` — not `media` — from native
 //! code). `day-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
 //! opener mmaps `day/<name>` for random-access data.
@@ -11,7 +11,7 @@ use super::{FontFile, ResourceSet, sanitize_ident};
 use crate::meta::Project;
 
 pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result<(), String> {
-    let harmony = project.root.join("harmony");
+    let harmony = project.root.join("platform/ohos");
     if !harmony.exists() {
         return Ok(());
     }
@@ -23,7 +23,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     }
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     // Fonts (§18.4): rawfile `day/fonts/<ident>.<ext>` plus a `day/fonts.json` manifest
-    // ([{family, file}]) that the harmony scaffold's EntryAbility feeds to ArkTS
+    // ([{family, file}]) that the platform/ohos scaffold's EntryAbility feeds to ArkTS
     // `font.registerFont` before the native UI loads — NODE_FONT_FAMILY then resolves the
     // family by name.
     if !fonts.is_empty() {

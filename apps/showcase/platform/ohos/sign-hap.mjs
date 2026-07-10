@@ -16,7 +16,7 @@
 // The app/profile signature (hapVerify) still runs, so we sign with the SDK's release material (which
 // the emulator DOES accept — installs got past hapVerify to the code-sign stage before).
 //
-//   usage: node sign-hap.mjs <unsigned.hap> <signed.hap>   (cwd = the harmony/ project root)
+//   usage: node sign-hap.mjs <unsigned.hap> <signed.hap>   (cwd = the platform/ohos/ project root)
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
