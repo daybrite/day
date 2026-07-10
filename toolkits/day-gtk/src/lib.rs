@@ -872,6 +872,44 @@ fn register_bundled_fonts() {
     }
 }
 
+/// Verify every bundled font family resolved into the Pango fontmap GTK is actually using —
+/// the loud half of §18.4's degrade-loudly rule. Pango fontmaps enumerate families at creation
+/// (see the `register_bundled_fonts` call at the top of `run`), so a family missing HERE means
+/// registration ran too late (or failed) and labels will silently render in the default face.
+fn check_bundled_fonts(widget: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+    use gtk4::prelude::WidgetExt as _;
+    let fonts = day_spec::fonts::bundled_fonts();
+    if fonts.is_empty() {
+        return;
+    }
+    let families: Vec<String> = widget
+        .as_ref()
+        .pango_context()
+        .list_families()
+        .iter()
+        .map(|f| f.name().to_string())
+        .collect();
+    for path in fonts {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Some(names) = day_spec::fonts::parse_font_names(&bytes) else {
+            continue;
+        };
+        if !families
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(&names.family))
+        {
+            eprintln!(
+                "day: bundled font family {:?} ({}) did not register with Pango — labels using \
+                 it will fall back to the default face",
+                names.family,
+                path.display()
+            );
+        }
+    }
+}
+
 /// If `parent` is a scrolled window, children go into its content fixed. NOTE: GTK4 auto-wraps
 /// non-scrollable children in a GtkViewport, so `sw.child()` is the viewport, not our Fixed.
 fn content_of(parent: &Handle) -> Handle {
@@ -2150,6 +2188,13 @@ impl Platform for Gtk {
     const TOOLKIT: &'static str = "gtk";
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
+        // Bundled custom fonts (§18.4) must be registered BEFORE any GTK/Pango initialization:
+        // Pango's fontmaps (CoreText on macOS, fontconfig on Linux) enumerate the available
+        // families when the fontmap is created and do NOT re-scan, so a font registered after
+        // GTK init silently falls back to the default family. `check_bundled_fonts` (in
+        // activate, below) verifies the families actually resolved and warns loudly if not.
+        register_bundled_fonts();
+
         // AdwApplication initialises libadwaita and loads the Adwaita stylesheet, so
         // AdwNavigationSplitView / AdwNavigationView render with the GNOME treatment.
         let app = adw::Application::builder()
@@ -2183,9 +2228,8 @@ impl Platform for Gtk {
             let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                 return;
             };
-            // Bundled custom fonts (§18.4) must be registered before the first label realizes.
-            register_bundled_fonts();
             let window = adw::ApplicationWindow::new(app);
+            check_bundled_fonts(&window);
             window.set_title(Some(&options.title));
             window.set_default_size(options.size.width as i32, options.size.height as i32);
             apply_app_icon(&window);

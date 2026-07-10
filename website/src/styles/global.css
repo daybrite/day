@@ -25,6 +25,16 @@
   --grad-day: linear-gradient(115deg, #ffc861 0%, #ff8f5e 38%, #6aa4ff 100%);
   --grad-text: linear-gradient(115deg, #ffd07a 0%, #ff9e73 42%, #7fb2ff 100%);
 
+  /* Hero platform accents — a bold, evenly-spread hexad (green·orange·blue·amber·violet·pink), ordered
+     so no two adjacent names share a hue. Bright 400-level shades for the dark background; the light
+     theme swaps to deeper 600/700-level shades below for contrast on white. */
+  --pf-android: #34d399;
+  --pf-ios: #fb923c;
+  --pf-harmony: #38bdf8;
+  --pf-macos: #fbbf24;
+  --pf-windows: #a78bfa;
+  --pf-linux: #f472b6;
+
   --radius: 14px;
   --radius-lg: 22px;
   --maxw: 1080px;
@@ -61,6 +71,14 @@
 
   --grad-text: linear-gradient(115deg, #e08a00 0%, #f9703e 42%, #2f6fde 100%);
   --shadow: 0 18px 46px -22px rgba(20, 33, 66, 0.26);
+
+  /* Deeper shades of the hero platform hexad, for contrast on the white background. */
+  --pf-android: #059669;
+  --pf-ios: #ea580c;
+  --pf-harmony: #0284c7;
+  --pf-macos: #b45309;
+  --pf-windows: #7c3aed;
+  --pf-linux: #db2777;
 
   color-scheme: light;
 }

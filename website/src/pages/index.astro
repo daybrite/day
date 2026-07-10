@@ -95,9 +95,10 @@ const compare = [
       <div class="hero-copy">
         <p class="pill hero-pill"><Logo size={15} /> cross-platform · Rust · native</p>
         <h1 class="hero-title">
-          <span class="grad-text">Platform-native apps</span><br />
-          on every desktop and mobile system,<br />
-          all from a single Rust codebase.
+          Truly native apps, on <span class="pf pf-android">Android</span>,
+          <span class="pf pf-ios">iOS</span>, <span class="pf pf-harmony">Harmony</span>,
+          <span class="pf pf-macos">macOS</span>, <span class="pf pf-windows">Windows</span>,
+          and <span class="pf pf-linux">Linux</span>, from a single Rust codebase
         </h1>
         <p class="lead hero-lead">{site.description}</p>
         <div class="hero-cta">
@@ -246,6 +247,15 @@ const compare = [
   .hero-grid > *, .how-grid > * { min-width: 0; }
   .hero-pill { margin-bottom: 22px; }
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; }
+  /* Each platform name in a distinct accent from the bold hexad (defined in global.css, theme-adaptive);
+     nowrap keeps a name (and its trailing comma) from breaking across lines. */
+  .hero-title .pf { white-space: nowrap; }
+  .hero-title .pf-android { color: var(--pf-android); }
+  .hero-title .pf-ios { color: var(--pf-ios); }
+  .hero-title .pf-harmony { color: var(--pf-harmony); }
+  .hero-title .pf-macos { color: var(--pf-macos); }
+  .hero-title .pf-windows { color: var(--pf-windows); }
+  .hero-title .pf-linux { color: var(--pf-linux); }
   .hero-lead { margin: 0 0 28px; }
   .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
   .hero-install { margin-top: 34px; }
