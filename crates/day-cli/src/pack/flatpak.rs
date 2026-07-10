@@ -159,7 +159,10 @@ pub fn pack(
     .map_err(PackError::Other)?;
 
     let arch = flatpak_arch();
-    let bundle = dist.join(format!("{name}-{version}-{arch}.flatpak"));
+    // The toolkit is part of the name: linux-gtk and linux-qt both pack this format, and
+    // release CI merges every target's dist/ into one directory — identical names collide.
+    let toolkit = target.toolkit;
+    let bundle = dist.join(format!("{name}-{version}-{toolkit}-{arch}.flatpak"));
     let _ = std::fs::remove_file(&bundle);
     status("Packing", "flatpak build-bundle");
     run_tool(

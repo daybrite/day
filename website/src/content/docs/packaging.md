@@ -19,7 +19,7 @@ them.
 | `macos-appkit` | `.dmg` | assembled `.app` (Info.plist, icons, assets) → inside-out `codesign --timestamp -o runtime` → UDZO dmg (with an `/Applications` drop link) → dmg signature → `notarytool submit --wait` → `stapler staple` |
 | `ios-uikit` | `.ipa` | `xcodebuild archive` (device, arm64) → `-exportArchive` with a generated `ExportOptions.plist` (`app-store-connect`); without signing config: the zipped Simulator `.app` (installable via `simctl`) |
 | `android-widget` | `.apk` + `.aab` | Gradle `assembleRelease` + `bundleRelease` with a release `signingConfig`; verified with `apksigner` and checked for 16 KB page alignment |
-| `linux-gtk` / `linux-qt` | `.flatpak` | single-file bundle; the runtime supplies the toolkit (GTK 4 ⇒ `org.gnome.Platform`, Qt 6 ⇒ `org.kde.Platform`) and resolves from Flathub at install time — `flatpak install ./MyApp-1.0-x86_64.flatpak` just works |
+| `linux-gtk` / `linux-qt` | `.flatpak` | single-file bundle; the runtime supplies the toolkit (GTK 4 ⇒ `org.gnome.Platform`, Qt 6 ⇒ `org.kde.Platform`) and resolves from Flathub at install time — `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak` just works (the toolkit is part of the name, so the gtk and qt bundles coexist) |
 | `windows-winui` | `.msix` + `-setup.exe` | `makeappx` + `signtool` for the MSIX; an NSIS per-user installer (no elevation, ARP entry, silent `/S`) for classic direct download |
 | `ohos-arkui` | `.hap` | hvigor release build, signed with your release material via `hap-sign-tool` (or the public dev certificate without it) |
 
