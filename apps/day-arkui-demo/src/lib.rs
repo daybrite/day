@@ -20,7 +20,7 @@ fn battery_text() -> String {
     }
 }
 
-fn root() -> day::AnyPiece {
+pub fn root() -> day::AnyPiece {
     let count = Signal::new(0i64);
     // Native file open/save via the ArkTS DocumentViewPicker (docs/files.md).
     let file_text = Signal::new(String::from("Hello from Day on HarmonyOS!"));

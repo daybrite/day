@@ -10,6 +10,11 @@ rust-version.workspace = true
 # feature fan-out here. (Building with bare `cargo` still works: run through `day build` so the union
 # is applied, or add the piece features by hand.)
 [features]
+# Exactly one backend per binary (day/DESIGN.md §3.2). `default` picks the headless `mock` backend so
+# bare `cargo` / `cargo clippy --workspace` / rust-analyzer build out of the box; every real build goes
+# through `day build`, which passes `--no-default-features --features <backend>` (see day-cli), so the
+# mock default is stripped and never unifies with the selected backend.
+default = ["mock"]
 appkit = ["day/appkit", "day-tweak-button-bezel/appkit", "day-tweak-label-selectable/appkit", "day-tweak-slider-tickmarks/appkit"]
 gtk = ["day/gtk", "day-tweak-label-selectable/gtk", "day-tweak-slider-tickmarks/gtk"]
 qt = ["day/qt", "day-tweak-slider-tickmarks/qt"]
