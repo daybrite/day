@@ -149,6 +149,18 @@ define_class!(
                 emit(node, Event::Pressed);
             }
         }
+
+        /// The stack-nav back header's button (docs/navigation.md): a day-initiated pop — the
+        /// nav host's handler writes it into the path signal, which reconciles the pop.
+        #[unsafe(method(navBack:))]
+        fn nav_back(&self, _sender: &NSControl) {
+            emit(
+                self.ivars().node,
+                Event::NavBack {
+                    already_popped: false,
+                },
+            );
+        }
     }
 
     unsafe impl NSControlTextEditingDelegate for DayTarget {
@@ -351,6 +363,19 @@ impl DayGesture {
 // page reports from setFrameSize:. Day's set_frame on pages is skipped.
 // ---------------------------------------------------------------------------
 
+/// The stack presentation's back header (desktop has no system back affordance — this bar
+/// gives a pushed page its way out, like AdwNavigationView's header on GTK). Hidden at root.
+struct NavHeader {
+    bar: Retained<NSView>,
+    title: Retained<NSTextField>,
+    /// Title per stack level (index 0 = root); the field shows the last.
+    titles: Vec<String>,
+    _target: Retained<DayTarget>,
+}
+
+/// Height of the stack-nav back header while a pushed page is showing.
+const NAV_HEADER_H: f64 = 34.0;
+
 struct NavState {
     sidebar_wrap: Retained<NSView>,
     detail_wrap: Retained<NSView>,
@@ -360,6 +385,39 @@ struct NavState {
     positioned: bool,
     /// Sidebar+detail split (a selector Sidebar) vs. a pure push/pop stack (a `stack`).
     split: bool,
+    /// Back header (stack presentation only).
+    header: Option<NavHeader>,
+}
+
+/// The frame a stack page occupies inside the detail wrap: full bounds at the root, inset
+/// below the back header while a pushed page is showing.
+fn nav_page_frame(wrap: &NSView, header_visible: bool) -> NSRect {
+    let b = wrap.bounds();
+    if header_visible {
+        NSRect::new(
+            NSPoint::new(0.0, NAV_HEADER_H),
+            NSSize::new(b.size.width, (b.size.height - NAV_HEADER_H).max(0.0)),
+        )
+    } else {
+        b
+    }
+}
+
+/// Show/hide the stack-nav back header for the given page stack and re-frame the pages under
+/// it. The header shows exactly while a pushed page (depth ≥ 1 above the root) is on top; each
+/// page's `DayNavPage::setFrameSize` reports the new size so Day re-lays its content.
+fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
+    let visible = pages.len() >= 2;
+    hdr.bar.setHidden(!visible);
+    unsafe {
+        hdr.title.setStringValue(&NSString::from_str(
+            hdr.titles.last().map(String::as_str).unwrap_or(""),
+        ));
+    }
+    let frame = nav_page_frame(wrap, visible);
+    for page in pages {
+        unsafe { page.setFrame(frame) };
+    }
 }
 
 thread_local! {
@@ -1251,6 +1309,67 @@ impl Toolkit for AppKit {
                     split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
                     split.setHoldingPriority_forSubviewAtIndex(250.0, 1);
                 }
+                // Stack presentation: a back header (hidden at root) — desktop has no system
+                // back affordance, so a pushed page needs its own way out (docs/navigation.md).
+                let header = if is_split {
+                    None
+                } else {
+                    let root_title = props
+                        .downcast_ref::<NavProps>()
+                        .map(|p| p.title.clone())
+                        .unwrap_or_default();
+                    let bar = view_of(DayFlipped::new(mtm));
+                    let target = DayTarget::new(mtm, id);
+                    let back = unsafe {
+                        let img = objc2_app_kit::NSImage::imageNamed(
+                            objc2_app_kit::NSImageNameGoBackTemplate,
+                        )
+                        .expect("NSGoBackTemplate");
+                        let tobj: &objc2::runtime::AnyObject = target.as_ref();
+                        objc2_app_kit::NSButton::buttonWithImage_target_action(
+                            &img,
+                            Some(tobj),
+                            Some(sel!(navBack:)),
+                            mtm,
+                        )
+                    };
+                    let title = unsafe {
+                        NSTextField::labelWithString(&NSString::from_str(&root_title), mtm)
+                    };
+                    unsafe {
+                        back.setFrame(NSRect::new(
+                            NSPoint::new(6.0, 4.0),
+                            NSSize::new(30.0, NAV_HEADER_H - 8.0),
+                        ));
+                        title.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+                        title.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+                        title.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+                        title.setFrame(NSRect::new(
+                            NSPoint::new(44.0, 9.0),
+                            NSSize::new((detail_wrap.bounds().size.width - 88.0).max(0.0), 18.0),
+                        ));
+                        title.setAutoresizingMask(
+                            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
+                        );
+                        bar.setFrame(NSRect::new(
+                            NSPoint::new(0.0, 0.0),
+                            NSSize::new(detail_wrap.bounds().size.width, NAV_HEADER_H),
+                        ));
+                        bar.setAutoresizingMask(
+                            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
+                        );
+                        bar.addSubview(&back);
+                        bar.addSubview(&title);
+                        bar.setHidden(true);
+                        detail_wrap.addSubview(&bar);
+                    }
+                    Some(NavHeader {
+                        bar,
+                        title,
+                        titles: vec![root_title],
+                        _target: target,
+                    })
+                };
                 let view = view_of(split);
                 NAV_STATE.with(|m| {
                     m.borrow_mut().insert(
@@ -1261,6 +1380,7 @@ impl Toolkit for AppKit {
                             pages: Vec::new(),
                             positioned: false,
                             split: is_split,
+                            header,
                         },
                     )
                 });
@@ -1553,11 +1673,15 @@ impl Toolkit for AppKit {
                             return;
                         };
                         match p {
-                            NavPatch::Pushed { .. } => {
+                            NavPatch::Pushed { title } => {
                                 // Only the new top detail page stays visible.
                                 let last = state.pages.len().saturating_sub(1);
                                 for (i, page) in state.pages.iter().enumerate() {
                                     page.setHidden(i != last);
+                                }
+                                if let Some(hdr) = state.header.as_mut() {
+                                    hdr.titles.push(title.clone());
+                                    sync_nav_header(hdr, &state.detail_wrap, &state.pages);
                                 }
                             }
                             NavPatch::Popped => {
@@ -1570,8 +1694,31 @@ impl Toolkit for AppKit {
                                 if n >= 2 {
                                     state.pages[n - 2].setHidden(false);
                                 }
+                                if let Some(hdr) = state.header.as_mut() {
+                                    if hdr.titles.len() > 1 {
+                                        hdr.titles.pop();
+                                    }
+                                    // The popped page is still in `pages` here (Day removes
+                                    // it right after this patch) — frame for depth-after-pop.
+                                    let after: Vec<Retained<NSView>> = state
+                                        .pages
+                                        .iter()
+                                        .take(n.saturating_sub(1))
+                                        .cloned()
+                                        .collect();
+                                    sync_nav_header(hdr, &state.detail_wrap, &after);
+                                }
                             }
-                            NavPatch::Title(_) => {}
+                            NavPatch::Title(t) => {
+                                if let Some(hdr) = state.header.as_mut() {
+                                    if let Some(last) = hdr.titles.last_mut() {
+                                        *last = t.clone();
+                                    }
+                                    unsafe {
+                                        hdr.title.setStringValue(&NSString::from_str(t));
+                                    }
+                                }
+                            }
                         }
                     });
                 }
@@ -1694,14 +1841,18 @@ impl Toolkit for AppKit {
             // Split (selector Sidebar): index 0 is the sidebar; the rest are detail pages.
             // Stack (`split == false`): every page — including the root — lives in the detail
             // pane so push/pop visibility covers them all.
-            let wrap = if state.split && index == 0 {
-                &state.sidebar_wrap
+            let (wrap, frame) = if state.split && index == 0 {
+                (&state.sidebar_wrap, state.sidebar_wrap.bounds())
             } else {
                 state.pages.push(child.clone());
-                &state.detail_wrap
+                let visible = state.header.as_ref().is_some_and(|h| !h.bar.isHidden());
+                (
+                    &state.detail_wrap,
+                    nav_page_frame(&state.detail_wrap, visible),
+                )
             };
             unsafe {
-                child.setFrame(wrap.bounds());
+                child.setFrame(frame);
                 child.setAutoresizingMask(
                     objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
                         | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,

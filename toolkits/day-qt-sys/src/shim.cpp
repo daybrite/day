@@ -10,6 +10,9 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFrame>
+#include <QHBoxLayout>
+#include <QToolButton>
+#include <QVBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -352,6 +355,58 @@ void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
     if (s) {
         QObject::connect(s, &QSplitter::splitterMoved, [s, cb](int, int) { cb(s); });
     }
+}
+// Stack-nav back header (docs/navigation.md): desktop has no system back affordance, so a
+// pushed page gets a slim bar — back arrow + bold centered title — above the pages. Installed
+// into the splitter's detail side; returns the NEW pages host (below the header), which the
+// caller uses in place of the raw pane. Hidden until a page is pushed.
+void *day_qt_nav_header_install(void *splitter, uint64_t id, void (*cb)(uint64_t)) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(splitter));
+    if (!s)
+        return nullptr;
+    QWidget *detail = s->widget(1);
+    auto *header = new QWidget();
+    header->setObjectName("day-nav-header");
+    header->setFixedHeight(36);
+    auto *hl = new QHBoxLayout(header);
+    hl->setContentsMargins(4, 2, 8, 2);
+    auto *back = new QToolButton();
+    back->setArrowType(Qt::LeftArrow);
+    back->setAutoRaise(true);
+    QObject::connect(back, &QToolButton::clicked, [id, cb]() { cb(id); });
+    auto *title = new QLabel();
+    title->setObjectName("day-nav-title");
+    title->setAlignment(Qt::AlignCenter);
+    QFont f = title->font();
+    f.setBold(true);
+    title->setFont(f);
+    // A right-side spacer the width of the back button keeps the title optically centered.
+    auto *balance = new QWidget();
+    balance->setFixedWidth(back->sizeHint().width());
+    hl->addWidget(back);
+    hl->addWidget(title, 1);
+    hl->addWidget(balance);
+    auto *pages = new QWidget();
+    auto *vl = new QVBoxLayout(detail);
+    vl->setContentsMargins(0, 0, 0, 0);
+    vl->setSpacing(0);
+    vl->addWidget(header);
+    vl->addWidget(pages, 1);
+    header->hide();
+    return pages;
+}
+// Show/hide the back header and set its title; activates the layout so the pages host has its
+// final size before the caller re-reports page frames.
+void day_qt_nav_header_update(void *splitter, int visible, const char *title) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(splitter));
+    if (!s)
+        return;
+    if (auto *t = s->findChild<QLabel *>("day-nav-title"))
+        t->setText(QString::fromUtf8(title));
+    if (auto *h = s->findChild<QWidget *>("day-nav-header"))
+        h->setVisible(visible != 0);
+    if (QWidget *detail = s->widget(1); detail && detail->layout())
+        detail->layout()->activate();
 }
 void day_qt_widget_size(void *w, double *out_w, double *out_h) {
     QWidget *q = static_cast<QWidget *>(w);

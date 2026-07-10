@@ -2,10 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Required even for the localhost dayscript engine socket (§14.5). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- enableOnBackInvokedCallback: predictive back (docs/navigation.md) — DayActivity
+         registers an OnBackInvokedCallback while (and only while) the nav stack can pop. -->
     <application
         android:label="Day Showcase"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name="dev.daybrite.day.bridge.DayActivity"
             android:exported="true"

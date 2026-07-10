@@ -1808,16 +1808,18 @@ impl A11yBuilder {
 
 pub mod prelude {
     pub use crate::TextStyle;
+    pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
         FilledButtonStyle, HAlign, IntoFraction, IntoReactive, IntoText, ItemSlot, List, MenuEntry,
-        Modifier, NativeRef, OpenFile, Prompt, Reactive, SaveFile, Selector, SelectorStyle,
-        ShapeKind, ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button,
-        canvas, capsule, circle, column, confirm, divider, each, ellipse, environment, image,
-        label, list, menu_item, menu_role, menu_separator, nav_back, nav_link, navigate, open_file,
-        progress, prompt, rectangle, rounded_rectangle, row, save_file, scroll, selector, shape,
-        slider, spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment,
-        zstack,
+        Modifier, NativeRef, OpenFile, Prompt, Reactive, Route, RoutePath, SaveFile, Selector,
+        SelectorStyle, ShapeKind, ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu,
+        arc, button, canvas, capsule, circle, column, confirm, current_route, divider, each,
+        ellipse, environment, image, label, list, menu_item, menu_role, menu_separator, nav_back,
+        nav_link, nav_link_to, navigate, navigate_to, open_file, progress, prompt, rectangle,
+        rounded_rectangle, route, route_param, route_params, row, save_file, scroll, selector,
+        shape, slider, spacer, spinner, stack, sub_menu, text_field, toggle, when,
+        with_environment, zstack,
     };
     pub use day_core::{
         Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, invalidate_size, piece_fn,
@@ -2414,9 +2416,16 @@ impl day_core::Layout for AspectRatioLayout {
 // projection of an app-owned Signal.
 // ---------------------------------------------------------------------------
 
-/// Navigate to a registered route ("" = the surface's root). Reaches the innermost route
-/// surface first (docs/navigation.md); for a `selector` this sets the active key, for a
-/// `stack` it pushes. False = no surface / unknown key.
+/// Navigate to a route (docs/navigation.md).
+///
+/// * A single key (`navigate("inbox")`) is RELATIVE — the innermost route surface is tried
+///   first, falling through outward; `""` pops the innermost stack to its root.
+/// * A `/`-separated path (`navigate("mail/inbox/msg-42")`) is ABSOLUTE — anchored at the
+///   outermost surface that knows the first segment, everything inside reset, the remaining
+///   segments consumed inward (surfaces mounting during the cascade take theirs as they appear).
+/// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
+///
+/// False = no surface recognized the (first) segment.
 pub fn navigate(path: &str) -> bool {
     day_core::navigate(path)
 }
@@ -2426,9 +2435,167 @@ pub fn nav_back() -> bool {
     day_core::nav_back()
 }
 
+/// The FULL current route — every mounted surface's contribution, outermost to innermost,
+/// `/`-joined. Round-trips through [`navigate`]: persist it on exit, `navigate(&saved)` on
+/// launch (docs/navigation.md).
+pub fn current_route() -> Option<String> {
+    day_core::current_route()
+}
+
+/// The query params of the most recent [`navigate`] (`?name=value&…`) — read inside a
+/// destination builder. See docs/navigation.md for when params apply.
+pub fn route_params() -> std::rc::Rc<Vec<(String, String)>> {
+    day_core::route_params()
+}
+
+/// One query param of the most recent [`navigate`] (`None` = not present).
+pub fn route_param(name: &str) -> Option<String> {
+    day_core::route_param(name)
+}
+
 /// A tappable link that navigates to `path` when pressed.
 pub fn nav_link<M>(label: impl IntoText<M>, path: &str) -> Button {
     let path = path.to_string();
+    button(label).action(move || {
+        let _ = day_core::navigate(&path);
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Typed routes (docs/navigation.md) — routes as data instead of string encoding.
+// ---------------------------------------------------------------------------
+
+/// A typed route key — the compile-checked alternative to raw string keys.
+///
+/// Implement on an enum (one variant per destination) and use it everywhere a key goes:
+/// `selector(Signal<Option<Section>>)` + `.item(Section::Controls, …)`,
+/// `stack(Signal<Vec<Drill>>, …)` + `.destination(|d: &Drill| …)`, [`navigate_to`], [`route`].
+/// The string layer stays the wire format — deep links, dayscript, and [`current_route`]
+/// still speak [`Route::key`] strings — but app code never assembles or splits them.
+///
+/// Variants can carry data (`Item { id: u32 }` ↔ `"item-42"`): encode it in [`Route::key`],
+/// parse it back in [`Route::from_key`], and destination builders receive the typed value.
+/// For plain data-free enums the [`routes!`] macro writes both sides.
+pub trait Route: Clone + PartialEq + 'static {
+    /// The path segment this value occupies in a route string. Must round-trip through
+    /// [`Route::from_key`] and must not be empty — `""` means "no selection" (see the
+    /// `Option<R>` impl).
+    fn key(&self) -> String;
+    /// Parse a path segment back into the typed value; `None` = not one of this type's routes.
+    fn from_key(key: &str) -> Option<Self>;
+}
+
+/// Raw string keys — the untyped baseline. Every segment parses.
+impl Route for String {
+    fn key(&self) -> String {
+        self.clone()
+    }
+    fn from_key(key: &str) -> Option<Self> {
+        Some(key.to_string())
+    }
+}
+
+/// `None` ↔ `""` (no selection) — the key type for a sidebar [`selector`], whose collapsed
+/// mobile state IS "nothing selected". `.item(Section::X, …)` still takes the bare value
+/// (`Section: Into<Option<Section>>`).
+impl<R: Route> Route for Option<R> {
+    fn key(&self) -> String {
+        match self {
+            Some(r) => r.key(),
+            None => String::new(),
+        }
+    }
+    fn from_key(key: &str) -> Option<Self> {
+        if key.is_empty() {
+            Some(None)
+        } else {
+            R::from_key(key).map(Some)
+        }
+    }
+}
+
+/// Define a plain routes enum and its [`Route`] impl in one shot:
+///
+/// ```ignore
+/// day::routes! {
+///     pub enum Section { Controls => "controls", Text => "text" }
+/// }
+/// selector(section).item(Section::Controls, tr("controls"), controls_page)
+/// ```
+///
+/// Variants that carry data (`Item { id: u32 }` ↔ `"item-42"`) implement [`Route`] by hand.
+#[macro_export]
+macro_rules! routes {
+    ($(#[$meta:meta])* $vis:vis enum $name:ident {
+        $($(#[$vmeta:meta])* $variant:ident => $key:literal),+ $(,)?
+    }) => {
+        $(#[$meta])*
+        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+        $vis enum $name { $($(#[$vmeta])* $variant),+ }
+        impl $crate::Route for $name {
+            fn key(&self) -> String {
+                match self { $(Self::$variant => ($key).to_string()),+ }
+            }
+            fn from_key(key: &str) -> Option<Self> {
+                match key { $($key => Some(Self::$variant),)+ _ => None }
+            }
+        }
+    };
+}
+
+/// A typed absolute route: segments built from [`Route`] values plus query params.
+/// `route(&Section::Stack).then(&Drill::Item { id: 42 }).param("hint", "linked")` encodes to
+/// `"stack/item-42?hint=linked"` — [`RoutePath::navigate`] it, or hand it to [`nav_link_to`].
+#[derive(Clone, Debug, Default)]
+pub struct RoutePath {
+    segments: Vec<String>,
+    params: Vec<(String, String)>,
+}
+
+/// Start a typed [`RoutePath`] at the outermost segment.
+pub fn route(first: &impl Route) -> RoutePath {
+    RoutePath {
+        segments: vec![first.key()],
+        params: Vec::new(),
+    }
+}
+
+impl RoutePath {
+    /// Append the next-inner segment.
+    pub fn then(mut self, next: &impl Route) -> Self {
+        self.segments.push(next.key());
+        self
+    }
+    /// Append a query param (the destination reads it via [`route_param`]).
+    pub fn param(mut self, name: &str, value: impl std::fmt::Display) -> Self {
+        self.params.push((name.to_string(), value.to_string()));
+        self
+    }
+    /// The encoded route string (percent-escaped where needed) — what [`navigate`] accepts.
+    pub fn to_route(&self) -> String {
+        day_core::encode_route(&self.segments, &self.params)
+    }
+    /// Navigate to this path. False = no surface recognized the first segment.
+    pub fn navigate(&self) -> bool {
+        day_core::navigate(&self.to_route())
+    }
+}
+
+impl std::fmt::Display for RoutePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_route())
+    }
+}
+
+/// Navigate to a single typed key, RELATIVE (innermost surface first) — the typed
+/// `navigate(&r.key())`, percent-escaped. For absolute paths chain a [`route`].
+pub fn navigate_to(r: &impl Route) -> bool {
+    day_core::navigate(&day_core::encode_route(std::slice::from_ref(&r.key()), &[]))
+}
+
+/// A tappable link that navigates to a typed [`RoutePath`] when pressed.
+pub fn nav_link_to<M>(label: impl IntoText<M>, path: RoutePath) -> Button {
+    let path = path.to_route();
     button(label).action(move || {
         let _ = day_core::navigate(&path);
     })
@@ -2500,15 +2667,22 @@ fn tabs_page(
 /// Register a string-route adapter over a route surface's own signal, so `navigate()` /
 /// deep links / dayscript keep working by key. This is a *convenience layer* — the surface
 /// itself is driven by the signal, not by this registry (docs/navigation.md).
+///
+/// `enter` consumes one segment of an ABSOLUTE path (`navigate("a/b/c")`); `segments` is the
+/// surface's contribution to the full [`current_route`].
 fn register_route_surface(
     push: impl Fn(&str) -> bool + 'static,
     pop: impl Fn(bool) -> bool + 'static,
     current: impl Fn() -> String + 'static,
+    enter: impl Fn(&str) -> bool + 'static,
+    segments: impl Fn() -> Vec<String> + 'static,
 ) {
     let token = day_core::register_nav(day_core::NavController {
         push: Box::new(push),
         pop: Box::new(pop),
         current: Box::new(current),
+        enter: Box::new(enter),
+        segments: Box::new(segments),
     });
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
 }
@@ -2528,33 +2702,37 @@ pub enum SelectorStyle {
     Sidebar,
 }
 
-struct SelItem {
-    key: String,
+struct SelItem<K> {
+    key: K,
     title: TextSource,
     build: Box<dyn Fn() -> AnyPiece>,
 }
 
-/// A sidebar item resolved for the detail switcher: (key, resolved title, lazy builder).
+/// A sidebar item resolved for the detail switcher: (encoded key, resolved title, lazy builder).
 type ResolvedItems = Rc<Vec<(String, String, Box<dyn Fn() -> AnyPiece>)>>;
 
-/// A one-of-N selector whose active key is an app-owned `Signal<String>` (two-way, exactly
-/// like `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
+/// A one-of-N selector whose active key is an app-owned signal (two-way, exactly like
+/// `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
+///
+/// The key type is any [`Route`]: `String` for raw keys, or a typed enum — use
+/// `Signal<Option<Section>>` for a sidebar (`None` = the collapsed mobile list) and
+/// `Signal<Tab>` for tabs (always selected).
 ///
 /// ```ignore
-/// let section = Signal::new("home".to_string());
+/// let section = Signal::new("home".to_string());   // or Signal::new(None::<Section>)
 /// selector(section).style(SelectorStyle::Sidebar)
-///     .item("home", tr("home"), home_page)
+///     .item("home", tr("home"), home_page)         // or .item(Section::Home, …)
 ///     .item("settings", tr("settings"), settings_page)
 /// ```
-pub struct Selector<S: SignalRw<String>> {
+pub struct Selector<S: SignalRw<K>, K: Route = String> {
     selection: S,
     style: SelectorStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
-    items: Vec<SelItem>,
+    items: Vec<SelItem<K>>,
 }
 
-pub fn selector<S: SignalRw<String>>(selection: S) -> Selector<S> {
+pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
     Selector {
         selection,
         style: SelectorStyle::Sidebar,
@@ -2564,7 +2742,7 @@ pub fn selector<S: SignalRw<String>>(selection: S) -> Selector<S> {
     }
 }
 
-impl<S: SignalRw<String>> Selector<S> {
+impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     pub fn style(mut self, style: SelectorStyle) -> Self {
         self.style = style;
         self
@@ -2580,15 +2758,16 @@ impl<S: SignalRw<String>> Selector<S> {
         self
     }
     /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
-    /// its label; `build` runs when the item is first shown.
+    /// its label; `build` runs when the item is first shown. For a typed selector over
+    /// `Option<Section>` pass the bare `Section::X`.
     pub fn item<M, P: Piece>(
         mut self,
-        key: &str,
+        key: impl Into<K>,
         title: impl IntoText<M>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
         self.items.push(SelItem {
-            key: key.to_string(),
+            key: key.into(),
             title: title.into_text(),
             build: Box::new(move || AnyPiece::new(build())),
         });
@@ -2596,7 +2775,7 @@ impl<S: SignalRw<String>> Selector<S> {
     }
 }
 
-impl<S: SignalRw<String>> Piece for Selector<S> {
+impl<K: Route, S: SignalRw<K>> Piece for Selector<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         match self.style {
             SelectorStyle::Tabs => build_tabs(self, cx),
@@ -2605,17 +2784,18 @@ impl<S: SignalRw<String>> Piece for Selector<S> {
     }
 }
 
-fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode {
+fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{TabsPageProps, TabsPatch, TabsProps};
     let selection = sel.selection;
     let metas: Vec<(String, String)> = sel
         .items
         .iter()
-        .map(|it| (it.key.clone(), it.title.initial()))
+        .map(|it| (it.key.key(), it.title.initial()))
         .collect();
     let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
     let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
-    let initial = selection.get_untracked_rw();
+    let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
+    let initial = selection.get_untracked_rw().key();
     let initial_idx = keys.iter().position(|k| *k == initial).unwrap_or(0);
 
     let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
@@ -2655,7 +2835,10 @@ fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode 
         let (keys, echo, s) = (keys.clone(), echo.clone(), selection.clone());
         bind_seeded(
             initial_idx,
-            move || keys.iter().position(|k| *k == s.get_rw()).unwrap_or(0),
+            move || {
+                let cur = s.get_rw().key();
+                keys.iter().position(|k| *k == cur).unwrap_or(0)
+            },
             move |idx: &usize| {
                 if echo.replace(None) == Some(*idx) {
                     return;
@@ -2666,11 +2849,11 @@ fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode 
     }
     // native selection → signal
     {
-        let (keys, echo, s) = (keys.clone(), echo.clone(), selection.clone());
+        let (typed, echo, s) = (typed.clone(), echo.clone(), selection.clone());
         cx.on(host, move |ev| match ev {
             Event::SelectionChanged(i) if *i >= 0 => {
                 let idx = *i as usize;
-                if let Some(k) = keys.get(idx) {
+                if let Some(k) = typed.get(idx) {
                     echo.set(Some(idx));
                     s.set_rw(k.clone());
                 }
@@ -2685,25 +2868,40 @@ fn build_tabs<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode 
             _ => {}
         });
     }
-    // string-route adapter
-    let (ks_push, s_push) = (keys.clone(), selection.clone());
+    // string-route adapter (the typed key decodes at this boundary; app code stays typed)
+    let (ks_push, ts_push, s_push) = (keys.clone(), typed.clone(), selection.clone());
     let s_cur = selection.clone();
+    let (ks_enter, ts_enter, s_enter) = (keys.clone(), typed.clone(), selection.clone());
+    let s_seg = selection.clone();
     register_route_surface(
         move |k| {
-            if ks_push.iter().any(|x| x == k) {
-                s_push.set_rw(k.to_string());
+            if let Some(i) = ks_push.iter().position(|x| x == k) {
+                s_push.set_rw(ts_push[i].clone());
                 true
             } else {
                 false
             }
         },
         |_| false,
-        move || s_cur.get_untracked_rw(),
+        move || s_cur.get_untracked_rw().key(),
+        // Absolute-path segment: same as push — a tab key is a declared key.
+        move |k| {
+            if let Some(i) = ks_enter.iter().position(|x| x == k) {
+                s_enter.set_rw(ts_enter[i].clone());
+                true
+            } else {
+                false
+            }
+        },
+        move || {
+            let k = s_seg.get_untracked_rw().key();
+            if k.is_empty() { Vec::new() } else { vec![k] }
+        },
     );
     host
 }
 
-fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNode {
+fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavProps};
     let split = with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
     let selection = sel.selection;
@@ -2711,15 +2909,16 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
     let metas: Vec<(String, String)> = sel
         .items
         .iter()
-        .map(|it| (it.key.clone(), it.title.initial()))
+        .map(|it| (it.key.key(), it.title.initial()))
         .collect();
     let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
+    let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
     let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
     let builders: ResolvedItems = Rc::new(
         sel.items
             .into_iter()
             .enumerate()
-            .map(|(i, it)| (it.key, metas[i].1.clone(), it.build))
+            .map(|(i, it)| (metas[i].0.clone(), metas[i].1.clone(), it.build))
             .collect(),
     );
 
@@ -2755,7 +2954,7 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
     {
         let (mh, ks, s, titles2) = (
             menu_holder.clone(),
-            keys.clone(),
+            typed.clone(),
             selection.clone(),
             titles.clone(),
         );
@@ -2872,21 +3071,27 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
 
     // Desktop split never shows an empty detail: default to the first item.
     if split
-        && selection.get_untracked_rw().is_empty()
-        && let Some(k) = keys.first()
+        && selection.get_untracked_rw().key().is_empty()
+        && let Some(k) = typed.first()
     {
         selection.set_rw(k.clone());
     }
     {
         let s = selection.clone();
-        bind(move || s.get_rw(), move |key: &String| show(key));
+        bind(move || s.get_rw().key(), move |key: &String| show(key));
     }
 
     // Native back (mobile up-arrow / system back) returns to the list; warm deep links.
+    // A typed key deselects via its "" decoding (`Option<Section>` → `None`); a key type
+    // with no empty state (a bare enum) has no list-only state, so back is ignored.
     {
         let s = selection.clone();
         cx.on(host, move |ev| match ev {
-            Event::NavBack { .. } => s.set_rw(String::new()),
+            Event::NavBack { .. } => {
+                if let Some(root) = K::from_key("") {
+                    s.set_rw(root);
+                }
+            }
             Event::Custom {
                 tag: "deeplink",
                 text: route,
@@ -2898,31 +3103,52 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
         });
     }
 
-    // string-route adapter over `selection`
-    let (ks_push, s_push) = (keys.clone(), selection.clone());
+    // string-route adapter over `selection` (typed keys decode at this boundary)
+    let (ks_push, ts_push, s_push) = (keys.clone(), typed.clone(), selection.clone());
     let s_pop = selection.clone();
     let s_cur = selection.clone();
+    let (ks_enter, ts_enter, s_enter) = (keys.clone(), typed.clone(), selection.clone());
+    let s_seg = selection.clone();
     register_route_surface(
         move |k| {
             if k.is_empty() {
-                s_push.set_rw(String::new());
-                true
-            } else if ks_push.iter().any(|x| x == k) {
-                s_push.set_rw(k.to_string());
+                if let Some(root) = K::from_key("") {
+                    s_push.set_rw(root);
+                    true
+                } else {
+                    false // no empty state (bare-enum key) — let the parent handle ""
+                }
+            } else if let Some(i) = ks_push.iter().position(|x| x == k) {
+                s_push.set_rw(ts_push[i].clone());
                 true
             } else {
                 false
             }
         },
         move |_| {
-            if s_pop.get_untracked_rw().is_empty() {
+            if s_pop.get_untracked_rw().key().is_empty() {
                 false
-            } else {
-                s_pop.set_rw(String::new());
+            } else if let Some(root) = K::from_key("") {
+                s_pop.set_rw(root);
                 true
+            } else {
+                false
             }
         },
-        move || s_cur.get_untracked_rw(),
+        move || s_cur.get_untracked_rw().key(),
+        // Absolute-path segment: a declared item key selects it (no "" — segments are non-empty).
+        move |k| {
+            if let Some(i) = ks_enter.iter().position(|x| x == k) {
+                s_enter.set_rw(ts_enter[i].clone());
+                true
+            } else {
+                false
+            }
+        },
+        move || {
+            let k = s_seg.get_untracked_rw().key();
+            if k.is_empty() { Vec::new() } else { vec![k] }
+        },
     );
     host
 }
@@ -2933,29 +3159,34 @@ fn build_sidebar<S: SignalRw<String>>(sel: Selector<S>, cx: &mut BuildCx) -> RNo
 // to the path; the back button writes the pop back into the path.
 // ===========================================================================
 
-struct StackEntry {
-    key: String,
+struct StackEntry<K> {
+    key: K,
     scope: Scope,
     page: RNode,
 }
 
-/// A push/pop navigation stack whose contents are an app-owned `Signal<Vec<String>>` (the
-/// path above the root). Day reconciles the native stack to the path; the native back button
+/// A push/pop navigation stack whose contents are an app-owned `Signal<Vec<K>>` (the path
+/// above the root). Day reconciles the native stack to the path; the native back button
 /// writes the pop back into it (docs/navigation.md).
 ///
+/// The key type is any [`Route`]: `String` for raw keys, or a typed enum whose variants can
+/// carry data — the destination builder then receives the typed value, and an absolute
+/// `navigate("…/item-42")` parses each segment via [`Route::from_key`] (rejecting segments
+/// that don't parse; `String` accepts everything).
+///
 /// ```ignore
-/// let path = Signal::new(Vec::<String>::new());
-/// stack(path.clone(), home_view).destination(|key| detail_view(key))
-/// // push:  path.update(|p| p.push("item-42".into()));
+/// let path = Signal::new(Vec::<Drill>::new());
+/// stack(path.clone(), home_view).destination(|d: &Drill| detail_view(d))
+/// // push:  path.update(|p| p.push(Drill::Item { id: 42 }));
 /// ```
-pub struct Stack<S: SignalRw<Vec<String>>> {
+pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
     path: S,
     title: TextSource,
     root: AnyPiece,
-    destination: Rc<dyn Fn(&str) -> AnyPiece>,
+    destination: Rc<dyn Fn(&K) -> AnyPiece>,
 }
 
-pub fn stack<S: SignalRw<Vec<String>>>(path: S, root: impl Piece) -> Stack<S> {
+pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
     Stack {
         path,
         title: TextSource::Static(String::new()),
@@ -2966,19 +3197,19 @@ pub fn stack<S: SignalRw<Vec<String>>>(path: S, root: impl Piece) -> Stack<S> {
     }
 }
 
-impl<S: SignalRw<Vec<String>>> Stack<S> {
+impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = t.into_text();
         self
     }
-    /// Build the view for a pushed `key`.
-    pub fn destination<P: Piece>(mut self, build: impl Fn(&str) -> P + 'static) -> Self {
+    /// Build the view for a pushed key (`&String` for raw keys, the typed value otherwise).
+    pub fn destination<P: Piece>(mut self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.destination = Rc::new(move |k| AnyPiece::new(build(k)));
         self
     }
 }
 
-impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
+impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{NavPageProps, NavPatch, NavProps};
         let path = self.path;
@@ -3016,7 +3247,7 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
             let _ = self.root.build(&mut pcx);
         }
 
-        let entries: Rc<RefCell<Vec<StackEntry>>> = Rc::default();
+        let entries: Rc<RefCell<Vec<StackEntry<K>>>> = Rc::default();
         let native_popped: Rc<Cell<usize>> = Rc::new(Cell::new(0));
         let nav_scope = Scope::current();
 
@@ -3029,7 +3260,7 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
                 dest.clone(),
                 native_popped.clone(),
             );
-            move |want: &Vec<String>| {
+            move |want: &Vec<K>| {
                 let common = {
                     let ents = entries.borrow();
                     let mut i = 0;
@@ -3050,10 +3281,11 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
                     with_tree(|t| t.remove_subtree(e.page));
                 }
                 for key in want.iter().skip(common) {
+                    let title = key.key();
                     let page = nav_page(
                         host,
                         &NavPageProps {
-                            title: key.clone(),
+                            title: title.clone(),
                             sidebar: false,
                         },
                         &sizes,
@@ -3064,13 +3296,7 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
                         let mut c = BuildCx::new(page);
                         let _ = content.build(&mut c);
                     });
-                    with_tree(|t| {
-                        t.patch(
-                            host,
-                            Box::new(NavPatch::Pushed { title: key.clone() }),
-                            false,
-                        )
-                    });
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::Pushed { title }), false));
                     entries.borrow_mut().push(StackEntry {
                         key: key.clone(),
                         scope,
@@ -3085,10 +3311,7 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
         };
         {
             let p = path.clone();
-            bind(
-                move || p.get_rw(),
-                move |want: &Vec<String>| reconcile(want),
-            );
+            bind(move || p.get_rw(), move |want: &Vec<K>| reconcile(want));
         }
 
         // Native back → pop the path (origin-tagged so reconcile doesn't re-issue it).
@@ -3116,11 +3339,16 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
         }
 
         // string-route adapter. A stack is driven by its `path` (app state / buttons), not by
-        // magic navigate-strings: only "" (pop to root) is claimed, so `navigate("<sibling>")`
-        // falls through to the enclosing surface. `pop` falls through once the stack is empty.
+        // magic navigate-strings: a RELATIVE `navigate("<key>")` claims only "" (pop to root),
+        // so sibling keys fall through to the enclosing surface — but an ABSOLUTE path's
+        // segments (`enter`) push any segment the key type parses: a `String` stack is
+        // open-ended, a typed stack validates via `Route::from_key`, and an explicit `a/b/c`
+        // path IS the stack's state. `pop` falls through once empty.
         let p_push = path.clone();
         let p_pop = path.clone();
         let p_cur = path.clone();
+        let p_enter = path.clone();
+        let p_seg = path.clone();
         register_route_surface(
             move |k| {
                 if k.is_empty() {
@@ -3144,7 +3372,23 @@ impl<S: SignalRw<Vec<String>>> Piece for Stack<S> {
                     false
                 }
             },
-            move || p_cur.get_untracked_rw().last().cloned().unwrap_or_default(),
+            move || {
+                p_cur
+                    .get_untracked_rw()
+                    .last()
+                    .map(|k| k.key())
+                    .unwrap_or_default()
+            },
+            move |k| {
+                let Some(parsed) = K::from_key(k) else {
+                    return false; // not one of this stack's routes — leave it queued
+                };
+                let mut v = p_enter.get_untracked_rw();
+                v.push(parsed);
+                p_enter.set_rw(v);
+                true
+            },
+            move || p_seg.get_untracked_rw().iter().map(|k| k.key()).collect(),
         );
         host
     }

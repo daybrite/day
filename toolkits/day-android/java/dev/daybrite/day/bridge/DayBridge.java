@@ -405,11 +405,14 @@ public final class DayBridge {
         if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
     }
     public static void removeChild(View child) {
-        ViewGroup p = (ViewGroup) child.getParent();
-        if (p != null && p.getParent() instanceof DayNavHost) {
-            ((DayNavHost) p.getParent()).removePage(child);
+        // Nav pages route through their host (looked up by view — the FragmentManager may
+        // have the page detached mid-transition, so the parent chain can't be relied on).
+        DayNavHost navHost = DayNavHost.pageHosts.get(child);
+        if (navHost != null) {
+            navHost.removePage(child);
             return;
         }
+        ViewGroup p = (ViewGroup) child.getParent();
         if (p != null) p.removeView(child);
     }
     public static void setFrame(View v, int x, int y, int w, int h) {

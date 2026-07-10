@@ -325,6 +325,39 @@ struct NavState {
     pages: Vec<(QtHandle, NodeId)>,
     /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
     split: bool,
+    /// Stack presentation: title per level (index 0 = root) for the back header — desktop has
+    /// no system back affordance, so the header gives a pushed page its way out.
+    titles: Vec<String>,
+}
+
+/// The stack-nav header's back button: a day-initiated pop — the host's handler writes it
+/// into the path signal, which reconciles the pop.
+extern "C" fn nav_back_clicked(id: u64) {
+    emit(
+        NodeId(id),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+}
+
+/// Sync the back header to the stack depth (visible while a pushed page shows), then
+/// re-report page sizes — the pages host shrinks/grows by the header height.
+fn nav_sync_header(host: *mut std::os::raw::c_void) {
+    let (visible, title) = NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return (false, String::new());
+        };
+        (
+            !state.split && state.pages.len() >= 2,
+            state.titles.last().cloned().unwrap_or_default(),
+        )
+    });
+    unsafe {
+        ffi::day_qt_nav_header_update(host, visible as c_int, cstr(&title).as_ptr());
+    }
+    nav_sync_panes(host);
 }
 
 thread_local! {
@@ -649,17 +682,22 @@ impl Toolkit for Qt {
                     QtHandle(w)
                 }
                 kinds::NAV => {
-                    let is_split = props
-                        .downcast_ref::<NavProps>()
-                        .map(|p| p.split)
-                        .unwrap_or(true);
+                    let nav_props = props.downcast_ref::<NavProps>();
+                    let is_split = nav_props.map(|p| p.split).unwrap_or(true);
                     let host = ffi::day_qt_splitter_new();
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
-                    let detail_pane = ffi::day_qt_splitter_pane(host, 1);
+                    let mut detail_pane = ffi::day_qt_splitter_pane(host, 1);
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
+                    let mut titles = Vec::new();
                     if !is_split {
-                        // A stack has no sidebar: hide the empty pane so the detail is full-width.
+                        // A stack has no sidebar: hide the empty pane so the detail is full-width,
+                        // and install the back header (hidden at root) above the pages.
                         ffi::day_qt_set_visible(sidebar_pane, 0);
+                        let pages = ffi::day_qt_nav_header_install(host, id.0, nav_back_clicked);
+                        if !pages.is_null() {
+                            detail_pane = pages;
+                        }
+                        titles.push(nav_props.map(|p| p.title.clone()).unwrap_or_default());
                     }
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -669,6 +707,7 @@ impl Toolkit for Qt {
                                 detail_pane,
                                 pages: Vec::new(),
                                 split: is_split,
+                                titles,
                             },
                         )
                     });
@@ -856,8 +895,8 @@ impl Toolkit for Qt {
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         NAV_STATE.with(|m| {
-                            let m = m.borrow();
-                            let Some(state) = m.get(&(h.0 as usize)) else {
+                            let mut m = m.borrow_mut();
+                            let Some(state) = m.get_mut(&(h.0 as usize)) else {
                                 return;
                             };
                             // Split: detail stack is pages[1..] (page 0 is the sidebar).
@@ -868,10 +907,13 @@ impl Toolkit for Qt {
                                 &state.pages[..]
                             };
                             match p {
-                                NavPatch::Pushed { .. } => {
+                                NavPatch::Pushed { title } => {
                                     let last = detail.len().saturating_sub(1);
                                     for (i, (page, _)) in detail.iter().enumerate() {
                                         ffi::day_qt_set_visible(page.0, (i == last) as _);
+                                    }
+                                    if !state.split {
+                                        state.titles.push(title.clone());
                                     }
                                 }
                                 NavPatch::Popped => {
@@ -882,10 +924,25 @@ impl Toolkit for Qt {
                                     if n >= 2 {
                                         ffi::day_qt_set_visible(detail[n - 2].0.0, 1);
                                     }
+                                    if !state.split && state.titles.len() > 1 {
+                                        state.titles.pop();
+                                    }
                                 }
-                                NavPatch::Title(_) => {}
+                                NavPatch::Title(t) => {
+                                    if let Some(last) = state.titles.last_mut() {
+                                        *last = t.clone();
+                                    }
+                                }
                             }
                         });
+                        // Header visibility follows the depth AFTER the pop completes (the
+                        // popped page leaves `pages` via remove()); defer one turn so the
+                        // header + page sizes settle against the final stack. The raw QWidget
+                        // pointer crosses the (main-thread-only) post as usize.
+                        let host = h.0 as usize;
+                        <Qt as Platform>::post(Box::new(move || {
+                            nav_sync_header(host as *mut std::os::raw::c_void)
+                        }));
                     }
                 }
                 kinds::LABEL => {

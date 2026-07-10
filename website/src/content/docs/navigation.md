@@ -52,28 +52,110 @@ nav_back();                              // pop
 current_route();                         // Option<String>
 ```
 
-Underneath, `stack` uses the platform's navigation container where one exists — you get the iOS
-edge-swipe back gesture and Android's back button/predictive back without writing either. On
-desktop, back affordances render in-window.
+Underneath, `stack` uses the platform's navigation machinery — `UINavigationController` on
+iOS, the androidx Fragment back stack on Android — so you get the iOS edge-swipe back gesture
+and Android's back button without writing either. On Android 14+ the back gesture is fully
+**predictive**: the system seeks the actual pop transition under your finger — the page
+follows, springs back if you let go early, completes on commit (on Android 13/14 the OS gates
+this behind Developer options → "Predictive back animations"; Android 15 enables it by
+default). On desktop, pushed pages get an in-window back header — a chevron and title above
+the page on macOS and Qt, libadwaita's own header on GTK.
 
 ## Routes and deep links
 
-Keys are plain strings with whatever structure you give them (`"album:42"` is a convention, not
-syntax). Because selection and path are signals, a deep link is a couple of writes:
+A route is `segments/joined/by/slashes` with an optional `?name=value` query. A **single key is
+relative**: the innermost surface that knows it wins, falling through outward — right for a
+button deep inside a page. A **multi-segment path is absolute**: it anchors at the outermost
+surface that knows the first segment, resets everything inside, and descends — one string
+reaches a stack several levels deep, even on a cold start where the inner surfaces haven't
+mounted yet:
 
 ```rust
-pub fn open_deep_link(link: &str) {
-    // e.g. "library/album:42"
-    if let Some((section_key, item)) = link.split_once('/') {
-        section.set(section_key.to_string());
-        navigate(item);
-    }
-}
+navigate("library/album-42?hint=shared");   // section, then push, with params
+
+// in the destination builder:
+stack(path, root).destination(|key| {
+    let hint = route_param("hint");         // Some("shared") when opened via that route
+    album_page(key, hint)
+})
 ```
 
+`current_route()` returns the **full** path (`"library/album-42"`), and it round-trips through
+`navigate` — so persisting navigation across launches is: save `current_route()` on the way
+out, `navigate(&saved)` on the way back in.
+
 The same mechanism is what [dayscript](/docs/dayscript) uses: `navigate: { route: controls }` in
-a script performs the write your UI would, and `assert_route` reads `current_route()`. Testing a
-navigation flow is asserting on strings.
+a script performs the write your UI would, and `assert_route` compares the full
+`current_route()`. Testing a navigation flow is asserting on strings — and `day lint` checks
+that every literal route in your sources and scripts starts with a declared item key, so a typo
+is a lint warning instead of a silently-ignored tap.
+
+## Typed routes
+
+Strings are the wire format; your code doesn't have to speak it. Declare the keys as an enum
+and both `selector` and `stack` accept it directly — every `.item`, destination match, and
+navigation call site is then compile-checked:
+
+```rust
+day::routes! {
+    pub enum Section { Home => "home", Library => "library", Settings => "settings" }
+}
+
+let section = Signal::new(None::<Section>);      // None = nothing selected (mobile list)
+selector(section)
+    .item(Section::Home,     tr("nav-home"),     || home_page())
+    .item(Section::Library,  tr("nav-library"),  || library_page())
+    .item(Section::Settings, tr("nav-settings"), || settings_page())
+```
+
+A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
+enum since a tab is always selected. Under the hood each variant maps to its declared string, so
+deep links, dayscript, and `current_route()` are unchanged.
+
+Where this earns its keep is **routes that carry data**. Implement the `Route` trait by hand —
+`key()` encodes, `from_key()` parses — and stack destinations receive the typed value:
+
+```rust
+enum Media { Album { id: u32 }, Track { id: u32 } }   // "album-42" ↔ Album { id: 42 }
+
+impl Route for Media {
+    fn key(&self) -> String {
+        match self {
+            Media::Album { id } => format!("album-{id}"),
+            Media::Track { id } => format!("track-{id}"),
+        }
+    }
+    fn from_key(key: &str) -> Option<Self> {
+        if let Some(id) = key.strip_prefix("album-") {
+            return id.parse().ok().map(|id| Media::Album { id });
+        }
+        key.strip_prefix("track-")?.parse().ok().map(|id| Media::Track { id })
+    }
+}
+
+let path = Signal::new(Vec::<Media>::new());
+stack(path, library_page()).destination(|m: &Media| match m {
+    Media::Album { id } => album_page(*id),           // parsed, not string-split
+    Media::Track { id } => track_page(*id),
+})
+```
+
+The encode/parse pair lives in one place instead of being scattered across every push and
+destination, and a typed stack validates incoming deep links — a segment `from_key` rejects
+stops the navigation instead of pushing a garbage page. Typed navigation helpers mirror the
+string ones:
+
+```rust
+navigate_to(&Section::Library);                       // relative, ≙ navigate("library")
+route(&Section::Library).then(&Media::Album { id: 42 })
+    .param("hint", "shared")
+    .navigate();                                      // absolute, with params
+nav_link_to(tr("open-album"), route(&Section::Library).then(&Media::Album { id: 42 }))
+```
+
+`String` implements `Route` too, so the untyped examples above are the same API — start
+stringly, move to an enum when the app grows, mix the two freely (a typed selector over a
+`String` stack is fine).
 
 ## Patterns and limits
 

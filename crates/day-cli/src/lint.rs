@@ -1,5 +1,6 @@
 //! day lint v0 (DESIGN.md §16.5): fluent coverage (missing/unused/unknown keys), duplicate
-//! element ids, day.yaml schema (validated by parsing). Fast — sources + locales only.
+//! element ids, unknown navigation routes, day.yaml schema (validated by parsing). Fast —
+//! sources + locales + scripts only.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -50,6 +51,94 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
                 if let Some(end) = rest.find('"') {
                     out.push(rest[..end].to_string());
                     rest = &rest[end..];
+                }
+            }
+        }
+    }
+}
+
+/// The first path segment of a route string (`"a/b?x=1"` → `"a"`) — the part a lint can check
+/// against declared selector/tabs item keys. Deeper segments are open-ended (stack destination
+/// builders accept any key), so only the first is validated.
+fn route_first_segment(route: &str) -> &str {
+    route.split(['/', '?']).next().unwrap_or("")
+}
+
+/// Collect the `Variant => "key"` literals declared inside `routes! { … }` blocks — typed
+/// selectors declare their keys there instead of at `.item("key", …)` call sites.
+fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            scan_routes_macro_keys(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs")
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find("routes!") {
+                rest = &rest[i + "routes!".len()..];
+                // The macro body is the outermost `{ … }` after `routes!` (brace-balanced).
+                let Some(open) = rest.find('{') else { continue };
+                let mut depth = 0usize;
+                let mut end = rest.len();
+                for (j, c) in rest[open..].char_indices() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = open + j;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let mut body = &rest[open..end];
+                while let Some(k) = body.find("=> \"") {
+                    body = &body[k + 4..];
+                    if let Some(q) = body.find('"') {
+                        out.push(body[..q].to_string());
+                        body = &body[q..];
+                    }
+                }
+                rest = &rest[end..];
+            }
+        }
+    }
+}
+
+/// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps in
+/// `scripts/*.yaml` — the same route namespace `navigate()` uses (docs/navigation.md).
+fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            scan_script_routes(&p, out);
+        } else if p.extension().is_some_and(|x| x == "yaml" || x == "yml")
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            for line in src.lines() {
+                let l = line.trim_start();
+                if !(l.starts_with("- navigate:") || l.starts_with("- assert_route:")) {
+                    continue;
+                }
+                // rfind: `assert_route:` itself contains "route:" — the value's key is last.
+                if let Some(i) = l.rfind("route:") {
+                    let v = l[i + "route:".len()..]
+                        .trim()
+                        .trim_end_matches(['}', ' '])
+                        .trim()
+                        .trim_matches(['"', '\'']);
+                    if !v.is_empty() {
+                        out.push(v.to_string());
+                    }
                 }
             }
         }
@@ -122,6 +211,42 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         }
     }
 
+    // --- Unknown routes (docs/navigation.md) ---
+    // Literal `navigate("…")` calls and dayscript navigate / assert_route steps must START
+    // with a declared item key — `.item("key", …)` for string-keyed apps, `routes! { X =>
+    // "key" }` for typed ones (typed `.item(Section::X, …)` call sites are already
+    // compile-checked; this covers the scripts and raw strings). Skipped when the app
+    // declares no keys either way (a pure-stack app's routes are open-ended).
+    let mut declared_keys = Vec::new();
+    scan_sources(&project.root.join("src"), ".item(\"", &mut declared_keys);
+    scan_routes_macro_keys(&project.root.join("src"), &mut declared_keys);
+    if !declared_keys.is_empty() {
+        let declared: BTreeSet<String> = declared_keys.into_iter().collect();
+        let mut used_routes: Vec<(String, String)> = Vec::new();
+        let mut nav_calls = Vec::new();
+        scan_sources(&project.root.join("src"), "navigate(\"", &mut nav_calls);
+        used_routes.extend(nav_calls.into_iter().map(|r| ("navigate".to_string(), r)));
+        let mut script_routes = Vec::new();
+        scan_script_routes(&project.root.join("scripts"), &mut script_routes);
+        used_routes.extend(
+            script_routes
+                .into_iter()
+                .map(|r| ("scripts".to_string(), r)),
+        );
+        for (origin, route) in &used_routes {
+            let first = route_first_segment(route);
+            if !first.is_empty() && !declared.contains(first) {
+                findings.push(Finding {
+                    code: "day::lint::unknown-route",
+                    message: format!(
+                        "{origin}: route {route:?} starts with {first:?}, which no `.item(…)` \
+                         or `routes! {{ … }}` declares"
+                    ),
+                });
+            }
+        }
+    }
+
     // --- Duplicate ids ---
     let mut ids = Vec::new();
     scan_sources(&project.root.join("src"), ".id(\"", &mut ids);
@@ -145,5 +270,50 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     } else {
         eprintln!("{n} finding(s)");
         if strict { 10 } else { 0 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_segment_extraction() {
+        assert_eq!(route_first_segment("stack/item-42?hint=x"), "stack");
+        assert_eq!(route_first_segment("controls"), "controls");
+        assert_eq!(route_first_segment("a?x=1"), "a");
+        assert_eq!(route_first_segment(""), "");
+    }
+
+    #[test]
+    fn routes_macro_key_extraction() {
+        let dir = std::env::temp_dir().join(format!("day-lint-routes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "day::routes! {\n    pub(crate) enum Section { Home => \"home\", Stack => \"stack\" }\n}\nfn f() { let x = match y { A => \"not-a-key\" }; }\n",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        scan_routes_macro_keys(&dir, &mut out);
+        out.sort();
+        assert_eq!(out, ["home", "stack"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn script_route_extraction() {
+        let dir = std::env::temp_dir().join(format!("day-lint-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("walk.yaml"),
+            "flow:\n  - navigate: { route: controls }\n  - assert_route: { route: \"stack/1\" }\n  - tap: { id: x }\n  - navigate: { route: 'tabs' }\n",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        scan_script_routes(&dir, &mut out);
+        out.sort();
+        assert_eq!(out, ["controls", "stack/1", "tabs"]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

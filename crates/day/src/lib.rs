@@ -21,6 +21,8 @@ pub use day_core::{lifecycle_supported, on_lifecycle};
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};
 pub use day_pieces::NativeRef;
+// Typed routes (docs/navigation.md): `day::routes! { enum Section { Home => "home", … } }`.
+pub use day_pieces::routes;
 pub use day_spec::{Lifecycle, WindowOptions};
 
 /// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,

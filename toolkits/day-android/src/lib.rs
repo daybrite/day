@@ -360,9 +360,11 @@ mod imp {
             2 => Event::ToggleChanged(num != 0.0),
             3 => Event::ValueChanged(num),
             4 => Event::SelectionChanged(num as i64),
-            // Navigation (docs/navigation.md): system back / toolbar up.
+            // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
+            // means the native FragmentManager already popped (predictive back commit, back
+            // button, up arrow) — Rust updates the path without re-issuing the pop.
             5 => Event::NavBack {
-                already_popped: false,
+                already_popped: num != 0.0,
             },
             // Nav page size report, "w,h" in px.
             6 => {

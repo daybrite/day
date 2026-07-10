@@ -549,7 +549,8 @@ fn stack_pushes_pops_and_reconciles_to_path() {
             .iter()
             .any(|(_, w)| w.text == "detail:b")
     );
-    assert_eq!(day_core::current_route().as_deref(), Some("b"));
+    // current_route is the FULL path (docs/navigation.md).
+    assert_eq!(day_core::current_route().as_deref(), Some("a/b"));
 
     // nav_back pops one (through the string shim → path)
     assert!(nav_back());
@@ -618,13 +619,13 @@ fn nested_stack_in_selector_falls_through() {
             .iter()
             .any(|(_, w)| w.text == "drill-root")
     );
-    // Innermost surface (the stack) is at its root.
-    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    // Full route: the selector's key; the inner stack is at its root and contributes nothing.
+    assert_eq!(day_core::current_route().as_deref(), Some("drill"));
 
     // Push onto the inner stack via its path (app state).
     batch(|| path.set(vec!["deep".into()]));
     flush_sync();
-    assert_eq!(day_core::current_route().as_deref(), Some("deep"));
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/deep"));
     assert!(
         probe
             .find_by_kind("day.label")
@@ -649,6 +650,90 @@ fn nested_stack_in_selector_falls_through() {
             .iter()
             .all(|(_, w)| w.text != "drill:deep")
     );
+}
+
+#[test]
+fn absolute_route_descends_into_lazily_mounted_stack() {
+    // navigate("drill/one/two?hint=linked"): the selector anchors "drill", the stack — which
+    // only MOUNTS as the section switch takes effect — consumes "one","two" as it registers,
+    // and the destination builders see the query params (docs/navigation.md).
+    let section = Signal::new(String::new());
+    let seen_params: Rc<RefCell<Vec<String>>> = Rc::default();
+    let probe = boot({
+        let seen = seen_params.clone();
+        move || {
+            selector(section)
+                .title("Root")
+                .item("plain", "Plain", || label("plain-content"))
+                .item("drill", "Drill", {
+                    let seen = seen.clone();
+                    move || {
+                        let path = Signal::new(Vec::<String>::new());
+                        let seen = seen.clone();
+                        stack(path, label("drill-root")).destination(move |k| {
+                            seen.borrow_mut()
+                                .push(format!("{k}:{}", route_param("hint").unwrap_or_default()));
+                            label(format!("drill:{k}"))
+                        })
+                    }
+                })
+                .any()
+        }
+    });
+
+    assert!(navigate("drill/one/two?hint=linked"));
+    flush_sync();
+    assert_eq!(section.get_untracked(), "drill");
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/one/two"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill:two")
+    );
+    // Both pushed destinations were built with the navigation's params in scope.
+    assert_eq!(
+        seen_params.borrow().as_slice(),
+        ["one:linked".to_string(), "two:linked".to_string()]
+    );
+
+    // The full route round-trips: navigating to it again is a no-op reset to the same state.
+    let route = day_core::current_route().unwrap();
+    assert!(navigate(&route));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/one/two"));
+
+    // An absolute route to a sibling section resets the drill state entirely.
+    assert!(navigate("plain"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("plain"));
+}
+
+#[test]
+fn absolute_route_resets_inner_surfaces_of_the_anchor() {
+    // With "drill/deep" active, navigate("drill/other") must yield exactly drill/other — the
+    // previously pushed "deep" page pops (absolute path = the whole state, set-semantics).
+    let section = Signal::new(String::new());
+    let probe = boot(move || {
+        selector(section)
+            .title("Root")
+            .item("drill", "Drill", move || {
+                let path = Signal::new(Vec::<String>::new());
+                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+            })
+            .any()
+    });
+
+    assert!(navigate("drill/deep"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/deep"));
+
+    assert!(navigate("drill/other"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/other"));
+    let labels = probe.find_by_kind("day.label");
+    assert!(labels.iter().any(|(_, w)| w.text == "drill:other"));
+    assert!(labels.iter().all(|(_, w)| w.text != "drill:deep"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1510,4 +1595,106 @@ fn custom_font_flows_to_the_toolkit() {
     assert_eq!(custom.style, Font::Custom("Pacifico", 24.0));
     assert!(custom.italic);
     assert_eq!(labels[1].1.font.map(|f| f.style), Some(Font::Body));
+}
+
+// ---------------------------------------------------------------------------
+// Typed routes (docs/navigation.md): Route enums over selector/stack.
+// ---------------------------------------------------------------------------
+
+day_pieces::routes! {
+    /// Top-level sections for the typed-route tests.
+    enum Area { Home => "home", Drill => "drill" }
+}
+
+/// A data-carrying stack route: `Leg(n)` ↔ `"leg-n"`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Leg(u32);
+impl Route for Leg {
+    fn key(&self) -> String {
+        format!("leg-{}", self.0)
+    }
+    fn from_key(key: &str) -> Option<Self> {
+        key.strip_prefix("leg-")?.parse().ok().map(Leg)
+    }
+}
+
+#[test]
+fn typed_route_encoding_round_trips() {
+    assert_eq!(Area::from_key("drill"), Some(Area::Drill));
+    assert_eq!(Area::from_key("nope"), None);
+    assert_eq!(Option::<Area>::from_key(""), Some(None));
+    assert_eq!(Option::<Area>::from_key("home"), Some(Some(Area::Home)));
+    assert_eq!(Leg(7).key(), "leg-7");
+    assert_eq!(Leg::from_key("leg-7"), Some(Leg(7)));
+    assert_eq!(Leg::from_key("leg-x"), None);
+    // RoutePath builds the encoded wire string, params percent-escaped.
+    let p = route(&Area::Drill).then(&Leg(7)).param("q", "a/b");
+    assert_eq!(p.to_route(), "drill/leg-7?q=a%2Fb");
+    assert_eq!(format!("{p}"), "drill/leg-7?q=a%2Fb");
+}
+
+#[test]
+fn typed_routes_drive_selector_and_stack() {
+    // A Signal<Option<Area>> sidebar over a Signal<Vec<Leg>> stack: the same wire-format
+    // routes drive them, but the app-facing state and destinations are typed values.
+    let section = Signal::new(None::<Area>);
+    let seen: Rc<RefCell<Vec<String>>> = Rc::default();
+    let probe = boot({
+        let seen = seen.clone();
+        move || {
+            selector(section)
+                .title("Root")
+                .item(Area::Home, "Home", || label("home-content"))
+                .item(Area::Drill, "Drill", {
+                    let seen = seen.clone();
+                    move || {
+                        let path = Signal::new(Vec::<Leg>::new());
+                        let seen = seen.clone();
+                        stack(path, label("drill-root")).destination(move |leg: &Leg| {
+                            seen.borrow_mut().push(format!(
+                                "{}:{}",
+                                leg.0,
+                                route_param("hint").unwrap_or_default()
+                            ));
+                            label(format!("leg:{}", leg.0))
+                        })
+                    }
+                })
+                .any()
+        }
+    });
+
+    // A typed absolute path descends into the lazily-mounted stack; the destination builder
+    // received the PARSED value (u32 payload), not a string to split.
+    assert!(
+        route(&Area::Drill)
+            .then(&Leg(7))
+            .param("hint", "x")
+            .navigate()
+    );
+    flush_sync();
+    assert_eq!(section.get_untracked(), Some(Area::Drill));
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/leg-7"));
+    assert_eq!(seen.borrow().as_slice(), ["7:x".to_string()]);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "leg:7")
+    );
+
+    // A typed stack VALIDATES absolute segments: "drill/bogus" anchors the section but the
+    // unparseable segment is refused, so the stack stays at its root.
+    assert!(navigate("drill/bogus"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill"));
+
+    // Relative typed navigation and the string wire format address the same items.
+    assert!(navigate_to(&Area::Home));
+    flush_sync();
+    assert_eq!(section.get_untracked(), Some(Area::Home));
+    assert_eq!(day_core::current_route().as_deref(), Some("home"));
+    assert!(navigate("drill"));
+    flush_sync();
+    assert_eq!(section.get_untracked(), Some(Area::Drill));
 }

@@ -161,7 +161,11 @@ stack(path, home_view).destination(|key| detail_view(key))
 ```
 
 Because each surface owns its own signal, nesting costs nothing: a `Tabs` selector or a `stack`
-inside a `Sidebar` selector just works.
+inside a `Sidebar` selector just works. Keys don't have to be strings: declare a
+`day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
+keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the selector to
+`Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>` — same API, compile-checked
+([navigation guide](/docs/navigation#typed-routes)).
 
 ## Deep links and dayscript
 

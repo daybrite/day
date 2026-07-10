@@ -1,15 +1,16 @@
 package dev.daybrite.day.bridge;
 
-import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 
-/** The host Activity (fragment/VC hosting arrives with navigation, §10.5): creates the root
- *  DayFixed and, after first layout (so size/density are known), hands it to Rust. The app's
- *  cdylib name comes from the manifest meta-data key "day.lib". */
-public class DayActivity extends Activity {
+/** The host Activity: creates the root DayFixed and, after first layout (so size/density are
+ *  known), hands it to Rust. The app's cdylib name comes from the manifest meta-data key
+ *  "day.lib". A FragmentActivity so DayNavHost pages ride the androidx FragmentManager back
+ *  stack — which hands system back (all API levels), predictive back gesture seeking (34+),
+ *  and root back-to-home to the platform (docs/navigation.md). */
+public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         String lib = "app";
@@ -93,16 +94,6 @@ public class DayActivity extends Activity {
             return true;
         }
         return false;
-    }
-
-    /** System back: pop the nav stack when there is one; otherwise leave the app. */
-    @Override public void onBackPressed() {
-        DayNavHost nav = DayNavHost.active;
-        if (nav != null && nav.depth() > 0) {
-            DayBridge.nativeOnEvent(nav.hostNode, 5, 0.0, null); // kind 5 = NavBack
-        } else {
-            super.onBackPressed();
-        }
     }
 
     /** Storage Access Framework results (docs/files.md) route back to DayBridge. */

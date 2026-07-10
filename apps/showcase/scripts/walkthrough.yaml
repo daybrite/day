@@ -191,16 +191,17 @@ flow:
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.
   - navigate: { route: tabs }
-  - assert_route: { route: one }
+  # Full-tree routes (docs/navigation.md): the selector key + the tab key.
+  - assert_route: { route: tabs/one }
   - assert_visible: { id: tab-one-content }
   - assert_value: { id: demo-tabs, value: 0 }
   - screenshot: tabs-one
   - navigate: { route: two }
-  - assert_route: { route: two }
+  - assert_route: { route: tabs/two }
   - assert_value: { id: demo-tabs, value: 1 }
   - screenshot: tabs-two
   - navigate: { route: three }
-  - assert_route: { route: three }
+  - assert_route: { route: tabs/three }
   - assert_value: { id: demo-tabs, value: 2 }
   - screenshot: tabs-three
   # Genuine push/pop stack (docs/navigation.md): tapping pushes onto the path signal; the
@@ -210,14 +211,22 @@ flow:
   - screenshot: stack-root
   - tap: { id: stack-push }
   - assert_visible: { id: stack-detail }
-  - assert_route: { route: "1" }
+  # assert_route sees the FULL path: selector key + the stack's segments (docs/navigation.md).
+  - assert_route: { route: stack/1 }
   - screenshot: stack-detail
   - tap: { id: stack-deeper }
-  - assert_route: { route: "2" }
+  - assert_route: { route: stack/1/2 }
   - nav_back:
-  - assert_route: { route: "1" }
+  - assert_route: { route: stack/1 }
   - nav_back:
-  - assert_route: { route: "" }
+  - assert_route: { route: stack }
+  # Absolute route with params: anchors the selector, resets the stack, pushes the segment;
+  # the destination reads ?hint= via route_param.
+  - tap: { id: stack-link }
+  - assert_route: { route: stack/item-42 }
+  - assert_text: { id: stack-param, key: stack-param-hint, args: { hint: "linked" } }
+  - nav_back:
+  - assert_route: { route: stack }
   # Leaving via a route the stack doesn't own falls through to the enclosing selector.
   - navigate: { route: about }
   - assert_route: { route: about }

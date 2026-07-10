@@ -93,6 +93,11 @@ dependencies {
     // widgets the day-android shim creates (MaterialButton, MaterialSwitch, Slider, text fields,
     // progress/loading indicators, BottomNavigationView tabs, Material dialogs).
     implementation("com.google.android.material:material:1.14.0")
+    // Fragment-managed navigation (DayNavHost): fragment 1.7+ dispatches system back through
+    // OnBackPressedDispatcher; 1.8+ with transition 1.5+ SEEKS the pop transition under the
+    // predictive back gesture (docs/navigation.md).
+    implementation("androidx.fragment:fragment:1.8.5")
+    implementation("androidx.transition:transition:1.5.1")
     // Gradle dependencies contributed by standalone pieces (docs/extending.md).
     pieceDeps.forEach { implementation(it) }
 }

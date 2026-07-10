@@ -148,6 +148,15 @@ unsafe extern "C" {
         parent: *mut c_void,
     );
     pub fn day_qt_dismiss_present(req: u64);
+    /// Install the stack-nav back header into a splitter's detail side; returns the NEW pages
+    /// host below it (use in place of pane 1). `cb(id)` fires on the back button.
+    pub fn day_qt_nav_header_install(
+        splitter: *mut c_void,
+        id: u64,
+        cb: extern "C" fn(u64),
+    ) -> *mut c_void;
+    /// Show/hide the back header + set its title (activates layout synchronously).
+    pub fn day_qt_nav_header_update(splitter: *mut c_void, visible: c_int, title: *const c_char);
     pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char);
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
