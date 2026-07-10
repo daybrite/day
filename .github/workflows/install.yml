@@ -1,0 +1,32 @@
+# install — hourly smoke test that the published `day-cli` still installs and runs on a stock host.
+# On each of macOS / Windows / Linux it runs `cargo install day-cli` (from crates.io, with the runner's
+# preinstalled Rust — exactly what a user on a stock toolchain would run) and then `day doctor`. It
+# catches a broken or yanked release, a dependency that stopped compiling, or an OS-specific regression
+# before users hit it. Runs at the top of every hour and can also be started manually.
+name: install
+
+on:
+  schedule:
+    - cron: "0 * * * *" # top of every hour (UTC)
+  workflow_dispatch:
+
+# No repo access needed — this installs from crates.io, it doesn't check out the source.
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: install (${{ matrix.os }})
+    strategy:
+      fail-fast: false # report every OS independently — one break shouldn't hide the others
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # GitHub runners ship a current stable Rust with the cargo bin dir on PATH, so no setup needed.
+      - name: cargo install day-cli
+        run: cargo install day-cli
+      # `day` is now on PATH (installed to ~/.cargo/bin). doctor is lenient — a missing OPTIONAL
+      # toolkit is a warning (exit 0); it only fails if the core Rust toolchain is absent.
+      - name: day doctor
+        run: day doctor

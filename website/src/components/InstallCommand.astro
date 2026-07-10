@@ -1,17 +1,8 @@
 ---
-// InstallCommand — the one-liner that installs the day CLI with Cargo, pinned to the latest
-// release tag via `--tag`. The version is read from the workspace Cargo.toml at build time,
-// so every site deploy points at the release the repo is tagged for — no hand-maintained
-// version strings. Usable from .astro pages and .mdx docs alike; the script is idempotent
-// per element, so several copies can coexist on one page.
-// Vite's ?raw import — resolved against the source tree at bundle time (a plain fs read
-// against import.meta.url breaks once the component is bundled into a prerender chunk).
-import manifest from '../../../Cargo.toml?raw';
-
-const version = manifest.match(/^version = "([^"]+)"$/m)?.[1];
-if (!version) throw new Error('InstallCommand: no workspace version found in Cargo.toml');
-
-const command = `cargo install --locked --git https://github.com/daybrite/day --tag v${version} day-cli`;
+// InstallCommand — the recommended one-liner that installs the `day` CLI from crates.io. Usable
+// from .astro pages and .mdx docs alike; the script is idempotent per element, so several copies
+// can coexist on one page.
+const command = 'cargo install day-cli';
 ---
 <div class="install-cmd" data-install-cmd>
   <div class="ic-row">
@@ -22,8 +13,7 @@ const command = `cargo install --locked --git https://github.com/daybrite/day --
     </button>
   </div>
   <p class="ic-note">
-    Builds the <code>day</code> CLI from the latest release tag (v{version}) — requires a
-    stable Rust toolchain via rustup.
+    Installs the <code>day</code> CLI from crates.io — requires a stable Rust toolchain (rustup).
   </p>
 </div>
 
