@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/day-geometry",
+    "crates/day-fonts",
     "crates/day-reactive",
     "crates/day-spec",
     "crates/day-mock",
@@ -55,6 +56,7 @@ exclude = ["apps/matrix"]
 default-members = [
     "crates/day-fluent",
     "crates/day-geometry",
+    "crates/day-fonts",
     "crates/day-reactive",
     "crates/day-spec",
     "crates/day-mock",
@@ -64,6 +66,11 @@ default-members = [
     "crates/day-fluent",
 ]
 
+# crates.io publishing policy: for now ONLY `day-cli` and its two leaf dependencies (`day-fonts`,
+# `day-toolchain`) are published, so `cargo install day-cli` works while the rest of the crate names
+# stay unclaimed and free to rename. Every other member carries `publish = false`, so
+# `cargo publish --workspace` (and the `release` CI job) publishes exactly those three, in dependency
+# order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
 version = "0.0.4"
 authors = ["Daybrite <hello@daybrite.dev>"]
@@ -78,6 +85,7 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 day-geometry = { path = "crates/day-geometry", version = "0.0.4" }
+day-fonts = { path = "crates/day-fonts", version = "0.0.4" }
 day-reactive = { path = "crates/day-reactive", version = "0.0.4" }
 day-spec = { path = "crates/day-spec", version = "0.0.4" }
 day-mock = { path = "crates/day-mock", version = "0.0.4" }

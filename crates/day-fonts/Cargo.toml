@@ -1,0 +1,13 @@
+[package]
+name = "day-fonts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A leaf crate: an sfnt `name`-table reader + the family→identifier/file rules shared by the CLI
+# (staging-time font discovery) and the runtimes (startup registration). Pure std — no day deps — so
+# depending on it costs nothing, unlike pulling the whole toolkit spec (day-spec → day-geometry).
+[dependencies]

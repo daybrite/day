@@ -313,8 +313,7 @@ name = "day-cli"
 version = "0.0.4"
 dependencies = [
  "clap",
- "day-script",
- "day-spec",
+ "day-fonts",
  "day-toolchain",
  "libc",
  "serde",
@@ -341,6 +340,10 @@ dependencies = [
  "day-l10n",
  "day-pieces",
 ]
+
+[[package]]
+name = "day-fonts"
+version = "0.0.4"
 
 [[package]]
 name = "day-geometry"
@@ -762,6 +765,7 @@ dependencies = [
 name = "day-spec"
 version = "0.0.4"
 dependencies = [
+ "day-fonts",
  "day-geometry",
  "memmap2",
 ]

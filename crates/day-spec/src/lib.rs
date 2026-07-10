@@ -13,8 +13,10 @@ pub mod resource;
 pub use resource::{Resource, ResourceOpener, resolve_image_file, resource, set_resource_opener};
 
 /// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution
-/// (§18.4). Shared by the CLI stagers and the backends' startup registration.
-pub mod fonts;
+/// (§18.4). Shared by the CLI stagers and the backends' startup registration. Lives in the leaf
+/// `day-fonts` crate (pure std, no `day-geometry`), re-exported here so `day_spec::fonts::…` is
+/// unchanged for the backends while the CLI can depend on `day-fonts` alone.
+pub use day_fonts as fonts;
 
 // ---------------------------------------------------------------------------
 // Identity

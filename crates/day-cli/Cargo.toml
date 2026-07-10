@@ -19,10 +19,11 @@ serde_json = "1"
 sha2 = "0.10"
 # Shared host-toolchain/SDK discovery (docs/environment.md) — same code the build scripts use.
 day-toolchain = { workspace = true }
-day-script = { workspace = true }
-# Font name-table parsing + family→ident rules (§18.4) — the SAME code the runtimes use, so the
-# names the stagers derive always match what the backends look up.
-day-spec = { workspace = true }
+# Font name-table parsing + family→ident rules (§18.4) — the SAME leaf crate the runtimes use (via
+# `day_spec::fonts`), so the names the stagers derive always match what the backends look up. These
+# two leaves are the CLI's only day deps; base64 for dayscript replies is inlined in `script.rs`,
+# and everything else labelled `day_*` in `new.rs` is scaffold template text, not a real dependency.
+day-fonts = { workspace = true }
 
 # Ctrl-C child cleanup uses POSIX signals only (Windows relies on console propagation).
 [target.'cfg(unix)'.dependencies]

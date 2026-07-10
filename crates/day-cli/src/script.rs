@@ -347,7 +347,34 @@ pub fn make_token() -> String {
     )
 }
 
-/// Local re-export point so this module owns no base64 logic.
+/// A minimal standalone base64 decoder — dayscript replies (screenshots, a11y dumps) come back
+/// base64-encoded. Inlined here so the CLI needn't pull in `day-script` (and its whole runtime graph:
+/// day-core/reactive/pieces/fluent/l10n) for one small function; `day-script` keeps its own copy for
+/// the app side.
 mod day_script_b64 {
-    pub use day_script::b64decode;
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub fn b64decode(s: &str) -> Vec<u8> {
+        let val = |c: u8| B64.iter().position(|&x| x == c).unwrap_or(0) as u32;
+        let bytes: Vec<u8> = s.bytes().filter(|&c| c != b'\n' && c != b'\r').collect();
+        let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+        for chunk in bytes.chunks(4) {
+            if chunk.len() < 4 {
+                break;
+            }
+            let pad = chunk.iter().filter(|&&c| c == b'=').count();
+            let n = (val(chunk[0]) << 18)
+                | (val(chunk[1]) << 12)
+                | (val(if chunk[2] == b'=' { b'A' } else { chunk[2] }) << 6)
+                | val(if chunk[3] == b'=' { b'A' } else { chunk[3] });
+            out.push((n >> 16) as u8);
+            if pad < 2 {
+                out.push((n >> 8) as u8);
+            }
+            if pad < 1 {
+                out.push(n as u8);
+            }
+        }
+        out
+    }
 }

@@ -109,7 +109,7 @@ fn parse_scale(stem: &str) -> (String, u32) {
 
 /// A bundled font file (§18.4): its source path, the family name parsed from the font's `name`
 /// table (what `Font::Custom` matches on), and the Android/ArkUI resource identifier derived
-/// from that family (the same rule the runtimes re-derive — `day_spec::fonts::font_ident`).
+/// from that family (the same rule the runtimes re-derive — `day_fonts::font_ident`).
 #[derive(Debug, Clone)]
 pub struct FontFile {
     pub path: PathBuf,
@@ -172,10 +172,10 @@ pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
             ));
         }
         let bytes = std::fs::read(&path).map_err(|e| format!("fonts/{fname}: {e}"))?;
-        let names = day_spec::fonts::parse_font_names(&bytes).ok_or_else(|| {
+        let names = day_fonts::parse_font_names(&bytes).ok_or_else(|| {
             format!("fonts/{fname}: not a recognizable font file (no readable name table)")
         })?;
-        let ident = day_spec::fonts::font_ident(&names.family);
+        let ident = day_fonts::font_ident(&names.family);
         if let Some(prev) = out.iter().find(|f| f.ident == ident) {
             return Err(format!(
                 "fonts/{fname}: family {:?} collides with {}'s family {:?} on the sanitized \
