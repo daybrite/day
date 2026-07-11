@@ -312,12 +312,13 @@ fn winui_style(f: Font) -> (f64, day_spec::FontWeight) {
     }
 }
 
-/// Apply a `Font::Custom` family on top of `day_winui_label_set_font`. Unpackaged Win32 XAML has
-/// no font-registration API; instead XAML loads the file directly via the
-/// "<absolute path>#<family>" FontFamily form, so map the family back to the staged file
-/// (`DAY_FONT_ROOT` under `day launch`, `fonts/` next to the exe when packed) and hand the shim
-/// the combined spec. Resolution parses font name tables, so it is cached per family; a missing
-/// family logs once and leaves the system font in place.
+/// Apply a `Font::Custom` family on top of `day_winui_label_set_font` (which set size/weight).
+/// Unpackaged Win32 XAML can't load a font by file path — a raw path isn't a valid `Uri` and
+/// `file://` is rejected (exactly like `BitmapImage`; see the image-loading path). The one font
+/// location system XAML *does* resolve is `ms-appx:///`, which maps to the executable's directory
+/// and its subtree, so `stage_bundled_fonts` copies each font under `<exe>/fonts/` and here we
+/// reference it as `ms-appx:///fonts/<file>#<family>`. Resolution parses font name tables, so it is
+/// cached per family; an unknown family logs once and leaves the system font in place.
 fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
     let Font::Custom(family, _) = spec.style else {
         return;
@@ -330,8 +331,12 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
         let mut cache = cache.borrow_mut();
         let entry =
             cache.entry(family).or_insert_with(|| {
-                match day_spec::fonts::resolve_font_file(family) {
-                    Some(path) => Some(cstr(&format!("{}#{}", path.display(), family))),
+                match day_spec::fonts::resolve_font_file(family)
+                    .as_deref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                {
+                    Some(file) => Some(cstr(&format!("ms-appx:///fonts/{file}#{family}"))),
                     None => {
                         eprintln!(
                             "day: unknown font family {family:?} — falling back to the system font \
@@ -345,6 +350,36 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
             unsafe { ffi::day_winui_label_set_font_family(h, s.as_ptr()) };
         }
     });
+}
+
+/// Stage the bundled font files (§18.4) next to the executable so XAML can load them. Unpackaged
+/// system XAML only resolves fonts under `ms-appx:///` (the exe directory and its subtree), so copy
+/// every `DAY_FONT_ROOT` font into `<exe>/fonts/` — a no-op when packed, where `day pack` already
+/// ships them there (`font_dir()` returns that same directory, so src == dst). `apply_custom_family`
+/// then references each as `ms-appx:///fonts/<file>#<family>`.
+fn stage_bundled_fonts() {
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("fonts")))
+    else {
+        return;
+    };
+    for src in day_spec::fonts::bundled_fonts() {
+        let Some(dst) = src.file_name().map(|n| dir.join(n)) else {
+            continue;
+        };
+        if src == dst {
+            continue; // already staged next to the exe (packed apps)
+        }
+        if let Err(e) =
+            std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
+        {
+            eprintln!(
+                "day-winui: could not stage bundled font {}: {e}",
+                src.display()
+            );
+        }
+    }
 }
 
 /// Day weight → Windows.UI.Text.FontWeight numeric value (Thin=100 … Black=900).
@@ -1363,6 +1398,9 @@ impl Platform for WinUi {
                 return;
             }
             self.window = win;
+            // Bundled fonts (§18.4): stage every file into `<exe>/fonts/` before the app builds its
+            // tree, so `Font::Custom` families resolve via `ms-appx:///fonts/…` inside XAML.
+            stage_bundled_fonts();
             // Taskbar/title icon (§18.2): the .ico `day launch` resolved from icons/windows/.
             if let Ok(icon) = std::env::var("DAY_APP_ICON") {
                 ffi::day_winui_set_app_icon(win, cstr(&icon).as_ptr());

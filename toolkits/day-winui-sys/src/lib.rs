@@ -59,7 +59,8 @@ unsafe extern "C" {
     pub fn day_winui_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_winui_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_winui_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);
-    /// Bundled custom font (§18.4): `spec` is XAML's "<absolute font file path>#<family>" form.
+    /// Bundled custom font (§18.4): `spec` is a `FontFamily` source of the form
+    /// "ms-appx:///fonts/<file>#<family>" (the font staged under `<exe>/fonts/`).
     pub fn day_winui_label_set_font_family(w: *mut c_void, spec: *const c_char);
     /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
     pub fn day_winui_label_set_color(w: *mut c_void, argb: u32);

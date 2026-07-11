@@ -10,7 +10,7 @@ uncompressed wherever the platform allows, so the runtime can return a zero-copy
 |---|---|---|---|
 | `images/` | processed images | `image("logo")` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
 | `assets/` | arbitrary data | `resource("stations.json")` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `fonts/` | custom fonts | `Font::Custom("Family", pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `path#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `fonts/` | custom fonts | `Font::Custom("Family", pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
 
 ## Images — `image("name")`
 
@@ -88,10 +88,12 @@ Per platform:
   The label carries a Pango `AttrString::new_family` attribute.
 - **Qt:** `QFontDatabase::addApplicationFont` per file at startup (shim `day_qt_register_font`);
   labels get `QFont::setFamily` on top of the size/weight/italic font.
-- **WinUI:** unpackaged Win32 XAML has no registration API — the shim sets
-  `FontFamily("<absolute path>#<family>")`, with the family→file mapping resolved (and cached)
-  through `day_spec::fonts::resolve_font_file` against `DAY_FONT_ROOT` / the exe-relative
-  `fonts/` dir.
+- **WinUI:** unpackaged Win32 XAML has no registration API and rejects `file://`/absolute font
+  locations (like `BitmapImage`). The one location system XAML resolves is `ms-appx:///`, mapped to
+  the executable directory and its subtree, so `run()` stages every bundled font into `<exe>/fonts/`
+  (a no-op when packed — `day pack` already ships them there) and the shim sets
+  `FontFamily("ms-appx:///fonts/<file>#<family>")`. The family→file mapping is resolved (and cached)
+  through `day_spec::fonts::resolve_font_file` against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/ohos scaffold's EntryAbility feeds it to ArkTS
   `font.registerFont` (building the rawfile `Resource` object by hand — `$rawfile()` only takes
