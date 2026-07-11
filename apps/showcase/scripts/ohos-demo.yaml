@@ -7,13 +7,13 @@ flow:
   - navigate: { route: controls }
   - pause: 1
   - screenshot: controls
-  - navigate: { route: gauge }
+  - navigate: { route: canvas }
   - pause: 1
   - screenshot: gauge
-  - navigate: { route: shapes }
+  - navigate: { route: canvas }
   - pause: 1
   - screenshot: shapes
-  - navigate: { route: battery }
+  - navigate: { route: system }
   - pause: 1
   - screenshot: battery
   - navigate: { route: tabs }

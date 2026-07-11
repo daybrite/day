@@ -338,7 +338,11 @@ mod imp {
                     let n = new_node(K_STACK);
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         unsafe {
-                            if let Some(c) = p.background {
+                            if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                                // A translucent neutral fill reads as a subtle card on BOTH the
+                                // light and dark ArkUI themes (no public semantic-fill API).
+                                ffi::day_ark_set_bg_color(n.0, 0x14808080);
+                            } else if let Some(c) = p.background {
                                 ffi::day_ark_set_bg_color(n.0, argb(c));
                             }
                             if p.corner_radius > 0.0 {

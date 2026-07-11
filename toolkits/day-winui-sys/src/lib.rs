@@ -25,6 +25,7 @@ unsafe extern "C" {
 
     // containers
     pub fn day_winui_container_new() -> *mut c_void;
+    pub fn day_winui_container_set_card(h: *mut c_void, radius: f64);
     // A ScrollViewer (docs §7.6): returns the host; `out_content` receives the inner content Canvas
     // (day adds children there and reports the content extent via set_content_size).
     pub fn day_winui_scroll_new(out_content: *mut *mut c_void) -> *mut c_void;

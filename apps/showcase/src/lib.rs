@@ -71,31 +71,19 @@ day::routes! {
     /// and any `navigate_to`/`route` call sites are compile-checked against this enum.
     pub(crate) enum Section {
         Controls => "controls",
-        Menus => "menus",
         Text => "text",
-        Gauge => "gauge",
-        Battery => "battery",
-        Sensors => "sensors",
-        Clipboard => "clipboard",
-        Network => "network",
-        Haptics => "haptics",
-        Prefs => "prefs",
-        DeviceInfo => "deviceinfo",
-        Shapes => "shapes",
-        Pickers => "pickers",
-        Compose => "compose",
-        Tweaks => "tweaks",
-        Activity => "activity",
-        Search => "search",
+        Canvas => "canvas",
+        System => "system",
+        Services => "services",
+        Menus => "menus",
         Modals => "modals",
-        Files => "files",
+        List => "list",
         Tabs => "tabs",
         Stack => "stack",
-        List => "list",
         Media => "media",
         Resources => "resources",
         WebView => "webview",
-        Lottie => "lottie",
+        Tweaks => "tweaks",
         Map => "map",
         About => "about",
     }
@@ -118,7 +106,7 @@ pub fn root() -> AnyPiece {
     // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
     install_lifecycle_handlers();
     // Deep-link: open directly on a section when `DAY_DEMO_ROUTE` is set (`day launch --env
-    // DAY_DEMO_ROUTE=gauge`), else start at the root menu. Handy for driving the emulator when
+    // DAY_DEMO_ROUTE=canvas`), else start at the root menu. Handy for driving the emulator when
     // synthetic input is unreliable.
     let section = Signal::new(
         std::env::var("DAY_DEMO_ROUTE")
@@ -130,33 +118,19 @@ pub fn root() -> AnyPiece {
         .title(tr("app-title"))
         .header(sidebar_header)
         .item(Section::Controls, tr("nav-controls"), controls_page)
-        .item(Section::Menus, tr("nav-menus"), menus_page)
         .item(Section::Text, tr("nav-text"), text_page)
-        .item(Section::Gauge, tr("nav-gauge"), gauge_page)
-        .item(Section::Battery, tr("nav-battery"), battery_page)
-        .item(Section::Sensors, tr("nav-sensors"), sensors_page)
-        .item(Section::Clipboard, tr("nav-clipboard"), clipboard_page)
-        .item(Section::Network, tr("nav-network"), network_page)
-        .item(Section::Haptics, tr("nav-haptics"), haptics_page)
-        .item(Section::Prefs, tr("nav-prefs"), prefs_page)
-        .item(Section::DeviceInfo, tr("nav-deviceinfo"), deviceinfo_page)
-        .item(Section::Shapes, tr("nav-shapes"), shapes_page)
-        .item(Section::Pickers, tr("nav-pickers"), pickers_page)
-        .item(Section::Compose, tr("nav-compose"), compose_page)
-        .item(Section::Tweaks, tr("nav-tweaks"), tweaks_page)
-        .item(Section::Activity, tr("nav-activity"), activity_page)
-        .item(Section::Search, tr("nav-search"), search_page)
+        .item(Section::Canvas, tr("nav-canvas"), canvas_page)
+        .item(Section::System, tr("nav-system"), system_page)
+        .item(Section::Services, tr("nav-services"), services_page)
+        .item(Section::Menus, tr("nav-menus"), menus_page)
         .item(Section::Modals, tr("nav-modals"), modals_page)
-        .item(Section::Files, tr("nav-files"), files_page)
+        .item(Section::List, tr("nav-list"), list_page)
         .item(Section::Tabs, tr("nav-tabs"), tabs_page)
         .item(Section::Stack, tr("nav-stack"), stack_page)
-        .item(Section::List, tr("nav-list"), list_page)
         .item(Section::Media, tr("nav-media"), media_page)
         .item(Section::Resources, tr("nav-resources"), resources_page)
-        .item(Section::WebView, tr("nav-webview"), webview_page);
-    // A native Lottie animation view — iOS + Android only (docs/lottie.md).
-    #[cfg(any(target_os = "ios", target_os = "android"))]
-    let nav = nav.item(Section::Lottie, tr("nav-lottie"), lottie_page);
+        .item(Section::WebView, tr("nav-webview"), webview_page)
+        .item(Section::Tweaks, tr("nav-tweaks"), tweaks_page);
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let nav = nav.item(Section::Map, tr("nav-map"), map_page);

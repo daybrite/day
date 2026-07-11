@@ -2,7 +2,7 @@ name: battery-shot
 description: Battery visualization states — charging bolt, low-red, amber.
 flow:
   - wait_for: { id: home-title }
-  - navigate: { route: battery }
+  - navigate: { route: system }
   - set_value: { id: battery-level, value: 65 }
   - toggle: { id: battery-charging, value: true }
   - screenshot: battery-charging

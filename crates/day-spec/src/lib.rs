@@ -62,6 +62,16 @@ pub mod kinds {
 pub struct NodeId(pub u64);
 
 /// Default navigation sidebar width (split presentation) until the pane reports its size.
+/// Semantic container surfaces (see `ContainerProps::role`): each backend maps a role to its
+/// own theme-adaptive material so the fill tracks light/dark mode without app code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SurfaceRole {
+    /// A form `section` card: the platform's grouped-content background — AppKit quaternary
+    /// system fill, libadwaita `.card`, Qt `palette(alternate-base)`, UIKit tertiary system
+    /// fill, Material surface-container, WinUI card background brush.
+    SectionCard,
+}
+
 pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
 
 /// Reserved id for window-level events (resize, lifecycle): day-core routes it to the root.
@@ -625,6 +635,10 @@ pub mod props {
         pub background: Option<Color>,
         pub corner_radius: f64,
         pub clips: bool,
+        /// Semantic, THEME-ADAPTIVE surface — mapped by each backend to a native material that
+        /// follows the platform's light/dark appearance automatically (unlike the fixed-RGBA
+        /// `background`, which it overrides when set).
+        pub role: Option<super::SurfaceRole>,
     }
     /// Reactive surface update for a `background(..)` decorator whose color is a signal/closure:
     /// the backend re-applies the fill on the container's native backing view. Corner radius and

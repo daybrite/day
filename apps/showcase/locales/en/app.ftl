@@ -10,20 +10,17 @@ greeting = Hello, { $name }!
 volume-label = Volume
 progress-label = Progress
 busy-label = Busy
-subscribe-a11y = Subscribe to updates
 flavor-label = Flavor
 history-title = History
 history-entry = count became { $value }
 nav-controls = Controls
 nav-menus = Menus
 nav-text = Text
-nav-gauge = Gauge
 nav-battery = Battery
 nav-sensors = Sensors
 nav-clipboard = Clipboard
 nav-network = Network
 nav-media = Media
-nav-shapes = Shapes
 nav-pickers = Pickers
 nav-compose = Compose
 nav-files = Files
@@ -37,8 +34,6 @@ nav-about = About
 shapes-kinds = Kinds
 shapes-transform = Transform
 shapes-angle = Angle
-shapes-tap = Tap to recolor
-shapes-drag = Drag to move
 
 picker-segmented = Segmented
 picker-menu = Menu
@@ -48,14 +43,10 @@ compose-caption = Pure-composition pieces — no native code, no cargo features,
 compose-rating-label = Star rating
 compose-rating-count = Stars selected:
 compose-rating-placeholder = 1–5
-compose-card-label = Card modifier
 compose-card-title = Reusable surface
 compose-card-body = Padding + background + rounded corners, applied as a Modifier.
-compose-badge-label = Badge overlay
-compose-buttons-label = Button styles
 compose-plain-btn = Plain
 compose-styled-btn = Filled
-compose-env-label = Ambient environment
 compose-env-value = Tinted by the provided accent
 list-add = Add 100
 list-caption = { $count } rows — only the visible cells are built
@@ -110,16 +101,13 @@ files-save = Save File…
 files-opened = Opened { $name }
 
 # Battery playground (docs/battery.md)
-battery-caption = The day-part-battery part reads the device battery natively; the canvas draws it.
 battery-refresh = Read Device Battery
-battery-preview = Preview
 battery-level = Level
 battery-charging = Charging
 battery-reading = Battery: { $percent } · { $state }
 battery-reading-none = Battery: no battery API on this platform
 
 # Sensors playground (docs/sensors.md)
-sensors-caption = The day-part-sensors part polls the device's motion sensors natively.
 sensors-refresh = Read Sensors
 sensor-accelerometer = Accelerometer
 sensor-gyroscope = Gyroscope
@@ -140,7 +128,6 @@ clipboard-pasted = Pasted from the system clipboard
 clipboard-empty = Clipboard is empty (or unreadable in the background)
 
 # Network playground (docs/network.md)
-network-caption = The day-part-network part reads the device's connectivity snapshot natively.
 network-refresh = Read Network
 network-reading-online = Online · { $kind } · metered: { $expensive }
 network-reading-offline = Offline
@@ -172,7 +159,6 @@ menus-shortcut-hint = Keyboard shortcuts (⌘/Ctrl + key) are shown in the menu 
 
 # --- day-part-haptics ---
 nav-haptics = Haptics
-haptics-caption = The day-part-haptics part plays native haptic feedback — each button fires one pattern.
 haptics-supported-yes = Haptic engine available on this platform
 haptics-supported-no = No haptic engine on this platform (buttons are silent)
 haptics-light = Light
@@ -210,7 +196,6 @@ resources-greeting = greeting.txt: { $text }
 
 # --- day-part-deviceinfo ---
 nav-deviceinfo = Device Info
-deviceinfo-caption = Device identity read through the native platform API (headless day-part-deviceinfo).
 deviceinfo-model = Model: {$value}
 deviceinfo-system = System: {$name} {$version}
 deviceinfo-simulator = Simulator: {$value}
@@ -219,16 +204,12 @@ deviceinfo-no = no
 deviceinfo-refresh = Refresh
 
 # --- day-piece-activity ---
-nav-activity = Activity
-activity-caption = An indeterminate spinner shows work of unknown length.
 activity-animating = Animating
 activity-on = Spinning
 activity-off = Stopped
-activity-large-label = Large
 
 # --- day-piece-searchfield ---
 nav-search = Search
-search-caption = Type to filter the list; the result label shows the first match.
 search-placeholder = Search fruit…
 search-clear = Clear
 
@@ -254,3 +235,17 @@ tweaks-ref-title = NativeRef liveness
 tweaks-ref-caption = A NativeRef reaches the tweaked slider after mount; unmount it and the ref clears instead of dangling.
 tweaks-ref-live = ref: live
 tweaks-ref-cleared = ref: cleared
+
+# — merged section pages (design overhaul) —
+nav-canvas = Canvas & shapes
+nav-system = Device & sensors
+nav-services = Platform services
+controls-caption = Two-way bindings: every control is a projection of an app-owned signal.
+controls-basics = Basics
+controls-feedback = Feedback
+canvas-caption = Shapes, transforms, gestures, and composition-tier widgets — all drawn through the canvas.
+canvas-gauge = Canvas gauge
+shapes-interact-hint = Drag the slider to rotate, tap the circle to recolor, drag the purple square to move it.
+system-caption = The headless device-state parts: battery, connectivity, motion sensors, and device identity.
+services-caption = The headless "do something with the OS" parts: clipboard, preferences, haptics, and file pickers.
+subscribe-label = Subscribe

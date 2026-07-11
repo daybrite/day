@@ -68,6 +68,24 @@ public final class DayBridge {
     /** A `background`/`corner_radius` surface: a GradientDrawable (rounded rect) as the view's
      *  background, plus clipToOutline so a corner radius also clips child views. `argb` is packed
      *  0xAARRGGBB (used only when `hasBg`); `radiusPx` is already density-scaled. */
+    /** SurfaceRole::SectionCard — the M3 grouped-card fill, resolved from the ACTIVE theme
+     *  (colorSurfaceContainer, falling back to colorSurfaceVariant), so it adapts to the app's
+     *  light/dark configuration. */
+    public static void setSectionCard(View v, float radiusPx) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        boolean ok = ctx.getTheme().resolveAttribute(
+                com.google.android.material.R.attr.colorSurfaceContainer, tv, true);
+        if (!ok) {
+            ok = ctx.getTheme().resolveAttribute(
+                    com.google.android.material.R.attr.colorSurfaceVariant, tv, true);
+        }
+        GradientDrawable d = new GradientDrawable();
+        if (ok) d.setColor(tv.data);
+        d.setCornerRadius(radiusPx);
+        v.setBackground(d);
+        v.setClipToOutline(true);
+    }
+
     public static void setSurface(View v, int argb, boolean hasBg, float radiusPx, boolean clips) {
         GradientDrawable d = new GradientDrawable();
         if (hasBg) d.setColor(argb);

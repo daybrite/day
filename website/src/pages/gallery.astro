@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import manifest from '../data/gallery-manifest.json';
-import { url } from '../lib/site';
+import { site, url } from '../lib/site';
 
 // The manifest is assembled before every build by the gallery integration: from CI screenshot
 // artifacts on GitHub Actions, or as placeholders locally. See integrations/gallery.mjs.
@@ -61,6 +61,15 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
           <div class="row">
             <div class="container row-head">
               <h3 class="row-title">{shot.label}</h3>
+              {shot.source && (
+                <a
+                  class="row-src"
+                  href={`${site.repo}/blob/main/${shot.source}`}
+                  target="_blank"
+                  rel="noopener"
+                  title={`View the code this screen is rendered from: ${shot.source}`}
+                >{shot.source.split('/').pop()}</a>
+              )}
             </div>
             <div class="strip-wrap">
               <div class="strip container-pad">
@@ -195,6 +204,17 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     font-size: 0.95rem; font-weight: 700; margin: 0 0 12px;
     text-transform: uppercase; letter-spacing: 0.1em; color: var(--sun);
   }
+  /* The page-source link: the file the row's screen is rendered from, monospace like a path. */
+  .row-src {
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.74rem; color: var(--faint);
+    text-decoration: none;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 2px 10px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .row-src::before { content: '</> '; opacity: 0.65; }
+  .row-src:hover { color: var(--muted); border-color: var(--muted); text-decoration: none; }
   /* Full-bleed horizontal strip: the row scrolls sideways independently of the page. */
   .strip-wrap { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
   .strip {

@@ -48,7 +48,7 @@ const PRIMARY_KEY = PRIMARY_PLATFORMS.join(',');
 // Shots tried per platform, richest-looking UI first. The first (up to MAX_PER_PLATFORM) that pass
 // verification are admitted, so a platform missing "home" still contributes via "controls", etc.
 const PREFERRED_SHOTS = [
-  'home', 'controls', 'gauge', 'stack-detail', 'text', 'tabs-one', 'resources', 'battery', 'tweaks',
+  'home', 'controls', 'canvas', 'stack-detail', 'text', 'tabs-one', 'resources', 'system', 'tweaks',
 ];
 const MAX_PER_PLATFORM = 2;
 

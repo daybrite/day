@@ -105,7 +105,7 @@ export function assembleGallery(opts = {}) {
           variants,
         };
       });
-      return { id: shot.id, label: shot.label, byPlatform };
+      return { id: shot.id, label: shot.label, source: shot.source ?? null, byPlatform };
     });
 
     return {

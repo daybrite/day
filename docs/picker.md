@@ -46,7 +46,7 @@ echo-guarded per backend (idClicked-only / suppress flags / signal blocking) so 
 
 ## Verification
 
-The showcase **Pickers** page (`pickers_page`) shows all three styles, each with a live value label.
+The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles, each with a live value label.
 Rendering and correct initial selection are screenshot-verified on all 5 local targets (AppKit, GTK,
 Qt, iOS-sim, Android-emu). The walkthrough drives `select` on each picker and asserts the bound value
 label follows (`picker-*-value`), which proves the two-way binding round-trips both the signal and the

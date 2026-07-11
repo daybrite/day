@@ -4,7 +4,8 @@ use day_piece_media::media;
 /// A native media player (day-piece-media, an EXTERNAL standalone piece): AVPlayerView /
 /// AVPlayerViewController / QMediaPlayer+QVideoWidget / android.widget.VideoView / GtkVideo.
 /// Transport is imperative via `Trigger`s the piece watches; native chrome (where the toolkit
-/// has one) offers its own controls too. The player fills the remaining space (a growing leaf).
+/// has one) offers its own controls too. On iOS/Android a bundled Lottie animation
+/// (day-piece-lottie) joins the page.
 pub(crate) fn media_page() -> AnyPiece {
     let url = Signal::new(
         "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4".to_string(),
@@ -12,7 +13,7 @@ pub(crate) fn media_page() -> AnyPiece {
     let play = Trigger::new();
     let pause = Trigger::new();
     let load = Trigger::new();
-    column((
+    let player = column((
         label(tr("nav-media")).font(Font::Title).id("media-title"),
         row((
             button(tr("media-play"))
@@ -37,6 +38,46 @@ pub(crate) fn media_page() -> AnyPiece {
     ))
     .spacing(10.0)
     .align(HAlign::Leading)
-    .padding(16.0)
-    .any()
+    .padding(16.0);
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    let player = column((player, lottie_section())).align(HAlign::Leading);
+    player.any()
 }
+
+/// A native Lottie animation (day-piece-lottie): a LottieAnimationView driven by airbnb's
+/// lottie-ios (SwiftPM) / lottie-android (Gradle). Renders the bundled `hello.json`, looping.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn lottie_section() -> impl Piece {
+    // Playback rate, bound two ways: the slider drives it and `.speed(speed)` pushes it to the
+    // native LottieAnimationView live (a `Speed` patch per change).
+    let speed = Signal::new(1.0);
+    column((
+        label(tr("nav-lottie"))
+            .font(Font::Headline)
+            .id("lottie-title"),
+        label(tr("lottie-caption"))
+            .font(Font::Footnote)
+            .id("lottie-caption"),
+        lottie("hello")
+            .speed(speed)
+            .frame(220.0, 220.0)
+            .id("lottie-view"),
+        labeled(
+            tr("lottie-speed"),
+            row((
+                slider(speed)
+                    .range(0.25..=3.0)
+                    .step(0.25)
+                    .id("lottie-speed-slider"),
+                label(move || format!("{:.2}×", speed.get())).id("lottie-speed-value"),
+            ))
+            .spacing(8.0),
+        ),
+    ))
+    .spacing(10.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+use day_piece_lottie::lottie;

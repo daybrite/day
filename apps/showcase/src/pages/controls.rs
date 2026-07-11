@@ -1,10 +1,30 @@
 use day::prelude::*;
+use day_piece_activity::activity;
 use day_piece_combobox::combo_box;
+use day_piece_picker::picker;
+use day_piece_searchfield::search_field;
 
-use crate::widgets::history;
+use crate::widgets::{history, page};
 
-/// Every interactive control, with stable ids for the walkthrough (§14).
+/// Every interactive control, grouped as a form (docs/forms.md) with stable ids for the
+/// walkthrough (§14): the basics (counter, text, slider, toggle), the picker stylings, search,
+/// and progress/activity feedback — each in its own themed section, labels aligned form-wide.
 pub(crate) fn controls_page() -> AnyPiece {
+    page(
+        tr("nav-controls"),
+        "controls-title",
+        Some(tr("controls-caption")),
+        form((
+            basics_section(),
+            pickers_section(),
+            search_section(),
+            feedback_section(),
+        ))
+        .any(),
+    )
+}
+
+fn basics_section() -> impl Piece {
     let count = Signal::new(0i64);
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
@@ -15,62 +35,53 @@ pub(crate) fn controls_page() -> AnyPiece {
         "pistachio".into(),
     ]);
     let flavor = Signal::new(Some(0usize));
-
-    scroll(
-        column((
-            label(tr("nav-controls"))
-                .font(Font::Title)
-                .id("controls-title"),
-            // — state: counter —
+    section((
+        // — state: counter —
+        row((
+            // The buttons log to the two standard streams (stderr / stdout) so
+            // `day launch` can demonstrate forwarding both, per platform.
+            button(tr("decrement"))
+                .action(move || {
+                    count.update(|c| *c -= 1);
+                    eprintln!("counter decremented to {}", count.get_untracked());
+                })
+                .id("decrement-button"),
+            label(tr("counter-value").arg("count", count)).id("counter-label"),
+            button(tr("increment"))
+                .action(move || {
+                    count.update(|c| *c += 1);
+                    println!("counter incremented to {}", count.get_untracked());
+                })
+                .id("increment-button"),
+        ))
+        .spacing(8.0),
+        // — text input + conditional —
+        text_field(name)
+            .placeholder(tr("name-placeholder"))
+            .id("name-field"),
+        when(
+            move || !name.with(|s| s.is_empty()),
+            move || label(tr("greeting").arg("name", name)).id("greeting-label"),
+        ),
+        // — slider with live readout —
+        labeled(
+            tr("volume-label"),
             row((
-                // The buttons log to the two standard streams (stderr / stdout) so
-                // `day launch` can demonstrate forwarding both, per platform.
-                button(tr("decrement"))
-                    .action(move || {
-                        count.update(|c| *c -= 1);
-                        eprintln!("counter decremented to {}", count.get_untracked());
-                    })
-                    .id("decrement-button"),
-                label(tr("counter-value").arg("count", count)).id("counter-label"),
-                button(tr("increment"))
-                    .action(move || {
-                        count.update(|c| *c += 1);
-                        println!("counter incremented to {}", count.get_untracked());
-                    })
-                    .id("increment-button"),
-            ))
-            .spacing(8.0),
-            divider(),
-            // — text input + conditional —
-            text_field(name)
-                .placeholder(tr("name-placeholder"))
-                .id("name-field"),
-            when(
-                move || !name.with(|s| s.is_empty()),
-                move || label(tr("greeting").arg("name", name)).id("greeting-label"),
-            ),
-            // — slider with live readout —
-            row((
-                label(tr("volume-label")),
                 slider(volume).range(0.0..=100.0).id("volume-slider"),
                 label(move || format!("{:.0}", volume.get())).id("volume-value"),
             ))
             .spacing(8.0),
-            // — a determinate progress bar tracking the slider live, and a spinner —
-            row((
-                label(tr("progress-label")),
-                progress(move || volume.get() / 100.0)
-                    .id("volume-progress")
-                    .a11y(|a| a.role(Role::Meter).label("Volume level")),
-            ))
-            .spacing(8.0),
-            row((label(tr("busy-label")), spinner().id("busy-spinner"))).spacing(8.0),
+        ),
+        labeled(
+            tr("subscribe-label"),
             toggle(subscribed)
                 .id("subscribe-toggle")
                 .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5
-            // — an EXTERNAL Day Piece, registered like any built-in (§8.2, DP-21) —
+        ),
+        // — an EXTERNAL Day Piece, registered like any built-in (§8.2, DP-21) —
+        labeled(
+            tr("flavor-label"),
             row((
-                label(tr("flavor-label")),
                 combo_box(flavors, flavor).id("flavor-combo"),
                 label(move || {
                     let names = flavors.get();
@@ -82,13 +93,141 @@ pub(crate) fn controls_page() -> AnyPiece {
                 .id("flavor-value"),
             ))
             .spacing(8.0),
-            divider(),
-            // — keyed collection (watch + monotonic keys, §5.4 / A.1) —
-            history(count),
+        ),
+        // — keyed collection (watch + monotonic keys, §5.4 / A.1) —
+        history(count),
+    ))
+    .title(tr("controls-basics"))
+}
+
+fn pickers_section() -> impl Piece {
+    let size = Signal::new(1usize);
+    let color = Signal::new(0usize);
+    let plan = Signal::new(0usize);
+    let sizes = ["Small", "Medium", "Large"];
+    let colors = ["Red", "Green", "Blue"];
+    let plans = ["Free", "Pro", "Team"];
+    section((
+        // Segmented — a horizontal one-of-N control.
+        labeled(
+            tr("picker-segmented"),
+            row((
+                picker(sizes, size).segmented().id("picker-segmented"),
+                label(move || sizes[size.get().min(2)].to_string()).id("picker-segmented-value"),
+            ))
+            .spacing(8.0),
+        ),
+        // Menu — a pop-up / dropdown.
+        labeled(
+            tr("picker-menu"),
+            row((
+                picker(colors, color).menu().id("picker-menu"),
+                label(move || colors[color.get().min(2)].to_string()).id("picker-menu-value"),
+            ))
+            .spacing(8.0),
+        ),
+        // Inline — a vertical radio group.
+        labeled(
+            tr("picker-inline"),
+            row((
+                picker(plans, plan).inline().id("picker-inline"),
+                label(move || plans[plan.get().min(2)].to_string()).id("picker-inline-value"),
+            ))
+            .spacing(8.0),
+        ),
+    ))
+    .title(tr("nav-pickers"))
+}
+
+fn search_section() -> impl Piece {
+    let query = Signal::new(String::new());
+    section((
+        // A native search field bound two-way to `query` + a Clear button that sets it to ""
+        // (proving the reverse binding patches the native control).
+        row((
+            search_field(query)
+                .placeholder(tr("search-placeholder"))
+                .id("search-input"),
+            button(tr("search-clear"))
+                .action(move || query.set(String::new()))
+                .id("search-clear"),
         ))
-        .spacing(12.0)
-        .align(HAlign::Leading)
-        .padding(16.0),
+        .spacing(8.0),
+        // First match (a value, not prose) or an em-dash when nothing matches.
+        label(move || search_first_match(&query.get())).id("search-result"),
+        // The filtered fruit list — each row is a reactive `when`-gated label.
+        column((
+            search_fruit_row(query, "Apple"),
+            search_fruit_row(query, "Banana"),
+            search_fruit_row(query, "Cherry"),
+            search_fruit_row(query, "Date"),
+            search_fruit_row(query, "Elderberry"),
+        ))
+        .spacing(4.0)
+        .align(HAlign::Leading),
+    ))
+    .title(tr("nav-search"))
+}
+
+fn feedback_section() -> impl Piece {
+    let volume = Signal::new(65.0f64);
+    // The spinner's running state is a Signal<bool> shared by the piece, the toggle, and a status
+    // label that mirrors it reactively (each `tr(...)` branch is a full literal call for `day lint`).
+    let spinning = Signal::new(true);
+    let status = move || {
+        if spinning.get() {
+            tr("activity-on")
+        } else {
+            tr("activity-off")
+        }
+        .format()
+    };
+    section((
+        labeled(
+            tr("progress-label"),
+            row((
+                slider(volume).range(0.0..=100.0).id("progress-slider"),
+                progress(move || volume.get() / 100.0)
+                    .id("volume-progress")
+                    .a11y(|a| a.role(Role::Meter).label("Volume level")),
+            ))
+            .spacing(8.0),
+        ),
+        labeled(tr("busy-label"), spinner().id("busy-spinner")),
+        labeled(
+            tr("activity-animating"),
+            row((
+                toggle(spinning).id("activity-toggle"),
+                activity().animating(spinning).id("activity-spinner"),
+                label(status).id("activity-status"),
+            ))
+            .spacing(8.0),
+        ),
+    ))
+    .title(tr("controls-feedback"))
+}
+
+const SEARCH_FRUITS: [&str; 5] = ["Apple", "Banana", "Cherry", "Date", "Elderberry"];
+
+/// Case-insensitive substring match; an empty query matches everything.
+fn search_matches(query: &str, fruit: &str) -> bool {
+    query.is_empty() || fruit.to_lowercase().contains(&query.to_lowercase())
+}
+
+/// The first fruit matching `query` (a data value), or an em-dash when none match.
+fn search_first_match(query: &str) -> String {
+    for fruit in SEARCH_FRUITS {
+        if search_matches(query, fruit) {
+            return fruit.to_string();
+        }
+    }
+    "\u{2014}".to_string()
+}
+
+/// One filtered row: a `when`-gated label that appears only while its fruit matches the query.
+fn search_fruit_row(query: Signal<String>, fruit: &'static str) -> AnyPiece {
+    when(
+        move || search_matches(&query.get(), fruit),
+        move || label(fruit),
     )
-    .any()
 }

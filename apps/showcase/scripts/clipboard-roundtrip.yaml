@@ -8,8 +8,8 @@ description: >
   this assertion.
 flow:
   - wait_for: { id: home-title }
-  - navigate: { route: clipboard }
-  - assert_route: { route: clipboard }
+  - navigate: { route: services }
+  - assert_route: { route: services }
   - input: { id: clipboard-field, text: "day walkthrough clip" }
   - tap: { id: clipboard-copy }
   # Overwrite the field so a passing paste proves the value came from the OS clipboard, not the field.

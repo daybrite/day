@@ -58,7 +58,7 @@ code. The change plumbing per backend:
 
 ## Verification
 
-The showcase **Search** page (`search_page`) binds a `search_field` to a `query` signal that filters a
+The showcase **Controls** page (`controls.rs` `search_section`) binds a `search_field` to a `query` signal that filters a
 small fruit list (Apple, Banana, Cherry, Date, Elderberry) case-insensitively. Each match is a
 `when`-gated label in a column, and a `#search-result` label shows the first match. A **Clear** button
 sets the signal to `""` to prove the reverse binding patches the native field. The walkthrough navigates

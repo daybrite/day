@@ -1698,3 +1698,63 @@ fn typed_routes_drive_selector_and_stack() {
     flush_sync();
     assert_eq!(section.get_untracked(), Some(Area::Drill));
 }
+
+// ---------------------------------------------------------------------------
+// Forms (docs/forms.md): form / section / labeled.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn form_aligns_labels_and_sections_carry_the_card_surface() {
+    let on = Signal::new(true);
+    let level = Signal::new(0.5f64);
+    let name = Signal::new(String::new());
+    let probe = boot(move || {
+        form((
+            section((
+                labeled("Short", toggle(on).id("t1")),
+                labeled("A much longer label", slider(level).id("s1")),
+            ))
+            .title("Sound"),
+            section((labeled("Name", text_field(name).id("f1")),)),
+        ))
+    });
+    flush_sync();
+
+    // Both sections realize as containers carrying the theme-adaptive card surface role.
+    let cards: Vec<_> = probe
+        .find_by_kind("day.container")
+        .into_iter()
+        .filter(|(_, w)| w.surface_role == Some(day_spec::SurfaceRole::SectionCard))
+        .collect();
+    assert_eq!(cards.len(), 2, "one card per section");
+    assert!(cards.iter().all(|(_, w)| w.corner_radius > 0.0));
+
+    // The label COLUMN is shared across the whole form: every label's right edge lines up,
+    // and every control's left edge lines up — across sections, not just within one.
+    let labels: Vec<_> = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .filter(|(_, w)| ["Short", "A much longer label", "Name"].contains(&w.text.as_str()))
+        .collect();
+    assert_eq!(labels.len(), 3);
+    let right_edges: Vec<i64> = labels
+        .iter()
+        .map(|(_, w)| (w.frame.origin.x + w.frame.size.width).round() as i64)
+        .collect();
+    assert!(
+        right_edges.windows(2).all(|w| w[0] == w[1]),
+        "label right edges align: {right_edges:?}"
+    );
+
+    let mut control_lefts = Vec::new();
+    for kind in ["day.toggle", "day.slider", "day.text_field"] {
+        for (_, w) in probe.find_by_kind(kind) {
+            control_lefts.push(w.frame.origin.x.round() as i64);
+        }
+    }
+    assert_eq!(control_lefts.len(), 3);
+    assert!(
+        control_lefts.windows(2).all(|w| w[0] == w[1]),
+        "control left edges align: {control_lefts:?}"
+    );
+}

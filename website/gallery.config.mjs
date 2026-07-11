@@ -18,7 +18,9 @@
 // back to the extra directories listed in `variants` (older artifacts used locale subdirs).
 
 /** @typedef {{ id: string, label: string, os: string, toolkit: string }} Platform */
-/** @typedef {{ id: string, label: string }} Shot */
+/** `source` is the repo-relative path of the code that renders the shot (linked from the row
+ *  header, e.g. `apps/showcase/src/pages/controls.rs`).
+ *  @typedef {{ id: string, label: string, source?: string }} Shot */
 
 /** The ten CI targets, grouped by OS for display. Order here is display order. */
 export const platforms = /** @type {Platform[]} */ ([
@@ -63,18 +65,19 @@ export const suites = [
     platforms: platforms.map((p) => p.id),
     hero: 'home',
     shots: [
-      { id: 'home', label: 'Home' },
-      { id: 'controls', label: 'Controls' },
-      { id: 'gauge', label: 'Canvas gauge' },
-      { id: 'battery', label: 'Battery (headless part)' },
-      { id: 'modals', label: 'Dialogs' },
-      { id: 'tabs-one', label: 'Tabs' },
-      { id: 'stack-detail', label: 'Navigation stack' },
-      { id: 'resources', label: 'Bundled resources' },
-      { id: 'webview', label: 'Web view' },
-      { id: 'tweaks', label: 'Tweaks (native config)' },
-      { id: 'text', label: 'Typography & custom fonts' },
-      { id: 'about', label: 'About' },
+      { id: 'home', label: 'Home', source: 'apps/showcase/src/lib.rs' },
+      { id: 'controls', label: 'Controls form', source: 'apps/showcase/src/pages/controls.rs' },
+      { id: 'canvas', label: 'Canvas & shapes', source: 'apps/showcase/src/pages/canvas.rs' },
+      { id: 'system', label: 'Device & sensors', source: 'apps/showcase/src/pages/system.rs' },
+      { id: 'services', label: 'Platform services', source: 'apps/showcase/src/pages/services.rs' },
+      { id: 'modals', label: 'Dialogs', source: 'apps/showcase/src/pages/modals.rs' },
+      { id: 'tabs-one', label: 'Tabs', source: 'apps/showcase/src/pages/tabs.rs' },
+      { id: 'stack-detail', label: 'Navigation stack', source: 'apps/showcase/src/pages/stack.rs' },
+      { id: 'resources', label: 'Bundled resources', source: 'apps/showcase/src/pages/resources.rs' },
+      { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },
+      { id: 'tweaks', label: 'Tweaks (native config)', source: 'apps/showcase/src/pages/tweaks.rs' },
+      { id: 'text', label: 'Typography & custom fonts', source: 'apps/showcase/src/pages/text.rs' },
+      { id: 'about', label: 'About', source: 'apps/showcase/src/pages/about.rs' },
     ],
   },
 ];

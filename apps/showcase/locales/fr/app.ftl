@@ -10,20 +10,17 @@ greeting = Bonjour, { $name } !
 volume-label = Volume
 progress-label = Progression
 busy-label = Occupé
-subscribe-a11y = S'abonner aux mises à jour
 flavor-label = Parfum
 history-title = Historique
 history-entry = le compteur est passé à { $value }
 nav-controls = Contrôles
 nav-menus = Menus
 nav-text = Texte
-nav-gauge = Jauge
 nav-battery = Batterie
 nav-sensors = Capteurs
 nav-clipboard = Presse-papiers
 nav-network = Réseau
 nav-media = Média
-nav-shapes = Formes
 nav-pickers = Sélecteurs
 nav-compose = Composition
 nav-files = Fichiers
@@ -37,8 +34,6 @@ nav-about = À propos
 shapes-kinds = Types
 shapes-transform = Transformation
 shapes-angle = Angle
-shapes-tap = Toucher pour recolorer
-shapes-drag = Glisser pour déplacer
 
 picker-segmented = Segmenté
 picker-menu = Menu
@@ -48,14 +43,10 @@ compose-caption = Pièces de pure composition — sans code natif, sans fonction
 compose-rating-label = Note en étoiles
 compose-rating-count = Étoiles sélectionnées :
 compose-rating-placeholder = 1–5
-compose-card-label = Modificateur Carte
 compose-card-title = Surface réutilisable
 compose-card-body = Marge + arrière-plan + coins arrondis, appliqués comme Modificateur.
-compose-badge-label = Pastille superposée
-compose-buttons-label = Styles de bouton
 compose-plain-btn = Simple
 compose-styled-btn = Rempli
-compose-env-label = Environnement ambiant
 compose-env-value = Teinté par l'accent fourni
 list-add = Ajouter 100
 list-caption = { $count } lignes — seules les cellules visibles sont créées
@@ -110,16 +101,13 @@ files-save = Enregistrer le fichier…
 files-opened = Ouvert : { $name }
 
 # Battery playground (docs/battery.md)
-battery-caption = La part day-part-battery lit la batterie de l'appareil nativement ; le canevas la dessine.
 battery-refresh = Lire la batterie
-battery-preview = Aperçu
 battery-level = Niveau
 battery-charging = En charge
 battery-reading = Batterie : { $percent } · { $state }
 battery-reading-none = Batterie : aucune API batterie sur cette plateforme
 
 # Aire de jeu Capteurs (docs/sensors.md)
-sensors-caption = La part day-part-sensors interroge nativement les capteurs de mouvement de l'appareil.
 sensors-refresh = Lire les capteurs
 sensor-accelerometer = Accéléromètre
 sensor-gyroscope = Gyroscope
@@ -140,7 +128,6 @@ clipboard-pasted = Collé depuis le presse-papiers système
 clipboard-empty = Presse-papiers vide (ou illisible en arrière-plan)
 
 # Aire de jeu Réseau (docs/network.md)
-network-caption = La part day-part-network lit nativement l'état de connectivité de l'appareil.
 network-refresh = Lire le réseau
 network-reading-online = En ligne · { $kind } · facturé : { $expensive }
 network-reading-offline = Hors ligne
@@ -172,7 +159,6 @@ menus-shortcut-hint = Les raccourcis clavier (⌘/Ctrl + touche) apparaissent da
 
 # --- day-part-haptics ---
 nav-haptics = Haptique
-haptics-caption = Le composant day-part-haptics déclenche un retour haptique natif — chaque bouton joue un motif.
 haptics-supported-yes = Moteur haptique disponible sur cette plateforme
 haptics-supported-no = Aucun moteur haptique sur cette plateforme (les boutons sont silencieux)
 haptics-light = Léger
@@ -210,7 +196,6 @@ resources-greeting = greeting.txt : { $text }
 
 # --- day-part-deviceinfo ---
 nav-deviceinfo = Appareil
-deviceinfo-caption = Identité de l'appareil lue via l'API native de la plateforme (day-part-deviceinfo, sans interface).
 deviceinfo-model = Modèle : {$value}
 deviceinfo-system = Système : {$name} {$version}
 deviceinfo-simulator = Simulateur : {$value}
@@ -219,16 +204,12 @@ deviceinfo-no = non
 deviceinfo-refresh = Actualiser
 
 # --- day-piece-activity ---
-nav-activity = Activité
-activity-caption = Un indicateur indéterminé montre un travail de durée inconnue.
 activity-animating = Animation
 activity-on = En rotation
 activity-off = Arrêté
-activity-large-label = Grand
 
 # --- day-piece-searchfield ---
 nav-search = Recherche
-search-caption = Filtrez la liste en tapant ; l'étiquette de résultat affiche la première correspondance.
 search-placeholder = Rechercher un fruit…
 search-clear = Effacer
 
@@ -254,3 +235,17 @@ tweaks-ref-title = Vivacité du NativeRef
 tweaks-ref-caption = Un NativeRef atteint le curseur ajusté après montage ; démontez-le et la référence se vide au lieu de pendre.
 tweaks-ref-live = réf : vivante
 tweaks-ref-cleared = réf : vidée
+
+# — merged section pages (design overhaul) —
+nav-canvas = Canevas et formes
+nav-system = Appareil et capteurs
+nav-services = Services système
+controls-caption = Liaisons bidirectionnelles : chaque contrôle projette un signal de l'application.
+controls-basics = Essentiels
+controls-feedback = Retour visuel
+canvas-caption = Formes, transformations, gestes et widgets composés — tous dessinés via le canevas.
+canvas-gauge = Jauge canevas
+shapes-interact-hint = Glissez le curseur pour pivoter, touchez le cercle pour recolorer, déplacez le carré violet.
+system-caption = Les modules d'état de l'appareil : batterie, connectivité, capteurs et identité.
+services-caption = Les modules « agir avec l'OS » : presse-papiers, préférences, haptique et fichiers.
+subscribe-label = S'abonner

@@ -35,6 +35,8 @@ pub struct MockWidget {
     pub background: Option<Color>,
     pub corner_radius: f64,
     pub clips: bool,
+    /// Semantic theme-adaptive surface (a form section card) — probe-visible for tests.
+    pub surface_role: Option<day_spec::SurfaceRole>,
     /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
     pub font: Option<day_spec::FontSpec>,
 }
@@ -226,6 +228,7 @@ impl Toolkit for MockToolkit {
             w.background = p.background;
             w.corner_radius = p.corner_radius;
             w.clips = p.clips;
+            w.surface_role = p.role;
             if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
                 detail = format!(
                     " bg={:?} radius={} clips={}",

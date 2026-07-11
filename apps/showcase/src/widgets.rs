@@ -104,3 +104,31 @@ pub(crate) fn history(count: Signal<i64>) -> AnyPiece {
     .align(HAlign::Leading)
     .any()
 }
+
+/// Standard page scaffold (the showcase design pass): a title + optional caption header over a
+/// scrollable, consistently padded content column. Every page uses it, so typography, spacing,
+/// and scrolling behave identically across the app.
+pub(crate) fn page(
+    title: LocalizedText,
+    title_id: &'static str,
+    caption: Option<LocalizedText>,
+    body: AnyPiece,
+) -> AnyPiece {
+    let header: AnyPiece = match caption {
+        Some(c) => column((
+            label(title).font(Font::Title).id(title_id),
+            label(c).font(Font::Footnote),
+        ))
+        .spacing(4.0)
+        .align(HAlign::Leading)
+        .any(),
+        None => label(title).font(Font::Title).id(title_id).any(),
+    };
+    scroll(
+        column((header, body))
+            .spacing(16.0)
+            .align(HAlign::Leading)
+            .padding(20.0),
+    )
+    .any()
+}

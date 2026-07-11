@@ -802,10 +802,20 @@ mod imp {
                             &[],
                         ))
                     });
-                    if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
-                    {
-                        apply_surface(&h, p.background, p.corner_radius, p.clips);
+                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                            let d = DENSITY.with(|x| x.get());
+                            call_void(
+                                "setSectionCard",
+                                "(Landroid/view/View;F)V",
+                                &[
+                                    JValue::Object(h.0.as_obj()),
+                                    JValue::Float((p.corner_radius * d) as f32),
+                                ],
+                            );
+                        } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                            apply_surface(&h, p.background, p.corner_radius, p.clips);
+                        }
                     }
                     h
                 }

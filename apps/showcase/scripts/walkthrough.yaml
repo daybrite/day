@@ -1,11 +1,14 @@
 name: showcase-walkthrough
 description: Navigate every destination, exercise every control, take localized screenshots
   (DESIGN.md §14.1, docs/navigation.md). Top-level nav is a selector(Sidebar); tabs a
-  selector(Tabs); the stack section is a genuine push/pop stack bound to a path signal.
+  selector(Tabs); the stack section is a genuine push/pop stack bound to a path signal. Pages
+  are grouped forms (docs/forms.md) — several old pages merged into themed sections.
 flow:
   - wait_for: { id: home-title }
   - screenshot: home
-  # navigate() addresses the section selector by key (the string-route shim over its signal).
+
+  # Controls (docs/forms.md): every interactive control in one grouped form — basics, the three
+  # picker stylings, search, and progress/activity feedback.
   - navigate: { route: controls }
   - assert_route: { route: controls }
   - assert_visible: { id: controls-title }
@@ -14,145 +17,113 @@ flow:
   - assert_text: { id: greeting-label, key: greeting, args: { name: "Ada" } }
   - set_value: { id: volume-slider, value: 80 }
   - assert_text: { id: volume-value, text: "80" }
-  # The determinate progress bar tracks the slider reactively: 80/100 = 0.8.
-  - assert_value: { id: volume-progress, value: 0.8 }
   - toggle: { id: subscribe-toggle, value: true }
   - assert_value: { id: subscribe-toggle, value: true }
   - tap: { id: increment-button, repeat: 3 }
   - assert_text: { id: counter-label, key: counter-value, args: { count: 3 } }
   - select: { id: flavor-combo, index: 2 }
   - assert_text: { id: flavor-value, text: "pistachio" }
-  - screenshot: controls
-  - navigate: { route: gauge }
-  - assert_route: { route: gauge }
-  - assert_visible: { id: gauge }
-  # Accessibility (§13): diff the native AX tree against day's expectations. The gauge is a canvas,
-  # so day applies role=Meter + a spoken label/value; the audit reads them back natively (apple
-  # targets; gtk/qt report unsupported and skip). A full-tree `a11y_audit: {}` follows.
-  - a11y_audit: { id: gauge }
-  - a11y_audit: {}
-  - screenshot: gauge
-  # Battery (docs/battery.md): the day-part-battery part feeds a canvas battery drawing. The preview
-  # slider + charging toggle drive a deterministic state (65% + bolt) for the screenshot, then a low
-  # level checks the readout label.
-  - navigate: { route: battery }
-  - assert_route: { route: battery }
-  - assert_visible: { id: battery }
-  - a11y_audit: { id: battery }
-  - set_value: { id: battery-level, value: 65 }
-  - toggle: { id: battery-charging, value: true }
-  - screenshot: battery
-  - set_value: { id: battery-level, value: 12 }
-  - assert_text: { id: battery-level-value, text: "12%" }
-  # Sensors (docs/sensors.md): the day-part-sensors part polls motion sensors; simulators/CI hosts
-  # report "unavailable"/"waiting" — assert presence, not values. Push-model platforms need a
-  # second poll after the first read arms the listener.
-  - navigate: { route: sensors }
-  - assert_route: { route: sensors }
-  - assert_visible: { id: sensors-title }
-  - tap: { id: sensors-refresh }
-  - tap: { id: sensors-refresh }
-  - assert_visible: { id: sensor-accel }
-  - screenshot: sensors
-  # Clipboard (docs/clipboard.md): a real OS roundtrip — Copy writes via the native API, Paste
-  # reads it back (foregrounded, so Android 10+ focus rules are satisfied).
-  - navigate: { route: clipboard }
-  - assert_route: { route: clipboard }
-  - assert_visible: { id: clipboard-title }
-  - input: { id: clipboard-field, text: "day walkthrough clip" }
-  - tap: { id: clipboard-copy }
-  - tap: { id: clipboard-paste }
-  # The strict OS round-trip assertion lives in scripts/clipboard-roundtrip.yaml, run in CI only
-  # on macOS + Android (real, display-independent clipboards). A fully headless Linux runner has
-  # no system clipboard (xvfb without clipboard tools; Qt offscreen has no display server), so the
-  # paste is empty there — asserting it would fail. The page + interaction are still exercised.
-  - screenshot: clipboard
-  # Network (docs/network.md): the day-part-network part reads a connectivity snapshot (CI
-  # hosts/emulators are online).
-  - navigate: { route: network }
-  - assert_route: { route: network }
-  - assert_visible: { id: network-title }
-  - tap: { id: network-refresh }
-  - screenshot: network
-  # day-part-haptics demo
-  - navigate: { route: haptics }
-  - assert_route: { route: haptics }
-  - assert_visible: { id: haptics-title }
-  - assert_visible: { id: haptics-supported }
-  - tap: { id: haptics-medium }
-  # `#haptics-last-played` is `tr("haptics-last-played")` — a localized string, so assert by key +
-  # args (like greeting-label) so it resolves in the run's locale, not a hardcoded English literal.
-  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Medium" } }
-  - tap: { id: haptics-success }
-  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Success" } }
-  - screenshot: haptics
-  # day-part-prefs demo
-  - navigate: { route: prefs }
-  - assert_route: { route: prefs }
-  - assert_visible: { id: prefs-title }
-  - input: { id: prefs-field, text: "day-remembers" }
-  - tap: { id: prefs-save }
-  - input: { id: prefs-field, text: "overwritten" }
-  - tap: { id: prefs-load }
-  - assert_text: { id: prefs-value, text: "day-remembers" }
-  - screenshot: prefs
-  # day-part-deviceinfo demo
-  # Device info (docs/deviceinfo.md): headless day-part-deviceinfo reads model / OS / simulator flag;
-  # Refresh re-polls. Device values vary by host, so only presence is asserted.
-  - navigate: { route: deviceinfo }
-  - assert_route: { route: deviceinfo }
-  - assert_visible: { id: deviceinfo-title }
-  - assert_visible: { id: deviceinfo-model }
-  - tap: { id: deviceinfo-refresh }
-  - assert_visible: { id: deviceinfo-system }
-  - screenshot: deviceinfo
-  # day-piece-activity demo
-  - navigate: { route: activity }
-  - assert_route: { route: activity }
-  - assert_visible: { id: activity-title }
-  - assert_visible: { id: activity-spinner }
-  - toggle: { id: activity-toggle, value: false }
-  - assert_text: { id: activity-status, key: activity-off }
-  - screenshot: activity
-  # day-piece-searchfield demo
-  - navigate: { route: search }
-  - assert_route: { route: search }
-  - assert_visible: { id: search-title }
-  - input: { id: search-input, text: "ch" }
-  - assert_text: { id: search-result, text: "Cherry" }
-  - tap: { id: search-clear }
-  - screenshot: search
-  # Shape pieces (docs/shapes.md): canvas-backed shapes, a slider-bound rotation, tap-to-recolor,
-  # drag-to-move. Drive the rotation + a tap so the screenshot shows a transformed + recolored shape.
-  - navigate: { route: shapes }
-  - assert_route: { route: shapes }
-  - assert_visible: { id: shapes-title }
-  - set_value: { id: shapes-angle-slider, value: 45 }
-  - tap: { id: shapes-tap-circle }
-  - screenshot: shapes
-  # Picker pieces (docs/picker.md): three native stylings bound two-way to a Signal<usize>. Select
-  # an option in each and assert the bound value label follows (the selection round-trips the signal).
-  - navigate: { route: pickers }
-  - assert_route: { route: pickers }
-  - assert_visible: { id: pickers-title }
+  # Pickers section: three native stylings bound two-way to a Signal<usize> — the selection
+  # round-trips the signal into each value label.
   - select: { id: picker-segmented, index: 2 }
   - assert_text: { id: picker-segmented-value, text: "Large" }
   - select: { id: picker-menu, index: 2 }
   - assert_text: { id: picker-menu-value, text: "Blue" }
   - select: { id: picker-inline, index: 1 }
   - assert_text: { id: picker-inline-value, text: "Pro" }
-  - screenshot: pickers
-  # Compose (DESIGN §8): the composition-first tier — pure-composition pieces (star rating, Card
-  # modifier, badge overlay, ButtonStyle, ambient environment) with no native code and no cargo
-  # features. Tap the 4th star (each star is `compose-rating:N`) to drive the bound signal, then
-  # assert the reactive value label re-rendered.
-  - navigate: { route: compose }
-  - assert_route: { route: compose }
-  - assert_visible: { id: compose-title }
+  # Search section: the native search field filters reactively; Clear proves the reverse binding.
+  - input: { id: search-input, text: "ch" }
+  - assert_text: { id: search-result, text: "Cherry" }
+  - tap: { id: search-clear }
+  # Feedback section: the progress bar tracks its slider; the activity spinner obeys its toggle.
+  - set_value: { id: progress-slider, value: 80 }
+  - assert_value: { id: volume-progress, value: 0.8 }
+  - toggle: { id: activity-toggle, value: false }
+  - assert_text: { id: activity-status, key: activity-off }
+  - screenshot: controls
+
+  # Canvas & shapes: shape kinds, live transforms + gestures, the slider-driven gauge, and the
+  # composition-tier widgets. Drive a rotation + a recolor tap so the screenshot shows both.
+  - navigate: { route: canvas }
+  - assert_route: { route: canvas }
+  - assert_visible: { id: canvas-title }
+  - set_value: { id: shapes-angle-slider, value: 45 }
+  - tap: { id: shapes-tap-circle }
+  # Accessibility (§13): diff the native AX tree against day's expectations. The gauge is a
+  # canvas, so day applies role=Meter + a spoken label/value; the audit reads them back natively
+  # (apple targets; gtk/qt report unsupported and skip). A full-tree audit follows.
+  - assert_visible: { id: gauge }
+  - a11y_audit: { id: gauge }
+  - a11y_audit: {}
+  # Compose section: tap the 4th star (each star is `compose-rating:N`) and assert the bound
+  # text field re-rendered with the count.
   - tap: { id: "compose-rating:4" }
-  # The star tap drives the bound text field (id compose-rating-value) to the selected count.
   - assert_text: { id: compose-rating-value, text: "4" }
-  - screenshot: compose
+  - screenshot: canvas
+
+  # Device & sensors: the headless device-state parts in one form. The battery preview slider +
+  # charging toggle drive a deterministic state (65% + bolt) for the screenshot, then a low
+  # level checks the readout; sensors need a second poll after the first read arms the listener
+  # (push-model platforms); CI hosts are online; device identity varies, so presence only.
+  - navigate: { route: system }
+  - assert_route: { route: system }
+  - assert_visible: { id: battery }
+  - a11y_audit: { id: battery }
+  - set_value: { id: battery-level, value: 65 }
+  - toggle: { id: battery-charging, value: true }
+  - tap: { id: network-refresh }
+  - tap: { id: sensors-refresh }
+  - tap: { id: sensors-refresh }
+  - assert_visible: { id: sensor-accel }
+  - assert_visible: { id: deviceinfo-model }
+  - tap: { id: deviceinfo-refresh }
+  - assert_visible: { id: deviceinfo-system }
+  - screenshot: system
+  - set_value: { id: battery-level, value: 12 }
+  - assert_text: { id: battery-level-value, text: "12%" }
+  - set_value: { id: battery-level, value: 65 }
+
+  # Platform services: clipboard round-trip, persisted prefs, haptics, and the native file
+  # pickers — one form, one screenshot. The strict OS clipboard assertion lives in
+  # scripts/clipboard-roundtrip.yaml (macOS + Android only; headless Linux has no system
+  # clipboard). The save/open pickers answer with a temp path (relative → app temp dir).
+  - navigate: { route: services }
+  - assert_route: { route: services }
+  - assert_visible: { id: clipboard-field }
+  # Screenshot the pristine form BEFORE the clipboard copy: Android 13+ pops a system
+  # clipboard-preview overlay on copy that lingers several seconds and would photobomb the shot.
+  - screenshot: services
+  - input: { id: clipboard-field, text: "day walkthrough clip" }
+  - tap: { id: clipboard-copy }
+  - tap: { id: clipboard-paste }
+  - input: { id: prefs-field, text: "day-remembers" }
+  - tap: { id: prefs-save }
+  - input: { id: prefs-field, text: "overwritten" }
+  - tap: { id: prefs-load }
+  - assert_text: { id: prefs-value, text: "day-remembers" }
+  - assert_visible: { id: haptics-supported }
+  - tap: { id: haptics-medium }
+  # `#haptics-last-played` is `tr("haptics-last-played")` — a localized string, so assert by
+  # key + args so it resolves in the run's locale, not a hardcoded English literal.
+  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Medium" } }
+  - tap: { id: haptics-success }
+  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Success" } }
+  - tap: { id: btn-save-file }
+  - assert_presented: {}
+  - respond: { path: "day-walkthrough.txt" }
+  - assert_text: { id: files-status, text: "saved:day-walkthrough.txt" }
+  - tap: { id: btn-open-file }
+  - assert_presented: {}
+  - respond: { path: "day-walkthrough.txt" }
+  - assert_text: { id: files-status, text: "opened" }
+  - assert_text: { id: files-opened-name, key: files-opened, args: { name: "day-walkthrough.txt" } }
+
+  # Menus & lifecycle (docs/menus.md, docs/lifecycle.md).
+  - navigate: { route: menus }
+  - assert_route: { route: menus }
+  - assert_visible: { id: menus-title }
+  - screenshot: menus
+
   # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
   - navigate: { route: modals }
   - assert_route: { route: modals }
@@ -173,21 +144,7 @@ flow:
   - assert_presented: {}
   - respond: { button: 1 }
   - assert_text: { id: modal-result, text: "sheet-1" }
-  # Native file pickers (docs/files.md): open the save picker, answer with a temp path (relative →
-  # app temp dir, writable on every target), then open it back and confirm the round-trip. The
-  # editor content saved here is what "Open" loads, so `files-status` reflects a real read.
-  - navigate: { route: files }
-  - assert_route: { route: files }
-  - screenshot: files
-  - tap: { id: btn-save-file }
-  - assert_presented: {}
-  - respond: { path: "day-walkthrough.txt" }
-  - assert_text: { id: files-status, text: "saved:day-walkthrough.txt" }
-  - tap: { id: btn-open-file }
-  - assert_presented: {}
-  - respond: { path: "day-walkthrough.txt" }
-  - assert_text: { id: files-status, text: "opened" }
-  - assert_text: { id: files-opened-name, key: files-opened, args: { name: "day-walkthrough.txt" } }
+
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.
   - navigate: { route: tabs }
@@ -204,6 +161,7 @@ flow:
   - assert_route: { route: tabs/three }
   - assert_value: { id: demo-tabs, value: 2 }
   - screenshot: tabs-three
+
   # Genuine push/pop stack (docs/navigation.md): tapping pushes onto the path signal; the
   # native back button writes the pop back into it. current_route reports the stack's top.
   - navigate: { route: stack }
@@ -235,42 +193,46 @@ flow:
   - nav_back:
   - assert_route: { route: "" }
   - screenshot: back-home
-  # Native recycling list (docs/list.md): 500 virtualized rows — visited last so the delicate
-  # stack/tabs route assertions above stay undisturbed.
+
+  # Native recycling list (docs/list.md): 500 virtualized rows — visited after the delicate
+  # stack/tabs route assertions so they stay undisturbed.
   - navigate: { route: list }
   - assert_route: { route: list }
   - assert_visible: { id: list-title }
   - screenshot: list
-  # Native web view (docs/webview.md): an EXTERNAL piece wrapping each toolkit's native browser
-  # (WKWebView / QWebEngineView / WebKitGTK / android.webkit.WebView / UWP WebView). Load the project
-  # site, then `pause` (runner-side — the engine must not block the UI thread) so the page finishes
-  # loading before the capture. Visited LAST so a heavy embedded browser can't disturb the route
-  # assertions above, and so a webview that misbehaves on a headless runner still leaves every other
-  # screenshot captured.
+
   # Native media player (docs/media.md): an EXTERNAL piece wrapping each toolkit's native player
   # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo). The pause lets
-  # first frames of the network sample arrive; then pause playback so the captured frame is stable.
+  # first frames of the network sample arrive; then pause playback so the captured frame is
+  # stable. (On iOS/Android the bundled Lottie animation joins this page.)
   - navigate: { route: media }
   - assert_route: { route: media }
   - assert_visible: { id: media-title }
   - pause: { secs: 5 }
   - tap: { id: media-pause }
   - screenshot: media
-  # Bundled resources (§18.3): an image loaded by name via the native image pipeline + random-access
-  # reads of embedded data through the native data API.
+
+  # Bundled resources (§18.3): an image loaded by name via the native image pipeline +
+  # random-access reads of embedded data through the native data API.
   - navigate: { route: resources }
   - assert_route: { route: resources }
   - assert_visible: { id: resources-numbers }
   - assert_visible: { id: resources-greeting }
   - screenshot: resources
+
+  # Native web view (docs/webview.md): each toolkit's native browser. Load the project site,
+  # then `pause` (runner-side — the engine must not block the UI thread) so the page finishes
+  # loading before the capture. Visited LAST-ish so a heavy embedded browser can't disturb the
+  # route assertions above.
   - navigate: { route: webview }
   - assert_route: { route: webview }
   - assert_visible: { id: webview-title }
   - pause: 5
   - screenshot: webview
+
   # Tweaks (docs/tweaks.md): packaged per-toolkit native configuration of built-in pieces, plus
-  # NativeRef liveness — unmounting the Tweaked Piece clears the ref (asserted via Fluent keys so
-  # the same script passes in every locale).
+  # NativeRef liveness — unmounting the Tweaked Piece clears the ref (asserted via Fluent keys
+  # so the same script passes in every locale).
   - navigate: { route: tweaks }
   - assert_route: { route: tweaks }
   - assert_visible: { id: tweaks-title }

@@ -112,6 +112,22 @@ void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
 
 void *day_qt_container_new() { return new QWidget(); }
 
+// SurfaceRole::SectionCard: the grouped-card background. A translucent neutral over the window
+// color stays subtle in every palette (it lightens dark themes and darkens light ones) — Qt has
+// no grouped-card palette role, and the concrete roles (alternate-base) vary wildly per style.
+// The unique object-name selector scopes the rule to THIS widget — a bare `background-color` on
+// a parent QWidget cascades into every descendant and replaces their native drawing (flat buttons).
+void day_qt_widget_set_section_card(void *w, double radius) {
+    auto *widget = static_cast<QWidget *>(w);
+    static unsigned long counter = 0;
+    if (widget->objectName().isEmpty())
+        widget->setObjectName(QString("daySectionCard%1").arg(counter++));
+    widget->setAttribute(Qt::WA_StyledBackground, true);
+    widget->setStyleSheet(QStringLiteral("#%1 { background-color: rgba(127,127,127,12%); border-radius: %2px; }")
+                              .arg(widget->objectName())
+                              .arg(radius));
+}
+
 void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, double radius,
                                int clips) {
     QWidget *widget = static_cast<QWidget *>(w);

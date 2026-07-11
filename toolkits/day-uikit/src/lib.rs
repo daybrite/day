@@ -1221,10 +1221,19 @@ mod imp {
             match kind {
                 kinds::CONTAINER => {
                     let v = unsafe { UIView::new(mtm) };
-                    if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
-                    {
-                        apply_surface(&v, p.background, p.corner_radius, p.clips);
+                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                            // tertiarySystemFill is a DYNAMIC UIColor: UIKit re-resolves it on
+                            // trait-collection (light/dark) changes automatically.
+                            unsafe {
+                                v.setBackgroundColor(Some(&UIColor::tertiarySystemFillColor()));
+                                let layer = v.layer();
+                                layer.setCornerRadius(p.corner_radius);
+                                layer.setMasksToBounds(true);
+                            }
+                        } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                            apply_surface(&v, p.background, p.corner_radius, p.clips);
+                        }
                     }
                     view_of(v)
                 }

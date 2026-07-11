@@ -959,10 +959,14 @@ impl Toolkit for Gtk {
         match kind {
             kinds::CONTAINER => {
                 let w: Handle = gtk4::Fixed::new().upcast();
-                if let Some(p) = props.downcast_ref::<ContainerProps>()
-                    && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
-                {
-                    apply_surface(&w, p.background, p.corner_radius, p.clips);
+                if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                    if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                        // libadwaita's own grouped-card treatment — rounded, elevated, and
+                        // theme-adaptive (follows the Adwaita light/dark stylesheet).
+                        w.add_css_class("card");
+                    } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                        apply_surface(&w, p.background, p.corner_radius, p.clips);
+                    }
                 }
                 w
             }

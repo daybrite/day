@@ -779,6 +779,21 @@ void day_winui_container_set_bg(void* h, unsigned int argb) {
         ensure_bg_rect(c).Fill(WUXM::SolidColorBrush(color_argb(argb)));
 }
 
+// SurfaceRole::SectionCard: the grouped-card fill from the ACTIVE theme resources, so it
+// tracks light/dark (and the DAY_THEME override on the island) automatically.
+void day_winui_container_set_card(void* h, double radius) {
+    if (auto c = elem(h).try_as<WUXC::Canvas>()) {
+        auto r = ensure_bg_rect(c);
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) r.Fill(brush);
+        }
+        r.RadiusX(radius);
+        r.RadiusY(radius);
+    }
+}
+
 // Rounded corners for a container's background (login card, chat bubbles, avatar/badge discs).
 // RadiusX/RadiusY live on the Rectangle SHAPE, not on RectangleGeometry.
 void day_winui_container_set_corner(void* h, double radius) {

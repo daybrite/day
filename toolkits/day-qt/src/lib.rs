@@ -666,6 +666,12 @@ impl Toolkit for Qt {
                 kinds::CONTAINER => {
                     let w = ffi::day_qt_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>()
+                        && p.role == Some(day_spec::SurfaceRole::SectionCard)
+                    {
+                        // A translucent neutral over the window color: subtle in any palette,
+                        // and it follows the platform / forced (DAY_THEME) color scheme.
+                        ffi::day_qt_widget_set_section_card(w, p.corner_radius);
+                    } else if let Some(p) = props.downcast_ref::<ContainerProps>()
                         && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
                     {
                         let bg = p.background.unwrap_or(day_spec::Color::CLEAR);

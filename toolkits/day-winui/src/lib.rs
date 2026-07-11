@@ -591,10 +591,14 @@ impl Toolkit for WinUi {
                 kinds::CONTAINER => {
                     let h = ffi::day_winui_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                            // Theme-resource card brush — tracks light/dark automatically.
+                            ffi::day_winui_container_set_card(h, p.corner_radius);
+                        }
                         if let Some(bg) = p.background {
                             ffi::day_winui_container_set_bg(h, argb(bg));
                         }
-                        if p.corner_radius > 0.0 {
+                        if p.corner_radius > 0.0 && p.role.is_none() {
                             ffi::day_winui_container_set_corner(h, p.corner_radius);
                         }
                     }

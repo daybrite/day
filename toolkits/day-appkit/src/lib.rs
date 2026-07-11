@@ -192,6 +192,9 @@ type Surface = (f64, f64, f64, f64, f64);
 #[derive(Default)]
 struct FlippedIvars {
     surface: Cell<Option<Surface>>,
+    /// SurfaceRole::SectionCard: `(radius,)` — drawn with a DYNAMIC system fill resolved at
+    /// draw time, so the card tracks light/dark appearance changes automatically.
+    section_card: Cell<Option<f64>>,
 }
 
 define_class!(
@@ -209,6 +212,25 @@ define_class!(
 
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
+            if let Some(radius) = self.ivars().section_card.get() {
+                let bounds = self.bounds();
+                unsafe {
+                    // quaternarySystemFill (macOS 14+) is the grouped-card material System
+                    // Settings uses; older systems fall back to the control background.
+                    let cls = objc2::class!(NSColor);
+                    let has: bool = msg_send![cls, respondsToSelector: objc2::sel!(quaternarySystemFillColor)];
+                    let color: objc2::rc::Retained<NSColor> = if has {
+                        msg_send![cls, quaternarySystemFillColor]
+                    } else {
+                        msg_send![cls, controlBackgroundColor]
+                    };
+                    color.setFill();
+                    let path = objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                        bounds, radius, radius,
+                    );
+                    path.fill();
+                }
+            }
             if let Some((r, g, b, a, radius)) = self.ivars().surface.get() {
                 let bounds = self.bounds();
                 unsafe {
@@ -237,6 +259,14 @@ impl DayFlipped {
     /// drawn in `drawRect` with NSColor — deliberately NOT via the layer's `backgroundColor`,
     /// whose CGColorRef argument objc2's `msg_send` cannot type-check. A rounded child clip does
     /// use the CALayer (`cornerRadius` + `masksToBounds` are a CGFloat + BOOL, which are fine).
+    /// SurfaceRole::SectionCard — the fill resolves dynamically in drawRect (theme-adaptive).
+    fn set_section_card(&self, corner_radius: f64) {
+        self.ivars().section_card.set(Some(corner_radius));
+        unsafe {
+            let _: () = msg_send![self, setNeedsDisplay: true];
+        }
+    }
+
     fn set_surface(&self, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
         self.ivars()
             .surface
@@ -1158,10 +1188,12 @@ impl Toolkit for AppKit {
         match kind {
             kinds::CONTAINER => {
                 let v = DayFlipped::new(mtm);
-                if let Some(p) = props.downcast_ref::<ContainerProps>()
-                    && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
-                {
-                    v.set_surface(p.background, p.corner_radius, p.clips);
+                if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                    if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                        v.set_section_card(p.corner_radius);
+                    } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+                        v.set_surface(p.background, p.corner_radius, p.clips);
+                    }
                 }
                 view_of(v)
             }
