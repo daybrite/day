@@ -363,6 +363,16 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
 
     WUXC::Canvas root;
+    // DAY_THEME=light|dark forces the XAML theme island-wide (themed CI screenshot runs and
+    // local theme checks); unset => follow the system.
+    {
+        char theme[16]{};
+        DWORD n = GetEnvironmentVariableA("DAY_THEME", theme, sizeof(theme));
+        if (n > 0 && n < sizeof(theme)) {
+            if (strcmp(theme, "dark") == 0) root.RequestedTheme(WUX::ElementTheme::Dark);
+            else if (strcmp(theme, "light") == 0) root.RequestedTheme(WUX::ElementTheme::Light);
+        }
+    }
     source.Content(root);
 
     // Load the island NOW, before day builds the control tree. Controls added to a live,

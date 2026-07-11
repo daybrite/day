@@ -25,6 +25,23 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         }
         System.loadLibrary(lib);
 
+        // DAY_THEME=light|dark (a `day launch --env` passthrough, delivered as an intent
+        // extra) forces the app's night mode — themed screenshot runs and local theme checks;
+        // unset ⇒ follow the system. API 31+; a recreation triggered by the mode change reads
+        // the same extra again, so the set is idempotent.
+        String dayTheme = getIntent().getStringExtra("day.env.DAY_THEME");
+        if (dayTheme != null && android.os.Build.VERSION.SDK_INT >= 31) {
+            android.app.UiModeManager ui =
+                    (android.app.UiModeManager) getSystemService(UI_MODE_SERVICE);
+            if (ui != null) {
+                if ("dark".equals(dayTheme)) {
+                    ui.setApplicationNightMode(android.app.UiModeManager.MODE_NIGHT_YES);
+                } else if ("light".equals(dayTheme)) {
+                    ui.setApplicationNightMode(android.app.UiModeManager.MODE_NIGHT_NO);
+                }
+            }
+        }
+
         DayBridge.ctx = this;
         final DayFixed root = new DayFixed(this);
         setContentView(root);

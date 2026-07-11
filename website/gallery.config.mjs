@@ -10,10 +10,12 @@
 //
 // Where the images come from
 // --------------------------
-// Each CI job uploads an artifact `screenshots-<platform>` containing `<locale>/<shot>.png`
-// (crates/day-cli/src/script.rs). `artifactPattern` maps a (suite, platform) pair to that
-// artifact name, so a future suite that uploads `screenshots-widgets-<platform>` only needs its
-// own `artifactPattern`. The assembly prefers `preferLocales` in order, then any locale present.
+// Each CI job uploads an artifact `screenshots-<platform>` containing `<variant>/<shot>.png`
+// (crates/day-cli/src/script.rs `--variant`): the walkthrough runs once per variant — `light`
+// and `dark` under a forced DAY_THEME, and `fr` under `--locale fr`. `artifactPattern` maps a
+// (suite, platform) pair to that artifact name, so a future suite that uploads
+// `screenshots-widgets-<platform>` only needs its own `artifactPattern`. Each variant may fall
+// back to the extra directories listed in `variants` (older artifacts used locale subdirs).
 
 /** @typedef {{ id: string, label: string, os: string, toolkit: string }} Platform */
 /** @typedef {{ id: string, label: string }} Shot */
@@ -47,7 +49,15 @@ export const suites = [
       'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
-    preferLocales: ['default', 'en', 'fr'],
+    // The capture variants, in display order. `dirs` are the artifact subdirectories that may
+    // hold the variant (fallbacks cover pre-variant artifacts, which used locale names); dark
+    // deliberately has NO light fallback — assembly must never pass off a light shot as dark
+    // (the gallery page falls back VISIBLY instead).
+    variants: [
+      { id: 'light', label: 'Light', dirs: ['light', 'default', 'en'] },
+      { id: 'dark', label: 'Dark', dirs: ['dark'] },
+      { id: 'fr', label: 'Français', dirs: ['fr'] },
+    ],
     // Every target the showcase is captured on, HarmonyOS/ArkUI included (the same app + walkthrough
     // runs on the Oniro emulator in CI; pieces without an ArkUI renderer show as placeholders there).
     platforms: platforms.map((p) => p.id),

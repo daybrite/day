@@ -1,4 +1,4 @@
-import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { font, window } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
@@ -17,6 +17,15 @@ export default class EntryAbility extends UIAbility {
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
+    // DAY_THEME=light|dark (a `day launch --env` passthrough, delivered as a `--ps` want
+    // parameter) forces the app's color mode — themed screenshot runs and local theme checks;
+    // unset ⇒ follow the system.
+    const theme: Object | undefined = want.parameters?.['day.env.DAY_THEME'];
+    if (theme === 'dark') {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    } else if (theme === 'light') {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+    }
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

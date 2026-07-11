@@ -60,6 +60,11 @@ enum Cmd {
         /// dayscript file(s) to execute after launch (repeatable; implies detach)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
+        /// Screenshot set name: saves shots under `build/day/screenshots/<target>/<variant>/`
+        /// instead of the locale-derived default — for capturing themed/localized variations
+        /// of the same script run (e.g. `--variant dark --env DAY_THEME=dark`)
+        #[arg(long)]
+        variant: Option<String>,
     },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
@@ -478,6 +483,7 @@ pub fn run() -> i32 {
             envs,
             detach,
             scripts,
+            variant,
         } => with_project(cli.project.as_deref(), |project| {
             let script_mode = !scripts.is_empty();
             let mut spec = ops::LaunchSpec {
@@ -533,6 +539,7 @@ pub fn run() -> i32 {
                         &token,
                         &scripts,
                         locale.as_deref(),
+                        variant.as_deref(),
                     ) {
                         Ok(run) => {
                             script_failures += run.steps_failed;

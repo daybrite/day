@@ -77,18 +77,27 @@ async function isContentful(buf) {
   }
 }
 
-/** Fetch a (platform, shot) PNG: prefer the locally-assembled artifact, else the live gallery. */
+/** Fetch a (platform, shot) PNG: prefer the locally-assembled artifact, else the live gallery.
+ *  Screenshots are per-variant since the themed capture sets landed; the hero shows the light
+ *  set (the pre-variant flat path is kept as a live-fallback for the transition window). */
 async function obtain(platformId, shot) {
-  const rel = `gallery/${SUITE_ID}/${platformId}/${shot}.png`;
-  const local = join(WEBSITE_ROOT, 'public', rel);
-  if (existsSync(local)) return readFileSync(local);
-  try {
-    const res = await fetch(`${LIVE_ORIGIN}/${rel}`);
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
+  const rels = [
+    `gallery/${SUITE_ID}/${platformId}/light/${shot}.png`,
+    `gallery/${SUITE_ID}/${platformId}/${shot}.png`, // pre-variant layout (live fallback)
+  ];
+  for (const rel of rels) {
+    const local = join(WEBSITE_ROOT, 'public', rel);
+    if (existsSync(local)) return readFileSync(local);
   }
+  for (const rel of rels) {
+    try {
+      const res = await fetch(`${LIVE_ORIGIN}/${rel}`);
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+    } catch {
+      // try the next form
+    }
+  }
+  return null;
 }
 
 /**

@@ -376,10 +376,16 @@ jobs:
           "$DAY" new app remote-check --toolkit macos-${{ matrix.toolkit }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
           rm -rf remote-check
-      - name: Walkthrough (${{ matrix.combo }})
+      # Three screenshot variants per combo (docs/testing + website gallery): the same
+      # walkthrough under a forced light theme, a forced dark theme (DAY_THEME), and French —
+      # each saved under its own screenshots/<combo>/<variant>/ subdir for the gallery artifact.
+      - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
-        run: $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr
+        run: |
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant fr --locale fr
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
       # combo (headless Linux has no system clipboard — see scripts/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
@@ -506,18 +512,24 @@ jobs:
         # fast so regressions are never masked; a run that logged a ✗ is never retried.
         run: |
           LOG="$RUNNER_TEMP/ios-walk.log"
-          walk() { "$DAY_BIN" launch -p ios-uikit --script scripts/walkthrough.yaml --locale fr 2>&1 | tee "$LOG"; }
-          if ! walk; then
-            if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
-              echo "::warning::iOS engine connection lost (flaky simulator app-death) — retrying the walkthrough once"
-              # Best-effort: surface the most recent crash report for post-mortem if the retry also fails.
-              ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
-                | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
-              walk
-            else
-              exit 1
+          walk() { "$DAY_BIN" launch -p ios-uikit --script scripts/walkthrough.yaml "$@" 2>&1 | tee "$LOG"; }
+          # Three screenshot variants (light / dark / fr), each with the flaky-retry dance.
+          run_variant() {
+            if ! walk "$@"; then
+              if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
+                echo "::warning::iOS engine connection lost (flaky simulator app-death) — retrying the walkthrough once"
+                # Best-effort: surface the most recent crash report for post-mortem if the retry also fails.
+                ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
+                  | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
+                walk "$@"
+              else
+                exit 1
+              fi
             fi
-          fi
+          }
+          run_variant --variant light --env DAY_THEME=light
+          run_variant --variant dark --env DAY_THEME=dark
+          run_variant --variant fr --locale fr
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
       # the secrets these no-op and pack falls back to the Simulator .app (dev tier, §20).
       - name: Import the distribution certificate
@@ -627,20 +639,29 @@ jobs:
       #     otherwise kills the WebKit web process and aborts the app.
       #   WEBKIT_DISABLE_COMPOSITING_MODE — xvfb has no GPU (libEGL/DRI3 warnings), so render the
       #     page in software instead of via accelerated (GL) compositing.
-      - name: Walkthrough (${{ matrix.combo }})
+      # Three screenshot variants per combo: forced light / forced dark (DAY_THEME) / French.
+      # (Ubuntu 24.04's Qt 6.4 predates QStyleHints::setColorScheme, so linux-qt's dark set
+      # renders light — the gallery falls back per shot.)
+      - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          if [ "${{ matrix.toolkit }}" = gtk ]; then
-            xvfb-run -a "$DAY_BIN" launch -p linux-gtk \
-              --script scripts/walkthrough.yaml --locale fr \
-              --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
-              --env WEBKIT_DISABLE_COMPOSITING_MODE=1
-          else
-            "$DAY_BIN" launch -p linux-qt \
-              --script scripts/walkthrough.yaml --locale fr \
-              --env QT_QPA_PLATFORM=offscreen
-          fi
+          for v in light dark fr; do
+            case "$v" in
+              fr) EXTRA="--variant fr --locale fr" ;;
+              *) EXTRA="--variant $v --env DAY_THEME=$v" ;;
+            esac
+            if [ "${{ matrix.toolkit }}" = gtk ]; then
+              xvfb-run -a "$DAY_BIN" launch -p linux-gtk \
+                --script scripts/walkthrough.yaml $EXTRA \
+                --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
+                --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+            else
+              "$DAY_BIN" launch -p linux-qt \
+                --script scripts/walkthrough.yaml $EXTRA \
+                --env QT_QPA_PLATFORM=offscreen
+            fi
+          done
       # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
       # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
       # install time (--runtime-repo), so the bundle stays app-only. ubuntu-24.04 runners don't
@@ -788,7 +809,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
-          script: cd apps/showcase && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --locale fr && $DAY_BIN launch -p android-widget --script scripts/clipboard-roundtrip.yaml
+          # Three screenshot variants (light / dark / fr — DAY_THEME rides the intent extras).
+          script: cd apps/showcase && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant fr --locale fr && $DAY_BIN launch -p android-widget --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -931,11 +953,14 @@ jobs:
       # ride as `--ps` params) → hdc fport → runs the walkthrough → saves screenshots. Pieces without
       # an ArkUI renderer render as placeholders; the run continues (a failed assert is non-fatal) so
       # the working pages still produce gallery screenshots.
-      - name: Emulator walkthrough (ohos-arkui)
+      - name: Emulator walkthrough (ohos-arkui × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         continue-on-error: true # the walkthrough drives the flaky TCG emulator; the build already gated
-        run: $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --locale fr
+        run: |
+          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
+          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
+          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant fr --locale fr
       # Release-signing material, tag pushes only: OHOS keystore + cert + provision profile on
       # disk. Without the secrets these no-op and pack signs with the public dev cert (§20).
       - name: Materialize OHOS signing material
@@ -1049,10 +1074,13 @@ jobs:
           ( cd smoke-piece && cargo build --features winui )
           ( cd smoke-part  && cargo build )
           ( cd smoke-app   && cargo build --features winui )
-      - name: Walkthrough (windows-winui)
+      - name: Walkthrough (windows-winui × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
-        run: $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --locale fr
+        run: |
+          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
+          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
+          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant fr --locale fr
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
       # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
       - name: Install NSIS
@@ -1160,9 +1188,12 @@ jobs:
       # WEBKIT_DISABLE_COMPOSITING_MODE is a harmless no-op on Windows now (neither combo has a real
       # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
       # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.
-      - name: Walkthrough (${{ matrix.combo }})
+      - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         working-directory: apps/showcase
-        run: $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+        run: |
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant fr --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7

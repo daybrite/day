@@ -72,7 +72,15 @@ Pass the same `--template` the app was created with if it wasn't the built-in on
 ```bash
 # run a dayscript walkthrough after launch, capturing localized screenshots
 day launch -p macos-gtk --script scripts/walkthrough.yaml --locale fr
+
+# capture VARIANTS of the same walkthrough: `--variant` names the screenshot subdirectory
+# (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
+day launch -p macos-gtk --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
 ```
+
+CI runs each showcase walkthrough three times — `light` and `dark` under a forced `DAY_THEME`,
+and `fr` under `--locale fr` — and the [gallery](/gallery) lets you flip every screenshot
+between those variants.
 
 ## The conventional project
 

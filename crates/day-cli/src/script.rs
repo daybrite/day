@@ -82,12 +82,20 @@ fn connect(port: u16) -> Result<TcpStream, String> {
     ))
 }
 
-fn shot_dir(project: &Project, target: &Target, locale: Option<&str>) -> PathBuf {
+/// Where a run's screenshots land: `build/day/screenshots/<target>/<subdir>/`. The subdir is
+/// the `--variant` name when given (themed/localized capture sets: light / dark / fr), else
+/// the locale, else "default".
+fn shot_dir(
+    project: &Project,
+    target: &Target,
+    locale: Option<&str>,
+    variant: Option<&str>,
+) -> PathBuf {
     project
         .root
         .join("build/day/screenshots")
         .join(target.name)
-        .join(locale.unwrap_or("default"))
+        .join(variant.or(locale).unwrap_or("default"))
 }
 
 /// Device-level capture fallback for targets whose in-process snapshot is unsupported.
@@ -166,6 +174,7 @@ pub fn run_scripts(
     token: &str,
     scripts: &[PathBuf],
     locale: Option<&str>,
+    variant: Option<&str>,
 ) -> Result<ScriptRun, String> {
     if target.kind == TargetKind::Android {
         // The dayscript runner drives ONE device; with several attached, `adb forward` (no `-s`)
@@ -226,7 +235,7 @@ pub fn run_scripts(
         }
     };
 
-    let dir = shot_dir(project, target, locale);
+    let dir = shot_dir(project, target, locale, variant);
     let _ = std::fs::create_dir_all(&dir);
 
     let mut run = ScriptRun {

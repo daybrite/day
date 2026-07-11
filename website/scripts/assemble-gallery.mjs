@@ -1,9 +1,14 @@
 // Assemble the screenshots gallery from CI artifacts into a static manifest + copied images.
 //
-// Inputs  : `<artifactsDir>/screenshots-<platform>/<locale>/<shot>.png` (from `download-artifact
-//           pattern: screenshots-*`), described by gallery.config.mjs.
-// Outputs : `public/gallery/<suite>/<platform>/<shot>.png` (copied, name-preserving static assets)
+// Inputs  : `<artifactsDir>/screenshots-<platform>/<variant>/<shot>.png` (from `download-artifact
+//           pattern: screenshots-*`), described by gallery.config.mjs. Variants are the themed /
+//           localized capture sets CI produces per platform (light / dark / fr today).
+// Outputs : `public/gallery/<suite>/<platform>/<variant>/<shot>.png` (copied static assets)
 //           `src/data/gallery-manifest.json`   (consumed by src/pages/gallery.astro)
+//
+// The manifest is SHOT-major: the gallery renders one row per shot with every platform's tile
+// in it, and each tile carries all of its variants so the page's theme/language selectors can
+// swap images client-side without reloading.
 //
 // When no artifacts are present (local builds), every shot is emitted as a placeholder entry so
 // the gallery layout is fully visible without any screenshots. The design is extensible: adding a
@@ -12,7 +17,7 @@
 // Runnable standalone (`node scripts/assemble-gallery.mjs [artifactsDir]`) and from the Astro
 // integration (integrations/gallery.mjs). No third-party dependencies.
 
-import { existsSync, mkdirSync, readdirSync, rmSync, copyFileSync, writeFileSync, readSync, openSync, closeSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, copyFileSync, writeFileSync, readSync, openSync, closeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import galleryConfig from '../gallery.config.mjs';
@@ -35,25 +40,19 @@ function pngSize(file) {
   }
 }
 
-/** Locate a shot's PNG for a platform: prefer the configured locales, then any locale, then flat. */
-function findShot(artifactDir, shotId, preferLocales) {
+/** Locate one (shot, variant) PNG: the variant's directories in order, then flat (legacy). */
+function findVariantShot(artifactDir, shotId, variant) {
   if (!existsSync(artifactDir)) return null;
   const named = `${shotId}.png`;
-  // 1) preferred locales, in order
-  for (const loc of preferLocales) {
-    const p = join(artifactDir, loc, named);
+  for (const dir of variant.dirs) {
+    const p = join(artifactDir, dir, named);
     if (existsSync(p)) return p;
   }
-  // 2) any locale subdirectory that has it
-  for (const entry of readdirSync(artifactDir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      const p = join(artifactDir, entry.name, named);
-      if (existsSync(p)) return p;
-    }
+  if (variant.dirs.includes('default')) {
+    const flat = join(artifactDir, named);
+    if (existsSync(flat)) return flat;
   }
-  // 3) flat (no locale subdir)
-  const flat = join(artifactDir, named);
-  return existsSync(flat) ? flat : null;
+  return null;
 }
 
 /**
@@ -72,50 +71,58 @@ export function assembleGallery(opts = {}) {
 
   let realShots = 0;
   const suites = galleryConfig.suites.map((suite) => {
-    const platforms = suite.platforms
+    const suitePlatforms = suite.platforms
       .map((platformId) => galleryConfig.platforms.find((p) => p.id === platformId))
-      .filter(Boolean)
-      .map((platform) => {
+      .filter(Boolean);
+    const captureCount = new Map(suitePlatforms.map((p) => [p.id, 0]));
+
+    // SHOT-major: one entry per curated shot, holding every platform's variant set.
+    const shots = suite.shots.map((shot) => {
+      const byPlatform = suitePlatforms.map((platform) => {
         const artifactName = suite.artifactPattern.replace('{platform}', platform.id);
         const artifactDir = join(artifactsDir, artifactName);
-        let captured = 0;
-        const shots = suite.shots.map((shot) => {
-          const found = findShot(artifactDir, shot.id, suite.preferLocales);
-          if (!found) {
-            return { id: shot.id, label: shot.label, src: null, placeholder: true };
-          }
-          const rel = join('gallery', suite.id, platform.id, `${shot.id}.png`);
+        const variants = {};
+        for (const variant of suite.variants) {
+          const found = findVariantShot(artifactDir, shot.id, variant);
+          if (!found) continue;
+          const rel = join('gallery', suite.id, platform.id, variant.id, `${shot.id}.png`);
           const dest = join(WEBSITE_ROOT, 'public', rel);
           mkdirSync(dirname(dest), { recursive: true });
           copyFileSync(found, dest);
-          captured += 1;
           realShots += 1;
           const size = pngSize(dest) ?? {};
-          return {
-            id: shot.id,
-            label: shot.label,
+          variants[variant.id] = {
             src: rel.split('\\').join('/'), // POSIX for URLs, even on Windows runners
-            placeholder: false,
             width: size.width ?? null,
             height: size.height ?? null,
           };
-        });
+        }
+        const captured = Object.keys(variants).length > 0;
+        if (captured) captureCount.set(platform.id, captureCount.get(platform.id) + 1);
         return {
-          id: platform.id,
-          label: platform.label,
-          os: platform.os,
-          toolkit: platform.toolkit,
-          captured: captured > 0,
-          shotCount: captured,
-          shots,
+          platform: platform.id,
+          placeholder: !captured,
+          variants,
         };
       });
+      return { id: shot.id, label: shot.label, byPlatform };
+    });
+
     return {
       id: suite.id,
       label: suite.label,
       blurb: suite.blurb,
       hero: suite.hero,
-      platforms,
+      variants: suite.variants.map(({ id, label }) => ({ id, label })),
+      platforms: suitePlatforms.map((p) => ({
+        id: p.id,
+        label: p.label,
+        os: p.os,
+        toolkit: p.toolkit,
+        captured: (captureCount.get(p.id) ?? 0) > 0,
+        shotCount: captureCount.get(p.id) ?? 0,
+      })),
+      shots,
     };
   });
 

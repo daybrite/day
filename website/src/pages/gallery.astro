@@ -1,33 +1,51 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import ShotTile from '../components/ShotTile.astro';
 import manifest from '../data/gallery-manifest.json';
+import { url } from '../lib/site';
 
 // The manifest is assembled before every build by the gallery integration: from CI screenshot
 // artifacts on GitHub Actions, or as placeholders locally. See integrations/gallery.mjs.
+//
+// Layout: one ROW per curated shot (e.g. "Canvas gauge"), every platform's capture of that
+// shot laid out horizontally in a scrolling strip. Two segmented selectors (theme, language)
+// swap every visible tile between its captured variants client-side — each <img> carries all
+// of its variant URLs as data attributes, and the tiny inline script below resolves the best
+// available variant per tile (falling back visibly when a combination wasn't captured, e.g.
+// French is only captured in light).
 const generated = manifest.generatedAt
   ? new Date(manifest.generatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
   : null;
 
-// Group each suite's platforms by OS for display.
-function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
-  const groups: Record<string, typeof platforms> = {};
-  for (const p of platforms) (groups[p.os] ??= []).push(p);
-  return Object.entries(groups);
+type Suite = (typeof manifest.suites)[number];
+function platformOf(suite: Suite, id: string) {
+  return suite.platforms.find((p) => p.id === id)!;
 }
+const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
 ---
-<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target, with screenshots taken straight from CI." active="gallery">
+<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target — light, dark, and localized — with screenshots taken straight from CI." active="gallery">
   <section class="section gal-hero">
     <div class="container">
       <p class="eyebrow">Screenshot gallery</p>
       <h1 class="gal-title">The same Rust program, <span class="grad-text">native on every platform</span>.</h1>
       <p class="lead">
-        Every screenshot below is captured in CI by the dayscript walkthrough and assembled here
-        automatically. Each platform shows the latest captures it produced on the most recent run.
+        Every screenshot below is captured in CI by the dayscript walkthrough — one pass per
+        theme and language — and assembled here automatically. Each row is one screen; scroll it
+        sideways to compare platforms.
       </p>
       {generated
         ? <p class="gen">Latest run · {generated}</p>
         : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
+
+      <div class="controls" data-pagefind-ignore>
+        <div class="seg" role="radiogroup" aria-label="Theme" data-seg="theme">
+          <button type="button" role="radio" aria-checked="true" data-value="light">Light</button>
+          <button type="button" role="radio" aria-checked="false" data-value="dark">Dark</button>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
+          <button type="button" role="radio" aria-checked="true" data-value="en">English</button>
+          <button type="button" role="radio" aria-checked="false" data-value="fr">Français</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -36,24 +54,51 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
       <div class="container">
         <h2 class="suite-title">{suite.label}</h2>
         <p class="lead suite-blurb">{suite.blurb}</p>
+      </div>
 
-        {byOs(suite.platforms).map(([os, list]) => (
-          <div class="os-block">
-            <h3 class="os-h">{os}</h3>
-            <div class="platforms" data-pagefind-ignore>
-              {list.map((platform) => (
-                <article class="platform">
-                  <header class="platform-head">
-                    <span class="pf-name">{platform.toolkit}</span>
-                    <span class:list={['pf-tag', { on: platform.captured }]}>
-                      {platform.captured ? `${platform.shotCount} shots` : 'preview'}
-                    </span>
-                  </header>
-                  <div class="shots">
-                    {platform.shots.map((shot) => <ShotTile shot={shot} os={os} />)}
-                  </div>
-                </article>
-              ))}
+      <div class="rows" data-pagefind-ignore>
+        {suite.shots.map((shot) => (
+          <div class="row">
+            <div class="container row-head">
+              <h3 class="row-title">{shot.label}</h3>
+            </div>
+            <div class="strip-wrap">
+              <div class="strip container-pad">
+                {shot.byPlatform.map((tile) => {
+                  const platform = platformOf(suite, tile.platform);
+                  const variantEntries = Object.entries(tile.variants ?? {});
+                  return (
+                    <figure class:list={['tile', { mobile: mobileOs.has(platform.os) }]}>
+                      <div class="frame">
+                        {tile.placeholder ? (
+                          <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label} — preview placeholder`}>
+                            <span class="ph-mark">◱</span>
+                            <span class="ph-txt">preview</span>
+                          </div>
+                        ) : (
+                          <>
+                            <img
+                              alt={`${shot.label} — ${platform.os} ${platform.label}`}
+                              loading="lazy"
+                              decoding="async"
+                              class="var-img"
+                              {...Object.fromEntries(
+                                variantEntries.map(([v, img]) => [`data-src-${v}`, url(img.src)]),
+                              )}
+                              src={url((tile.variants.light ?? variantEntries[0][1]).src)}
+                            />
+                            <span class="fb-badge" hidden></span>
+                          </>
+                        )}
+                      </div>
+                      <figcaption>
+                        <span class="cap-os">{platform.os}</span>
+                        <span class="cap-tk">{platform.label}</span>
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ))}
@@ -62,39 +107,140 @@ function byOs(platforms: (typeof manifest.suites)[number]['platforms']) {
   ))}
 </BaseLayout>
 
+<script>
+  // Variant switching: each .var-img carries data-src-<variant>. The selected (theme, locale)
+  // pair resolves to a preference order; the first variant a tile actually has wins, and a
+  // small badge names the fallback when the exact combination wasn't captured (e.g. French is
+  // captured in light only, and some toolkits can't force dark).
+  const state = { theme: 'light', locale: 'en' };
+
+  function preferenceOrder(): string[] {
+    if (state.locale === 'fr') {
+      return state.theme === 'dark' ? ['fr', 'dark', 'light'] : ['fr', 'light', 'dark'];
+    }
+    return state.theme === 'dark' ? ['dark', 'light', 'fr'] : ['light', 'dark', 'fr'];
+  }
+
+  const badgeText: Record<string, string> = { light: 'en · light', dark: 'en · dark', fr: 'fr · light' };
+
+  function applyVariants(): void {
+    const order = preferenceOrder();
+    const want = order[0];
+    for (const img of document.querySelectorAll<HTMLImageElement>('img.var-img')) {
+      let chosen: string | null = null;
+      for (const v of order) {
+        const src = img.dataset[`src-${v}`.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+        if (src) {
+          chosen = v;
+          if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+          break;
+        }
+      }
+      const badge = img.parentElement?.querySelector<HTMLElement>('.fb-badge');
+      if (badge) {
+        const fellBack = chosen !== null && chosen !== want;
+        badge.hidden = !fellBack;
+        if (fellBack && chosen) badge.textContent = badgeText[chosen] ?? chosen;
+      }
+    }
+  }
+
+  for (const seg of document.querySelectorAll<HTMLElement>('.seg')) {
+    const key = seg.dataset.seg as 'theme' | 'locale';
+    seg.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-value]');
+      if (!btn) return;
+      state[key] = btn.dataset.value!;
+      for (const b of seg.querySelectorAll('button')) {
+        b.setAttribute('aria-checked', b === btn ? 'true' : 'false');
+      }
+      applyVariants();
+    });
+  }
+</script>
+
 <style>
-  .gal-hero { padding-block: 56px 24px; }
+  .gal-hero { padding-block: 56px 8px; }
   .gal-title { font-size: clamp(2rem, 4.6vw, 3rem); margin: 0 0 16px; }
   .gen { color: var(--faint); font-size: 0.9rem; margin-top: 16px; }
   .gen.preview { color: var(--sun); }
 
-  .suite { padding-block: 24px 40px; }
-  .suite-title { font-size: 1.7rem; margin: 0 0 6px; }
-  .suite-blurb { margin: 0 0 12px; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    margin-top: 22px;
+    position: sticky; top: 0; z-index: 5;
+    padding-block: 10px;
+  }
+  .seg {
+    display: inline-flex; padding: 3px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+  }
+  .seg button {
+    appearance: none; border: 0; cursor: pointer;
+    font: inherit; font-size: 0.86rem; font-weight: 650;
+    color: var(--muted); background: transparent;
+    padding: 6px 16px; border-radius: 999px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .seg button[aria-checked='true'] { background: var(--hover); color: var(--fg, inherit); }
 
-  .os-block { margin-top: 34px; }
-  .os-h {
-    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.14em;
-    color: var(--sun); margin: 0 0 16px;
-    padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+  .suite { padding-block: 16px 28px; }
+  .suite-title { font-size: 1.7rem; margin: 0 0 6px; }
+  .suite-blurb { margin: 0 0 4px; }
+
+  .row { margin-top: 30px; }
+  .row-head { display: flex; align-items: baseline; gap: 12px; }
+  .row-title {
+    font-size: 0.95rem; font-weight: 700; margin: 0 0 12px;
+    text-transform: uppercase; letter-spacing: 0.1em; color: var(--sun);
   }
-  .platforms { display: grid; gap: 24px; }
-  .platform {
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    padding: 18px 18px 20px;
+  /* Full-bleed horizontal strip: the row scrolls sideways independently of the page. */
+  .strip-wrap { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+  .strip {
+    display: flex; gap: 16px; align-items: flex-start;
+    width: max-content;
+    padding-bottom: 10px;
   }
-  .platform-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-  .pf-name { font-weight: 700; }
-  .pf-tag {
-    font-size: 0.76rem; font-weight: 650; padding: 3px 10px; border-radius: 999px;
-    background: var(--hover); border: 1px solid var(--border); color: var(--faint);
+  /* Match .container's gutters so the first tile aligns with the heading. */
+  .container-pad { padding-inline: max(24px, calc((100vw - 1160px) / 2)); }
+
+  .tile { margin: 0; width: 300px; flex: 0 0 auto; }
+  .tile.mobile { width: 190px; }
+  .frame {
+    position: relative;
+    height: 240px;
+    display: grid; place-items: center;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    padding: 10px;
   }
-  .pf-tag.on { color: #8ce39a; border-color: rgba(140,227,154,0.35); background: rgba(140,227,154,0.1); }
-  .shots {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
-    gap: 16px;
+  .tile.mobile .frame { height: 300px; }
+  .frame img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
+  .fb-badge {
+    position: absolute; right: 8px; bottom: 8px;
+    font-size: 0.66rem; font-weight: 650; letter-spacing: 0.04em;
+    color: var(--faint); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 2px 8px;
   }
+  .ph {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    color: var(--faint);
+    border-radius: 8px;
+    background:
+      repeating-linear-gradient(-45deg, var(--hover) 0 12px, transparent 12px 24px),
+      radial-gradient(closest-side at 50% 40%, rgba(106,164,255,0.08), transparent);
+  }
+  .ph-mark { font-size: 1.7rem; opacity: 0.7; }
+  .ph-txt { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
+  figcaption {
+    margin-top: 8px; font-size: 0.82rem; text-align: center;
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .cap-os { color: var(--muted); font-weight: 650; }
+  .cap-tk { color: var(--faint); font-size: 0.76rem; }
 </style>

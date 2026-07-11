@@ -2440,6 +2440,19 @@ impl Platform for AppKit {
         }
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        // DAY_THEME=light|dark forces the appearance app-wide (themed CI screenshot runs and
+        // local theme checks); unset ⇒ follow the system.
+        if let Ok(theme) = std::env::var("DAY_THEME") {
+            let name = match theme.as_str() {
+                "dark" => Some(unsafe { objc2_app_kit::NSAppearanceNameDarkAqua }),
+                "light" => Some(unsafe { objc2_app_kit::NSAppearanceNameAqua }),
+                _ => None,
+            };
+            if let Some(name) = name {
+                let appearance = objc2_app_kit::NSAppearance::appearanceNamed(name);
+                unsafe { app.setAppearance(appearance.as_deref()) };
+            }
+        }
         // Dock icon (§18.2): `day launch` points DAY_APP_ICON at the project's macOS icon export;
         // an unbundled binary otherwise shows the generic executable icon in the Dock.
         if let Ok(icon) = std::env::var("DAY_APP_ICON") {

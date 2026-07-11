@@ -2378,6 +2378,19 @@ mod imp {
                 let vc = unsafe { UIViewController::new(mtm) };
                 let holder = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
                 let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+                // DAY_THEME=light|dark forces the interface style window-wide (themed CI
+                // screenshot runs; `day launch --env` reaches the sim app's environment);
+                // unset ⇒ follow the system.
+                if let Ok(theme) = std::env::var("DAY_THEME") {
+                    let style = match theme.as_str() {
+                        "dark" => Some(objc2_ui_kit::UIUserInterfaceStyle::Dark),
+                        "light" => Some(objc2_ui_kit::UIUserInterfaceStyle::Light),
+                        _ => None,
+                    };
+                    if let Some(style) = style {
+                        unsafe { window.setOverrideUserInterfaceStyle(style) };
+                    }
+                }
                 unsafe {
                     holder.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
                     holder.addSubview(&root_view);

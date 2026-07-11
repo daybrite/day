@@ -3,6 +3,7 @@
 // posting. Only connects to existing Qt signals via lambdas — no moc required.
 
 #include <QApplication>
+#include <QStyleHints>
 #include <QBuffer>
 #include <QByteArray>
 #include <QCheckBox>
@@ -64,6 +65,16 @@ void *day_qt_app_new(const char *app_name) {
     }
     auto *app = new QApplication(s_argc, s_argv);
     QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
+    // DAY_THEME=light|dark forces the color scheme (themed CI screenshot runs and local theme
+    // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+ — older
+    // Qt (e.g. Ubuntu 24.04's 6.4) quietly follows the system instead.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    {
+        const QByteArray theme = qgetenv("DAY_THEME");
+        if (theme == "dark") app->styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+        else if (theme == "light") app->styleHints()->setColorScheme(Qt::ColorScheme::Light);
+    }
+#endif
     QObject::connect(app, &QApplication::applicationStateChanged, [](Qt::ApplicationState s) {
         if (!g_lifecycle_cb) return;
         if (s == Qt::ApplicationActive) g_lifecycle_cb(2);        // DidBecomeActive

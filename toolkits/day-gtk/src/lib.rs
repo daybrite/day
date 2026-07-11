@@ -2213,6 +2213,22 @@ impl Platform for Gtk {
             .application_id("dev.daybrite.day.app")
             .build();
 
+        // DAY_THEME=light|dark forces the Adwaita color scheme (themed CI screenshot runs and
+        // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
+        // is initialized (StyleManager::default() needs adw_init).
+        app.connect_startup(|_| {
+            if let Ok(theme) = std::env::var("DAY_THEME") {
+                let scheme = match theme.as_str() {
+                    "dark" => Some(adw::ColorScheme::ForceDark),
+                    "light" => Some(adw::ColorScheme::ForceLight),
+                    _ => None,
+                };
+                if let Some(scheme) = scheme {
+                    adw::StyleManager::default().set_color_scheme(scheme);
+                }
+            }
+        });
+
         // Standard app-level "quit" action so `MenuRole::Quit` (and the platform quit shortcut
         // ⌘Q / Ctrl+Q) actually exits — GTK provides no default quit action (docs/menus.md fix).
         // Calling `app.quit()` tears the app down, which fires `shutdown` → `WillTerminate` below,
