@@ -14,7 +14,7 @@ finish. A machine-readable index of the whole site lives at [`/llms.txt`](/llms.
 - **Day**: the framework (proper noun; always capitalized in prose).
 - `day`: the CLI binary. You type `day build`, `day launch`, etc. Always lowercase.
 - `day`: the Rust crate. `use day::prelude::*;` brings in the whole API. Always lowercase.
-- `day.yaml`: the project manifest. **Piece**: a UI node (SwiftUI View / Flutter Widget). **Signal**:
+- `Day.toml`: the project manifest. **Piece**: a UI node (SwiftUI View / Flutter Widget). **Signal**:
   a reactive state cell. **target**: an `(OS, toolkit)` pair, e.g. `macos-appkit`, `ios-uikit`.
 
 ## What Day is (facts)
@@ -38,7 +38,7 @@ bind straight to native attributes.
    address Pieces by id. No id ⇒ not scriptable.
 5. **Localize user-facing text with `tr("key")`** and Fluent files; don't hard-code display strings in
    shipped apps (the showcase uses literals only for its own demo labels).
-6. **Edit `day.yaml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
+6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
    them.
 7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -p <target>`
    and, for assertions, `day launch -p <target> --script <dayscript.yaml>`.
@@ -52,13 +52,19 @@ day launch -p macos-appkit                 # build + run
 day launch -p macos-appkit --script scripts/walkthrough.yaml   # build + run + assert
 ```
 
-`day.yaml`:
+`Day.toml` (`name`/`version` come from Cargo.toml's `[package]`):
 
-```yaml
-day: 1
-app: { name: my-app, id: dev.example.my-app, title: My App, version: 0.1.0 }
-targets: [macos-appkit, ios-uikit, android-widget]
-window: { width: 480, height: 640 }
+```toml
+schema = 1
+
+[app]
+id = "dev.example.my-app"
+title = "My App"
+targets = ["macos-appkit", "ios-uikit", "android-widget"]
+
+[window]
+width = 480
+height = 640
 ```
 
 ## Core model (precise)
@@ -227,7 +233,7 @@ flow:
 - ❌ Passing a `String`/value where dynamic content is wanted. ✅ Pass `move || …sig.get()…`.
 - ❌ Wrapping `Signal` in `Rc`/`Arc`. ✅ It is `Copy`; move it directly.
 - ❌ Omitting `.id(...)` on Pieces you need to test/script/deep-link.
-- ❌ Hand-editing generated `platform/ios/*.xcodeproj` or `platform/android`. ✅ Edit `day.yaml`/Rust.
+- ❌ Hand-editing generated `platform/ios/*.xcodeproj` or `platform/android`. ✅ Edit `Day.toml`/Rust.
 - ❌ Concluding a target works from `cargo build`. ✅ `day launch -p <target>` (and `--script` to assert).
 - ❌ Hard-coded pixel font sizes for shipping text. ✅ Semantic `Font` styles (accessibility-scaled).
 

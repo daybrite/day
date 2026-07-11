@@ -29,7 +29,7 @@ AI agents (dense, rule-based, canonical); start there if you are generating Day 
 - [Overview](https://daybrite.dev/docs/overview): what Day is, how it works, the targets it ships.
 - [Why Day](https://daybrite.dev/docs/benefits): the case for native widgets + build-once/bind-forever.
 - [API tour](https://daybrite.dev/docs/api-tour): Pieces, Signals, layout, inputs, navigation, localization, accessibility, extensibility — with runnable snippets.
-- [CLI & projects](https://daybrite.dev/docs/cli): the `day` CLI, the conventional project layout, `day.yaml`, and dayscript automation.
+- [CLI & projects](https://daybrite.dev/docs/cli): the `day` CLI, the conventional project layout, `Day.toml`, and dayscript automation.
 
 ## Internal reference
 
@@ -42,5 +42,5 @@ The framework's internal design and reference docs (the repo's `docs/` folder) a
 - Build once, bind forever — never rebuild the view on state change; bind a Signal instead.
 - `Signal<T>` is `Copy` — move it into closures directly; never wrap it in `Rc`/`Arc`.
 - Containers take a tuple of children: `column((a, b, c))`; end a heterogeneous Piece with `.any()`.
-- Edit `day.yaml` and Rust; never hand-edit generated Xcode/Gradle scaffolds.
+- Edit `Day.toml` and Rust; never hand-edit generated Xcode/Gradle scaffolds.
 - Verify on a real target with `day launch -p <target>`; `cargo build` alone does not prove a target works.

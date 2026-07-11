@@ -1,5 +1,5 @@
 //! Day — the command-line tool (DESIGN.md §16). v0: new / build / launch / doctor for the
-//! desktop targets, day.yaml manifest, per-target cargo dirs, `--format json` result events.
+//! desktop targets, Day.toml manifest, per-target cargo dirs, `--format json` result events.
 //! Mobile pipelines (xcodebuild/gradle callbacks) land with the M5 scaffolds.
 
 mod cli;
@@ -7,6 +7,7 @@ mod doctor;
 mod interactive;
 mod lint;
 mod meta;
+mod metadata;
 mod mobile;
 mod new;
 mod ohos;

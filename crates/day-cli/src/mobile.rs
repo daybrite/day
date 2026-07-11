@@ -528,8 +528,15 @@ fn adb(serial: Option<&str>) -> Command {
 /// Every device in `adb devices` in the `device` state, paired with its primary ABI
 /// (`ro.product.cpu.abi`). `DAY_ANDROID_ABI`, when set, overrides the queried ABI for every device
 /// (CI's KVM emulator leg pins `x86_64`). Empty when nothing is connected.
+///
+/// `ANDROID_SERIAL` (adb's own device-selection variable) narrows the list to that one device —
+/// so launches, installs, and dayscript sessions target it exclusively when several devices are
+/// attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
     let forced = std::env::var("DAY_ANDROID_ABI").ok();
+    let only = std::env::var("ANDROID_SERIAL")
+        .ok()
+        .filter(|s| !s.is_empty());
     let out = match Command::new("adb").arg("devices").output() {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
@@ -542,6 +549,11 @@ pub(crate) fn android_devices() -> Vec<AndroidDevice> {
             let serial = it.next()?;
             if it.next() != Some("device") {
                 return None; // skip offline/unauthorized
+            }
+            if let Some(want) = &only
+                && serial != want
+            {
+                return None;
             }
             let abi = forced.clone().unwrap_or_else(|| {
                 Command::new("adb")
@@ -669,7 +681,7 @@ pub fn build_android(
     );
     build_android_so(project, profile, &jni_out, &abis)?;
 
-    // Convey day.yaml identity/version to the Gradle scaffold (§17.5) on every build, so
+    // Convey Day.toml identity/version to the Gradle scaffold (§17.5) on every build, so
     // applicationId/versionCode/versionName never go stale in the checked-in scaffold.
     crate::pack::android::write_app_properties(project)?;
 

@@ -120,6 +120,40 @@ fn read_tree(root: &Path) -> Result<Vec<TemplateFile>, String> {
     Ok(out)
 }
 
+/// The platform (OS) a `platform/<os>/…` template path belongs to, or None for a
+/// target-agnostic file. Matches the target naming convention: `android-widget`'s platform is
+/// `android`, so it owns `platform/android/`.
+fn file_platform(path: &str) -> Option<&str> {
+    path.strip_prefix("platform/")?.split('/').next()
+}
+
+/// Keep the target-agnostic files plus the `platform/<os>/` subtrees belonging to `targets`
+/// (`day new app` scaffolds only the host projects its targets need; `day app add-toolkit`
+/// materializes the rest later from the same template).
+pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<TemplateFile> {
+    let platforms: Vec<&str> = targets.iter().filter_map(|t| t.split('-').next()).collect();
+    files
+        .into_iter()
+        .filter(|f| match file_platform(&f.path) {
+            Some(os) => platforms.contains(&os),
+            None => true,
+        })
+        .collect()
+}
+
+/// ONLY the `platform/<os>/` subtrees belonging to `targets` — what `day app add-toolkit`
+/// adds to an existing project (the target-agnostic files already exist there).
+pub fn platform_files_for_targets(
+    files: Vec<TemplateFile>,
+    targets: &[String],
+) -> Vec<TemplateFile> {
+    let platforms: Vec<&str> = targets.iter().filter_map(|t| t.split('-').next()).collect();
+    files
+        .into_iter()
+        .filter(|f| file_platform(&f.path).is_some_and(|os| platforms.contains(&os)))
+        .collect()
+}
+
 /// Render a template against `ctx` (any serde-serializable map): paths and UTF-8 contents go
 /// through handlebars; binary files pass through. Returns (relative path, bytes) pairs.
 pub fn render<S: serde::Serialize>(
@@ -167,7 +201,7 @@ mod tests {
         m.insert("id", "dev.example.hello_world".to_string());
         m.insert("scheme", "helloworld".to_string());
         m.insert("day_dep", "day = { version = \"0.0.0\" }".to_string());
-        m.insert("targets_yaml", "  - macos-appkit".to_string());
+        m.insert("targets_toml", "\"macos-appkit\"".to_string());
         m.insert("first_target", "macos-appkit".to_string());
         m
     }
@@ -179,7 +213,7 @@ mod tests {
         let rendered = render(&files, &ctx()).expect("builtin template renders cleanly");
         let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
         for expected in [
-            "day.yaml",
+            "Day.toml",
             "Cargo.toml", // .hbs stripped
             ".gitignore", // _gitignore mapped
             "src/main.rs",
@@ -198,6 +232,33 @@ mod tests {
         let cargo = std::str::from_utf8(&cargo.1).unwrap();
         assert!(cargo.contains("name = \"hello-world\""));
         assert!(cargo.contains("day = { version = \"0.0.0\" }"));
+    }
+
+    #[test]
+    fn target_filtering_scopes_platform_subtrees() {
+        let files = builtin_app();
+        let ios_only = filter_for_targets(builtin_app(), &["ios-uikit".to_string()]);
+        assert!(ios_only.iter().any(|f| f.path.starts_with("platform/ios/")));
+        assert!(
+            !ios_only
+                .iter()
+                .any(|f| f.path.starts_with("platform/android/"))
+        );
+        assert!(
+            !ios_only
+                .iter()
+                .any(|f| f.path.starts_with("platform/ohos/"))
+        );
+        assert!(ios_only.iter().any(|f| f.path == "Day.toml")); // agnostic files stay
+
+        // Desktop targets need no platform subtree at all.
+        let desktop = filter_for_targets(builtin_app(), &["macos-appkit".to_string()]);
+        assert!(!desktop.iter().any(|f| f.path.starts_with("platform/")));
+
+        // add-toolkit's view: only the new target's subtree, nothing agnostic.
+        let add = platform_files_for_targets(files, &["android-widget".to_string()]);
+        assert!(!add.is_empty());
+        assert!(add.iter().all(|f| f.path.starts_with("platform/android/")));
     }
 
     #[test]

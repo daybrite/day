@@ -58,13 +58,13 @@ day launch -p macos-appkit
 `--toolkit linux-gtk` and launch that instead.)
 
 A window appears with the scaffold's starter UI. The scaffold is a normal Cargo project — `cargo
-build`, `cargo test`, and `cargo clippy` work in it without the `day` CLI — plus a `day.yaml`
+build`, `cargo test`, and `cargo clippy` work in it without the `day` CLI — plus a `Day.toml`
 manifest and a few conventional directories. The [project structure](/docs/project-structure)
 page maps them all; for now the two that matter:
 
 ```text
 hello/
-  day.yaml          # app identity: name, id, version, targets, window size
+  Day.toml          # app identity: id, title, targets, window (name/version from Cargo.toml)
   src/lib.rs        # pub fn root() -> AnyPiece — your UI starts here
 ```
 
@@ -100,7 +100,7 @@ day launch -p macos-appkit --script scripts/goto-settings.yaml
 
 ## Second target
 
-Add a target to `day.yaml` (or scaffold with several `--toolkit` flags up front), then launch
+Add a target with `day app add-toolkit <target>` (or scaffold with several `--toolkit` flags up front), then launch
 them side by side — the CLI builds each target in parallel and streams both apps' logs:
 
 ```bash
@@ -118,5 +118,5 @@ toolkit backend in it, which is why the first build per target starts from scrat
   ideas everything else builds on. Read these before writing anything nontrivial.
 - The [API tour](/docs/api-tour) — the whole surface in one pass, if you'd rather learn from
   code.
-- [CLI & projects](/docs/cli) — every command, and what `day.yaml` can say.
+- [CLI & projects](/docs/cli) — every command, and what `Day.toml` can say.
 - [Platform support](/docs/platforms) — an honest statement of how solid each target is today.

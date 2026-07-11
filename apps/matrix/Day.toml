@@ -1,0 +1,21 @@
+# Day.toml — the matrix app's Day manifest (docs/cli.md). `name`/`version` come from
+# Cargo.toml's [package].
+schema = 1
+
+[app]
+id = "dev.daybrite.matrix"
+title = "Matrix"
+build = 1
+targets = [
+  "macos-appkit",
+  "macos-gtk",
+  "macos-qt",
+  "windows-winui",
+  "ios-uikit",
+  "android-widget",
+  "ohos-arkui",
+]
+
+[window]
+width = 1100
+height = 760

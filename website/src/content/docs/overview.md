@@ -80,7 +80,7 @@ where each one stands rather than implying they're all equal.
 
 ## What it's like day to day
 
-Everything is one Cargo project plus a small `day.yaml` manifest. `day launch -p <target>`
+Everything is one Cargo project plus a small `Day.toml` manifest. `day launch -p <target>`
 builds and runs; several `-p` flags launch targets in parallel. Tests run against a headless
 mock toolkit in ordinary `cargo test`, and [dayscript](/docs/dayscript) drives the real app —
 the same YAML script taps buttons and asserts labels on every platform, which is also how the

@@ -1,4 +1,4 @@
-//! android-widget → release .apk + .aab. day.yaml identity/version is conveyed to Gradle via a
+//! android-widget → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
 //! generated properties file (§17.5); the release signingConfig reads a second generated file —
 //! resolved from `signing.android` `${ENV}` refs, or a CI/dev keystore generated with keytool when
 //! unconfigured (dev tier, loud). Gradle signs both formats (apksigner cannot sign an .aab — §16.5).
@@ -14,16 +14,20 @@ use crate::targets::Target;
 
 const DEV_KEYSTORE_PASS: &str = "day-dev-only"; // dev keystore: local installs only, never distribution
 
-/// day.yaml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName).
-/// Written on every android build (`day build` too) so the Gradle scaffold never goes stale (§17.5).
+/// Day.toml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName,
+/// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
+/// stale (§17.5). Identity is RESOLVED for the android target, so `[app.android]` /
+/// `[app.android-widget]` overrides in Day.toml flow into the APK.
 pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let resolved = project.manifest.resolve("android-widget");
     let content = format!(
-        "applicationId={}\nversionCode={}\nversionName={}\n",
-        project.manifest.app.id,
-        project.manifest.app.build.min(i32::MAX as u64),
-        project.manifest.app.version
+        "applicationId={}\nversionCode={}\nversionName={}\ntitle={}\n",
+        resolved.id,
+        resolved.build.min(i32::MAX as u64),
+        resolved.version,
+        resolved.title
     );
     let path = dir.join("day-app.properties");
     // Content-hashed write: only touch the file when it changed (keeps Gradle up-to-date checks warm).

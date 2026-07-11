@@ -1,6 +1,6 @@
 ---
 title: CLI & projects
-description: The Day command-line tool, the conventional project layout, day.yaml, and dayscript.
+description: The Day command-line tool, the conventional project layout, Day.toml, and dayscript.
 order: 30
 section: Build & ship
 ---
@@ -13,6 +13,7 @@ lints, and scripts projects. It's built for humans, CI, IDEs, and AI agents alik
 ```bash
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively
+day app add-toolkit android-widget   # add a target to an existing app
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
@@ -46,7 +47,7 @@ dayscript smoke test (`day launch -p <target> --script scripts/smoke.yaml`), and
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders —
 `{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
-`{{day_dep}}`, `{{targets_yaml}}`, `{{first_target}}`. The built-in template is embedded in the
+`{{day_dep}}`, `{{targets_toml}}`, `{{first_target}}`. The built-in template is embedded in the
 CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
 
 ```bash
@@ -57,7 +58,14 @@ day new app my-app --template https://github.com/you/tpl#v1   # a git repo (opti
 Template conventions: a trailing `.hbs` on a filename is stripped after rendering (use
 `Cargo.toml.hbs` so tooling doesn't mistake the template for a Rust package), `_gitignore`
 becomes `.gitignore`, non-UTF-8 files (icons) copy verbatim, and an unknown `{{placeholder}}`
-is an error rather than silent empty output.
+is an error rather than silent empty output. Files under `platform/<os>/` belong to that OS's
+targets and are only scaffolded for targets that need them.
+
+Add a platform later with **`day app add-toolkit <target>`** (repeatable / comma-separated):
+it appends the target to `Day.toml`'s `[app] targets` array (via toml_edit, so your comments
+and formatting survive) and materializes the target's native host project (`platform/android/`,
+`platform/ios/`, `platform/ohos/`) from the same template, never overwriting existing files.
+Pass the same `--template` the app was created with if it wasn't the built-in one.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 
@@ -68,28 +76,44 @@ day launch -p macos-gtk --script scripts/walkthrough.yaml --locale fr
 
 ## The conventional project
 
-A Day project is a normal Cargo package plus a small `day.yaml`. The build tool generates the
-per-platform scaffolds (an Xcode project, a Gradle module tree) on demand and links them to your
-SwiftPM-style dependency graph. You never hand-maintain them.
+A Day project is a normal Cargo package plus a small `Day.toml` — the project marker and the
+home of everything Day-specific. Two rules keep it honest: `name` and `version` are **derived
+from Cargo.toml's `[package]`** (never restated, so identity can't drift), and any `[app]`
+property can be **overridden per platform, per toolkit, or per target** — `[app.ios]`,
+`[app.qt]`, `[app.macos-appkit]` — with the most specific table winning. The build tool reads
+the resolved values when it derives platform metadata (an Android build's label and
+applicationId, for example).
 
-```yaml
-# day.yaml
-day: 1
-app:
-  name: showcase
-  id: dev.daybrite.showcase
-  title: Day Showcase
-  version: 0.1.0
-targets:
-  - macos-appkit
-  - macos-gtk
-  - macos-qt
-  - ios-uikit
-  - android-widget
-window:
-  width: 480
-  height: 640
+```toml
+# Day.toml
+schema = 1
+
+[app]
+id = "dev.daybrite.showcase"
+title = "Day Showcase"
+build = 1
+targets = [
+  "macos-appkit",
+  "macos-gtk",
+  "macos-qt",
+  "ios-uikit",
+  "android-widget",
+]
+
+[window]
+width = 480
+height = 640
+
+# Example: a different display title on iOS only.
+[app.ios]
+title = "Showcase Mobile"
 ```
+
+`day metadata` prints the project's identity, targets, and per-target resolved values;
+`--json` emits a versioned, machine-readable envelope (this is what the VS Code extension
+consumes instead of parsing Day.toml itself, and it also carries the full target catalog).
+`day lint` validates the manifest's structure — unknown targets and override tables that name
+no known platform/toolkit/target are findings.
 
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,

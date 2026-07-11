@@ -1,6 +1,6 @@
 //! windows-winui → .msix (makeappx + signtool). The winui backend hosts system XAML Islands
 //! (Windows.UI.Xaml ships with the OS — no WinAppSDK runtime dependency to declare or bootstrap).
-//! Signing providers (day.yaml signing.windows.provider): self-signed-dev (default; generated
+//! Signing providers (Day.toml signing.windows.provider): self-signed-dev (default; generated
 //! per-publisher cert in CurrentUser\My — installable locally after trusting it, dev tier) |
 //! signtool-cert-store (thumbprint) | azure-artifact-signing (signtool /dlib; 72 h certs make the
 //! /tr timestamp mandatory). The MSIX Identity Publisher must byte-match the cert subject.

@@ -5,7 +5,7 @@
     <!-- enableOnBackInvokedCallback: predictive back (docs/navigation.md) — DayActivity
          registers an OnBackInvokedCallback while (and only while) the nav stack can pop. -->
     <application
-        android:label="Day Showcase"
+        android:label="${dayTitle}"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
         android:enableOnBackInvokedCallback="true">

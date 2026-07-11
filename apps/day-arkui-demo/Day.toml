@@ -1,0 +1,17 @@
+# Day.toml — the ArkUI demo's Day manifest (docs/cli.md). `name`/`version` come from
+# Cargo.toml's [package].
+schema = 1
+
+[app]
+id = "dev.daybrite.day.arkui.demo"
+title = "Day ArkUI Demo"
+build = 1
+# The ArkUI/HarmonyOS backend. `day build/launch -p ohos-arkui` cross-compiles the app to
+# libentry.so, packages + signs the .hap via the ArkTS host project under `platform/ohos/`,
+# and (for launch) installs + starts it on the connected emulator/device over hdc. See
+# docs/harmonyos.md.
+targets = ["ohos-arkui"]
+
+[window]
+width = 480
+height = 640

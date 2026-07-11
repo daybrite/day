@@ -1,0 +1,195 @@
+---
+// Auto-advancing carousel of real Day Showcase screenshots — one native rendering per platform,
+// cross-fading, with the platform name + toolkit animating in below each image. The pool is built
+// (and every image verified non-blank) at build time by scripts/hero-shots.mjs.
+import { url } from '../lib/site';
+import shotsData from '../data/hero-shots.json';
+
+const shots: { src: string; os: string; toolkit: string; accent: string; alt: string }[] =
+  shotsData.shots ?? [];
+---
+{shots.length > 0 && (
+  <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
+    <div class="hc-frame">
+      <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
+      {shots.map((s, i) => (
+        <img
+          class:list={['hc-img', { 'is-active': i === 0 }]}
+          src={url(s.src)}
+          alt={s.alt}
+          width="1000"
+          height="750"
+          decoding="async"
+          loading={i < 3 ? 'eager' : 'lazy'}
+          data-os={s.os}
+          data-toolkit={s.toolkit}
+          data-accent={s.accent}
+        />
+      ))}
+    </div>
+    <div class="hc-track" data-hc-track aria-hidden="true">
+      {shots.map(() => <span class="hc-seg"><i></i></span>)}
+    </div>
+    <figcaption class="hc-caption" data-hc-caption>
+      <span class="hc-plat">
+        <b class="hc-os" data-hc-os></b>
+        <span class="hc-toolkit" data-hc-toolkit></span>
+      </span>
+    </figcaption>
+  </figure>
+)}
+
+<style>
+  .hero-carousel { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+
+  .hc-frame {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background:
+      radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--surface-2) 90%, transparent), var(--surface));
+    overflow: hidden;
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.55);
+  }
+  /* Accent glow tinted by the active platform (var set from JS). */
+  .hc-glow {
+    position: absolute; inset: 0;
+    background: radial-gradient(90% 70% at 50% 8%, var(--hc-accent, transparent), transparent 60%);
+    opacity: 0.18;
+    transition: background 0.6s ease;
+    pointer-events: none;
+  }
+  .hc-img {
+    position: absolute;
+    inset: 14px;
+    width: calc(100% - 28px);
+    height: calc(100% - 28px);
+    object-fit: contain;
+    opacity: 0;
+    transform: scale(1.015);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+    filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.28));
+  }
+  .hc-img.is-active { opacity: 1; transform: scale(1); }
+
+  /* Story-style segmented progress / index. */
+  .hc-track { display: flex; gap: 4px; padding: 0 2px; }
+  .hc-seg {
+    flex: 1; height: 3px; border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .hc-seg i {
+    display: block; height: 100%; width: 100%;
+    background: var(--hc-accent, var(--brand));
+    transform: scaleX(0); transform-origin: left;
+  }
+  .hc-seg.is-past i { transform: scaleX(1); opacity: 0.5; }
+  .hc-seg.is-active i { animation: hc-fill var(--hc-interval, 3400ms) linear forwards; }
+  @keyframes hc-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .hc-caption { display: flex; flex-direction: column; gap: 3px; min-height: 40px; }
+  .hc-plat { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .hc-os {
+    font-size: 1.35rem; font-weight: 800; line-height: 1.1;
+    color: var(--hc-accent, var(--text));
+  }
+  .hc-toolkit { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+
+  /* Caption re-animates on each change (JS toggles .hc-rise). */
+  .hc-rise .hc-os, .hc-rise .hc-toolkit { animation: hc-rise 0.5s ease both; }
+  .hc-rise .hc-toolkit { animation-delay: 0.05s; }
+  @keyframes hc-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hc-img { transition: opacity 0.2s linear; transform: none; }
+    .hc-img.is-active { transform: none; }
+    .hc-seg.is-active i { animation: none; transform: scaleX(1); }
+    .hc-rise .hc-os, .hc-rise .hc-toolkit { animation: none; }
+  }
+</style>
+
+<script>
+  // Carousel controller: shuffle the verified pool (so each visit differs), cross-fade the images,
+  // and animate the platform caption in sync. Pauses on hover / when the tab is hidden.
+  function initHeroCarousel() {
+    const root = document.querySelector<HTMLElement>('[data-hero-carousel]');
+    if (!root) return;
+
+    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.hc-img'));
+    const segs = Array.from(root.querySelectorAll<HTMLElement>('.hc-seg'));
+    const glow = root.querySelector<HTMLElement>('[data-hc-glow]');
+    const caption = root.querySelector<HTMLElement>('[data-hc-caption]');
+    const osEl = root.querySelector<HTMLElement>('[data-hc-os]');
+    const tkEl = root.querySelector<HTMLElement>('[data-hc-toolkit]');
+    if (imgs.length === 0) return;
+
+    const INTERVAL = 3400;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Fisher–Yates shuffle of the display order.
+    const order = imgs.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+
+    let pos = 0;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    function render(p: number) {
+      const idx = order[p];
+      const img = imgs[idx];
+      const accent = `var(--pf-${img.dataset.accent ?? 'macos'})`;
+      root!.style.setProperty('--hc-accent', accent);
+      root!.style.setProperty('--hc-interval', `${INTERVAL}ms`);
+      if (glow) glow.style.setProperty('--hc-accent', accent);
+
+      imgs.forEach((im, i) => im.classList.toggle('is-active', i === idx));
+
+      // Progress segments track position within the shuffled order.
+      segs.forEach((seg, i) => {
+        seg.classList.toggle('is-active', i === p);
+        seg.classList.toggle('is-past', i < p);
+      });
+
+      if (osEl) osEl.textContent = img.dataset.os ?? '';
+      if (tkEl) tkEl.textContent = img.dataset.toolkit ?? '';
+      // Restart the caption entrance animation.
+      if (caption) {
+        caption.classList.remove('hc-rise');
+        void caption.offsetWidth; // reflow so the animation replays
+        caption.classList.add('hc-rise');
+      }
+    }
+
+    function advance() {
+      pos = (pos + 1) % order.length;
+      render(pos);
+    }
+    function start() {
+      if (reduce || timer) return;
+      timer = setInterval(advance, INTERVAL);
+    }
+    function stop() {
+      if (timer) { clearInterval(timer); timer = undefined; }
+    }
+
+    // Click / tap the frame to jump ahead.
+    root.querySelector('.hc-frame')?.addEventListener('click', () => { advance(); stop(); start(); });
+    root.addEventListener('mouseenter', stop);
+    root.addEventListener('mouseleave', start);
+    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+
+    render(0);
+    start();
+  }
+
+  // Run now and on Astro client-side view transitions.
+  initHeroCarousel();
+  document.addEventListener('astro:page-load', initHeroCarousel);
+</script>

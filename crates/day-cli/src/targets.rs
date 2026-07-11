@@ -25,7 +25,7 @@ pub struct Target {
 }
 
 // Ordered for presentation (mobile first, then desktops grouped by OS, experimental last) — this is
-// the order the `day new` interactive target menu shows. `find()` is by name and `day.yaml` defaults
+// the order the `day new` interactive target menu shows. `find()` is by name and `Day.toml` defaults
 // are string literals, so the order is purely cosmetic elsewhere.
 pub const TARGETS: &[Target] = &[
     Target {

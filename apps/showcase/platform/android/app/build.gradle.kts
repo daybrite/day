@@ -19,14 +19,14 @@ val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
 val piecePermissions = (dayPieces["permissions"] as? List<String>) ?: emptyList()
 
-// day.yaml identity/version, conveyed by `day build` / `day pack` (§17.5). Read generically with
+// Day.toml identity/version, conveyed by `day build` / `day pack` (§17.5). Read generically with
 // scaffold fallbacks, so a bare `./gradlew` build still configures.
 val dayAppFile = rootProject.projectDir.resolve("../../build/day/android/day-app.properties")
 val dayApp = Properties().apply {
     if (dayAppFile.exists()) dayAppFile.inputStream().use { s -> load(s) }
 }
 
-// Release signing, resolved by `day pack` (day.yaml `signing.android` env refs, or its generated
+// Release signing, resolved by `day pack` (Day.toml `signing.android` env refs, or its generated
 // dev keystore). Absent file ⇒ unsigned release build (a plain `day build --profile release`).
 val daySigningFile = rootProject.projectDir.resolve("../../build/day/android/day-signing.properties")
 val daySigning = Properties().apply {
@@ -41,6 +41,9 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = dayApp.getProperty("versionCode")?.toInt() ?: 1
+        // The app label — Day.toml [app] title, resolved per target (an [app.android] override
+        // wins); the manifest references it as ${dayTitle}.
+        manifestPlaceholders["dayTitle"] = dayApp.getProperty("title") ?: "Day Showcase"
         versionName = dayApp.getProperty("versionName") ?: "0.1.0"
     }
     sourceSets {

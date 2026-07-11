@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import CodeSample from '../components/CodeSample.astro';
+import HeroCarousel from '../components/HeroCarousel.astro';
 import InstallCommand from '../components/InstallCommand.astro';
 import Logo from '../components/Logo.astro';
 import { url, site } from '../lib/site';
@@ -94,27 +95,17 @@ const compare = [
     <div class="container hero-grid">
       <div class="hero-copy">
         <h1 class="hero-title">
-          Truly native apps on{' '}
-          <span class="pf pf-android">Android</span>,{' '}
-          <span class="pf pf-ios">iOS</span>,{' '}
-          <span class="pf pf-harmony">Harmony</span>,{' '}
-          <span class="pf pf-macos">macOS</span>,{' '}
-          <span class="pf pf-windows">Windows</span>, and{' '}
-          <span class="pf pf-linux">Linux</span>{' '}
-          — from a single Rust codebase
+          <span class="grad-text">Day</span>: build native apps for every platform{' '}
+          <span class="sun-text">under the sun</span>, from a single Rust codebase
         </h1>
         <p class="lead hero-lead">{site.description}</p>
         <div class="hero-cta">
           <a class="btn btn-primary" href={url('docs/overview')}>Read the docs</a>
           <a class="btn btn-ghost" href={url('gallery')}>See it running →</a>
         </div>
-        <p class="hero-sub">
-          Real AppKit · UIKit · Android · GTK · Qt · WinUI · ArkUI components — not lookalikes
-        </p>
       </div>
-      <div class="hero-code">
-        <CodeSample code={heroCode} title="counter.rs" />
-        <p class="hero-code-note">↑ one Rust function — a native counter on all eleven targets below.</p>
+      <div class="hero-media">
+        <HeroCarousel />
       </div>
     </div>
     <div class="container hero-install">
@@ -135,6 +126,34 @@ const compare = [
             </ul>
           </div>
         ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- THE CODE -->
+  <section class="section codeshow">
+    <div class="container codeshow-grid">
+      <div class="codeshow-copy">
+        <p class="eyebrow">One codebase, every platform</p>
+        <h2 class="sec-title">One Rust function. A native app <span class="grad-text">everywhere</span>.</h2>
+        <p class="lead">
+          This is a complete, working counter — the whole thing. The same function becomes a real
+          AppKit control on macOS, UIKit on iOS, Material on Android, and native GTK, Qt, WinUI, and
+          ArkUI widgets everywhere else. Those are the screenshots in the carousel above: real
+          platform components, from this exact kind of code.
+        </p>
+        <ul class="how-list">
+          <li><b>Just Rust:</b> plain functions and builder calls — no markup language, no macros, no per-platform branches.</li>
+          <li><b>Reactive by binding:</b> change a signal and only the control showing it updates — no re-render, no virtual tree.</li>
+          <li><b>Native on the other side:</b> the widgets it produces are the platform's own, not lookalikes drawn by an engine.</li>
+        </ul>
+        <div class="hero-cta">
+          <a class="btn btn-ghost" href={url('docs/api-tour')}>See the full API tour →</a>
+        </div>
+      </div>
+      <div class="codeshow-code">
+        <CodeSample code={heroCode} title="counter.rs" />
+        <p class="codeshow-note">One function — a native counter on all eleven targets.</p>
       </div>
     </div>
   </section>
@@ -248,21 +267,22 @@ const compare = [
   /* Grid items must be allowed to shrink below their content's intrinsic width, so a wide
      code block scrolls inside its own box instead of stretching the page. */
   .hero-grid > *, .how-grid > * { min-width: 0; }
-  .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; }
-  /* Each platform name in a distinct accent from the bold hexad (defined in global.css, theme-adaptive);
-     nowrap keeps a name (and its trailing comma) from breaking across lines. */
-  .hero-title .pf { white-space: nowrap; }
-  .hero-title .pf-android { color: var(--pf-android); }
-  .hero-title .pf-ios { color: var(--pf-ios); }
-  .hero-title .pf-harmony { color: var(--pf-harmony); }
-  .hero-title .pf-macos { color: var(--pf-macos); }
-  .hero-title .pf-windows { color: var(--pf-windows); }
-  .hero-title .pf-linux { color: var(--pf-linux); }
+  .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; line-height: 1.08; }
+  /* "under the sun" in a warm amber gradient — a nod to the Ember Dawn mark. */
+  .sun-text {
+    background: linear-gradient(100deg, var(--sun) 0%, var(--sun-2) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    white-space: nowrap;
+  }
   .hero-lead { margin: 0 0 28px; }
   .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
   .hero-install { margin-top: 34px; }
-  .hero-sub { margin-top: 22px; color: var(--faint); font-size: 0.86rem; }
-  .hero-code-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
+
+  /* THE CODE (example moved down from the hero) */
+  .codeshow-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+  .codeshow-grid > * { min-width: 0; }
+  .codeshow-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
 
   /* RUNS ON */
   .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; margin-top: 8px; }
@@ -315,8 +335,10 @@ const compare = [
   .cta-inner h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0; max-width: 20ch; }
 
   @media (max-width: 880px) {
-    .hero-grid, .how-grid { grid-template-columns: minmax(0, 1fr); }
+    .hero-grid, .how-grid, .codeshow-grid { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 40px; }
     .how-code { order: 2; }
+    /* On the hero, show the carousel first (above the copy) on narrow screens. */
+    .hero-media { order: -1; }
   }
 </style>

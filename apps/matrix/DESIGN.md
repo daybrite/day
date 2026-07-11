@@ -37,7 +37,7 @@ This file is the source of truth for the plan and survives context compaction. U
 
 ```
 apps/matrix/
-  day.yaml            # all 7 targets
+  Day.toml            # all 7 targets
   Cargo.toml          # depends on day, matrix-core, and any new day-piece-* we build
   src/main.rs         # day::launch(root)
   src/lib.rs          # root() + app shell (nav)

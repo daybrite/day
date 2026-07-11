@@ -1,5 +1,5 @@
 //! `day sign` v0 (DESIGN.md §16.5): `--check` validates the presence and resolvability of the
-//! day.yaml `signing:` configuration (env vars set, referenced files exist) WITHOUT ever printing
+//! Day.toml `signing:` configuration (env vars set, referenced files exist) WITHOUT ever printing
 //! a secret value; `--notarize-status <id>` polls an async notarytool submission. Actual signing
 //! runs inside `day pack` (the per-format modules in pack/).
 
@@ -223,7 +223,7 @@ pub fn notarize_status(project: &Project, id: &str) -> i32 {
         .and_then(|s| s.macos.as_ref())
         .and_then(|m| m.notarize.as_ref())
     else {
-        eprintln!("error: no signing.macos.notarize config in day.yaml");
+        eprintln!("error: no signing.macos.notarize config in Day.toml");
         return 6;
     };
     let (key_id, issuer, key_path) = match (

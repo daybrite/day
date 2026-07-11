@@ -3,7 +3,7 @@
 The `day` command line: create, build, run, test, and package Day apps.
 
 ```text
-day new app hello       # scaffold a project (day.yaml + src/lib.rs)
+day new app hello       # scaffold a project (Day.toml + src/lib.rs)
 day launch -p macos-appkit -p android-widget
 day doctor              # what's installed, what's missing, how to fix it
 day pack -p macos-appkit  # .dmg — plus .ipa / .apk+.aab / .flatpak / .msix / .hap per target

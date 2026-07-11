@@ -14,7 +14,7 @@ day launch -p {{first_target}}   # build + run
 day build  -p {{first_target}}   # build only
 ```
 
-Targets live in `day.yaml`. To use plain cargo, pass the backend feature yourself, e.g.
+Targets live in `Day.toml`. To use plain cargo, pass the backend feature yourself, e.g.
 `cargo build --features appkit` (macOS) / `--features gtk` / `--features uikit` /
 `--features widget` (Android).
 
@@ -30,7 +30,7 @@ Targets live in `day.yaml`. To use plain cargo, pass the backend feature yoursel
 - `scripts/smoke.yaml` — a [dayscript](https://daybrite.dev/docs/dayscript) UI test:
   `day launch -p {{first_target}} --script scripts/smoke.yaml`.
 - `platform/` — the thin native host projects (Xcode / Gradle / hvigor) the mobile targets
-  build through; `day build` keeps their identity in sync with `day.yaml`.
-- `day.yaml` — app metadata + the target list.
+  build through; `day build` keeps their identity in sync with `Day.toml`.
+- `Day.toml` — app metadata + the target list.
 
 `day lint` checks routes, element ids, and locale coverage.

@@ -57,7 +57,8 @@ the affected script instead of keeping stale results.
 | Variable | Meaning |
 |---|---|
 | `DAY_LOCAL` | Make `day new` scaffolds depend on a local day checkout instead of the git remote (CI) |
-| `DAY_SIGN_*`, `DAY_NOTARY_*`, `DAY_ASC_*`, `DAY_KS_PASS`, … | Release-signing secrets referenced from `day.yaml`'s `signing:` section via `${VAR}` — resolved at pack time, degrade to the dev signing tier when unset (§20) |
+| `ANDROID_SERIAL` | adb's standard device selector — when set, `day build/launch` and dayscript sessions target ONLY that device instead of every connected one |
+| `DAY_SIGN_*`, `DAY_NOTARY_*`, `DAY_ASC_*`, `DAY_KS_PASS`, … | Release-signing secrets referenced from `Day.toml`'s `[signing]` tables via `${VAR}` — resolved at pack time, degrade to the dev signing tier when unset (§20) |
 
 Signing variables are listed exhaustively by `day sign --check`, which reports each platform's
 readiness without printing a secret value.

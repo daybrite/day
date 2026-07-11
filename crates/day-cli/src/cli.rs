@@ -16,7 +16,7 @@ use crate::targets;
     about = "Day — cross-platform apps in Rust with native toolkits"
 )]
 struct Cli {
-    /// Project directory (default: nearest ancestor with day.yaml)
+    /// Project directory (default: nearest ancestor with Day.toml)
     #[arg(long, global = true)]
     project: Option<PathBuf>,
     /// Output format: plain (default) or json (NDJSON result events)
@@ -81,7 +81,7 @@ enum Cmd {
         #[arg(long)]
         no_wait: bool,
     },
-    /// Signing utilities: --check validates day.yaml signing config (never prints secrets)
+    /// Signing utilities: --check validates Day.toml signing config (never prints secrets)
     Sign {
         /// Validate signing config resolvability (env vars set, files present)
         #[arg(long)]
@@ -96,6 +96,19 @@ enum Cmd {
         /// One of: appkit, uikit, gtk, qt, winui, android, harmonyos.
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
+    },
+    /// App-project maintenance: add platforms/toolkits to an existing app
+    App {
+        #[command(subcommand)]
+        cmd: AppCmd,
+    },
+    /// Machine-readable project metadata: app identity, targets, per-target overrides, and
+    /// the target catalog. IDE tooling (day-vscode) consumes `--json` instead of parsing
+    /// Day.toml itself — the envelope is versioned and grow-only.
+    Metadata {
+        /// Emit the versioned JSON envelope instead of the human summary
+        #[arg(long)]
+        json: bool,
     },
     /// Check the project for common errors (fluent coverage, ids)
     Lint {
@@ -234,6 +247,21 @@ enum NewKind {
 }
 
 #[derive(clap::Subcommand)]
+pub enum AppCmd {
+    /// Add target(s) to this app: appends to Day.toml `targets:` (comments/formatting
+    /// preserved) and materializes any native host projects (platform/…) the targets need,
+    /// from the SAME template `day new app` used.
+    #[command(name = "add-toolkit")]
+    AddToolkit {
+        /// Target(s) to add, e.g. `android-widget` (repeatable / comma-separated)
+        targets: Vec<String>,
+        /// The template the app was scaffolded from, when not the built-in one (dir or git URL)
+        #[arg(long)]
+        template: Option<String>,
+    },
+}
+
+#[derive(clap::Subcommand)]
 pub enum OhosCmd {
     /// Manage the OpenHarmony emulator
     Emulator {
@@ -317,6 +345,14 @@ pub fn run() -> i32 {
             }
             eprintln!("error: day sign needs --check or --notarize-status <id>");
             2
+        }),
+        Cmd::App {
+            cmd: AppCmd::AddToolkit { targets, template },
+        } => with_project(cli.project.as_deref(), |project| {
+            crate::new::add_toolkit(project, &targets, template.as_deref())
+        }),
+        Cmd::Metadata { json } => with_project(cli.project.as_deref(), |project| {
+            crate::metadata::run(project, json)
         }),
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)

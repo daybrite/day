@@ -1,4 +1,4 @@
-//! Pack settings: CLI options + `${ENV}` interpolation for day.yaml `signing:` values (§17.3).
+//! Pack settings: CLI options + `${ENV}` interpolation for Day.toml `signing:` values (§17.3).
 //! Interpolation happens at USE time, never at parse time, and missing variables are reported by
 //! NAME only — secret values must never appear in output or errors (§16.5).
 
@@ -29,7 +29,7 @@ impl Default for PackOptions {
 
 /// A `${VAR}` reference that couldn't resolve. `MissingEnv` is DEGRADABLE per the §20 CI
 /// contract: absent secrets lower the signing tier loudly, they never fail the pack.
-/// `Malformed` is a day.yaml mistake and always an error.
+/// `Malformed` is a Day.toml mistake and always an error.
 pub enum InterpolateError {
     MissingEnv(String),
     Malformed(String),
@@ -39,7 +39,7 @@ impl InterpolateError {
     pub fn message(&self) -> String {
         match self {
             InterpolateError::MissingEnv(name) => format!(
-                "environment variable {name} is not set (referenced as ${{{name}}} in day.yaml signing config)"
+                "environment variable {name} is not set (referenced as ${{{name}}} in Day.toml signing config)"
             ),
             InterpolateError::Malformed(m) => m.clone(),
         }

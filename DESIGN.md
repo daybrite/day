@@ -27,7 +27,7 @@
 - §14 Scripting (dayscript)
 - §15 Extensibility: Day Piece packages (polyglot)
 - §16 The `day` CLI
-- §17 The Conventional Day Project and `day.yaml`
+- §17 The Conventional Day Project and `Day.toml`
 - §18 Resources, icons, and theming
 - §19 Repository layout, examples, and docs site
 - §20 Continuous integration
@@ -120,7 +120,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Day Piece package** | An external crate (plus optional per-platform native code) adding pieces or services without touching Day itself (§15). |
 | **dayffi** | The stable C ABI over which polyglot native code implements pieces and services (§15.3). |
 | **dayscript** | The Maestro-inspired YAML UI-scripting language and its embedded engine (§14). |
-| **day.yaml** | The project manifest (§17.3). |
+| **Day.toml** | The project manifest (§17.3). |
 | **Porcelain / plumbing** | User-facing CLI commands vs. stable internal commands invoked by build systems (`day xcode-backend build`, `day gradle-backend build`) (§16, §17.4). |
 
 **Crate naming.** All crates are prefixed `day-` (`day-core`, `day-reactive`, `day-appkit`, …); the
@@ -129,7 +129,7 @@ binary named `day`. crates.io naming and reservation are **DP-24** (§22; reserv
 deferred by owner directive); nothing in the MVP requires publishing (workspace + git
 dependencies), and the CLI binary name is independent of crate names.
 
-**Target strings** are the canonical identifiers everywhere: `day.yaml` `targets:`, `day launch
+**Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --platform`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
 also exists alone (`uikit`, `widget`, `appkit`, `gtk`, `qt`, `winui`, `html`, `arkui`) for cases
 where OS doesn't matter (styling varies by toolkit far more often than by OS).
@@ -197,7 +197,7 @@ pillars deliberately build on each other:
 | `day-fluent` | Fluent runtime: `LocaleMap`, locale signal, `tr()`, negotiation, pseudolocalization | day-reactive |
 | `day-script` | the embedded dayscript engine: step executor, element index, transport server | day-core, day-fluent (for `key:` assertions) |
 | `day-script-proto` | wire types shared by engine and CLI (serde) | — |
-| `day-meta` | the shared metadata engine: day.yaml parsing, asset/locale scanning, conveyance-file generation — used by BOTH `day-cli` and the `day` crate's build script so `cargo build` works standalone (§17.5) | — |
+| `day-meta` | the shared metadata engine: Day.toml parsing, asset/locale scanning, conveyance-file generation — used by BOTH `day-cli` and the `day` crate's build script so `cargo build` works standalone (§17.5) | — |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events, in-memory "screenshots") | day-spec |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend | all of the above |
 | `day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-web`, `day-arkui` | backend crates | day-spec (NOT day-core) |
@@ -830,7 +830,7 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 
 ### §7.7 Safe areas, insets, and the keyboard
 
-Android 15 (target-sdk 35, which `day.yaml` defaults to) makes edge-to-edge mandatory, and iOS
+Android 15 (target-sdk 35, which `Day.toml` defaults to) makes edge-to-edge mandatory, and iOS
 adjusts scroll insets behind frameworks' backs — so inset policy is v1, not polish:
 
 - The **window root applies safe-area insets as padding by default**; a root-level `scroll`
@@ -861,7 +861,7 @@ at M6 (items 4–5):
    `setLayoutDirection` / `gtk_widget_set_direction` / `Qt::RightToLeft` / `dir=rtl`) so native
    text alignment, cursors, and a11y agree with Day's mirroring.
 5. An **`ar-XB`** RTL pseudolocale ships beside `en-XA`, with one RTL screenshot CI leg post-M6.
-   `day lint` flags physical left/right styling when day.yaml declares an RTL locale.
+   `day lint` flags physical left/right styling when Day.toml declares an RTL locale.
 
 ### §7.9 Pixel snapping and density
 
@@ -1072,7 +1072,7 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   restoration (`onSaveInstanceState`) is **DP-25** — v1 documents cold restart.
 - **Windows App SDK runtime.** An unpackaged WinUI 3 app fails at process start without the
   runtime: `day-winui-sys` calls `MddBootstrapInitialize2` at startup with the WinAppSDK version
-  pinned in `day.yaml` (`windows.app-sdk`); `day doctor` checks runtime presence; `day pack`'s
+  pinned in `Day.toml` (`windows.app-sdk`); `day doctor` checks runtime presence; `day pack`'s
   msix flavor declares the framework-package dependency, while the unpackaged/msi flavor chooses
   between chaining `WindowsAppRuntimeInstall.exe` and `WindowsAppSDKSelfContained=true` (size
   trade-off documented). pane's shim already does the bootstrap call.
@@ -1084,7 +1084,7 @@ the seam through which scene-based multi-window arrives later without reshaping 
 the backend crates — GTK/Qt are portable; the *target* differs only in build/packaging (§16, §17:
 where the toolkit libraries come from and whether `day pack` can bundle them; bundling GTK/Qt into
 a redistributable macOS/Windows app is real work and is explicitly **post-MVP**, DP-7). The
-`day.yaml` `targets:` list and `day doctor` gate which combinations a project claims.
+`Day.toml` `targets:` list and `day doctor` gate which combinations a project claims.
 
 **web-html (experimental) sketch:** wasm32 binary; pieces map to semantic elements
 (`<button>`, `<input>`, `<label>`); Day layout emits `position:absolute; transform:translate(…)`
@@ -1222,7 +1222,7 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
 
 ```
 locales/
-  en/app.ftl        # default locale (day.yaml localization.default)
+  en/app.ftl        # default locale (Day.toml localization.default)
   fr/app.ftl
   de/app.ftl
 ```
@@ -1376,7 +1376,7 @@ app control) is specified in Appendix C.
 ### §14.2 The embedded engine
 
 `day-script` compiles **into the app** (cargo feature `dayscript`, on by default in debug profiles;
-in release only if `day.yaml` sets `scripting.release: true` — and `day pack` verifies that
+in release only if `Day.toml` sets `scripting.release: true` — and `day pack` verifies that
 release artifacts without the opt-in contain no engine). It:
 
 - maintains the **element index**: id → NodeId (from §5.5), plus role/text/value accessors that
@@ -1648,7 +1648,7 @@ code 130.
 ### §16.3 Global contract (every subcommand)
 
 ```
---project <dir>          # default: nearest ancestor with day.yaml
+--project <dir>          # default: nearest ancestor with Day.toml
 --format {auto,plain,json}   # json = NDJSON events on stdout, logs on stderr
 --no-input               # never prompt; missing required input = error with code
 --yes                    # assume-yes for confirmations
@@ -1684,7 +1684,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
   (flutter's Zone-DI, done Rust-idiomatically as a struct of `Arc<dyn Trait>`).
 - **Command envelope:** each subcommand is a struct implementing
   `DayCommand { fn validate(&self, cx) -> Result<()>; async fn run(&self, cx) -> Result<Outcome> }`
-  with shared pre-flight (project discovery, day.yaml parse, doctor-lite checks relevant to the
+  with shared pre-flight (project discovery, Day.toml parse, doctor-lite checks relevant to the
   command).
 - **Workflows/doctor:** per-target `Workflow` objects (`applicable? functional? missing?`) power
   both `day doctor` and actionable failures ("`android-widget` needs: ANDROID_HOME, JDK 17/21 —
@@ -1733,7 +1733,7 @@ enumerates templates (`app` default; `piece` scaffolds a Day Piece package with 
 
 `day build [-p <target>]… [--profile debug|release]`
 
-Per target: (1) preflight (workflow check), (2) generate conveyance files from `day.yaml` (§17.5),
+Per target: (1) preflight (workflow check), (2) generate conveyance files from `Day.toml` (§17.5),
 (3) invoke the build pipeline for the target — **`xcodebuild` for ios only**;
 `gradle assembleDebug|Release` (android); **cargo + bundle assembly for ALL cargo-driven desktop
 targets including `macos-appkit`** (their "scaffold" is a packaging recipe, not an IDE project;
@@ -1757,7 +1757,7 @@ Platform-specific signing of already-built artifacts, designed for CI from the s
 - **Per-format truth**: `.app`/`.dmg` = `codesign` + `notarytool` + `stapler`; `.apk` =
   `apksigner`; `.aab` = Gradle signingConfig (**apksigner cannot sign an .aab**); `.msix` =
   `signtool`; ios = Xcode export signing.
-- **Config**: `day.yaml [signing]` with env-var interpolation for secrets —
+- **Config**: `Day.toml [signing]` with env-var interpolation for secrets —
   `signing.macos { identity, notarize: { key-id, issuer, key-path, wait: 30m } }` (notarytool
   API-key auth, not interactive Apple-ID), `signing.android { keystore, key-alias, store-pass,
   key-pass }`. `Day sign --check` validates presence without logging secrets; `--no-wait` +
@@ -1819,12 +1819,12 @@ metadata.
 Rule framework — **built-in rules only in v1** (a registry in app crates cannot reach into the
 prebuilt CLI binary; third-party rules via dylint/WASM plugins are recorded post-MVP). Day ships:
 fluent-coverage, bare-user-facing-literals, missing-a11y-labels, ids-in-a11y-labels,
-duplicate/missing ids (incl. `id_keyed` prefix uniqueness), day.yaml schema validation, asset
+duplicate/missing ids (incl. `id_keyed` prefix uniqueness), Day.toml schema validation, asset
 references, the *advisory* signal-read-outside-binding heuristic (§4.1 — the sound check is the
 runtime debug diagnostic), scroll-nesting restrictions (§7.6), physical-LTR-styling-with-RTL-locale
 (§7.8), reserved-fluent-keys-plain-text (§12), piece-license-metadata. `--strict` (exit 10),
-`--format json`, per-rule `allow` in day.yaml. Fast (no full build: operates on sources +
-day.yaml + locales + assets).
+`--format json`, per-rule `allow` in Day.toml. Fast (no full build: operates on sources +
+Day.toml + locales + assets).
 
 #### `day script`
 
@@ -1863,13 +1863,13 @@ signals), recorded as a research item, not promised.
 
 ---
 
-## §17 The Conventional Day Project and `day.yaml`
+## §17 The Conventional Day Project and `Day.toml`
 
 ### §17.1 Project layout (`day new` output)
 
 ```
 fieldnotes/
-  day.yaml
+  Day.toml
   Cargo.toml                 # normal cargo project; `cargo build`/`test`/`clippy` work standalone
   src/
     lib.rs                   # pub fn root() -> impl Piece  (the app)
@@ -1914,58 +1914,85 @@ their native tools**, with the callback hook keeping Rust fresh. The framework r
 pane-style hand-assembly harness *only* as internal CI smoke for backend development (it's cheap
 and hermetic), never as the product path — this is the "no cheating" resolution of the two models.
 
-### §17.3 `day.yaml`
+### §17.3 `Day.toml`
 
-```yaml
-day: 1                              # manifest schema version
-scaffold: 1                         # platform-scaffold version stamped by `day new`; `day build`/
+The manifest is TOML (the Tauri / Dioxus model): a dedicated file that doubles as the project
+marker. `name` and `version` are DERIVED from `Cargo.toml`'s `[package]` — never restated.
+Any `[app]` property can be overridden per platform (`[app.ios]`), per toolkit (`[app.qt]`),
+or per target (`[app.macos-appkit]`); the most specific table wins when the build derives
+platform metadata (Info.plist, AndroidManifest label/applicationId, …).
+
+```toml
+schema = 1                          # manifest schema version
+# scaffold = 1                      # platform-scaffold version stamped by `day new`; `day build`/
                                     #   `doctor` verify it against the CLI's supported range and fail
                                     #   with instructions on mismatch (Flutter needed 30+ migrators for
-                                    #   exactly this — the handshake ships in v1; an idempotent
-                                    #   `day upgrade` running per-file migrators is committed for M9;
-                                    #   "delete platform/ and re-create" is explicitly rejected)
-app:
-  name: fieldnotes                  # crate/artifact name
-  id: dev.example.fieldnotes        # bundle id / application id / app id
-  title: app-title                  # Fluent key → localized display name (falls back to name)
-  version: 0.3.1                    # CFBundleShortVersionString / versionName / msix version
-  build: 42                         # CFBundleVersion / versionCode (int, monotonic)
-targets: [macos-appkit, macos-gtk, macos-qt, ios-uikit, android-widget]
-localization:
-  default: en
-  locales: [en, fr]
-  dir: locales
-assets:
-  - assets/                         # recursively packaged (§18)
-icons:
-  source: icons/app.svg
-scripting:
-  release: false                    # embed dayscript engine in release builds?
-lint:
-  allow: [bare-text]                # per-rule opt-outs (discouraged)
-ios:
-  deployment-target: "15.0"
-  capabilities: []                  # entitlements toggles understood by the generator
-android:
-  min-sdk: 24
-  target-sdk: 35                    # edge-to-edge is mandatory at 35 — see §7.7 inset policy
-windows:
-  app-sdk: "1.6"                    # WinAppSDK runtime pin (§9)
-qt:
-  license: lgpl-dynamic             # or `commercial` — gates `day pack` static/store configurations (§16.5)
-signing:
-  macos:
-    identity: "${DAY_SIGN_MACOS_IDENTITY}"
-    notarize: { key-id: "${DAY_NOTARY_KEY_ID}", issuer: "${DAY_NOTARY_ISSUER}", key-path: "${DAY_NOTARY_KEY}", wait: 30m }
-  android: { keystore: "${DAY_ANDROID_KEYSTORE}", key-alias: release, store-pass: "${DAY_KS_PASS}", key-pass: "${DAY_KEY_PASS}" }
-  windows: { provider: trusted-signing }   # §16.5 sign — provider enum
-dependencies:                       # Day Piece packages needing native aggregation (§15.2)
-  # (cargo deps remain in Cargo.toml; this section only exists for overrides/pins of piece.yaml data)
+                                    #   exactly this; an idempotent `day upgrade` running per-file
+                                    #   migrators is committed for M9; "delete platform/ and re-create"
+                                    #   is explicitly rejected)
+
+[app]
+id = "dev.example.fieldnotes"       # bundle id / application id / app id
+title = "app-title"                 # Fluent key → localized display name (falls back to name)
+build = 42                          # CFBundleVersion / versionCode (int, monotonic)
+targets = ["macos-appkit", "macos-gtk", "macos-qt", "ios-uikit", "android-widget"]
+
+[app.ios]                           # per-platform/toolkit/target overrides of any [app] property
+title = "Fieldnotes Mobile"
+
+[localization]
+default = "en"
+locales = ["en", "fr"]
+dir = "locales"
+
+[assets]
+dirs = ["assets/"]                  # recursively packaged (§18)
+
+[icons]
+source = "icons/app.svg"
+
+[scripting]
+release = false                     # embed dayscript engine in release builds?
+
+[lint]
+allow = ["bare-text"]               # per-rule opt-outs (discouraged)
+
+[ios]
+deployment-target = "15.0"
+capabilities = []                   # entitlements toggles understood by the generator
+
+[android]
+min-sdk = 24
+target-sdk = 35                     # edge-to-edge is mandatory at 35 — see §7.7 inset policy
+
+[windows]
+app-sdk = "1.6"                     # WinAppSDK runtime pin (§9)
+
+[qt]
+license = "lgpl-dynamic"            # or "commercial" — gates `day pack` static/store configurations (§16.5)
+
+[signing.macos]
+identity = "${DAY_SIGN_MACOS_IDENTITY}"
+notarize = { key-id = "${DAY_NOTARY_KEY_ID}", issuer = "${DAY_NOTARY_ISSUER}", key-path = "${DAY_NOTARY_KEY}", wait = "30m" }
+
+[signing.android]
+keystore = "${DAY_ANDROID_KEYSTORE}"
+key-alias = "release"
+store-pass = "${DAY_KS_PASS}"
+key-pass = "${DAY_KEY_PASS}"
+
+[signing.windows]
+provider = "trusted-signing"        # §16.5 sign — provider enum
+
+[dependencies]                      # Day Piece packages needing native aggregation (§15.2)
+# (cargo deps remain in Cargo.toml; this section only exists for overrides/pins of piece metadata)
 ```
 
-Principles: **single source of truth for identity/version/targets**; anything expressible in
-`Cargo.toml` stays in `Cargo.toml` (no duplication — `app.name` defaults from the cargo package);
-per-platform sections are small and closed-schema (unknown keys = lint error, catching typos).
+Principles: **derive, don't restate** — anything expressible in `Cargo.toml` stays in
+`Cargo.toml` (`name`/`version` come from `[package]`); **base + overrides** — per-platform
+sections are small and closed-schema (unknown keys = lint error, catching typos), and any
+`[app]` property may be specialized per platform / toolkit / target; tooling reads the
+manifest through `day metadata --json` (a versioned envelope), never by parsing the file.
 
 ### §17.4 The build callback (flutter's pattern, exactly — including its hard-won details)
 
@@ -1991,7 +2018,7 @@ per-platform sections are small and closed-schema (unknown keys = lint error, ca
   checks), `outputs.upToDateWhen { false }`, `ExecOperations` only inside `@TaskAction`, invoking
   the arg-less `"$DAY_BIN" gradle-backend build`. A tested Gradle/AGP version matrix is published;
   CI builds the scaffold with `--configuration-cache` (§20).
-- **Freshness and fresh clones**: both callback entrypoints regenerate conveyance from `day.yaml`
+- **Freshness and fresh clones**: both callback entrypoints regenerate conveyance from `Day.toml`
   first (content-hashed, §17.5); because Xcode reads xcconfig *before* the phase runs, drift is
   detected and that build fails with "metadata changed — build again". `settings.gradle.kts`
   guards the generated `day-pieces.gradle.kts` apply with an existence check throwing "run `Day
@@ -2002,7 +2029,7 @@ per-platform sections are small and closed-schema (unknown keys = lint error, ca
 - Recursion guard: the plumbing entrypoints never re-enter the native build; `DAY_BUILD_PARENT`
   marks provenance for diagnostics.
 
-### §17.5 Metadata conveyance (day.yaml → each build system)
+### §17.5 Metadata conveyance (Day.toml → each build system)
 
 Generated at build time into ignored-by-git locations (like flutter's `Generated.xcconfig` +
 `local.properties`):
@@ -2020,9 +2047,9 @@ builds warm).
 
 **`cargo build` works standalone — really.** Metadata generation is implemented once in the small
 `day-meta` library used by **both** the CLI and the `day` crate's build script: when
-`DAY_META_PATH` is unset, the build script walks up from `CARGO_MANIFEST_DIR` to `day.yaml` and
+`DAY_META_PATH` is unset, the build script walks up from `CARGO_MANIFEST_DIR` to `Day.toml` and
 synthesizes identical metadata (id/version/asset scan/locale list); dev-profile `Asset::named`
-resolves against the project directory (`DAY_ASSET_ROOT` override); absent `day.yaml`
+resolves against the project directory (`DAY_ASSET_ROOT` override); absent `Day.toml`
 (library/day-mock consumers) → empty metadata with a compile-time note. This also fixes milestone
 ordering — the M2 showcase runs before the CLI exists at M4.
 
@@ -2203,7 +2230,7 @@ annotations, and ids throughout.
 | M1 | `day-core`: build-once mounter, realized tree, layout engine (`column`/`row`/leaf protocol, measurement cache, RTL flip, boundary re-entry), event routing; `label`+`button`+`column`+`row`+`divider` on mock; `IntoText` compile-pass suite | e2e-on-mock: counter updates exactly-one-op per click **and bounded measure-call counts** (op-log golden tests — the fine-grained guarantee is a *test*); sibling-re-proposal relayout test |
 | M2 | `day-appkit` + desktop `launch()` + **default main menu** (Cmd+C/V/X/A via responder-chain selectors, Cmd+Q — NSTextField editing is broken without it); pieces: toggle/slider/text_field/spacer/scroll/when/each; styling core + `PerTarget`; `snapshot_window`; showcase v0 | manual + screenshot verification on host; **manual Japanese-IME smoke** |
 | M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **`day-piece-combobox` tier-1 renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
-| M4 | CLI v0: `new`/`build`/`launch` (desktop targets), day.yaml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
+| M4 | CLI v0: `new`/`build`/`launch` (desktop targets), Day.toml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
 | M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance (§18.1)**; safe-area/keyboard insets (§7.7); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
 | M6 | `day-fluent` (tr/locale signal/negotiation/ICU4X functions/en-XA/ar-XB), a11y props + lint v0, ids, per-target locale plumbing | live locale switch + relayout benchmark; VoiceOver smoke on appkit/uikit; **`a11y_audit` green on apple targets**; fr/de number-format conformance |
 | M7 | dayscript: engine, rendezvous/transport, `day script`, screenshots, JUnit; `--locale`/`--script` on launch | walkthrough (showcase-v1, no gauge step yet) passes on all 5 targets locally |

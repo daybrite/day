@@ -88,7 +88,7 @@ and neither goes stale.
 ```
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
-`libentry.so`). Metadata flows one way: `day.yaml` (identity, version) is conveyed into
+`libentry.so`). Metadata flows one way: `Day.toml` (identity, version) is conveyed into
 generated, gitignored files that the checked-in projects read — the scaffolds themselves are
 never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.

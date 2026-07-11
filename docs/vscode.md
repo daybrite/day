@@ -1,7 +1,10 @@
 # VS Code extension
 
-`editors/vscode/` is a VS Code extension that builds and runs Day apps across one or more targets from
-the editor. It is a thin wrapper over the `day` CLI: the control surface is a sidebar +
+The Day VS Code extension lives in its own repository —
+**[daybrite/day-vscode](https://github.com/daybrite/day-vscode)** — with its own release cycle
+(it drives whatever `day` CLI is installed, so its versioning is independent of the
+framework's; extracted from this repo's `editors/vscode/` with history preserved). It builds
+and runs Day apps across one or more targets from the editor. It is a thin wrapper over the `day` CLI: the control surface is a sidebar +
 status bar + command palette, and execution goes through the VS Code Tasks API. Each launch is a
 `day` Task in its own integrated terminal, so output is native (ANSI colors intact) and filtered per
 target, and stop/restart ride the standard task lifecycle.
@@ -41,13 +44,15 @@ it works in-repo with no installed binary.
 ## Developing / trying it
 
 ```bash
-cd editors/vscode && npm install && npm run compile
+git clone https://github.com/daybrite/day-vscode && cd day-vscode
+npm install && npm run compile
 ```
 
-Press **F5** (Run → "Run Day Extension") to open an Extension Development Host with the Day repo loaded.
-The **Day** sidebar shows the Showcase app and its 5 targets. Tick `macos-appkit`, click **Run**, and
-the app launches in a terminal; tick `ios-uikit` too and both run at once; use the inline stop/restart
-buttons per target. `npx @vscode/vsce package` produces an installable `.vsix`.
+Press **F5** (Run → "Run Day Extension") to open an Extension Development Host, then open any
+Day project (this repo works: the **Day** sidebar shows the Showcase app and its targets).
+Tick `macos-appkit`, click **Run**, and the app launches in a terminal; tick `ios-uikit` too
+and both run at once; use the inline stop/restart buttons per target. `npx @vscode/vsce
+package` produces an installable `.vsix`.
 
 Scope of v1: multi-target run/stop/restart, mode/locale/dayscript selection, the `day` task provider,
 project detection, and `day doctor`. Deferred: debugger/DAP, emulator management UI, and packaging/sign

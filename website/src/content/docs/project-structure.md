@@ -5,7 +5,7 @@ order: 31
 section: Build & ship
 ---
 
-A Day app is a normal Cargo package plus a small `day.yaml` manifest and a few conventional
+A Day app is a normal Cargo package plus a small `Day.toml` manifest and a few conventional
 directories. The `day` CLI reads that layout to build every target: the same Rust code becomes a
 plain desktop binary, a static library inside an Xcode app, a JNI `.so` inside a Gradle APK, or a
 NAPI `.so` inside a HarmonyOS `.hap`. This page walks the layout, then each build pipeline, then
@@ -15,7 +15,7 @@ how resources travel from your project into each platform's native store.
 
 ```text
 my-app/
-├── day.yaml                  # the app manifest: name, id, title, version, targets, window
+├── Day.toml                  # the app manifest: id, title, targets, window (name/version come from Cargo.toml)
 ├── Cargo.toml                # a normal Cargo package (bin + rlib)
 ├── src/
 │   ├── lib.rs                # the app: pieces, signals, routes; install_locales(…)
@@ -36,9 +36,11 @@ my-app/
 
 Three rules keep this layout predictable:
 
-- **`day.yaml` is the single manifest.** The app's identity (`id`, `title`, `version`), its
-  declared `targets`, and the default window geometry live here, not scattered across platform
-  files. The platform scaffolds read from it at build time.
+- **`Day.toml` is the single manifest.** The app's Day-specific identity (`id`, `title`,
+  `build`), its declared `targets`, and the default window geometry live here — while `name`
+  and `version` are derived from Cargo.toml's `[package]`, so they can never drift. Any `[app]`
+  property can be overridden per platform (`[app.ios]`), per toolkit (`[app.qt]`), or per
+  target (`[app.macos-appkit]`); the platform scaffolds read the resolved values at build time.
 - **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.

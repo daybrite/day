@@ -1,6 +1,6 @@
 ---
 title: Packaging & distribution
-description: day pack — building signed, standalone, installable packages for every platform, and the signing configuration in day.yaml.
+description: day pack — building signed, standalone, installable packages for every platform, and the signing configuration in Day.toml.
 order: 32
 section: Build & ship
 ---
@@ -29,37 +29,41 @@ them.
 
 ## Signing configuration
 
-Signing lives in `day.yaml` under `signing:`, with every secret referenced as `${ENV_VAR}` —
+Signing lives in `Day.toml` under `[signing]`, with every secret referenced as `${ENV_VAR}` —
 values resolve from the environment at pack time and are **never** stored in the manifest or
 printed by the tool:
 
-```yaml
-signing:
-  macos:
-    identity: ${DAY_SIGN_MACOS_IDENTITY}   # "Developer ID Application: …"
-    notarize:
-      key-id: ${DAY_NOTARY_KEY_ID}         # App Store Connect API key
-      issuer: ${DAY_NOTARY_ISSUER}
-      key-path: ${DAY_NOTARY_KEY}
-  ios:
-    team: ${DAY_APPLE_TEAM}
-    key-id: ${DAY_ASC_KEY_ID}              # ASC key for -allowProvisioningUpdates in CI
-    issuer: ${DAY_ASC_ISSUER}
-    key-path: ${DAY_ASC_KEY}
-  android:
-    keystore: ${DAY_ANDROID_KEYSTORE}
-    key-alias: ${DAY_ANDROID_KEY_ALIAS}
-    store-pass: ${DAY_KS_PASS}
-    key-pass: ${DAY_KEY_PASS}
-  windows:
-    provider: self-signed-dev              # or signtool-cert-store | azure-artifact-signing
-  ohos:
-    keystore: ${DAY_OHOS_KEYSTORE}
-    key-alias: ${DAY_OHOS_KEY_ALIAS}
-    store-pass: ${DAY_OHOS_KS_PASS}
-    key-pass: ${DAY_OHOS_KEY_PASS}
-    cert: ${DAY_OHOS_CERT}
-    profile: ${DAY_OHOS_PROFILE}
+```toml
+[signing.macos]
+identity = "${DAY_SIGN_MACOS_IDENTITY}"   # "Developer ID Application: …"
+
+[signing.macos.notarize]
+key-id = "${DAY_NOTARY_KEY_ID}"           # App Store Connect API key
+issuer = "${DAY_NOTARY_ISSUER}"
+key-path = "${DAY_NOTARY_KEY}"
+
+[signing.ios]
+team = "${DAY_APPLE_TEAM}"
+key-id = "${DAY_ASC_KEY_ID}"              # ASC key for -allowProvisioningUpdates in CI
+issuer = "${DAY_ASC_ISSUER}"
+key-path = "${DAY_ASC_KEY}"
+
+[signing.android]
+keystore = "${DAY_ANDROID_KEYSTORE}"
+key-alias = "${DAY_ANDROID_KEY_ALIAS}"
+store-pass = "${DAY_KS_PASS}"
+key-pass = "${DAY_KEY_PASS}"
+
+[signing.windows]
+provider = "self-signed-dev"              # or signtool-cert-store | azure-artifact-signing
+
+[signing.ohos]
+keystore = "${DAY_OHOS_KEYSTORE}"
+key-alias = "${DAY_OHOS_KEY_ALIAS}"
+store-pass = "${DAY_OHOS_KS_PASS}"
+key-pass = "${DAY_OHOS_KEY_PASS}"
+cert = "${DAY_OHOS_CERT}"
+profile = "${DAY_OHOS_PROFILE}"
 ```
 
 `day sign --check` reports each platform's readiness (env vars set, key files present) without

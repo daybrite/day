@@ -1,5 +1,5 @@
 //! day lint v0 (DESIGN.md §16.5): fluent coverage (missing/unused/unknown keys), duplicate
-//! element ids, unknown navigation routes, day.yaml schema (validated by parsing). Fast —
+//! element ids, unknown navigation routes, Day.toml schema (validated by parsing). Fast —
 //! sources + locales + scripts only.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -147,6 +147,41 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
 
 pub fn run(project: &Project, strict: bool) -> i32 {
     let mut findings: Vec<Finding> = Vec::new();
+
+    // --- Day.toml structure ---
+    // Syntax + schema are enforced at load (a project that reaches here parsed); lint adds the
+    // semantic checks: every [app] target is a known combo, and every [app.<key>] override
+    // table names a known platform, toolkit, or target.
+    for t in &project.manifest.app.targets {
+        if crate::targets::find(t).is_none() {
+            findings.push(Finding {
+                code: "day::lint::unknown-target",
+                message: format!("Day.toml: targets entry {t:?} is not a known target"),
+            });
+        }
+    }
+    {
+        use std::collections::BTreeSet;
+        let mut known: BTreeSet<&str> = BTreeSet::new();
+        for t in crate::targets::TARGETS {
+            known.insert(t.name); // "macos-appkit"
+            known.insert(t.toolkit); // "appkit"
+            if let Some(platform) = t.name.split('-').next() {
+                known.insert(platform); // "macos"
+            }
+        }
+        for key in project.manifest.app.overrides.keys() {
+            if !known.contains(key.as_str()) {
+                findings.push(Finding {
+                    code: "day::lint::unknown-override",
+                    message: format!(
+                        "Day.toml: [app.{key}] does not name a known platform, toolkit, or \
+                         target"
+                    ),
+                });
+            }
+        }
+    }
 
     // --- Fluent coverage ---
     let locales_dir = project.root.join("locales");

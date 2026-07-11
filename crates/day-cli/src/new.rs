@@ -590,14 +590,42 @@ pub fn app(
         }
     };
 
-    // The template context (docs/cli.md): every {{placeholder}} a template may use, for both
-    // the built-in template and --template overrides.
     let repl = Repl::new(&name, Some(rid.as_str()));
-    let first = targets
-        .first()
-        .map(String::as_str)
-        .unwrap_or("macos-appkit")
-        .to_string();
+    let ctx = template_context(&repl, title, &deps, &targets);
+    let first = ctx["first_target"].clone();
+
+    let files = match load_template(template) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
+    // rest from the same template later.
+    let files = crate::template::filter_for_targets(files, &targets);
+    let rendered = match crate::template::render(&files, &ctx) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    let code = write_all_bytes(&dir, &rendered, &name);
+    if code == 0 {
+        eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
+    }
+    code
+}
+
+/// The template context (docs/cli.md): every {{placeholder}} a template may use — built ONCE
+/// here so `day new app` and `day app add-toolkit` render the same template identically.
+fn template_context(
+    repl: &Repl,
+    title: String,
+    deps: &Deps,
+    targets: &[String],
+) -> std::collections::BTreeMap<&'static str, String> {
     let mut ctx = std::collections::BTreeMap::new();
     ctx.insert("name", repl.crate_name.clone());
     ctx.insert("ident", repl.crate_ident.clone());
@@ -606,7 +634,8 @@ pub fn app(
     ctx.insert("title", title);
     ctx.insert("id", repl.id.clone());
     // A deep-link URI scheme derived from the name (schemes allow only ALPHA/DIGIT/+/-/.).
-    let scheme: String = name
+    let scheme: String = repl
+        .crate_name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect::<String>()
@@ -621,25 +650,101 @@ pub fn app(
     );
     ctx.insert("day_dep", deps.dep("day", ""));
     ctx.insert(
-        "targets_yaml",
+        "targets_toml",
         targets
             .iter()
-            .map(|t| format!("  - {t}"))
+            .map(|t| format!("\"{t}\""))
             .collect::<Vec<_>>()
-            .join("\n"),
+            .join(", "),
     );
-    ctx.insert("first_target", first.clone());
+    ctx.insert(
+        "first_target",
+        targets
+            .first()
+            .map(String::as_str)
+            .unwrap_or("macos-appkit")
+            .to_string(),
+    );
+    ctx
+}
 
-    let files = match template {
-        Some(source) => match crate::template::load(source) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 1;
+/// The `--template` source (dir / git URL), or the embedded default.
+fn load_template(source: Option<&str>) -> Result<Vec<crate::template::TemplateFile>, String> {
+    match source {
+        Some(s) => crate::template::load(s),
+        None => Ok(crate::template::builtin_app()),
+    }
+}
+
+/// `day app add-toolkit <target>…` — add targets to an EXISTING app: append them to
+/// Day.toml's `targets:` (textually, preserving comments and formatting) and materialize any
+/// native host projects they need from the SAME template `day new app` scaffolds from.
+pub fn add_toolkit(
+    project: &crate::meta::Project,
+    requested: &[String],
+    template: Option<&str>,
+) -> i32 {
+    // Requested targets: repeatable and comma-splittable, validated against the target table.
+    let mut wanted: Vec<String> = Vec::new();
+    for raw in requested {
+        for t in raw.split(',') {
+            let t = t.trim();
+            if !t.is_empty() && !wanted.iter().any(|x| x == t) {
+                wanted.push(t.to_string());
             }
-        },
-        None => crate::template::builtin_app(),
+        }
+    }
+    if wanted.is_empty() {
+        eprintln!(
+            "error: no target given\n       usage: day app add-toolkit <target>… (e.g. android-widget)"
+        );
+        return 2;
+    }
+    for t in &wanted {
+        if targets::find(t).is_none() {
+            eprintln!(
+                "error: unknown target {t:?}\n       choose from: {}",
+                targets::TARGETS
+                    .iter()
+                    .map(|t| t.name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return 2;
+        }
+    }
+    let existing = &project.manifest.app.targets;
+    let new_targets: Vec<String> = wanted
+        .iter()
+        .filter(|t| !existing.contains(t))
+        .cloned()
+        .collect();
+    for already in wanted.iter().filter(|t| existing.contains(t)) {
+        eprintln!("day: {already} is already a target of this app — skipping");
+    }
+    if new_targets.is_empty() {
+        return 0;
+    }
+
+    // The SAME context `day new app` renders with, rebuilt from the app's own Day.toml.
+    let app = &project.manifest.app;
+    let repl = Repl::new(&app.name, Some(app.id.as_str()));
+    let title = app
+        .title
+        .clone()
+        .unwrap_or_else(|| default_title(&app.name));
+    let deps = Deps::resolve(None, false, false);
+    let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();
+    let ctx = template_context(&repl, title, &deps, &all_targets);
+
+    let files = match load_template(template) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
     };
+    let files = crate::template::platform_files_for_targets(files, &new_targets);
     let rendered = match crate::template::render(&files, &ctx) {
         Ok(r) => r,
         Err(e) => {
@@ -647,11 +752,86 @@ pub fn app(
             return 1;
         }
     };
-    let code = write_all_bytes(&dir, &rendered, &name);
-    if code == 0 {
-        eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
+
+    // Write the host-project files, never overwriting anything already in the project.
+    let mut written = 0usize;
+    let mut skipped = 0usize;
+    for (path, content) in &rendered {
+        let full = project.root.join(path);
+        if full.exists() {
+            skipped += 1;
+            continue;
+        }
+        if let Some(parent) = full.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&full, content) {
+            eprintln!("error writing {}: {e}", full.display());
+            return 1;
+        }
+        written += 1;
     }
-    code
+
+    // Day.toml: append to `[app] targets` via toml_edit — comments and formatting survive.
+    let day_toml = project.root.join("Day.toml");
+    let text = match std::fs::read_to_string(&day_toml) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error reading {}: {e}", day_toml.display());
+            return 1;
+        }
+    };
+    let refs: Vec<&str> = new_targets.iter().map(String::as_str).collect();
+    let updated = match add_targets_to_day_toml(&text, &refs) {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    if let Err(e) = std::fs::write(&day_toml, updated) {
+        eprintln!("error writing {}: {e}", day_toml.display());
+        return 1;
+    }
+
+    let list = new_targets.join(", ");
+    let files_note = if skipped > 0 {
+        format!("{written} file(s) added, {skipped} already present")
+    } else {
+        format!("{written} file(s) added")
+    };
+    ops::status("Added", &format!("{list} → Day.toml ({files_note})"));
+    let first = &new_targets[0];
+    // `day doctor` groups by its own toolkit ids, which differ from the backend feature names
+    // for the two mobile toolkits.
+    let toolkit = match targets::find(first).map(|t| t.toolkit).unwrap_or_default() {
+        "widget" => "android",
+        "arkui" => "harmonyos",
+        other => other,
+    };
+    eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -p {first}\n");
+    0
+}
+
+/// Append targets to Day.toml's `[app] targets` array via `toml_edit` — the format- and
+/// comment-preserving TOML layer cargo itself uses, so the rest of the file (and the array's
+/// own style) comes back byte-identical. Creates the array (or the [app] table) if absent.
+fn add_targets_to_day_toml(text: &str, new_targets: &[&str]) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("Day.toml: {e}"))?;
+    let app = doc
+        .entry("app")
+        .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+    let app = app.as_table_mut().ok_or("Day.toml: [app] is not a table")?;
+    let targets = app
+        .entry("targets")
+        .or_insert(toml_edit::value(toml_edit::Array::new()));
+    let arr = targets
+        .as_array_mut()
+        .ok_or("Day.toml: app.targets is not an array")?;
+    for t in new_targets {
+        arr.push(*t);
+    }
+    Ok(doc.to_string())
 }
 
 /// `hello-world` ⇒ `Hello World`: the default display title from a crate-style name.
@@ -2138,3 +2318,41 @@ Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into t
 - The catch-all `mod imp { fn status() -> None }` fallback keeps the crate compiling on every target —
   keep it.
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::add_targets_to_day_toml;
+
+    #[test]
+    fn day_toml_append_preserves_comments_and_formatting() {
+        let input = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\"]\n\n[window]\nwidth = 960\n";
+        let out = add_targets_to_day_toml(input, &["android-widget"]).unwrap();
+        let expected = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\", \"android-widget\"]\n\n[window]\nwidth = 960\n";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn day_toml_append_preserves_multiline_array_style() {
+        let input = "schema = 1\n[app]\nid = \"x\"\ntargets = [\n  \"ios-uikit\",\n]\n";
+        let out = add_targets_to_day_toml(input, &["linux-gtk"]).unwrap();
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        let arr = doc["app"]["targets"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+    }
+
+    #[test]
+    fn day_toml_append_creates_missing_array() {
+        let out =
+            add_targets_to_day_toml("schema = 1\n[app]\nid = \"x\"\n", &["macos-qt"]).unwrap();
+        let doc: toml_edit::DocumentMut = out.parse().unwrap();
+        assert_eq!(doc["app"]["targets"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn day_toml_wrong_shape_is_rejected() {
+        assert!(
+            add_targets_to_day_toml("schema = 1\n[app]\ntargets = 3\n", &["macos-qt"]).is_err()
+        );
+        assert!(add_targets_to_day_toml("not [ valid toml", &["macos-qt"]).is_err());
+    }
+}

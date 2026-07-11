@@ -175,7 +175,7 @@ pub fn run(
             status(
                 "Warning",
                 &format!(
-                    "{} is {} — NOT distributable (configure day.yaml `signing:` for release signing)",
+                    "{} is {} — NOT distributable (configure Day.toml `signing:` for release signing)",
                     a.path
                         .file_name()
                         .and_then(|n| n.to_str())

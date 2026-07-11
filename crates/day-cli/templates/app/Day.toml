@@ -1,0 +1,16 @@
+# Day.toml — the Day project manifest (https://daybrite.dev/docs/cli).
+#
+# `name` and `version` come from Cargo.toml's [package] — they are never restated here.
+# Any [app] property can be overridden per platform ([app.ios]), per toolkit ([app.qt]),
+# or per target ([app.macos-appkit]); the most specific table wins.
+schema = 1
+
+[app]
+id = "{{id}}"
+title = "{{title}}"
+build = 1
+targets = [{{targets_toml}}]
+
+[window]
+width = 960
+height = 640
