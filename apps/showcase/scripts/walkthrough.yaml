@@ -25,12 +25,18 @@ flow:
   - assert_text: { id: flavor-value, text: "pistachio" }
   # Pickers section: three native stylings bound two-way to a Signal<usize> — the selection
   # round-trips the signal into each value label.
+  # The three picker stylings share ONE selection signal: selecting via any styling must move
+  # the other two (each row's readout mirrors the same signal).
   - select: { id: picker-segmented, index: 2 }
   - assert_text: { id: picker-segmented-value, text: "Large" }
-  - select: { id: picker-menu, index: 2 }
-  - assert_text: { id: picker-menu-value, text: "Blue" }
-  - select: { id: picker-inline, index: 1 }
-  - assert_text: { id: picker-inline-value, text: "Pro" }
+  - assert_text: { id: picker-menu-value, text: "Large" }
+  - assert_text: { id: picker-inline-value, text: "Large" }
+  - select: { id: picker-inline, index: 0 }
+  - assert_text: { id: picker-segmented-value, text: "Small" }
+  - assert_text: { id: picker-menu-value, text: "Small" }
+  - select: { id: picker-menu, index: 1 }
+  - assert_text: { id: picker-segmented-value, text: "Medium" }
+  - assert_text: { id: picker-inline-value, text: "Medium" }
   # Search section: the native search field filters reactively; Clear proves the reverse binding.
   - input: { id: search-input, text: "ch" }
   - assert_text: { id: search-result, text: "Cherry" }

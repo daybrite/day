@@ -35,6 +35,7 @@ shapes-kinds = Kinds
 shapes-transform = Transform
 shapes-angle = Angle
 
+picker-shared-caption = All three stylings are bound to the same selection signal — change one and the others follow.
 picker-segmented = Segmented
 picker-menu = Menu
 picker-inline = Inline

@@ -46,11 +46,12 @@ echo-guarded per backend (idClicked-only / suppress flags / signal blocking) so 
 
 ## Verification
 
-The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles, each with a live value label.
-Rendering and correct initial selection are screenshot-verified on all 5 local targets (AppKit, GTK,
-Qt, iOS-sim, Android-emu). The walkthrough drives `select` on each picker and asserts the bound value
-label follows (`picker-*-value`), which proves the two-way binding round-trips both the signal and the
-native patch on every backend (96/96 steps).
+The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles bound to ONE
+shared selection signal, each with a live value label. Rendering and correct initial selection are
+screenshot-verified on all 5 local targets (AppKit, GTK, Qt, iOS-sim, Android-emu). The walkthrough
+drives `select` through each styling in turn and asserts the OTHER rows' readouts follow
+(`picker-*-value`), which proves the two-way binding round-trips the signal, and the reverse
+(signal → native) patch, on every backend and every styling.
 
 ## Follow-ups
 

@@ -101,19 +101,21 @@ fn basics_section() -> impl Piece {
 }
 
 fn pickers_section() -> impl Piece {
-    let size = Signal::new(1usize);
-    let color = Signal::new(0usize);
-    let plan = Signal::new(0usize);
+    // ONE selection signal behind all three stylings (docs/picker.md): every native control is a
+    // two-way projection of the same state, so changing any one of them moves the other two (and
+    // the per-row readouts) natively — the walkthrough selects via each styling in turn and
+    // asserts the others follow.
+    let choice = Signal::new(1usize);
     let sizes = ["Small", "Medium", "Large"];
-    let colors = ["Red", "Green", "Blue"];
-    let plans = ["Free", "Pro", "Team"];
+    let value = move || sizes[choice.get().min(2)].to_string();
     section((
+        label(tr("picker-shared-caption")).font(Font::Footnote),
         // Segmented — a horizontal one-of-N control.
         labeled(
             tr("picker-segmented"),
             row((
-                picker(sizes, size).segmented().id("picker-segmented"),
-                label(move || sizes[size.get().min(2)].to_string()).id("picker-segmented-value"),
+                picker(sizes, choice).segmented().id("picker-segmented"),
+                label(value).id("picker-segmented-value"),
             ))
             .spacing(8.0),
         ),
@@ -121,8 +123,8 @@ fn pickers_section() -> impl Piece {
         labeled(
             tr("picker-menu"),
             row((
-                picker(colors, color).menu().id("picker-menu"),
-                label(move || colors[color.get().min(2)].to_string()).id("picker-menu-value"),
+                picker(sizes, choice).menu().id("picker-menu"),
+                label(value).id("picker-menu-value"),
             ))
             .spacing(8.0),
         ),
@@ -130,8 +132,8 @@ fn pickers_section() -> impl Piece {
         labeled(
             tr("picker-inline"),
             row((
-                picker(plans, plan).inline().id("picker-inline"),
-                label(move || plans[plan.get().min(2)].to_string()).id("picker-inline-value"),
+                picker(sizes, choice).inline().id("picker-inline"),
+                label(value).id("picker-inline-value"),
             ))
             .spacing(8.0),
         ),
