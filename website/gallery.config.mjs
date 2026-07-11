@@ -60,9 +60,18 @@ export const suites = [
       { id: 'dark', label: 'Dark', dirs: ['dark'] },
       { id: 'fr', label: 'Français', dirs: ['fr'] },
     ],
-    // Every target the showcase is captured on, HarmonyOS/ArkUI included (the same app + walkthrough
-    // runs on the Oniro emulator in CI; pieces without an ArkUI renderer show as placeholders there).
-    platforms: platforms.map((p) => p.id),
+    // The PRIMARY target per OS, in display order — one strip column per platform users actually
+    // ship to. The secondary desktop combos (macos-gtk/qt, windows-gtk/qt) still run in CI and
+    // upload artifacts; they're just not shown here.
+    platforms: [
+      'ios-uikit',
+      'android-widget',
+      'ohos-arkui',
+      'macos-appkit',
+      'windows-winui',
+      'linux-qt',
+      'linux-gtk',
+    ],
     hero: 'home',
     shots: [
       { id: 'home', label: 'Home', source: 'apps/showcase/src/lib.rs' },

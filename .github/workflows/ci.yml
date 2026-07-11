@@ -938,15 +938,39 @@ jobs:
       - name: Doctor (harmonyos)
         shell: bash
         run: $DAY_BIN doctor --toolkit harmonyos
-      # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555).
-      # Needs hdc on PATH (from setup-ohos-sdk). TCG boot is slow — allow generous waits.
-      # (@main: emulator-action publishes no release tag yet.)
-      - uses: openharmony-rs/emulator-action@main
+      # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555)
+      # with Day's OWN launcher rather than openharmony-rs/emulator-action: the action's QEMU
+      # command runs `-nographic` with NO GPU device, so the guest has no display — the keyguard
+      # can never dismiss, `aa start` is refused with 10106102 ("screen is locked … cannot be
+      # unlocked automatically"), and no screenshot is ever captured. `day ohos emulator launch`
+      # boots the same image with `-device virtio-gpu-pci` + `-display none` (a headless
+      # framebuffer), which lets apps foreground and `uitest screenCap` capture real pixels.
+      # Needs hdc on PATH (from setup-ohos-sdk); qemu comes from apt. The image zip is the same
+      # one the action uses, cached under the same key layout.
+      - name: Cache the Oniro emulator image
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/oniro-emulator/v6.1
+          key: ${{ runner.os }}-oniro-emulator-v6.1-oniro_emulator.zip
+      - name: Boot the Oniro emulator (day ohos emulator launch --headless)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true # emulator boot is best-effort (the build already gated above)
-        with:
-          hdc-wait-seconds: "420"
-          port-wait-seconds: "300"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86 unzip
+          ZIP="$HOME/.cache/oniro-emulator/v6.1/oniro_emulator.zip"
+          if [ ! -f "$ZIP" ]; then
+            mkdir -p "$(dirname "$ZIP")"
+            curl -fL -o "$ZIP" \
+              "https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip"
+          fi
+          rm -rf /tmp/oniro-emulator && mkdir -p /tmp/oniro-emulator
+          unzip -q "$ZIP" -d /tmp/oniro-emulator
+          IMAGES="$(dirname "$(find /tmp/oniro-emulator -name bzImage -print -quit)")"
+          echo "images: $IMAGES"
+          DAY_OHOS_EMULATOR="$IMAGES" $DAY_BIN ohos emulator launch --headless
       # ONE command, exactly like every other platform's walkthrough (the SAME showcase script the
       # other targets run): `day launch -p ohos-arkui --script` cross-compiles the showcase to
       # libentry.so → hvigor assembleHap → sign → hdc install → aa start (the dayscript port/token

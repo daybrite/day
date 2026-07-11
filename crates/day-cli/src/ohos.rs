@@ -123,8 +123,8 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     crate::signals::register_child(child.id());
 
     // Wait for hdc to see the target booted (TCG boot is slow), like `skip android emulator launch`.
-    status("Emulator", "waiting for boot (TCG is slow — up to ~4 min)…");
-    for _ in 0..48 {
+    status("Emulator", "waiting for boot (TCG is slow — up to ~8 min)…");
+    for _ in 0..96 {
         if let Some(code) = child.try_wait().ok().flatten() {
             return Err(format!("qemu exited early ({code})"));
         }
@@ -580,11 +580,16 @@ fn install_and_start(
     spec: &LaunchSpec,
 ) -> Result<(), String> {
     // Keep the screen awake + in never-doze power mode so it doesn't re-lock mid-run (best-effort).
+    // The timeout extension matters for screenshots: a walkthrough on the TCG emulator runs for
+    // minutes, and `uitest screenCap` captures a black frame once the display sleeps.
     let _ = hdc_for(key)
         .args(["shell", "power-shell", "wakeup"])
         .status();
     let _ = hdc_for(key)
         .args(["shell", "power-shell", "setmode", "602"])
+        .status();
+    let _ = hdc_for(key)
+        .args(["shell", "power-shell", "timeout", "-o", "600000"])
         .status();
 
     // Install (reinstall over any existing copy), RETRYING: right after boot the bundle-manager

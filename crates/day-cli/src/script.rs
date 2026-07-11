@@ -137,6 +137,10 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
         TargetKind::HarmonyOs => {
             // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes in a
             // .png file are wrong) — prefer uitest, fall back to snapshot_display. Then `hdc file recv`.
+            // Re-wake the display first (best-effort): a sleeping screen captures as a black frame.
+            let _ = crate::ohos::hdc()
+                .args(["shell", "power-shell", "wakeup"])
+                .status();
             let dev = "/data/local/tmp/day-shot.png";
             let cap = crate::ohos::hdc()
                 .args(["shell", "uitest", "screenCap", "-p", dev])

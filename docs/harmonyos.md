@@ -178,8 +178,14 @@ TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmo
    the emulator (x86_64) and device (arm64) using the CLT's native NDK clang;
 2. `ohpm install`, then `hvigorw assembleHap`, a full hvigor build of the ArkTS host + `.hap`;
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
-   material), then install/launch it on the openharmony-rs/emulator-action Oniro emulator over `hdc`
-   and drive the dayscript walkthrough, uploading screenshots for the gallery, like the other targets.
+   material), then install/launch it on the Oniro emulator over `hdc` and drive the dayscript
+   walkthrough, uploading screenshots for the gallery, like the other targets. CI boots the emulator
+   with `day ohos emulator launch --headless` (the same Oniro v6.1 image openharmony-rs's
+   emulator-action uses) rather than the action itself: the action's QEMU command has **no GPU
+   device** (`-nographic`), so the guest has no display — the keyguard never dismisses, `aa start`
+   is refused with error 10106102, and screenshots capture nothing. Day's launcher adds
+   `-device virtio-gpu-pci` with `-display none`: a headless framebuffer the apps can foreground on
+   and `uitest screenCap` can capture.
 
 Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it install: the emulator
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
