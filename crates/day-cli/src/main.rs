@@ -19,6 +19,7 @@ mod sign;
 mod signals;
 mod targets;
 mod template;
+mod update;
 
 fn main() {
     let code = cli::run();

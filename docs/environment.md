@@ -61,3 +61,9 @@ the affected script instead of keeping stale results.
 
 Signing variables are listed exhaustively by `day sign --check`, which reports each platform's
 readiness without printing a secret value.
+
+## Update check
+
+| Variable | Meaning |
+|---|---|
+| `DAY_NO_UPDATE_CHECK` | Set to any non-empty value to disable the background "a newer day-cli is on crates.io?" check. This is day's **only** outbound network call, so setting it keeps day fully offline. |

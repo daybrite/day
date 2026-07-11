@@ -254,7 +254,16 @@ pub enum EmulatorCmd {
 
 pub fn run() -> i32 {
     let cli = Cli::parse();
-    match cli.command {
+    // Kick off the background crates.io update check now, so it runs while the command does. Silent for
+    // the build-system plumbing callbacks (Xcode/Gradle) and for machine `--format json` output.
+    let update = crate::update::spawn(
+        cli.format != "json"
+            && !matches!(
+                cli.command,
+                Cmd::XcodeBackend { .. } | Cmd::GradleBackend { .. }
+            ),
+    );
+    let code = match cli.command {
         Cmd::Version => {
             println!("day {}", env!("DAY_VERSION_LONG"));
             0
@@ -525,7 +534,10 @@ pub fn run() -> i32 {
                 0
             }
         }),
-    }
+    };
+    // Non-blocking: nudge only if the crates.io reply already arrived; never waits for it.
+    crate::update::finish(update);
+    code
 }
 
 fn with_project(start: Option<&std::path::Path>, f: impl FnOnce(&meta::Project) -> i32) -> i32 {
