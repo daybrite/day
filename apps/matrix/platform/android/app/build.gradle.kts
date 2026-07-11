@@ -29,8 +29,11 @@ android {
     }
     sourceSets {
         getByName("main") {
-            // The day-android Java shim ships with the framework (§17.1).
-            java.srcDir(rootProject.projectDir.resolve("../../../../toolkits/day-android/java"))
+            // The day-android Java shim (DayActivity, DayBridge, …): `day build` resolves it
+            // from the day-android crate via cargo metadata and stages the path in
+            // day-pieces.json — wherever cargo has the crate (workspace, git checkout, or
+            // registry source). See the guard below for what happens when it is absent.
+            (dayPieces["dayJavaSrcDir"] as? String)?.let { java.srcDir(it) }
             // Standalone pieces' own Java/Kotlin (docs/extending.md).
             pieceJavaDirs.forEach { java.srcDir(it) }
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
@@ -69,4 +72,20 @@ dependencies {
     implementation("androidx.transition:transition:1.5.1")
     // Gradle dependencies contributed by standalone pieces (docs/extending.md).
     pieceDeps.forEach { implementation(it) }
+}
+
+
+// Without the day-android Java shim the APK would install and then CRASH at launch with
+// ClassNotFoundException (DayActivity never reaches the dex). IDE sync still configures; an
+// actual build fails with instructions instead of producing a broken APK.
+if (dayPieces["dayJavaSrcDir"] == null) {
+    tasks.configureEach {
+        if (name == "preBuild") doFirst {
+            throw GradleException(
+                "The day-android Java shim was not staged — build through the day CLI " +
+                "(`day launch -p android-widget` / `day build -p android-widget`), which writes " +
+                "build/day/android/day-pieces.json. A bare Gradle build cannot produce a working APK."
+            )
+        }
+    }
 }

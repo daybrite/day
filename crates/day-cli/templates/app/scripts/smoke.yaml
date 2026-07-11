@@ -1,0 +1,33 @@
+# A dayscript smoke test (https://daybrite.dev/docs/dayscript): drives the running app by
+# element id and route, on any target. Run it with:
+#
+#     day launch -p {{first_target}} --script scripts/smoke.yaml
+#
+flow:
+  # The nav host mounts immediately on every platform (a section's content only mounts once
+  # selected — desktop auto-selects the first section, mobile starts at the list).
+  - wait_for: { id: nav }
+
+  # Home: the counter is a signal; tapping writes it, the label reads it.
+  - navigate: { route: home }
+  - assert_visible: { id: home-title }
+  - tap: { id: inc }
+  - assert_text: { id: count, text: "1" }
+
+  # Each section is addressable by its typed route's key.
+  - navigate: { route: controls }
+  - assert_route: { route: controls }
+  - assert_visible: { id: controls-title }
+
+  - navigate: { route: canvas }
+  - assert_visible: { id: canvas-dial }
+
+  # The stack: push a typed item, check the FULL route, pop natively.
+  - navigate: { route: items }
+  - tap: { id: item-1 }
+  - assert_route: { route: items/item-1 }
+  - assert_visible: { id: item-detail }
+  - nav_back:
+  - assert_route: { route: items }
+
+  - screenshot: smoke

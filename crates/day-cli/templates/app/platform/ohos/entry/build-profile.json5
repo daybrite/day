@@ -1,0 +1,17 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    // No `externalNativeOptions` — Day ships the native module as a PREBUILT cdylib (libentry.so),
+    // cross-compiled from Rust by `day build -p ohos-arkui` and staged into `entry/libs/<abi>/`.
+    // hvigor packages `libs/` into the .hap as-is.
+    "arkOptions": {}
+  },
+  "targets": [
+    {
+      "name": "default",
+      // Must match the product runtimeOS in the root build-profile.json5 (OpenHarmony → the Oniro
+      // emulator; avoids the HMS-only image-transcoder dependency, see there).
+      "runtimeOS": "OpenHarmony"
+    }
+  ]
+}

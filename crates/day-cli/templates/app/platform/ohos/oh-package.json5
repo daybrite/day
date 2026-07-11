@@ -1,0 +1,7 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "day-arkui-demo",
+  "version": "1.0.0",
+  "description": "Day framework running on HarmonyOS Next via the ArkUI backend",
+  "dependencies": {}
+}

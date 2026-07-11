@@ -1,32 +1,168 @@
-# install — hourly smoke test that the published `day-cli` still installs and runs on a stock host.
-# On each of macOS / Windows / Linux it runs `cargo install day-cli` (from crates.io, with the runner's
-# preinstalled Rust — exactly what a user on a stock toolchain would run) and then `day doctor`. It
-# catches a broken or yanked release, a dependency that stopped compiling, or an OS-specific regression
-# before users hit it. Runs at the top of every hour and can also be started manually.
+# install — daily smoke test of the PUBLISHED user path on every platform-toolkit combo.
+#
+# Each job does exactly what a new user on a stock machine would: `cargo install day-cli` (from
+# crates.io, with the runner's preinstalled Rust), install that combo's toolkit prerequisites,
+# scaffold an app with `day new app --toolkit <combo>`, check the environment with a FOCUSED
+# `day doctor --toolkit …` (focused checks are errors, so doctor passing means the prerequisites
+# really are complete), and build the scaffolded app for the combo. It catches a broken or
+# yanked release, a dependency that stopped compiling, a scaffold that drifted from the
+# published API, and OS-specific regressions — before users hit them.
+#
+# NOTE: scaffolds pass `--git` (day deps from the git remote) because the `day` framework
+# crates are not yet published to crates.io — newer CLIs default to git anyway, but the flag
+# keeps older published CLIs on the same path. Once the crates are published alongside
+# day-cli, switch to `--registry` so this workflow tests the pure crates.io path. Until the
+# NEXT day-cli release is published, these jobs exercise the previously-published scaffold
+# (this workflow installs from crates.io by design — it goes green for a combo once a release
+# with the template scaffold + that combo's flags is out).
 name: install
 
 on:
   schedule:
-    - cron: "0 * * * *" # top of every hour (UTC)
+    - cron: "17 6 * * *" # daily (UTC); 11 jobs × toolkit installs is too heavy for hourly
   workflow_dispatch:
 
-# No repo access needed — this installs from crates.io, it doesn't check out the source.
+# No repo access needed — everything installs from crates.io / package managers.
 permissions:
   contents: read
 
+env:
+  APP: smoke-app
+
 jobs:
   install:
-    name: install (${{ matrix.os }})
+    name: ${{ matrix.combo }}
     strategy:
-      fail-fast: false # report every OS independently — one break shouldn't hide the others
+      fail-fast: false # report every combo independently — one break shouldn't hide the others
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        include:
+          - { combo: macos-appkit, os: macos-latest, toolkit: appkit }
+          - { combo: macos-gtk, os: macos-latest, toolkit: gtk }
+          - { combo: macos-qt, os: macos-latest, toolkit: qt }
+          - { combo: ios-uikit, os: macos-latest, toolkit: uikit }
+          - { combo: linux-gtk, os: ubuntu-24.04, toolkit: gtk }
+          - { combo: linux-qt, os: ubuntu-24.04, toolkit: qt }
+          - { combo: android-widget, os: ubuntu-24.04, toolkit: android }
+          - { combo: ohos-arkui, os: ubuntu-24.04, toolkit: harmonyos }
+          - { combo: windows-winui, os: windows-latest, toolkit: winui }
+          - { combo: windows-qt, os: windows-latest, toolkit: qt }
+          - { combo: windows-gtk, os: windows-latest, toolkit: gtk }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
-      # GitHub runners ship a current stable Rust with the cargo bin dir on PATH, so no setup needed.
+      # --- the one true user step: install the published CLI with stock Rust ---------------
+      # windows-qt/gtk build apps with the windows-gnu toolchain, but the CLI itself installs
+      # fine with the default msvc toolchain on the runner.
       - name: cargo install day-cli
         run: cargo install day-cli
-      # `day` is now on PATH (installed to ~/.cargo/bin). doctor is lenient — a missing OPTIONAL
-      # toolkit is a warning (exit 0); it only fails if the core Rust toolchain is absent.
-      - name: day doctor
-        run: day doctor
+
+      # --- per-combo toolkit prerequisites (what the docs tell users to install) ------------
+      - name: Toolkit deps (brew)
+        if: ${{ runner.os == 'macOS' && (matrix.toolkit == 'gtk' || matrix.toolkit == 'qt') }}
+        run: |
+          case "${{ matrix.toolkit }}" in
+            qt) brew install qt pkg-config ;;
+            gtk) brew install gtk4 libadwaita pkg-config ;;
+          esac
+
+      - name: Toolkit deps (apt)
+        if: ${{ matrix.combo == 'linux-gtk' || matrix.combo == 'linux-qt' }}
+        run: |
+          sudo apt-get update
+          case "${{ matrix.toolkit }}" in
+            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev pkg-config ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev pkg-config ;;
+          esac
+
+      - name: iOS cross targets
+        if: ${{ matrix.combo == 'ios-uikit' }}
+        run: rustup target add aarch64-apple-ios-sim
+
+      - name: Android JDK
+        if: ${{ matrix.combo == 'android-widget' }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Android cross targets + NDK env
+        if: ${{ matrix.combo == 'android-widget' }}
+        run: |
+          rustup target add aarch64-linux-android
+          # The runner preinstalls the Android SDK + a recent NDK.
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - name: Android cargo-ndk
+        if: ${{ matrix.combo == 'android-widget' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      # The OpenHarmony SDK (NDK for the Rust cross-compile) + hvigor/ohpm/node from the
+      # command-line-tools — the same recipe ci.yml's ohos-arkui job uses.
+      - name: OHOS SDK
+        if: ${{ matrix.combo == 'ohos-arkui' }}
+        uses: openharmony-rs/setup-ohos-sdk@v1
+        id: ohos-sdk
+        with:
+          version: "6.1"
+      - name: OHOS toolchain env + hvigor
+        if: ${{ matrix.combo == 'ohos-arkui' }}
+        env:
+          CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
+          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
+          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
+          echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          mkdir -p ~/ohos-clt && cd ~/ohos-clt
+          [ -d command-line-tools ] || { curl -sSL "$CLT_URL" -o clt.zip && unzip -q clt.zip && rm clt.zip; }
+          echo "$HOME/ohos-clt/command-line-tools/bin" >> "$GITHUB_PATH"
+          echo "OHOS_BASE_SDK_HOME=$HOME/ohos-clt/command-line-tools/sdk" >> "$GITHUB_ENV"
+
+      # windows-qt / windows-gtk build against MSYS2's MINGW64 libraries with the windows-gnu
+      # toolchain (same shape as ci.yml's windows-msys2 job).
+      - name: MSYS2 (windows qt/gtk)
+        if: ${{ matrix.combo == 'windows-qt' || matrix.combo == 'windows-gtk' }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            ${{ matrix.combo == 'windows-qt' && 'mingw-w64-x86_64-qt6-base' || 'mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita' }}
+      - name: Pin the MSYS2 mingw toolchain
+        if: ${{ matrix.combo == 'windows-qt' || matrix.combo == 'windows-gtk' }}
+        shell: msys2 {0}
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu
+          rustup default stable-x86_64-pc-windows-gnu
+          cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
+          GCC="$(cygpath -m "$MINGW_PREFIX/bin/gcc.exe")"
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
+          echo "CC=$GCC" >> "$GITHUB_ENV"
+          echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
+
+      # --- doctor: with a FOCUSED toolkit its checks are errors, so this PASSING means the
+      # prerequisites above are genuinely sufficient for this combo -------------------------
+      - name: day doctor --toolkit ${{ matrix.toolkit }}
+        run: day doctor --toolkit ${{ matrix.toolkit }}
+
+      # --- scaffold + build the way a user would --------------------------------------------
+      # --git until the day framework crates are published (see the header note).
+      - name: day new app
+        working-directory: ${{ runner.temp }}
+        run: |
+          rm -rf "$APP"
+          day new app "$APP" --toolkit ${{ matrix.combo }} --appid dev.example.smokeapp --git --no-input
+
+      - name: day build -p ${{ matrix.combo }}
+        working-directory: ${{ runner.temp }}/${{ env.APP }}
+        run: day build -p ${{ matrix.combo }}

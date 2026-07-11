@@ -1,0 +1,29 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+appkit = ["day/appkit"]
+gtk = ["day/gtk"]
+qt = ["day/qt"]
+uikit = ["day/uikit"]
+widget = ["day/widget"]
+winui = ["day/winui"]
+arkui = ["day/arkui"]
+mock = ["day/mock"]
+
+# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
+# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
+# export cap).
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+{{day_dep}}
+
+[[bin]]
+name = "{{name}}"
+path = "src/main.rs"
+
+[workspace]

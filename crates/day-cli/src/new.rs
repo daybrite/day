@@ -34,9 +34,11 @@ const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 // ---------------------------------------------------------------------------
 
 enum Deps {
-    /// Versioned crates.io deps pinned to this CLI's version (the default) — `day = { version = "x.y.z" }`.
+    /// Versioned crates.io deps pinned to this CLI's version (`--registry`) — `day = { version =
+    /// "x.y.z" }`. Becomes the default once the day framework crates are published to crates.io.
     Version(&'static str),
-    /// The `day` git remote (`--git`) — `day = { git = "https://github.com/daybrite/day.git" }`.
+    /// The `day` git remote (the CURRENT default — the framework crates are not yet on
+    /// crates.io) — `day = { git = "https://github.com/daybrite/day.git" }`.
     Git,
     /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`) — `day = { path = "<root>/<sub>" }`. A
     /// normalized, forward-slash, TOML-safe absolute path. Used by CI and framework development.
@@ -44,10 +46,12 @@ enum Deps {
 }
 
 impl Deps {
-    /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then `--git`,
-    /// otherwise the default — versioned crates.io deps pinned to this CLI's own version, so a
-    /// `day-cli x.y.z` binary scaffolds an app that depends on `day x.y.z`.
-    fn resolve(local: Option<&Path>, git: bool) -> Self {
+    /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
+    /// `--registry` (versioned crates.io deps pinned to this CLI's own version, so a `day-cli
+    /// x.y.z` binary scaffolds an app depending on `day x.y.z`), otherwise the default — the
+    /// git remote, because the day framework crates are NOT yet published to crates.io. Flip
+    /// the default back to Version (and retire `--git`) when they are.
+    fn resolve(local: Option<&Path>, git: bool, registry: bool) -> Self {
         let picked = local
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("DAY_LOCAL").map(PathBuf::from));
@@ -59,10 +63,10 @@ impl Deps {
             let s = s.strip_prefix("//?/").map(str::to_string).unwrap_or(s);
             return Deps::Local(s);
         }
-        if git {
-            return Deps::Git;
+        if registry && !git {
+            return Deps::Version(env!("CARGO_PKG_VERSION"));
         }
-        Deps::Version(env!("CARGO_PKG_VERSION"))
+        Deps::Git
     }
 
     /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
@@ -201,9 +205,22 @@ pub fn interactive() -> i32 {
         0,
     );
     match kind {
-        0 => app(None, &[], None, None, None, None, None, false, false),
-        1 => part(None, None, None, None, false, false),
-        _ => piece(None, None, false, None, None, false, false),
+        0 => app(
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            false,
+        ),
+        1 => part(None, None, None, None, false, false, false),
+        _ => piece(None, None, false, None, None, false, false, false),
     }
 }
 
@@ -337,6 +354,7 @@ fn target_menu_label(t: &targets::Target) -> String {
 }
 
 /// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
+#[allow(clippy::too_many_arguments)] // one arg per `day new piece` flag, resolved in order
 pub fn piece(
     name: Option<&str>,
     toolkits_csv: Option<&str>,
@@ -344,6 +362,7 @@ pub fn piece(
     id: Option<&str>,
     local: Option<&Path>,
     git: bool,
+    registry: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -355,7 +374,7 @@ pub fn piece(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git);
+    let deps = Deps::resolve(local, git, registry);
 
     // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
     // non-interactive, default to a composite piece — the zero-config choice).
@@ -421,6 +440,7 @@ pub fn part(
     id: Option<&str>,
     local: Option<&Path>,
     git: bool,
+    registry: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -432,7 +452,7 @@ pub fn part(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git);
+    let deps = Deps::resolve(local, git, registry);
 
     let platforms: Vec<String> = if let Some(csv) = platforms_csv {
         match parse_platforms(csv) {
@@ -470,16 +490,19 @@ pub fn part(
 /// Scaffold a Day APP. Targets come from repeated `--toolkit <target>` and/or a `--targets <csv>`;
 /// absent ⇒ interactive multi-select (or, non-interactively, the host's default target). `--appid` /
 /// `--bundleid` / `--id` all name the same reverse-DNS id.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // one arg per `day new app` flag, resolved in order
 pub fn app(
     name: Option<&str>,
     toolkits: &[String],
     appid: Option<&str>,
     bundleid: Option<&str>,
     id: Option<&str>,
+    title: Option<&str>,
+    template: Option<&str>,
     targets_csv: Option<&str>,
     local: Option<&Path>,
     git: bool,
+    registry: bool,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -491,7 +514,7 @@ pub fn app(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git);
+    let deps = Deps::resolve(local, git, registry);
 
     // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
     let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
@@ -559,17 +582,106 @@ pub fn app(
         vec![targets::host_default().to_string()]
     };
 
+    let title = match title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => t.to_string(),
+        None => {
+            let d = default_title(&name);
+            p.line("App title (window / store display name)", Some(&d))
+        }
+    };
+
+    // The template context (docs/cli.md): every {{placeholder}} a template may use, for both
+    // the built-in template and --template overrides.
     let repl = Repl::new(&name, Some(rid.as_str()));
-    let files = app_files(&repl, &deps, &targets);
-    let code = write_all(&dir, &files, &name);
+    let first = targets
+        .first()
+        .map(String::as_str)
+        .unwrap_or("macos-appkit")
+        .to_string();
+    let mut ctx = std::collections::BTreeMap::new();
+    ctx.insert("name", repl.crate_name.clone());
+    ctx.insert("ident", repl.crate_ident.clone());
+    ctx.insert("snake", repl.snake.clone());
+    ctx.insert("pascal", repl.pascal.clone());
+    ctx.insert("title", title);
+    ctx.insert("id", repl.id.clone());
+    // A deep-link URI scheme derived from the name (schemes allow only ALPHA/DIGIT/+/-/.).
+    let scheme: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_lowercase();
+    ctx.insert(
+        "scheme",
+        if scheme.is_empty() {
+            "dayapp".into()
+        } else {
+            scheme
+        },
+    );
+    ctx.insert("day_dep", deps.dep("day", ""));
+    ctx.insert(
+        "targets_yaml",
+        targets
+            .iter()
+            .map(|t| format!("  - {t}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    ctx.insert("first_target", first.clone());
+
+    let files = match template {
+        Some(source) => match crate::template::load(source) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return 1;
+            }
+        },
+        None => crate::template::builtin_app(),
+    };
+    let rendered = match crate::template::render(&files, &ctx) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 1;
+        }
+    };
+    let code = write_all_bytes(&dir, &rendered, &name);
     if code == 0 {
-        let first = targets
-            .first()
-            .map(String::as_str)
-            .unwrap_or("macos-appkit");
         eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
     }
     code
+}
+
+/// `hello-world` ⇒ `Hello World`: the default display title from a crate-style name.
+fn default_title(name: &str) -> String {
+    name.split(['-', '_'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut cs = w.chars();
+            match cs.next() {
+                Some(f) => f.to_uppercase().to_string() + cs.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn write_all_bytes(dir: &Path, files: &[(String, Vec<u8>)], name: &str) -> i32 {
+    for (path, content) in files {
+        let full = dir.join(path);
+        if let Some(parent) = full.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&full, content) {
+            eprintln!("error writing {}: {e}", full.display());
+            return 1;
+        }
+    }
+    ops::status("Created", &format!("{name}/ ({} files)", files.len()));
+    0
 }
 
 fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> i32 {
@@ -585,140 +697,6 @@ fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> i32 {
     }
     ops::status("Created", &format!("{name}/ ({} files)", files.len()));
     0
-}
-
-// ---------------------------------------------------------------------------
-// APP — a complete Day app: a day.yaml manifest, a desktop bin, and the mobile entry points.
-// ---------------------------------------------------------------------------
-
-fn app_files(r: &Repl, deps: &Deps, targets: &[String]) -> Vec<(String, String)> {
-    let name = &r.crate_name;
-    let ident = &r.crate_ident;
-    let id = &r.id;
-    let targets_yaml = targets
-        .iter()
-        .map(|t| format!("  - {t}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let day_dep = deps.dep("day", "");
-
-    let day_yaml = format!(
-        "day: 1\napp:\n  name: {name}\n  id: {id}\n  title: {name}\n  version: 0.1.0\n  build: 1\ntargets:\n{targets_yaml}\nwindow:\n  width: 480\n  height: 640\n"
-    );
-
-    let cargo = format!(
-        r#"[package]
-name = "{name}"
-version = "0.1.0"
-edition = "2024"
-
-[features]
-appkit = ["day/appkit"]
-gtk = ["day/gtk"]
-qt = ["day/qt"]
-uikit = ["day/uikit"]
-widget = ["day/widget"]
-winui = ["day/winui"]
-arkui = ["day/arkui"]
-mock = ["day/mock"]
-
-# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
-# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
-# export cap).
-[lib]
-crate-type = ["rlib"]
-
-[dependencies]
-{day_dep}
-
-[[bin]]
-name = "{name}"
-path = "src/main.rs"
-
-[workspace]
-"#
-    );
-
-    let lib = r#"use day::prelude::*;
-
-pub fn root() -> AnyPiece {
-    let count = Signal::new(0i64);
-    column((
-        label("Hello, Day!").font(Font::Title),
-        row((
-            button("−").action(move || count.update(|c| *c -= 1)).id("dec"),
-            label(move || format!("{}", count.get())).id("count"),
-            button("+").action(move || count.update(|c| *c += 1)).id("inc"),
-        ))
-        .spacing(8.0),
-    ))
-    .spacing(12.0)
-    .padding(16.0)
-    .any()
-}
-
-// Mobile / embedded entries (no-op off their own platform; the platform scaffolds bind these symbols).
-day::ios_main!(root);
-day::android_main!(root);
-day::arkui_main!(root);
-"#
-    .to_string();
-
-    let main = format!(
-        r#"fn main() {{
-    day::launch(
-        day::WindowOptions {{
-            title: "{name}".into(),
-            // A desktop-appropriate default size; mobile fills the screen regardless.
-            size: day::prelude::Size::new(960.0, 640.0),
-            ..Default::default()
-        }},
-        {ident}::root,
-    );
-}}
-"#
-    );
-
-    let first = targets
-        .first()
-        .map(String::as_str)
-        .unwrap_or("macos-appkit");
-    let readme = format!(
-        r#"# {name}
-
-A [Day](https://daybrite.dev) app.
-
-## Run it
-
-Day compiles **one backend per binary**, so choose a target when you build or launch — a bare
-`cargo build` enables no backend feature and will not link. The Day CLI supplies the right feature
-for each target:
-
-```sh
-day doctor                 # check the toolchains for your targets
-day launch -p {first}      # build + run on a target from day.yaml
-day build  -p {first}      # build only
-```
-
-Targets live in `day.yaml`. To use plain cargo, pass the backend feature yourself, e.g.
-`cargo build --features appkit` (macOS) / `--features gtk` / `--features uikit` / `--features widget`.
-
-## Structure
-
-- `src/lib.rs` — your UI (`root()`), shared across every platform.
-- `src/main.rs` — the desktop entry point.
-- `day.yaml` — app metadata + the target list.
-"#
-    );
-
-    vec![
-        ("day.yaml".into(), day_yaml),
-        ("Cargo.toml".into(), cargo),
-        ("README.md".into(), readme),
-        ("src/lib.rs".into(), lib),
-        ("src/main.rs".into(), main),
-        (".gitignore".into(), "/target\n/build\nCargo.lock\n".into()),
-    ]
 }
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,12 @@ use crate::meta::Project;
 /// The build-side contribution list handed to Gradle (serialized to day-pieces.json).
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
+    /// The day-android framework Java shim (DayActivity, DayBridge, …), resolved from the
+    /// `day-android` crate the app depends on — wherever cargo has it (workspace path, git
+    /// checkout, or registry source). Without this dir in the dex, the APK installs and then
+    /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
+    #[serde(rename = "dayJavaSrcDir")]
+    pub day_java_src_dir: Option<String>,
     /// Absolute Java/Kotlin source dirs to add as Gradle `java.srcDir`s.
     #[serde(rename = "javaSrcDirs")]
     pub java_src_dirs: Vec<String>,
@@ -223,6 +229,22 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
     for pkg in &meta.packages {
         if !in_closure.contains(&pkg.id) {
             continue;
+        }
+        // The framework's own Java shim rides with the day-android crate (§17.1) — resolve it
+        // from wherever cargo checked the crate out instead of assuming a day repo layout.
+        if pkg.name == "day-android" {
+            let java = Path::new(&pkg.manifest_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("java");
+            if !java.is_dir() {
+                return Err(format!(
+                    "day-android crate at {:?} has no java/ dir — the Android Java shim is \
+                     missing from this day checkout",
+                    pkg.manifest_path
+                ));
+            }
+            pieces.day_java_src_dir = Some(java.to_string_lossy().into_owned());
         }
         let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
             continue;

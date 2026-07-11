@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App theme: Material 3 Expressive (new motion/shape/typography system, material 1.13+),
+         follows the system light/dark setting (DayNight), no framework ActionBar (Day renders its
+         own nav/toolbar chrome). Requires com.google.android.material. -->
+    <style name="AppTheme" parent="Theme.Material3Expressive.DayNight.NoActionBar" />
+</resources>

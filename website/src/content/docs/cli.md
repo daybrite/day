@@ -36,8 +36,28 @@ day doctor                   # check toolchains for every target
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and toolkits to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
---appid com.example.myapp`. Scaffolds depend on `day` from crates.io (pinned to your CLI's version) by
-default; add `--git` to depend on the `day` git remote instead.
+--appid com.example.myapp --title "My App"`. Scaffolds currently depend on `day` from its git
+remote (the framework crates are not yet published to crates.io); once they are, `--registry`
+pins them to your CLI's version from crates.io and will become the default.
+
+`day new app` scaffolds a working starter — a typed-route sidebar over four sample panels (a
+reactive counter, a controls tour, a canvas dial, and a drill-down stack), with locales, a
+dayscript smoke test (`day launch -p <target> --script scripts/smoke.yaml`), and the thin native
+host projects the mobile targets build through. The scaffold comes from a **template**: a plain
+directory tree whose file contents *and paths* are rendered with mustache-style placeholders —
+`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
+`{{day_dep}}`, `{{targets_yaml}}`, `{{first_target}}`. The built-in template is embedded in the
+CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
+
+```bash
+day new app my-app --template ./my-template          # a local directory
+day new app my-app --template https://github.com/you/tpl#v1   # a git repo (optional #ref)
+```
+
+Template conventions: a trailing `.hbs` on a filename is stripped after rendering (use
+`Cargo.toml.hbs` so tooling doesn't mistake the template for a Rust package), `_gitignore`
+becomes `.gitignore`, non-UTF-8 files (icons) copy verbatim, and an unknown `{{placeholder}}`
+is an error rather than silent empty output.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 

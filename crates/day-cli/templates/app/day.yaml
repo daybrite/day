@@ -1,0 +1,12 @@
+day: 1
+app:
+  name: {{name}}
+  id: {{id}}
+  title: {{title}}
+  version: 0.1.0
+  build: 1
+targets:
+{{targets_yaml}}
+window:
+  width: 960
+  height: 640

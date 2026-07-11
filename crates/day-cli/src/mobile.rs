@@ -185,16 +185,19 @@ pub fn xcode_backend_build() -> i32 {
     if run_logged(&mut cmd, "cargo (ios)").is_err() {
         return 4;
     }
+    // Cargo names the artifact after the crate with `-` → `_` (`hello-day` ⇒ libhello_day.a);
+    // the pbxproj links `-l<ident>` with the same spelling.
+    let ident = name.replace('-', "_");
     let lib = target_dir
         .join(triple)
         .join(profile)
-        .join(format!("lib{name}.a"));
+        .join(format!("lib{ident}.a"));
     let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
         eprintln!("day xcode-backend: cannot create {}", out_dir.display());
         return 4;
     }
-    let dest = out_dir.join(format!("lib{name}.a"));
+    let dest = out_dir.join(format!("lib{ident}.a"));
     if let Err(e) = std::fs::copy(&lib, &dest) {
         eprintln!(
             "day xcode-backend: copy {} → {}: {e}",

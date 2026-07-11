@@ -147,10 +147,14 @@ enum NewKind {
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece KIND + Java package.
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
-        /// CLI's version) — useful before a matching release is published.
+        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// once the day framework crates are published.
+        #[arg(long)]
+        registry: bool,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -168,10 +172,14 @@ enum NewKind {
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
-        /// CLI's version) — useful before a matching release is published.
+        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// once the day framework crates are published.
+        #[arg(long)]
+        registry: bool,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -196,13 +204,26 @@ enum NewKind {
         /// Back-compat alias for --appid.
         #[arg(long, hide = true)]
         id: Option<String>,
+        /// Window / app-store display title; default: the name, title-cased (`hello-world` ⇒
+        /// `Hello World`).
+        #[arg(long)]
+        title: Option<String>,
+        /// Scaffold from a custom template instead of the built-in one: a local directory, or
+        /// a git URL (optionally `#ref`). Files are rendered with {{name}}/{{title}}/{{id}}/…
+        /// placeholders in contents and paths (see the docs for the full list + conventions).
+        #[arg(long)]
+        template: Option<String>,
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
-        /// Scaffold `day` deps from the git remote instead of the default (crates.io, pinned to this
-        /// CLI's version) — useful before a matching release is published.
+        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// once the day framework crates are published.
+        #[arg(long)]
+        registry: bool,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -313,6 +334,7 @@ pub fn run() -> i32 {
                 composite,
                 id,
                 git,
+                registry,
                 local,
                 no_input,
             }) => crate::new::piece(
@@ -322,6 +344,7 @@ pub fn run() -> i32 {
                 id.as_deref(),
                 local.as_deref(),
                 git,
+                registry,
                 no_input,
             ),
             Some(NewKind::Part {
@@ -329,6 +352,7 @@ pub fn run() -> i32 {
                 platforms,
                 id,
                 git,
+                registry,
                 local,
                 no_input,
             }) => crate::new::part(
@@ -337,6 +361,7 @@ pub fn run() -> i32 {
                 id.as_deref(),
                 local.as_deref(),
                 git,
+                registry,
                 no_input,
             ),
             Some(NewKind::App {
@@ -345,8 +370,11 @@ pub fn run() -> i32 {
                 appid,
                 bundleid,
                 id,
+                title,
+                template,
                 targets,
                 git,
+                registry,
                 local,
                 no_input,
             }) => crate::new::app(
@@ -355,9 +383,12 @@ pub fn run() -> i32 {
                 appid.as_deref(),
                 bundleid.as_deref(),
                 id.as_deref(),
+                title.as_deref(),
+                template.as_deref(),
                 targets.as_deref(),
                 local.as_deref(),
                 git,
+                registry,
                 no_input,
             ),
         },
