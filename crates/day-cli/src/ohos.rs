@@ -591,6 +591,7 @@ fn install_and_start(
     let _ = hdc_for(key)
         .args(["shell", "power-shell", "timeout", "-o", "600000"])
         .status();
+    unlock_keyguard(key);
 
     // Install (reinstall over any existing copy), RETRYING: right after boot the bundle-manager
     // service may not accept installs yet, and `hdc install`'s exit code + its "error: failed to
@@ -645,11 +646,12 @@ fn install_and_start(
     }
 
     status("Launching", &format!("ohos-arkui ({bundle}) on {key}"));
-    // The emulator boots with the keyguard up; it AUTO-DISMISSES a few seconds after boot but
-    // `aa start` is refused until then (Error 10106102) — and there is NO hdc command to force-unlock
-    // in developer mode (it is disabled by design). So retry, re-waking the screen between tries, until
-    // it stops failing — the keyguard-readiness poll the Eclipse Oniro CI uses. `aa start` also EXITS 0
-    // EVEN WHEN REFUSED, so we inspect its output for the failure markers.
+    // The emulator boots with the keyguard up, and the keyguard RETURNS whenever the display
+    // sleeps; `aa start` is refused while it shows (Error 10106102: "developer mode … cannot be
+    // unlocked automatically" — there is no hdc force-unlock). But the lock screen is
+    // slide-to-unlock, so a synthetic swipe dismisses it (see `unlock_keyguard`). Retry,
+    // re-waking + re-swiping between tries. `aa start` also EXITS 0 EVEN WHEN REFUSED, so we
+    // inspect its output for the failure markers.
     let mut last = String::new();
     for attempt in 1..=20u32 {
         let out = hdc_for(key)
@@ -668,6 +670,7 @@ fn install_and_start(
             let _ = hdc_for(key)
                 .args(["shell", "power-shell", "wakeup"])
                 .status();
+            unlock_keyguard(key);
             std::thread::sleep(Duration::from_secs(3));
         }
     }
@@ -675,6 +678,18 @@ fn install_and_start(
         "hdc aa start refused on {key} after 20 tries (keyguard/launch):\n{}",
         last.trim()
     ))
+}
+
+/// Dismiss the slide-to-unlock keyguard with a synthetic swipe-up (best-effort). The Oniro
+/// emulator's guest display is 360×720 (the launcher's virtio-gpu xres/yres); on an unlocked
+/// screen the swipe is a harmless scroll. Verified headlessly: after `power-shell wakeup` the
+/// lock screen shows "Please slide to unlock", and this swipe lands on the home screen.
+fn unlock_keyguard(key: &str) {
+    let _ = hdc_for(key)
+        .args([
+            "shell", "uitest", "uiInput", "swipe", "180", "600", "180", "100", "500",
+        ])
+        .status();
 }
 
 /// Stream one target's hilog into the day log with `label` (best-effort). Returns its exit code.

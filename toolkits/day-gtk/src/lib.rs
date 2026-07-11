@@ -1944,20 +1944,64 @@ impl Toolkit for Gtk {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         let fixed = self.window_fixed.as_ref().ok_or("no window")?;
         let widget: &gtk4::Widget = fixed.upcast_ref();
-        let paintable = gtk4::WidgetPaintable::new(Some(widget));
+
+        // GTK lays out and draws on the NEXT frame-clock tick, so a capture taken right after
+        // the steps that changed the UI renders the PREVIOUS frame: stale content, a partially
+        // built page, or an empty node tree (this was the CI blank-shot bug — a `screenshot`
+        // right after `navigate` raced the first paint of the new page, and on slow xvfb
+        // runners most captures lost). Drive the main loop until the pending layout/draw has
+        // actually happened: flush ready sources, queue a fresh draw, and wait for the frame
+        // clock's after-paint (bounded), only then render the widget tree.
+        let ctx = gtk4::glib::MainContext::default();
+        for _ in 0..1000 {
+            if !ctx.iteration(false) {
+                break;
+            }
+        }
+        if let Some(clock) = widget.frame_clock() {
+            use gtk4::glib::object::ObjectExt;
+            let painted = std::rc::Rc::new(std::cell::Cell::new(false));
+            let flag = painted.clone();
+            let handler = clock.connect_after_paint(move |_| flag.set(true));
+            widget.queue_draw();
+            clock.request_phase(gtk4::gdk::FrameClockPhase::PAINT);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+            while !painted.get() && std::time::Instant::now() < deadline {
+                if !ctx.iteration(false) {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            }
+            clock.disconnect(handler);
+        }
+
         let w = widget.width() as f64;
         let h = widget.height() as f64;
         if w <= 0.0 || h <= 0.0 {
             return Err("zero-size window".into());
         }
-        let snapshot = gtk4::Snapshot::new();
+        // Render the recorded node tree; retry briefly if it is still empty (cold first frame).
         use gtk4::gdk::prelude::PaintableExt;
-        paintable.snapshot(&snapshot, w, h);
-        let node = snapshot.to_node().ok_or("empty render node")?;
-        let native = widget.native().ok_or("no native")?;
-        let renderer = native.renderer().ok_or("no renderer")?;
-        let texture = renderer.render_texture(&node, None);
-        Ok(texture.save_to_png_bytes().to_vec())
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+        loop {
+            let paintable = gtk4::WidgetPaintable::new(Some(widget));
+            let snapshot = gtk4::Snapshot::new();
+            paintable.snapshot(&snapshot, w, h);
+            if let Some(node) = snapshot.to_node() {
+                let native = widget.native().ok_or("no native")?;
+                let renderer = native.renderer().ok_or("no renderer")?;
+                let texture = renderer.render_texture(&node, None);
+                return Ok(texture.save_to_png_bytes().to_vec());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("empty render node".into());
+            }
+            for _ in 0..1000 {
+                if !ctx.iteration(false) {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {

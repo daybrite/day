@@ -133,7 +133,24 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
         }
-        TargetKind::Desktop => Err("desktop snapshot returned unsupported".into()),
+        TargetKind::Desktop => {
+            // Engine (in-process) snapshot unavailable — on an X11 session (the CI linux legs run
+            // under xvfb) capture the root window with ImageMagick's `import`: with the xvfb
+            // screen sized to the app window (ci.yml passes `-screen 0 1000x720x24`) the root IS
+            // the window. Elsewhere there is nothing portable to call.
+            if cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some() {
+                let ok = Command::new("import")
+                    .args(["-window", "root", "-silent"])
+                    .arg(path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if ok {
+                    return Ok(());
+                }
+            }
+            Err("desktop snapshot returned unsupported".into())
+        }
         TargetKind::HarmonyOs => {
             // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes in a
             // .png file are wrong) — prefer uitest, fall back to snapshot_display. Then `hdc file recv`.

@@ -590,7 +590,7 @@ jobs:
           # day-piece-webview needs Qt WebEngine (Qt) / WebKitGTK 6 (GTK) on top of the base libs.
           case "${{ matrix.toolkit }}" in
             qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick ;;
           esac
       - name: Test host-portable crates
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -631,8 +631,10 @@ jobs:
           ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
           ( cd smoke-part  && cargo build )
           ( cd smoke-app   && cargo build --features ${{ matrix.toolkit }} )
-      # GTK renders under a virtual display (in-process snapshot is limited on GTK, §9);
-      # Qt runs on the offscreen platform. Both drive the full dayscript walkthrough.
+      # GTK renders under a virtual display: the engine snapshot waits for a real after-paint
+      # frame (day-gtk), and day-cli falls back to an ImageMagick root capture of the xvfb
+      # screen if it still errors. Qt runs on the offscreen platform. Both drive the full
+      # dayscript walkthrough.
       # The GTK web view (WebKitGTK) needs two env vars in this restricted headless runner:
       #   WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS — the bubblewrap sandbox can't create a network
       #     namespace here ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"), which
@@ -652,7 +654,9 @@ jobs:
               *) EXTRA="--variant $v --env DAY_THEME=$v" ;;
             esac
             if [ "${{ matrix.toolkit }}" = gtk ]; then
-              xvfb-run -a "$DAY_BIN" launch -p linux-gtk \
+              # The xvfb screen matches the showcase window (1000×720) so the `import -window
+              # root` fallback capture (day-cli script.rs) is exactly the app, edge to edge.
+              xvfb-run -a -s "-screen 0 1000x720x24" "$DAY_BIN" launch -p linux-gtk \
                 --script scripts/walkthrough.yaml $EXTRA \
                 --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
                 --env WEBKIT_DISABLE_COMPOSITING_MODE=1
