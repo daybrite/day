@@ -596,9 +596,12 @@ jobs:
         run: |
           sudo apt-get update
           # day-piece-webview needs Qt WebEngine (Qt) / WebKitGTK 6 (GTK) on top of the base libs.
+          # fonts-noto-cjk: the runner image ships no CJK-capable font (only Noto Color Emoji +
+          # the base DejaVu set, which covers Arabic but not Han), so without it the zh-CN
+          # walkthrough variants render every Chinese glyph as a tofu box on both toolkits.
           case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick ;;
+            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config fonts-noto-cjk ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk ;;
           esac
       - name: Test host-portable crates
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
