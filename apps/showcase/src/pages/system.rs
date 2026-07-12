@@ -147,6 +147,24 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
         if size.width <= 0.0 || size.height <= 0.0 {
             return;
         }
+        // RTL (docs/localization): the layout engine mirrors widget *placement*, but a canvas draws
+        // in its own coordinate space, so this custom drawing mirrors itself. Under a right-to-left
+        // locale (e.g. `ar`) the battery flips horizontally — terminal nub on the left, charge
+        // draining from the right. `mx` mirrors an x, `mrect` a rect; both are the identity in LTR.
+        let rtl = is_rtl();
+        let mx = |x: f64| if rtl { size.width - x } else { x };
+        let mrect = |r: Rect| {
+            if rtl {
+                Rect::new(
+                    size.width - r.max_x(),
+                    r.min_y(),
+                    r.size.width,
+                    r.size.height,
+                )
+            } else {
+                r
+            }
+        };
         let frac = (level.get() / 100.0).clamp(0.0, 1.0);
         let band = if frac < 0.2 {
             Color::hex(0xFF3B30) // red
@@ -157,7 +175,8 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
         };
         let outline = Color::rgba(0.55, 0.55, 0.6, 0.9);
 
-        // Geometry: the body fills the canvas minus the nub on the right and a caption strip below.
+        // Geometry (defined LTR; mirrored at draw time via `mrect`/`mx`). The body fills the canvas
+        // minus the terminal nub past its trailing edge and a caption strip below.
         let caption_h = 26.0;
         let nub_w = (size.width * 0.05).clamp(6.0, 14.0);
         let body = Rect::new(
@@ -173,16 +192,17 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
             nub_w,
             nub_h,
         );
-        d.stroke(Shape::RoundedRect(body, 12.0), outline, 3.0);
-        d.fill(Shape::RoundedRect(nub, 3.0), outline);
+        d.stroke(Shape::RoundedRect(mrect(body), 12.0), outline, 3.0);
+        d.fill(Shape::RoundedRect(mrect(nub), 3.0), outline);
 
-        // The charge fill, inset within the body and clipped to the level fraction.
+        // The charge fill, inset within the body and clipped to the level fraction — it grows from
+        // the leading edge, so under RTL `mrect` makes it drain from the right.
         let well = body.inset(6.0);
         let fill_w = well.size.width * frac;
         if fill_w > 0.5 {
             let fill_rect = Rect::new(well.min_x(), well.min_y(), fill_w, well.size.height);
             d.fill(
-                Shape::RoundedRect(fill_rect, 7.0_f64.min(fill_w / 2.0)),
+                Shape::RoundedRect(mrect(fill_rect), 7.0_f64.min(fill_w / 2.0)),
                 band,
             );
         }
@@ -192,8 +212,9 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
         if charging.get() {
             let c = body.center();
             let (bw, bh) = (body.size.height * 0.42, body.size.height * 0.72);
-            let p =
-                |rx: f64, ry: f64| Point::new(c.x - bw / 2.0 + rx * bw, c.y - bh / 2.0 + ry * bh);
+            let p = |rx: f64, ry: f64| {
+                Point::new(mx(c.x - bw / 2.0 + rx * bw), c.y - bh / 2.0 + ry * bh)
+            };
             let bolt = vec![
                 p(0.62, 0.0),
                 p(0.0, 0.58),

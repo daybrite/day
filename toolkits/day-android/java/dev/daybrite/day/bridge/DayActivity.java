@@ -25,22 +25,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         }
         System.loadLibrary(lib);
 
-        // DAY_THEME=light|dark (a `day launch --env` passthrough, delivered as an intent
-        // extra) forces the app's night mode — themed screenshot runs and local theme checks;
-        // unset ⇒ follow the system. API 31+; a recreation triggered by the mode change reads
-        // the same extra again, so the set is idempotent.
-        String dayTheme = getIntent().getStringExtra("day.env.DAY_THEME");
-        if (dayTheme != null && android.os.Build.VERSION.SDK_INT >= 31) {
-            android.app.UiModeManager ui =
-                    (android.app.UiModeManager) getSystemService(UI_MODE_SERVICE);
-            if (ui != null) {
-                if ("dark".equals(dayTheme)) {
-                    ui.setApplicationNightMode(android.app.UiModeManager.MODE_NIGHT_YES);
-                } else if ("light".equals(dayTheme)) {
-                    ui.setApplicationNightMode(android.app.UiModeManager.MODE_NIGHT_NO);
-                }
-            }
-        }
+        // DAY_THEME forcing is the LAUNCHER's job (day-cli sets the device night mode over adb
+        // before `am start`), not this activity's: UiModeManager.setApplicationNightMode
+        // persists per-app across restarts, so a forced run would poison the NEXT run's window
+        // inflation with the old scheme — and since the manifest handles the uiMode config
+        // change itself (no recreation), the already-inflated window could never re-theme.
+        // With no app-level override the theme simply follows the system, coherently, from the
+        // first frame.
 
         DayBridge.ctx = this;
         final DayFixed root = new DayFixed(this);

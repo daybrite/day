@@ -770,6 +770,14 @@ pub fn launch_android(
                 .arg(&outcome.artifact),
             &format!("adb install ({})", dev.serial),
         )?;
+        // A still-running instance would just be foregrounded by `am start` — keeping the old
+        // run's engine port, theme, and locale (its views were created under the previous
+        // configuration). Force-stop first so every launch is a fresh process reading THIS run's
+        // extras, mirroring the OHOS launcher.
+        run_logged(
+            adb(Some(&dev.serial)).args(["shell", "am", "force-stop", &app_id]),
+            &format!("am force-stop ({})", dev.serial),
+        )?;
         // DAY_THEME must be in effect BEFORE the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
         // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —
@@ -787,10 +795,23 @@ pub fn launch_android(
                 _ => None,
             };
             if let Some(night) = night {
-                run_logged(
-                    adb(Some(&dev.serial)).args(["shell", "cmd", "uimode", "night", night]),
-                    &format!("uimode night {night} ({})", dev.serial),
-                )?;
+                // Only set on an actual change, and give the system a moment to finish: the
+                // config-change ripple is asynchronous, so an immediate `am start` can still
+                // inflate the window under the OLD mode (views built moments later then resolve
+                // in the new one — a half-themed screen).
+                let cur = adb(Some(&dev.serial))
+                    .args(["shell", "cmd", "uimode", "night"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
+                    .unwrap_or_default();
+                if !cur.contains(&format!(": {night}")) {
+                    run_logged(
+                        adb(Some(&dev.serial)).args(["shell", "cmd", "uimode", "night", night]),
+                        &format!("uimode night {night} ({})", dev.serial),
+                    )?;
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                }
             }
         }
         // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.

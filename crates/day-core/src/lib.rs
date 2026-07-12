@@ -46,6 +46,15 @@ pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {
     DIRECTION.with(|d| d.set(Some(dir)));
 }
 
+/// Whether the app is being rendered right-to-left (docs/localization) — a convenience over
+/// [`layout_direction`]. The layout engine already mirrors widget *placement* under an RTL locale,
+/// but a `canvas` draws in its own coordinate space, so a custom drawing that has a reading
+/// direction (a battery that drains one way, an arrow, a progress sweep) can call this to mirror
+/// itself. Fixed for the life of the process, like [`layout_direction`].
+pub fn is_rtl() -> bool {
+    layout_direction() == day_geometry::LayoutDirection::Rtl
+}
+
 /// The writing direction a locale implies (language subtag match).
 pub fn direction_of_locale(locale: &str) -> day_geometry::LayoutDirection {
     let lang = locale

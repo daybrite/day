@@ -10,6 +10,5 @@
         <item name="colorOnPrimary">@color/showcase_on_primary</item>
         <item name="colorPrimaryContainer">@color/showcase_primary_container</item>
         <item name="colorOnPrimaryContainer">@color/showcase_on_primary_container</item>
-        <item name="colorSurfaceTint">@color/showcase_primary</item>
     </style>
 </resources>

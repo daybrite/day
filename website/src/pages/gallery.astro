@@ -36,20 +36,28 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
         ? <p class="gen">Latest run · {generated}</p>
         : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
 
-      <div class="controls" data-pagefind-ignore>
-        <div class="seg" role="radiogroup" aria-label="Theme" data-seg="theme">
-          <button type="button" role="radio" aria-checked="true" data-value="light">Light</button>
-          <button type="button" role="radio" aria-checked="false" data-value="dark">Dark</button>
-        </div>
-        <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
-          <button type="button" role="radio" aria-checked="true" data-value="en">English</button>
-          <button type="button" role="radio" aria-checked="false" data-value="fr">Français</button>
-          <button type="button" role="radio" aria-checked="false" data-value="ar">العربية</button>
-          <button type="button" role="radio" aria-checked="false" data-value="zh-cn">中文</button>
-        </div>
-      </div>
     </div>
   </section>
+
+  {/* Secondary toolbar: pinned just below the site header so the theme/language selection can be
+      changed while viewing any row, without scrolling back to the top. It lives at the top level of
+      <main> (NOT inside the hero's .container) so its containing block is the whole page — that is
+      what lets it stay stuck across every suite instead of scrolling away with the hero. */}
+  <div class="gal-toolbar" data-pagefind-ignore>
+    <div class="container gal-toolbar-inner">
+      <span class="gal-toolbar-label">Preview</span>
+      <div class="seg" role="radiogroup" aria-label="Theme" data-seg="theme">
+        <button type="button" role="radio" aria-checked="true" data-value="light">Light</button>
+        <button type="button" role="radio" aria-checked="false" data-value="dark">Dark</button>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
+        <button type="button" role="radio" aria-checked="true" data-value="en">English</button>
+        <button type="button" role="radio" aria-checked="false" data-value="fr">Français</button>
+        <button type="button" role="radio" aria-checked="false" data-value="ar">العربية</button>
+        <button type="button" role="radio" aria-checked="false" data-value="zh-cn">中文</button>
+      </div>
+    </div>
+  </div>
 
   {manifest.suites.map((suite) => (
     <section class="section suite">
@@ -197,11 +205,23 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .gen { color: var(--faint); font-size: 0.9rem; margin-top: 16px; }
   .gen.preview { color: var(--sun); }
 
-  .controls {
-    display: flex; flex-wrap: wrap; gap: 12px;
-    margin-top: 22px;
-    position: sticky; top: 0; z-index: 5;
+  /* Secondary toolbar: full-bleed, pinned just under the sticky 62px site header, hovering over the
+     rows so theme/language can be switched from anywhere on the page (not only from the hero). */
+  .gal-toolbar {
+    position: sticky; top: 61px; z-index: 40;
+    margin-top: 18px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .gal-toolbar-inner {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
     padding-block: 10px;
+  }
+  .gal-toolbar-label {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--faint); margin-right: 4px;
   }
   .seg {
     display: inline-flex; padding: 3px; border-radius: 999px;

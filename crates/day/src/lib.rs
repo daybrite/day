@@ -69,6 +69,10 @@ pub mod prelude {
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
     pub use day_core::{Resource, resource};
+    // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
+    // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.
+    pub use day_core::{is_rtl, layout_direction};
+    pub use day_spec::LayoutDirection;
 }
 
 /// App-lifecycle support for the backend compiled into THIS binary (docs/lifecycle.md).
