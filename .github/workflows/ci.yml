@@ -851,7 +851,7 @@ jobs:
     # hvigor via node wrappers, sign-hap, hdc) is validated on macOS, so a single host avoids
     # duplicating the SDK/CLT/toolchain setup across two jobs. Build steps gate HARD; only the
     # emulator boot + walkthrough are best-effort (per-STEP continue-on-error).
-    name: ohos-arkui (macOS)
+    name: ohos-arkui
     runs-on: macos-14
     needs: [macos-day]
     timeout-minutes: 90

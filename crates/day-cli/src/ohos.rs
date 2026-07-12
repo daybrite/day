@@ -97,7 +97,9 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     let display: &[&str] = if headless {
         &["-display", "none"]
     } else if cfg!(target_os = "macos") {
-        &["-display", "cocoa"]
+        // zoom-to-fit makes the window freely resizable (the guest's fixed 360×720 framebuffer
+        // scales to fill it) — drag it larger, or ⌘F for full screen.
+        &["-display", "cocoa,zoom-to-fit=on"]
     } else {
         &["-display", "gtk"]
     };

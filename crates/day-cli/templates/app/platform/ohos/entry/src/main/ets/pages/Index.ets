@@ -61,10 +61,12 @@ struct Index {
 
     // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
     // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side.
-    nativeEntry.registerResourceManager(getContext(this).resourceManager);
+    nativeEntry.registerResourceManager(
+      (this.getUIContext().getHostContext() as common.UIAbilityContext).resourceManager
+    );
 
     // Bridge Day's native file open/save to the ArkTS DocumentViewPicker (docs/files.md).
-    const ctx = getContext(this) as common.UIAbilityContext;
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     nativeEntry.registerFilePicker(
       (req: number, mode: number, name: string, src: string, filters: string): void => {
         this.pickFile(req, mode, name, src, filters);
@@ -77,7 +79,7 @@ struct Index {
   // path); mode 1 = save (write the Day-staged temp file `src` into the chosen document). Every
   // path answers `onFileResult(req, path)` — "" means the user cancelled.
   private async pickFile(req: number, mode: number, name: string, src: string, filters: string): Promise<void> {
-    const ctx = getContext(this) as common.UIAbilityContext;
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     try {
       const viewPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(ctx);
       if (mode === 0) {

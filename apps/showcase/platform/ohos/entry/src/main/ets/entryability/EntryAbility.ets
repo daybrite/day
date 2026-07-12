@@ -1,5 +1,5 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
-import { font, window } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
 
@@ -35,16 +35,20 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    // Bundled custom fonts (§18.4) must be registered before the native UI loads, so the
-    // NODE_FONT_FAMILY attribute day-arkui sets can resolve the family names.
-    this.registerBundledFonts();
-    windowStage.loadContent('pages/Index');
+    windowStage.loadContent('pages/Index', () => {
+      // Bundled custom fonts (§18.4): registered as soon as the content is loaded — before
+      // the Day tree mounts (it starts on the page's first onAreaChange, after layout) — so the
+      // NODE_FONT_FAMILY attribute day-arkui sets can resolve the family names. Font
+      // registration is UIContext-scoped (the global font.registerFont is deprecated since
+      // API 18), and the window's UIContext only exists once the content has loaded.
+      this.registerBundledFonts(windowStage);
+    });
   }
 
   // Register every font `day build` staged into rawfile `day/fonts/` (manifest: `day/fonts.json`).
   // `$rawfile()` only accepts compile-time literals, so build the equivalent rawfile Resource
   // object (type 30000) for each dynamic path — the documented pattern for runtime rawfile refs.
-  private registerBundledFonts(): void {
+  private registerBundledFonts(windowStage: window.WindowStage): void {
     let manifest: DayFontEntry[];
     try {
       const bytes: Uint8Array = this.context.resourceManager.getRawFileContentSync('day/fonts.json');
@@ -53,11 +57,12 @@ export default class EntryAbility extends UIAbility {
     } catch (_e) {
       return; // No day/fonts.json staged — the app bundles no custom fonts.
     }
+    const uiFont = windowStage.getMainWindowSync().getUIContext().getFont();
     for (const entry of manifest) {
       // A STRING rawfile URI — a hand-built Resource object (id -1 / type 30000) does not
-      // resolve through font.registerFont, and the family silently falls back to the system
+      // resolve through registerFont, and the family silently falls back to the system
       // font. The resource://RAWFILE form is the same contract day's bundled images use.
-      font.registerFont({
+      uiFont.registerFont({
         familyName: entry.family,
         familySrc: `resource://RAWFILE/day/fonts/${entry.file}`,
       });
