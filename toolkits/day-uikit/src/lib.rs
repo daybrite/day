@@ -2478,7 +2478,7 @@ mod imp {
         /// FIFO of modal transitions (see [`ModalOp`]) — ops run one at a time, pumped from
         /// each transition's completion.
         static MODAL_QUEUE: RefCell<std::collections::VecDeque<ModalOp>> =
-            RefCell::new(std::collections::VecDeque::new());
+            const { RefCell::new(std::collections::VecDeque::new()) };
         /// Whether a present/dismiss transition is currently in flight.
         static MODAL_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
         /// Transition generation — invalidates the watchdog of a normally-completed transition.
