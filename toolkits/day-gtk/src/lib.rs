@@ -37,6 +37,14 @@ thread_local! {
         RefCell::new(std::collections::HashSet::new());
 }
 
+thread_local! {
+    /// Screenshot settle-gating state (`ui_idle`): whether the after-paint hook is installed,
+    /// the number of frames painted, and the paint count a pending settle cycle waits for.
+    static SNAP_PAINT_HOOKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static SNAP_PAINT_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static SNAP_WAIT_TARGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
 fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     let v = bits as u32;
     cr.set_source_rgba(
@@ -1942,65 +1950,66 @@ impl Toolkit for Gtk {
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
+        // A PLAIN render of the widget tree — no main-loop iteration. This runs inside the
+        // engine's tree borrow (`with_tree`), and pumping GLib here can dispatch a callback
+        // that re-enters the tree ("RefCell already borrowed" abort seen on the macos-gtk CI).
+        // The capture-after-paint gating that used to live here is `ui_idle` below: the
+        // screenshot step polls it (retryable, from the socket thread) so the main loop runs
+        // FREELY between polls until the pending layout/draw has actually happened.
         let fixed = self.window_fixed.as_ref().ok_or("no window")?;
         let widget: &gtk4::Widget = fixed.upcast_ref();
-
-        // GTK lays out and draws on the NEXT frame-clock tick, so a capture taken right after
-        // the steps that changed the UI renders the PREVIOUS frame: stale content, a partially
-        // built page, or an empty node tree (this was the CI blank-shot bug — a `screenshot`
-        // right after `navigate` raced the first paint of the new page, and on slow xvfb
-        // runners most captures lost). Drive the main loop until the pending layout/draw has
-        // actually happened: flush ready sources, queue a fresh draw, and wait for the frame
-        // clock's after-paint (bounded), only then render the widget tree.
-        let ctx = gtk4::glib::MainContext::default();
-        for _ in 0..1000 {
-            if !ctx.iteration(false) {
-                break;
-            }
-        }
-        if let Some(clock) = widget.frame_clock() {
-            use gtk4::glib::object::ObjectExt;
-            let painted = std::rc::Rc::new(std::cell::Cell::new(false));
-            let flag = painted.clone();
-            let handler = clock.connect_after_paint(move |_| flag.set(true));
-            widget.queue_draw();
-            clock.request_phase(gtk4::gdk::FrameClockPhase::PAINT);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
-            while !painted.get() && std::time::Instant::now() < deadline {
-                if !ctx.iteration(false) {
-                    std::thread::sleep(std::time::Duration::from_millis(2));
-                }
-            }
-            clock.disconnect(handler);
-        }
-
         let w = widget.width() as f64;
         let h = widget.height() as f64;
         if w <= 0.0 || h <= 0.0 {
             return Err("zero-size window".into());
         }
-        // Render the recorded node tree; retry briefly if it is still empty (cold first frame).
         use gtk4::gdk::prelude::PaintableExt;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
-        loop {
-            let paintable = gtk4::WidgetPaintable::new(Some(widget));
-            let snapshot = gtk4::Snapshot::new();
-            paintable.snapshot(&snapshot, w, h);
-            if let Some(node) = snapshot.to_node() {
-                let native = widget.native().ok_or("no native")?;
-                let renderer = native.renderer().ok_or("no renderer")?;
-                let texture = renderer.render_texture(&node, None);
-                return Ok(texture.save_to_png_bytes().to_vec());
+        let paintable = gtk4::WidgetPaintable::new(Some(widget));
+        let snapshot = gtk4::Snapshot::new();
+        paintable.snapshot(&snapshot, w, h);
+        let node = snapshot.to_node().ok_or("empty render node")?;
+        let native = widget.native().ok_or("no native")?;
+        let renderer = native.renderer().ok_or("no renderer")?;
+        let texture = renderer.render_texture(&node, None);
+        Ok(texture.save_to_png_bytes().to_vec())
+    }
+
+    /// Screenshot settling (see `snapshot_window`): GTK lays out and draws on the NEXT
+    /// frame-clock tick, so a capture right after the steps that changed the UI would render
+    /// the previous frame (the CI blank/partial-shot bug). On the first poll of a settle
+    /// cycle, queue a fresh draw and note the frame-clock paint counter; report idle once a
+    /// LATER paint completed. No main-loop iteration happens here — the engine polls this
+    /// between free main-loop turns.
+    fn ui_idle(&mut self) -> bool {
+        let Some(fixed) = self.window_fixed.as_ref() else {
+            return true;
+        };
+        let widget: &gtk4::Widget = fixed.upcast_ref();
+        let Some(clock) = widget.frame_clock() else {
+            return true; // not realized — nothing will ever paint; don't wedge the step
+        };
+        // One persistent after-paint counter per process (the clock lives with the window).
+        SNAP_PAINT_HOOKED.with(|hooked| {
+            if !hooked.get() {
+                hooked.set(true);
+                clock.connect_after_paint(|_| {
+                    SNAP_PAINT_COUNT.with(|c| c.set(c.get().wrapping_add(1)));
+                });
             }
-            if std::time::Instant::now() >= deadline {
-                return Err("empty render node".into());
+        });
+        let count = SNAP_PAINT_COUNT.with(|c| c.get());
+        match SNAP_WAIT_TARGET.with(|t| t.get()) {
+            Some(target) if count >= target => {
+                SNAP_WAIT_TARGET.with(|t| t.set(None));
+                true
             }
-            for _ in 0..1000 {
-                if !ctx.iteration(false) {
-                    break;
-                }
+            Some(_) => false,
+            None => {
+                SNAP_WAIT_TARGET.with(|t| t.set(Some(count.wrapping_add(1))));
+                widget.queue_draw();
+                clock.request_phase(gtk4::gdk::FrameClockPhase::PAINT);
+                false
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
 
