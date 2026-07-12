@@ -168,14 +168,14 @@ packed into the `.hap`.
 
 ## CI
 
-The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubuntu-24.04`). The build
+The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`macos-14`). The build
 gates **hard** (clippy + cross-compile + `hvigorw assembleHap` + sign + `day doctor`); only the
 emulator boot + walkthrough are best-effort (`continue-on-error` per step) because the GitHub-hosted
 TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmony
 **command-line-tools** (~2 GB) and then runs the real build pipeline:
 
 1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
-   the emulator (x86_64) and device (arm64) using the CLT's native NDK clang;
+   the emulator (x86_64) and device (arm64) using the darwin SDK's NDK clang;
 2. `ohpm install`, then `hvigorw assembleHap`, a full hvigor build of the ArkTS host + `.hap`;
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
    material), then install/launch it on the Oniro emulator over `hdc` and drive the dayscript
@@ -196,8 +196,12 @@ x86_64 Oniro guest is TCG-emulated on every GitHub runner, and only the macOS AR
 fast enough for the pipeline (first-boot keyguard render → wake + swipe-unlock → walkthrough);
 the ubuntu hosts never got that far. Build steps gate hard; only the emulator boot + walkthrough
 are per-step best-effort. The setup replicates the validated local macOS flow: the Linux
-command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin SDK
-from setup-ohos-sdk supplies the NDK + hdc, and Day's own QEMU launcher boots the image.
+command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin
+API-18 SDK from setup-ohos-sdk supplies the NDK + hdc + the versioned `OHOS_BASE_SDK_HOME`
+view hvigor builds against, and Day's own QEMU launcher boots the image. `OHOS_BASE_SDK_HOME`
+must be a **host-platform** SDK — hvigor spawns its native tools (`syscap_tool`, `restool`,
+`es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
+`spawn ENOEXEC` at `SyscapTransform`.
 
 Three hard-won facts the scripted channel depends on (each was a silent total failure):
 

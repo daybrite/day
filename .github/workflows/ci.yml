@@ -879,11 +879,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      # The darwin OpenHarmony SDK — the NDK for the Rust cross-compile + hdc for the emulator.
+      # The darwin OpenHarmony SDK — the NDK for the Rust cross-compile, hdc for the emulator,
+      # AND the full component set (ets/js/toolchains/previewer) hvigor builds against. 5.1.0 is
+      # API 18, matching build-profile's compile/compatibleSdkVersion — and its binaries are
+      # Mach-O: hvigor spawns SDK tools (syscap_tool, restool, es2abc) directly, so pointing it
+      # at the Linux CLT's bundled SDK fails with `spawn ENOEXEC` on a macOS runner.
       - uses: openharmony-rs/setup-ohos-sdk@v1
         id: ohos-sdk
         with:
-          version: "6.1"
+          version: "5.1.0"
       - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
         run: |
           # setup-ohos-sdk's own OHOS_NDK_HOME is the per-OS SDK ROOT; the NDK (the llvm cross-compilers
@@ -921,9 +925,10 @@ jobs:
           set -euo pipefail
           # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") reads OHOS_BASE_SDK_HOME and
           # requires the NEW versioned layout (<base>/<api>/{ets,native,toolchains,…}). Build a
-          # versioned view from the CLT's bundled API-18 OpenHarmony SDK (matching build-profile's
-          # compile/compatibleSdkVersion = 18). The Rust NDK + hdc stay on setup-ohos-sdk.
-          OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
+          # versioned view over the darwin API-18 SDK from setup-ohos-sdk — NOT the CLT's bundled
+          # SDK, whose Linux-ELF tools ENOEXEC when hvigor spawns them on macOS (the CLT serves
+          # only the pure-JS hvigor/ohpm). Mirrors the validated local setup (docs/harmonyos.md).
+          OH="$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")"
           BASE="$HOME/ohos-ohsdk"
           mkdir -p "$BASE"
           ln -sfn "$OH" "$BASE/18"
