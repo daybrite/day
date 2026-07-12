@@ -42,8 +42,8 @@ that trait and monomorphized over the concrete backend, so core code calls nativ
 directly — no `dyn` dispatch, no message bus. Everything above `day-spec` is portable; everything
 below it is one platform's business.
 
-Around the core sit the extension surfaces: `pieces/day-piece-*` crates add widgets
-([extension model](/docs/extending)), `parts/day-part-*` add headless capabilities
+Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
+([extension model](/docs/extending)), [`parts/day-part-*`](https://github.com/daybrite/day/tree/main/parts) add headless capabilities
 ([parts](/docs/parts)), and `day-mock` is a full Toolkit implementation with no display, used by
 tests.
 

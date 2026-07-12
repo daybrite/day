@@ -2284,6 +2284,22 @@ impl Platform for Gtk {
                     adw::StyleManager::default().set_color_scheme(scheme);
                 }
             }
+            // Day's scroll wrappers hold a GtkFixed, which GtkScrolledWindow auto-wraps in a
+            // GtkViewport — and the viewport's stock background stays WHITE under the dark
+            // color scheme, whiting out every content pane. Retint it with Adwaita's named
+            // view color, which tracks light/dark automatically (white in light, so the light
+            // appearance is unchanged).
+            {
+                let p = gtk4::CssProvider::new();
+                p.load_from_data("viewport { background-color: @view_bg_color; }");
+                if let Some(display) = gtk4::gdk::Display::default() {
+                    gtk4::style_context_add_provider_for_display(
+                        &display,
+                        &p,
+                        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                    );
+                }
+            }
             // RTL locales (docs/localization): flip GTK's default direction so native widget
             // internals (label alignment, sliders, the Adw split view's sidebar side, back
             // chevrons) mirror; Day's own frames mirror in the layout engine.

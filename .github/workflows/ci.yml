@@ -653,8 +653,8 @@ jobs:
       #   WEBKIT_DISABLE_COMPOSITING_MODE — xvfb has no GPU (libEGL/DRI3 warnings), so render the
       #     page in software instead of via accelerated (GL) compositing.
       # Screenshot variants per combo: light/dark (DAY_THEME) × en/fr/ar/zh-CN locales.
-      # (Ubuntu 24.04's Qt 6.4 predates QStyleHints::setColorScheme, so linux-qt's dark set
-      # renders light — the gallery falls back per shot.)
+      # (Ubuntu 24.04's Qt 6.4 predates QStyleHints::setColorScheme; day-qt-sys falls back to
+      # the canonical Fusion dark palette there, so linux-qt's dark set renders dark.)
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase

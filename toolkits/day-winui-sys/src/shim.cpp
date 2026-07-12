@@ -10,6 +10,10 @@
 #include <windows.h>
 #undef GetCurrentTime // windows.h macro clashes with Windows.UI.Xaml.Media.Animation
 #include <gdiplus.h>  // PNG encoding for window snapshots
+#include <dwmapi.h>   // dark title bar opt-in (DwmSetWindowAttribute)
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20 // absent from pre-20H1 SDK headers
+#endif
 
 #include <string>
 #include <limits>
@@ -233,9 +237,29 @@ static WUI::Color color_argb(unsigned int argb) {
 namespace WUXMk = winrt::Windows::UI::Xaml::Markup;
 namespace WUXI = winrt::Windows::UI::Xaml::Interop;
 
+// DAY_THEME env: 0 = unset (follow the system), 1 = light, 2 = dark.
+static int day_theme_env() {
+    char theme[16]{};
+    DWORD n = GetEnvironmentVariableA("DAY_THEME", theme, sizeof(theme));
+    if (n == 0 || n >= sizeof(theme)) return 0;
+    if (strcmp(theme, "dark") == 0) return 2;
+    if (strcmp(theme, "light") == 0) return 1;
+    return 0;
+}
+
 struct DayApp : WUX::ApplicationT<DayApp, WUXMk::IXamlMetadataProvider> {
     WUXH::WindowsXamlManager manager{ nullptr };
-    DayApp() { manager = WUXH::WindowsXamlManager::InitializeForCurrentThread(); }
+    DayApp() {
+        // DAY_THEME=light|dark forces the theme APP-wide (themed CI screenshot runs and local
+        // theme checks); unset => follow the system. Application-level (not per-element) and set
+        // BEFORE any XAML machinery loads, so every {ThemeResource} / Resources() lookup — page
+        // ground, card fills, control templates — resolves in the forced scheme automatically.
+        switch (day_theme_env()) {
+            case 2: RequestedTheme(WUX::ApplicationTheme::Dark); break;
+            case 1: RequestedTheme(WUX::ApplicationTheme::Light); break;
+        }
+        manager = WUXH::WindowsXamlManager::InitializeForCurrentThread();
+    }
 
     // IXamlMetadataProvider — no custom XAML types to describe.
     WUXMk::IXamlType GetXamlType(WUXI::TypeName const&) { return nullptr; }
@@ -336,15 +360,22 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     }
 
     // Application must exist before controls so default styles resolve; its ctor also inits
-    // the WindowsXamlManager for this thread.
+    // the WindowsXamlManager for this thread (and applies any DAY_THEME force — see DayApp).
     auto app = winrt::make<DayApp>();
+    // The theme the app actually resolved: forced by DAY_THEME, else the system setting (the
+    // RequestedTheme getter reports the system-derived value when nothing was forced).
+    bool app_dark =
+        WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark;
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.lpszClassName = L"day_winui_host";
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    // Transient fill behind the island (resize gaps, pre-first-frame): Win32 has no
+    // theme-adaptive client brush, so pick the stock object nearest the XAML page ground.
+    wc.hbrBackground = app_dark ? reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH))
+                                : reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
     DWORD style = WS_OVERLAPPEDWINDOW; // resizable; WM_SIZE reflows the island + day tree
@@ -362,18 +393,25 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     RECT rc; GetClientRect(host, &rc);
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
 
-    WUXC::Canvas root;
-    // DAY_THEME=light|dark forces the XAML theme island-wide (themed CI screenshot runs and
-    // local theme checks); unset => follow the system.
+    // Dark title bars are opt-in for Win32 windows; match the app theme (no-op pre-1809).
     {
-        char theme[16]{};
-        DWORD n = GetEnvironmentVariableA("DAY_THEME", theme, sizeof(theme));
-        if (n > 0 && n < sizeof(theme)) {
-            if (strcmp(theme, "dark") == 0) root.RequestedTheme(WUX::ElementTheme::Dark);
-            else if (strcmp(theme, "light") == 0) root.RequestedTheme(WUX::ElementTheme::Light);
+        BOOL dark_titlebar = app_dark ? TRUE : FALSE;
+        DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_titlebar,
+                              sizeof(dark_titlebar));
+    }
+
+    WUXC::Canvas root;
+    source.Content(root);
+    // Ground the island with the theme's own page ground: a Canvas paints nothing itself, and
+    // the raw HWND behind it is white — under the dark theme the (white) foreground defaults
+    // rendered over it as a ghost page. The named system brush resolves per the app theme.
+    {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) root.Background(brush);
         }
     }
-    source.Content(root);
 
     // Load the island NOW, before day builds the control tree. Controls added to a live,
     // loaded tree get their default styles/templates applied immediately, so day's first
@@ -779,16 +817,24 @@ void day_winui_container_set_bg(void* h, unsigned int argb) {
         ensure_bg_rect(c).Fill(WUXM::SolidColorBrush(color_argb(argb)));
 }
 
-// SurfaceRole::SectionCard: the grouped-card fill from the ACTIVE theme resources, so it
-// tracks light/dark (and the DAY_THEME override on the island) automatically.
+// SurfaceRole::SectionCard: the grouped-card fill from the theme resources — resolved per the
+// APP theme (a DAY_THEME force is applied app-wide, so this tracks it). Fallback where the
+// resource set predates the card brush: a translucent neutral, which reads correctly over
+// either scheme's page ground precisely because it is alpha-over-ground rather than a fixed
+// opaque color.
 void day_winui_container_set_card(void* h, double radius) {
     if (auto c = elem(h).try_as<WUXC::Canvas>()) {
         auto r = ensure_bg_rect(c);
         auto res = WUX::Application::Current().Resources();
         auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
+        bool filled = false;
         if (res.HasKey(key)) {
-            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) r.Fill(brush);
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                r.Fill(brush);
+                filled = true;
+            }
         }
+        if (!filled) r.Fill(WUXM::SolidColorBrush(color_argb(0x14'808080u)));
         r.RadiusX(radius);
         r.RadiusY(radius);
     }
@@ -972,7 +1018,18 @@ void day_winui_textbox_set_placeholder(void* h, const char* t) {
 void* day_winui_divider_new() {
     WUXC::Border b;
     b.Height(1);
-    b.Background(WUXM::SolidColorBrush(color_argb(0xff'c8c8c8u)));
+    // The theme's own hairline brush (resolved per the app theme); translucent-neutral
+    // fallback — alpha over the page ground reads correctly in either scheme.
+    auto res = WUX::Application::Current().Resources();
+    auto key = winrt::box_value(winrt::hstring(L"DividerStrokeColorDefaultBrush"));
+    bool filled = false;
+    if (res.HasKey(key)) {
+        if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+            b.Background(brush);
+            filled = true;
+        }
+    }
+    if (!filled) b.Background(WUXM::SolidColorBrush(color_argb(0x33'808080u)));
     return boxh(b);
 }
 

@@ -501,7 +501,7 @@ backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
 
 …and `day build` reads that from `cargo metadata`, walks the app's dependency closure, and derives
 `day-piece-searchfield/<backend>` for whichever toolkit it is building, unioning it into the
-`--features` automatically (`crates/day-cli/src/pieces.rs::feature_union`).
+`--features` automatically ([`crates/day-cli/src/pieces.rs::feature_union`](https://github.com/daybrite/day/blob/main/crates/day-cli/src/pieces.rs)).
 
 The result: an app adds the piece with a single plain dependency and wires only Day's own backend,
 with no per-piece feature fan-out:

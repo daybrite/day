@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Showcase brand color: the Material baseline BLUE tonal palette (seed #0B57D0) in place of
+     Material 3's stock purple. Light-scheme slots here; values-night/colors.xml carries the
+     dark-scheme tones of the same palette, so DayNight resolves the right pair automatically. -->
+<resources>
+    <color name="showcase_primary">#0B57D0</color>
+    <color name="showcase_on_primary">#FFFFFF</color>
+    <color name="showcase_primary_container">#D3E3FD</color>
+    <color name="showcase_on_primary_container">#041E49</color>
+</resources>

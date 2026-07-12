@@ -770,6 +770,29 @@ pub fn launch_android(
                 .arg(&outcome.artifact),
             &format!("adb install ({})", dev.serial),
         )?;
+        // DAY_THEME must be in effect BEFORE the activity inflates: the manifest handles the
+        // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
+        // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —
+        // exactly what the system dark-mode toggle does — lets Material DayNight resolve the whole
+        // theme coherently from the first frame.
+        if let Some(theme) = spec
+            .envs
+            .iter()
+            .find(|(k, _)| k == "DAY_THEME")
+            .map(|(_, v)| v)
+        {
+            let night = match theme.as_str() {
+                "dark" => Some("yes"),
+                "light" => Some("no"),
+                _ => None,
+            };
+            if let Some(night) = night {
+                run_logged(
+                    adb(Some(&dev.serial)).args(["shell", "cmd", "uimode", "night", night]),
+                    &format!("uimode night {night} ({})", dev.serial),
+                )?;
+            }
+        }
         // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.
         let mut cmd = adb(Some(&dev.serial));
         cmd.args([

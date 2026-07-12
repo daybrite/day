@@ -66,15 +66,49 @@ void *day_qt_app_new(const char *app_name) {
     auto *app = new QApplication(s_argc, s_argv);
     QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
     // DAY_THEME=light|dark forces the color scheme (themed CI screenshot runs and local theme
-    // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+ — older
-    // Qt (e.g. Ubuntu 24.04's 6.4) quietly follows the system instead.
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+; on older
+    // Qt (e.g. Ubuntu 24.04's 6.4) fall back to a hand-built dark palette — Qt Widgets are
+    // palette-driven, so every control follows it (light needs nothing: the default palette is
+    // light). The literals below are unavoidable on that path: pre-6.8 Qt exposes NO symbolic
+    // dark scheme (no setColorScheme, no named dark QPalette, and the platform theme is
+    // whatever the desktop reports — nothing, under CI's offscreen/xvfb). They are the values
+    // of the Qt-wiki canonical "dark Fusion" palette, and are dead code on Qt 6.8+.
     {
         const QByteArray theme = qgetenv("DAY_THEME");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         if (theme == "dark") app->styleHints()->setColorScheme(Qt::ColorScheme::Dark);
         else if (theme == "light") app->styleHints()->setColorScheme(Qt::ColorScheme::Light);
-    }
+#else
+        if (theme == "dark") {
+            QApplication::setStyle("Fusion"); // platform styles may ignore custom palettes
+            QPalette p;
+            const QColor window(0x2d, 0x2d, 0x2d);
+            const QColor base(0x1e, 0x1e, 0x1e);
+            const QColor text(0xf0, 0xf0, 0xf0);
+            const QColor disabled(0x7f, 0x7f, 0x7f);
+            const QColor accent(0x2a, 0x82, 0xda);
+            p.setColor(QPalette::Window, window);
+            p.setColor(QPalette::WindowText, text);
+            p.setColor(QPalette::Base, base);
+            p.setColor(QPalette::AlternateBase, window);
+            p.setColor(QPalette::ToolTipBase, base);
+            p.setColor(QPalette::ToolTipText, text);
+            p.setColor(QPalette::Text, text);
+            p.setColor(QPalette::Button, window);
+            p.setColor(QPalette::ButtonText, text);
+            p.setColor(QPalette::BrightText, Qt::red);
+            p.setColor(QPalette::Link, accent);
+            p.setColor(QPalette::Highlight, accent);
+            p.setColor(QPalette::HighlightedText, Qt::white);
+            p.setColor(QPalette::PlaceholderText, disabled);
+            p.setColor(QPalette::Disabled, QPalette::Text, disabled);
+            p.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
+            p.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
+            p.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
+            app->setPalette(p);
+        }
 #endif
+    }
     QObject::connect(app, &QApplication::applicationStateChanged, [](Qt::ApplicationState s) {
         if (!g_lifecycle_cb) return;
         if (s == Qt::ApplicationActive) g_lifecycle_cb(2);        // DidBecomeActive

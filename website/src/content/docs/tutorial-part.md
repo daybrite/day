@@ -12,7 +12,7 @@ a small headless crate that presents one flat cross-platform Rust API and picks 
 native implementation per target.
 
 This tutorial builds `day-part-battery` from the ground up. It is a real crate in the Day workspace
-at `parts/day-part-battery/`. By the end you will have a `day_part_battery::status()` function that
+at [`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery). By the end you will have a `day_part_battery::status()` function that
 reads the battery through IOKit on macOS, `UIDevice` on iOS, a Java `BatteryManager` shim on Android,
 sysfs on Linux, `GetSystemPowerStatus` on Windows, and a native `.so` on HarmonyOS. Each uses
 whatever language fits that platform, and all of them sit behind one signature.
@@ -27,11 +27,11 @@ A **part** is a *headless capability crate*. It has:
   than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 
 Contrast that with a **piece**, which is a reusable UI widget (a `combo_box`, a `web_view`) that
-*does* register a per-toolkit renderer. Pieces live in `pieces/`; parts live in `parts/`, the non-UI
+*does* register a per-toolkit renderer. Pieces live in [`pieces/`](https://github.com/daybrite/day/tree/main/pieces); parts live in [`parts/`](https://github.com/daybrite/day/tree/main/parts), the non-UI
 corollary. The rule of thumb:
 
 - Building a **visible control** backed by a native widget? Write a **piece**; see
-  [the piece tutorial](/docs/internal/extending) and `pieces/day-piece-picker`.
+  [the piece tutorial](/docs/internal/extending) and [`pieces/day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker).
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
@@ -479,8 +479,8 @@ one checked-in `.xcodeproj` depends on that package. So an iOS framework depende
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
-This is the same contribution channel `pieces/day-piece-picker` (Android Java + Gradle deps) and
-`pieces/day-piece-webview` (a framework + a permission) use. A part is just a piece that skips the
+This is the same contribution channel [`pieces/day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker) (Android Java + Gradle deps) and
+[`pieces/day-piece-webview`](https://github.com/daybrite/day/tree/main/pieces/day-piece-webview) (a framework + a permission) use. A part is just a piece that skips the
 renderer.
 
 ## 5. Use it
@@ -501,7 +501,7 @@ fn main() {
 }
 ```
 
-That is `parts/day-part-battery/examples/battery.rs` verbatim: a `main` that uses no Day framework at
+That is [`parts/day-part-battery/examples/battery.rs`](https://github.com/daybrite/day/blob/main/parts/day-part-battery/examples/battery.rs) verbatim: a `main` that uses no Day framework at
 all, provable with `cargo run -p day-part-battery --example battery`. Inside a Day app you would bind
 the reading into a `Signal` and drive a `label` or a `canvas` gauge with it, but the part itself knows
 nothing about UI.
@@ -549,8 +549,8 @@ to own the small, load-bearing FFI seam.
 
 ---
 
-For the full source, see `parts/day-part-battery/` in the Day repo, and
+For the full source, see [`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) in the Day repo, and
 [extending.md](/docs/internal/extending) for the shared contribution mechanism that parts and pieces both ride.
-`parts/day-part-network` (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
-`parts/day-part-haptics` (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
+[`parts/day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
+[`parts/day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.
