@@ -214,31 +214,10 @@ pub fn run_scripts(
             .status();
     }
     if target.kind == TargetKind::HarmonyOs {
-        // hdc's `adb forward` equivalent: host tcp:port → the app's tcp:port on the emulator/device,
-        // so `connect(port)` below reaches the in-app dayscript engine over the networked target.
-        // The forward INTERMITTENTLY fails with "[Fail]TCP Port listen failed" when the host-side
-        // hdc server is in a bad state — recycle the server and retry (bounded) rather than letting
-        // the engine connection die on the first flake.
-        for attempt in 1..=5u32 {
-            let out = crate::ohos::hdc()
-                .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
-                .output();
-            let text = out
-                .map(|o| {
-                    String::from_utf8_lossy(&o.stdout).into_owned()
-                        + &String::from_utf8_lossy(&o.stderr)
-                })
-                .unwrap_or_default();
-            if !text.contains("[Fail]") {
-                break;
-            }
-            eprintln!(
-                "day: hdc fport failed (attempt {attempt}/5): {} — retrying",
-                text.trim()
-            );
-            let _ = crate::ohos::hdc().arg("kill").status();
-            std::thread::sleep(Duration::from_secs(2));
-        }
+        // hdc's `adb forward` equivalent: host tcp:port → the app's tcp:port on the launched
+        // target, so `connect(port)` below reaches the in-app dayscript engine (docs/harmonyos.md;
+        // pinned to the discovered device + retried through hdc server recycles in ohos.rs).
+        crate::ohos::fport_engine(port);
     }
     let window_secs = connect_window_secs(target.kind);
     let mut stream = connect(port, window_secs)?;

@@ -57,9 +57,41 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     }
     // Host hdc port from the connect key (guest hdc always listens on 55555). Kill any stale hdc
     // server first so it can't hold the host port before QEMU binds the forward.
-    let target = ohos_target();
-    let host_port = target.rsplit(':').next().unwrap_or("55555").to_string();
     let _ = Command::new(hdc_bin()).arg("kill").output();
+    // The requested port is often ALREADY OCCUPIED — GitHub's macOS runners hold 55555, and so
+    // do some local services — and QEMU then dies instantly ("Could not set up host forwarding
+    // rule"), leaving no reachable target. Probe and slide to the first free port; the chosen
+    // key is tconn'ed below (so `hdc list targets` discovery finds it) and exported through
+    // GITHUB_ENV so later CI steps target it too.
+    let requested: u16 = ohos_target()
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(55555);
+    let host_port = (requested..requested.saturating_add(16))
+        .find(|p| std::net::TcpListener::bind(("127.0.0.1", *p)).is_ok())
+        .ok_or_else(|| {
+            format!(
+                "no free hdc forward port near {requested} (tried {requested}..={})",
+                requested.saturating_add(15)
+            )
+        })?;
+    let target = format!("127.0.0.1:{host_port}");
+    if host_port != requested {
+        status(
+            "Emulator",
+            &format!(
+                "port {requested} is in use — forwarding hdc on {target} instead \
+                 (export DAY_OHOS_TARGET={target} for other shells)"
+            ),
+        );
+        if let Ok(github_env) = std::env::var("GITHUB_ENV") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(github_env) {
+                let _ = writeln!(f, "DAY_OHOS_TARGET={target}");
+            }
+        }
+    }
 
     // The display backend: a native window locally (cocoa on macOS), none when headless.
     let display: &[&str] = if headless {
@@ -185,6 +217,41 @@ fn hdc_bin() -> &'static str {
 /// A fresh `hdc` command targeting the default connect key (`DAY_OHOS_TARGET`).
 pub fn hdc() -> Command {
     hdc_for(&ohos_target())
+}
+
+/// Forward host `tcp:port` → the app's dayscript engine on the launched target (hdc's
+/// `adb forward`). Pinned to the first DISCOVERED device — the emulator's connect key may have
+/// auto-slid off an occupied default port (see [`emulator_launch`]), so the env/default key can
+/// be stale. The forward intermittently fails with "[Fail]TCP Port listen failed" when the
+/// host-side hdc server is in a bad state — recycle the server and retry (bounded); a recycled
+/// server has forgotten networked targets, so re-`tconn` before every attempt (harmless for USB
+/// keys, which are auto-discovered).
+pub(crate) fn fport_engine(port: u16) {
+    let key = ohos_devices()
+        .first()
+        .map(|d| d.key.clone())
+        .unwrap_or_else(ohos_target);
+    for attempt in 1..=5u32 {
+        let _ = Command::new(hdc_bin()).args(["tconn", &key]).output();
+        let out = hdc_for(&key)
+            .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
+            .output();
+        let text = out
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout).into_owned()
+                    + &String::from_utf8_lossy(&o.stderr)
+            })
+            .unwrap_or_default();
+        if !text.contains("[Fail]") {
+            return;
+        }
+        eprintln!(
+            "day: hdc fport failed (attempt {attempt}/5): {} — retrying",
+            text.trim()
+        );
+        let _ = Command::new(hdc_bin()).arg("kill").status();
+        std::thread::sleep(Duration::from_secs(2));
+    }
 }
 
 /// A fresh `hdc` command pinned to connect key `key` (`-t <key>`), for multi-device install/launch.

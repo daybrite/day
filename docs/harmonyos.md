@@ -203,7 +203,13 @@ must be a **host-platform** SDK — hvigor spawns its native tools (`syscap_tool
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.
 
-Three hard-won facts the scripted channel depends on (each was a silent total failure):
+Four hard-won facts the scripted channel depends on (each was a silent total failure):
+
+- **The default hdc forward port 55555 is often already occupied** — GitHub's macOS runners hold
+  it, and so do some local services — and QEMU then dies instantly ("Could not set up host
+  forwarding rule"), leaving no reachable target and blank screenshot sets. `day ohos emulator
+  launch` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
+  finds it), and exports `DAY_OHOS_TARGET` through `GITHUB_ENV` so later CI steps target it too.
 
 - **`ohos.permission.INTERNET` is required for the LOOPBACK dayscript socket** — without it in
   `module.json5` the engine's `TcpListener::bind` fails silently and no scripted run can ever
