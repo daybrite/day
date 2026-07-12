@@ -17,6 +17,12 @@ export default class EntryAbility extends UIAbility {
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
+    // Report the ACTIVE color mode so day-arkui themes its neutral paints (DAY_THEME, when
+    // present, wins on the Rust side): the C-API nodes don't re-theme hardcoded colors.
+    nativeEntry.setEnv(
+      'DAY_ARKUI_DARK',
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK ? '1' : '0'
+    );
     // DAY_THEME=light|dark (a `day launch --env` passthrough, delivered as a `--ps` want
     // parameter) forces the app's color mode — themed screenshot runs and local theme checks;
     // unset ⇒ follow the system.
@@ -48,14 +54,13 @@ export default class EntryAbility extends UIAbility {
       return; // No day/fonts.json staged — the app bundles no custom fonts.
     }
     for (const entry of manifest) {
-      const src: Resource = {
-        id: -1,
-        type: 30000, // rawfile
-        params: [`day/fonts/${entry.file}`],
-        bundleName: this.context.applicationInfo.name,
-        moduleName: 'entry',
-      };
-      font.registerFont({ familyName: entry.family, familySrc: src });
+      // A STRING rawfile URI — a hand-built Resource object (id -1 / type 30000) does not
+      // resolve through font.registerFont, and the family silently falls back to the system
+      // font. The resource://RAWFILE form is the same contract day's bundled images use.
+      font.registerFont({
+        familyName: entry.family,
+        familySrc: `resource://RAWFILE/day/fonts/${entry.file}`,
+      });
     }
   }
 

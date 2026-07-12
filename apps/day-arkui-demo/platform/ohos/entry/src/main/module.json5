@@ -25,6 +25,11 @@
           }
         ]
       }
+    ],
+    // Loopback sockets (the dayscript engine binds 127.0.0.1) still require the INTERNET
+    // permission on HarmonyOS — without it the bind fails silently.
+    "requestPermissions": [
+      { "name": "ohos.permission.INTERNET" }
     ]
   }
 }

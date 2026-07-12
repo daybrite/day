@@ -61,6 +61,11 @@ mod imp {
         /// The window root Stack + content size, set by [`init`] before `run`.
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
         static DENSITY: Cell<f64> = const { Cell::new(1.0) };
+        /// Dark mode (docs/localization + theming): resolved once at init — DAY_THEME (the CI
+        /// forced theme) wins, else DAY_ARKUI_DARK (the system color mode the ArkTS host reports
+        /// via setEnv before start()). ArkUI's C-API nodes do NOT re-theme hardcoded colors, so
+        /// every neutral day-arkui paints branches on this flag.
+        static IS_DARK: Cell<bool> = const { Cell::new(false) };
         /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
         static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
@@ -113,11 +118,11 @@ mod imp {
             unsafe {
                 ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
                 ffi::day_ark_set_font_size(label.0, 16.0);
-                ffi::day_ark_set_font_color(label.0, 0xE500_0000);
+                ffi::day_ark_set_font_color(label.0, theme_color(0xE500_0000, 0xE6FF_FFFF));
                 ffi::day_ark_set_flex_grow(label.0, 1.0);
                 ffi::day_ark_set_text(chevron.0, cstr("\u{203a}").as_ptr());
                 ffi::day_ark_set_font_size(chevron.0, 20.0);
-                ffi::day_ark_set_font_color(chevron.0, 0x4D00_0000);
+                ffi::day_ark_set_font_color(chevron.0, theme_color(0x4D00_0000, 0x66FF_FFFF));
                 ffi::day_ark_insert_child(row.0, label.0, 0);
                 ffi::day_ark_insert_child(row.0, chevron.0, 1);
                 ffi::day_ark_style_row(row.0, 52.0);
@@ -128,7 +133,7 @@ mod imp {
             if i + 1 < items.len() {
                 let sep = new_node(K_STACK);
                 unsafe {
-                    ffi::day_ark_menu_separator(sep.0);
+                    ffi::day_ark_menu_separator(sep.0, theme_color(0x1400_0000, 0x24FF_FFFF));
                     ffi::day_ark_insert_child(col.0, sep.0, pos);
                 }
                 pos += 1;
@@ -205,11 +210,26 @@ mod imp {
         AHandle(unsafe { ffi::day_ark_node_new(kind) })
     }
 
+    /// The theme-adaptive pick: `light` under the light theme, `dark` under dark.
+    fn theme_color(light: u32, dark: u32) -> u32 {
+        if IS_DARK.with(|d| d.get()) {
+            dark
+        } else {
+            light
+        }
+    }
+
     /// Set up the window root and density from the ArkTS host, before `launch_with`. Called by
     /// `day::arkui::start` (via the `day::arkui_main!` entry macro) with the `NodeContent` handle.
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is a trusted NodeContent handle from ArkTS
     pub fn init(content: *mut c_void, w_vp: f64, h_vp: f64, density: f64) {
         DENSITY.with(|d| d.set(if density > 0.0 { density } else { 1.0 }));
+        let dark = match std::env::var("DAY_THEME").ok().as_deref() {
+            Some("dark") => true,
+            Some("light") => false,
+            _ => std::env::var("DAY_ARKUI_DARK").ok().as_deref() == Some("1"),
+        };
+        IS_DARK.with(|d| d.set(dark));
         unsafe { ffi::day_ark_init() };
         // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once here;
         // the opener is a no-op until the ArkTS host hands us its resourceManager (see below).
@@ -409,7 +429,10 @@ mod imp {
                             if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                                 // A translucent neutral fill reads as a subtle card on BOTH the
                                 // light and dark ArkUI themes (no public semantic-fill API).
-                                ffi::day_ark_set_bg_color(n.0, 0x14808080);
+                                ffi::day_ark_set_bg_color(
+                                    n.0,
+                                    theme_color(0x1480_8080, 0x2EFF_FFFF),
+                                );
                             } else if let Some(c) = p.background {
                                 ffi::day_ark_set_bg_color(n.0, argb(c));
                             }
@@ -448,6 +471,10 @@ mod imp {
                         ffi::day_ark_set_font_size(n.0, font_vp(p.font));
                         if let Some(c) = p.color {
                             ffi::day_ark_set_font_color(n.0, argb(c));
+                        } else if IS_DARK.with(|d| d.get()) {
+                            // Text defaults don't re-theme through the C API — give un-colored
+                            // labels the dark theme's primary text color.
+                            ffi::day_ark_set_font_color(n.0, 0xE6FF_FFFF);
                         }
                     }
                     apply_custom_family(n.0, p.font);
@@ -495,7 +522,9 @@ mod imp {
                 // A 1-vp hairline: a thin Stack tinted with a faint separator colour.
                 kinds::DIVIDER => {
                     let n = new_node(K_STACK);
-                    unsafe { ffi::day_ark_set_bg_color(n.0, 0x33_00_00_00) };
+                    unsafe {
+                        ffi::day_ark_set_bg_color(n.0, theme_color(0x3300_0000, 0x33FF_FFFF))
+                    };
                     n
                 }
                 // Determinate bar (ARKUI_NODE_PROGRESS) vs indeterminate spinner (LOADING_PROGRESS).
@@ -522,7 +551,9 @@ mod imp {
                 }
                 kinds::NAV_PAGE => {
                     let n = new_node(K_STACK);
-                    unsafe { ffi::day_ark_set_bg_color(n.0, 0xFF_FF_FF_FF) };
+                    unsafe {
+                        ffi::day_ark_set_bg_color(n.0, theme_color(0xFFFF_FFFF, 0xFF1A_1A1C))
+                    };
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }

@@ -825,8 +825,8 @@ void day_ark_set_flex_grow(void* n, double g) {
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_FLEX_GROW, &it);
 }
 
-// A conventional list separator: full-width hairline, faint neutral.
-void day_ark_menu_separator(void* n) {
+// A conventional list separator: full-width hairline; the caller picks the theme-aware color.
+void day_ark_menu_separator(void* n, uint32_t argb) {
     ArkUI_NumberValue wp[1];
     wp[0].f32 = 1.0f;
     ArkUI_AttributeItem wit{};
@@ -834,7 +834,7 @@ void day_ark_menu_separator(void* n) {
     wit.size = 1;
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_WIDTH_PERCENT, &wit);
     set_f32(n, NODE_HEIGHT, 0.7f);
-    set_u32(n, NODE_BACKGROUND_COLOR, 0x14000000u);
+    set_u32(n, NODE_BACKGROUND_COLOR, argb);
 }
 
 void day_ark_style_row(void* n, double height_vp) {

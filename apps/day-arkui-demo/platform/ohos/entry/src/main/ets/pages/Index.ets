@@ -1,6 +1,8 @@
-// The ArkTS host page for a Day app. It owns a NodeContent slot and hands its handle to the native
-// Rust cdylib (libentry.so), which builds the ArkUI node tree and mounts it into the slot. Day owns
-// layout, so we pass the slot's size (vp) and the display density (px per vp).
+// The ArkTS host page for a Day app. It hosts HarmonyOS's own Navigation/NavPathStack: the base
+// content is a NodeContent slot the native Rust cdylib (libentry.so) mounts the Day tree into,
+// and every page Day pushes becomes a real NavDestination (native transition, title bar, system
+// back gesture) whose content is a per-page NodeContent (docs/navigation.md). Day owns layout,
+// so we pass each slot's size (vp) and the display density (px per vp).
 //
 // It also registers a file picker (docs/files.md): HarmonyOS's open/save UI lives in the ArkTS
 // @kit.CoreFileKit DocumentViewPicker, so Day's native `open_file()`/`save_file()` calls up into
@@ -19,15 +21,47 @@ import nativeEntry from 'libentry.so';
 struct Index {
   private content: NodeContent = new NodeContent();
   private started: boolean = false;
+  // Navigation state (docs/navigation.md): one NavPathStack; per-page NodeContents keyed by the
+  // Day page id; titles in @State so a NavPatch::Title re-renders the destination's title bar.
+  private pathStack: NavPathStack = new NavPathStack();
+  private navContents: Map<number, NodeContent> = new Map();
+  @State navTitles: Map<number, string> = new Map();
+  private navKeys: number[] = [];
 
   private startDay(widthVp: number, heightVp: number): void {
     if (this.started || widthVp <= 0 || heightVp <= 0) {
       return;
     }
     this.started = true;
+
+    // Wire the Navigation bridge BEFORE start(): a deep link (DAY_DEMO_ROUTE) can push during
+    // the initial tree build.
+    nativeEntry.registerNav(
+      (key: number, title: string): NodeContent => {
+        const pageContent = new NodeContent();
+        this.navContents.set(key, pageContent);
+        this.navTitles.set(key, title);
+        this.navKeys.push(key);
+        this.pathStack.pushPathByName('day-page', key);
+        return pageContent;
+      },
+      (): void => {
+        this.pathStack.pop();
+      },
+      (title: string): void => {
+        const top: number | undefined = this.navKeys[this.navKeys.length - 1];
+        if (top !== undefined) {
+          this.navTitles.set(top, title);
+        }
+      }
+    );
     const d = display.getDefaultDisplaySync();
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
     nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);
+
+    // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
+    // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side.
+    nativeEntry.registerResourceManager(getContext(this).resourceManager);
 
     // Bridge Day's native file open/save to the ArkTS DocumentViewPicker (docs/files.md).
     const ctx = getContext(this) as common.UIAbilityContext;
@@ -118,16 +152,55 @@ struct Index {
     return out;
   }
 
-  build() {
-    Stack() {
-      // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here.
-      ContentSlot(this.content)
+  // One pushed Day page: a NavDestination whose content is the page's NodeContent. The system
+  // title bar (with its native back affordance) shows the pushed title; disappearance — system
+  // back gesture, title-bar back, or a Day-initiated pop — reports back via `navPopped` so the
+  // native route state stays in sync (docs/navigation.md).
+  @Builder
+  dayPage(name: string, param: object) {
+    NavDestination() {
+      Stack() {
+        ContentSlot(this.navContents.get(Number(param)))
+      }
+      .width('100%')
+      .height('100%')
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        nativeEntry.navPageArea(Number(param), newArea.width as number, newArea.height as number);
+      })
     }
+    .title(this.navTitles.get(Number(param)) ?? '')
+    .onDisAppear(() => {
+      const key: number = Number(param);
+      this.navContents.delete(key);
+      this.navTitles.delete(key);
+      const i: number = this.navKeys.indexOf(key);
+      if (i >= 0) {
+        this.navKeys.splice(i, 1);
+      }
+      nativeEntry.navPopped(key);
+    })
+  }
+
+  build() {
+    Navigation(this.pathStack) {
+      Stack() {
+        // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
+        ContentSlot(this.content)
+      }
+      .width('100%')
+      .height('100%')
+      // Start once the slot has a real size (Area dimensions are in vp).
+      .onAreaChange((_oldArea: Area, newArea: Area) => {
+        this.startDay(newArea.width as number, newArea.height as number);
+      })
+    }
+    .hideTitleBar(true)
+    .mode(NavigationMode.Stack)
+    .navDestination(this.dayPage)
+    // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
+    // without this the window shows the (light) start-window color even under dark colorMode.
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
     .width('100%')
     .height('100%')
-    // Start once the slot has a real size (Area dimensions are in vp).
-    .onAreaChange((_oldArea: Area, newArea: Area) => {
-      this.startDay(newArea.width as number, newArea.height as number);
-    })
   }
 }

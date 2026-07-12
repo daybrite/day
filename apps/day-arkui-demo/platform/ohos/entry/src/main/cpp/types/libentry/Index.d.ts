@@ -18,3 +18,22 @@ export const registerFilePicker: (
 
 // Report a picker result back to Day: the chosen local path, or "" if the user cancelled.
 export const onFileResult: (req: number, path: string) => void;
+
+// Hand the native side the app's ResourceManager so Day can read staged rawfile data resources
+// (§18.3) via OH_ResourceManager_*. Call once, before or after `start()`; until then the rawfile
+// resource opener returns nothing (day_ark_res_available == 0).
+export const registerResourceManager: (resourceManager: Object) => void;
+
+// --- Navigation bridge (docs/navigation.md) ---------------------------------
+// Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side BEFORE
+// `start()`: `push` must create a fresh NodeContent, push a NavDestination for it, and return
+// the content (Day mounts the page's native node into it); `pop` pops the top destination;
+// `setTitle` retitles it. The ArkTS side reports every destination disappearance (`navPopped`)
+// and the destination content area (`navPageArea`) so Day lays the page out in its real bounds.
+export const registerNav: (
+  push: (key: number, title: string) => Object,
+  pop: () => void,
+  setTitle: (title: string) => void
+) => void;
+export const navPopped: (key: number) => void;
+export const navPageArea: (key: number, w: number, h: number) => void;

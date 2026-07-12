@@ -197,6 +197,9 @@ struct Index {
     .hideTitleBar(true)
     .mode(NavigationMode.Stack)
     .navDestination(this.dayPage)
+    // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
+    // without this the window shows the (light) start-window color even under dark colorMode.
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
     .width('100%')
     .height('100%')
   }

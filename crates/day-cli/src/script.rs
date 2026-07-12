@@ -349,7 +349,92 @@ pub fn run_scripts(
     }
     // Terminate the app now that the run is over.
     terminate(project, target);
+    // Refresh the machine-local screenshot gallery (an at-a-glance index of every capture
+    // set under build/day/screenshots/) after each run that saved captures.
+    if !run.screenshots.is_empty() {
+        write_gallery(&project.root.join("build/day/screenshots"));
+    }
     Ok(run)
+}
+
+/// Regenerate `build/day/screenshots/index.html`: one labelled thumbnail per capture, grouped
+/// by `<target>/<variant>`, each linking to the full-size image — a quick browsable index of
+/// everything captured on this machine (open it with `open build/day/screenshots/index.html`).
+fn write_gallery(root: &Path) {
+    fn dirs(p: &Path) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(p)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+    fn esc(s: &str) -> String {
+        s.replace('&', "&amp;").replace('<', "&lt;")
+    }
+    let mut body = String::new();
+    let mut shots = 0usize;
+    for target in dirs(root) {
+        let tname = target
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        for variant in dirs(&target) {
+            let vname = variant
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let mut pngs: Vec<PathBuf> = std::fs::read_dir(&variant)
+                .map(|rd| {
+                    rd.flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.extension().is_some_and(|e| e == "png"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            pngs.sort();
+            if pngs.is_empty() {
+                continue;
+            }
+            body.push_str(&format!(
+                "<section><h2>{} <span class=\"v\">{}</span></h2><div class=\"grid\">",
+                esc(&tname),
+                esc(&vname)
+            ));
+            for png in &pngs {
+                let name = png
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let rel = format!("{}/{}/{}.png", tname, vname, name);
+                body.push_str(&format!(
+                    "<a href=\"{rel}\"><figure><img loading=\"lazy\" src=\"{rel}\" alt=\"{n}\"><figcaption>{n}</figcaption></figure></a>",
+                    rel = esc(&rel),
+                    n = esc(&name)
+                ));
+                shots += 1;
+            }
+            body.push_str("</div></section>");
+        }
+    }
+    let html = format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>day screenshots</title><style>\
+         body{{font:14px system-ui;margin:24px;background:#16181d;color:#e8eaf0}}\
+         h1{{font-size:1.2rem}} h2{{font-size:0.9rem;margin:28px 0 10px;text-transform:uppercase;letter-spacing:0.08em}}\
+         h2 .v{{color:#8bd5d3;margin-left:6px}} a{{color:inherit;text-decoration:none}}\
+         .grid{{display:flex;flex-wrap:wrap;gap:14px}} figure{{margin:0;width:120px}}\
+         img{{width:120px;border:1px solid #333a44;border-radius:6px;display:block;background:#0f1115}}\
+         figcaption{{font-size:11px;color:#9aa0ad;text-align:center;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}\
+         </style><h1>day screenshots — {shots} captures</h1>{body}"
+    );
+    let _ = std::fs::write(root.join("index.html"), html);
 }
 
 fn terminate(project: &Project, target: &Target) {
