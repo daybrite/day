@@ -1156,6 +1156,13 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
+    /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)
+    /// still animating. The dayscript `screenshot` step polls this before capturing so shots
+    /// never catch a half-faded dialog or half-pushed page. Backends without async
+    /// transitions (or without a way to know) report `true`.
+    fn ui_idle(&mut self) -> bool {
+        true
+    }
 
     // imperative presentation (docs/dialogs.md): show a native modal for request `req`;
     // the backend answers by enqueuing `Event::PresentResult { req, .. }`. `dismiss` is

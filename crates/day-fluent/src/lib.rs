@@ -9,9 +9,18 @@
 use day_pieces::{IntoText, TextSource};
 
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
-pub use day_l10n::{
-    FArg, IntoFArg, SigM, ValM, format_in, install, locale, set_locale, strip_isolates, t,
-};
+pub use day_l10n::{FArg, IntoFArg, SigM, ValM, format_in, locale, set_locale, strip_isolates, t};
+
+/// Register the app's locales (see [`day_l10n::install`]) and fix the layout direction from the
+/// locale that actually resolved (docs/localization): an RTL locale (Arabic, Hebrew, …) mirrors
+/// every horizontal placement and flips the native toolkit's direction. Direction is resolved
+/// once, before the first layout — runtime `set_locale` switches strings but not direction.
+pub fn install(default: &str, locales: &[(&str, &str)]) {
+    day_l10n::install(default, locales);
+    day_core::set_layout_direction(day_core::direction_of_locale(
+        &day_l10n::locale().get_untracked(),
+    ));
+}
 
 /// A localized text source: `label(tr("greeting").arg("name", name))` (§12.2).
 #[derive(Clone)]

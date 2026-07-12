@@ -1411,6 +1411,11 @@ impl Platform for Qt {
             // title) into `day_qt_app_new` up front.
             let app_name = options.app_name.as_deref().unwrap_or(&options.title);
             let app = ffi::day_qt_app_new(cstr(app_name).as_ptr());
+            // RTL locales (docs/localization): mirror native widget internals app-wide;
+            // Day's own frames mirror in the layout engine.
+            if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+                ffi::day_qt_app_set_rtl();
+            }
             // Bundled custom fonts (§18.4): register with the QFontDatabase (needs the
             // QApplication above) before the first label realizes.
             for path in day_spec::fonts::bundled_fonts() {

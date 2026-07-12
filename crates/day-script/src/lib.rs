@@ -39,7 +39,14 @@ pub enum Step {
     },
     Input {
         id: String,
-        text: String,
+        #[serde(default)]
+        text: Option<String>,
+        /// Localized alternative to `text`: resolve this Fluent key (with `args`) in the RUN'S
+        /// locale and type the result — locale-portable queries (e.g. a localized fruit name).
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        args: Option<BTreeMap<String, serde_json::Value>>,
     },
     SetValue {
         id: String,
@@ -225,6 +232,20 @@ fn run_on_main(step: Step) -> Reply {
 // Step execution (main thread; events go through the normal Day path)
 // ---------------------------------------------------------------------------
 
+/// Resolve a Fluent key (+ JSON args) in the current locale — the shared engine for the
+/// `key:`-flavored script fields (assert_text, input).
+fn format_key(key: &str, args: Option<BTreeMap<String, serde_json::Value>>) -> String {
+    let mut lt = day_fluent::tr(key);
+    for (name, v) in args.unwrap_or_default() {
+        lt = match v {
+            serde_json::Value::Number(n) => lt.arg(&name, n.as_f64().unwrap_or(0.0)),
+            serde_json::Value::String(s) => lt.arg(&name, s),
+            other => lt.arg(&name, other.to_string()),
+        };
+    }
+    lt.format()
+}
+
 fn find(id: &str) -> Result<day_core::RNode, Reply> {
     with_tree(|t| t.find_by_id(id)).ok_or_else(|| Reply::fail(format!("no element {id:?}"), true))
 }
@@ -282,8 +303,17 @@ fn exec(step: Step) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
-            Step::Input { id, text } => {
-                emit(&id, Event::TextChanged(text))?;
+            Step::Input {
+                id,
+                text,
+                key,
+                args,
+            } => {
+                let value = match key {
+                    Some(k) => format_key(&k, args),
+                    None => text.unwrap_or_default(),
+                };
+                emit(&id, Event::TextChanged(value))?;
                 Ok(Reply::ok())
             }
             Step::SetValue { id, value } => {
@@ -314,17 +344,7 @@ fn exec(step: Step) -> Reply {
             } => {
                 let actual = norm(&probe(&id)?.text);
                 let expected = if let Some(k) = key {
-                    let mut lt = day_fluent::tr(&k);
-                    for (name, v) in args.unwrap_or_default() {
-                        lt = match v {
-                            serde_json::Value::Number(n) => {
-                                lt.arg(&name, n.as_f64().unwrap_or(0.0))
-                            }
-                            serde_json::Value::String(s) => lt.arg(&name, s),
-                            other => lt.arg(&name, other.to_string()),
-                        };
-                    }
-                    norm(&lt.format())
+                    norm(&format_key(&k, args))
                 } else {
                     norm(&text.unwrap_or_default())
                 };
@@ -360,6 +380,11 @@ fn exec(step: Step) -> Reply {
                 }
             }
             Step::Screenshot { .. } => {
+                // Wait (retryable, bounded by the step timeout) for native transitions to
+                // settle so the capture never shows a half-dismissed dialog or mid-push page.
+                if !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
                 let png = with_tree(|t| t.snapshot());
                 match png {
                     Ok(bytes) => Ok(Reply {

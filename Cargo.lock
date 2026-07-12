@@ -398,6 +398,7 @@ dependencies = [
 name = "day-fluent"
 version = "0.0.7"
 dependencies = [
+ "day-core",
  "day-l10n",
  "day-pieces",
 ]

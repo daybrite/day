@@ -22,24 +22,27 @@ flow:
   - tap: { id: increment-button, repeat: 3 }
   - assert_text: { id: counter-label, key: counter-value, args: { count: 3 } }
   - select: { id: flavor-combo, index: 2 }
-  - assert_text: { id: flavor-value, text: "pistachio" }
+  # Flavor options are localized — assert by key so the check resolves in the run's locale.
+  - assert_text: { id: flavor-value, key: pistachio }
   # Pickers section: three native stylings bound two-way to a Signal<usize> — the selection
   # round-trips the signal into each value label.
   # The three picker stylings share ONE selection signal: selecting via any styling must move
   # the other two (each row's readout mirrors the same signal).
   - select: { id: picker-segmented, index: 2 }
-  - assert_text: { id: picker-segmented-value, text: "Large" }
-  - assert_text: { id: picker-menu-value, text: "Large" }
-  - assert_text: { id: picker-inline-value, text: "Large" }
+  - assert_text: { id: picker-segmented-value, key: size-large }
+  - assert_text: { id: picker-menu-value, key: size-large }
+  - assert_text: { id: picker-inline-value, key: size-large }
   - select: { id: picker-inline, index: 0 }
-  - assert_text: { id: picker-segmented-value, text: "Small" }
-  - assert_text: { id: picker-menu-value, text: "Small" }
+  - assert_text: { id: picker-segmented-value, key: size-small }
+  - assert_text: { id: picker-menu-value, key: size-small }
   - select: { id: picker-menu, index: 1 }
-  - assert_text: { id: picker-segmented-value, text: "Medium" }
-  - assert_text: { id: picker-inline-value, text: "Medium" }
+  - assert_text: { id: picker-segmented-value, key: size-medium }
+  - assert_text: { id: picker-inline-value, key: size-medium }
   # Search section: the native search field filters reactively; Clear proves the reverse binding.
-  - input: { id: search-input, text: "ch" }
-  - assert_text: { id: search-result, text: "Cherry" }
+  # The fruits are localized, so the QUERY is typed by key too (`input.key` resolves the Fluent
+  # key in the run's locale) — typing the full localized name always matches exactly itself.
+  - input: { id: search-input, key: fruit-cherry }
+  - assert_text: { id: search-result, key: fruit-cherry }
   - tap: { id: search-clear }
   # Feedback section: the progress bar tracks its slider; the activity spinner obeys its toggle.
   - set_value: { id: progress-slider, value: 80 }

@@ -112,6 +112,13 @@ void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
 
 void *day_qt_container_new() { return new QWidget(); }
 
+// RTL locales (docs/localization): Day's layout engine mirrors every frame itself, and
+// Qt's app-wide setLayoutDirection would flip splitter/scroll coordinate systems UNDERNEATH
+// those absolute frames (double mirroring, panes swapping out from under day). So RTL here
+// only switches widget-INTERNAL text handling: label alignment + text direction.
+static bool g_rtl = false;
+void day_qt_app_set_rtl() { g_rtl = true; }
+
 // SurfaceRole::SectionCard: the grouped-card background. A translucent neutral over the window
 // color stays subtle in every palette (it lightens dark themes and darkens light ones) — Qt has
 // no grouped-card palette role, and the concrete roles (alternate-base) vary wildly per style.
@@ -155,7 +162,12 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
 void *day_qt_label_new(const char *text) {
     QLabel *l = new QLabel(QString::fromUtf8(text));
     l->setWordWrap(true);
-    l->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    if (g_rtl) {
+        l->setAlignment(Qt::AlignRight | Qt::AlignTop);
+        l->setLayoutDirection(Qt::RightToLeft);
+    } else {
+        l->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    }
     return l;
 }
 void day_qt_label_set_text(void *w, const char *text) {
@@ -255,6 +267,7 @@ void day_qt_slider_set(void *w, int value) {
 void *day_qt_lineedit_new(const char *text, const char *ph, uint64_t id,
                           void (*cb)(uint64_t, const char *)) {
     QLineEdit *e = new QLineEdit(QString::fromUtf8(text));
+    if (g_rtl) e->setLayoutDirection(Qt::RightToLeft);
     e->setPlaceholderText(QString::fromUtf8(ph));
     QObject::connect(e, &QLineEdit::textChanged, [id, cb](const QString &s) {
         QByteArray ba = s.toUtf8();

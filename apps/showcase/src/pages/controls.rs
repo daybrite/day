@@ -30,9 +30,9 @@ fn basics_section() -> impl Piece {
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
     let flavors = Signal::new(vec![
-        "vanilla".to_string(),
-        "chocolate".into(),
-        "pistachio".into(),
+        tr("vanilla").format(),
+        tr("chocolate").format(),
+        tr("pistachio").format(),
     ]);
     let flavor = Signal::new(Some(0usize));
     section((
@@ -106,16 +106,27 @@ fn pickers_section() -> impl Piece {
     // the per-row readouts) natively — the walkthrough selects via each styling in turn and
     // asserts the others follow.
     let choice = Signal::new(1usize);
-    let sizes = ["Small", "Medium", "Large"];
-    let value = move || sizes[choice.get().min(2)].to_string();
+    // Localized option list (resolved once at build — the locale is fixed for the run) shared
+    // by all three picker stylings and the per-row readouts.
+    let sizes = std::rc::Rc::new(vec![
+        tr("size-small").format(),
+        tr("size-medium").format(),
+        tr("size-large").format(),
+    ]);
+    let value = {
+        let sizes = sizes.clone();
+        move || sizes[choice.get().min(2)].clone()
+    };
     section((
         label(tr("picker-shared-caption")).font(Font::Footnote),
         // Segmented — a horizontal one-of-N control.
         labeled(
             tr("picker-segmented"),
             row((
-                picker(sizes, choice).segmented().id("picker-segmented"),
-                label(value).id("picker-segmented-value"),
+                picker(sizes.iter().cloned(), choice)
+                    .segmented()
+                    .id("picker-segmented"),
+                label(value.clone()).id("picker-segmented-value"),
             ))
             .spacing(8.0),
         ),
@@ -123,8 +134,10 @@ fn pickers_section() -> impl Piece {
         labeled(
             tr("picker-menu"),
             row((
-                picker(sizes, choice).menu().id("picker-menu"),
-                label(value).id("picker-menu-value"),
+                picker(sizes.iter().cloned(), choice)
+                    .menu()
+                    .id("picker-menu"),
+                label(value.clone()).id("picker-menu-value"),
             ))
             .spacing(8.0),
         ),
@@ -132,7 +145,9 @@ fn pickers_section() -> impl Piece {
         labeled(
             tr("picker-inline"),
             row((
-                picker(sizes, choice).inline().id("picker-inline"),
+                picker(sizes.iter().cloned(), choice)
+                    .inline()
+                    .id("picker-inline"),
                 label(value).id("picker-inline-value"),
             ))
             .spacing(8.0),
@@ -159,11 +174,11 @@ fn search_section() -> impl Piece {
         label(move || search_first_match(&query.get())).id("search-result"),
         // The filtered fruit list — each row is a reactive `when`-gated label.
         column((
-            search_fruit_row(query, "Apple"),
-            search_fruit_row(query, "Banana"),
-            search_fruit_row(query, "Cherry"),
-            search_fruit_row(query, "Date"),
-            search_fruit_row(query, "Elderberry"),
+            search_fruit_row(query, tr("fruit-apple").format()),
+            search_fruit_row(query, tr("fruit-banana").format()),
+            search_fruit_row(query, tr("fruit-cherry").format()),
+            search_fruit_row(query, tr("fruit-date").format()),
+            search_fruit_row(query, tr("fruit-elderberry").format()),
         ))
         .spacing(4.0)
         .align(HAlign::Leading),
@@ -209,7 +224,19 @@ fn feedback_section() -> impl Piece {
     .title(tr("controls-feedback"))
 }
 
-const SEARCH_FRUITS: [&str; 5] = ["Apple", "Banana", "Cherry", "Date", "Elderberry"];
+/// The fruit list, localized (resolved once at build — the locale is fixed for the run).
+fn search_fruits() -> Vec<String> {
+    [
+        "fruit-apple",
+        "fruit-banana",
+        "fruit-cherry",
+        "fruit-date",
+        "fruit-elderberry",
+    ]
+    .iter()
+    .map(|k| tr(k).format())
+    .collect()
+}
 
 /// Case-insensitive substring match; an empty query matches everything.
 fn search_matches(query: &str, fruit: &str) -> bool {
@@ -218,18 +245,19 @@ fn search_matches(query: &str, fruit: &str) -> bool {
 
 /// The first fruit matching `query` (a data value), or an em-dash when none match.
 fn search_first_match(query: &str) -> String {
-    for fruit in SEARCH_FRUITS {
-        if search_matches(query, fruit) {
-            return fruit.to_string();
+    for fruit in search_fruits() {
+        if search_matches(query, &fruit) {
+            return fruit;
         }
     }
     "\u{2014}".to_string()
 }
 
 /// One filtered row: a `when`-gated label that appears only while its fruit matches the query.
-fn search_fruit_row(query: Signal<String>, fruit: &'static str) -> AnyPiece {
+fn search_fruit_row(query: Signal<String>, fruit: String) -> AnyPiece {
+    let shown = fruit.clone();
     when(
-        move || search_matches(&query.get(), fruit),
-        move || label(fruit),
+        move || search_matches(&query.get(), &fruit),
+        move || label(shown.clone()),
     )
 }

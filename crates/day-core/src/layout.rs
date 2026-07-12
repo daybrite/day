@@ -19,6 +19,11 @@ pub trait Layout: 'static {
 pub trait LayoutOps {
     fn measure_child(&mut self, child: RNode, p: Proposal) -> Size;
     fn place_child(&mut self, child: RNode, rect: Rect);
+    /// Place a child whose on-screen frame is NATIVE-owned (nav pages in splitter panes /
+    /// nav-controller views): never direction-mirrored — the toolkit positions it.
+    fn place_child_native(&mut self, child: RNode, rect: Rect) {
+        self.place_child(child, rect);
+    }
     fn flex_of(&self, child: RNode) -> Flex;
     fn children_of(&self, node: RNode) -> Vec<RNode>;
     /// Native intrinsic measurement of the CURRENT node (leaves).
@@ -31,6 +36,8 @@ pub struct EngineCx<'a, B: Toolkit> {
     pub(crate) tree: &'a mut Tree<B>,
     pub(crate) offset: Point,
     pub(crate) current: RNode,
+    /// The bounds the CURRENT node's `place()` was given — the mirroring axis for RTL.
+    pub(crate) parent_size: Size,
 }
 
 impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
@@ -38,6 +45,24 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         measure_node(self.tree, child, p)
     }
     fn place_child(&mut self, child: RNode, rect: Rect) {
+        // RTL (docs/localization): layouts compute LTR ("leading" = left); under a
+        // right-to-left locale every horizontal placement mirrors around the parent's
+        // width, so leading means right everywhere — rows reverse, padding swaps sides,
+        // alignment flips — without any layout impl knowing about direction. Leaf CONTENT
+        // (canvas drawing, text runs) is not mirrored; native text handles RTL itself.
+        let rect = if crate::layout_direction() == day_geometry::LayoutDirection::Rtl {
+            Rect::new(
+                self.parent_size.width - rect.origin.x - rect.size.width,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+            )
+        } else {
+            rect
+        };
+        place_node(self.tree, child, rect, self.offset, false);
+    }
+    fn place_child_native(&mut self, child: RNode, rect: Rect) {
         place_node(self.tree, child, rect, self.offset, false);
     }
     fn flex_of(&self, child: RNode) -> Flex {
@@ -85,6 +110,7 @@ pub(crate) fn measure_node<B: Toolkit>(tree: &mut Tree<B>, node: RNode, p: Propo
         tree,
         offset: Point::ZERO,
         current: node,
+        parent_size: Size::ZERO, // placement never happens during measure
     };
     let size = layout.measure(&mut cx, &children, p);
     if let Some(n) = tree.node_mut(node) {
@@ -153,6 +179,7 @@ pub(crate) fn place_node<B: Toolkit>(
         tree,
         offset: child_offset,
         current: node,
+        parent_size: rect.size,
     };
     layout.place(&mut cx, &children, Rect::from_size(rect.size));
 }
@@ -621,7 +648,7 @@ impl Layout for NavLayout {
                     bounds.size
                 }
             });
-            cx.place_child(page, Rect::from_size(sz));
+            cx.place_child_native(page, Rect::from_size(sz));
         }
     }
 }

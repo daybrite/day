@@ -16,7 +16,7 @@ pub(crate) fn list_page() -> AnyPiece {
         list(
             move || {
                 (1..=count.get())
-                    .map(|i| format!("Row {i}"))
+                    .map(|i| tr("list-row").arg("n", i).format())
                     .collect::<Vec<_>>()
             },
             |s: &String| s.clone(),

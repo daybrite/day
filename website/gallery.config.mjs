@@ -51,14 +51,21 @@ export const suites = [
       'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
-    // The capture variants, in display order. `dirs` are the artifact subdirectories that may
-    // hold the variant (fallbacks cover pre-variant artifacts, which used locale names); dark
-    // deliberately has NO light fallback — assembly must never pass off a light shot as dark
-    // (the gallery page falls back VISIBLY instead).
+    // The capture variants, in display order: theme × locale (CI runs the walkthrough once per
+    // combination; `<theme>` alone is English). `dirs` are the artifact subdirectories that may
+    // hold the variant (fallbacks cover older artifacts); non-English/dark variants deliberately
+    // have NO cross-variant fallback here — assembly must never pass one variant off as another
+    // (the gallery page falls back VISIBLY instead). Variant ids stay lowercase (they ride
+    // data-* attributes); `dirs` match the CI `--variant` names exactly.
     variants: [
-      { id: 'light', label: 'Light', dirs: ['light', 'default', 'en'] },
-      { id: 'dark', label: 'Dark', dirs: ['dark'] },
-      { id: 'fr', label: 'Français', dirs: ['fr'] },
+      { id: 'light', label: 'Light · English', dirs: ['light', 'default', 'en'] },
+      { id: 'dark', label: 'Dark · English', dirs: ['dark'] },
+      { id: 'light-fr', label: 'Light · Français', dirs: ['light-fr', 'fr'] },
+      { id: 'dark-fr', label: 'Dark · Français', dirs: ['dark-fr'] },
+      { id: 'light-ar', label: 'Light · العربية', dirs: ['light-ar'] },
+      { id: 'dark-ar', label: 'Dark · العربية', dirs: ['dark-ar'] },
+      { id: 'light-zh-cn', label: 'Light · 中文', dirs: ['light-zh-CN'] },
+      { id: 'dark-zh-cn', label: 'Dark · 中文', dirs: ['dark-zh-CN'] },
     ],
     // The PRIMARY target per OS, in display order — one strip column per platform users actually
     // ship to. The secondary desktop combos (macos-gtk/qt, windows-gtk/qt) still run in CI and

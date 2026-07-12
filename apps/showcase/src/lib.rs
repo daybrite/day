@@ -95,6 +95,8 @@ pub fn root() -> AnyPiece {
         &[
             ("en", include_str!("../locales/en/app.ftl")),
             ("fr", include_str!("../locales/fr/app.ftl")),
+            ("zh-CN", include_str!("../locales/zh-CN/app.ftl")),
+            ("ar", include_str!("../locales/ar/app.ftl")),
         ],
     );
     // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound

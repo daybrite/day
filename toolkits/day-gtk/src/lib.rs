@@ -2275,6 +2275,12 @@ impl Platform for Gtk {
                     adw::StyleManager::default().set_color_scheme(scheme);
                 }
             }
+            // RTL locales (docs/localization): flip GTK's default direction so native widget
+            // internals (label alignment, sliders, the Adw split view's sidebar side, back
+            // chevrons) mirror; Day's own frames mirror in the layout engine.
+            if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+                gtk4::Widget::set_default_direction(gtk4::TextDirection::Rtl);
+            }
         });
 
         // Standard app-level "quit" action so `MenuRole::Quit` (and the platform quit shortcut

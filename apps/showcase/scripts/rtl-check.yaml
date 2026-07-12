@@ -1,0 +1,11 @@
+name: rtl-check
+description: Quick RTL smoke-test — home + two form pages, for visual inspection under --locale ar.
+flow:
+  - wait_for: { id: home-title }
+  - screenshot: rtl-home
+  - navigate: { route: controls }
+  - assert_route: { route: controls }
+  - screenshot: rtl-controls
+  - navigate: { route: system }
+  - assert_route: { route: system }
+  - screenshot: rtl-system

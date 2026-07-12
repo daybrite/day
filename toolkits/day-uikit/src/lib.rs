@@ -1607,13 +1607,16 @@ mod imp {
                                 NavPatch::Title(_) => Act::None,
                             }
                         });
+                        // Defer past any in-flight modal transition: a push/pop issued the
+                        // instant a (scripted) dialog dismissal starts races the dismissal
+                        // transition and wedges the navigation controller.
                         match act {
-                            Act::Push(vc, nav) => unsafe {
+                            Act::Push(vc, nav) => modal_after_idle(move || unsafe {
                                 nav.pushViewController_animated(&vc, true)
-                            },
-                            Act::Pop(nav) => {
+                            }),
+                            Act::Pop(nav) => modal_after_idle(move || {
                                 let _ = unsafe { nav.popViewControllerAnimated(true) };
-                            }
+                            }),
                             Act::None => {}
                         }
                     }
@@ -2067,16 +2070,6 @@ mod imp {
                 UIAlertAction, UIAlertActionStyle, UIAlertController, UIAlertControllerStyle,
             };
             let m = mtm();
-            let Some(top) = topmost_vc() else {
-                emit(
-                    WINDOW_NODE,
-                    Event::PresentResult {
-                        req,
-                        result: PresentResult::Dismissed,
-                    },
-                );
-                return;
-            };
             let (title, message) = (
                 NSString::from_str(spec.title()),
                 spec.message().map(NSString::from_str),
@@ -2111,9 +2104,7 @@ mod imp {
                                     result: PresentResult::Button(idx),
                                 },
                             );
-                            PRESENT_VCS.with(|p| {
-                                p.borrow_mut().remove(&req);
-                            });
+                            present_forget(req);
                         });
                         let action = unsafe {
                             UIAlertAction::actionWithTitle_style_handler(
@@ -2126,7 +2117,7 @@ mod imp {
                         unsafe { ac.addAction(&action) };
                     }
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
-                    unsafe { top.presentViewController_animated_completion(&ac, true, None) };
+                    modal_enqueue(ModalOp::Present(req, ac.into_super()));
                 }
                 PresentSpec::Prompt {
                     placeholder,
@@ -2167,9 +2158,7 @@ mod imp {
                                 result: PresentResult::Text(text),
                             },
                         );
-                        PRESENT_VCS.with(|p| {
-                            p.borrow_mut().remove(&req);
-                        });
+                        present_forget(req);
                     });
                     let cancel_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
                         emit(
@@ -2179,9 +2168,7 @@ mod imp {
                                 result: PresentResult::Dismissed,
                             },
                         );
-                        PRESENT_VCS.with(|p| {
-                            p.borrow_mut().remove(&req);
-                        });
+                        present_forget(req);
                     });
                     unsafe {
                         ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
@@ -2198,12 +2185,15 @@ mod imp {
                         ));
                     }
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
-                    unsafe { top.presentViewController_animated_completion(&ac, true, None) };
+                    modal_enqueue(ModalOp::Present(req, ac.into_super()));
                 }
                 // Native file pickers: UIDocumentPickerViewController with a delegate. Open uses
                 // `.import` mode (the system hands back an app-local copy, readable via std::fs);
                 // save exports the Day-staged temp file to the chosen destination.
                 PresentSpec::OpenFile { .. } => {
+                    if dayscript_driven() {
+                        return; // pending request resolved by the scripted `respond`
+                    }
                     let types =
                         objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
                             "public.item",
@@ -2216,9 +2206,12 @@ mod imp {
                             UIDocumentPickerMode::Import,
                         )
                     };
-                    present_doc_picker(req, m, &top, picker);
+                    present_doc_picker(req, m, picker);
                 }
                 PresentSpec::SaveFile { src_path, .. } => {
+                    if dayscript_driven() {
+                        return; // pending request resolved by the scripted `respond`
+                    }
                     let url = unsafe {
                         objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(src_path))
                     };
@@ -2230,33 +2223,241 @@ mod imp {
                             UIDocumentPickerMode::ExportToService,
                         )
                     };
-                    present_doc_picker(req, m, &top, picker);
+                    present_doc_picker(req, m, picker);
                 }
             }
         }
 
         fn dismiss(&mut self, req: u64) {
-            if let Some(ac) = PRESENT_VCS.with(|p| p.borrow_mut().remove(&req)) {
-                unsafe { ac.dismissViewControllerAnimated_completion(true, None) };
+            modal_enqueue(ModalOp::Dismiss(req, 0));
+        }
+
+        fn ui_idle(&mut self) -> bool {
+            let active = MODAL_BUSY.get()
+                || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
+                || topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some());
+            if active {
+                UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+                return false;
             }
-            if let Some((picker, _)) = PRESENT_PICKERS.with(|p| p.borrow_mut().remove(&req)) {
-                unsafe { picker.dismissViewControllerAnimated_completion(true, None) };
+            // One settle margin past the last observed transition: the coordinator clears a
+            // frame before the final composite, and a capture in that gap still shows a
+            // sliver of the outgoing page.
+            UI_LAST_ACTIVE
+                .with(|t| t.get())
+                .is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(250))
+        }
+    }
+
+    /// One queued modal transition. UIKit view-controller presentation is transactional: a
+    /// present or dismiss issued while another transition is in flight is silently dropped (or
+    /// lands stacked on a half-presented alert, where a later `dismiss` hits the child instead
+    /// of the alert) — exactly how scripted respond → present bursts left dialogs stuck on
+    /// screen in CI. Every present/dismiss therefore goes through a FIFO pumped from each
+    /// transition's completion block, so transitions never overlap.
+    enum ModalOp {
+        Present(u64, Retained<UIViewController>),
+        /// Dismiss request + how many 50ms defer-retries it has already made.
+        Dismiss(u64, u32),
+        /// A deferred UI mutation (nav push/pop) that must not overlap a modal transition.
+        Run(Box<dyn FnOnce()>),
+    }
+
+    /// Whether a dayscript engine is driving this app (docs/testing): scripted sessions
+    /// answer file pickers programmatically via `respond`, so the NATIVE picker UI is never
+    /// touched — and the document picker is a REMOTE view controller whose hosted view can
+    /// survive programmatic dismissal on the simulator, photobombing every later screenshot.
+    /// Skip presenting it; the pending request still resolves through the normal channel.
+    /// Alerts / prompts / sheets are in-process and still present natively.
+    fn dayscript_driven() -> bool {
+        std::env::var_os("DAYSCRIPT_PORT").is_some()
+    }
+
+    fn modal_enqueue(op: ModalOp) {
+        MODAL_QUEUE.with(|q| q.borrow_mut().push_back(op));
+        modal_pump();
+    }
+
+    /// Mark a transition in flight and arm a watchdog: if UIKit ever drops a transition's
+    /// completion (observed with remote view controllers under scripted bursts), the queue
+    /// would jam forever behind the stuck busy flag — after 2s the watchdog clears it and
+    /// pumps, so one lost completion can't freeze every later dialog and deferred nav op.
+    fn modal_begin_transition() {
+        MODAL_BUSY.set(true);
+        let generation = MODAL_GEN.get().wrapping_add(1);
+        MODAL_GEN.set(generation);
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(4))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            if MODAL_BUSY.get() && MODAL_GEN.get() == generation {
+                eprintln!("day: modal transition completion lost — unjamming the queue");
+                MODAL_BUSY.set(false);
+                modal_pump();
+            }
+        });
+    }
+
+    /// Normal end of a transition: clear busy, invalidate the watchdog, run the next op.
+    fn modal_end_transition() {
+        MODAL_GEN.set(MODAL_GEN.get().wrapping_add(1));
+        MODAL_BUSY.set(false);
+        modal_pump();
+    }
+
+    /// Put `op` back at the queue's head and retry shortly: some other UIKit transition (a
+    /// nav push/pop) is animating, and modal work issued across it is silently dropped.
+    fn modal_defer_retry(op: ModalOp) {
+        MODAL_QUEUE.with(|q| q.borrow_mut().push_front(op));
+        MODAL_BUSY.set(true); // hold the queue while we wait
+        MODAL_GEN.set(MODAL_GEN.get().wrapping_add(1));
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, || {
+            MODAL_BUSY.set(false);
+            modal_pump();
+        });
+    }
+
+    /// Run `f` now if no modal transition is in flight or queued, else queue it behind them.
+    fn modal_after_idle(f: impl FnOnce() + 'static) {
+        let idle = !MODAL_BUSY.get() && MODAL_QUEUE.with(|q| q.borrow().is_empty());
+        if idle {
+            f();
+        } else {
+            modal_enqueue(ModalOp::Run(Box::new(f)));
+        }
+    }
+
+    /// Run the next queued modal op if no transition is in flight. Each op's completion clears
+    /// the busy flag and pumps again.
+    fn modal_pump() {
+        if MODAL_BUSY.get() {
+            return;
+        }
+        let Some(op) = MODAL_QUEUE.with(|q| q.borrow_mut().pop_front()) else {
+            return;
+        };
+        match op {
+            ModalOp::Present(req, vc) => {
+                // Presenting while ANOTHER transition animates (a nav push the script just
+                // triggered, an appearance change) is refused by UIKit without ever calling
+                // the completion — the original stuck-dialog bug. Wait it out.
+                if topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some()) {
+                    modal_defer_retry(ModalOp::Present(req, vc));
+                    return;
+                }
+                let Some(top) = topmost_vc() else {
+                    // No window to present on: resolve as dismissed so the app future settles.
+                    present_forget(req);
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: day_spec::present::PresentResult::Dismissed,
+                        },
+                    );
+                    modal_pump();
+                    return;
+                };
+                modal_begin_transition();
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    top.presentViewController_animated_completion(&vc, true, Some(&completion))
+                };
+            }
+            ModalOp::Dismiss(req, tries) => {
+                // If this request's Present is still queued it never reached the screen — drop
+                // it (the result was already resolved; there is nothing to dismiss).
+                let dropped_queued = MODAL_QUEUE.with(|q| {
+                    let mut q = q.borrow_mut();
+                    let before = q.len();
+                    q.retain(|op| !matches!(op, ModalOp::Present(r, _) if *r == req));
+                    before != q.len()
+                });
+                if dropped_queued {
+                    present_forget(req);
+                    modal_pump();
+                    return;
+                }
+                let vc: Option<Retained<UIViewController>> = PRESENT_VCS
+                    .with(|p| p.borrow().get(&req).map(|ac| ac.clone().into_super()))
+                    .or_else(|| {
+                        PRESENT_PICKERS.with(|p| {
+                            p.borrow()
+                                .get(&req)
+                                .map(|(picker, _)| picker.clone().into_super())
+                        })
+                    });
+                let Some(vc) = vc else {
+                    // Already gone (the user answered natively, or a stale request).
+                    present_forget(req);
+                    modal_pump();
+                    return;
+                };
+                // Not attached yet (its presentation transition is still in flight — e.g. the
+                // watchdog unjammed the queue mid-present) or some other transition is still
+                // animating: retry shortly, bounded. Skipping here would strand the dialog on
+                // screen (the original CI bug); the bound keeps a never-presented controller
+                // from wedging the queue forever.
+                let attached = vc.presentingViewController().is_some();
+                let animating = vc
+                    .presentingViewController()
+                    .is_some_and(|p| p.transitionCoordinator().is_some());
+                if !attached || animating {
+                    if tries < 100 {
+                        modal_defer_retry(ModalOp::Dismiss(req, tries + 1));
+                    } else {
+                        present_forget(req);
+                        modal_pump();
+                    }
+                    return;
+                }
+                present_forget(req);
+                // Dismiss from the PRESENTING side: `dismiss` on the controller itself would
+                // target any child IT presents (remote document pickers host internal view
+                // controllers), reporting completion while the picker stays on screen. The
+                // presenter tears down its whole presented stack. Animated: an UNANIMATED
+                // dismissal of a remote view controller reports completion while the remote
+                // layer stays visible on the simulator — the animated handshake is the path
+                // that actually removes it (the queue serializes transitions either way).
+                let presenting = vc
+                    .presentingViewController()
+                    .expect("attached checked above");
+                modal_begin_transition();
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    presenting.dismissViewControllerAnimated_completion(true, Some(&completion))
+                };
+            }
+            ModalOp::Run(f) => {
+                f();
+                modal_pump();
             }
         }
     }
 
-    /// Wire a document picker's delegate, retain both, and present it on `top`.
+    /// Drop the retained controller for `req` — on programmatic dismissal, or from the action
+    /// handlers when the user answered natively (UIKit dismisses the alert itself on a tap).
+    fn present_forget(req: u64) {
+        PRESENT_VCS.with(|p| {
+            p.borrow_mut().remove(&req);
+        });
+        PRESENT_PICKERS.with(|p| {
+            p.borrow_mut().remove(&req);
+        });
+    }
+
+    /// Wire a document picker's delegate, retain both, and queue its presentation.
     fn present_doc_picker(
         req: u64,
         m: MainThreadMarker,
-        top: &UIViewController,
         picker: Retained<UIDocumentPickerViewController>,
     ) {
         unsafe { picker.setAllowsMultipleSelection(false) };
         let delegate = DayDocPicker::new(m, req);
         unsafe { picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
         PRESENT_PICKERS.with(|p| p.borrow_mut().insert(req, (picker.clone(), delegate)));
-        unsafe { top.presentViewController_animated_completion(&picker, true, None) };
+        modal_enqueue(ModalOp::Present(req, picker.into_super()));
     }
 
     thread_local! {
@@ -2274,12 +2475,27 @@ mod imp {
                 ),
             >,
         > = RefCell::new(HashMap::new());
+        /// FIFO of modal transitions (see [`ModalOp`]) — ops run one at a time, pumped from
+        /// each transition's completion.
+        static MODAL_QUEUE: RefCell<std::collections::VecDeque<ModalOp>> =
+            RefCell::new(std::collections::VecDeque::new());
+        /// Whether a present/dismiss transition is currently in flight.
+        static MODAL_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// Transition generation — invalidates the watchdog of a normally-completed transition.
+        static MODAL_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        /// When a transition was last seen in flight (`ui_idle`'s settle margin).
+        static UI_LAST_ACTIVE: std::cell::Cell<Option<std::time::Instant>> =
+            const { std::cell::Cell::new(None) };
     }
 
-    /// The frontmost view controller (walk past any already-presented modal).
+    /// The frontmost view controller (walk past any already-presented modal, but stop short of
+    /// one that is mid-dismissal — presenting on it would be dropped by UIKit).
     fn topmost_vc() -> Option<Retained<UIViewController>> {
         let mut vc = WINDOW.with(|w| w.borrow().clone())?.rootViewController()?;
         while let Some(p) = vc.presentedViewController() {
+            if p.isBeingDismissed() {
+                break;
+            }
             vc = p;
         }
         Some(vc)
@@ -2322,6 +2538,7 @@ mod imp {
                 PRESENT_PICKERS.with(|m| {
                     m.borrow_mut().remove(&req);
                 });
+                present_forget(req);
             }
 
             #[unsafe(method(documentPickerWasCancelled:))]
@@ -2337,6 +2554,7 @@ mod imp {
                 PRESENT_PICKERS.with(|m| {
                     m.borrow_mut().remove(&req);
                 });
+                present_forget(req);
             }
         }
     );
@@ -2387,6 +2605,17 @@ mod imp {
                 let vc = unsafe { UIViewController::new(mtm) };
                 let holder = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
                 let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+                // RTL locales (docs/localization): force the semantic content attribute on
+                // the window AND the day content roots — descendants left at `.unspecified`
+                // resolve their effective direction through the hierarchy, so native controls
+                // (slider fill), the nav bar (back chevron side), and system transitions
+                // mirror; Day's own frames mirror in the layout engine.
+                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+                    let rtl = objc2_ui_kit::UISemanticContentAttribute::ForceRightToLeft;
+                    window.setSemanticContentAttribute(rtl);
+                    holder.setSemanticContentAttribute(rtl);
+                    root_view.setSemanticContentAttribute(rtl);
+                }
                 // DAY_THEME=light|dark forces the interface style window-wide (themed CI
                 // screenshot runs; `day launch --env` reaches the sim app's environment);
                 // unset ⇒ follow the system.

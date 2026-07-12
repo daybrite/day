@@ -22,7 +22,7 @@ block2 = "0.6"
 dispatch2 = "0.3"
 objc2-foundation = { version = "0.3", features = [
     "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
-    "NSObject", "NSArray", "NSURL", "NSProcessInfo",
+    "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton",

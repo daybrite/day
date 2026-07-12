@@ -394,6 +394,8 @@ pub trait TreeOps {
     fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)>;
     fn find_by_id(&self, id: &str) -> Option<RNode>;
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
+    /// Whether native transitions have settled (see `Toolkit::ui_idle`).
+    fn ui_idle(&mut self) -> bool;
     fn root_node(&self) -> RNode;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
@@ -742,6 +744,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {
         self.toolkit.snapshot_window()
+    }
+
+    fn ui_idle(&mut self) -> bool {
+        self.toolkit.ui_idle()
     }
 
     fn root_node(&self) -> RNode {

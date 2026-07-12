@@ -44,6 +44,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
         <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
           <button type="button" role="radio" aria-checked="true" data-value="en">English</button>
           <button type="button" role="radio" aria-checked="false" data-value="fr">Français</button>
+          <button type="button" role="radio" aria-checked="false" data-value="zh-cn">中文</button>
         </div>
       </div>
     </div>
@@ -123,14 +124,35 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   // captured in light only, and some toolkits can't force dark).
   const state = { theme: 'light', locale: 'en' };
 
-  function preferenceOrder(): string[] {
-    if (state.locale === 'fr') {
-      return state.theme === 'dark' ? ['fr', 'dark', 'light'] : ['fr', 'light', 'dark'];
-    }
-    return state.theme === 'dark' ? ['dark', 'light', 'fr'] : ['light', 'dark', 'fr'];
+  // Variant ids are `<theme>` for English and `<theme>-<locale>` otherwise (lowercased),
+  // matching gallery.config.mjs. Fallback order: same locale in the other theme, then English
+  // in the requested theme, then English light/dark — never silently a different locale when
+  // the requested one exists in either theme.
+  function variantId(theme: string, locale: string): string {
+    return locale === 'en' ? theme : `${theme}-${locale}`;
   }
 
-  const badgeText: Record<string, string> = { light: 'en · light', dark: 'en · dark', fr: 'fr · light' };
+  function preferenceOrder(): string[] {
+    const other = state.theme === 'dark' ? 'light' : 'dark';
+    const order = [
+      variantId(state.theme, state.locale),
+      variantId(other, state.locale),
+      variantId(state.theme, 'en'),
+      variantId(other, 'en'),
+    ];
+    return [...new Set(order)];
+  }
+
+  const badgeText: Record<string, string> = {
+    light: 'en · light',
+    dark: 'en · dark',
+    'light-fr': 'fr · light',
+    'dark-fr': 'fr · dark',
+    'light-ar': 'ar · light',
+    'dark-ar': 'ar · dark',
+    'light-zh-cn': '中文 · light',
+    'dark-zh-cn': '中文 · dark',
+  };
 
   function applyVariants(): void {
     const order = preferenceOrder();

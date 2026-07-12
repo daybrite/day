@@ -71,6 +71,29 @@ day-reactive
 unchanged. Core crates call `day_l10n::t("day-cancel")` (resolve once, in the current locale) for the
 framework's own one-shot strings.
 
+## Right-to-left locales
+
+An RTL locale (Arabic, Hebrew, Farsi, …) flips the whole UI (resolved once at startup, from
+`DAY_LOCALE` or the locale `install_locales` settles on — runtime `set_locale` switches strings
+but not direction):
+
+- **Day's layout engine mirrors every horizontal placement** in the place pass (`day-core`):
+  rows reverse, `leading` means right, padding swaps sides, the form label column right-aligns —
+  no layout implementation knows about direction. Leaf CONTENT (canvas drawing, text runs) is
+  not mirrored. Children whose frames are native-owned (nav pages in splitter panes /
+  nav-controller views) place via `place_child_native` and are never mirrored.
+- **Each toolkit enables its native RTL mode** for widget-internal behavior: AppKit registers
+  `AppleTextDirection` (volatile, registration domain) before `NSApplication` init; UIKit forces
+  `semanticContentAttribute` on the window + content roots; GTK calls
+  `gtk_widget_set_default_direction` (which also flips the Adw split view's sidebar side); Qt
+  switches label/field text direction only (its app-wide `setLayoutDirection` would re-mirror
+  containers underneath Day's absolute frames); Android sets the decor view's layout direction
+  (`android:supportsRtl` rides the manifest template).
+
+The showcase ships an Arabic locale (`--locale ar`) exercising all of this; CI captures every
+walkthrough screenshot in light/dark × en/fr/ar/zh-CN, and `scripts/rtl-check.yaml` is a quick
+local smoke-test.
+
 ## Pseudolocale
 
 Setting the locale to `en-XA` accents and expands every string (`Cáncél ・ロング`) to stress-test

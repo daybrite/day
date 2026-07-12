@@ -8,6 +8,7 @@
         android:label="${dayTitle}"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
+        android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
         <activity
             android:name="dev.daybrite.day.bridge.DayActivity"

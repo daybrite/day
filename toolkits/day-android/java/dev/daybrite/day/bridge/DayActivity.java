@@ -44,6 +44,17 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
         DayBridge.ctx = this;
         final DayFixed root = new DayFixed(this);
+        // RTL locales (docs/localization): mirror native widget internals (text alignment,
+        // slider fill, back affordances) by flipping the view hierarchy's direction. Day's own
+        // absolute frames are direction-independent — the Rust layout engine mirrors those.
+        String dayLocale = getIntent().getStringExtra("day.locale");
+        if (dayLocale == null && getIntent().getExtras() != null) {
+            dayLocale = getIntent().getExtras().getString("day.env.DAY_LOCALE");
+        }
+        if (dayLocale != null && isRtlLanguage(dayLocale)) {
+            getWindow().getDecorView().setLayoutDirection(android.view.View.LAYOUT_DIRECTION_RTL);
+            root.setLayoutDirection(android.view.View.LAYOUT_DIRECTION_RTL);
+        }
         setContentView(root);
         final DisplayMetrics dm = getResources().getDisplayMetrics();
         final String autodrive = getIntent().getStringExtra("day.autodrive");
@@ -105,6 +116,18 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
     /** App menu (docs/menus.md): the global menu maps to the app-bar overflow (⋮). Rebuilt whenever
      *  DayBridge.setAppMenu invalidates it. No spec → no overflow item shown. */
+    /** Whether the language subtag of {@code locale} writes right-to-left. */
+    private static boolean isRtlLanguage(String locale) {
+        String lang = locale.replace('_', '-').split("-")[0].toLowerCase(java.util.Locale.ROOT);
+        switch (lang) {
+            case "ar": case "he": case "iw": case "fa": case "ur":
+            case "ps": case "sd": case "ug": case "yi": case "dv": case "ku":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
         if (DayBridge.appMenuSpec != null && !DayBridge.appMenuSpec.isEmpty()) {
             DayBridge.buildMenu(menu, DayBridge.appMenuSpec);

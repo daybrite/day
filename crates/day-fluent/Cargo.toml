@@ -10,4 +10,5 @@ license.workspace = true
 
 [dependencies]
 day-pieces = { workspace = true }
+day-core = { workspace = true }
 day-l10n = { workspace = true }

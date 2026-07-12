@@ -22,6 +22,50 @@ pub use present::*;
 pub use day_spec::resource::{Resource, ResourceOpener, resource, set_resource_opener};
 pub use tree::*;
 
+/// The app-wide layout direction (docs/localization): mirrors every horizontal placement in
+/// the place pass when [`day_geometry::LayoutDirection::Rtl`]. Resolved lazily from the
+/// `DAY_LOCALE` launch environment (so toolkits can read it before any UI exists);
+/// `set_layout_direction` (called by `install_locales` for the resolved locale) overrides.
+/// Fixed for the life of the process — switching locale at runtime does not re-mirror.
+pub fn layout_direction() -> day_geometry::LayoutDirection {
+    DIRECTION.with(|d| {
+        if let Some(dir) = d.get() {
+            return dir;
+        }
+        let dir = std::env::var("DAY_LOCALE")
+            .map(|l| direction_of_locale(&l))
+            .unwrap_or_default();
+        d.set(Some(dir));
+        dir
+    })
+}
+
+/// Override the layout direction (normally from `install_locales`). Must be called before the
+/// first layout pass to take effect everywhere.
+pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {
+    DIRECTION.with(|d| d.set(Some(dir)));
+}
+
+/// The writing direction a locale implies (language subtag match).
+pub fn direction_of_locale(locale: &str) -> day_geometry::LayoutDirection {
+    let lang = locale
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match lang.as_str() {
+        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ku" => {
+            day_geometry::LayoutDirection::Rtl
+        }
+        _ => day_geometry::LayoutDirection::Ltr,
+    }
+}
+
+thread_local! {
+    static DIRECTION: std::cell::Cell<Option<day_geometry::LayoutDirection>> =
+        const { std::cell::Cell::new(None) };
+}
+
 use day_spec::{Platform, WindowOptions};
 
 /// Launch a Day app on the given platform backend: sets up the reactive scheduler and the

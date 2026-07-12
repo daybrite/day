@@ -376,16 +376,20 @@ jobs:
           "$DAY" new app remote-check --toolkit macos-${{ matrix.toolkit }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
           rm -rf remote-check
-      # Three screenshot variants per combo (docs/testing + website gallery): the same
-      # walkthrough under a forced light theme, a forced dark theme (DAY_THEME), and French —
-      # each saved under its own screenshots/<combo>/<variant>/ subdir for the gallery artifact.
+      # Screenshot variants per combo (docs/testing + website gallery): the walkthrough runs
+      # once per theme × locale (light/dark × en/fr/ar/zh-CN — Arabic exercises RTL), each
+      # saved under its own screenshots/<combo>/<variant>/ subdir for the gallery artifact.
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant fr --locale fr
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+            done
+          done
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
       # combo (headless Linux has no system clipboard — see scripts/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
@@ -513,7 +517,7 @@ jobs:
         run: |
           LOG="$RUNNER_TEMP/ios-walk.log"
           walk() { "$DAY_BIN" launch -p ios-uikit --script scripts/walkthrough.yaml "$@" 2>&1 | tee "$LOG"; }
-          # Three screenshot variants (light / dark / fr), each with the flaky-retry dance.
+          # Eight screenshot variants (light/dark × en/fr/ar/zh-CN), each with the flaky-retry dance.
           run_variant() {
             if ! walk "$@"; then
               if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
@@ -527,9 +531,13 @@ jobs:
               fi
             fi
           }
-          run_variant --variant light --env DAY_THEME=light
-          run_variant --variant dark --env DAY_THEME=dark
-          run_variant --variant fr --locale fr
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              run_variant --variant $VAR --env DAY_THEME=$TH $EXTRA
+            done
+          done
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
       # the secrets these no-op and pack falls back to the Simulator .app (dev tier, §20).
       - name: Import the distribution certificate
@@ -641,18 +649,18 @@ jobs:
       #     otherwise kills the WebKit web process and aborts the app.
       #   WEBKIT_DISABLE_COMPOSITING_MODE — xvfb has no GPU (libEGL/DRI3 warnings), so render the
       #     page in software instead of via accelerated (GL) compositing.
-      # Three screenshot variants per combo: forced light / forced dark (DAY_THEME) / French.
+      # Screenshot variants per combo: light/dark (DAY_THEME) × en/fr/ar/zh-CN locales.
       # (Ubuntu 24.04's Qt 6.4 predates QStyleHints::setColorScheme, so linux-qt's dark set
       # renders light — the gallery falls back per shot.)
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          for v in light dark fr; do
-            case "$v" in
-              fr) EXTRA="--variant fr --locale fr" ;;
-              *) EXTRA="--variant $v --env DAY_THEME=$v" ;;
-            esac
+          for TH in light dark; do
+          for LOC in en fr ar zh-CN; do
+            VAR=$TH
+            EXTRA="--variant $TH --env DAY_THEME=$TH"
+            if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--variant $VAR --env DAY_THEME=$TH --locale $LOC"; fi
             if [ "${{ matrix.toolkit }}" = gtk ]; then
               # The xvfb screen matches the showcase window (1000×720) so the `import -window
               # root` fallback capture (day-cli script.rs) is exactly the app, edge to edge.
@@ -665,6 +673,7 @@ jobs:
                 --script scripts/walkthrough.yaml $EXTRA \
                 --env QT_QPA_PLATFORM=offscreen
             fi
+          done
           done
       # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
       # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
@@ -813,8 +822,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
-          # Three screenshot variants (light / dark / fr — DAY_THEME rides the intent extras).
-          script: cd apps/showcase && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark && $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant fr --locale fr && $DAY_BIN launch -p android-widget --script scripts/clipboard-roundtrip.yaml
+          # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
+          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-widget --script scripts/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -986,9 +995,13 @@ jobs:
         working-directory: apps/showcase
         continue-on-error: true # the walkthrough drives the flaky TCG emulator; the build already gated
         run: |
-          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
-          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
-          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant fr --locale fr
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+            done
+          done
       # Release-signing material, tag pushes only: OHOS keystore + cert + provision profile on
       # disk. Without the secrets these no-op and pack signs with the public dev cert (§20).
       - name: Materialize OHOS signing material
@@ -1106,9 +1119,13 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
-          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
-          $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant fr --locale fr
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+            done
+          done
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
       # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
       - name: Install NSIS
@@ -1219,9 +1236,13 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         working-directory: apps/showcase
         run: |
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light --env WEBKIT_DISABLE_COMPOSITING_MODE=1
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark --env WEBKIT_DISABLE_COMPOSITING_MODE=1
-          $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant fr --locale fr --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+            done
+          done
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7

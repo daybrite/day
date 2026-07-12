@@ -2470,6 +2470,27 @@ impl Platform for AppKit {
                     .setProcessName(&NSString::from_str(name));
             }
         }
+        // RTL locales (docs/localization): AppleTextDirection flips AppKit's app-wide
+        // userInterfaceLayoutDirection (label alignment, slider fill, control mirroring) —
+        // read at NSApplication init, so register BEFORE sharedApplication. Registration
+        // domain only: volatile, never persisted to the app's defaults.
+        if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+            unsafe {
+                use objc2_foundation::{NSDictionary, NSNumber, NSUserDefaults};
+                let yes: objc2::rc::Retained<objc2::runtime::AnyObject> = NSNumber::new_bool(true)
+                    .into_super()
+                    .into_super()
+                    .into_super();
+                let dict = NSDictionary::from_retained_objects(
+                    &[
+                        &*NSString::from_str("AppleTextDirection"),
+                        &*NSString::from_str("NSForceRightToLeftWritingDirection"),
+                    ],
+                    &[yes.clone(), yes],
+                );
+                NSUserDefaults::standardUserDefaults().registerDefaults(&dict);
+            }
+        }
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
         // DAY_THEME=light|dark forces the appearance app-wide (themed CI screenshot runs and
