@@ -191,6 +191,25 @@ Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it ins
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
 verification for OpenHarmony-declared apps on devices without Huawei OH code signing.
 
+The whole job — build gates and emulator screenshots — runs on a single **macOS** runner: the
+x86_64 Oniro guest is TCG-emulated on every GitHub runner, and only the macOS ARM hosts run it
+fast enough for the pipeline (first-boot keyguard render → wake + swipe-unlock → walkthrough);
+the ubuntu hosts never got that far. Build steps gate hard; only the emulator boot + walkthrough
+are per-step best-effort. The setup replicates the validated local macOS flow: the Linux
+command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin SDK
+from setup-ohos-sdk supplies the NDK + hdc, and Day's own QEMU launcher boots the image.
+
+Three hard-won facts the scripted channel depends on (each was a silent total failure):
+
+- **`ohos.permission.INTERNET` is required for the LOOPBACK dayscript socket** — without it in
+  `module.json5` the engine's `TcpListener::bind` fails silently and no scripted run can ever
+  connect (the Android manifest needs the same permission for the same reason).
+- **The ability is a singleton**: a second `aa start` foregrounds the existing process, whose
+  engine (if any) listens on the PREVIOUS run's port. `day launch` force-stops the bundle
+  before every start so each run's engine params take effect.
+- **The keyguard returns whenever the display sleeps** and `aa start` is refused while it shows;
+  `day launch` wakes + swipe-unlocks (uitest + uinput) around every launch retry.
+
 ## Follow-ups
 
 Wire the remaining pieces (image / webview / lottie / map), richer accessibility (roles beyond the

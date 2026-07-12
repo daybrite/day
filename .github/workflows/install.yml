@@ -19,7 +19,7 @@ name: install
 
 on:
   schedule:
-    - cron: "17 6 * * *" # daily (UTC); 11 jobs × toolkit installs is too heavy for hourly
+    - cron: "17 * * * *" # daily (UTC)
   workflow_dispatch:
 
 # No repo access needed — everything installs from crates.io / package managers.
@@ -36,17 +36,17 @@ jobs:
       fail-fast: false # report every combo independently — one break shouldn't hide the others
       matrix:
         include:
-          - { combo: macos-appkit, os: macos-latest, toolkit: appkit }
-          - { combo: macos-gtk, os: macos-latest, toolkit: gtk }
-          - { combo: macos-qt, os: macos-latest, toolkit: qt }
-          - { combo: ios-uikit, os: macos-latest, toolkit: uikit }
-          - { combo: linux-gtk, os: ubuntu-24.04, toolkit: gtk }
-          - { combo: linux-qt, os: ubuntu-24.04, toolkit: qt }
-          - { combo: android-widget, os: ubuntu-24.04, toolkit: android }
-          - { combo: ohos-arkui, os: ubuntu-24.04, toolkit: harmonyos }
-          - { combo: windows-winui, os: windows-latest, toolkit: winui }
-          - { combo: windows-qt, os: windows-latest, toolkit: qt }
-          - { combo: windows-gtk, os: windows-latest, toolkit: gtk }
+          - { combo: macos-appkit,   os: macos-latest,   toolkit: appkit }
+          - { combo: macos-gtk,      os: macos-latest,   toolkit: gtk }
+          - { combo: macos-qt,       os: macos-latest,   toolkit: qt }
+          - { combo: ios-uikit,      os: macos-latest,   toolkit: uikit }
+          - { combo: linux-gtk,      os: ubuntu-latest,  toolkit: gtk }
+          - { combo: linux-qt,       os: ubuntu-latest,  toolkit: qt }
+          - { combo: android-widget, os: ubuntu-latest,  toolkit: android }
+          - { combo: ohos-arkui,     os: ubuntu-latest,  toolkit: harmonyos }
+          - { combo: windows-winui,  os: windows-latest, toolkit: winui }
+          - { combo: windows-qt,     os: windows-latest, toolkit: qt }
+          - { combo: windows-gtk,    os: windows-latest, toolkit: gtk }
     runs-on: ${{ matrix.os }}
     defaults:
       run:

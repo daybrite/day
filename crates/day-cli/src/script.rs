@@ -57,21 +57,26 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
     Ok(steps)
 }
 
-/// How long to keep (re)trying the engine connection, in seconds. Default 20; override with
-/// `DAYSCRIPT_CONNECT_SECS` for targets whose cold start outlasts it (a fresh Android emulator
-/// spends 30–60 s in dex verification before the app-side engine can even bind its socket).
-fn connect_window_secs() -> u64 {
+/// How long to keep (re)trying the engine connection, in seconds. Override with
+/// `DAYSCRIPT_CONNECT_SECS`; the default is per-target — 20 s for local targets, 120 s for
+/// HarmonyOS, whose software-emulated (TCG) guest can spend minutes between `aa start` and the
+/// app-side engine binding its socket (and whose forwarded hdc channel drops with transient
+/// connection resets that the roundtrip retry below rides out).
+fn connect_window_secs(kind: TargetKind) -> u64 {
     std::env::var("DAYSCRIPT_CONNECT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(20)
+        .unwrap_or(match kind {
+            TargetKind::HarmonyOs => 120,
+            _ => 20,
+        })
 }
 
-fn connect(port: u16) -> Result<TcpStream, String> {
-    let attempts = connect_window_secs() * 4; // 250 ms apart
+fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
+    let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-            s.set_read_timeout(Some(Duration::from_secs(connect_window_secs().max(20))))
+            s.set_read_timeout(Some(Duration::from_secs(window_secs.max(20))))
                 .ok();
             return Ok(s);
         }
@@ -211,11 +216,32 @@ pub fn run_scripts(
     if target.kind == TargetKind::HarmonyOs {
         // hdc's `adb forward` equivalent: host tcp:port → the app's tcp:port on the emulator/device,
         // so `connect(port)` below reaches the in-app dayscript engine over the networked target.
-        let _ = crate::ohos::hdc()
-            .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
-            .status();
+        // The forward INTERMITTENTLY fails with "[Fail]TCP Port listen failed" when the host-side
+        // hdc server is in a bad state — recycle the server and retry (bounded) rather than letting
+        // the engine connection die on the first flake.
+        for attempt in 1..=5u32 {
+            let out = crate::ohos::hdc()
+                .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
+                .output();
+            let text = out
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout).into_owned()
+                        + &String::from_utf8_lossy(&o.stderr)
+                })
+                .unwrap_or_default();
+            if !text.contains("[Fail]") {
+                break;
+            }
+            eprintln!(
+                "day: hdc fport failed (attempt {attempt}/5): {} — retrying",
+                text.trim()
+            );
+            let _ = crate::ohos::hdc().arg("kill").status();
+            std::thread::sleep(Duration::from_secs(2));
+        }
     }
-    let mut stream = connect(port)?;
+    let window_secs = connect_window_secs(target.kind);
+    let mut stream = connect(port, window_secs)?;
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
 
     // adb-forwarded ports accept host connections BEFORE the device listener exists; a
@@ -224,7 +250,7 @@ pub fn run_scripts(
                      reader: &mut BufReader<TcpStream>,
                      line: &str|
      -> Result<String, String> {
-        let deadline = std::time::Instant::now() + Duration::from_secs(connect_window_secs());
+        let deadline = std::time::Instant::now() + Duration::from_secs(window_secs);
         loop {
             let attempt = (|| -> Result<String, String> {
                 stream
@@ -243,10 +269,8 @@ pub fn run_scripts(
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-                        s.set_read_timeout(Some(Duration::from_secs(
-                            connect_window_secs().max(20),
-                        )))
-                        .ok();
+                        s.set_read_timeout(Some(Duration::from_secs(window_secs.max(20))))
+                            .ok();
                         *reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
                         *stream = s;
                     }

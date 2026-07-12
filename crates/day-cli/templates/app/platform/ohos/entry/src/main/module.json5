@@ -10,6 +10,13 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    // Required even for the LOOPBACK dayscript engine socket (§14.5): OpenHarmony denies
+    // bind/listen without it, and the engine thread dies silently — the scripted-walkthrough
+    // channel never comes up. The Android manifest carries the same permission for the same
+    // reason.
+    "requestPermissions": [
+      { "name": "ohos.permission.INTERNET" }
+    ],
     "abilities": [
       {
         "name": "EntryAbility",

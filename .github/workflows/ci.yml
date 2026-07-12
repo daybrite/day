@@ -836,22 +836,30 @@ jobs:
   # Brings ohos-arkui to parity with the other mobile targets: `day launch -p ohos-arkui --script …`
   # cross-compiles the app to libentry.so, packages + signs the .hap, then installs + launches + drives
   # it on an emulator over hdc, capturing screenshots for the gallery — exactly the Android/iOS flow.
-  # The OpenHarmony SDK (NDK + hdc + RELEASE signing material) comes from openharmony-rs/setup-ohos-sdk
-  # and the Oniro QEMU emulator from openharmony-rs/emulator-action; hvigor + ohpm + node (absent
-  # from the public SDK) come from the command-line-tools. ohos-arkui is a first-class target, so the
-  # build gates HARD (clippy + cross-compile + hvigor assembleHap + sign + doctor). Only the emulator
-  # BOOT + walkthrough steps are best-effort (`continue-on-error` per step) — the GitHub-hosted TCG
-  # emulator is slow and occasionally flaky, which must not be able to red the build.
+  # The OpenHarmony SDK (NDK + hdc + RELEASE signing material) comes from openharmony-rs/setup-ohos-sdk;
+  # the Oniro QEMU emulator boots via Day's own launcher; hvigor + ohpm (absent from the public SDK)
+  # come from the command-line-tools, run under the runner's node.
   ohos-arkui:
-    name: ohos-arkui
-    runs-on: ubuntu-24.04
-    needs: [linux-day]
+    # The ENTIRE HarmonyOS job — build gates AND emulator screenshots — runs on ONE macOS
+    # runner: the x86_64 Oniro guest is TCG-emulated on every GitHub runner arch, and only the
+    # macOS ARM hosts run it fast enough for the pipeline to work end to end (the first-boot
+    # keyguard never even rendered on the ubuntu hosts — `aa start` refused with 10106102 on
+    # every retry, and no screenshot was ever captured). Everything else (NDK cross-compile,
+    # hvigor via node wrappers, sign-hap, hdc) is validated on macOS, so a single host avoids
+    # duplicating the SDK/CLT/toolchain setup across two jobs. Build steps gate HARD; only the
+    # emulator boot + walkthrough are best-effort (per-STEP continue-on-error).
+    name: ohos-arkui (macOS)
+    runs-on: macos-14
+    needs: [macos-day]
+    timeout-minutes: 90
     env:
-      # hvigor + ohpm + node are NOT in the public SDK, so they come from the OpenHarmony
-      # command-line-tools (one self-contained, cached zip; Linux-x64 only). The RELEASE signing
-      # material that sign-hap.mjs signs the .hap with ships in setup-ohos-sdk's own toolchains/lib.
+      # hvigor + ohpm are NOT in the public SDK; they come from the OpenHarmony
+      # command-line-tools. The bundle is Linux-packaged but hvigor/ohpm are pure JS — they run
+      # under the runner's node via two-line wrappers (docs/harmonyos.md), so the same cached
+      # zip serves both host OSes. RELEASE signing material ships in setup-ohos-sdk's
+      # toolchains/lib.
       CLT_VERSION: "5.1.0.840"
-      CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
+      CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
       HARMONY: apps/showcase/platform/ohos
       # Release signing (§20), active on tag pushes only: OHOS keystore/cert/profile.
       # Empty secrets (and every branch/PR run) degrade to the public dev cert.
@@ -871,9 +879,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      # The OpenHarmony SDK — the NDK for the Rust cross-compile + hdc for the emulator. Emits
-      # OHOS_NDK_HOME / OHOS_BASE_SDK_HOME + the `ohos_sdk_native` output; its toolchains/ (hdc) go on
-      # PATH so emulator-action (and `day`) reach the emulator.
+      # The darwin OpenHarmony SDK — the NDK for the Rust cross-compile + hdc for the emulator.
       - uses: openharmony-rs/setup-ohos-sdk@v1
         id: ohos-sdk
         with:
@@ -888,42 +894,35 @@ jobs:
           echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-      # hvigor + ohpm + node are not in the public SDK — fetch them from the command-line-tools
-      # (cached). hvigor compiles the ArkTS host into an UNSIGNED .hap using the CLT's bundled
-      # API-18 OpenHarmony SDK (exposed to hvigor as a versioned OHOS_BASE_SDK_HOME below, matching
-      # build-profile's compileSdkVersion). Then sign-hap.mjs patches it (compileSdkType ->
-      # OpenHarmony, so the emulator skips code-sign verification) and signs it with the RELEASE
-      # material from setup-ohos-sdk's toolchains/lib. The Rust libentry.so is an API-agnostic ELF
-      # built with setup-ohos-sdk's NDK.
-      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm / signing)
+      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
         uses: actions/cache@v4
         with:
           path: ~/ohos-clt
           key: ohos-clt-${{ env.CLT_VERSION }}
-      - name: Install hvigor from the command-line-tools
+      - name: Install hvigor/ohpm from the (Linux) command-line-tools via node wrappers
         run: |
           set -euo pipefail
           C="$HOME/ohos-clt/command-line-tools"
-          if [ ! -x "$C/bin/hvigorw" ]; then
+          if [ ! -f "$C/hvigor/bin/hvigorw.js" ]; then
             mkdir -p ~/ohos-clt && cd ~/ohos-clt
             curl -fSL -o clt.zip "$CLT_URL"
             unzip -q -o clt.zip && rm -f clt.zip
-            chmod -R +x "$C/bin" "$C/tool/node/bin" \
-              "$C/sdk/default/openharmony/toolchains" 2>/dev/null || true
           fi
+          # Only the CLT's bundled tool/node is a Linux ELF — run the pure-JS hvigor/ohpm with
+          # the runner's own node (the validated local macOS recipe, docs/harmonyos.md).
+          mkdir -p "$HOME/ohos-bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/hvigor/bin/hvigorw.js" "$@"\n' "$C" > "$HOME/ohos-bin/hvigorw"
+          printf '#!/usr/bin/env bash\nexec node "%s/ohpm/bin/pm-cli.js" "$@"\n' "$C" > "$HOME/ohos-bin/ohpm"
+          chmod +x "$HOME/ohos-bin/hvigorw" "$HOME/ohos-bin/ohpm"
+          echo "$HOME/ohos-bin" >> "$GITHUB_PATH"
           echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
-          { echo "$C/bin"; echo "$C/tool/node/bin"; } >> "$GITHUB_PATH"
       - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
         run: |
           set -euo pipefail
-          # The showcase's platform/ohos/ project builds as `runtimeOS: "OpenHarmony"` (login-free: no
-          # HMS-only image-transcoder library — see docs/harmonyos.md). In that mode hvigor reads
-          # OHOS_BASE_SDK_HOME and requires the NEW *versioned* SDK layout (<base>/<api>/{ets,js,
-          # native,toolchains,…}). setup-ohos-sdk exports OHOS_BASE_SDK_HOME pointed at its FLAT
-          # layout (…/linux/ets, …), which hvigor rejects with "SDK management mode has changed".
-          # Build a versioned view from the command-line-tools' bundled API-18 OpenHarmony SDK
-          # (matching build-profile's compile/compatibleSdkVersion = 18) and override the var. The
-          # Rust NDK (OHOS_NDK_HOME) + hdc + RELEASE signing material stay on setup-ohos-sdk.
+          # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") reads OHOS_BASE_SDK_HOME and
+          # requires the NEW versioned layout (<base>/<api>/{ets,native,toolchains,…}). Build a
+          # versioned view from the CLT's bundled API-18 OpenHarmony SDK (matching build-profile's
+          # compile/compatibleSdkVersion = 18). The Rust NDK + hdc stay on setup-ohos-sdk.
           OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
           BASE="$HOME/ohos-ohsdk"
           mkdir -p "$BASE"
@@ -951,57 +950,46 @@ jobs:
       - name: Doctor (harmonyos)
         shell: bash
         run: $DAY_BIN doctor --toolkit harmonyos
-      # Boot the Oniro QEMU emulator (x86_64, TCG software emulation, connect-key 127.0.0.1:55555)
-      # with Day's OWN launcher rather than openharmony-rs/emulator-action: the action's QEMU
-      # command runs `-nographic` with NO GPU device, so the guest has no display — the keyguard
-      # can never dismiss, `aa start` is refused with 10106102 ("screen is locked … cannot be
-      # unlocked automatically"), and no screenshot is ever captured. `day ohos emulator launch`
-      # boots the same image with `-device virtio-gpu-pci` + `-display none` (a headless
-      # framebuffer), which lets apps foreground and `uitest screenCap` capture real pixels.
-      # Needs hdc on PATH (from setup-ohos-sdk); qemu comes from apt. The image zip is the same
-      # one the action uses, cached under the same key layout.
+      # ---- Emulator screenshots (best-effort from here to the walkthrough): the TCG guest is
+      # slow and occasionally flaky, so these steps never fail the job — the build gates above
+      # and the pack below stay hard. ----
+      - name: Install QEMU
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
+        run: brew install qemu
       - name: Cache the Oniro emulator image
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@v5
         with:
           path: ~/.cache/oniro-emulator/v6.1
-          key: ${{ runner.os }}-oniro-emulator-v6.1-oniro_emulator.zip
+          key: oniro-emulator-v6.1-oniro_emulator.zip
       - name: Boot the Oniro emulator (day ohos emulator launch --headless)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        continue-on-error: true # emulator boot is best-effort (the build already gated above)
-        shell: bash
+        continue-on-error: true
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y qemu-system-x86 unzip
           ZIP="$HOME/.cache/oniro-emulator/v6.1/oniro_emulator.zip"
           if [ ! -f "$ZIP" ]; then
             mkdir -p "$(dirname "$ZIP")"
             curl -fL -o "$ZIP" \
               "https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip"
           fi
-          rm -rf /tmp/oniro-emulator && mkdir -p /tmp/oniro-emulator
-          unzip -q "$ZIP" -d /tmp/oniro-emulator
-          IMAGES="$(dirname "$(find /tmp/oniro-emulator -name bzImage -print -quit)")"
-          echo "images: $IMAGES"
+          rm -rf "$RUNNER_TEMP/oniro-emulator" && mkdir -p "$RUNNER_TEMP/oniro-emulator"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/oniro-emulator"
+          IMAGES="$(dirname "$(find "$RUNNER_TEMP/oniro-emulator" -name bzImage -print -quit)")"
+          echo "DAY_OHOS_EMULATOR=$IMAGES" >> "$GITHUB_ENV"
           DAY_OHOS_EMULATOR="$IMAGES" $DAY_BIN ohos emulator launch --headless
-      # ONE command, exactly like every other platform's walkthrough (the SAME showcase script the
-      # other targets run): `day launch -p ohos-arkui --script` cross-compiles the showcase to
-      # libentry.so → hvigor assembleHap → sign → hdc install → aa start (the dayscript port/token
-      # ride as `--ps` params) → hdc fport → runs the walkthrough → saves screenshots. Pieces without
-      # an ArkUI renderer render as placeholders; the run continues (a failed assert is non-fatal) so
-      # the working pages still produce gallery screenshots.
-      - name: Emulator walkthrough (ohos-arkui × light/dark/fr)
+      # The same walkthrough as every other target (`day launch` force-stops the singleton app
+      # per cycle so each run's engine port takes effect — docs/harmonyos.md). Two variants
+      # (light/dark) rather than the full eight: each TCG pass is minutes long, and the
+      # gallery's OHOS column falls back per shot for the locale variants.
+      - name: Emulator walkthrough (ohos-arkui × light/dark)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
         working-directory: apps/showcase
-        continue-on-error: true # the walkthrough drives the flaky TCG emulator; the build already gated
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
-            done
-          done
+          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
+          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
       # Release-signing material, tag pushes only: OHOS keystore + cert + provision profile on
       # disk. Without the secrets these no-op and pack signs with the public dev cert (§20).
       - name: Materialize OHOS signing material
@@ -1044,14 +1032,12 @@ jobs:
           name: screenshots-ohos-arkui
           path: apps/showcase/build/day/screenshots/ohos-arkui
           if-no-files-found: warn
-      - name: Upload the .hap + emulator log (post-mortem)
+      - name: Upload the .hap (post-mortem)
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ohos-arkui-artifacts
-          path: |
-            apps/showcase/platform/ohos/entry/build/**/*.hap
-            /tmp/oniro-emulator.log
+          path: apps/showcase/platform/ohos/entry/build/**/*.hap
           if-no-files-found: ignore
 
   # --- Windows desktop: winui (MSVC) ----------------------------------------
