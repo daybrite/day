@@ -123,7 +123,18 @@ jobs:
           mkdir -p ~/ohos-clt && cd ~/ohos-clt
           [ -d command-line-tools ] || { curl -sSL "$CLT_URL" -o clt.zip && unzip -q clt.zip && rm clt.zip; }
           echo "$HOME/ohos-clt/command-line-tools/bin" >> "$GITHUB_PATH"
-          echo "OHOS_BASE_SDK_HOME=$HOME/ohos-clt/command-line-tools/sdk" >> "$GITHUB_ENV"
+          echo "$HOME/ohos-clt/command-line-tools/tool/node/bin" >> "$GITHUB_PATH"
+          echo "DEVECO_SDK_HOME=$HOME/ohos-clt/command-line-tools/sdk" >> "$GITHUB_ENV"
+          # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") REJECTS the CLT's flat sdk
+          # layout with "The SDK management mode has changed" — it wants the NEW versioned view
+          # (<base>/<api>/{ets,native,toolchains,…}). Build one from the CLT's bundled API-18
+          # OpenHarmony SDK (matching the app template's compileSdkVersion), the same recipe as
+          # ci.yml's ohos-arkui job.
+          OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
+          BASE="$HOME/ohos-ohsdk"
+          mkdir -p "$BASE"
+          ln -sfn "$OH" "$BASE/18"
+          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
 
       # windows-qt / windows-gtk build against MSYS2's MINGW64 libraries with the windows-gnu
       # toolchain (same shape as ci.yml's windows-msys2 job).

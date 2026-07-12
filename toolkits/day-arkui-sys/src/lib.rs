@@ -20,6 +20,16 @@ unsafe extern "C" {
     pub fn day_ark_add_child(parent: *mut c_void, child: *mut c_void);
     pub fn day_ark_insert_child(parent: *mut c_void, child: *mut c_void, pos: c_int);
     pub fn day_ark_remove_child(parent: *mut c_void, child: *mut c_void);
+    /// Navigation bridge (docs/navigation.md): mount `page` into a fresh ArkTS NodeContent and
+    /// push a NavDestination for it (0 = ok); pop the top destination; retitle the top; unmount
+    /// a popped page's node from its content before disposal.
+    pub fn day_ark_nav_push(page: *mut c_void, key: u64, title: *const c_char) -> i32;
+    pub fn day_ark_nav_pop();
+    pub fn day_ark_nav_set_title(title: *const c_char);
+    pub fn day_ark_nav_remove(key: u64, page: *mut c_void);
+    /// Menu styling: flex-grow within a Row/Column; a conventional hairline list separator.
+    pub fn day_ark_set_flex_grow(n: *mut c_void, g: f64);
+    pub fn day_ark_menu_separator(n: *mut c_void);
 
     pub fn day_ark_set_text(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_button_label(node: *mut c_void, s: *const c_char);

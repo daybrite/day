@@ -45,6 +45,18 @@ mod imp {
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
     thread_local! {
+        /// Navigation state (docs/navigation.md): the single app nav host (its day NodeId +
+        /// ArkUI node pointer), the host's attached page children in order (page ptr → day
+        /// NodeId, so a Pushed patch can re-home the just-attached last page), pages re-homed
+        /// into ArkTS NodeContents (page ptr → key), how many pops Day itself initiated (a
+        /// `navPopped` for one of those must NOT sync back), and the current native stack depth.
+        static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
+        static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
+        static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        static NAV_EXPECT_POP: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static NAV_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
+        static NAV_PAGE_IDS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         /// The window root Stack + content size, set by [`init`] before `run`.
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
@@ -79,14 +91,19 @@ mod imp {
         static TAP_HANDLES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     }
 
-    /// Build a NAV_MENU: a scrollable column of tappable rows. Each row's tap becomes a synthetic
-    /// click that [`day_arkui_on_event`] translates to `SelectionChanged(index)` against `menu`.
+    /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — leading-aligned
+    /// label, trailing chevron, hairline separators (the HarmonyOS settings-list idiom) — not
+    /// buttons. Each row's tap becomes a synthetic click that [`day_arkui_on_event`] translates
+    /// to `SelectionChanged(index)` against `menu`.
     fn build_nav_menu(menu: NodeId, items: &[String]) -> AHandle {
         let scroll = new_node(K_SCROLL);
         let col = new_node(K_COLUMN);
+        let mut pos: c_int = 0;
         for (i, title) in items.iter().enumerate() {
-            // A Button per row — natively hit-testable (a bare Text doesn't reliably take taps).
-            let row = new_node(K_BUTTON);
+            // A Row (vertically centered children) carries the whole-row click target.
+            let row = new_node(K_ROW);
+            let label = new_node(K_TEXT);
+            let chevron = new_node(K_TEXT);
             let synth = SYNTH.with(|c| {
                 let v = c.get();
                 c.set(v + 1);
@@ -94,11 +111,27 @@ mod imp {
             });
             MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
             unsafe {
-                ffi::day_ark_set_button_label(row.0, cstr(title).as_ptr());
-                ffi::day_ark_set_font_size(row.0, 17.0);
-                ffi::day_ark_style_row(row.0, 48.0);
+                ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
+                ffi::day_ark_set_font_size(label.0, 16.0);
+                ffi::day_ark_set_font_color(label.0, 0xE500_0000);
+                ffi::day_ark_set_flex_grow(label.0, 1.0);
+                ffi::day_ark_set_text(chevron.0, cstr("\u{203a}").as_ptr());
+                ffi::day_ark_set_font_size(chevron.0, 20.0);
+                ffi::day_ark_set_font_color(chevron.0, 0x4D00_0000);
+                ffi::day_ark_insert_child(row.0, label.0, 0);
+                ffi::day_ark_insert_child(row.0, chevron.0, 1);
+                ffi::day_ark_style_row(row.0, 52.0);
                 ffi::day_ark_register_event(row.0, 0, synth);
-                ffi::day_ark_insert_child(col.0, row.0, i as c_int);
+                ffi::day_ark_insert_child(col.0, row.0, pos);
+            }
+            pos += 1;
+            if i + 1 < items.len() {
+                let sep = new_node(K_STACK);
+                unsafe {
+                    ffi::day_ark_menu_separator(sep.0);
+                    ffi::day_ark_insert_child(col.0, sep.0, pos);
+                }
+                pos += 1;
             }
         }
         unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
@@ -159,6 +192,7 @@ mod imp {
     const K_SLIDER: c_int = 5;
     const K_SCROLL: c_int = 6;
     const K_COLUMN: c_int = 7;
+    const K_ROW: c_int = 15;
     const K_LOADING: c_int = 8; // indeterminate spinner
     const K_IMAGE: c_int = 9;
     const K_CANVAS: c_int = 10; // custom node + on-draw
@@ -269,6 +303,40 @@ mod imp {
         let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
         if let Some(source) = source {
             (source.bind_row)(index as usize, cell as day_spec::RawHandle);
+        }
+    }
+
+    /// A NavDestination disappeared on the ArkTS side (docs/navigation.md). For a pop DAY
+    /// initiated (NavPatch::Popped) this is just the acknowledgement; for a NATIVE back
+    /// (system gesture / title-bar back button) sync the route state: the toolkit already
+    /// popped, so the host receives `NavBack { already_popped: true }`.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_nav_popped(_key: u64) {
+        NAV_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        let expected = NAV_EXPECT_POP.with(|e| {
+            let v = e.get();
+            if v > 0 {
+                e.set(v - 1);
+                true
+            } else {
+                false
+            }
+        });
+        if !expected && let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
+            emit(
+                NodeId(host_id),
+                Event::NavBack {
+                    already_popped: true,
+                },
+            );
+        }
+    }
+
+    /// A destination's content area changed (vp): relayout that page in its real bounds.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_nav_area(key: u64, w: f64, h: f64) {
+        if w > 0.0 && h > 0.0 {
+            emit(NodeId(key), Event::FrameChanged(Size::new(w, h)));
         }
     }
 
@@ -442,14 +510,20 @@ mod imp {
                         None => new_node(K_LOADING),
                     }
                 }
-                // Navigation host + page: plain Stacks. In stack presentation (mobile) day-core's
-                // NavLayout gives every page the full host bounds, and ArkUI's Stack draws the last
-                // child on top — so a pushed detail page covers the menu. Pages carry an opaque
-                // background so the covered page doesn't bleed through.
-                kinds::NAV => new_node(K_STACK),
+                // Navigation host + pages (docs/navigation.md): the host Stack shows the ROOT
+                // page; every LATER page is re-homed into an ArkTS `NavDestination` (HarmonyOS's
+                // own Navigation/NavPathStack) when its NavPatch::Pushed arrives — native push
+                // transition, title bar, and system back gesture included. Pages carry an opaque
+                // background so transitions don't bleed.
+                kinds::NAV => {
+                    let n = new_node(K_STACK);
+                    NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
+                    n
+                }
                 kinds::NAV_PAGE => {
                     let n = new_node(K_STACK);
                     unsafe { ffi::day_ark_set_bg_color(n.0, 0xFF_FF_FF_FF) };
+                    NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }
                 // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
@@ -513,6 +587,54 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                // Navigation (docs/navigation.md): drive the ArkTS Navigation/NavPathStack.
+                kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        match p {
+                            NavPatch::Pushed { title } => {
+                                // The just-attached LAST page child becomes a NavDestination:
+                                // detach it from the host Stack and mount it into the fresh
+                                // NodeContent the ArkTS push callback returns.
+                                let last = NAV_ATTACHED.with(|v| v.borrow().last().copied());
+                                if let Some((page, key)) = last {
+                                    unsafe {
+                                        ffi::day_ark_remove_child(h.0, page as *mut _);
+                                    }
+                                    let rc = unsafe {
+                                        ffi::day_ark_nav_push(
+                                            page as *mut _,
+                                            key,
+                                            cstr(title).as_ptr(),
+                                        )
+                                    };
+                                    if rc == 0 {
+                                        NAV_PUSHED.with(|m| m.borrow_mut().insert(page, key));
+                                        NAV_DEPTH.with(|d| d.set(d.get() + 1));
+                                    } else {
+                                        // No ArkTS bridge (old host page): fall back to the
+                                        // stacked-children presentation.
+                                        unsafe {
+                                            ffi::day_ark_add_child(h.0, page as *mut _);
+                                        }
+                                    }
+                                }
+                            }
+                            NavPatch::Popped => {
+                                // Pop natively only if a destination is actually up and not
+                                // already popped by a native back (the NavBack sync path).
+                                let outstanding =
+                                    NAV_DEPTH.with(|d| d.get()) > NAV_EXPECT_POP.with(|e| e.get());
+                                if outstanding {
+                                    NAV_EXPECT_POP.with(|e| e.set(e.get() + 1));
+                                    unsafe { ffi::day_ark_nav_pop() };
+                                }
+                            }
+                            NavPatch::Title(t) => unsafe {
+                                ffi::day_ark_nav_set_title(cstr(t).as_ptr());
+                            },
+                        }
+                    }
+                }
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(Some(c))) =
                         patch.downcast_ref::<ContainerPatch>()
@@ -589,6 +711,9 @@ mod imp {
 
         fn release(&mut self, h: AHandle) {
             let key = h.0 as usize;
+            NAV_PAGE_IDS.with(|m| {
+                m.borrow_mut().remove(&key);
+            });
             SLIDER_RANGE.with(|m| {
                 m.borrow_mut().remove(&key);
             });
@@ -609,10 +734,27 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &AHandle, child: &AHandle, index: usize) {
+            // Track page attachment order under the nav host: the next NavPatch::Pushed
+            // re-homes the most recently attached page into a NavDestination.
+            if NAV_HOST
+                .with(|c| c.get())
+                .is_some_and(|(_, hp)| hp == parent.0 as usize)
+                && let Some(id) =
+                    NAV_PAGE_IDS.with(|m| m.borrow().get(&(child.0 as usize)).copied())
+            {
+                NAV_ATTACHED.with(|v| v.borrow_mut().push((child.0 as usize, id)));
+            }
             unsafe { ffi::day_ark_insert_child(parent.0, child.0, index as c_int) };
         }
 
         fn remove(&mut self, parent: &AHandle, child: &AHandle) {
+            let cp = child.0 as usize;
+            NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != cp));
+            if let Some(key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&cp)) {
+                // The page lives in an ArkTS NodeContent (NavDestination), not under the host.
+                unsafe { ffi::day_ark_nav_remove(key, child.0) };
+                return;
+            }
             unsafe { ffi::day_ark_remove_child(parent.0, child.0) };
         }
 

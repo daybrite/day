@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <string>
 
@@ -19,6 +20,7 @@
 #include <arkui/native_node.h>
 #include <arkui/native_node_napi.h>
 #include <arkui/native_type.h>
+#include <hilog/log.h>
 #include <napi/native_api.h>
 #include <rawfile/raw_file.h>
 #include <rawfile/raw_file_manager.h>
@@ -62,6 +64,19 @@ extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell
 // Held as a napi_ref because HarmonyOS file pickers live in the ArkTS @kit.CoreFileKit layer,
 // not the native NodeAPI. Called on the JS thread (day's loop runs there), so no threadsafe fn.
 static napi_ref g_file_picker = nullptr;
+
+// ---- Navigation bridge (docs/navigation.md) ---------------------------------
+// Day drives the ArkTS `Navigation` / `NavPathStack` — HarmonyOS's own navigation system — the
+// way it drives androidx fragments on Android: ArkTS registers push/pop/title callbacks
+// (`registerNav`), each pushed Day page is mounted into a fresh ArkTS `NodeContent` rendered
+// inside a `NavDestination` (system back gesture, title bar, transitions all native), and the
+// ArkTS side reports destination disappearance (`navPopped`) + content size (`navPageArea`).
+static napi_ref g_nav_push = nullptr;  // (key: number, title: string) => NodeContent
+static napi_ref g_nav_pop = nullptr;   // () => void — pathStack.pop()
+static napi_ref g_nav_title = nullptr; // (title: string) => void — retitle the top destination
+static std::map<uint64_t, ArkUI_NodeContentHandle> g_nav_contents;
+extern "C" void day_arkui_nav_popped(uint64_t key);
+extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
 
 // ---- main-thread posting (uv_async on the JS event loop) -------------------
 struct PostItem {
@@ -139,6 +154,7 @@ static ArkUI_NodeType kind_map(int32_t k) {
         case 12: return ARKUI_NODE_SWIPER;    // tabs pager
         case 13: return ARKUI_NODE_LIST;      // recycling list (NodeAdapter)
         case 14: return ARKUI_NODE_LIST_ITEM; // one recycled list row
+        case 15: return ARKUI_NODE_ROW;       // horizontal flow (menu rows: label + chevron)
         default: return ARKUI_NODE_STACK;
     }
 }
@@ -374,6 +390,80 @@ void day_ark_present_file(uint64_t req, int32_t mode, const char* name, const ch
         day_arkui_on_event(req, 5, 0.0, "");
     }
     napi_close_handle_scope(g_env, scope);
+}
+
+// Push one Day page into the ArkTS Navigation: asks the registered push callback for a fresh
+// NodeContent (the callback also pushes the NavDestination onto the NavPathStack) and mounts
+// the page's native node into it. JS thread only. Returns 0 on success.
+int32_t day_ark_nav_push(void* page, uint64_t key, const char* title) {
+    if (!g_env || !g_nav_push) return -1;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    int32_t rc = -1;
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_nav_push, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[2];
+        napi_create_double(g_env, (double)key, &args[0]);
+        napi_create_string_utf8(g_env, title ? title : "", NAPI_AUTO_LENGTH, &args[1]);
+        napi_value ret = nullptr;
+        if (napi_call_function(g_env, undef, cb, 2, args, &ret) == napi_ok && ret) {
+            ArkUI_NodeContentHandle content = nullptr;
+            OH_ArkUI_GetNodeContentFromNapiValue(g_env, ret, &content);
+            if (content) {
+                g_nav_contents[key] = content;
+                OH_ArkUI_NodeContent_AddNode(content, (ArkUI_NodeHandle)page);
+                rc = 0;
+            }
+        }
+    }
+    napi_close_handle_scope(g_env, scope);
+    return rc;
+}
+
+// Pop the top NavDestination (Day-initiated: programmatic route change). JS thread only.
+void day_ark_nav_pop(void) {
+    if (!g_env || !g_nav_pop) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_nav_pop, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 0, nullptr, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
+// Retitle the top destination (NavPatch::Title). JS thread only.
+void day_ark_nav_set_title(const char* title) {
+    if (!g_env || !g_nav_title) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_nav_title, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value arg;
+        napi_create_string_utf8(g_env, title ? title : "", NAPI_AUTO_LENGTH, &arg);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 1, &arg, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
+// Unmount a popped page's node from its NodeContent (before Day disposes the node).
+void day_ark_nav_remove(uint64_t key, void* page) {
+    auto it = g_nav_contents.find(key);
+    if (it != g_nav_contents.end()) {
+        OH_ArkUI_NodeContent_RemoveNode(it->second, (ArkUI_NodeHandle)page);
+        g_nav_contents.erase(it);
+    }
 }
 
 // ---- bundled data resources (§18.3): app rawfile store ---------------------
@@ -725,6 +815,28 @@ void day_ark_list_scroll_to_end(void* node) {
 }
 
 // A NAV_MENU / tab-bar row: full width, fixed height, left-aligned text with padding.
+// Flex-grow within a Row/Column (the menu label grows so the chevron hugs the trailing edge).
+void day_ark_set_flex_grow(void* n, double g) {
+    ArkUI_NumberValue v;
+    v.f32 = (float)g;
+    ArkUI_AttributeItem it{};
+    it.value = &v;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_FLEX_GROW, &it);
+}
+
+// A conventional list separator: full-width hairline, faint neutral.
+void day_ark_menu_separator(void* n) {
+    ArkUI_NumberValue wp[1];
+    wp[0].f32 = 1.0f;
+    ArkUI_AttributeItem wit{};
+    wit.value = wp;
+    wit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_WIDTH_PERCENT, &wit);
+    set_f32(n, NODE_HEIGHT, 0.7f);
+    set_u32(n, NODE_BACKGROUND_COLOR, 0x14000000u);
+}
+
 void day_ark_style_row(void* n, double height_vp) {
     ArkUI_NumberValue wp[1];
     wp[0].f32 = 1.0f; // 100% of the parent width
@@ -847,6 +959,55 @@ static napi_value OnFileResult(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ArkTS registers its Navigation bridge: `registerNav(push, pop, setTitle)` — see the
+// Navigation-bridge comment at the top. Re-registration replaces the callbacks.
+static napi_value RegisterNav(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    napi_ref* refs[3] = {&g_nav_push, &g_nav_pop, &g_nav_title};
+    for (size_t i = 0; i < 3; i++) {
+        if (*refs[i]) {
+            napi_delete_reference(env, *refs[i]);
+            *refs[i] = nullptr;
+        }
+        if (i < argc && argv[i]) napi_create_reference(env, argv[i], 1, refs[i]);
+    }
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// A NavDestination disappeared (system back gesture, title-bar back button, or a Day-initiated
+// pop finishing): `navPopped(key)`.
+static napi_value NavPopped(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double key = 0;
+    napi_get_value_double(env, argv[0], &key);
+    day_arkui_nav_popped((uint64_t)key);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// A destination's content area (vp): `navPageArea(key, w, h)` — Day lays the page out in it.
+static napi_value NavPageArea(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double key = 0, w = 0, h = 0;
+    napi_get_value_double(env, argv[0], &key);
+    napi_get_value_double(env, argv[1], &w);
+    napi_get_value_double(env, argv[2], &h);
+    day_arkui_nav_area((uint64_t)key, w, h);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 // Set a process environment variable from ArkTS: `setEnv(key, value)`. The launcher (`day launch`
 // / hdc `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive)
 // this way, and the ArkTS EntryAbility applies them BEFORE `start()` runs `day_script::init()`.
@@ -878,6 +1039,12 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_create_function(env, "registerResourceManager", NAPI_AUTO_LENGTH, RegisterResourceManager,
                          nullptr, &fn);
     napi_set_named_property(env, exports, "registerResourceManager", fn);
+    napi_create_function(env, "registerNav", NAPI_AUTO_LENGTH, RegisterNav, nullptr, &fn);
+    napi_set_named_property(env, exports, "registerNav", fn);
+    napi_create_function(env, "navPopped", NAPI_AUTO_LENGTH, NavPopped, nullptr, &fn);
+    napi_set_named_property(env, exports, "navPopped", fn);
+    napi_create_function(env, "navPageArea", NAPI_AUTO_LENGTH, NavPageArea, nullptr, &fn);
+    napi_set_named_property(env, exports, "navPageArea", fn);
     return exports;
 }
 
