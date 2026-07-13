@@ -493,6 +493,14 @@ extern "C" fn on_menu_action(id: u64) {
     emit_window(Event::MenuAction(id));
 }
 
+/// Resolve a bundled image NAME to a loadable file path (or "" if it doesn't resolve).
+/// Used for per-row nav-menu icons, which the shim loads + tints to the palette text color.
+fn icon_file_path(name: &str) -> String {
+    day_spec::resource::resolve_image_file(name)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
 /// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
@@ -751,7 +759,20 @@ impl Toolkit for Qt {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let w = ffi::day_qt_navlist_new(id.0, nav_menu_changed);
                     let joined = p.items.join("\u{1f}");
-                    ffi::day_qt_navlist_set_items(w, cstr(&joined).as_ptr());
+                    // Parallel per-row icon file paths (empty entry = no icon). Resolve the
+                    // bundled image NAME to a loadable file path on the Rust side; the shim
+                    // loads a QPixmap, tints it to the palette text color, and setIcon()s it.
+                    let icons_joined = p
+                        .icons
+                        .iter()
+                        .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
+                    ffi::day_qt_navlist_set_items(
+                        w,
+                        cstr(&joined).as_ptr(),
+                        cstr(&icons_joined).as_ptr(),
+                    );
                     ffi::day_qt_navlist_set_selected(
                         w,
                         p.selected.map(|i| i as c_int).unwrap_or(-1),
@@ -1174,6 +1195,10 @@ impl Toolkit for Qt {
                     Size::new(width.ceil(), hh.ceil())
                 }
             }
+            // Buttons hug their text (sizeHint = content + chrome) like every other
+            // toolkit: the generic arm would swallow a COLUMN's cross-axis width proposal
+            // and stretch the button across the full content span.
+            kinds::BUTTON => Size::new(w.ceil(), hh.ceil()),
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), hh.max(20.0)),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), hh.max(24.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 2.0),
@@ -1320,6 +1345,9 @@ impl Toolkit for Qt {
                 }
             }
         }
+        // An in-window bar (Linux/Windows) now has its real height: reserve its strip so the
+        // content area — and day's layout — sit below it instead of underneath it.
+        unsafe { ffi::day_qt_window_menubar_done(self.window) };
     }
 
     fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

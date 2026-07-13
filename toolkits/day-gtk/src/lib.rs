@@ -396,6 +396,61 @@ fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
 
+/// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
+/// foreground so it's visible in BOTH light and dark mode — a raw black PNG is invisible on the
+/// dark-mode sidebar. Every RGB pixel is recolored to the foreground; the source ALPHA is kept as
+/// the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage` or `None`
+/// if the name doesn't resolve / the file can't be decoded.
+fn tinted_sidebar_icon(name: &str) -> Option<gtk4::Image> {
+    let path = day_spec::resource::resolve_image_file(name)?;
+    // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template PNGs
+    // normally already carry alpha; add_alpha is a cheap no-op-shaped copy otherwise).
+    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
+    let pixbuf = if pixbuf.has_alpha() {
+        pixbuf
+    } else {
+        pixbuf.add_alpha(false, 0, 0, 0).ok()?
+    };
+
+    // Foreground per theme: near-white in dark mode, near-black in light mode.
+    let dark = adw::StyleManager::default().is_dark();
+    let (fr, fg, fb) = if dark {
+        (0xffu8, 0xffu8, 0xffu8)
+    } else {
+        (0x1au8, 0x1au8, 0x1au8)
+    };
+
+    let width = pixbuf.width() as usize;
+    let height = pixbuf.height() as usize;
+    let rowstride = pixbuf.rowstride() as usize;
+    let n_channels = pixbuf.n_channels() as usize;
+    // Recolor in place: overwrite each pixel's RGB with the foreground, preserving its alpha.
+    // `pixels()` hands back the live pixel buffer; scoped so the borrow ends before we hand the
+    // pixbuf to the texture.
+    if n_channels >= 4 {
+        // SAFETY: the returned slice aliases the pixbuf's own pixel store, which we exclusively
+        // own here; we only touch bytes inside the documented rowstride/width bounds.
+        let pixels = unsafe { pixbuf.pixels() };
+        for y in 0..height {
+            let row = y * rowstride;
+            for x in 0..width {
+                let i = row + x * n_channels;
+                if i + 3 < pixels.len() {
+                    pixels[i] = fr;
+                    pixels[i + 1] = fg;
+                    pixels[i + 2] = fb;
+                    // pixels[i + 3] (alpha) is left untouched — it is the glyph mask.
+                }
+            }
+        }
+    }
+
+    let texture = gtk4::gdk::Texture::for_pixbuf(&pixbuf);
+    let image = gtk4::Image::from_paintable(Some(&texture));
+    image.set_pixel_size(20);
+    Some(image)
+}
+
 thread_local! {
     /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
     /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
@@ -1104,10 +1159,26 @@ impl Toolkit for Gtk {
                 // The standard GNOME sidebar treatment.
                 listbox.add_css_class("navigation-sidebar");
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
-                for item in &p.items {
+                for (i, item) in p.items.iter().enumerate() {
                     let label = gtk4::Label::new(Some(item));
                     label.set_halign(gtk4::Align::Start);
-                    listbox.append(&label);
+                    // An OPTIONAL bundled template icon to the LEFT of the title (docs: NavMenuProps
+                    // `icons`). Rows without an icon (or an unresolved name) stay label-only, so the
+                    // About/other rows still render when some icon is missing.
+                    let icon = p
+                        .icons
+                        .get(i)
+                        .and_then(|o| o.as_deref())
+                        .and_then(tinted_sidebar_icon);
+                    if let Some(image) = icon {
+                        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+                        image.set_margin_start(2);
+                        row.append(&image);
+                        row.append(&label);
+                        listbox.append(&row);
+                    } else {
+                        listbox.append(&label);
+                    }
                 }
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 {
@@ -1165,6 +1236,11 @@ impl Toolkit for Gtk {
             kinds::BUTTON => {
                 let p = props.downcast_ref::<ButtonProps>().unwrap();
                 let btn = gtk4::Button::with_label(&p.title);
+                // Prominent = Adwaita's accent-filled suggested action. Bordered is the stock
+                // GTK button look already.
+                if p.style == day_spec::props::ButtonStyleSpec::Prominent {
+                    btn.add_css_class("suggested-action");
+                }
                 btn.connect_clicked(move |_| emit(id, Event::Pressed));
                 btn.upcast()
             }

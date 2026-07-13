@@ -41,6 +41,7 @@ pub(crate) fn stack_page() -> AnyPiece {
     let root = column((
         label(tr("stack-root-body")).id("stack-root"),
         button(tr("stack-push"))
+            .prominent()
             .action(move || push(path))
             .id("stack-push"),
         // An ABSOLUTE route with query params (docs/navigation.md), built typed: it anchors
@@ -78,6 +79,7 @@ pub(crate) fn stack_page() -> AnyPiece {
                 label(tr("stack-detail-body")),
                 hint,
                 button(tr("stack-push"))
+                    .prominent()
                     .action(move || push(path))
                     .id("stack-deeper"),
             ))

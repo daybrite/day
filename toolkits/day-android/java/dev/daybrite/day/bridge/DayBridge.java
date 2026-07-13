@@ -416,7 +416,8 @@ public final class DayBridge {
     public static void addChild(View parent, View child) {
         if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
         if (parent instanceof DayTabs) {
-            ((DayTabs) parent).addTab(child, (String) child.getTag());
+            String[] meta = (String[]) child.getTag();
+            ((DayTabs) parent).addTab(child, meta[0], meta.length > 1 ? meta[1] : null);
             return;
         }
         View target = contentOf(parent);
@@ -464,9 +465,10 @@ public final class DayBridge {
 
     // Tabs (docs/tabs.md): a DayTabs strip; each page is a DayFixed carrying its title as a tag.
     public static View makeTabs(long id, int initial) { return new DayTabs(ctx, id, initial); }
-    public static View makeTabPage(final long id, String title) {
+    public static View makeTabPage(final long id, String title, String icon) {
         DayFixed page = new DayFixed(ctx);
-        page.setTag(title);
+        // Carry both the label and the bundled icon NAME ("" = none) to addTab via the view tag.
+        page.setTag(new String[]{title, icon});
         page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override public void onLayoutChange(View v, int l, int t, int r, int b,
                     int ol, int ot, int or2, int ob) {
@@ -479,14 +481,18 @@ public final class DayBridge {
         return page;
     }
     public static void setTabsSelected(View tabs, int index) { ((DayTabs) tabs).select(index); }
-    /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. */
-    public static View makeNavMenu(final long id, String joinedItems) {
+    /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. `joinedIcons`
+     *  is a parallel, index-aligned list of bundled image NAMES ("" = no icon), shown as a tinted
+     *  leading drawable on each row — the Material navigation-drawer idiom. */
+    public static View makeNavMenu(final long id, String joinedItems, String joinedIcons) {
         android.widget.LinearLayout list = new android.widget.LinearLayout(ctx);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
         android.util.TypedValue tv = new android.util.TypedValue();
         ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
         float d = ctx.getResources().getDisplayMetrics().density;
+        // KeepEmptyParts (limit -1) so icon names stay index-aligned with rows lacking an icon.
+        String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
         for (int i = 0; i < items.length; i++) {
             final int index = i;
             TextView row = new TextView(ctx);
@@ -497,6 +503,18 @@ public final class DayBridge {
             row.setPadding((int) (16 * d), 0, (int) (16 * d), 0);
             row.setBackgroundResource(tv.resourceId);
             row.setClickable(true);
+            // Leading icon: a template glyph tinted to the row's text colour (so it reads in light
+            // and dark), 24dp, with padding before the label — the Material nav-drawer idiom.
+            String iconName = i < icons.length ? icons[i] : "";
+            android.graphics.drawable.Drawable icon = drawableByName(ctx, iconName);
+            if (icon != null) {
+                int sz = (int) (24 * d);
+                icon = icon.mutate();
+                icon.setBounds(0, 0, sz, sz);
+                icon.setTint(row.getCurrentTextColor());
+                row.setCompoundDrawablesRelative(icon, null, null, null);
+                row.setCompoundDrawablePadding((int) (16 * d));
+            }
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     nativeOnEvent(id, 4, index, null); // kind 4 = SelectionChanged
@@ -521,7 +539,7 @@ public final class DayBridge {
     /** A native alert / confirm / action sheet; onClick reports the spec button index. */
     public static void present(final long req, boolean sheet, String title, String message,
             String buttonsJoined, String rolesJoined) {
-        final String[] labels = buttonsJoined.isEmpty() ? new String[0] : buttonsJoined.split("");
+        final String[] labels = buttonsJoined.isEmpty() ? new String[0] : buttonsJoined.split("\u001f");
         MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
         b.setTitle(title);
         if (sheet) {
@@ -752,7 +770,7 @@ public final class DayBridge {
     private static String[] fileMimeTypes(String filtersJoined) {
         if (filtersJoined == null || filtersJoined.isEmpty()) return new String[0];
         java.util.LinkedHashSet<String> mimes = new java.util.LinkedHashSet<>();
-        for (String f : filtersJoined.split("")) {
+        for (String f : filtersJoined.split("\u001f")) {
             int bar = f.indexOf('|');
             String exts = bar >= 0 ? f.substring(bar + 1) : "";
             for (String e : exts.split(",")) if (!e.isEmpty()) mimes.add(mimeForExt(e));
@@ -823,6 +841,23 @@ public final class DayBridge {
         }
         return iv;
     }
+    /** Load a bundled image by NAME (docs/navigation.md) as a mutable Drawable: a processed
+     *  `res/drawable/<name>` resource (aapt2-crunched), else a raw asset by path; null if neither
+     *  resolves or `name` is empty. Callers tint it (nav rows) or let the widget tint it (tabs). */
+    static android.graphics.drawable.Drawable drawableByName(Context c, String name) {
+        if (name == null || name.isEmpty()) return null;
+        int id = c.getResources().getIdentifier(name, "drawable", c.getPackageName());
+        if (id != 0) return c.getResources().getDrawable(id, c.getTheme());
+        try {
+            android.graphics.Bitmap bm =
+                    android.graphics.BitmapFactory.decodeStream(c.getAssets().open(name));
+            if (bm != null) return new android.graphics.drawable.BitmapDrawable(c.getResources(), bm);
+        } catch (Exception e) {
+            // fall through to null
+        }
+        return null;
+    }
+
     /** Accessibility (§13): contentDescription = label (TalkBack reads it); importantForAccessibility
      *  hides decorative elements + their subtree; stateDescription = value on API 30+. */
     public static void setA11y(View v, String label, String value, boolean hidden) {

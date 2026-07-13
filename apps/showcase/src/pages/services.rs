@@ -32,6 +32,7 @@ fn clipboard_section() -> impl Piece {
             .id("clipboard-field"),
         row((
             button(tr("clipboard-copy"))
+                .bordered()
                 .action(move || {
                     let ok = draft.with(|t| day_part_clipboard::set_text(t));
                     let msg = if ok {
@@ -43,6 +44,7 @@ fn clipboard_section() -> impl Piece {
                 })
                 .id("clipboard-copy"),
             button(tr("clipboard-paste"))
+                .bordered()
                 .action(move || match day_part_clipboard::get_text() {
                     Some(text) => {
                         pasted.set(text);
@@ -71,6 +73,7 @@ fn prefs_section() -> impl Piece {
             .id("prefs-field"),
         row((
             button(tr("prefs-save"))
+                .bordered()
                 .action(move || {
                     let ok = field.with(|t| day_part_prefs::set(KEY, t));
                     let msg = if ok {
@@ -82,6 +85,7 @@ fn prefs_section() -> impl Piece {
                 })
                 .id("prefs-save"),
             button(tr("prefs-load"))
+                .bordered()
                 .action(move || match day_part_prefs::get(KEY) {
                     Some(v) => {
                         value.set(v);
@@ -94,6 +98,7 @@ fn prefs_section() -> impl Piece {
                 })
                 .id("prefs-load"),
             button(tr("prefs-clear"))
+                .bordered()
                 .action(move || {
                     day_part_prefs::remove(KEY);
                     value.set(tr("prefs-empty").format());
@@ -119,6 +124,7 @@ fn haptic_button(
     last: Signal<String>,
 ) -> AnyPiece {
     button(title)
+        .bordered()
         .action(move || {
             day_part_haptics::play(h);
             last.set(
@@ -191,6 +197,7 @@ fn files_section() -> impl Piece {
             .id("files-content"),
         row((
             button(tr("files-open"))
+                .bordered()
                 .action(move || {
                     day::task(async move {
                         match open_file()
@@ -212,6 +219,7 @@ fn files_section() -> impl Piece {
                 })
                 .id("btn-open-file"),
             button(tr("files-save"))
+                .bordered()
                 .action(move || {
                     day::task(async move {
                         let data = content.get_untracked().into_bytes();

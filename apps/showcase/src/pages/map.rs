@@ -14,9 +14,11 @@ pub(crate) fn map_page() -> AnyPiece {
         label(tr("map-caption")).id("map-caption"),
         row((
             button(tr("map-sf"))
+                .bordered()
                 .action(move || center.set(SF))
                 .id("map-sf"),
             button(tr("map-nyc"))
+                .bordered()
                 .action(move || center.set(NYC))
                 .id("map-nyc"),
         ))

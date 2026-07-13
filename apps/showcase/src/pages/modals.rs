@@ -10,6 +10,7 @@ pub(crate) fn modals_page() -> AnyPiece {
     column((
         heading(tr("nav-modals"), "modals-title", None),
         button(tr("modal-alert"))
+            .bordered()
             .action(move || {
                 day::task(async move {
                     alert(tr("alert-title"))
@@ -22,6 +23,7 @@ pub(crate) fn modals_page() -> AnyPiece {
             })
             .id("btn-alert"),
         button(tr("modal-confirm"))
+            .bordered()
             .action(move || {
                 day::task(async move {
                     let ok = confirm(tr("confirm-title"))
@@ -32,6 +34,7 @@ pub(crate) fn modals_page() -> AnyPiece {
             })
             .id("btn-confirm"),
         button(tr("modal-delete"))
+            .bordered()
             .action(move || {
                 day::task(async move {
                     let ok = confirm(tr("delete-title"))
@@ -44,6 +47,7 @@ pub(crate) fn modals_page() -> AnyPiece {
             })
             .id("btn-delete"),
         button(tr("modal-sheet"))
+            .bordered()
             .action(move || {
                 day::task(async move {
                     let choice = Alert::new(tr("flavor-title"))
@@ -61,6 +65,7 @@ pub(crate) fn modals_page() -> AnyPiece {
             })
             .id("btn-sheet"),
         button(tr("modal-prompt"))
+            .bordered()
             .action(move || {
                 day::task(async move {
                     let name = prompt(tr("name-placeholder")).await;

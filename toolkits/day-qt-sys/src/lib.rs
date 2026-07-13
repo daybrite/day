@@ -160,7 +160,9 @@ unsafe extern "C" {
     /// Show/hide the back header + set its title (activates layout synchronously).
     pub fn day_qt_nav_header_update(splitter: *mut c_void, visible: c_int, title: *const c_char);
     pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
-    pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char);
+    /// `joined` = row titles (U+001F-separated). `icons` = a PARALLEL list of icon file
+    /// paths (also U+001F-separated, empty entry = no icon for that row).
+    pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char, icons: *const c_char);
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     pub fn day_qt_splitter_new() -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
@@ -176,6 +178,7 @@ unsafe extern "C" {
     // Menus (docs/menus.md): a flat builder walked from the day-neutral MenuItem tree.
     pub fn day_qt_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_qt_window_menubar(win: *mut c_void) -> *mut c_void;
+    pub fn day_qt_window_menubar_done(win: *mut c_void);
     pub fn day_qt_menubar_add_menu(bar: *mut c_void, label: *const c_char) -> *mut c_void;
     pub fn day_qt_menu_new() -> *mut c_void;
     pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;

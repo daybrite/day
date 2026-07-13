@@ -19,12 +19,15 @@ pub(crate) fn media_page() -> AnyPiece {
         heading(tr("nav-media"), "media-title", None),
         row((
             button(tr("media-play"))
+                .prominent()
                 .action(move || play.notify())
                 .id("media-play"),
             button(tr("media-pause"))
+                .bordered()
                 .action(move || pause.notify())
                 .id("media-pause"),
             button(tr("media-load"))
+                .bordered()
                 .action(move || load.notify())
                 .id("media-load"),
         ))

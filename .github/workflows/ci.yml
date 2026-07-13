@@ -822,6 +822,10 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
+          # Without a profile avdmanager creates a legacy 320×640 device — every screenshot
+          # then reads comically oversized next to the ~400pt iPhone shots in the gallery.
+          # pixel_5 is 393×851dp: the closest stock profile to the iOS simulator form factor.
+          profile: pixel_5
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
@@ -991,13 +995,23 @@ jobs:
       # per cycle so each run's engine port takes effect — docs/harmonyos.md). Two variants
       # (light/dark) rather than the full eight: each TCG pass is minutes long, and the
       # gallery's OHOS column falls back per shot for the locale variants.
-      - name: Emulator walkthrough (ohos-arkui × light/dark)
+      - name: Emulator walkthrough (ohos-arkui × light/dark × en/fr/ar/zh-CN)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true
         working-directory: apps/showcase
+        # The same theme × locale matrix as the other walkthrough legs (the gallery's non-English
+        # ohos tiles fell back to the English captures before these variants existed). Every
+        # variant is individually best-effort — one TCG flake must not skip the remaining runs.
         run: |
-          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant light --env DAY_THEME=light
-          $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
+          for TH in light dark; do
+            for LOC in en fr ar zh-CN; do
+              VAR=$TH; EXTRA=""
+              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
+              $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml \
+                --variant $VAR --env DAY_THEME=$TH $EXTRA \
+                || echo "::warning::ohos walkthrough variant $VAR failed"
+            done
+          done
       # Release-signing material, tag pushes only: OHOS keystore + cert + provision profile on
       # disk. Without the secrets these no-op and pack signs with the public dev cert (§20).
       - name: Materialize OHOS signing material

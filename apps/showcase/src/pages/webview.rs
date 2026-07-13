@@ -22,6 +22,7 @@ pub(crate) fn webview_page() -> AnyPiece {
                 .placeholder(tr("webview-url-hint"))
                 .id("webview-url"),
             button(tr("webview-go"))
+                .prominent()
                 .action(move || go.notify())
                 .id("webview-go"),
         ))
@@ -29,15 +30,19 @@ pub(crate) fn webview_page() -> AnyPiece {
         // History controls. "Stop" is the demo's cancel.
         row((
             button(tr("webview-back"))
+                .bordered()
                 .action(move || back.notify())
                 .id("webview-back"),
             button(tr("webview-forward"))
+                .bordered()
                 .action(move || forward.notify())
                 .id("webview-forward"),
             button(tr("webview-stop"))
+                .bordered()
                 .action(move || stop.notify())
                 .id("webview-stop"),
             button(tr("webview-reload"))
+                .bordered()
                 .action(move || reload.notify())
                 .id("webview-reload"),
         ))

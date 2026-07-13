@@ -174,6 +174,9 @@ pub fn render<S: serde::Serialize>(
         if let Some(rest) = path.strip_suffix("_gitignore") {
             path = format!("{rest}.gitignore");
         }
+        if let Some(rest) = path.strip_prefix("_vscode/") {
+            path = format!(".vscode/{rest}");
+        }
         let bytes = match std::str::from_utf8(&f.bytes) {
             Ok(text) => hb
                 .render_template(text, ctx)

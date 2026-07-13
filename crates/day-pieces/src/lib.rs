@@ -252,18 +252,35 @@ impl Piece for Label {
 pub struct Button {
     title: TextSource,
     action: Option<Rc<dyn Fn()>>,
+    native_style: day_spec::props::ButtonStyleSpec,
 }
 
 pub fn button<M>(title: impl IntoText<M>) -> Button {
     Button {
         title: title.into_text(),
         action: None,
+        native_style: day_spec::props::ButtonStyleSpec::Automatic,
     }
 }
 
 impl Button {
     pub fn action(mut self, f: impl Fn() + 'static) -> Self {
         self.action = Some(Rc::new(f));
+        self
+    }
+
+    /// Ask for a visually CONTAINED native button on toolkits whose stock look is borderless
+    /// (iOS's plain system button reads as a link); a no-op where buttons are already bordered.
+    pub fn bordered(mut self) -> Self {
+        self.native_style = day_spec::props::ButtonStyleSpec::Bordered;
+        self
+    }
+
+    /// The platform's accent-filled / default-action button (iOS bordered-prominent, macOS
+    /// return-key blue, GTK suggested-action, WinUI accent style). Use for the one primary
+    /// action of a view.
+    pub fn prominent(mut self) -> Self {
+        self.native_style = day_spec::props::ButtonStyleSpec::Prominent;
         self
     }
 
@@ -275,7 +292,7 @@ impl Button {
     /// v1 has no pressed/hover state: the styled body is static. `s.label_color()` (if any) tints
     /// the label before `body` sees it (`body` receives it type-erased and cannot recolor it).
     pub fn style(self, s: impl ButtonStyle + 'static) -> AnyPiece {
-        let Button { title, action } = self;
+        let Button { title, action, .. } = self;
         let lbl = Label {
             text: title,
             font: Font::Body,
@@ -333,6 +350,7 @@ impl Piece for Button {
             &ButtonProps {
                 title: initial,
                 enabled: true,
+                style: self.native_style,
             },
             Flex::default(),
         );
@@ -2817,6 +2835,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
         .map(|it| (it.key.key(), it.title.initial()))
         .collect();
     let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
+    let icons: Vec<Option<String>> = sel.items.iter().map(|it| it.icon.clone()).collect();
     let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
     let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
     let initial = selection.get_untracked_rw().key();
@@ -2827,6 +2846,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
         kinds::TABS,
         &TabsProps {
             titles,
+            icons,
             selected: initial_idx,
         },
         Rc::new(NavLayout {
@@ -2845,6 +2865,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
             host,
             &TabsPageProps {
                 title: metas[i].1.clone(),
+                icon: it.icon.clone(),
             },
             &sizes,
         );

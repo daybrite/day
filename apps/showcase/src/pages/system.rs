@@ -48,6 +48,7 @@ fn battery_section() -> impl Piece {
         ),
         row((
             button(tr("battery-refresh"))
+                .bordered()
                 .action(move || {
                     reading.set(battery_line().format());
                     if let Some(b) = day_part_battery::status() {
@@ -69,6 +70,7 @@ fn network_section() -> impl Piece {
     let reading = Signal::new(network_line().format());
     section((row((
         button(tr("network-refresh"))
+            .bordered()
             .action(move || reading.set(network_line().format()))
             .id("network-refresh"),
         label(move || reading.get()).id("network-reading"),
@@ -108,6 +110,7 @@ fn sensors_section() -> impl Piece {
             label(move || magnet.get()).id("sensor-magnet"),
         ),
         button(tr("sensors-refresh"))
+            .bordered()
             .action(move || {
                 accel.set(sensor_line(SensorKind::Accelerometer, "m/s²"));
                 gyro.set(sensor_line(SensorKind::Gyroscope, "rad/s"));
@@ -129,6 +132,7 @@ fn device_section() -> impl Piece {
         label(move || system.get()).id("deviceinfo-system"),
         label(move || simulator.get()).id("deviceinfo-simulator"),
         button(tr("deviceinfo-refresh"))
+            .bordered()
             .action(move || {
                 let (m, s, sim) = deviceinfo_lines();
                 model.set(m);

@@ -92,6 +92,7 @@ unsafe extern "C" {
         id: u64,
         cb: extern "C" fn(u64),
     ) -> *mut c_void;
+    pub fn day_winui_button_prominent(h: *mut c_void);
     pub fn day_winui_button_set_title(w: *mut c_void, title: *const c_char);
 
     pub fn day_winui_toggle_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;

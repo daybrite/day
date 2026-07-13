@@ -41,6 +41,7 @@ fn basics_section() -> impl Piece {
             // The buttons log to the two standard streams (stderr / stdout) so
             // `day launch` can demonstrate forwarding both, per platform.
             button(tr("decrement"))
+                .bordered()
                 .action(move || {
                     count.update(|c| *c -= 1);
                     eprintln!("counter decremented to {}", count.get_untracked());
@@ -48,6 +49,7 @@ fn basics_section() -> impl Piece {
                 .id("decrement-button"),
             label(tr("counter-value").arg("count", count)).id("counter-label"),
             button(tr("increment"))
+                .prominent()
                 .action(move || {
                     count.update(|c| *c += 1);
                     println!("counter incremented to {}", count.get_untracked());
@@ -119,39 +121,30 @@ fn pickers_section() -> impl Piece {
     };
     section((
         label(tr("picker-shared-caption")).font(Font::Footnote),
-        // Segmented — a horizontal one-of-N control.
+        // Segmented — a horizontal one-of-N control. (No per-row readout: the shared state is
+        // already visible in the other two stylings, and one quiet readout below serves all.)
         labeled(
             tr("picker-segmented"),
-            row((
-                picker(sizes.iter().cloned(), choice)
-                    .segmented()
-                    .id("picker-segmented"),
-                label(value.clone()).id("picker-segmented-value"),
-            ))
-            .spacing(8.0),
+            picker(sizes.iter().cloned(), choice)
+                .segmented()
+                .id("picker-segmented"),
         ),
         // Menu — a pop-up / dropdown.
         labeled(
             tr("picker-menu"),
-            row((
-                picker(sizes.iter().cloned(), choice)
-                    .menu()
-                    .id("picker-menu"),
-                label(value.clone()).id("picker-menu-value"),
-            ))
-            .spacing(8.0),
+            picker(sizes.iter().cloned(), choice)
+                .menu()
+                .id("picker-menu"),
         ),
         // Inline — a vertical radio group.
         labeled(
             tr("picker-inline"),
-            row((
-                picker(sizes.iter().cloned(), choice)
-                    .inline()
-                    .id("picker-inline"),
-                label(value).id("picker-inline-value"),
-            ))
-            .spacing(8.0),
+            picker(sizes.iter().cloned(), choice)
+                .inline()
+                .id("picker-inline"),
         ),
+        // The one shared readout the walkthrough asserts after driving each styling.
+        labeled(tr("picker-selected"), label(value).id("picker-value")),
     ))
     .title(tr("nav-pickers"))
 }
@@ -166,6 +159,7 @@ fn search_section() -> impl Piece {
                 .placeholder(tr("search-placeholder"))
                 .id("search-input"),
             button(tr("search-clear"))
+                .bordered()
                 .action(move || query.set(String::new()))
                 .id("search-clear"),
         ))

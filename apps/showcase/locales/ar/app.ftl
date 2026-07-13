@@ -39,6 +39,7 @@ shapes-transform = التحويل
 shapes-angle = الزاوية
 
 picker-shared-caption = الأنماط الثلاثة مرتبطة بإشارة اختيار واحدة — غيّر أحدها وسيتبعه الآخران.
+picker-selected = المحدد
 picker-segmented = مقسّم
 picker-menu = قائمة
 picker-inline = مضمّن

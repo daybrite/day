@@ -600,6 +600,9 @@ mod imp {
     struct NavTableIvars {
         node: NodeId,
         items: RefCell<Vec<Retained<NSString>>>,
+        /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
+        /// Template mode tints them with the cell's tint colour (the iOS list idiom).
+        icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
     }
 
     define_class!(
@@ -642,6 +645,12 @@ mod imp {
                         unsafe { label.setText(Some(title)) };
                     }
                 }
+                if let Some(img) = self.ivars().icons.borrow().get(row).and_then(|o| o.clone()) {
+                    #[allow(deprecated)]
+                    if let Some(iv) = unsafe { cell.imageView() } {
+                        unsafe { iv.setImage(Some(&img)) };
+                    }
+                }
                 unsafe {
                     cell.setAccessoryType(
                         objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
@@ -665,11 +674,61 @@ mod imp {
         }
     );
 
+    /// Load a bundled image by NAME for a nav/tab icon (docs/navigation.md): by-name from the
+    /// DayPieces asset catalog first — the reliable iOS path, same as the `image()` piece — then a
+    /// loose staged file (dev / assets). Callers apply `.alwaysTemplate` so it tints with the
+    /// control's colour.
+    fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        let nsname = NSString::from_str(name);
+        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+        let bname = NSString::from_str("DayPieces_DayPieces");
+        let bext = NSString::from_str("bundle");
+        if let Some(url) = unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
+            && let Some(day_bundle) = unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+            && let Some(img) = unsafe {
+                objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
+                    &nsname,
+                    Some(&day_bundle),
+                    None,
+                )
+            }
+        {
+            return Some(img);
+        }
+        if let Some(path) = day_spec::resource::resolve_image_file(name)
+            && let Some(img) = unsafe {
+                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ))
+            }
+        {
+            return Some(img);
+        }
+        None
+    }
+
     impl DayNavTableData {
-        fn new(mtm: MainThreadMarker, node: NodeId, items: &[String]) -> Retained<Self> {
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            items: &[String],
+            icons: &[Option<String>],
+        ) -> Retained<Self> {
+            let resolved: Vec<Option<Retained<objc2_ui_kit::UIImage>>> = icons
+                .iter()
+                .map(|ic| {
+                    let img = load_bundled_uiimage(ic.as_deref()?)?;
+                    Some(unsafe {
+                        img.imageWithRenderingMode(
+                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                        )
+                    })
+                })
+                .collect();
             let this = Self::alloc(mtm).set_ivars(NavTableIvars {
                 node,
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+                icons: RefCell::new(resolved),
             });
             unsafe { msg_send![super(this), init] }
         }
@@ -1322,6 +1381,27 @@ mod imp {
                         // The VC title becomes its tab bar item's label.
                         vc.setTitle(Some(&NSString::from_str(&p.title)));
                     }
+                    // Optional tab icon (docs/tabs.md): a bundled template image on the tab item,
+                    // the iOS-idiomatic tab bar (icon over label). Template mode tints with the tab
+                    // bar's colour (unselected grey, selected accent).
+                    if let Some(name) = p.icon.as_deref()
+                        && let Some(img) = load_bundled_uiimage(name)
+                    {
+                        // Tab-bar icons are ~25pt; the shared 96px asset must be downscaled (a
+                        // UITabBar shows an image at its full point size otherwise). Prepare a
+                        // thumbnail, then template so it tints with the bar (grey/selected accent).
+                        let sized =
+                            unsafe { img.imageByPreparingThumbnailOfSize(CGSize::new(26.0, 26.0)) }
+                                .unwrap_or(img);
+                        let templ = unsafe {
+                            sized.imageWithRenderingMode(
+                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                            )
+                        };
+                        if let Some(item) = unsafe { vc.tabBarItem() } {
+                            unsafe { item.setImage(Some(&templ)) };
+                        }
+                    }
                     let handle = view_of(content);
                     TABS_PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
@@ -1329,7 +1409,7 @@ mod imp {
                 }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    let data = DayNavTableData::new(mtm, id, &p.items);
+                    let data = DayNavTableData::new(mtm, id, &p.items, &p.icons);
                     let table = unsafe {
                         objc2_ui_kit::UITableView::initWithFrame_style(
                             objc2_ui_kit::UITableView::alloc(mtm),
@@ -1394,10 +1474,27 @@ mod imp {
                     let target = DayTarget::new(mtm, id);
                     let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
                     unsafe {
-                        btn.setTitle_forState(
-                            Some(&NSString::from_str(&p.title)),
-                            UIControlState::Normal,
-                        );
+                        // Bordered / Prominent map to UIButtonConfiguration tiers (iOS 15+) —
+                        // the plain system button reads as a LINK, not a button. A configured
+                        // button takes its title from the configuration, so set it there.
+                        match p.style {
+                            day_spec::props::ButtonStyleSpec::Automatic => {
+                                btn.setTitle_forState(
+                                    Some(&NSString::from_str(&p.title)),
+                                    UIControlState::Normal,
+                                );
+                            }
+                            style => {
+                                let config = match style {
+                                    day_spec::props::ButtonStyleSpec::Prominent => {
+                                        objc2_ui_kit::UIButtonConfiguration::borderedProminentButtonConfiguration(mtm)
+                                    }
+                                    _ => objc2_ui_kit::UIButtonConfiguration::borderedButtonConfiguration(mtm),
+                                };
+                                config.setTitle(Some(&NSString::from_str(&p.title)));
+                                btn.setConfiguration(Some(&config));
+                            }
+                        }
                         let tobj: &AnyObject = target.as_ref();
                         btn.addTarget_action_forControlEvents(
                             Some(tobj),
@@ -1648,10 +1745,17 @@ mod imp {
                     ) {
                         match p {
                             ButtonPatch::Title(t) => unsafe {
-                                btn.setTitle_forState(
-                                    Some(&NSString::from_str(t)),
-                                    UIControlState::Normal,
-                                )
+                                // A configured (bordered/prominent) button titles via its
+                                // configuration; a plain one via the state title.
+                                if let Some(config) = btn.configuration() {
+                                    config.setTitle(Some(&NSString::from_str(t)));
+                                    btn.setConfiguration(Some(&config));
+                                } else {
+                                    btn.setTitle_forState(
+                                        Some(&NSString::from_str(t)),
+                                        UIControlState::Normal,
+                                    )
+                                }
                             },
                             ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
                         }

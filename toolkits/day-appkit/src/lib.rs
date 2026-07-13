@@ -555,6 +555,10 @@ thread_local! {
 struct NavMenuIvars {
     node: NodeId,
     items: RefCell<Vec<Retained<NSString>>>,
+    /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has no icon.
+    /// Template images tint with the source-list's selection/appearance, so they read in light,
+    /// dark, and while selected — the macOS-idiomatic sidebar look (Finder/Mail).
+    icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
 }
@@ -610,22 +614,50 @@ define_class!(
         #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
         fn view_for(
             &self,
-            _ov: &objc2_app_kit::NSOutlineView,
+            ov: &objc2_app_kit::NSOutlineView,
             _col: Option<&objc2_app_kit::NSTableColumn>,
             item: &objc2::runtime::AnyObject,
         ) -> Option<Retained<NSView>> {
             let mtm = self.mtm();
             // No early returns: the method_id macro owns the return conversion.
             item.downcast_ref::<NSString>().map(|text| {
+                // This row's optional icon (indexed by row via the outline view's mapping).
+                let row = unsafe { ov.rowForItem(Some(item)) };
+                let icon = (row >= 0)
+                    .then(|| {
+                        self.ivars()
+                            .icons
+                            .borrow()
+                            .get(row as usize)
+                            .and_then(|o| o.clone())
+                    })
+                    .flatten();
+                // Indent the label past the icon when there is one, so labels align icon-to-text.
+                let label_x = if icon.is_some() { 26.0 } else { 0.0 };
                 let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
                 let label = unsafe { NSTextField::labelWithString(text, mtm) };
                 unsafe {
-                    label.setFrame(NSRect::new(NSPoint::new(0.0, 3.0), NSSize::new(10.0, 17.0)));
+                    label.setFrame(NSRect::new(
+                        NSPoint::new(label_x, 3.0),
+                        NSSize::new(10.0, 17.0),
+                    ));
                     label.setAutoresizingMask(
                         objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
                     );
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
+                }
+                if let Some(img) = icon {
+                    let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
+                    unsafe {
+                        iv.setImage(Some(&img));
+                        iv.setImageScaling(
+                            objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
+                        );
+                        iv.setFrame(NSRect::new(NSPoint::new(2.0, 2.0), NSSize::new(18.0, 18.0)));
+                        cell.addSubview(&iv);
+                        cell.setImageView(Some(&iv));
+                    }
                 }
                 objc2::rc::Retained::into_super(cell)
             })
@@ -651,10 +683,35 @@ define_class!(
 );
 
 impl DayNavMenuData {
-    fn new(mtm: MainThreadMarker, node: NodeId, items: &[String]) -> Retained<Self> {
+    fn new(
+        mtm: MainThreadMarker,
+        node: NodeId,
+        items: &[String],
+        icons: &[Option<String>],
+    ) -> Retained<Self> {
+        // Resolve each bundled icon name to a template NSImage once (nav is app-root-only, so this
+        // runs a single time). Template = tinted by the source list; `None` where a row has no icon.
+        let resolved: Vec<Option<Retained<objc2_app_kit::NSImage>>> = icons
+            .iter()
+            .map(|ic| {
+                let path = ic
+                    .as_deref()
+                    .and_then(day_spec::resource::resolve_image_file)?;
+                use objc2::AllocAnyThread as _;
+                let img = unsafe {
+                    objc2_app_kit::NSImage::initWithContentsOfFile(
+                        objc2_app_kit::NSImage::alloc(),
+                        &NSString::from_str(&path.to_string_lossy()),
+                    )
+                }?;
+                unsafe { img.setTemplate(true) };
+                Some(img)
+            })
+            .collect();
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
+            icons: RefCell::new(resolved),
             suppress: std::cell::Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
@@ -1228,6 +1285,11 @@ impl Toolkit for AppKit {
                         mtm,
                     )
                 };
+                // Prominent = the return-key default button (accent-filled). Bordered is the
+                // stock NSButton look already.
+                if p.style == day_spec::props::ButtonStyleSpec::Prominent {
+                    unsafe { btn.setKeyEquivalent(&NSString::from_str("\r")) };
+                }
                 let view = view_of(btn);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
@@ -1451,7 +1513,7 @@ impl Toolkit for AppKit {
             }
             kinds::NAV_MENU => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                let data = DayNavMenuData::new(mtm, id, &p.items);
+                let data = DayNavMenuData::new(mtm, id, &p.items, &p.icons);
                 let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
                 let col = unsafe {
                     objc2_app_kit::NSTableColumn::initWithIdentifier(

@@ -139,7 +139,12 @@ extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
 
 /// The NavigationView back button: pop one level (the stack surface writes it back into its path).
 extern "C" fn nav_back(host_id: u64) {
-    emit(NodeId(host_id), Event::NavBack { already_popped: false });
+    emit(
+        NodeId(host_id),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
 }
 
 /// A stack's pages overlap in the content region; show only the top one so a transparent page
@@ -152,7 +157,10 @@ fn stack_sync(host: *mut c_void) {
                 unsafe { ffi::day_winui_set_visible(*page, (i == last) as c_int) };
             }
             unsafe {
-                ffi::day_winui_nav_set_back_visible(s.nav_view, (s.detail_pages.len() >= 2) as c_int)
+                ffi::day_winui_nav_set_back_visible(
+                    s.nav_view,
+                    (s.detail_pages.len() >= 2) as c_int,
+                )
             };
         }
     });
@@ -480,7 +488,8 @@ fn stage_bundled_images() {
         if src == dst {
             continue;
         }
-        let _ = std::fs::create_dir_all(&dst_dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
+        let _ =
+            std::fs::create_dir_all(&dst_dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
     }
 }
 
@@ -820,7 +829,8 @@ impl Toolkit for WinUi {
                         });
                         PENDING_SPLIT_NAV.with(|c| c.set(std::ptr::null_mut()));
                         let placeholder = ffi::day_winui_container_new();
-                        NAV_MENU_HOST.with(|m| m.borrow_mut().insert(placeholder as usize, pending));
+                        NAV_MENU_HOST
+                            .with(|m| m.borrow_mut().insert(placeholder as usize, pending));
                         WinHandle(placeholder)
                     } else {
                         // Standalone ListView (non-split fallback).
@@ -848,6 +858,10 @@ impl Toolkit for WinUi {
                 kinds::BUTTON => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     let h = ffi::day_winui_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
+                    // Prominent = the accent-filled style; Bordered is WinUI's stock look.
+                    if p.style == day_spec::props::ButtonStyleSpec::Prominent {
+                        ffi::day_winui_button_prominent(h);
+                    }
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
@@ -1177,7 +1191,11 @@ impl Toolkit for WinUi {
             Done,
             /// A page landed in the content region: seed its frame. `stack` also re-syncs the
             /// stack's top-page visibility + back button.
-            Content { node: NodeId, content_host: *mut c_void, stack: bool },
+            Content {
+                node: NodeId,
+                content_host: *mut c_void,
+                stack: bool,
+            },
         }
         let nav = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
@@ -1208,7 +1226,11 @@ impl Toolkit for WinUi {
         match nav {
             NavInsert::No => {}
             NavInsert::Done => return,
-            NavInsert::Content { node, content_host, stack } => {
+            NavInsert::Content {
+                node,
+                content_host,
+                stack,
+            } => {
                 // The NavigationView content region is already sized, and adding a child won't
                 // refire its SizeChanged — so seed the new page with the current content bounds
                 // (else NavLayout would fall back to the split size). Emitted outside the NAV_STATE
@@ -1276,6 +1298,12 @@ impl Toolkit for WinUi {
                     }
                     _ => Size::new(nat.width.ceil(), nat.height.ceil()),
                 }
+            }
+            // Buttons hug their text like every other toolkit: the generic arm would take a
+            // COLUMN's cross-axis width proposal and stretch the button across the full span.
+            kinds::BUTTON => {
+                let nat = natural(h.0);
+                Size::new(nat.width.ceil(), nat.height.ceil())
             }
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(24.0)),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(28.0)),

@@ -665,10 +665,24 @@ pub mod props {
         Font(FontSpec),
     }
 
+    /// A button's NATIVE styling tier. `Automatic` is the toolkit's stock look; `Bordered`
+    /// asks for a visually contained button where the stock look is borderless (iOS's plain
+    /// system button reads as a link); `Prominent` asks for the platform's accent-filled /
+    /// default-action affordance. Toolkits whose stock buttons are already contained treat
+    /// `Bordered` as `Automatic`.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum ButtonStyleSpec {
+        #[default]
+        Automatic,
+        Bordered,
+        Prominent,
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ButtonProps {
         pub title: String,
         pub enabled: bool,
+        pub style: ButtonStyleSpec,
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum ButtonPatch {
@@ -823,6 +837,10 @@ pub mod props {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct TabsProps {
         pub titles: Vec<String>,
+        /// Optional bundled-image name per tab (docs/tabs.md), same convention as
+        /// [`NavMenuProps::icons`]. Rendered where the backend's tab widget shows icons (the iOS
+        /// `UITabBar`, the Android tab strip); ignored by backends whose tabs are text-only.
+        pub icons: Vec<Option<String>>,
         pub selected: usize,
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -832,10 +850,13 @@ pub mod props {
         Selected(usize),
     }
 
-    /// One tab's content container. `title` is its tab label (read by the host on insert).
+    /// One tab's content container. `title` is its tab label (read by the host on insert);
+    /// `icon` is its optional bundled-image name, set on the tab item where the backend shows
+    /// tab icons (iOS `UITabBarItem`), ignored otherwise.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct TabsPageProps {
         pub title: String,
+        pub icon: Option<String>,
     }
 
     /// How a recycling list sizes its rows (docs/list.md).

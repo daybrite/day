@@ -269,7 +269,9 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .container-pad { padding-inline: max(24px, calc((100vw - 1160px) / 2)); }
 
   .tile { margin: 0; width: 300px; flex: 0 0 auto; }
-  .tile.mobile { width: 190px; }
+  /* Phone shots are ~0.46 aspect: the frame must be tall enough that the full screen —
+     including the bottom button/home-indicator area — renders at a readable size. */
+  .tile.mobile { width: 240px; }
   .frame {
     position: relative;
     height: 240px;
@@ -280,7 +282,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     overflow: hidden;
     padding: 10px;
   }
-  .tile.mobile .frame { height: 300px; }
+  .tile.mobile .frame { height: 500px; }
   .frame img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
   .fb-badge {
     position: absolute; right: 8px; bottom: 8px;

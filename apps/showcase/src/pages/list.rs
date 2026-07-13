@@ -11,6 +11,7 @@ pub(crate) fn list_page() -> AnyPiece {
             heading(tr("nav-list"), "list-title", None),
             spacer(),
             button(tr("list-add"))
+                .prominent()
                 .action(move || count.update(|c| *c += 100))
                 .id("list-add"),
         )),

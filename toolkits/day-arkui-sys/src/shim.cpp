@@ -425,6 +425,14 @@ int32_t day_ark_nav_push(void* page, uint64_t key, const char* title) {
                 napi_create_reference(g_env, ret, 1, &ref);
                 g_nav_contents[key] = DayNavContent{content, ref};
                 OH_ArkUI_NodeContent_AddNode(content, (ArkUI_NodeHandle)page);
+                // Re-homed subtrees keep their (already clean) layout/render state, and the
+                // fresh NavDestination composes an EMPTY content layer over the previous page
+                // unless the attached tree is explicitly re-marked for layout + paint.
+                if (g_api) {
+                    g_api->markDirty((ArkUI_NodeHandle)page, NODE_NEED_MEASURE);
+                    g_api->markDirty((ArkUI_NodeHandle)page, NODE_NEED_LAYOUT);
+                    g_api->markDirty((ArkUI_NodeHandle)page, NODE_NEED_RENDER);
+                }
                 rc = 0;
             }
         }

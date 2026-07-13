@@ -1,0 +1,9 @@
+{
+  // Recommended by the Day scaffold: the Day extension drives build/run across targets;
+  // rust-analyzer provides the Rust language service; Even Better TOML validates Day.toml.
+  "recommendations": [
+    "daybrite.day-vscode",
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml"
+  ]
+}

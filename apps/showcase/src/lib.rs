@@ -121,19 +121,39 @@ pub fn root() -> AnyPiece {
         .style(SelectorStyle::Sidebar)
         .title(tr("app-title"))
         .header(sidebar_header)
-        .item_icon(Section::Controls, tr("nav-controls"), "nav_controls", controls_page)
+        .item_icon(
+            Section::Controls,
+            tr("nav-controls"),
+            "nav_controls",
+            controls_page,
+        )
         .item_icon(Section::Text, tr("nav-text"), "nav_text", text_page)
         .item_icon(Section::Canvas, tr("nav-canvas"), "nav_canvas", canvas_page)
         .item_icon(Section::System, tr("nav-system"), "nav_system", system_page)
-        .item_icon(Section::Services, tr("nav-services"), "nav_services", services_page)
+        .item_icon(
+            Section::Services,
+            tr("nav-services"),
+            "nav_services",
+            services_page,
+        )
         .item_icon(Section::Menus, tr("nav-menus"), "nav_menus", menus_page)
         .item_icon(Section::Modals, tr("nav-modals"), "nav_modals", modals_page)
         .item_icon(Section::List, tr("nav-list"), "nav_list", list_page)
         .item_icon(Section::Tabs, tr("nav-tabs"), "nav_tabs", tabs_page)
         .item_icon(Section::Stack, tr("nav-stack"), "nav_stack", stack_page)
         .item_icon(Section::Media, tr("nav-media"), "nav_media", media_page)
-        .item_icon(Section::Resources, tr("nav-resources"), "nav_resources", resources_page)
-        .item_icon(Section::WebView, tr("nav-webview"), "nav_webview", webview_page)
+        .item_icon(
+            Section::Resources,
+            tr("nav-resources"),
+            "nav_resources",
+            resources_page,
+        )
+        .item_icon(
+            Section::WebView,
+            tr("nav-webview"),
+            "nav_webview",
+            webview_page,
+        )
         .item_icon(Section::Tweaks, tr("nav-tweaks"), "nav_tweaks", tweaks_page);
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]

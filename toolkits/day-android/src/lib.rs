@@ -882,24 +882,38 @@ mod imp {
                     let p = props.downcast_ref::<TabsPageProps>().unwrap();
                     with_env(|env| {
                         let title = jstr(env, &p.title);
+                        // The tab's bundled-image NAME (empty = none); Java looks it up in res/drawable.
+                        let icon = jstr(env, p.icon.as_deref().unwrap_or(""));
                         AHandle(make_view(
                             env,
                             "makeTabPage",
-                            "(JLjava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&title)],
+                            "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
+                            &[
+                                JValue::Long(idj),
+                                JValue::Object(&title),
+                                JValue::Object(&icon),
+                            ],
                         ))
                     })
                 }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let joined = p.items.join("\u{1f}");
+                    // Parallel, index-aligned icon NAMES ("" = no icon for that row).
+                    let joined_icons = p
+                        .icons
+                        .iter()
+                        .map(|o| o.clone().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
                     with_env(|env| {
                         let s = jstr(env, &joined);
+                        let si = jstr(env, &joined_icons);
                         AHandle(make_view(
                             env,
                             "makeNavMenu",
-                            "(JLjava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&s)],
+                            "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Object(&s), JValue::Object(&si)],
                         ))
                     })
                 }

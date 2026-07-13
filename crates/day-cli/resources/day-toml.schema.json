@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://daybrite.dev/schema/day.toml.json",
+  "title": "Day.toml",
+  "description": "The Day project manifest (docs/manifest.md). Emitted by `day metadata --schema`; associated with Day.toml by the Day VS Code extension via Even Better TOML.",
+  "type": "object",
+  "required": ["app"],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "description": "Manifest schema version.",
+      "default": 1
+    },
+    "app": {
+      "type": "object",
+      "required": ["id"],
+      "description": "Application identity. `[app.<platform|toolkit|target>]` tables override id/title/build per target (most specific wins).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Application / bundle id (reverse-DNS, e.g. dev.example.myapp).",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*(\\.[A-Za-z][A-Za-z0-9-]*)+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title (window / app store). Default: the crate name."
+        },
+        "build": {
+          "type": "integer",
+          "description": "Monotonic build number (versionCode / CFBundleVersion).",
+          "minimum": 1,
+          "default": 1
+        },
+        "targets": {
+          "type": "array",
+          "description": "The platform-toolkit combos this app ships on (`day app add-toolkit` appends here).",
+          "items": {
+            "type": "string",
+            "examples": [
+              "macos-appkit", "macos-gtk", "macos-qt",
+              "ios-uikit", "android-widget",
+              "linux-gtk", "linux-qt",
+              "windows-winui", "windows-qt", "windows-gtk",
+              "ohos-arkui"
+            ]
+          }
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "description": "Per-platform/toolkit/target override of the app identity (e.g. [app.ios], [app.macos-appkit]).",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "build": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "window": {
+      "type": "object",
+      "description": "Initial desktop window size, in points.",
+      "properties": {
+        "width": { "type": "number", "default": 480 },
+        "height": { "type": "number", "default": 640 }
+      },
+      "additionalProperties": false
+    },
+    "signing": {
+      "type": "object",
+      "description": "Release-signing configuration per platform (docs/signing.md). `day sign --check` validates it.",
+      "properties": {
+        "macos": {
+          "type": "object",
+          "properties": {
+            "identity": { "type": "string", "description": "Developer ID Application identity (codesign -s)." },
+            "entitlements": { "type": "string", "description": "Path to an entitlements plist." },
+            "notarize": {
+              "type": "object",
+              "required": ["key_id", "issuer", "key_path"],
+              "properties": {
+                "key_id": { "type": "string" },
+                "issuer": { "type": "string" },
+                "key_path": { "type": "string", "description": "App Store Connect API key (.p8) path." }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "ios": {
+          "type": "object",
+          "required": ["team"],
+          "properties": {
+            "team": { "type": "string", "description": "Apple Developer team id." },
+            "export_method": { "type": "string", "enum": ["app-store", "ad-hoc", "development", "enterprise"] },
+            "key_id": { "type": "string" },
+            "issuer": { "type": "string" },
+            "key_path": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "android": {
+          "type": "object",
+          "required": ["keystore", "key_alias", "store_pass", "key_pass"],
+          "properties": {
+            "keystore": { "type": "string" },
+            "key_alias": { "type": "string" },
+            "store_pass": { "type": "string", "description": "Value or env:VAR indirection." },
+            "key_pass": { "type": "string", "description": "Value or env:VAR indirection." }
+          },
+          "additionalProperties": false
+        },
+        "windows": {
+          "type": "object",
+          "required": ["provider"],
+          "properties": {
+            "provider": { "type": "string", "enum": ["self-signed-dev", "signtool-cert-store", "azure-artifact-signing"] },
+            "publisher": { "type": "string", "description": "MSIX Identity Publisher (must byte-match the cert subject)." },
+            "thumbprint": { "type": "string", "description": "signtool-cert-store: SHA-1 thumbprint." },
+            "endpoint": { "type": "string" },
+            "account": { "type": "string" },
+            "profile": { "type": "string" },
+            "dlib": { "type": "string", "description": "Path to Azure.CodeSigning.Dlib.dll." },
+            "timestamp_url": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "ohos": {
+          "type": "object",
+          "required": ["keystore", "key_alias", "store_pass", "key_pass", "cert", "profile"],
+          "properties": {
+            "keystore": { "type": "string", "description": ".p12 keystore path." },
+            "key_alias": { "type": "string" },
+            "store_pass": { "type": "string" },
+            "key_pass": { "type": "string" },
+            "cert": { "type": "string", "description": "Release certificate (.cer) path." },
+            "profile": { "type": "string", "description": "Provision profile (.p7b) path." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -18,15 +18,18 @@ pub(crate) fn tabs_page() -> AnyPiece {
             .any()
     }
     let tab = Signal::new(Tab::One);
+    // `item_icon` attaches a bundled template image per tab (docs/tabs.md). Backends whose tab
+    // widget shows icons (iOS UITabBar, the Android tab strip) render them; text-only tab widgets
+    // (the desktop NSTabView/GtkNotebook/QTabWidget) ignore the icon and just show the label.
     selector(tab)
         .style(SelectorStyle::Tabs)
-        .item(Tab::One, tr("tab-one"), || {
+        .item_icon(Tab::One, tr("tab-one"), "tab_one", || {
             pane(tr("tab-one"), tr("tab-one-body"), "tab-one-content")
         })
-        .item(Tab::Two, tr("tab-two"), || {
+        .item_icon(Tab::Two, tr("tab-two"), "tab_two", || {
             pane(tr("tab-two"), tr("tab-two-body"), "tab-two-content")
         })
-        .item(Tab::Three, tr("tab-three"), || {
+        .item_icon(Tab::Three, tr("tab-three"), "tab_three", || {
             pane(tr("tab-three"), tr("tab-three-body"), "tab-three-content")
         })
         .id("demo-tabs")

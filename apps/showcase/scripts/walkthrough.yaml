@@ -29,15 +29,11 @@ flow:
   # The three picker stylings share ONE selection signal: selecting via any styling must move
   # the other two (each row's readout mirrors the same signal).
   - select: { id: picker-segmented, index: 2 }
-  - assert_text: { id: picker-segmented-value, key: size-large }
-  - assert_text: { id: picker-menu-value, key: size-large }
-  - assert_text: { id: picker-inline-value, key: size-large }
+  - assert_text: { id: picker-value, key: size-large }
   - select: { id: picker-inline, index: 0 }
-  - assert_text: { id: picker-segmented-value, key: size-small }
-  - assert_text: { id: picker-menu-value, key: size-small }
+  - assert_text: { id: picker-value, key: size-small }
   - select: { id: picker-menu, index: 1 }
-  - assert_text: { id: picker-segmented-value, key: size-medium }
-  - assert_text: { id: picker-inline-value, key: size-medium }
+  - assert_text: { id: picker-value, key: size-medium }
   # Search section: the native search field filters reactively; Clear proves the reverse binding.
   # The fruits are localized, so the QUERY is typed by key too (`input.key` resolves the Fluent
   # key in the run's locale) — typing the full localized name always matches exactly itself.

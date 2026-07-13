@@ -163,6 +163,15 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
             let _ = crate::ohos::hdc()
                 .args(["shell", "power-shell", "wakeup"])
                 .status();
+            // The TCG guest's compositor lags the UI thread: `ui_idle` returns when DAY's tree
+            // settled, but screenCap still serves the PREVIOUS frame for a while (every shot
+            // trails one page without this). Give composition a moment to catch up.
+            std::thread::sleep(Duration::from_millis(
+                std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(1500),
+            ));
             let dev = "/data/local/tmp/day-shot.png";
             let cap = crate::ohos::hdc()
                 .args(["shell", "uitest", "screenCap", "-p", dev])

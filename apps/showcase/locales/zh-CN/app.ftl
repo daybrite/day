@@ -33,6 +33,7 @@ shapes-transform = 变换
 shapes-angle = 角度
 
 picker-shared-caption = 三种样式绑定到同一个选择信号——改动其中一个，其余的会跟着变化。
+picker-selected = 已选
 picker-segmented = 分段
 picker-menu = 菜单
 picker-inline = 内联

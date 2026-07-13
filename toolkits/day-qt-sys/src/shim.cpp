@@ -28,6 +28,8 @@
 #include <map>
 #include <vector>
 #include <QIcon>
+#include <QPainter>
+#include <QPalette>
 #include <QPixmap>
 #include <QResource>
 #include <QPushButton>
@@ -121,15 +123,32 @@ void *day_qt_app_new(const char *app_name) {
 }
 void day_qt_app_run(void *app) { static_cast<QApplication *>(app)->exec(); }
 
-// Resizable top-level that reports size changes back to day (docs §7.7).
+// Resizable top-level that reports size changes back to day (docs §7.7). Day's tree mounts
+// into the inner `content` widget, NOT the window itself: on platforms where the QMenuBar is
+// an in-window bar (Linux/Windows — macOS uses the global bar), the bar owns a strip at the
+// top and `content` sits below it, so Day's absolute frames can never overlap the menus.
 class DayWindow : public QWidget {
 public:
     void (*resize_cb)(int, int) = nullptr;
+    QWidget *content = nullptr;
+    QMenuBar *menubar = nullptr;
+
+    // The in-window menu bar height (0 when absent or when the platform uses a global bar).
+    int menuHeight() const {
+        if (!menubar || menubar->isNativeMenuBar()) return 0;
+        return menubar->sizeHint().height();
+    }
+    void relayoutChrome() {
+        const int mh = menuHeight();
+        if (menubar && mh > 0) menubar->setGeometry(0, 0, width(), mh);
+        if (content) content->setGeometry(0, mh, width(), height() - mh);
+        if (resize_cb) resize_cb(width(), height() - mh);
+    }
 
 protected:
     void resizeEvent(QResizeEvent *e) override {
         QWidget::resizeEvent(e);
-        if (resize_cb) resize_cb(width(), height());
+        relayoutChrome();
     }
 };
 
@@ -137,6 +156,9 @@ void *day_qt_window_new(const char *title, int w, int h) {
     auto *win = new DayWindow();
     win->setWindowTitle(QString::fromUtf8(title));
     win->resize(w, h);
+    win->content = new QWidget(win);
+    win->content->setGeometry(0, 0, w, h);
+    win->content->show();
     return win;
 }
 void day_qt_window_on_resize(void *win, void (*cb)(int, int)) {
@@ -372,6 +394,9 @@ void day_qt_scroll_to_bottom(void *w) {
 
 // --- tree / geometry ---
 void day_qt_add_child(void *parent, void *child) {
+    // Day's tree mounts under the window's CONTENT area (below any in-window menu bar).
+    if (auto *dw = dynamic_cast<DayWindow *>(static_cast<QWidget *>(parent)))
+        parent = dw->content;
     QWidget *c = static_cast<QWidget *>(child);
     c->setParent(static_cast<QWidget *>(parent));
     c->show();
@@ -495,6 +520,7 @@ void day_qt_set_visible(void *w, int visible) {
 void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
     auto *w = new QListWidget();
     w->setFrameShape(QFrame::NoFrame);
+    w->setIconSize(QSize(18, 18));
     w->setStyleSheet(
         "QListWidget{background:transparent;outline:0;}"
         "QListWidget::item{padding:6px 10px;border-radius:6px;margin:1px 4px;}"
@@ -504,14 +530,36 @@ void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
                      [id, cb](int row) { cb(id, row); });
     return w;
 }
-void day_qt_navlist_set_items(void *w, const char *joined) {
+// Template glyphs are black-on-transparent; tint to the palette text color so they show
+// in both light and dark mode (raw black is invisible on a dark sidebar).
+static QIcon day_qt_tinted_icon(const QString &path, const QColor &color) {
+    QPixmap pm(path);
+    if (pm.isNull()) return QIcon();
+    QPixmap tinted = pm;
+    QPainter p(&tinted);
+    p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    p.fillRect(tinted.rect(), color);
+    p.end();
+    return QIcon(tinted);
+}
+void day_qt_navlist_set_items(void *w, const char *joined, const char *icons) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
+    // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
+    // list is likewise split keep-empty (empty entry = no icon for that row).
+    const QStringList titles =
+        QString::fromUtf8(joined).split(QChar(0x1f), Qt::SkipEmptyParts);
+    const QStringList iconPaths =
+        QString::fromUtf8(icons).split(QChar(0x1f), Qt::KeepEmptyParts);
+    const QColor textColor = l->palette().color(QPalette::Text);
     l->blockSignals(true);
     l->clear();
-    for (const QString &item :
-         QString::fromUtf8(joined).split(QChar(0x1f), Qt::SkipEmptyParts)) {
-        l->addItem(item);
+    for (int i = 0; i < titles.size(); ++i) {
+        auto *item = new QListWidgetItem(titles.at(i), l);
+        if (i < iconPaths.size() && !iconPaths.at(i).isEmpty()) {
+            QIcon icon = day_qt_tinted_icon(iconPaths.at(i), textColor);
+            if (!icon.isNull()) item->setIcon(icon);
+        }
     }
     l->blockSignals(false);
 }
@@ -912,14 +960,22 @@ static void day_qt_edit_dispatch(const char *slot) {
 }
 
 void *day_qt_window_menubar(void *win) {
-    QWidget *window = static_cast<QWidget *>(win);
-    QMenuBar *bar = window->findChild<QMenuBar *>(QString(), Qt::FindDirectChildrenOnly);
+    auto *window = static_cast<DayWindow *>(win);
+    QMenuBar *bar = window->menubar;
     if (!bar) {
         bar = new QMenuBar(window); // native global bar on macOS; top-of-window elsewhere
         bar->setNativeMenuBar(true);
+        bar->show();
+        window->menubar = bar;
     }
     bar->clear();
     return bar;
+}
+
+// Called by day-qt after the menus are populated: an in-window bar now has its real height,
+// so reserve its strip and shrink day's content area under it.
+void day_qt_window_menubar_done(void *win) {
+    static_cast<DayWindow *>(win)->relayoutChrome();
 }
 
 void *day_qt_menubar_add_menu(void *bar, const char *label) {

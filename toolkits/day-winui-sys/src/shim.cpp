@@ -277,6 +277,10 @@ struct AppWindow {
     WUX::Application app{ nullptr }; // keeps Application::Current + WindowsXamlManager alive
     void* dqc{}; // DispatcherQueueController — kept alive, never released
     WUXC::Canvas root{ nullptr };
+    // Day's tree mounts into `content`, a child canvas offset BELOW any docked MenuBar —
+    // both used to share `root` at (0,0), overlapping day's header with File/Edit/View.
+    WUXC::Canvas content{ nullptr };
+    WUXC::MenuBar menubar{ nullptr };
 };
 
 static AppWindow* g_app = nullptr;
@@ -292,13 +296,35 @@ static int g_min_w = 0, g_min_h = 0;
 // 3=WillResignActive, 7=WillTerminate).
 static void (*g_lifecycle_cb)(int) = nullptr;
 
+// Reserve the docked MenuBar's strip: size the bar to the window width, offset day's
+// content canvas below it, and report the REMAINING client size to day-core (XAML works in
+// DIPs; the resize report and client rect are physical px — convert via the window DPI).
+static void day_winui_relayout_chrome(AppWindow* app) {
+    if (!app || !app->host) return;
+    RECT rc; GetClientRect(app->host, &rc);
+    double scale = GetDpiForWindow(app->host) / 96.0;
+    if (scale <= 0) scale = 1.0;
+    double mh_dip = 0;
+    if (app->menubar) {
+        app->menubar.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
+                                       std::numeric_limits<float>::infinity() });
+        mh_dip = app->menubar.DesiredSize().Height;
+        app->menubar.Width(rc.right / scale);
+    }
+    if (app->content) WUXC::Canvas::SetTop(app->content, mh_dip);
+    if (g_resize_cb) {
+        int mh_px = static_cast<int>(std::lround(mh_dip * scale));
+        g_resize_cb(rc.right, rc.bottom > mh_px ? rc.bottom - mh_px : 0);
+    }
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_SIZE:
         if (g_app && g_app->island) {
             RECT rc; GetClientRect(hwnd, &rc);
             SetWindowPos(g_app->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
-            if (g_resize_cb) g_resize_cb(rc.right, rc.bottom);
+            day_winui_relayout_chrome(g_app);
         }
         return 0;
     case WM_GETMINMAXINFO:
@@ -464,6 +490,11 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     aw->app = app;
     aw->dqc = dqc;
     aw->root = root;
+    WUXC::Canvas content;
+    WUXC::Canvas::SetLeft(content, 0);
+    WUXC::Canvas::SetTop(content, 0);
+    root.Children().Append(content);
+    aw->content = content;
     g_app = aw;
     return aw;
 } catch (winrt::hresult_error const& e) {
@@ -480,7 +511,7 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
 
 void* day_winui_window_root(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
-    return boxh(app->root);
+    return boxh(app->content);
 }
 
 void day_winui_window_on_resize(void* win, void (*cb)(int, int)) {
@@ -1072,6 +1103,17 @@ void* day_winui_button_new(const char* title, unsigned long long id, void (*cb)(
     b.Click([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id); });
     return boxh(b);
 }
+
+// ButtonStyleSpec::Prominent — the accent-filled style, where the resource set provides it.
+void day_winui_button_prominent(void* h) {
+    auto b = elem(h).try_as<WUXC::Button>();
+    if (!b) return;
+    auto res = WUX::Application::Current().Resources();
+    auto key = winrt::box_value(winrt::hstring(L"AccentButtonStyle"));
+    if (res.HasKey(key)) {
+        if (auto style = res.Lookup(key).try_as<WUX::Style>()) b.Style(style);
+    }
+}
 void day_winui_button_set_title(void* h, const char* t) {
     if (auto b = elem(h).try_as<WUXC::Button>()) b.Content(winrt::box_value(hs(t)));
 }
@@ -1620,7 +1662,8 @@ extern "C" void day_winui_set_app_menu(void* win, const char* spec) try {
             if (fe.Name() == L"day_menubar") { kids.RemoveAt(i); break; }
         }
     }
-    if (!spec || !*spec) return;
+    app->menubar = nullptr;
+    if (!spec || !*spec) { day_winui_relayout_chrome(app); return; }
     WUXC::MenuBar bar;
     bar.Name(L"day_menubar");
     // Top-level "S" groups become MenuBarItems; a bare item wraps in an unnamed MenuBarItem.
@@ -1659,6 +1702,8 @@ extern "C" void day_winui_set_app_menu(void* win, const char* spec) try {
     WUXC::Canvas::SetLeft(bar, 0);
     WUXC::Canvas::SetTop(bar, 0);
     app->root.Children().Append(bar);
+    app->menubar = bar;
+    day_winui_relayout_chrome(app);
 } catch (...) {
 }
 

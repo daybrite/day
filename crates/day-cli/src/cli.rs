@@ -114,6 +114,9 @@ enum Cmd {
         /// Emit the versioned JSON envelope instead of the human summary
         #[arg(long)]
         json: bool,
+        /// Emit the Day.toml JSON Schema (for editor TOML validation) and exit
+        #[arg(long)]
+        schema: bool,
     },
     /// Check the project for common errors (fluent coverage, ids)
     Lint {
@@ -356,9 +359,16 @@ pub fn run() -> i32 {
         } => with_project(cli.project.as_deref(), |project| {
             crate::new::add_toolkit(project, &targets, template.as_deref())
         }),
-        Cmd::Metadata { json } => with_project(cli.project.as_deref(), |project| {
-            crate::metadata::run(project, json)
-        }),
+        Cmd::Metadata { json, schema } => {
+            if schema {
+                // Static — the schema needs no project; usable before one exists.
+                println!("{}", include_str!("../resources/day-toml.schema.json"));
+                return 0;
+            }
+            with_project(cli.project.as_deref(), |project| {
+                crate::metadata::run(project, json)
+            })
+        }
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
         }),

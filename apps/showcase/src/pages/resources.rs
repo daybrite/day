@@ -7,7 +7,11 @@ use crate::widgets::heading;
 pub(crate) fn resources_page() -> AnyPiece {
     let (numbers_line, greeting_line) = resource_lines();
     column((
-        heading(tr("nav-resources"), "resources-title", Some(tr("resources-caption"))),
+        heading(
+            tr("nav-resources"),
+            "resources-title",
+            Some(tr("resources-caption")),
+        ),
         // `image("day_logo")` resolves `images/day_logo.png` by name through the backend's native
         // image path (bundle file / Assets.car / R.drawable / …). `.frame` gives it a fixed box;
         // it scales to Fit (default content mode) — preserving aspect, never stretching.

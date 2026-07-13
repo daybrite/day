@@ -36,6 +36,7 @@ shapes-transform = Transformation
 shapes-angle = Angle
 
 picker-shared-caption = Les trois styles sont liés au même signal de sélection — modifiez-en un, les autres suivent.
+picker-selected = Sélection
 picker-segmented = Segmenté
 picker-menu = Menu
 picker-inline = Aligné

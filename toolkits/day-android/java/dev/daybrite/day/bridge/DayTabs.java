@@ -59,17 +59,27 @@ public class DayTabs extends LinearLayout {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
-    /** Append a tab (in insertion order) carrying `page` under the label `title`. */
-    void addTab(View page, String title) {
+    /** Append a tab (in insertion order) carrying `page` under the label `title`, with an optional
+     *  bundled icon NAME (`null`/"" = none). */
+    void addTab(View page, String title, String iconName) {
         final int index = tabViews.size();
         // The bottom bar caps its item count (5, like the iOS tab bar). Extra pages stay resident
         // and reachable programmatically (routes/deep links) but get no bar item.
         if (index < bar.getMaxItemCount()) {
             MenuItem item = bar.getMenu().add(0, index, index, title == null ? "" : title);
-            ShapeDrawable dot = new ShapeDrawable(new OvalShape()); // tinted by itemIconTintList
-            dot.setIntrinsicWidth(dp(10));
-            dot.setIntrinsicHeight(dp(10));
-            item.setIcon(dot);
+            android.graphics.drawable.Drawable icon =
+                    DayBridge.drawableByName(getContext(), iconName);
+            if (icon != null) {
+                // A real bundled glyph: the bar's itemIconTintList tints it (grey when unselected,
+                // the accent when selected) — the standard M3 bottom-bar icon look, matching iOS.
+                bar.setItemIconSize(dp(24));
+                item.setIcon(icon);
+            } else {
+                ShapeDrawable dot = new ShapeDrawable(new OvalShape()); // fallback (title-only tab)
+                dot.setIntrinsicWidth(dp(10));
+                dot.setIntrinsicHeight(dp(10));
+                item.setIcon(dot);
+            }
         } else {
             android.util.Log.w("Day", "tabs: item " + index + " (\"" + title + "\") exceeds the "
                     + "bottom bar's max of " + bar.getMaxItemCount() + "; no bar item added");
