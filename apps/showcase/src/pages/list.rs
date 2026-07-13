@@ -1,12 +1,14 @@
 use day::prelude::*;
 
+use crate::widgets::heading;
+
 /// A native recycling list (docs/list.md): 500 rows, but only the visible cells are ever built —
 /// the platform's NSTableView / RecyclerView / GtkListView / QListView owns scrolling + reuse.
 pub(crate) fn list_page() -> AnyPiece {
     let count = Signal::new(500i64);
     column((
         row((
-            label(tr("nav-list")).font(Font::Title).id("list-title"),
+            heading(tr("nav-list"), "list-title", None),
             spacer(),
             button(tr("list-add"))
                 .action(move || count.update(|c| *c += 100))

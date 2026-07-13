@@ -907,6 +907,13 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
     r
 }
 
+/// Query the active toolkit's support for a capability (docs). Lets app/piece code adapt its own
+/// content to the backend — e.g. a page can skip a title the native nav already shows in a header
+/// (`Cap::NavHeader`), or pick a presentation from `Cap::NavSplit`.
+pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
+    with_tree(|t| t.capability(cap))
+}
+
 /// Tell layout that a node's intrinsic size may have changed. For tweaks (docs/tweaks.md):
 /// after a native call that alters a widget's preferred size (fonts, tick marks, bezel styles),
 /// the measure cache along the node's path must be invalidated — Day can't see native mutations

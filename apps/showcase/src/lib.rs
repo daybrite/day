@@ -115,28 +115,30 @@ pub fn root() -> AnyPiece {
             .ok()
             .and_then(|r| Section::from_key(r.split(['/', '?']).next().unwrap_or(""))),
     );
+    // Each destination carries a bundled Material icon (images/nav_*.png) shown in the native nav
+    // where the backend supports it (e.g. the Windows NavigationView pane).
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
         .title(tr("app-title"))
         .header(sidebar_header)
-        .item(Section::Controls, tr("nav-controls"), controls_page)
-        .item(Section::Text, tr("nav-text"), text_page)
-        .item(Section::Canvas, tr("nav-canvas"), canvas_page)
-        .item(Section::System, tr("nav-system"), system_page)
-        .item(Section::Services, tr("nav-services"), services_page)
-        .item(Section::Menus, tr("nav-menus"), menus_page)
-        .item(Section::Modals, tr("nav-modals"), modals_page)
-        .item(Section::List, tr("nav-list"), list_page)
-        .item(Section::Tabs, tr("nav-tabs"), tabs_page)
-        .item(Section::Stack, tr("nav-stack"), stack_page)
-        .item(Section::Media, tr("nav-media"), media_page)
-        .item(Section::Resources, tr("nav-resources"), resources_page)
-        .item(Section::WebView, tr("nav-webview"), webview_page)
-        .item(Section::Tweaks, tr("nav-tweaks"), tweaks_page);
+        .item_icon(Section::Controls, tr("nav-controls"), "nav_controls", controls_page)
+        .item_icon(Section::Text, tr("nav-text"), "nav_text", text_page)
+        .item_icon(Section::Canvas, tr("nav-canvas"), "nav_canvas", canvas_page)
+        .item_icon(Section::System, tr("nav-system"), "nav_system", system_page)
+        .item_icon(Section::Services, tr("nav-services"), "nav_services", services_page)
+        .item_icon(Section::Menus, tr("nav-menus"), "nav_menus", menus_page)
+        .item_icon(Section::Modals, tr("nav-modals"), "nav_modals", modals_page)
+        .item_icon(Section::List, tr("nav-list"), "nav_list", list_page)
+        .item_icon(Section::Tabs, tr("nav-tabs"), "nav_tabs", tabs_page)
+        .item_icon(Section::Stack, tr("nav-stack"), "nav_stack", stack_page)
+        .item_icon(Section::Media, tr("nav-media"), "nav_media", media_page)
+        .item_icon(Section::Resources, tr("nav-resources"), "nav_resources", resources_page)
+        .item_icon(Section::WebView, tr("nav-webview"), "nav_webview", webview_page)
+        .item_icon(Section::Tweaks, tr("nav-tweaks"), "nav_tweaks", tweaks_page);
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let nav = nav.item(Section::Map, tr("nav-map"), map_page);
-    nav.item(Section::About, tr("nav-about"), about_page)
+    let nav = nav.item_icon(Section::Map, tr("nav-map"), "nav_map", map_page);
+    nav.item_icon(Section::About, tr("nav-about"), "nav_about", about_page)
         .id("nav")
 }
 

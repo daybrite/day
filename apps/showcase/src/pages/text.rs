@@ -1,5 +1,7 @@
 use day::prelude::*;
 
+use crate::widgets::heading;
+
 /// Typography playground: every semantic text style (mapped to the platform's native styles + Dynamic
 /// Type / font-scale accessibility sizing), font weights, bold/italic, color, and accessibility-scaled
 /// custom sizes. See docs/text.md.
@@ -121,10 +123,7 @@ pub(crate) fn text_page() -> AnyPiece {
 
     scroll(
         column((
-            label(tr("nav-text"))
-                .font(Font::LargeTitle)
-                .id("text-title"),
-            label(tr("text-caption")).font(Font::Subheadline),
+            heading(tr("nav-text"), "text-title", Some(tr("text-caption"))),
             // Bundled fonts lead the page: the most visually distinctive section, and the one
             // the walkthrough screenshot must show above the fold.
             fonts,

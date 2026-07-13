@@ -69,6 +69,10 @@ pub mod prelude {
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
     pub use day_core::{Resource, resource};
+    // Toolkit capability probe (docs): lets app/piece content adapt to the backend, e.g. skip a
+    // title the native nav already shows (`Cap::NavHeader`). `capability(cap) -> Support`.
+    pub use day_core::capability;
+    pub use day_spec::{Cap, Support};
     // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
     // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.
     pub use day_core::{is_rtl, layout_direction};

@@ -2,6 +2,7 @@ use day::prelude::*;
 use std::cell::OnceCell;
 
 use crate::lifecycle_log;
+use crate::widgets::heading;
 
 thread_local! {
     /// The last menu action fired — shared between the app menu (installed in `root`) and this
@@ -79,8 +80,7 @@ pub(crate) fn install_app_menu() {
 /// EITHER the app menu bar or this context menu. See docs/menus.md.
 pub(crate) fn menus_page() -> AnyPiece {
     column((
-        label(tr("nav-menus")).font(Font::Title).id("menus-title"),
-        label(tr("menus-caption")).font(Font::Subheadline),
+        heading(tr("nav-menus"), "menus-title", Some(tr("menus-caption"))),
         // Live readouts: the last menu action (app menu or context menu), and the last app-lifecycle
         // phase (docs/lifecycle.md) — Quit fires WillTerminate; switching apps fires resign/active.
         column((

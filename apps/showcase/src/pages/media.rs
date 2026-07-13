@@ -1,6 +1,8 @@
 use day::prelude::*;
 use day_piece_media::media;
 
+use crate::widgets::heading;
+
 /// A native media player (day-piece-media, an EXTERNAL standalone piece): AVPlayerView /
 /// AVPlayerViewController / QMediaPlayer+QVideoWidget / android.widget.VideoView / GtkVideo.
 /// Transport is imperative via `Trigger`s the piece watches; native chrome (where the toolkit
@@ -14,7 +16,7 @@ pub(crate) fn media_page() -> AnyPiece {
     let pause = Trigger::new();
     let load = Trigger::new();
     let player = column((
-        label(tr("nav-media")).font(Font::Title).id("media-title"),
+        heading(tr("nav-media"), "media-title", None),
         row((
             button(tr("media-play"))
                 .action(move || play.notify())

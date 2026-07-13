@@ -1,6 +1,8 @@
 use day::prelude::*;
 use day_piece_webview::web_view;
 
+use crate::widgets::heading;
+
 /// A native web view (day-piece-webview, an EXTERNAL standalone piece): WKWebView / QWebEngineView /
 /// android.webkit.WebView. The URL bar is bound two-way to the view — type + Go loads it, and
 /// navigation reports the URL back so the field follows. Back/Forward/Stop/Reload drive history via
@@ -13,9 +15,7 @@ pub(crate) fn webview_page() -> AnyPiece {
     let stop = Trigger::new();
     let reload = Trigger::new();
     column((
-        label(tr("nav-webview"))
-            .font(Font::Title)
-            .id("webview-title"),
+        heading(tr("nav-webview"), "webview-title", None),
         // URL bar: the field is bound to the view's URL; Go loads whatever it holds.
         row((
             text_field(url)

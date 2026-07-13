@@ -1,12 +1,14 @@
 use day::prelude::*;
 
+use crate::widgets::heading;
+
 /// Imperative modals (docs/dialogs.md): each button opens a native dialog from within an
 /// async task and writes a fixed result token to `modal-result` (locale-independent so the
 /// walkthrough can assert it).
 pub(crate) fn modals_page() -> AnyPiece {
     let last = Signal::new(String::new());
     column((
-        label(tr("nav-modals")).font(Font::Title).id("modals-title"),
+        heading(tr("nav-modals"), "modals-title", None),
         button(tr("modal-alert"))
             .action(move || {
                 day::task(async move {

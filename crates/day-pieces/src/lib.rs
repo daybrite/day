@@ -2708,6 +2708,8 @@ pub enum SelectorStyle {
 struct SelItem<K> {
     key: K,
     title: TextSource,
+    /// Optional bundled-image name for the item's native icon (docs/navigation.md).
+    icon: Option<String>,
     build: Box<dyn Fn() -> AnyPiece>,
 }
 
@@ -2772,6 +2774,25 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         self.items.push(SelItem {
             key: key.into(),
             title: title.into_text(),
+            icon: None,
+            build: Box::new(move || AnyPiece::new(build())),
+        });
+        self
+    }
+    /// Like [`item`](Self::item) but with a native icon: `icon` is a BUNDLED IMAGE NAME (resolved
+    /// like [`image`]) shown beside the label where the backend's nav supports it (e.g. the Windows
+    /// NavigationView, the iOS/macOS source list). Backends that can't decorate rows ignore it.
+    pub fn item_icon<M, P: Piece>(
+        mut self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        icon: impl Into<String>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        self.items.push(SelItem {
+            key: key.into(),
+            title: title.into_text(),
+            icon: Some(icon.into()),
             build: Box::new(move || AnyPiece::new(build())),
         });
         self
@@ -2917,6 +2938,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
     let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
     let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
+    let icons: Vec<Option<String>> = sel.items.iter().map(|it| it.icon.clone()).collect();
     let builders: ResolvedItems = Rc::new(
         sel.items
             .into_iter()
@@ -2955,17 +2977,19 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     );
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     {
-        let (mh, ks, s, titles2) = (
+        let (mh, ks, s, titles2, icons2) = (
             menu_holder.clone(),
             typed.clone(),
             selection.clone(),
             titles.clone(),
+            icons.clone(),
         );
         let menu_piece = piece_fn(move |mcx| {
             let node = mcx.native(
                 kinds::NAV_MENU,
                 &NavMenuProps {
                     items: titles2,
+                    icons: icons2,
                     selected: None,
                 },
                 Rc::new(LeafLayout),

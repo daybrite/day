@@ -4,6 +4,8 @@ use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
 use day_tweak_label_selectable::LabelSelectableTweak;
 use day_tweak_slider_tickmarks::{SliderTickmarksTweak, TickPosition, Tickmarks};
 
+use crate::widgets::heading;
+
 // Tweaks (docs/tweaks.md): packaged per-toolkit configuration of BUILT-IN pieces. Each card shows
 // a stock piece beside its Tweaked Piece; the captions name the toolkits the tweak affects — on
 // every other toolkit the tweak is a documented no-op and the two sides look identical.
@@ -112,8 +114,7 @@ pub(crate) fn tweaks_page() -> AnyPiece {
 
     scroll(
         column((
-            label(tr("nav-tweaks")).font(Font::Title).id("tweaks-title"),
-            label(tr("tweaks-intro")).font(Font::Footnote),
+            heading(tr("nav-tweaks"), "tweaks-title", Some(tr("tweaks-intro"))),
             bezel_card,
             selectable_card,
             ticks_card,

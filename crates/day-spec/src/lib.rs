@@ -385,6 +385,9 @@ pub enum Cap {
     /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
+    /// The toolkit shows the current destination's title in a NATIVE header/bar (e.g. the Windows
+    /// NavigationView header, the iOS/GTK nav bar) — so a page needn't repeat it in its own content.
+    NavHeader,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,
     /// The toolkit can present native open/save file pickers (docs/files.md).
@@ -798,9 +801,13 @@ pub mod props {
 
     /// Native navigation item list. `items` are display titles in route order;
     /// `selected` highlights the active route (split presentation; None on mobile roots).
+    /// `icons` (parallel to `items`, `None` = no icon) are BUNDLED IMAGE NAMES resolved by each
+    /// backend via `resource::resolve_image_file` — a backend that can't decorate its rows just
+    /// ignores them.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavMenuProps {
         pub items: Vec<String>,
+        pub icons: Vec<Option<String>>,
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]

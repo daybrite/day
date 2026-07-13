@@ -55,6 +55,28 @@ unsafe extern "C" {
     pub fn day_winui_navlist_set_items(w: *mut c_void, items_joined: *const c_char);
     pub fn day_winui_navlist_set_selected(w: *mut c_void, idx: c_int);
 
+    // native NavigationView split nav (docs/navigation.md): the idiomatic Windows sidebar+header,
+    // as in Settings. `out_content` receives the detail-page Canvas. Callbacks: sel(id, index) on a
+    // user menu pick; size(id, region, w, h) on a region reflow (region 0 = content, 1 = pane header);
+    // back(id) on the back button.
+    pub fn day_winui_nav_new(
+        id: u64,
+        sel_cb: extern "C" fn(u64, c_int),
+        size_cb: extern "C" fn(u64, c_int, c_int, c_int),
+        back_cb: extern "C" fn(u64),
+        out_content: *mut *mut c_void,
+        stack: c_int,
+    ) -> *mut c_void;
+    pub fn day_winui_nav_set_items(
+        nav: *mut c_void,
+        items_joined: *const c_char,
+        icons_joined: *const c_char,
+    );
+    pub fn day_winui_nav_set_selected(nav: *mut c_void, idx: c_int);
+    pub fn day_winui_nav_set_header(nav: *mut c_void, title: *const c_char);
+    pub fn day_winui_nav_set_pane_header(nav: *mut c_void, element: *mut c_void);
+    pub fn day_winui_nav_set_back_visible(nav: *mut c_void, visible: c_int);
+
     // leaves
     pub fn day_winui_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_winui_label_set_text(w: *mut c_void, text: *const c_char);

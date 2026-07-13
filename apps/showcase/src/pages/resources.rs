@@ -1,14 +1,13 @@
 use day::prelude::*;
 
+use crate::widgets::heading;
+
 /// Bundled resources (§18.3): an image loaded *by name* from the `images/` resource (the native
 /// image pipeline), plus efficient random-access reads of arbitrary embedded data via `resource()`.
 pub(crate) fn resources_page() -> AnyPiece {
     let (numbers_line, greeting_line) = resource_lines();
     column((
-        label(tr("nav-resources"))
-            .font(Font::Title)
-            .id("resources-title"),
-        label(tr("resources-caption")),
+        heading(tr("nav-resources"), "resources-title", Some(tr("resources-caption"))),
         // `image("day_logo")` resolves `images/day_logo.png` by name through the backend's native
         // image path (bundle file / Assets.car / R.drawable / …). `.frame` gives it a fixed box;
         // it scales to Fit (default content mode) — preserving aspect, never stretching.

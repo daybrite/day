@@ -808,6 +808,152 @@ void day_winui_navlist_set_selected(void* w, int idx) {
     if (lv && lv.SelectedIndex() != idx) lv.SelectedIndex(idx);
 }
 
+// --- native NavigationView (docs/navigation.md): the idiomatic Windows split navigation, as in
+// the Settings app — a pane of selectable MenuItems, a prominent Header slot that names the
+// current destination, an optional back button, and a Content region for the detail page. day
+// owns the item list + selection (fed from NAV_MENU) and the header text (from NavPatch); the
+// detail page is positioned by day into the returned content Canvas, whose SizeChanged reports
+// the true content bounds back so day lays the page out to the NavigationView's actual region.
+// system XAML has had NavigationView since Win10 1809, so no WinUI-3 dependency is needed.
+//
+// The callbacks: sel_cb(id, index) on a user menu pick; size_cb(id, region, w, h) whenever a
+// region reflows (region 0 = content / detail, 1 = pane header); back_cb(id) on the back button.
+static constexpr double DAY_NAV_SIDEBAR_WIDTH = 240.0; // mirrors day_spec::NAV_SIDEBAR_WIDTH
+
+void* day_winui_nav_new(unsigned long long id,
+                        void (*sel_cb)(unsigned long long, int),
+                        void (*size_cb)(unsigned long long, int, int, int),
+                        void (*back_cb)(unsigned long long),
+                        void** out_content,
+                        int stack) {
+    WUXC::NavigationView nv;
+    nv.IsSettingsVisible(false);
+    nv.IsBackButtonVisible(WUXC::NavigationViewBackButtonVisible::Collapsed); // toggled per depth
+    if (stack) {
+        // A push/pop stack has no menu: collapse the pane to a thin strip that just carries the
+        // back button + the current page title in the header.
+        nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
+        nv.IsPaneToggleButtonVisible(false);
+    } else {
+        nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left); // always-expanded sidebar
+        nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
+    }
+
+    // The detail host: a Canvas day positions the current page into (absolute frames). A Canvas has
+    // no desired size, so stretch it to fill the NavigationView's content region.
+    WUXC::Canvas content;
+    content.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+    content.VerticalAlignment(WUX::VerticalAlignment::Stretch);
+    nv.Content(content);
+    content.SizeChanged(
+        [id, size_cb](WF::IInspectable const& s, WUX::SizeChangedEventArgs const&) {
+            auto fe = s.as<FrameworkElement>();
+            size_cb(id, 0, static_cast<int>(fe.ActualWidth()), static_cast<int>(fe.ActualHeight()));
+        });
+
+    // User picked a menu item → report its index; day maps it back to the route via NAV_MENU.
+    nv.SelectionChanged(
+        [id, sel_cb](WUXC::NavigationView const& sender,
+                     WUXC::NavigationViewSelectionChangedEventArgs const& args) {
+            if (args.IsSettingsSelected()) return;
+            auto item = args.SelectedItem();
+            if (!item) return;
+            uint32_t idx = 0;
+            if (sender.MenuItems().IndexOf(item, idx)) sel_cb(id, static_cast<int>(idx));
+        });
+    nv.BackRequested([id, back_cb](WUXC::NavigationView const&,
+                                   WUXC::NavigationViewBackRequestedEventArgs const&) {
+        back_cb(id);
+    });
+
+    if (out_content) *out_content = boxh(content);
+    return boxh(nv);
+}
+
+static std::vector<std::string> split_lines(const char* joined) {
+    std::vector<std::string> out;
+    std::string all = joined ? joined : "";
+    if (all.empty()) return out;
+    size_t start = 0;
+    while (true) {
+        size_t nl = all.find('\n', start);
+        out.push_back(all.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    return out;
+}
+
+// Rebuild the pane's MenuItems from '\n'-joined destination titles (route order). `icons_joined`
+// is a PARALLEL '\n'-joined list of bundled icon FILE NAMES (empty entry = no icon), staged next to
+// the exe under images/ so a monochrome BitmapIcon can load them via ms-appx and tint to the theme.
+void day_winui_nav_set_items(void* navh, const char* items_joined, const char* icons_joined) {
+    guard([&] {
+        auto nv = elem(navh).try_as<WUXC::NavigationView>();
+        if (!nv) return;
+        nv.MenuItems().Clear();
+        auto titles = split_lines(items_joined);
+        auto icons = split_lines(icons_joined);
+        for (size_t i = 0; i < titles.size(); ++i) {
+            WUXC::NavigationViewItem nvi;
+            nvi.Content(winrt::box_value(hs(titles[i].c_str())));
+            if (i < icons.size() && !icons[i].empty()) {
+                WUXC::BitmapIcon bicon;
+                bicon.UriSource(WF::Uri{ hs(("ms-appx:///images/" + icons[i]).c_str()) });
+                bicon.ShowAsMonochrome(true); // tint to the pane foreground (theme-adaptive)
+                nvi.Icon(bicon);
+            }
+            nv.MenuItems().Append(nvi);
+        }
+    });
+}
+
+// Programmatic highlight sync (idx < 0 = clear). SelectionChanged still fires, but day's route
+// set is idempotent (show() no-ops on the same key), so no feedback loop.
+void day_winui_nav_set_selected(void* navh, int idx) {
+    guard([&] {
+        auto nv = elem(navh).try_as<WUXC::NavigationView>();
+        if (!nv) return;
+        auto items = nv.MenuItems();
+        if (idx < 0 || static_cast<uint32_t>(idx) >= items.Size()) {
+            nv.SelectedItem(nullptr);
+            return;
+        }
+        auto want = items.GetAt(static_cast<uint32_t>(idx));
+        if (nv.SelectedItem() != want) nv.SelectedItem(want);
+    });
+}
+
+// The prominent page-title header (the current destination), shown at the top of the content area.
+void day_winui_nav_set_header(void* navh, const char* title) {
+    guard([&] {
+        auto nv = elem(navh).try_as<WUXC::NavigationView>();
+        if (nv) nv.Header(winrt::box_value(hs(title)));
+    });
+}
+
+// Custom pane header (day's sidebar header piece — logo + app title). A bare Canvas has no
+// desired size, so the PaneHeader slot would collapse; day fixes its height via set_frame.
+void day_winui_nav_set_pane_header(void* navh, void* element) {
+    guard([&] {
+        auto nv = elem(navh).try_as<WUXC::NavigationView>();
+        if (!nv) return;
+        if (element) nv.PaneHeader(elem(element));
+        else nv.PaneHeader(nullptr);
+    });
+}
+
+// Show/hide the NavigationView back button (a stack shows it once a page is pushed, docs/navigation.md).
+void day_winui_nav_set_back_visible(void* navh, int visible) {
+    guard([&] {
+        auto nv = elem(navh).try_as<WUXC::NavigationView>();
+        if (nv) {
+            nv.IsBackButtonVisible(visible ? WUXC::NavigationViewBackButtonVisible::Visible
+                                           : WUXC::NavigationViewBackButtonVisible::Collapsed);
+        }
+    });
+}
+
 // A container is a Canvas (day positions children by absolute frame). It has no rounded-corner clip
 // of its own — Windows.UI.Xaml's RectangleGeometry can't round, and UIElement.Clip is rectangular
 // only — so a background fill / rounded corner is drawn by a `Rectangle` SHAPE (which DOES carry

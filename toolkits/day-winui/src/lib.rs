@@ -8,7 +8,7 @@
 
 #![cfg(windows)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_int, c_void};
@@ -47,43 +47,113 @@ thread_local! {
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// NAV_MENU widget ptr → row count (for measure).
     static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-    /// NAV host ptr → its sidebar/detail panes + pages (docs/navigation.md).
+    /// NAV host ptr → its native presentation (NavigationView split / two-pane, docs/navigation.md).
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE handle ptr → its node id (so region-resize callbacks can emit FrameChanged).
+    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// NAV host node id → host handle ptr (the shim's callbacks carry the host node id).
+    static NAV_HOST_BY_ID: RefCell<HashMap<u64, *mut c_void>> = RefCell::new(HashMap::new());
+    /// A split NavigationView whose NAV_MENU hasn't been created yet (nav is app-root-only, so at
+    /// most one is pending). The next NAV_MENU feeds this NavigationView's MenuItems.
+    static PENDING_SPLIT_NAV: Cell<*mut c_void> = const { Cell::new(std::ptr::null_mut()) };
+    /// NAV_MENU placeholder ptr → its NavigationView (split navs drive MenuItems, not a ListView).
+    static NAV_MENU_HOST: RefCell<HashMap<usize, *mut c_void>> = RefCell::new(HashMap::new());
+    /// Split-nav sidebar-page ptrs: the NavigationView's PaneHeader, clipped to a fixed height.
+    static SPLIT_SIDEBAR_PAGES: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
     /// SCROLL host ptr → its inner content Canvas ptr (children live in the content, docs §7.6).
     static SCROLL_STATE: RefCell<HashMap<usize, *mut c_void>> = RefCell::new(HashMap::new());
     /// Handles with a native gesture recognizer wired, keyed by (handle ptr, kind) — idempotent.
     static GESTURES: RefCell<HashSet<(usize, c_int)>> = RefCell::new(HashSet::new());
 }
 
-// Navigation host: a Canvas holding two child Canvases — sidebar (fixed 240pt) + detail.
-// day-core's NavLayout sizes each page to its pane (origin 0,0); this backend positions the
-// panes side by side (NavLayout expects each page to live in its own positioned pane).
-struct NavState {
-    sidebar_pane: *mut c_void,
-    detail_pane: *mut c_void,
-    pages: Vec<*mut c_void>,
+// Navigation host — always a native `NavigationView` (docs/navigation.md), in one of two modes
+// chosen by NavProps.split:
+//  • split=true  → the idiomatic Windows sidebar+header selector (as in Settings): MenuItems are the
+//    destinations, the Header names the current one, Content holds the detail page.
+//  • split=false → a push/pop stack: no menu, the back button appears once a page is pushed, and
+//    pages stack in the content region.
+// `menu_node` is the NAV_MENU node id whose SelectionChanged the pane synthesizes; `sidebar_page`
+// (day's logo/title piece) is the PaneHeader; detail pages live in `content_host` (nv.Content) kept
+// with their node ids so a region resize can report FrameChanged (mirrors TABS).
+struct SplitNav {
+    nav_view: *mut c_void,
+    content_host: *mut c_void,
+    menu_node: u64,
+    sidebar_page: Option<(*mut c_void, NodeId)>,
+    detail_pages: Vec<(*mut c_void, NodeId)>,
+    /// A push/pop stack (NavProps.split == false): no menu/sidebar, every page stacks in the
+    /// content region, and the NavigationView back button appears once a page is pushed.
+    is_stack: bool,
 }
+
+enum NavState {
+    Split(SplitNav),
+}
+
+/// Fixed height (pt) of the NavigationView PaneHeader that hosts day's sidebar header piece
+/// (logo + app title) — a bare Canvas has no desired size, so the slot needs an explicit one.
+const NAV_PANE_HEADER_H: c_int = 60;
 
 extern "C" fn nav_menu_changed(id: u64, index: c_int) {
     emit(NodeId(id), Event::SelectionChanged(index as i64));
 }
 
-/// Lay the sidebar + detail panes across the nav host of the given size.
-fn nav_layout_panes(host: *mut c_void, w: f64, h: f64) {
+/// A user pick in a NavigationView pane: the shim passes the HOST node id + item index; route it to
+/// the host's NAV_MENU node (whose day handler maps the index back to a route).
+extern "C" fn nav_selection(host_id: u64, index: c_int) {
+    let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
+    let Some(host) = host else { return };
+    let menu = NAV_STATE.with(|m| match m.borrow().get(&(host as usize)) {
+        Some(NavState::Split(s)) if s.menu_node != 0 => Some(s.menu_node),
+        _ => None,
+    });
+    if let Some(menu_node) = menu {
+        emit(NodeId(menu_node), Event::SelectionChanged(index as i64));
+    }
+}
+
+/// A NavigationView region reflowed (window resize, pane open/close): report the true size so day
+/// re-lays the affected page(s). region 0 = content (detail pages), 1 = pane header (sidebar page).
+extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
+    let Some(host) = host else { return };
+    let size = Size::new(w as f64, h as f64);
+    let reports: Vec<NodeId> = NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(NavState::Split(s)) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        if region == 1 {
+            s.sidebar_page.map(|(_, id)| id).into_iter().collect()
+        } else {
+            s.detail_pages.iter().map(|(_, id)| *id).collect()
+        }
+    });
+    for id in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+/// The NavigationView back button: pop one level (the stack surface writes it back into its path).
+extern "C" fn nav_back(host_id: u64) {
+    emit(NodeId(host_id), Event::NavBack { already_popped: false });
+}
+
+/// A stack's pages overlap in the content region; show only the top one so a transparent page
+/// can't reveal those beneath it, and refresh the back button (visible once a page is pushed).
+fn stack_sync(host: *mut c_void) {
     NAV_STATE.with(|m| {
-        if let Some(state) = m.borrow().get(&(host as usize)) {
-            let sidebar = day_spec::NAV_SIDEBAR_WIDTH;
-            let detail_x = sidebar + 1.0;
-            unsafe {
-                ffi::day_winui_set_geometry(state.sidebar_pane, 0, 0, sidebar as c_int, h as c_int);
-                ffi::day_winui_set_geometry(
-                    state.detail_pane,
-                    detail_x as c_int,
-                    0,
-                    (w - detail_x).max(0.0) as c_int,
-                    h as c_int,
-                );
+        if let Some(NavState::Split(s)) = m.borrow().get(&(host as usize)) {
+            let last = s.detail_pages.len().saturating_sub(1);
+            for (i, (page, _)) in s.detail_pages.iter().enumerate() {
+                unsafe { ffi::day_winui_set_visible(*page, (i == last) as c_int) };
             }
+            unsafe {
+                ffi::day_winui_nav_set_back_visible(s.nav_view, (s.detail_pages.len() >= 2) as c_int)
+            };
         }
     });
 }
@@ -382,6 +452,38 @@ fn stage_bundled_fonts() {
     }
 }
 
+/// Stage bundled images (DAY_IMAGE_ROOT) next to the exe under `images/` so a `BitmapIcon` can load
+/// them via `ms-appx:///images/<file>` (same unpackaged-islands workaround as the fonts). Only nav
+/// icons need this today (regular `image()` loads bytes via a stream); a no-op when packed (src==dst)
+/// or when DAY_IMAGE_ROOT is unset.
+fn stage_bundled_images() {
+    let Some(dst_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("images")))
+    else {
+        return;
+    };
+    let Some(src_dir) = std::env::var_os("DAY_IMAGE_ROOT").map(std::path::PathBuf::from) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&src_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let src = entry.path();
+        if !src.is_file() {
+            continue;
+        }
+        let Some(dst) = src.file_name().map(|n| dst_dir.join(n)) else {
+            continue;
+        };
+        if src == dst {
+            continue;
+        }
+        let _ = std::fs::create_dir_all(&dst_dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
+    }
+}
+
 /// Day weight → Windows.UI.Text.FontWeight numeric value (Thin=100 … Black=900).
 fn winui_weight(w: day_spec::FontWeight) -> c_int {
     use day_spec::FontWeight as W;
@@ -616,6 +718,9 @@ impl Toolkit for WinUi {
             Cap::NavSplit => Support::Native,
             // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
             Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // The NavigationView shows the current destination in its Header, so pages needn't
+            // repeat their title in-content (docs/navigation.md).
+            Cap::NavHeader => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -647,34 +752,87 @@ impl Toolkit for WinUi {
                 }
                 kinds::CANVAS => WinHandle(ffi::day_winui_canvas_new()),
                 kinds::NAV => {
-                    let host = ffi::day_winui_container_new();
-                    let sidebar_pane = ffi::day_winui_container_new();
-                    let detail_pane = ffi::day_winui_container_new();
-                    ffi::day_winui_add_child(host, sidebar_pane);
-                    ffi::day_winui_add_child(host, detail_pane);
+                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    // Both presentations are a native NavigationView: a sidebar+header selector
+                    // (split) or a push/pop stack with a back button (docs/navigation.md).
+                    let is_stack = !p.split;
+                    let mut content: *mut c_void = std::ptr::null_mut();
+                    let nav = ffi::day_winui_nav_new(
+                        id.0,
+                        nav_selection,
+                        nav_region_size,
+                        nav_back,
+                        &mut content,
+                        is_stack as c_int,
+                    );
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
-                            host as usize,
-                            NavState {
-                                sidebar_pane,
-                                detail_pane,
-                                pages: Vec::new(),
-                            },
+                            nav as usize,
+                            NavState::Split(SplitNav {
+                                nav_view: nav,
+                                content_host: content,
+                                menu_node: 0,
+                                sidebar_page: None,
+                                detail_pages: Vec::new(),
+                                is_stack,
+                            }),
                         )
                     });
-                    WinHandle(host)
+                    NAV_HOST_BY_ID.with(|m| m.borrow_mut().insert(id.0, nav));
+                    if !is_stack {
+                        // The next NAV_MENU (built into the sidebar page) feeds this pane's items.
+                        PENDING_SPLIT_NAV.with(|c| c.set(nav));
+                    }
+                    WinHandle(nav)
                 }
-                kinds::NAV_PAGE => WinHandle(ffi::day_winui_container_new()),
+                kinds::NAV_PAGE => {
+                    let page = ffi::day_winui_container_new();
+                    NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page as usize, id));
+                    WinHandle(page)
+                }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    let w = ffi::day_winui_navlist_new(id.0, nav_menu_changed);
-                    ffi::day_winui_navlist_set_items(w, cstr(&p.items.join("\n")).as_ptr());
-                    ffi::day_winui_navlist_set_selected(
-                        w,
-                        p.selected.map(|i| i as c_int).unwrap_or(-1),
-                    );
-                    NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
-                    WinHandle(w)
+                    let pending = PENDING_SPLIT_NAV.with(|c| c.get());
+                    if !pending.is_null() {
+                        // Split nav: the destinations become the NavigationView's own MenuItems, so
+                        // the menu node is just an invisible placeholder inside the sidebar page.
+                        let icons_joined = p
+                            .icons
+                            .iter()
+                            .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        ffi::day_winui_nav_set_items(
+                            pending,
+                            cstr(&p.items.join("\n")).as_ptr(),
+                            cstr(&icons_joined).as_ptr(),
+                        );
+                        ffi::day_winui_nav_set_selected(
+                            pending,
+                            p.selected.map(|i| i as c_int).unwrap_or(-1),
+                        );
+                        NAV_STATE.with(|m| {
+                            if let Some(NavState::Split(s)) =
+                                m.borrow_mut().get_mut(&(pending as usize))
+                            {
+                                s.menu_node = id.0;
+                            }
+                        });
+                        PENDING_SPLIT_NAV.with(|c| c.set(std::ptr::null_mut()));
+                        let placeholder = ffi::day_winui_container_new();
+                        NAV_MENU_HOST.with(|m| m.borrow_mut().insert(placeholder as usize, pending));
+                        WinHandle(placeholder)
+                    } else {
+                        // Standalone ListView (non-split fallback).
+                        let w = ffi::day_winui_navlist_new(id.0, nav_menu_changed);
+                        ffi::day_winui_navlist_set_items(w, cstr(&p.items.join("\n")).as_ptr());
+                        ffi::day_winui_navlist_set_selected(
+                            w,
+                            p.selected.map(|i| i as c_int).unwrap_or(-1),
+                        );
+                        NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
+                        WinHandle(w)
+                    }
                 }
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
@@ -895,14 +1053,35 @@ impl Toolkit for WinUi {
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
                     {
-                        ffi::day_winui_navlist_set_selected(
-                            h.0,
-                            sel.map(|i| i as c_int).unwrap_or(-1),
-                        );
+                        let idx = sel.map(|i| i as c_int).unwrap_or(-1);
+                        // Split navs drive the NavigationView pane; a plain ListView otherwise.
+                        match NAV_MENU_HOST.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
+                            Some(nav) => ffi::day_winui_nav_set_selected(nav, idx),
+                            None => ffi::day_winui_navlist_set_selected(h.0, idx),
+                        }
                     }
                 }
-                // NAV Pushed/Popped/Title need no native work — NavLayout re-places the pages.
-                kinds::NAV => {}
+                // Split navs show the current destination in the NavigationView Header (the whole
+                // point of the Settings-like presentation); Pushed/Title carry that title. Two-pane
+                // navs need no native work — NavLayout re-places the pages.
+                kinds::NAV => {
+                    if let Some(np) = patch.downcast_ref::<NavPatch>() {
+                        let title = match np {
+                            NavPatch::Pushed { title } => Some(title.as_str()),
+                            NavPatch::Title(t) => Some(t.as_str()),
+                            NavPatch::Popped => None,
+                        };
+                        if let Some(title) = title {
+                            let nav = NAV_STATE.with(|m| match m.borrow().get(&(h.0 as usize)) {
+                                Some(NavState::Split(s)) => Some(s.nav_view),
+                                _ => None,
+                            });
+                            if let Some(nav) = nav {
+                                ffi::day_winui_nav_set_header(nav, cstr(title).as_ptr());
+                            }
+                        }
+                    }
+                }
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -936,11 +1115,12 @@ impl Toolkit for WinUi {
         TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_TITLES.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
-        if let Some(state) = NAV_STATE.with(|m| m.borrow_mut().remove(&key)) {
-            unsafe {
-                ffi::day_winui_delete(state.sidebar_pane);
-                ffi::day_winui_delete(state.detail_pane);
-            }
+        NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
+        NAV_MENU_HOST.with(|m| m.borrow_mut().remove(&key));
+        SPLIT_SIDEBAR_PAGES.with(|m| m.borrow_mut().remove(&key));
+        if let Some(NavState::Split(s)) = NAV_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            NAV_HOST_BY_ID.with(|m| m.borrow_mut().retain(|_, v| *v != s.nav_view));
+            unsafe { ffi::day_winui_delete(s.content_host) };
         }
         // day-core never releases the adopted cell handles (their anchors are detached), so the
         // list host owns cell + content cleanup.
@@ -990,23 +1170,59 @@ impl Toolkit for WinUi {
             tabs_sync(parent.0);
             return;
         }
-        // Nav host: page index 0 = sidebar pane, the rest = detail pane.
-        let nav_handled = NAV_STATE.with(|m| {
+        // Nav host: for a selector, page index 0 = sidebar (PaneHeader), the rest = detail. For a
+        // stack, every page stacks in the content region.
+        enum NavInsert {
+            No,
+            Done,
+            /// A page landed in the content region: seed its frame. `stack` also re-syncs the
+            /// stack's top-page visibility + back button.
+            Content { node: NodeId, content_host: *mut c_void, stack: bool },
+        }
+        let nav = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
-                return false;
+            let Some(NavState::Split(s)) = m.get_mut(&(parent.0 as usize)) else {
+                return NavInsert::No;
             };
-            let pane = if index == 0 {
-                state.sidebar_pane
+            let node = NAV_PAGE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or(NodeId(0));
+            if !s.is_stack && index == 0 {
+                // The sidebar page (day's logo/title header piece) → the NavigationView's
+                // PaneHeader; clipped to a fixed height by set_frame.
+                unsafe { ffi::day_winui_nav_set_pane_header(s.nav_view, child.0) };
+                s.sidebar_page = Some((child.0, node));
+                SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().insert(child.0 as usize));
+                NavInsert::Done
             } else {
-                state.detail_pane
-            };
-            unsafe { ffi::day_winui_add_child(pane, child.0) };
-            state.pages.push(child.0);
-            true
+                // Detail / stack page → nv.Content (day positions it by absolute frame).
+                unsafe { ffi::day_winui_add_child(s.content_host, child.0) };
+                s.detail_pages.push((child.0, node));
+                NavInsert::Content {
+                    node,
+                    content_host: s.content_host,
+                    stack: s.is_stack,
+                }
+            }
         });
-        if nav_handled {
-            return;
+        match nav {
+            NavInsert::No => {}
+            NavInsert::Done => return,
+            NavInsert::Content { node, content_host, stack } => {
+                // The NavigationView content region is already sized, and adding a child won't
+                // refire its SizeChanged — so seed the new page with the current content bounds
+                // (else NavLayout would fall back to the split size). Emitted outside the NAV_STATE
+                // borrow (FrameChanged re-enters the tree).
+                let (mut w, mut h) = (0.0, 0.0);
+                unsafe { ffi::day_winui_widget_size(content_host, &mut w, &mut h) };
+                if w > 0.0 && h > 0.0 {
+                    emit(node, Event::FrameChanged(Size::new(w, h)));
+                }
+                if stack {
+                    stack_sync(parent.0);
+                }
+                return;
+            }
         }
         // Scroll host: children live in the inner content Canvas, not the ScrollViewer itself.
         let target = SCROLL_STATE
@@ -1016,26 +1232,30 @@ impl Toolkit for WinUi {
     }
 
     fn remove(&mut self, parent: &WinHandle, child: &WinHandle) {
-        // Nav pages live in a pane, not directly under the host — remove from whichever pane.
-        let panes = NAV_STATE.with(|m| {
+        // Nav pages live in a pane / the NavigationView content — remove from wherever they landed.
+        let removed = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
-            m.get_mut(&(parent.0 as usize)).map(|state| {
-                state.pages.retain(|&p| p != child.0);
-                (state.sidebar_pane, state.detail_pane)
-            })
+            let Some(NavState::Split(s)) = m.get_mut(&(parent.0 as usize)) else {
+                return None;
+            };
+            s.detail_pages.retain(|&(p, _)| p != child.0);
+            SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(child.0 as usize)));
+            unsafe { ffi::day_winui_remove_child(s.content_host, child.0) };
+            Some(s.is_stack)
         });
-        match panes {
-            Some((sidebar, detail)) => unsafe {
-                ffi::day_winui_remove_child(sidebar, child.0);
-                ffi::day_winui_remove_child(detail, child.0);
-            },
-            None => {
-                let target = SCROLL_STATE
-                    .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
-                    .unwrap_or(parent.0);
-                unsafe { ffi::day_winui_remove_child(target, child.0) };
+        match removed {
+            Some(true) => {
+                // A stack page popped: re-show the new top + refresh the back button.
+                stack_sync(parent.0);
+                return;
             }
+            Some(false) => return,
+            None => {}
         }
+        let target = SCROLL_STATE
+            .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
+            .unwrap_or(parent.0);
+        unsafe { ffi::day_winui_remove_child(target, child.0) };
     }
 
     fn move_child(&mut self, _parent: &WinHandle, _child: &WinHandle, _to: usize) {
@@ -1063,6 +1283,11 @@ impl Toolkit for WinUi {
             // The list host fills whatever frame layout gives it; cells fill its width.
             kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             kinds::NAV_MENU => {
+                // Split navs render the menu as the NavigationView's own pane, so the day node is an
+                // invisible placeholder that must take no layout space.
+                if NAV_MENU_HOST.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+                    return Size::new(0.0, 0.0);
+                }
                 let rows =
                     NAV_MENU_ROWS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or(0));
                 Size::new(
@@ -1093,6 +1318,21 @@ impl Toolkit for WinUi {
         if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             return;
         }
+        // A split nav's sidebar page IS the NavigationView's PaneHeader: clip it to a fixed header
+        // height (a Canvas has no desired size) so day's logo/title piece sits at the pane top; the
+        // NavigationView owns everything below it. Width follows the frame day proposes.
+        if SPLIT_SIDEBAR_PAGES.with(|m| m.borrow().contains(&(h.0 as usize))) {
+            unsafe {
+                ffi::day_winui_set_geometry(
+                    h.0,
+                    0,
+                    0,
+                    frame.size.width.round() as c_int,
+                    NAV_PANE_HEADER_H,
+                )
+            };
+            return;
+        }
         unsafe {
             ffi::day_winui_set_geometry(
                 h.0,
@@ -1105,10 +1345,7 @@ impl Toolkit for WinUi {
         if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             tabs_sync(h.0);
         }
-        // Nav host framed (or window resized): re-lay the sidebar + detail panes.
-        if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
-            nav_layout_panes(h.0, frame.size.width, frame.size.height);
-        }
+        // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
         // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
         // set_frames a populate itself makes (on row content) don't schedule another forever.
         let width_changed = LIST_STATE.with(|m| {
@@ -1302,6 +1539,16 @@ fn argb(c: day_spec::Color) -> u32 {
 /// lookup (probing `DAY_IMAGE_ROOT`/`DAY_ASSET_ROOT` for dev/`day launch` runs, then the exe-relative
 /// dirs, inferring the extension), exactly as the AppKit/GTK/Qt backends do. An unresolved name
 /// yields `""`, which `day_winui_image_new` renders as an empty placeholder — the prior behavior.
+/// A nav-icon name → the bundled file's NAME (e.g. "nav_controls" → "nav_controls.png"), which the
+/// shim loads as `ms-appx:///images/<file>` (staged by `stage_bundled_images`). Empty if unresolved.
+fn icon_file_name(name: &str) -> String {
+    day_spec::resource::resolve_image_file(name)
+        .as_deref()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 fn image_uri(source: &str) -> String {
     // Pass the resolved NATIVE path to the shim, which reads the bytes and `SetSource`s a
     // BitmapImage — the system-XAML image loader does NOT accept `file://` (or bare-path) URIs (a
@@ -1401,6 +1648,8 @@ impl Platform for WinUi {
             // Bundled fonts (§18.4): stage every file into `<exe>/fonts/` before the app builds its
             // tree, so `Font::Custom` families resolve via `ms-appx:///fonts/…` inside XAML.
             stage_bundled_fonts();
+            // Nav icons load as ms-appx BitmapIcons, so stage the project's images/ next to the exe.
+            stage_bundled_images();
             // Taskbar/title icon (§18.2): the .ico `day launch` resolved from icons/windows/.
             if let Ok(icon) = std::env::var("DAY_APP_ICON") {
                 ffi::day_winui_set_app_icon(win, cstr(&icon).as_ptr());
