@@ -53,6 +53,10 @@ mod imp {
         static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Keys whose NavDestination ALREADY disappeared (`day_arkui_nav_popped`) while the
+        /// page is still mounted — its Remove must not touch the torn-down ArkTS content.
+        static NAV_POPPED_KEYS: RefCell<std::collections::HashSet<u64>> =
+            RefCell::new(std::collections::HashSet::new());
         static NAV_EXPECT_POP: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
         static NAV_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
@@ -331,7 +335,12 @@ mod imp {
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
     /// popped, so the host receives `NavBack { already_popped: true }`.
     #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_popped(_key: u64) {
+    pub extern "C" fn day_arkui_nav_popped(key: u64) {
+        // The destination's content tree is gone: if the page is still mounted (its Remove
+        // patch hasn't landed yet), mark the key so that Remove skips the dead slot.
+        if NAV_PUSHED.with(|m| m.borrow().values().any(|k| *k == key)) {
+            NAV_POPPED_KEYS.with(|s| s.borrow_mut().insert(key));
+        }
         NAV_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
         let expected = NAV_EXPECT_POP.with(|e| {
             let v = e.get();
@@ -547,6 +556,14 @@ mod imp {
                 kinds::NAV => {
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
+                    // A REBUILT host invalidates every pointer the old one tracked — a Pushed
+                    // patch that then consumed a stale NAV_ATTACHED entry would re-home a
+                    // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).
+                    NAV_ATTACHED.with(|v| v.borrow_mut().clear());
+                    NAV_PUSHED.with(|m| m.borrow_mut().clear());
+                    NAV_POPPED_KEYS.with(|s| s.borrow_mut().clear());
+                    NAV_EXPECT_POP.with(|e| e.set(0));
+                    NAV_DEPTH.with(|d| d.set(0));
                     n
                 }
                 kinds::NAV_PAGE => {
@@ -626,7 +643,9 @@ mod imp {
                                 // The just-attached LAST page child becomes a NavDestination:
                                 // detach it from the host Stack and mount it into the fresh
                                 // NodeContent the ArkTS push callback returns.
-                                let last = NAV_ATTACHED.with(|v| v.borrow().last().copied());
+                                // CONSUME the entry: a second Pushed must never re-detach
+                                // the same (already re-homed, possibly disposed) page.
+                                let last = NAV_ATTACHED.with(|v| v.borrow_mut().pop());
                                 if let Some((page, key)) = last {
                                     unsafe {
                                         ffi::day_ark_remove_child(h.0, page as *mut _);
@@ -783,7 +802,16 @@ mod imp {
             NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != cp));
             if let Some(key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&cp)) {
                 // The page lives in an ArkTS NodeContent (NavDestination), not under the host.
-                unsafe { ffi::day_ark_nav_remove(key, child.0) };
+                // Detach it ONLY while that destination is still alive (a Day-initiated pop:
+                // the Remove patch lands before the pop transition finishes). Once the ArkTS
+                // side reported the disappearance (native back — the destination and its
+                // content tree are already torn down), touching the slot would walk freed
+                // FrameNodes: drop the bookkeeping instead.
+                if NAV_POPPED_KEYS.with(|s| s.borrow_mut().remove(&key)) {
+                    unsafe { ffi::day_ark_nav_forget(key) };
+                } else {
+                    unsafe { ffi::day_ark_nav_remove(key, child.0) };
+                }
                 return;
             }
             unsafe { ffi::day_ark_remove_child(parent.0, child.0) };

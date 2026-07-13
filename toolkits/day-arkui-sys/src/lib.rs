@@ -27,6 +27,7 @@ unsafe extern "C" {
     pub fn day_ark_nav_pop();
     pub fn day_ark_nav_set_title(title: *const c_char);
     pub fn day_ark_nav_remove(key: u64, page: *mut c_void);
+    pub fn day_ark_nav_forget(key: u64);
     /// Menu styling: flex-grow within a Row/Column; a conventional hairline list separator.
     pub fn day_ark_set_flex_grow(n: *mut c_void, g: f64);
     pub fn day_ark_menu_separator(n: *mut c_void, argb: u32);

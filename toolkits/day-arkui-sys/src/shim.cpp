@@ -74,7 +74,15 @@ static napi_ref g_file_picker = nullptr;
 static napi_ref g_nav_push = nullptr;  // (key: number, title: string) => NodeContent
 static napi_ref g_nav_pop = nullptr;   // () => void — pathStack.pop()
 static napi_ref g_nav_title = nullptr; // (title: string) => void — retitle the top destination
-static std::map<uint64_t, ArkUI_NodeContentHandle> g_nav_contents;
+// A pushed page's slot: the NodeContent handle PLUS a strong napi_ref on the JS object. The
+// ArkTS side drops its own reference when the NavDestination disappears (onDisAppear), so
+// without the ref the content is GC'd while Rust may still detach the page from it — the
+// RemoveNode-after-pop then walks freed FrameNodes (SIGSEGV in ViewModel::RemoveChild).
+struct DayNavContent {
+    ArkUI_NodeContentHandle content;
+    napi_ref ref;
+};
+static std::map<uint64_t, DayNavContent> g_nav_contents;
 extern "C" void day_arkui_nav_popped(uint64_t key);
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
 
@@ -413,7 +421,9 @@ int32_t day_ark_nav_push(void* page, uint64_t key, const char* title) {
             ArkUI_NodeContentHandle content = nullptr;
             OH_ArkUI_GetNodeContentFromNapiValue(g_env, ret, &content);
             if (content) {
-                g_nav_contents[key] = content;
+                napi_ref ref = nullptr;
+                napi_create_reference(g_env, ret, 1, &ref);
+                g_nav_contents[key] = DayNavContent{content, ref};
                 OH_ArkUI_NodeContent_AddNode(content, (ArkUI_NodeHandle)page);
                 rc = 0;
             }
@@ -457,11 +467,24 @@ void day_ark_nav_set_title(const char* title) {
     napi_close_handle_scope(g_env, scope);
 }
 
-// Unmount a popped page's node from its NodeContent (before Day disposes the node).
+// Unmount a page's node from its still-LIVE NodeContent (a Day-initiated pop detaches before
+// the destination's teardown) and release the slot. JS thread only.
 void day_ark_nav_remove(uint64_t key, void* page) {
     auto it = g_nav_contents.find(key);
     if (it != g_nav_contents.end()) {
-        OH_ArkUI_NodeContent_RemoveNode(it->second, (ArkUI_NodeHandle)page);
+        OH_ArkUI_NodeContent_RemoveNode(it->second.content, (ArkUI_NodeHandle)page);
+        if (g_env && it->second.ref) napi_delete_reference(g_env, it->second.ref);
+        g_nav_contents.erase(it);
+    }
+}
+
+// Release a slot whose NavDestination ALREADY disappeared (native back / reported pop): the
+// destination tore its content down, so touching the nodes again would use freed memory —
+// just drop the bookkeeping and the keep-alive ref. JS thread only.
+void day_ark_nav_forget(uint64_t key) {
+    auto it = g_nav_contents.find(key);
+    if (it != g_nav_contents.end()) {
+        if (g_env && it->second.ref) napi_delete_reference(g_env, it->second.ref);
         g_nav_contents.erase(it);
     }
 }

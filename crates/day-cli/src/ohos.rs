@@ -97,9 +97,10 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     let display: &[&str] = if headless {
         &["-display", "none"]
     } else if cfg!(target_os = "macos") {
-        // zoom-to-fit makes the window freely resizable (the guest's fixed 360×720 framebuffer
-        // scales to fill it) — drag it larger, or ⌘F for full screen.
-        &["-display", "cocoa,zoom-to-fit=on"]
+        // Plain cocoa: launching with zoom-to-fit=on stalls the GUEST's display bring-up
+        // (bootevent.wms.fullscreen.ready never fires — three consecutive boots). To enlarge
+        // the window, toggle View → Zoom To Fit once booted and drag-resize.
+        &["-display", "cocoa"]
     } else {
         &["-display", "gtk"]
     };
@@ -112,11 +113,15 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
                   ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required";
     let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:55555");
     let gpu = "virtio-gpu-pci,xres=360,yres=720,max_outputs=1,addr=08.0";
+    // vCPU count (DAY_OHOS_SMP, default 6). On a BUSY host fewer vCPUs boot more reliably:
+    // TCG vCPU threads that lose the CPU while holding a guest spinlock leave the other vCPUs
+    // spinning (guest load explodes, WMS/boot services stall) — classic lock-holder preemption.
+    let smp = std::env::var("DAY_OHOS_SMP").unwrap_or_else(|_| "6".into());
 
     let mut cmd = Command::new(qemu);
     cmd.current_dir(&images)
         .args([
-            "-machine", "q35", "-smp", "6", "-m", "4096M", "-boot", "c", "-vga", "none",
+            "-machine", "q35", "-smp", &smp, "-m", "4096M", "-boot", "c", "-vga", "none",
         ])
         .args(["-device", gpu])
         .args(display)
