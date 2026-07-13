@@ -247,19 +247,18 @@ static int day_theme_env() {
     return 0;
 }
 
+// The DAY_THEME force in effect for this process (0 = unset/follow system, 1 = light, 2 = dark),
+// captured at window creation. Read by the code-behind theme-brush fills below, which resolve per
+// the SYSTEM theme and would otherwise mis-color a forced scheme.
+static int g_forced_theme = 0;
+
 struct DayApp : WUX::ApplicationT<DayApp, WUXMk::IXamlMetadataProvider> {
     WUXH::WindowsXamlManager manager{ nullptr };
-    DayApp() {
-        // DAY_THEME=light|dark forces the theme APP-wide (themed CI screenshot runs and local
-        // theme checks); unset => follow the system. Application-level (not per-element) and set
-        // BEFORE any XAML machinery loads, so every {ThemeResource} / Resources() lookup — page
-        // ground, card fills, control templates — resolves in the forced scheme automatically.
-        switch (day_theme_env()) {
-            case 2: RequestedTheme(WUX::ApplicationTheme::Dark); break;
-            case 1: RequestedTheme(WUX::ApplicationTheme::Light); break;
-        }
-        manager = WUXH::WindowsXamlManager::InitializeForCurrentThread();
-    }
+    // DAY_THEME is forced PER-ELEMENT (ElementTheme on the root Canvas — see day_winui_window_new),
+    // NOT via Application::RequestedTheme: the app-level setter is unsupported under XAML Islands and
+    // aborts island init (a fail-fast, not a catchable throw), which makes the app exit before the
+    // dayscript engine binds its socket — the walkthrough runner then can't connect (§14).
+    DayApp() { manager = WUXH::WindowsXamlManager::InitializeForCurrentThread(); }
 
     // IXamlMetadataProvider — no custom XAML types to describe.
     WUXMk::IXamlType GetXamlType(WUXI::TypeName const&) { return nullptr; }
@@ -360,12 +359,16 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     }
 
     // Application must exist before controls so default styles resolve; its ctor also inits
-    // the WindowsXamlManager for this thread (and applies any DAY_THEME force — see DayApp).
+    // the WindowsXamlManager for this thread.
     auto app = winrt::make<DayApp>();
-    // The theme the app actually resolved: forced by DAY_THEME, else the system setting (the
-    // RequestedTheme getter reports the system-derived value when nothing was forced).
-    bool app_dark =
-        WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark;
+    // Effective light/dark: a DAY_THEME force wins, else the app's system-resolved theme (the
+    // RequestedTheme getter reports the system value when nothing was forced). Drives the Win32
+    // chrome (transient client brush + dark title bar) and, via g_forced_theme, the code-behind
+    // theme-brush fills. The theme itself is forced per-element on the root below, not app-wide.
+    g_forced_theme = day_theme_env(); // 0 unset, 1 light, 2 dark
+    bool app_dark = g_forced_theme == 2 ||
+        (g_forced_theme == 0 &&
+         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = WndProc;
@@ -401,16 +404,33 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     }
 
     WUXC::Canvas root;
+    // Force DAY_THEME PER-ELEMENT (islands-safe, unlike Application::RequestedTheme): ElementTheme
+    // on the root cascades to every descendant control + its {ThemeResource} lookups, so the whole
+    // tree renders in the forced scheme. Unset => Default (follows the system).
+    switch (g_forced_theme) {
+        case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
+        case 1: root.RequestedTheme(WUX::ElementTheme::Light); break;
+    }
     source.Content(root);
-    // Ground the island with the theme's own page ground: a Canvas paints nothing itself, and
-    // the raw HWND behind it is white — under the dark theme the (white) foreground defaults
-    // rendered over it as a ghost page. The named system brush resolves per the app theme.
+    // Ground the island: a Canvas paints nothing itself, and the raw HWND behind it is white — under
+    // a dark tree that white would ghost through. The named page-background brush resolves per the
+    // SYSTEM theme, so it is only trustworthy when unforced; when DAY_THEME forces a scheme, ground
+    // with a solid neutral matching it (the Fluent page-base color for that scheme).
     {
-        auto res = WUX::Application::Current().Resources();
-        auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
-        if (res.HasKey(key)) {
-            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) root.Background(brush);
+        bool grounded = false;
+        if (g_forced_theme == 0) {
+            auto res = WUX::Application::Current().Resources();
+            auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
+            if (res.HasKey(key)) {
+                if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                    root.Background(brush);
+                    grounded = true;
+                }
+            }
         }
+        if (!grounded)
+            root.Background(WUXM::SolidColorBrush(
+                color_argb(app_dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
     }
 
     // Load the island NOW, before day builds the control tree. Controls added to a live,
@@ -825,13 +845,18 @@ void day_winui_container_set_bg(void* h, unsigned int argb) {
 void day_winui_container_set_card(void* h, double radius) {
     if (auto c = elem(h).try_as<WUXC::Canvas>()) {
         auto r = ensure_bg_rect(c);
-        auto res = WUX::Application::Current().Resources();
-        auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
         bool filled = false;
-        if (res.HasKey(key)) {
-            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
-                r.Fill(brush);
-                filled = true;
+        // The app-resource card brush resolves per the SYSTEM theme; only trust it when no
+        // DAY_THEME force is active (else it mis-colors the forced scheme). The translucent-neutral
+        // fallback is alpha-over-ground, so it reads correctly over either scheme's page ground.
+        if (g_forced_theme == 0) {
+            auto res = WUX::Application::Current().Resources();
+            auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
+            if (res.HasKey(key)) {
+                if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                    r.Fill(brush);
+                    filled = true;
+                }
             }
         }
         if (!filled) r.Fill(WUXM::SolidColorBrush(color_argb(0x14'808080u)));
@@ -1018,15 +1043,18 @@ void day_winui_textbox_set_placeholder(void* h, const char* t) {
 void* day_winui_divider_new() {
     WUXC::Border b;
     b.Height(1);
-    // The theme's own hairline brush (resolved per the app theme); translucent-neutral
-    // fallback — alpha over the page ground reads correctly in either scheme.
-    auto res = WUX::Application::Current().Resources();
-    auto key = winrt::box_value(winrt::hstring(L"DividerStrokeColorDefaultBrush"));
+    // The app-resource hairline brush resolves per the SYSTEM theme; only trust it when no
+    // DAY_THEME force is active. Translucent-neutral fallback — alpha over the page ground reads
+    // correctly in either scheme.
     bool filled = false;
-    if (res.HasKey(key)) {
-        if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
-            b.Background(brush);
-            filled = true;
+    if (g_forced_theme == 0) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"DividerStrokeColorDefaultBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                b.Background(brush);
+                filled = true;
+            }
         }
     }
     if (!filled) b.Background(WUXM::SolidColorBrush(color_argb(0x33'808080u)));
