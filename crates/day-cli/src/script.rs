@@ -235,6 +235,7 @@ pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // a straight CLI-flag pass-through, not an API surface
 pub fn run_scripts(
     project: &Project,
     target: &'static Target,
@@ -243,6 +244,7 @@ pub fn run_scripts(
     scripts: &[PathBuf],
     locale: Option<&str>,
     variant: Option<&str>,
+    keep_alive: bool,
 ) -> Result<ScriptRun, String> {
     forward_engine(target.kind, port);
     let window_secs = connect_window_secs(target.kind);
@@ -352,8 +354,18 @@ pub fn run_scripts(
             }
         }
     }
-    // Terminate the app now that the run is over.
-    terminate(project, target);
+    if keep_alive {
+        // Interactive script development (docs/agent.md): leave the app running — its session
+        // stays drivable (`day drive`), so scripts can be built and debugged incrementally.
+        eprintln!(
+            "  \x1b[33m▸\x1b[0m {} left running (--keep-alive): drive it with `day drive -p {}`",
+            target.name, target.name
+        );
+    } else {
+        // Terminate the app now that the run is over (and drop its session entry).
+        terminate(project, target);
+        crate::sessions::remove(&project.root, target.name);
+    }
     // Refresh the machine-local screenshot gallery (an at-a-glance index of every capture
     // set under build/day/screenshots/) after each run that saved captures.
     if !run.screenshots.is_empty() {

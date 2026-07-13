@@ -57,6 +57,10 @@ enum Cmd {
         /// Exit after launch instead of staying attached to logs
         #[arg(long)]
         detach: bool,
+        /// Keep the app running after its dayscript completes (interactive script development:
+        /// the session stays drivable via `day drive`)
+        #[arg(long)]
+        keep_alive: bool,
         /// dayscript file(s) to execute after launch (repeatable; implies detach)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
@@ -504,9 +508,7 @@ pub fn run() -> i32 {
             };
             crate::drive::run(project, target, &steps_json)
         }),
-        Cmd::McpServer {} => {
-            with_project(cli.project.as_deref(), crate::mcp::run)
-        }
+        Cmd::McpServer {} => with_project(cli.project.as_deref(), crate::mcp::run),
         Cmd::Ohos {
             cmd:
                 OhosCmd::Emulator {
@@ -627,6 +629,7 @@ pub fn run() -> i32 {
             locale,
             envs,
             detach,
+            keep_alive,
             scripts,
             variant,
         } => with_project(cli.project.as_deref(), |project| {
@@ -699,6 +702,7 @@ pub fn run() -> i32 {
                         &scripts,
                         locale.as_deref(),
                         variant.as_deref(),
+                        keep_alive,
                     ) {
                         Ok(run) => {
                             script_failures += run.steps_failed;
