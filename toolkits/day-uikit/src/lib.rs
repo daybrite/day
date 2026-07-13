@@ -418,6 +418,12 @@ mod imp {
         vcs: Vec<Retained<UIViewController>>,
         /// A day-initiated pop is in flight: the delegate must not re-emit NavBack.
         expect_pop: std::cell::Cell<bool>,
+        /// Native user-back pops (swipe / back button) awaiting Day's answering `NavPatch::Popped`.
+        /// The native stack already popped, so that answering patch must be ABSORBED (decrement)
+        /// rather than popping again — a stale no-op pop would wedge `expect_pop` true, so the NEXT
+        /// native back gets swallowed, `selection` never resets, and re-selecting the SAME item does
+        /// nothing (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
+        native_pops: std::cell::Cell<usize>,
         _delegate: Retained<DayNavDelegate>,
     }
 
@@ -512,8 +518,11 @@ mod imp {
                         if state.expect_pop.replace(false) {
                             (false, NodeId(0))
                         } else {
-                            // Sync the mirror now; Day's remove() will find it gone.
+                            // A user back (swipe / back button): sync the mirror now (Day's remove()
+                            // will find it gone) and record that Day's answering NavPatch::Popped
+                            // must be ABSORBED — the native stack has already popped.
                             state.vcs.truncate(native);
+                            state.native_pops.set(state.native_pops.get() + 1);
                             (true, state.host_node)
                         }
                     } else {
@@ -594,6 +603,103 @@ mod imp {
     }
 
     // -------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // DayNavCell — a nav row whose icon reads as a natural iOS glyph: a small
+    // (20pt) template image tinted with the neutral secondaryLabel colour (NOT
+    // the accent), its baseline aligned to the row label's text baseline. The
+    // stock UITableViewCell centres its imageView and accent-tints it, so we lay
+    // the row out ourselves (docs/navigation.md).
+    // -----------------------------------------------------------------------
+    struct NavCellIvars {
+        icon: Retained<objc2_ui_kit::UIImageView>,
+        title: Retained<UILabel>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableViewCell))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavCell"]
+        #[ivars = NavCellIvars]
+        struct DayNavCell;
+
+        impl DayNavCell {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                let iv = self.ivars();
+                let b = self.contentView().bounds();
+                let (cw, ch) = (b.size.width, b.size.height);
+                let Some(font) = (unsafe { iv.title.font() }) else {
+                    return;
+                };
+                let line_h = unsafe { font.lineHeight() };
+                let label_y = ((ch - line_h) / 2.0).max(0.0);
+                let baseline = label_y + unsafe { font.ascender() }; // text baseline from top
+                const LEADING: f64 = 16.0;
+                const ICON: f64 = 20.0;
+                const GAP: f64 = 12.0;
+                let has_icon = unsafe { iv.icon.image() }.is_some();
+                let text_x = if has_icon { LEADING + ICON + GAP } else { LEADING };
+                unsafe {
+                    iv.title.setFrame(CGRect::new(
+                        CGPoint::new(text_x, label_y),
+                        CGSize::new((cw - text_x - 6.0).max(0.0), line_h),
+                    ));
+                    iv.icon.setHidden(!has_icon);
+                    if has_icon {
+                        // The icon's bottom sits on the label's text baseline.
+                        iv.icon.setFrame(CGRect::new(
+                            CGPoint::new(LEADING, baseline - ICON),
+                            CGSize::new(ICON, ICON),
+                        ));
+                    }
+                }
+            }
+        }
+    );
+
+    impl DayNavCell {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavCellIvars {
+                icon: unsafe { objc2_ui_kit::UIImageView::new(mtm) },
+                title: unsafe { UILabel::new(mtm) },
+            });
+            let none: Option<&NSString> = None;
+            let cell: Retained<Self> = unsafe {
+                msg_send![
+                    super(this),
+                    initWithStyle: objc2_ui_kit::UITableViewCellStyle::Default,
+                    reuseIdentifier: none,
+                ]
+            };
+            let iv = cell.ivars();
+            unsafe {
+                iv.title
+                    .setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
+                        objc2_ui_kit::UIFontTextStyleBody,
+                    )));
+                iv.icon
+                    .setContentMode(objc2_ui_kit::UIViewContentMode::ScaleAspectFit);
+                iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor()));
+                cell.contentView().addSubview(&iv.title);
+                cell.contentView().addSubview(&iv.icon);
+                cell.setAccessoryType(
+                    objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
+                );
+            }
+            cell
+        }
+
+        fn configure(&self, title: &NSString, image: Option<&objc2_ui_kit::UIImage>) {
+            let iv = self.ivars();
+            unsafe {
+                iv.title.setText(Some(title));
+                iv.icon.setImage(image);
+            }
+            self.setNeedsLayout();
+        }
+    }
+
     // DayNavTableData — nav_menu() as inset-grouped rows with chevrons
     // -------------------------------------------------------------------
 
@@ -628,35 +734,18 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> Retained<objc2_ui_kit::UITableViewCell> {
                 let mtm = self.mtm();
-                let cell = unsafe {
-                    objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
-                        objc2_ui_kit::UITableViewCell::alloc(mtm),
-                        objc2_ui_kit::UITableViewCellStyle::Default,
-                        None,
-                    )
-                };
+                let cell = DayNavCell::new(mtm);
                 let row = unsafe { index_path.row() } as usize;
-                let items = self.ivars().items.borrow();
-                if let Some(title) = items.get(row) {
-                    // textLabel is soft-deprecated for UIListContentConfiguration; the
-                    // classic API keeps this dependency-light and renders identically.
-                    #[allow(deprecated)]
-                    if let Some(label) = unsafe { cell.textLabel() } {
-                        unsafe { label.setText(Some(title)) };
-                    }
-                }
-                if let Some(img) = self.ivars().icons.borrow().get(row).and_then(|o| o.clone()) {
-                    #[allow(deprecated)]
-                    if let Some(iv) = unsafe { cell.imageView() } {
-                        unsafe { iv.setImage(Some(&img)) };
-                    }
-                }
-                unsafe {
-                    cell.setAccessoryType(
-                        objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
-                    )
-                };
-                cell
+                let title = self
+                    .ivars()
+                    .items
+                    .borrow()
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_else(|| NSString::from_str(""));
+                let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
+                cell.configure(&title, img.as_deref());
+                objc2::rc::Retained::into_super(cell)
             }
         }
 
@@ -1321,6 +1410,7 @@ mod imp {
                                 host_node: id,
                                 vcs: Vec::new(),
                                 expect_pop: std::cell::Cell::new(false),
+                                native_pops: std::cell::Cell::new(0),
                                 _delegate: delegate,
                             },
                         )
@@ -1698,8 +1788,16 @@ mod imp {
                                     .map(|vc| Act::Push(vc.clone(), state.nav.clone()))
                                     .unwrap_or(Act::None),
                                 NavPatch::Popped => {
-                                    state.expect_pop.set(true);
-                                    Act::Pop(state.nav.clone())
+                                    // Answering a native user-back? The stack already popped, so
+                                    // absorb it (don't pop again — that stale pop would wedge
+                                    // expect_pop). Otherwise it's a day-initiated pop: perform it.
+                                    if state.native_pops.get() > 0 {
+                                        state.native_pops.set(state.native_pops.get() - 1);
+                                        Act::None
+                                    } else {
+                                        state.expect_pop.set(true);
+                                        Act::Pop(state.nav.clone())
+                                    }
                                 }
                                 NavPatch::Title(_) => Act::None,
                             }

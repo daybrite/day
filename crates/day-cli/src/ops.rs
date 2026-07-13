@@ -150,6 +150,7 @@ fn write_winui_manifest(
     Ok(path)
 }
 
+#[derive(Clone)]
 pub struct LaunchSpec {
     pub locale: Option<String>,
     pub envs: Vec<(String, String)>,
@@ -171,9 +172,14 @@ pub fn launch(
                 .env("DAY_IMAGE_ROOT", project.root.join("images"))
                 // Bundled fonts (§18.4): the desktop backends register every file in this
                 // directory with the platform font system at startup.
-                .env("DAY_FONT_ROOT", project.root.join("fonts"))
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+                .env("DAY_FONT_ROOT", project.root.join("fonts"));
+            if spec.attached {
+                cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            } else {
+                // Detached: the day process exits after spawning — piped stdio would close
+                // with it and the app's next log write would die on SIGPIPE.
+                cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            }
             // App icon (§18.2): the backend applies it to the dock / taskbar at startup
             // (NSApp icon, QApplication window icon, GTK icon theme, Win32 WM_SETICON).
             if let Some(icon) = crate::resources::app_icon(project, target.toolkit) {

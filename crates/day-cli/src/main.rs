@@ -4,8 +4,10 @@
 
 mod cli;
 mod doctor;
+mod drive;
 mod interactive;
 mod lint;
+mod mcp;
 mod meta;
 mod metadata;
 mod mobile;
@@ -16,6 +18,7 @@ mod pack;
 mod pieces;
 mod resources;
 mod script;
+mod sessions;
 mod sign;
 mod signals;
 mod targets;

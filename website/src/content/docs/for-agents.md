@@ -208,6 +208,10 @@ day launch  -p <target> --script s.yaml   # build + run + drive/assert
 day pack    -p <target>               # installable artifact (.app.zip / .apk / .dmg)
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
+day relaunch --all-running            # stop + rebuild + relaunch — "apply my changes"
+day stop --all                        # stop every recorded session
+day drive -p <target> --steps-json …  # drive a RUNNING app (see below)
+day mcp-server                        # serve all of the above as MCP tools (stdio)
 ```
 
 ## Verifying your work (dayscript)
@@ -226,6 +230,31 @@ flow:
   - screenshot: settings
 ```
 
+## Driving a running app (`day drive` / MCP)
+
+Every `day launch` embeds a loopback automation engine and records its coordinates in
+`build/day/sessions.json` — so you can drive an app that is ALREADY running, without a script
+file:
+
+```bash
+day drive -p macos-appkit --steps-json \
+  '[{"navigate":{"route":"settings"}},{"wait_idle":null},
+    {"tap":{"id":"save-button"}},{"assert_text":{"id":"status","text":"Saved"}},
+    {"screenshot":"after-save"}]'
+```
+
+Output is JSON (per-step `ok`/`error`, screenshot paths + base64). Step ops: `navigate`,
+`nav_back`, `tap`, `input`, `set_value`, `toggle`, `select`, `wait_for`, `wait_idle`,
+`assert_visible`, `assert_text`, `assert_value`, `assert_route`, `assert_presented`,
+`respond`, `a11y_audit`, `pause`, `screenshot`.
+
+If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day
+extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_launch`,
+`day_relaunch`, `day_stop`, `day_running`, `day_drive`, `day_screenshot`, `day_doctor`,
+`day_lint`. `day_drive`/`day_screenshot` return screenshots as images — **look at them** to
+verify UI changes on every target you touched. The canonical loop: edit → `day_relaunch`
+(compile errors come back in the result) → `day_drive` (navigate + assert + screenshot).
+
 ## Failure modes (do NOT do these)
 
 - ❌ Enabling two toolkit features in one binary → `compile_error!`. Enable exactly one via the target.
@@ -235,6 +264,7 @@ flow:
 - ❌ Omitting `.id(...)` on Pieces you need to test/script/deep-link.
 - ❌ Hand-editing generated `platform/ios/*.xcodeproj` or `platform/android`. ✅ Edit `Day.toml`/Rust.
 - ❌ Concluding a target works from `cargo build`. ✅ `day launch -p <target>` (and `--script` to assert).
+- ❌ Declaring a UI change done without looking at it. ✅ `day_drive`/`day drive` → `screenshot` → inspect.
 - ❌ Hard-coded pixel font sizes for shipping text. ✅ Semantic `Font` styles (accessibility-scaled).
 
 ## Deeper references

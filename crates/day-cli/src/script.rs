@@ -62,7 +62,7 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
 /// HarmonyOS, whose software-emulated (TCG) guest can spend minutes between `aa start` and the
 /// app-side engine binding its socket (and whose forwarded hdc channel drops with transient
 /// connection resets that the roundtrip retry below rides out).
-fn connect_window_secs(kind: TargetKind) -> u64 {
+pub(crate) fn connect_window_secs(kind: TargetKind) -> u64 {
     std::env::var("DAYSCRIPT_CONNECT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -72,7 +72,7 @@ fn connect_window_secs(kind: TargetKind) -> u64 {
         })
 }
 
-fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
+pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
     let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
@@ -202,16 +202,21 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
     }
 }
 
-pub fn run_scripts(
-    project: &Project,
-    target: &'static Target,
-    port: u16,
-    token: &str,
-    scripts: &[PathBuf],
-    locale: Option<&str>,
-    variant: Option<&str>,
-) -> Result<ScriptRun, String> {
-    if target.kind == TargetKind::Android {
+/// Reach the in-app dayscript engine from the host: device targets need a TCP forward
+/// (adb / hdc); desktop and the iOS simulator answer on loopback directly.
+/// Public seams for `day drive` (drive.rs): the same primitives run_scripts uses.
+pub(crate) fn b64decode_public(s: &str) -> Vec<u8> {
+    day_script_b64::b64decode(s)
+}
+pub(crate) fn b64encode_public(bytes: &[u8]) -> String {
+    day_script_b64::b64encode(bytes)
+}
+pub(crate) fn device_screenshot_public(target: &Target, path: &Path) -> Result<(), String> {
+    device_screenshot(target, path)
+}
+
+pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
+    if kind == TargetKind::Android {
         // The dayscript runner drives ONE device; with several attached, `adb forward` (no `-s`)
         // errors ("more than one device"), so pin the first enumerated device.
         let mut cmd = Command::new("adb");
@@ -222,12 +227,24 @@ pub fn run_scripts(
             .args(["forward", &format!("tcp:{port}"), &format!("tcp:{port}")])
             .status();
     }
-    if target.kind == TargetKind::HarmonyOs {
+    if kind == TargetKind::HarmonyOs {
         // hdc's `adb forward` equivalent: host tcp:port → the app's tcp:port on the launched
-        // target, so `connect(port)` below reaches the in-app dayscript engine (docs/harmonyos.md;
+        // target, so `connect(port)` reaches the in-app dayscript engine (docs/harmonyos.md;
         // pinned to the discovered device + retried through hdc server recycles in ohos.rs).
         crate::ohos::fport_engine(port);
     }
+}
+
+pub fn run_scripts(
+    project: &Project,
+    target: &'static Target,
+    port: u16,
+    token: &str,
+    scripts: &[PathBuf],
+    locale: Option<&str>,
+    variant: Option<&str>,
+) -> Result<ScriptRun, String> {
+    forward_engine(target.kind, port);
     let window_secs = connect_window_secs(target.kind);
     let mut stream = connect(port, window_secs)?;
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
@@ -425,7 +442,7 @@ fn write_gallery(root: &Path) {
     let _ = std::fs::write(root.join("index.html"), html);
 }
 
-fn terminate(project: &Project, target: &Target) {
+pub(crate) fn terminate(project: &Project, target: &Target) {
     match target.kind {
         TargetKind::Desktop if cfg!(windows) => {
             // No pkill on Windows; kill the app by image name (taskkill is on every runner).
@@ -480,6 +497,31 @@ pub fn make_token() -> String {
 /// the app side.
 mod day_script_b64 {
     const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub fn b64encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            out.push(B64[(n >> 18) as usize & 63] as char);
+            out.push(B64[(n >> 12) as usize & 63] as char);
+            out.push(if chunk.len() > 1 {
+                B64[(n >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                B64[n as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+        out
+    }
 
     pub fn b64decode(s: &str) -> Vec<u8> {
         let val = |c: u8| B64.iter().position(|&x| x == c).unwrap_or(0) as u32;

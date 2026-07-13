@@ -20,6 +20,10 @@ day pack    -p macos-appkit  # build + sign + produce a distributable artifact (
 day sign    --check          # report release-signing readiness without printing secrets
 day lint                     # check ids, Fluent coverage, project shape
 day doctor                   # check toolchains for every target
+day stop --all               # stop running launches (sessions in build/day/sessions.json)
+day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
+day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
+day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 ```
 
 `day pack` produces a standalone, installable package per target — see

@@ -124,6 +124,40 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
+    /// Stop running launches (and drop their sessions)
+    Stop {
+        /// Target(s) to stop (repeatable)
+        #[arg(short = 'p', long = "platform")]
+        platforms: Vec<String>,
+        /// Stop every recorded session
+        #[arg(long)]
+        all: bool,
+    },
+    /// Stop, rebuild, and relaunch targets — "apply my code changes"
+    Relaunch {
+        /// Target(s) to relaunch (repeatable); omit with --all-running
+        #[arg(short = 'p', long = "platform")]
+        platforms: Vec<String>,
+        /// Relaunch every recorded session
+        #[arg(long)]
+        all_running: bool,
+        #[arg(long, default_value = "debug")]
+        profile: String,
+        /// BCP-47 locale override passed to the app
+        #[arg(long)]
+        locale: Option<String>,
+    },
+    /// Execute dayscript steps against a RUNNING app (see docs/agent.md)
+    Drive {
+        /// The target whose live session to drive
+        #[arg(short = 'p', long = "platform")]
+        platform: String,
+        /// JSON array of steps, e.g. '[{"navigate":{"route":"controls"}},{"screenshot":"x"}]'
+        #[arg(long)]
+        steps_json: String,
+    },
+    /// Serve Day tools to coding agents over the Model Context Protocol (stdio)
+    McpServer {},
     /// HarmonyOS / OpenHarmony helpers (emulator, …)
     Ohos {
         #[command(subcommand)]
@@ -372,6 +406,107 @@ pub fn run() -> i32 {
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
         }),
+        Cmd::Stop { platforms, all } => with_project(cli.project.as_deref(), |project| {
+            let names: Vec<String> = if all {
+                crate::sessions::list(&project.root)
+                    .into_iter()
+                    .map(|s| s.target)
+                    .collect()
+            } else {
+                platforms
+            };
+            if names.is_empty() {
+                eprintln!("error: nothing to stop (no -p targets and no recorded sessions)");
+                return 2;
+            }
+            for name in &names {
+                let Some(target) = targets::find(name) else {
+                    eprintln!("error: unknown target {name:?}");
+                    return 2;
+                };
+                crate::script::terminate(project, target);
+                crate::sessions::remove(&project.root, name);
+                ops::status("Stopped", name);
+            }
+            0
+        }),
+        Cmd::Relaunch {
+            platforms,
+            all_running,
+            profile,
+            locale,
+        } => with_project(cli.project.as_deref(), |project| {
+            let names: Vec<String> = if all_running || platforms.is_empty() {
+                crate::sessions::list(&project.root)
+                    .into_iter()
+                    .map(|s| s.target)
+                    .collect()
+            } else {
+                platforms
+            };
+            if names.is_empty() {
+                eprintln!("error: no running sessions — `day launch -p <target>` first");
+                return 2;
+            }
+            let spec = ops::LaunchSpec {
+                locale,
+                envs: Vec::new(),
+                attached: false,
+            };
+            for (ti, name) in names.iter().enumerate() {
+                let Some(target) = targets::find(name) else {
+                    eprintln!("error: unknown target {name:?}");
+                    return 2;
+                };
+                crate::script::terminate(project, target);
+                let outcome = match ops::build(project, target, &profile) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 4;
+                    }
+                };
+                let mut spec = spec.clone();
+                let port = crate::script::pick_port(ti);
+                let token = crate::script::make_token();
+                spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
+                spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
+                match ops::launch(project, target, &outcome, &spec) {
+                    Ok(_) => {
+                        crate::sessions::record(
+                            &project.root,
+                            crate::sessions::Session {
+                                target: name.clone(),
+                                app_id: project.manifest.resolve(name).id,
+                                profile: profile.clone(),
+                                engine_port: port,
+                                engine_token: token,
+                                started_at: crate::sessions::now_millis(),
+                            },
+                        );
+                        ops::status("Relaunched", name);
+                    }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 1;
+                    }
+                }
+            }
+            0
+        }),
+        Cmd::Drive {
+            platform,
+            steps_json,
+        } => with_project(cli.project.as_deref(), |project| {
+            let Some(target) = targets::find(&platform) else {
+                eprintln!("error: unknown target {platform:?}");
+                return 2;
+            };
+            crate::drive::run(project, target, &steps_json)
+        }),
+        Cmd::McpServer {} => {
+            with_project(cli.project.as_deref(), crate::mcp::run)
+        }
         Cmd::Ohos {
             cmd:
                 OhosCmd::Emulator {
@@ -514,12 +649,13 @@ pub fn run() -> i32 {
             let mut script_failures = 0usize;
             for (ti, p) in platforms.iter().enumerate() {
                 let port = crate::script::pick_port(ti);
-                if script_mode {
-                    spec.envs
-                        .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
-                    spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
-                    spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
-                }
+                // The dayscript engine rides EVERY launch (loopback, token-gated): scripted runs
+                // drive it immediately, and interactive launches stay drivable later via the
+                // session registry (`day drive` / `day relaunch` / agents — docs/agent.md).
+                spec.envs
+                    .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
+                spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
+                spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
                 let target = match targets::find(p) {
                     Some(t) => t,
                     None => {
@@ -535,7 +671,20 @@ pub fn run() -> i32 {
                     }
                 };
                 match ops::launch(project, target, &outcome, &spec) {
-                    Ok(h) => handles.push(h),
+                    Ok(h) => {
+                        crate::sessions::record(
+                            &project.root,
+                            crate::sessions::Session {
+                                target: p.clone(),
+                                app_id: project.manifest.resolve(p).id,
+                                profile: profile.clone(),
+                                engine_port: port,
+                                engine_token: token.clone(),
+                                started_at: crate::sessions::now_millis(),
+                            },
+                        );
+                        handles.push(h);
+                    }
                     Err(e) => {
                         eprintln!("error: {e}");
                         return 1;
