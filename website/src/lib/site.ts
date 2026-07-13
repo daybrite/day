@@ -61,7 +61,7 @@ export function internalExcerpt(body: string, max = 155): string {
 
 export const site = {
   name: 'Day',
-  tagline: 'Build native apps for every platform under the sun, from a single Rust codebase.',
+  tagline: 'Create native apps for every platform under the sun from a single Rust codebase.',
   description:
     'Day is a Rust framework that builds genuinely native applications for macOS, Windows, Linux, iOS, Android, and HarmonyOS from one codebase — using each platform’s own interface components, so your product looks and works the way users of each platform expect.',
   repo: 'https://github.com/daybrite/day',

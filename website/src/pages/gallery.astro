@@ -59,7 +59,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     </div>
   </div>
 
-  {manifest.suites.map((suite) => (
+  {manifest.suites.map((suite, si) => (
     <section class="section suite">
       <div class="container">
         <h2 class="suite-title">{suite.label}</h2>
@@ -67,7 +67,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       </div>
 
       <div class="rows" data-pagefind-ignore>
-        {suite.shots.map((shot) => (
+        {suite.shots.map((shot, ri) => (
           <div class="row">
             <div class="container row-head">
               <h3 class="row-title">{shot.label}</h3>
@@ -83,11 +83,19 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
             </div>
             <div class="strip-wrap">
               <div class="strip container-pad">
-                {shot.byPlatform.map((tile) => {
+                {shot.byPlatform.map((tile, ci) => {
                   const platform = platformOf(suite, tile.platform);
                   const variantEntries = Object.entries(tile.variants ?? {});
                   return (
-                    <figure class:list={['tile', { mobile: mobileOs.has(platform.os) }]}>
+                    <figure
+                      class:list={['tile', { mobile: mobileOs.has(platform.os) }]}
+                      data-suite={si}
+                      data-r={ri}
+                      data-c={ci}
+                      data-shot={shot.label}
+                      data-os={platform.os}
+                      data-tk={platform.label}
+                    >
                       <div class="frame">
                         {tile.placeholder ? (
                           <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label} — preview placeholder`}>
@@ -124,6 +132,26 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       </div>
     </section>
   ))}
+
+  {/* Full-size viewer. A custom lightbox (rather than a stock gallery library) because navigation
+      is 2-D and platform-aware: ←/→ cycle platforms across the SAME screen (row); ↑/↓ move to the
+      previous/next screen at the SAME platform (column). Opened by clicking a screenshot. */}
+  <div class="lightbox" data-lightbox hidden aria-hidden="true" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
+    <div class="lb-backdrop" data-lb-close></div>
+    <button class="lb-btn lb-close" data-lb-close type="button" aria-label="Close (Esc)">✕</button>
+    <button class="lb-btn lb-arrow lb-up" data-lb-dir="up" type="button" aria-label="Previous screen, same platform (↑)">↑</button>
+    <button class="lb-btn lb-arrow lb-down" data-lb-dir="down" type="button" aria-label="Next screen, same platform (↓)">↓</button>
+    <button class="lb-btn lb-arrow lb-left" data-lb-dir="left" type="button" aria-label="Previous platform (←)">‹</button>
+    <button class="lb-btn lb-arrow lb-right" data-lb-dir="right" type="button" aria-label="Next platform (→)">›</button>
+    <figure class="lb-stage">
+      <img class="lb-img" data-lb-img alt="" hidden />
+      <div class="lb-empty" data-lb-empty hidden>Not captured on this platform yet</div>
+      <figcaption class="lb-cap">
+        <span class="lb-shot" data-lb-shot></span>
+        <span class="lb-plat"><b data-lb-os></b><span data-lb-tk></span></span>
+      </figcaption>
+    </figure>
+  </div>
 </BaseLayout>
 
 <script>
@@ -197,6 +225,120 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       applyVariants();
     });
   }
+
+  // ---- Full-size lightbox: 2-D, platform-aware navigation ----
+  //   ←/→  cycle platforms across the SAME screen (the tiles of one row)
+  //   ↑/↓  move to the previous/next screen at the SAME platform (same column index)
+  // The grid is uniform (every screen lists every platform in the same order), so a fixed column
+  // index IS the platform. Landing on an uncaptured cell shows a "not captured" note.
+  (() => {
+    const box = document.querySelector<HTMLElement>('[data-lightbox]');
+    if (!box) return;
+    const imgEl = box.querySelector<HTMLImageElement>('[data-lb-img]')!;
+    const emptyEl = box.querySelector<HTMLElement>('[data-lb-empty]')!;
+    const shotEl = box.querySelector<HTMLElement>('[data-lb-shot]')!;
+    const osEl = box.querySelector<HTMLElement>('[data-lb-os]')!;
+    const tkEl = box.querySelector<HTMLElement>('[data-lb-tk]')!;
+
+    // grid[suite][row][col] = <figure>
+    const grid: HTMLElement[][][] = [];
+    const figures = Array.from(document.querySelectorAll<HTMLElement>('figure.tile[data-suite]'));
+    for (const fig of figures) {
+      const s = Number(fig.dataset.suite), r = Number(fig.dataset.r), c = Number(fig.dataset.c);
+      (grid[s] ??= [])[r] ??= [];
+      grid[s][r][c] = fig;
+    }
+
+    let cur: { s: number; r: number; c: number } | null = null;
+
+    function srcOf(fig: HTMLElement): string | null {
+      const im = fig.querySelector<HTMLImageElement>('img.var-img');
+      return im ? im.getAttribute('src') : null;
+    }
+
+    function render(): void {
+      if (!cur) return;
+      const fig = grid[cur.s]?.[cur.r]?.[cur.c];
+      if (!fig) return;
+      const src = srcOf(fig);
+      if (src) {
+        imgEl.setAttribute('src', src);
+        imgEl.alt = `${fig.dataset.shot} — ${fig.dataset.os} ${fig.dataset.tk}`;
+        imgEl.hidden = false;
+        emptyEl.hidden = true;
+      } else {
+        imgEl.hidden = true;
+        imgEl.removeAttribute('src');
+        emptyEl.hidden = false;
+      }
+      shotEl.textContent = fig.dataset.shot ?? '';
+      osEl.textContent = fig.dataset.os ?? '';
+      tkEl.textContent = fig.dataset.tk ?? '';
+    }
+
+    function open(s: number, r: number, c: number): void {
+      cur = { s, r, c };
+      box!.hidden = false;
+      box!.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      render();
+      box!.querySelector<HTMLElement>('.lb-close')?.focus();
+    }
+    function close(): void {
+      box!.hidden = true;
+      box!.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      cur = null;
+    }
+
+    function navigate(dir: string): void {
+      if (!cur) return;
+      const rows = grid[cur.s];
+      if (!rows) return;
+      if (dir === 'left' || dir === 'right') {
+        const n = rows[cur.r].length;
+        cur.c = (cur.c + (dir === 'right' ? 1 : n - 1)) % n; // cycle platforms
+      } else {
+        const n = rows.length;
+        let nr = cur.r;
+        for (let i = 0; i < n; i++) {
+          nr = (nr + (dir === 'down' ? 1 : n - 1)) % n; // same platform (column), wrap rows
+          if (rows[nr]?.[cur.c]) break;
+        }
+        cur.r = nr;
+      }
+      render();
+    }
+
+    // Open on click / Enter / Space of a real (non-placeholder) tile.
+    for (const fig of figures) {
+      const frame = fig.querySelector<HTMLElement>('.frame');
+      if (!frame || !fig.querySelector('img.var-img')) continue;
+      frame.setAttribute('role', 'button');
+      frame.setAttribute('tabindex', '0');
+      frame.setAttribute('aria-label', `Open ${fig.dataset.shot} on ${fig.dataset.os} ${fig.dataset.tk}`);
+      const go = () => open(Number(fig.dataset.suite), Number(fig.dataset.r), Number(fig.dataset.c));
+      frame.addEventListener('click', go);
+      frame.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    }
+
+    box.querySelectorAll<HTMLElement>('[data-lb-dir]').forEach((btn) =>
+      btn.addEventListener('click', () => navigate(btn.dataset.lbDir!)),
+    );
+    box.querySelectorAll<HTMLElement>('[data-lb-close]').forEach((el) =>
+      el.addEventListener('click', close),
+    );
+
+    document.addEventListener('keydown', (e) => {
+      if (box.hidden) return;
+      const k = e.key;
+      if (k === 'Escape') return close();
+      const dir = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }[k];
+      if (dir) { e.preventDefault(); navigate(dir); }
+    });
+  })();
 </script>
 
 <style>
@@ -268,21 +410,25 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   /* Match .container's gutters so the first tile aligns with the heading. */
   .container-pad { padding-inline: max(24px, calc((100vw - 1160px) / 2)); }
 
-  .tile { margin: 0; width: 300px; flex: 0 0 auto; }
-  /* Phone shots are ~0.46 aspect: the frame must be tall enough that the full screen —
-     including the bottom button/home-indicator area — renders at a readable size. */
+  /* Desktop cells are wide (landscape screens read better); every frame is the SAME tall height
+     as the mobile frames, so rows line up across platforms regardless of aspect ratio. Phone shots
+     are ~0.46 aspect and need the height to render the full screen (incl. the home indicator). */
+  .tile { margin: 0; width: 460px; flex: 0 0 auto; }
   .tile.mobile { width: 240px; }
   .frame {
     position: relative;
-    height: 240px;
+    height: 500px;
     display: grid; place-items: center;
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
     padding: 10px;
+    transition: border-color 0.15s ease;
   }
-  .tile.mobile .frame { height: 500px; }
+  /* A real (non-placeholder) tile opens the full-size viewer on click. */
+  .frame:has(.var-img) { cursor: zoom-in; }
+  .frame:has(.var-img):hover { border-color: var(--muted); }
   .frame img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
   .fb-badge {
     position: absolute; right: 8px; bottom: 8px;
@@ -308,4 +454,58 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   }
   .cap-os { color: var(--muted); font-weight: 650; }
   .cap-tk { color: var(--faint); font-size: 0.76rem; }
+
+  /* ---- Full-size lightbox viewer ---- */
+  .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
+  .lightbox[hidden] { display: none; }
+  .lightbox:not([hidden]) { animation: lb-fade 0.18s ease; }
+  @keyframes lb-fade { from { opacity: 0; } to { opacity: 1; } }
+  .lb-backdrop { position: absolute; inset: 0; background: rgba(3, 6, 14, 0.86); backdrop-filter: blur(6px); }
+  .lb-stage {
+    position: absolute; inset: 0; z-index: 1; margin: 0;
+    display: grid; place-items: center;
+    pointer-events: none;
+  }
+  .lb-img {
+    max-width: 92vw; max-height: 78vh; width: auto; height: auto; object-fit: contain;
+    border-radius: 12px; background: var(--bg-2);
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+    animation: lb-pop 0.18s ease;
+  }
+  @keyframes lb-pop { from { transform: scale(0.985); opacity: 0.6; } to { transform: scale(1); opacity: 1; } }
+  .lb-empty {
+    padding: 64px 44px; color: var(--muted); font-size: 1rem;
+    border: 1px dashed var(--border); border-radius: 12px; background: var(--surface);
+  }
+  .lb-cap {
+    position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%);
+    z-index: 2; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 7px 18px; border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .lb-shot { color: var(--sun); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.1em; }
+  .lb-plat { color: var(--muted); font-size: 0.98rem; }
+  .lb-plat b { color: var(--text); }
+  .lb-plat span { margin-left: 8px; color: var(--faint); }
+
+  .lb-btn {
+    position: absolute; z-index: 2; appearance: none; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--text);
+    backdrop-filter: blur(8px); display: grid; place-items: center;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .lb-btn:hover { background: var(--surface-2); color: var(--brand); }
+  .lb-close { top: 18px; right: 18px; width: 42px; height: 42px; font-size: 1.05rem; }
+  .lb-arrow { width: 52px; height: 52px; font-size: 1.7rem; line-height: 1; }
+  .lb-left { left: 20px; top: 50%; transform: translateY(-50%); }
+  .lb-right { right: 20px; top: 50%; transform: translateY(-50%); }
+  .lb-up { top: 18px; left: 50%; transform: translateX(-50%); }
+  .lb-down { bottom: 18px; left: 50%; transform: translateX(-50%); }
+  @media (max-width: 620px) {
+    .lb-arrow { width: 42px; height: 42px; font-size: 1.3rem; }
+    .lb-left { left: 8px; } .lb-right { right: 8px; }
+  }
 </style>
