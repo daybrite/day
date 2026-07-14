@@ -149,7 +149,7 @@ text-colors-header = Couleur
 text-custom-header = Tailles personnalisées
 text-custom-note = Font.System(pt) — mis à l'échelle par la taille de texte d'accessibilité (Dynamic Type).
 text-fonts-header = Polices embarquées
-text-fonts-note = Font.Custom("Famille", pt) — fichiers du dossier fonts/ de l'application, embarqués par day build et résolus par nom de famille sur chaque plateforme.
+text-fonts-note = Font.Custom("Famille", pt) — fichiers du dossier resource/fonts/ de l'application, embarqués par day build et résolus par nom de famille sur chaque plateforme.
 
 # Aire de jeu Menus
 menus-caption = Menus natifs — la barre de menus de l'application et les menus contextuels par élément — avec sous-menus imbriqués, raccourcis clavier et commandes d'édition standard.

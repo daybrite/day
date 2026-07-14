@@ -146,7 +146,7 @@ text-colors-header = 颜色
 text-custom-header = 自定义字号
 text-custom-note = Font.System(pt)——仍按无障碍文字大小缩放（动态字体 / 字体比例）。
 text-fonts-header = 打包字体
-text-fonts-note = Font.Custom("Family", pt)——来自应用 fonts/ 目录的文件，由 day build 打包并在每个平台按字体族名解析。
+text-fonts-note = Font.Custom("Family", pt)——来自应用 resource/fonts/ 目录的文件，由 day build 打包并在每个平台按字体族名解析。
 
 # Menus playground
 menus-caption = 原生菜单——应用菜单栏与部件的上下文菜单——支持嵌套子菜单、键盘快捷键和标准编辑命令。

@@ -93,10 +93,10 @@ pub fn root() -> AnyPiece {
     install_locales(
         "en",
         &[
-            ("en", include_str!("../locales/en/app.ftl")),
-            ("fr", include_str!("../locales/fr/app.ftl")),
-            ("zh-CN", include_str!("../locales/zh-CN/app.ftl")),
-            ("ar", include_str!("../locales/ar/app.ftl")),
+            ("en", include_str!("../resource/locales/en/app.ftl")),
+            ("fr", include_str!("../resource/locales/fr/app.ftl")),
+            ("zh-CN", include_str!("../resource/locales/zh-CN/app.ftl")),
+            ("ar", include_str!("../resource/locales/ar/app.ftl")),
         ],
     );
     // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound

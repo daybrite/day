@@ -211,7 +211,7 @@ pub fn xcode_backend_build() -> i32 {
         get("TARGET_BUILD_DIR"),
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
     ) {
-        let src = project.root.join("assets");
+        let src = project.root.join("resource/assets");
         if src.exists() {
             let dst = PathBuf::from(tbd).join(res).join("assets");
             let _ = std::fs::create_dir_all(&dst);

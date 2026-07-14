@@ -19,7 +19,7 @@ day::routes! {
 }
 
 pub fn root() -> AnyPiece {
-    install_locales("en", &[("en", include_str!("../locales/en/app.ftl"))]);
+    install_locales("en", &[("en", include_str!("../resource/locales/en/app.ftl"))]);
     // A sidebar selector bound to a Signal<Option<Section>> (`None` = nothing selected — the
     // collapsed list on mobile). Desktop shows sidebar + detail side by side; mobile shows a
     // list that pushes the detail. Deep links and dayscript address sections by key.

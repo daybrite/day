@@ -112,7 +112,7 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<String>) {
 }
 
 /// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps in
-/// `scripts/*.yaml` — the same route namespace `navigate()` uses (docs/navigation.md).
+/// `dayscript/*.yaml` — the same route namespace `navigate()` uses (docs/navigation.md).
 fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -184,7 +184,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     }
 
     // --- Fluent coverage ---
-    let locales_dir = project.root.join("locales");
+    let locales_dir = project.root.join("resource/locales");
     let mut locales: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     if let Ok(entries) = std::fs::read_dir(&locales_dir) {
         for e in entries.flatten() {
@@ -219,7 +219,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
             if !default_keys.contains(k) {
                 findings.push(Finding {
                     code: "day::lint::unknown-key",
-                    message: format!("tr({k:?}) has no message in locales/{default_name}"),
+                    message: format!("tr({k:?}) has no message in resource/locales/{default_name}"),
                 });
             }
         }
@@ -227,7 +227,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
             if !used.contains(k) {
                 findings.push(Finding {
                     code: "day::lint::unused-key",
-                    message: format!("locales/{default_name}: {k} is never referenced"),
+                    message: format!("resource/locales/{default_name}: {k} is never referenced"),
                 });
             }
         }
@@ -239,7 +239,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                 if !keys.contains(k) {
                     findings.push(Finding {
                         code: "day::lint::missing-translation",
-                        message: format!("locales/{name}: missing {k}"),
+                        message: format!("resource/locales/{name}: missing {k}"),
                     });
                 }
             }
@@ -262,11 +262,11 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         scan_sources(&project.root.join("src"), "navigate(\"", &mut nav_calls);
         used_routes.extend(nav_calls.into_iter().map(|r| ("navigate".to_string(), r)));
         let mut script_routes = Vec::new();
-        scan_script_routes(&project.root.join("scripts"), &mut script_routes);
+        scan_script_routes(&project.root.join("dayscript"), &mut script_routes);
         used_routes.extend(
             script_routes
                 .into_iter()
-                .map(|r| ("scripts".to_string(), r)),
+                .map(|r| ("dayscript".to_string(), r)),
         );
         for (origin, route) in &used_routes {
             let first = route_first_segment(route);

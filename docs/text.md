@@ -27,7 +27,7 @@ Largest → smallest, mirroring SwiftUI's `Font.TextStyle`:
 `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`,
 `Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size, and
 `Custom("Family", pt)` for a bundled custom font referenced by family name (ship the file in the
-project's `fonts/` directory — see docs/resources.md §18.4 for the packaging and naming rules).
+project's `resource/fonts/` directory — see docs/resources.md §18.4 for the packaging and naming rules).
 
 Each maps to the platform's native text style where one exists, so sizes and weights match the OS:
 

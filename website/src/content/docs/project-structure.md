@@ -20,13 +20,15 @@ my-app/
 ├── src/
 │   ├── lib.rs                # the app: pieces, signals, routes; install_locales(…)
 │   └── main.rs               # desktop entry point; mobile entries live in lib.rs macros
-├── assets/                   # arbitrary data files   → resource("stations.json")
-├── images/                   # processed images       → image("logo"), logo@2x.png variants
-├── icons/                    # app icon sources, staged per platform (dock, taskbar, launcher)
-├── locales/
-│   ├── en/app.ftl            # Fluent translations, embedded at compile time (include_str!)
-│   └── fr/app.ftl
-├── scripts/                  # dayscript flows: walkthroughs, screenshots, assertions
+├── resource/
+│   ├── assets/               # arbitrary data files   → resource("stations.json")
+│   ├── images/               # processed images       → image("logo"), logo@2x.png variants
+│   ├── fonts/                # custom fonts (.ttf/.otf), referenced by family name
+│   ├── icons/                # app icon sources, staged per platform (dock, taskbar, launcher)
+│   └── locales/
+│       ├── en/app.ftl        # Fluent translations, embedded at compile time (include_str!)
+│       └── fr/app.ftl
+├── dayscript/                # dayscript flows: walkthroughs, screenshots, assertions
 ├── platform/
 │   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner
 │   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme
@@ -57,7 +59,7 @@ anything native:
 ```text
 day build -p <target>
 │
-├── 1. stage resources          images/ + assets/ → the target's native store
+├── 1. stage resources          resource/images + resource/assets → the target's native store
 │                               (actool / aapt2 / GResource / .qrc / rawfile — see below)
 │
 ├── 2. select features          --features <toolkit> + every standalone piece's
@@ -111,7 +113,7 @@ day build -p ios-uikit
         ├── script phase: "day xcode-backend build"
         │       └── cargo rustc --crate-type staticlib --target aarch64-apple-ios-sim
         │           → libmy_app.a, linked into Runner
-        ├── actool: images/ → Media.xcassets → optimized Assets.car
+        ├── actool: resource/images → Media.xcassets → optimized Assets.car
         └── Swift Runner: loads the Day root view, hands control to Rust
         ▼
 build/day/ios-uikit/Debug-iphonesimulator/MyApp.app
@@ -139,7 +141,7 @@ day build -p android-widget
 └── gradle assembleDebug   platform/android/
         │
         ├── sourceSets: the day-android Java shim + piece Java + jniLibs + assets/
-        ├── aapt2: staged images/ → res/drawable* → R.drawable ids
+        ├── aapt2: staged resource/images → res/drawable* → R.drawable ids
         └── Material 3 theme + DayActivity host (loads the .so, calls nativeStart)
         ▼
 platform/android/app/build/outputs/apk/debug/app-debug.apk
@@ -178,7 +180,7 @@ hdc install … && aa start EntryAbility                  (day launch)
 
 ## How resources are packaged
 
-`images/` and `assets/` are looked up by name at runtime through `image("logo")` and
+`resource/images/` and `resource/assets/` are looked up by name at runtime through `image("logo")` and
 `resource("stations.json")`. Day never rewrites your bytes. Before each platform build it stages
 the files into that target's **native resource store**, so the platform's own machinery does the
 optimizing, and the runtime read is native (and zero-copy wherever the store exposes a stable
@@ -189,7 +191,7 @@ pointer):
                                  │  stage
       ┌──────────────────────────┼──────────────────────────────┐
       ▼                          ▼                              ▼
-   images/logo.png            assets/stations.json          icons/
+   resource/images/logo.png   resource/assets/stations.json resource/icons/
       │                          │                              │
       │ per-target store         │ per-target store             │ dock / taskbar /
       │                          │                              │ launcher icon
@@ -223,7 +225,7 @@ by-name API (`UIImage(named:)`, `R.drawable`, `gtk_picture_new_for_resource`, `Q
 `resource://RAWFILE/…`), so density variants like `logo@2x.png` map onto the platform's own
 scale-selection mechanism.
 
-Fluent translations under `locales/` take a different, simpler path: they are embedded into the
+Fluent translations under `resource/locales/` take a different, simpler path: they are embedded into the
 binary at compile time with `include_str!`, so locale switching never touches the filesystem.
 
 The full per-platform details, including the limits (what gets optimized where, and which stores

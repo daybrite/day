@@ -149,7 +149,7 @@ text-colors-header = Color
 text-custom-header = Custom sizes
 text-custom-note = Font.System(pt) — still scaled by the accessibility text size (Dynamic Type / font scale).
 text-fonts-header = Bundled fonts
-text-fonts-note = Font.Custom("Family", pt) — files from the app's fonts/ directory, bundled by day build and resolved by family name on every platform.
+text-fonts-note = Font.Custom("Family", pt) — files from the app's resource/fonts/ directory, bundled by day build and resolved by family name on every platform.
 
 # Menus playground
 menus-caption = Native menus — the app menu bar and per-piece context menus — with nested submenus, keyboard shortcuts, and standard Edit commands.

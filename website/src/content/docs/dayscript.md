@@ -37,8 +37,8 @@ flow:
 Run it against any target:
 
 ```bash
-day launch -p macos-appkit --script scripts/walkthrough.yaml
-day launch -p android-widget --script scripts/walkthrough.yaml --locale fr
+day launch -p macos-appkit --script dayscript/walkthrough.yaml
+day launch -p android-widget --script dayscript/walkthrough.yaml --locale fr
 ```
 
 `day launch` builds, starts the app with the scripting engine invited, executes the steps, and

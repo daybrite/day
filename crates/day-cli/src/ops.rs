@@ -168,17 +168,31 @@ pub fn launch(
         TargetKind::Desktop => {
             let mut cmd = Command::new(&outcome.artifact);
             cmd.current_dir(&project.root)
-                .env("DAY_ASSET_ROOT", project.root.join("assets"))
-                .env("DAY_IMAGE_ROOT", project.root.join("images"))
+                .env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
+                .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
                 // Bundled fonts (§18.4): the desktop backends register every file in this
                 // directory with the platform font system at startup.
-                .env("DAY_FONT_ROOT", project.root.join("fonts"));
+                .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
             } else {
                 // Detached: the day process exits after spawning — piped stdio would close
-                // with it and the app's next log write would die on SIGPIPE.
+                // with it and the app's next log write would die on SIGPIPE. The app must also
+                // leave day's PROCESS GROUP: task runners (VS Code) dispose the pty when the
+                // task's root process exits, and the resulting SIGHUP to the pty's foreground
+                // group would kill a keep-alive app that stayed in it.
                 cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::CommandExt;
+                    cmd.process_group(0);
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+                    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+                }
             }
             // App icon (§18.2): the backend applies it to the dock / taskbar at startup
             // (NSApp icon, QApplication window icon, GTK icon theme, Win32 WM_SETICON).

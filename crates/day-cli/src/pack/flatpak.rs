@@ -61,16 +61,16 @@ pub fn pack(
     std::fs::create_dir_all(&share_app).map_err(|e| PackError::Other(e.to_string()))?;
     std::fs::copy(&outcome.artifact, bin_dir.join(format!("{name}-bin")))
         .map_err(|e| PackError::Other(e.to_string()))?;
-    let assets = project.root.join("assets");
+    let assets = project.root.join("resource/assets");
     if assets.is_dir() {
         super::copy_tree(&assets, &share_app.join("assets")).map_err(PackError::Other)?;
     }
-    let images = project.root.join("images");
+    let images = project.root.join("resource/images");
     if images.is_dir() {
         super::copy_tree(&images, &share_app.join("images")).map_err(PackError::Other)?;
     }
     // Bundled fonts (§18.4): the backend registers every file under DAY_FONT_ROOT at startup.
-    let fonts = project.root.join("fonts");
+    let fonts = project.root.join("resource/fonts");
     if fonts.is_dir() {
         super::copy_tree(&fonts, &share_app.join("fonts")).map_err(PackError::Other)?;
     }
@@ -243,10 +243,10 @@ modules:
 
 fn stage_icons(project: &Project, stage: &Path, id: &str) {
     // hicolor icons named by app id, from icons/linux/*-<N>.png (falling back to any png).
-    let icons_dir = project.root.join("icons/linux");
+    let icons_dir = project.root.join("resource/icons/linux");
     let entries = std::fs::read_dir(&icons_dir)
-        .or_else(|_| std::fs::read_dir(project.root.join("icons/png")))
-        .or_else(|_| std::fs::read_dir(project.root.join("icons")));
+        .or_else(|_| std::fs::read_dir(project.root.join("resource/icons/png")))
+        .or_else(|_| std::fs::read_dir(project.root.join("resource/icons")));
     let Ok(entries) = entries else { return };
     for e in entries.flatten() {
         let p = e.path();

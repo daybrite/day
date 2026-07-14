@@ -26,7 +26,7 @@ a constant, a `Signal<f64>`, or a `Fn() -> f64`. A reactive value updates the na
 `Decorate`.
 
 The showcase's `lottie` page is `#[cfg(any(target_os = "ios", target_os = "android"))]`, so the nav item
-appears only on those builds; the bundled `apps/showcase/assets/hello.json` is a small hand-authored
+appears only on those builds; the bundled `apps/showcase/resource/assets/hello.json` is a small hand-authored
 animation (a rotating, pulsing rounded square).
 
 ## Per-platform native realization

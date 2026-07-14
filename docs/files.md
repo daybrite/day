@@ -103,4 +103,4 @@ A file picker is a presentation, so a script answers it with a path (docs/dialog
 
 This makes open/save flows headless-testable and screenshot-able on every backend without touching
 the machine's real filesystem. See `apps/showcase` (the **Platform services** page's Files section) and
-`apps/showcase/scripts/files.yaml`.
+`apps/showcase/dayscript/files.yaml`.

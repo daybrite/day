@@ -77,7 +77,7 @@ at `day --project <root> mcp-server`.
 3. `day_relaunch` → compile errors come back in the result; fix; repeat.
 4. `day_drive` → navigate to the changed screen, assert ids/text, `screenshot` — and **look**
    at it. On every affected target.
-5. `day launch -p <target> --script scripts/walkthrough.yaml` when the change touches
+5. `day launch -p <target> --script dayscript/walkthrough.yaml` when the change touches
    walkthrough-covered flows.
 
 ## Security posture

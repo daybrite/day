@@ -387,15 +387,15 @@ jobs:
             for LOC in en fr ar zh-CN; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+              $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
-      # combo (headless Linux has no system clipboard — see scripts/clipboard-roundtrip.yaml).
+      # combo (headless Linux has no system clipboard — see dayscript/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
-        run: $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/clipboard-roundtrip.yaml
+        run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/clipboard-roundtrip.yaml
       # Release-signing material, tag pushes only: Developer ID cert into the keychain + the
       # notary API key on disk. Without the secrets these no-op and pack dev-signs (§20).
       - name: Import the Developer ID certificate
@@ -516,7 +516,7 @@ jobs:
         # fast so regressions are never masked; a run that logged a ✗ is never retried.
         run: |
           LOG="$RUNNER_TEMP/ios-walk.log"
-          walk() { "$DAY_BIN" launch -p ios-uikit --script scripts/walkthrough.yaml "$@" 2>&1 | tee "$LOG"; }
+          walk() { "$DAY_BIN" launch -p ios-uikit --script dayscript/walkthrough.yaml "$@" 2>&1 | tee "$LOG"; }
           # Eight screenshot variants (light/dark × en/fr/ar/zh-CN), each with the flaky-retry dance.
           run_variant() {
             if ! walk "$@"; then
@@ -668,12 +668,12 @@ jobs:
               # The xvfb screen matches the showcase window (1000×720) so the `import -window
               # root` fallback capture (day-cli script.rs) is exactly the app, edge to edge.
               xvfb-run -a -s "-screen 0 1000x720x24" "$DAY_BIN" launch -p linux-gtk \
-                --script scripts/walkthrough.yaml $EXTRA \
+                --script dayscript/walkthrough.yaml $EXTRA \
                 --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
                 --env WEBKIT_DISABLE_COMPOSITING_MODE=1
             else
               "$DAY_BIN" launch -p linux-qt \
-                --script scripts/walkthrough.yaml $EXTRA \
+                --script dayscript/walkthrough.yaml $EXTRA \
                 --env QT_QPA_PLATFORM=offscreen
             fi
           done
@@ -830,7 +830,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-widget --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-widget --script scripts/clipboard-roundtrip.yaml
+          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-widget --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-widget --script dayscript/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1007,7 +1007,7 @@ jobs:
             for LOC in en fr ar zh-CN; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ohos-arkui --script scripts/walkthrough.yaml \
+              $DAY_BIN launch -p ohos-arkui --script dayscript/walkthrough.yaml \
                 --variant $VAR --env DAY_THEME=$TH $EXTRA \
                 || echo "::warning::ohos walkthrough variant $VAR failed"
             done
@@ -1131,7 +1131,7 @@ jobs:
             for LOC in en fr ar zh-CN; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p windows-winui --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+              $DAY_BIN launch -p windows-winui --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
@@ -1248,7 +1248,7 @@ jobs:
             for LOC in en fr ar zh-CN; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ${{ matrix.combo }} --script scripts/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA --env WEBKIT_DISABLE_COMPOSITING_MODE=1
+              $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA --env WEBKIT_DISABLE_COMPOSITING_MODE=1
             done
           done
       - name: Upload screenshots

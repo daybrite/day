@@ -33,7 +33,7 @@ pub fn stage_payload(
     // The winui runtime resolves assets/images/fonts relative to the exe when DAY_* env is
     // absent (resources/winui.rs is a launch-env no-op — pack ships the trees beside the binary).
     for dir in ["assets", "images", "fonts"] {
-        let src = project.root.join(dir);
+        let src = project.root.join("resource").join(dir);
         if src.is_dir() {
             super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
         }
@@ -78,9 +78,9 @@ pub fn pack(
     // MSIX logo slots, from the largest available PNG (Store lints sizes; sideload does not).
     let logo = project
         .root
-        .join("icons/windows/day-icon-256.png")
+        .join("resource/icons/windows/day-icon-256.png")
         .exists()
-        .then(|| project.root.join("icons/windows/day-icon-256.png"))
+        .then(|| project.root.join("resource/icons/windows/day-icon-256.png"))
         .or_else(|| {
             crate::resources::app_icon(project, "gtk") // any png via the linux/png lookup
         });

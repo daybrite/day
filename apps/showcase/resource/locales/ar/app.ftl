@@ -152,7 +152,7 @@ text-colors-header = اللون
 text-custom-header = أحجام مخصّصة
 text-custom-note = ‏Font.System(pt) — لا يزال يُكبَّر وفق حجم نص إمكانية الوصول (الخط الديناميكي / مقياس الخط).
 text-fonts-header = الخطوط المضمّنة
-text-fonts-note = ‏Font.Custom("Family", pt) — ملفات من مجلد fonts/ في التطبيق، يضمّها day build وتُحلّ باسم العائلة على كل منصة.
+text-fonts-note = ‏Font.Custom("Family", pt) — ملفات من مجلد resource/fonts/ في التطبيق، يضمّها day build وتُحلّ باسم العائلة على كل منصة.
 
 # Menus playground
 menus-caption = قوائم أصلية — شريط قوائم التطبيق وقوائم السياق لكل قطعة — مع قوائم فرعية متداخلة واختصارات لوحة المفاتيح وأوامر التحرير القياسية.

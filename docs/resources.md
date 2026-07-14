@@ -8,13 +8,13 @@ uncompressed wherever the platform allows, so the runtime can return a zero-copy
 
 | Project dir | Kind | API | Native store |
 |---|---|---|---|
-| `images/` | processed images | `image("logo")` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
-| `assets/` | arbitrary data | `resource("stations.json")` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `fonts/` | custom fonts | `Font::Custom("Family", pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | `image("logo")` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
+| `resource/assets/` | arbitrary data | `resource("stations.json")` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
+| `resource/fonts/` | custom fonts | `Font::Custom("Family", pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
 
 ## Images — `image("name")`
 
-Drop `images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
+Drop `resource/images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
 each image into the target's native image pipeline; `image("logo")` (the existing piece) then
 resolves the name through the native by-name API. Nothing about the piece API changes, only how
 the backend resolves the name.
@@ -59,7 +59,7 @@ opener once via `day_core::set_resource_opener`; absent that, the default mmap-f
 
 ## Fonts — `Font::Custom("Family", pt)` (§18.4)
 
-`fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
+`resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. The single invariant that makes the name resolve everywhere with no
 side table: `day build` parses the name table (`day_spec::fonts::parse_font_names` — a ~100-line
 bounds-checked sfnt reader shared by the CLI and the runtimes) and derives every staged name from
@@ -71,7 +71,7 @@ Per platform:
 
 - **macOS (AppKit):** files register with `CTFontManagerRegisterFontsForURL` (process scope) in
   `run()`; `NSFont(name:size:)` then resolves family/full/PostScript names. Dev launch reads
-  `DAY_FONT_ROOT` (set by `day launch` to the project's `fonts/`); packed apps read
+  `DAY_FONT_ROOT` (set by `day launch` to the project's `resource/fonts/`); packed apps read
   `Contents/Resources/fonts` (copied by `day pack`).
 - **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
   (`DayPieces_DayPieces.bundle/fonts/…`) — `.copy`, not `.process`, so the bytes land verbatim.

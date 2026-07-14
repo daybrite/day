@@ -1,18 +1,20 @@
 ---
 title: Resources, images, fonts & icons
-description: "How assets/, images/, fonts/, and icons/ travel from your project into each platform's native resource system — and how to read them back."
+description: "How resource/assets, resource/images, resource/fonts, and resource/icons travel from your project into each platform's native resource system — and how to read them back."
 order: 24
 section: Guides
 ---
 
-A Day project has four conventional resource directories, each with a different destiny:
+A Day project keeps its resources under one conventional `resource/` directory, with four
+subdirectories, each with a different destiny:
 
 ```text
 myapp/
-  assets/      # data files: JSON, databases — anything you open as bytes
-  images/      # UI images, with @2x/@3x density variants
-  fonts/       # custom fonts (.ttf/.otf), referenced by family name
-  icons/       # the app icon (and its per-platform renditions)
+  resource/
+    assets/    # data files: JSON, databases — anything you open as bytes
+    images/    # UI images, with @2x/@3x density variants
+    fonts/     # custom fonts (.ttf/.otf), referenced by family name
+    icons/     # the app icon (and its per-platform renditions)
 ```
 
 The principle behind all four: **resources ride each platform's native resource system**, not a
@@ -21,9 +23,9 @@ aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource b
 Qt resource file. `day build` does the staging automatically, per target, before the platform
 build runs.
 
-## Data files: `assets/`
+## Data files: `resource/assets/`
 
-Anything in `assets/` is packaged and readable at runtime through one call:
+Anything in `resource/assets/` is packaged and readable at runtime through one call:
 
 ```rust
 let bytes: day::Resource = day::resource("stations.json").expect("packaged asset");
@@ -36,9 +38,9 @@ on GTK from the GResource, on desktop from an mmap — no copy into a Vec unless
 resolves against your project directory, so editing an asset and relaunching picks it up without
 a packaging step.
 
-## Images: `images/`
+## Images: `resource/images/`
 
-Drop PNGs (with optional `@2x`/`@3x` density variants) into `images/` and reference them by
+Drop PNGs (with optional `@2x`/`@3x` density variants) into `resource/images/` and reference them by
 name:
 
 ```rust
@@ -54,14 +56,14 @@ platform picks the right density at runtime the same way it does for any native 
 Two notes worth knowing:
 
 - **SVG is not a runtime format.** Android and Qt widgets can't render SVG at runtime, so
-  runtime images are raster. Keep sources vector, export raster densities into `images/`.
+  runtime images are raster. Keep sources vector, export raster densities into `resource/images/`.
 - **Remote images** (URL-loaded, cached) are a separate piece —
   [`day-piece-remote-image`](/docs/internal/resources) — because they involve networking and
   cache policy the core deliberately doesn't own.
 
-## Custom fonts: `fonts/`
+## Custom fonts: `resource/fonts/`
 
-Drop `.ttf` or `.otf` files into `fonts/` and reference them **by family name** — the name baked
+Drop `.ttf` or `.otf` files into `resource/fonts/` and reference them **by family name** — the name baked
 into the font file itself (what Font Book or fontconfig report), not the file name:
 
 ```rust
@@ -84,7 +86,7 @@ a confusing runtime-only failure on one platform):
 - **One face per family.** Staged file names are derived from the family name (lowercased,
   `[a-z0-9_]`), so a second face of the same family would collide. Ship the regular face; bold
   and italic are synthesized where the platform can.
-- **File names don't matter; family names do.** `fonts/SpecialElite-Regular.ttf` whose embedded
+- **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
   family is "Special Elite" is used as `Font::Custom("Special Elite", 20.0)`.
 
 Two things worth knowing beyond the rules: an unknown family never breaks the app — the label
@@ -92,20 +94,21 @@ renders in the system font and the log names the family that didn't resolve. And
 `.italic()` still apply, but a single-face family only gets what the platform can synthesize (a
 heavier stroke, a slant), not true bold or italic cuts.
 
-## The app icon: `icons/`
+## The app icon: `resource/icons/`
 
-`icons/` holds the app icon renditions each platform wants (`icons/macos/`, `icons/windows/*.ico`,
-`icons/linux/*.png`, plus mobile catalogs in the platform scaffolds). During development,
+`resource/icons/` holds the app icon renditions each platform wants (`resource/icons/macos/`,
+`resource/icons/windows/*.ico`, `resource/icons/linux/*.png`, plus mobile catalogs in the
+platform scaffolds). During development,
 `day launch` wires the icon into the running window; at packaging time,
 [`day pack`](/docs/packaging) builds the platform-specific artifacts — the `.icns` inside your
 macOS bundle, hicolor icons inside the flatpak, MSIX logo assets — from these files.
 
-Keeping a single SVG source in `icons/` and exporting the renditions is the current practice; a
+Keeping a single SVG source in `resource/icons/` and exporting the renditions is the current practice; a
 generate-the-whole-matrix-from-one-SVG pipeline is designed but you still export by hand today.
 
 ## Localized strings are resources too
 
-`locales/<lang>/app.ftl` files are compiled in via `include_str!` at the moment
+`resource/locales/<lang>/app.ftl` files are compiled in via `include_str!` at the moment
 ([localization guide](/docs/localization)), and OS-facing strings (the app's display name) are
 conveyed into platform manifests at build time. Piece packages can carry their own `locales/` and
 resources, which aggregate into your app without name collisions.
@@ -113,7 +116,7 @@ resources, which aggregate into your app without name collisions.
 ## What happens at build, concretely
 
 ```text
-images/wave@2x.png ──┐     fonts/Pacifico-Regular.ttf ──┐     assets/stations.json ──┐
+resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  resource/assets/stations.json ─┐
                      ▼          day build -p <target>   ▼                            ▼
    ┌───────────────────────────────────────────────────────────────────────┐
    │ android  → res/drawable-xhdpi/wave.png · res/font/pacifico.ttf        │

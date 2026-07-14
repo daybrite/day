@@ -13,10 +13,10 @@ it, and the test tooling understands it.
 
 ## Files and setup
 
-Translations live in `locales/<lang>/app.ftl`, one file per language:
+Translations live in `resource/locales/<lang>/app.ftl`, one file per language:
 
 ```ftl
-# locales/en/app.ftl
+# resource/locales/en/app.ftl
 app-title = Field Notes
 greeting = Hello, { $name }!
 unread-count = { $count ->
@@ -31,8 +31,8 @@ Register the catalogs once, at the top of your root function:
 day_fluent::install(
     "en",
     &[
-        ("en", include_str!("../locales/en/app.ftl")),
-        ("fr", include_str!("../locales/fr/app.ftl")),
+        ("en", include_str!("../resource/locales/en/app.ftl")),
+        ("fr", include_str!("../resource/locales/fr/app.ftl")),
     ],
 );
 ```
@@ -78,7 +78,7 @@ strings or shorter Chinese ones change measured text sizes, and
 Two tools make per-locale verification cheap:
 
 ```bash
-day launch -p macos-appkit --locale fr --script scripts/walkthrough.yaml
+day launch -p macos-appkit --locale fr --script dayscript/walkthrough.yaml
 day launch -p macos-appkit --locale en-XA
 ```
 

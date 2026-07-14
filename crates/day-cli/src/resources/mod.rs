@@ -50,8 +50,8 @@ impl ResourceSet {
     /// Scan a project's `images/` and `assets/` directories.
     pub fn scan(project: &Project) -> ResourceSet {
         ResourceSet {
-            images: scan_dir(&project.root.join("images"), true),
-            data: scan_dir(&project.root.join("assets"), false),
+            images: scan_dir(&project.root.join("resource/images"), true),
+            data: scan_dir(&project.root.join("resource/assets"), false),
         }
     }
 
@@ -136,7 +136,7 @@ impl FontFile {
 /// by), or two families that collide after identifier sanitization (they'd overwrite each other
 /// in `res/font/`).
 pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
-    let dir = project.root.join("fonts");
+    let dir = project.root.join("resource/fonts");
     let mut out: Vec<FontFile> = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Ok(out);
@@ -223,7 +223,7 @@ pub fn sanitize_ident(name: &str) -> String {
 /// matches a per-platform icon export set — `icons/{macos,linux,windows,png}/…` — falling back to
 /// any icon at the `icons/` root.
 pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
-    let icons = project.root.join("icons");
+    let icons = project.root.join("resource/icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
         "winui" => (&["windows", ""], "ico"),

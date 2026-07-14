@@ -37,12 +37,12 @@ pub fn pack(
     std::fs::create_dir_all(&res_dir).map_err(|e| PackError::Other(e.to_string()))?;
     std::fs::copy(&outcome.artifact, macos_dir.join(name))
         .map_err(|e| PackError::Other(e.to_string()))?;
-    let assets = project.root.join("assets");
+    let assets = project.root.join("resource/assets");
     if assets.is_dir() {
         super::copy_tree(&assets, &res_dir.join("assets")).map_err(PackError::Other)?;
     }
     // Bundled fonts (§18.4): day-appkit registers Resources/fonts with CoreText at startup.
-    let fonts = project.root.join("fonts");
+    let fonts = project.root.join("resource/fonts");
     if fonts.is_dir() {
         super::copy_tree(&fonts, &res_dir.join("fonts")).map_err(PackError::Other)?;
     }

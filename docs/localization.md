@@ -8,8 +8,8 @@ switch, followed by one incremental relayout.
 use day::prelude::*;
 
 install_locales("en", &[
-    ("en", include_str!("../locales/en/app.ftl")),
-    ("fr", include_str!("../locales/fr/app.ftl")),
+    ("en", include_str!("../resource/locales/en/app.ftl")),
+    ("fr", include_str!("../resource/locales/fr/app.ftl")),
 ]);
 
 label(tr("greeting").arg("name", user_name))   // reactive, localized
@@ -91,7 +91,7 @@ but not direction):
   (`android:supportsRtl` rides the manifest template).
 
 The showcase ships an Arabic locale (`--locale ar`) exercising all of this; CI captures every
-walkthrough screenshot in light/dark × en/fr/ar/zh-CN, and `scripts/rtl-check.yaml` is a quick
+walkthrough screenshot in light/dark × en/fr/ar/zh-CN, and `dayscript/rtl-check.yaml` is a quick
 local smoke-test.
 
 ## Pseudolocale

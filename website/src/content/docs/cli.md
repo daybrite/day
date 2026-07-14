@@ -47,7 +47,7 @@ pins them to your CLI's version from crates.io and will become the default.
 
 `day new app` scaffolds a working starter — a typed-route sidebar over four sample panels (a
 reactive counter, a controls tour, a canvas dial, and a drill-down stack), with locales, a
-dayscript smoke test (`day launch -p <target> --script scripts/smoke.yaml`), and the thin native
+dayscript smoke test (`day launch -p <target> --script dayscript/smoke.yaml`), and the thin native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders —
 `{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
@@ -75,11 +75,11 @@ Pass the same `--template` the app was created with if it wasn't the built-in on
 
 ```bash
 # run a dayscript walkthrough after launch, capturing localized screenshots
-day launch -p macos-gtk --script scripts/walkthrough.yaml --locale fr
+day launch -p macos-gtk --script dayscript/walkthrough.yaml --locale fr
 
 # capture VARIANTS of the same walkthrough: `--variant` names the screenshot subdirectory
 # (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
-day launch -p macos-gtk --script scripts/walkthrough.yaml --variant dark --env DAY_THEME=dark
+day launch -p macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 ```
 
 CI runs each showcase walkthrough three times — `light` and `dark` under a forced `DAY_THEME`,

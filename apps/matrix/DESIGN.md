@@ -163,7 +163,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
 - **FUNCTIONAL CLIENT WORKS end-to-end on AppKit against Conduit**: login (@alice) → sync → room list
   ("Day Test Room", "localhost Admin Room (2)") → open room → back-paginate → render bob's + alice's
   messages (sender, time, date dividers) → compose + **send** ("Hello from the Day Matrix client!")
-  appears live. Script `scripts/full-demo.yaml` = 13/13.
+  appears live. Script `dayscript/full-demo.yaml` = 13/13.
 - **`.grow()` is REQUIRED down the whole container chain** or `list`/`scroll` collapse to 0 height
   (header shows, list invisible). Grow root column → when-arm containers → the list itself.
 - **List rows need `.on_tap(handler)` for taps** — dayscript `tap`/synthetic taps hit the row's inner
@@ -193,7 +193,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   store_dir must use the app sandbox, NOT $HOME — fix `store_dir()` for ios/android). ohos/winui
   build-check only.
 
-## Platform status (functional flow via scripts/full-demo.yaml)
+## Platform status (functional flow via dayscript/full-demo.yaml)
 
 - **macos-appkit: 13/13 ✓** (login→rooms→open→history→send, real messages rendered).
 - **macos-gtk: 13/13 ✓** (same, messages render; window top strip is GTK chrome).
