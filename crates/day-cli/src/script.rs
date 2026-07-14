@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
+use crate::term::{BOLD, ERROR, SUCCESS, WARN};
+use anstream::eprintln;
 
 pub struct ScriptRun {
     pub steps_total: usize,
@@ -245,6 +247,7 @@ pub fn run_scripts(
     locale: Option<&str>,
     variant: Option<&str>,
     keep_alive: bool,
+    attached: bool,
 ) -> Result<ScriptRun, String> {
     forward_engine(target.kind, port);
     let window_secs = connect_window_secs(target.kind);
@@ -298,7 +301,7 @@ pub fn run_scripts(
     for script in scripts {
         let steps = parse_flow(script)?;
         eprintln!(
-            "\x1b[1m     Script\x1b[0m {} on {} ({} steps)",
+            "{BOLD}     Script{BOLD:#} {} on {} ({} steps)",
             script.display(),
             target.name,
             steps.len()
@@ -309,7 +312,7 @@ pub fn run_scripts(
             if op == "pause" {
                 let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
                 std::thread::sleep(Duration::from_secs_f64(secs));
-                eprintln!("  \x1b[32m✓\x1b[0m pause {secs}s");
+                eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
                 continue;
             }
             let req = serde_json::json!({"token": token, "step": step});
@@ -325,14 +328,14 @@ pub fn run_scripts(
                 .or_else(|| step.get("name").and_then(|v| v.as_str()))
                 .unwrap_or("");
             if ok {
-                eprintln!("  \x1b[32m✓\x1b[0m {op} {detail}");
+                eprintln!("  {SUCCESS}✓{SUCCESS:#} {op} {detail}");
             } else {
                 run.steps_failed += 1;
                 let err = reply
                     .get("error")
                     .and_then(|v| v.as_str())
                     .unwrap_or("failed");
-                eprintln!("  \x1b[31m✗\x1b[0m {op} {detail} — {err}");
+                eprintln!("  {ERROR}✗{ERROR:#} {op} {detail} — {err}");
             }
             if op == "screenshot" && ok {
                 let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
@@ -357,10 +360,20 @@ pub fn run_scripts(
     if keep_alive {
         // Interactive script development (docs/agent.md): leave the app running — its session
         // stays drivable (`day drive`), so scripts can be built and debugged incrementally.
-        eprintln!(
-            "  \x1b[33m▸\x1b[0m {} left running (--keep-alive): drive it with `day drive -p {}`",
-            target.name, target.name
-        );
+        // Attached: `day` stays in the foreground streaming the app's console output until the
+        // app exits or the run is stopped. Detached: `day` exits now and the app lives on.
+        if attached {
+            eprintln!(
+                "  {WARN}▸{WARN:#} {} left running (--keep-alive): streaming logs — stop the task \
+                 (or Ctrl-C) to quit; drive it from another shell with `day drive -p {}`",
+                target.name, target.name
+            );
+        } else {
+            eprintln!(
+                "  {WARN}▸{WARN:#} {} left running (--keep-alive): drive it with `day drive -p {}`",
+                target.name, target.name
+            );
+        }
     } else {
         // Terminate the app now that the run is over (and drop its session entry).
         terminate(project, target);

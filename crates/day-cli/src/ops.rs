@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
+use crate::term::{HEADER, LOG_ERR, LOG_OUT};
 
 pub struct BuildOutcome {
     pub target: &'static str,
@@ -24,7 +25,7 @@ fn cargo_dir(project: &Project, target: &Target, profile: &str) -> PathBuf {
 }
 
 pub fn status(prefix: &str, msg: &str) {
-    eprintln!("\x1b[1;32m{prefix:>12}\x1b[0m {msg}");
+    anstream::eprintln!("{HEADER}{prefix:>12}{HEADER:#} {msg}");
 }
 
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the
@@ -272,8 +273,8 @@ pub enum LogStream {
 pub fn emit_log(name: &str, stream: LogStream, line: &str) {
     match stream {
         // 34 = blue, 33 = yellow; the whole line is coloured so streams read apart at a glance.
-        LogStream::Out => println!("\x1b[34m[{name}]\x1b[0m {line}"),
-        LogStream::Err => eprintln!("\x1b[33m[{name}]\x1b[0m {line}"),
+        LogStream::Out => anstream::println!("{LOG_OUT}[{name}]{LOG_OUT:#} {line}"),
+        LogStream::Err => anstream::eprintln!("{LOG_ERR}[{name}]{LOG_ERR:#} {line}"),
     }
 }
 

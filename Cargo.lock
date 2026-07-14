@@ -368,6 +368,8 @@ dependencies = [
 name = "day-cli"
 version = "0.0.7"
 dependencies = [
+ "anstream",
+ "anstyle",
  "clap",
  "day-fonts",
  "day-toolchain",

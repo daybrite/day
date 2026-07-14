@@ -509,12 +509,10 @@ fn all_groups() -> Vec<Group> {
 
 // --- rendering -------------------------------------------------------------
 
-const GREEN: &str = "\x1b[32m";
-const YELLOW: &str = "\x1b[33m";
-const RED: &str = "\x1b[31m";
-const DIM: &str = "\x1b[2m";
-const BOLD: &str = "\x1b[1m";
-const RESET: &str = "\x1b[0m";
+// The palette lives in one place now — `crate::term` (anstyle styles; printed through anstream,
+// which strips the escapes when stderr isn't a color terminal).
+use crate::term::{BOLD, DIM, ERROR, ERROR_BOLD, SUCCESS, SUCCESS_BOLD, WARN};
+use anstream::eprintln;
 
 /// Outcome of reporting one group: how many hard errors and soft/optional warnings it surfaced.
 #[derive(Default)]
@@ -526,25 +524,25 @@ struct Tally {
 /// Print one group's header + probe lines. `hard` = a non-soft miss is an error (else a warning);
 /// `show_setup` = append the detailed setup block (focused toolkits only).
 fn report_group(g: &Group, host: &str, hard: bool, show_setup: bool) -> Tally {
-    eprintln!("{BOLD}{}{RESET}", g.label);
+    eprintln!("{BOLD}{}{BOLD:#}", g.label);
     let mut t = Tally::default();
     // A focused toolkit that can't build on this host is itself an error.
     if hard && !g.builds_on(host) {
         eprintln!(
-            "  {RED}✗{RESET} {:<14} builds on {:?}, not this {host} host",
+            "  {ERROR}✗{ERROR:#} {:<14} builds on {:?}, not this {host} host",
             "host", g.hosts
         );
         t.errors += 1;
     }
     for p in &g.probes {
         match &p.detail {
-            Some(d) => eprintln!("  {GREEN}✓{RESET} {:<14} {d}", p.name),
+            Some(d) => eprintln!("  {SUCCESS}✓{SUCCESS:#} {:<14} {d}", p.name),
             None if hard && !p.soft => {
-                eprintln!("  {RED}✗{RESET} {:<14} {}", p.name, p.fix);
+                eprintln!("  {ERROR}✗{ERROR:#} {:<14} {}", p.name, p.fix);
                 t.errors += 1;
             }
             None => {
-                eprintln!("  {YELLOW}⚠{RESET} {:<14} {}", p.name, p.fix);
+                eprintln!("  {WARN}⚠{WARN:#} {:<14} {}", p.name, p.fix);
                 t.warnings += 1;
             }
         }
@@ -557,9 +555,9 @@ fn report_group(g: &Group, host: &str, hard: bool, show_setup: bool) -> Tally {
 
 /// Print a group's detailed setup instructions (focused mode only).
 fn eprint_setup(g: &Group) {
-    eprintln!("  {DIM}── setup ──{RESET}");
+    eprintln!("  {DIM}── setup ──{DIM:#}");
     for line in g.setup.lines() {
-        eprintln!("  {DIM}{line}{RESET}");
+        eprintln!("  {DIM}{line}{DIM:#}");
     }
     eprintln!();
 }
@@ -589,11 +587,11 @@ pub fn run(focus: &[String]) -> i32 {
     if focus.is_empty() {
         eprintln!(
             "{DIM}Scanning all toolkits buildable on this {host} host. Missing OPTIONAL toolkit\n\
-             dependencies are warnings; run `day doctor --toolkit <id>` for hard checks + setup help.{RESET}\n"
+             dependencies are warnings; run `day doctor --toolkit <id>` for hard checks + setup help.{DIM:#}\n"
         );
     } else {
         eprintln!(
-            "{DIM}Focused check: {} (missing pieces are errors).{RESET}\n",
+            "{DIM}Focused check: {} (missing pieces are errors).{DIM:#}\n",
             focus.join(", ")
         );
     }
@@ -609,7 +607,7 @@ pub fn run(focus: &[String]) -> i32 {
             // Default scan: skip cross-host toolkits (a dim n/a line instead of noise).
             if g.id != "core" && !g.builds_on(host) {
                 eprintln!(
-                    "{BOLD}{}{RESET}  {DIM}n/a — builds on {:?}{RESET}",
+                    "{BOLD}{}{BOLD:#}  {DIM}n/a — builds on {:?}{DIM:#}",
                     g.label, g.hosts
                 );
                 continue;
@@ -627,18 +625,18 @@ pub fn run(focus: &[String]) -> i32 {
     eprintln!();
     if total.errors > 0 {
         eprintln!(
-            "{RED}{BOLD}✗ {} error(s){RESET}, {} warning(s).",
+            "{ERROR_BOLD}✗ {} error(s){ERROR_BOLD:#}, {} warning(s).",
             total.errors, total.warnings
         );
         3
     } else if total.warnings > 0 {
         eprintln!(
-            "{YELLOW}⚠ {} warning(s){RESET} — optional toolkits not fully set up. Fine unless you build them.",
+            "{WARN}⚠ {} warning(s){WARN:#} — optional toolkits not fully set up. Fine unless you build them.",
             total.warnings
         );
         0
     } else {
-        eprintln!("{GREEN}{BOLD}✓ all good{RESET}");
+        eprintln!("{SUCCESS_BOLD}✓ all good{SUCCESS_BOLD:#}");
         0
     }
 }

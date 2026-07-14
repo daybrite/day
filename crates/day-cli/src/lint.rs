@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::meta::Project;
+use crate::term::{SUCCESS, WARN};
+use anstream::eprintln;
 
 pub struct Finding {
     pub code: &'static str,
@@ -296,11 +298,11 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     }
 
     for f in &findings {
-        eprintln!("\x1b[33mwarning\x1b[0m {:<32} {}", f.code, f.message);
+        eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
     }
     let n = findings.len();
     if n == 0 {
-        eprintln!("\x1b[32m✓\x1b[0m no lint findings");
+        eprintln!("{SUCCESS}✓{SUCCESS:#} no lint findings");
         0
     } else {
         eprintln!("{n} finding(s)");

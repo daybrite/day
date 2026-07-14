@@ -14,8 +14,7 @@
 
 use std::sync::mpsc::Receiver;
 
-const YELLOW: &str = "\x1b[33m";
-const RESET: &str = "\x1b[0m";
+use crate::term::WARN;
 
 /// Set this env var (to any non-empty value) to skip the update check entirely — and with it day's
 /// only outbound network call. Follows the `NO_COLOR` convention: present + non-empty ⇒ disabled.
@@ -63,8 +62,8 @@ pub fn finish(rx: Option<Receiver<String>>) {
     let current = env!("CARGO_PKG_VERSION");
     if is_newer(&latest, current) {
         eprintln!(
-            "{YELLOW}A new release of day-cli is available: {current} → {latest}. \
-             Update with `cargo install day-cli`.{RESET}"
+            "{WARN}A new release of day-cli is available: {current} → {latest}. \
+             Update with `cargo install day-cli`.{WARN:#}"
         );
     }
 }

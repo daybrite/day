@@ -640,7 +640,11 @@ pub fn run() -> i32 {
                     .iter()
                     .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
                     .collect(),
-                attached: !detach && !script_mode,
+                // Attachment follows `--detach` alone, NOT whether a script runs: a scripted
+                // launch streams the app's console output the same as a plain launch. (A
+                // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
+                // script so that output stays visible while the app lives — see below.)
+                attached: !detach,
             };
             // Ctrl-C during an attached run must take the launched apps and their log
             // watchers (simctl / adb logcat) down too — not leave them orphaned.
@@ -703,6 +707,7 @@ pub fn run() -> i32 {
                         locale.as_deref(),
                         variant.as_deref(),
                         keep_alive,
+                        spec.attached,
                     ) {
                         Ok(run) => {
                             script_failures += run.steps_failed;
@@ -724,7 +729,14 @@ pub fn run() -> i32 {
                     }
                 }
             }
-            if script_mode {
+            // A scripted run returns once its script(s) finish — EXCEPT an attached
+            // `--keep-alive` run, which stays in the foreground streaming the app's console
+            // output until the app exits or the run is stopped (so output is visible during AND
+            // after the script, exactly like a plain attached launch). Detached scripted runs
+            // (agents) and non-keep-alive scripted runs (CI) return here without blocking on
+            // device log pumps that never EOF; attached runs already streamed logs live while
+            // the script drove the app.
+            if script_mode && !(spec.attached && keep_alive) {
                 return if script_failures > 0 { 5 } else { 0 };
             }
             if spec.attached {
@@ -735,7 +747,11 @@ pub fn run() -> i32 {
                 // A target that exited on its own leaves its siblings' log watchers (and
                 // any child that outlives its stream) running — reap them before we go.
                 crate::signals::kill_all();
-                code
+                if script_mode && script_failures > 0 {
+                    5
+                } else {
+                    code
+                }
             } else {
                 0
             }

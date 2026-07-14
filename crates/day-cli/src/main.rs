@@ -23,6 +23,7 @@ mod sign;
 mod signals;
 mod targets;
 mod template;
+mod term;
 mod update;
 
 fn main() {

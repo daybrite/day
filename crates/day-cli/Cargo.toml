@@ -13,6 +13,12 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
+# Terminal styling for the CLI's own human output (src/term.rs). `anstyle` is the styling
+# vocabulary clap already uses (so our output shares its color system); `anstream`'s print macros
+# strip the escapes when stdout/stderr isn't a color terminal (NO_COLOR, pipes, files, dumb/legacy
+# consoles). Both are already in the tree via clap, so naming them adds no new compiled crates.
+anstyle = "1"
+anstream = "1"
 # `day new app` templates (templates/app/, embedded so a fresh `cargo install day-cli` scaffolds
 # offline): handlebars renders {{name}}/{{id}}/… in file contents AND paths; include_dir bakes
 # the template tree into the binary.
