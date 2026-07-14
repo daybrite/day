@@ -467,8 +467,8 @@ mod uikit_impl {
 #[cfg(all(feature = "widget", target_os = "android"))]
 mod android_impl {
     use super::*;
-    use day_android::jni::objects::JValue;
     use day_android::DayEnv;
+    use day_android::jni::objects::JValue;
     use day_android::{AHandle, Android, make_view, with_env};
     use day_spec::NodeId;
 

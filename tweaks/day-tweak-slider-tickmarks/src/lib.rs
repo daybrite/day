@@ -116,8 +116,8 @@ fn apply(node: RNode, t: Tickmarks) {
     {
         // Material Slider: a step size yields visible ticks AND snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
-        use day_android::jni::objects::JValue;
         use day_android::DayEnv;
+        use day_android::jni::objects::JValue;
         let _ = day_android::with_native(node, |view, env| {
             let lo = env
                 .dcall(view, "getValueFrom", "()F", &[])

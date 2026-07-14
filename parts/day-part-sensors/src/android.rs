@@ -6,8 +6,8 @@
 // at normal rates. The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it through
 // day-android's re-exported `jni`.
 
-use day_android::jni::objects::{JDoubleArray, JValue};
 use day_android::DayEnv;
+use day_android::jni::objects::{JDoubleArray, JValue};
 use day_android::with_env;
 
 use super::{SensorKind, SensorReading};

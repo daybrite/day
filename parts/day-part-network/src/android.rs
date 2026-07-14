@@ -6,8 +6,8 @@
 // the Day runtime (it needs the app's JVM + Context).
 
 use super::{NetworkKind, NetworkStatus};
-use day_android::with_env;
 use day_android::DayEnv;
+use day_android::with_env;
 
 const NETWORK_CLASS: &str = "dev/daybrite/day/network/DayNetwork";
 

@@ -5,8 +5,8 @@
 // crate rides on the Day runtime (it needs the app's JVM + Context).
 
 use super::{BatteryState, BatteryStatus};
-use day_android::with_env;
 use day_android::DayEnv;
+use day_android::with_env;
 
 const BATTERY_CLASS: &str = "dev/daybrite/day/battery/DayBattery";
 

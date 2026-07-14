@@ -6,8 +6,8 @@
 // Android this headless crate rides on the Day runtime (it needs the app's JVM + Context).
 
 use super::Haptic;
-use day_android::jni::objects::JValue;
 use day_android::DayEnv;
+use day_android::jni::objects::JValue;
 use day_android::with_env;
 
 const HAPTICS_CLASS: &str = "dev/daybrite/day/haptics/DayHaptics";

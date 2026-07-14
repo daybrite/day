@@ -9,8 +9,8 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::jni::Env;
 use day_android::DayEnv;
+use day_android::jni::Env;
 use day_android::jni::objects::{JObject, JValue};
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
@@ -86,7 +86,9 @@ fn make(_backend: &mut Android, p: &RemoteImageProps, id: NodeId) -> AHandle {
             .l()
             .expect("View");
         push_bytes(env, &view, &p.bytes);
-        AHandle(std::sync::Arc::new(env.new_global_ref(&view).expect("global ref")))
+        AHandle(std::sync::Arc::new(
+            env.new_global_ref(&view).expect("global ref"),
+        ))
     })
 }
 

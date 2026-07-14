@@ -35,8 +35,8 @@ fn apply(node: RNode) {
     #[cfg(all(feature = "widget", target_os = "android"))]
     {
         // Day labels are android.widget.TextView; JNI through the ext module's attached env.
-        use day_android::jni::objects::JValue;
         use day_android::DayEnv;
+        use day_android::jni::objects::JValue;
         let _ = day_android::with_native(node, |view, env| {
             let _ = env.dcall(view, "setTextIsSelectable", "(Z)V", &[JValue::Bool(true)]);
         });

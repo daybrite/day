@@ -11,8 +11,8 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::jni::objects::JValue;
 use day_android::DayEnv;
+use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
@@ -39,7 +39,9 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
             .expect("DayTextArea.makeTextArea")
             .l()
             .expect("View");
-        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
+        AHandle(std::sync::Arc::new(
+            env.new_global_ref(view).expect("global ref"),
+        ))
     })
 }
 
