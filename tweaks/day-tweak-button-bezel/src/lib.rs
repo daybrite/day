@@ -55,7 +55,9 @@ pub trait ButtonBezelTweak: Decorate + Sized {
         #[cfg(feature = "appkit")]
         {
             self.tweak(move |n| {
-                let _ = day_appkit::with_native(n, |view, _mtm| {
+                // `class` is "NSButton" — a plain `button(…)` has a single backing, so a downcast
+                // guard is enough here; see day-tweak-label-selectable for class-aware branching.
+                let _ = day_appkit::with_native(n, |view, _class, _mtm| {
                     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
                         btn.setBezelStyle(ns_bezel(bezel));
                         // Bezels have different intrinsic metrics — let layout re-measure.

@@ -24,22 +24,31 @@ button("Save").tweak(|node| {
 })
 ```
 
-Each toolkit crate adds a typed extension trait over that, which is what you'll normally use:
+Each toolkit crate adds a typed extension trait over that, which is what you'll normally use. The
+closure gets the native widget **and its concrete class name**, so a tweak knows exactly what it's
+poking:
 
 ```rust
 use day_appkit::AppKitExt;   // exists only in the appkit build
 
-button("Save").appkit(|view, _mtm| {
+button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };
     }
 })
 ```
 
-`.gtk(|widget| …)`, `.uikit(|view, mtm| …)`, and `.android(|view, jni_env| …)` follow the same
-shape with each platform's own types. Qt, WinUI, and ArkUI sit behind C shims, so their accessors
-hand out the raw native pointer instead, with a short bring-your-own-C++ recipe — honest tiers,
-spelled out in the [tweaks reference](/docs/internal/tweaks).
+`.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
+follow the same shape with each platform's own types. Qt, WinUI, and ArkUI sit behind C shims, so
+their accessors hand out the raw native pointer (plus the class) instead, with a short
+bring-your-own-C++ recipe — honest tiers, spelled out in the [tweaks reference](/docs/internal/tweaks).
+
+That class name is what makes tweaks robust. On the typed tiers it's the *live* widget's runtime
+class, so if a piece ever has more than one native backing — a plain `label` as `UILabel`, a
+link-bearing one as `UITextView` — the tweak can `match` on the class instead of guessing a
+downcast. On the raw tiers, where Rust can't introspect an opaque pointer, it's the metadata your
+C++ needs: pass it across the shim and guard the cast, rather than blindly reinterpreting the
+pointer as the wrong control.
 
 Two rules cover most of what can go wrong. Day re-applies the properties it *manages* (a
 button's title, a slider's value) on its next update, so tweak the properties Day doesn't touch —

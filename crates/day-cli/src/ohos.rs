@@ -4,7 +4,7 @@
 //! connected emulator/device over `hdc`.
 //!
 //! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an **x86_64**,
-//! software-emulated (TCG), NETWORKED hdc target — so every hdc call carries `-t <connect-key>`
+//! NETWORKED hdc target — KVM-accelerated where `/dev/kvm` exists (x86_64 Linux CI), else TCG — so every hdc call carries `-t <connect-key>`
 //! (default `127.0.0.1:55555`; override with `DAY_OHOS_TARGET`). Building a `.hap` needs `hvigor` +
 //! `ohpm` on PATH (from the OpenHarmony command-line-tools), the SDK via `OHOS_BASE_SDK_HOME` /
 //! `OHOS_NDK_HOME` (e.g. from `openharmony-rs/setup-ohos-sdk`), and a JDK for signing. Two OHOS-only
@@ -118,6 +118,21 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     // spinning (guest load explodes, WMS/boot services stall) — classic lock-holder preemption.
     let smp = std::env::var("DAY_OHOS_SMP").unwrap_or_else(|_| "6".into());
 
+    // Accelerator: the Oniro guest is x86_64, so on a same-arch host that exposes `/dev/kvm`
+    // (an x86_64 Linux CI runner with nested virtualization) it runs KVM-accelerated at
+    // near-native speed instead of TCG software emulation — cutting the boot + walkthrough from
+    // ~tens of minutes to minutes. macOS/dev hosts have no `/dev/kvm`, so they stay on TCG.
+    // `DAY_OHOS_ACCEL` overrides (e.g. `tcg,thread=multi` to force software, or `kvm`).
+    // `-cpu host` (full passthrough) pairs with KVM; TCG needs the emulated `-cpu max`.
+    let (accel, cpu) = match std::env::var("DAY_OHOS_ACCEL") {
+        Ok(a) if !a.is_empty() => {
+            let cpu = if a.starts_with("kvm") { "host" } else { "max" };
+            (a, cpu)
+        }
+        _ if std::path::Path::new("/dev/kvm").exists() => ("kvm".to_string(), "host"),
+        _ => ("tcg,thread=multi".to_string(), "max"),
+    };
+
     let mut cmd = Command::new(qemu);
     cmd.current_dir(&images)
         .args([
@@ -148,7 +163,7 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
         ])
         .args(["-device", "virtio-blk-pci,drive=userdata"])
         .args(["-serial", "none", "-append", append])
-        .args(["-accel", "tcg,thread=multi", "-cpu", "max"])
+        .args(["-accel", &accel, "-cpu", cpu])
         .args(["-netdev", &hostfwd, "-device", "virtio-net-pci,netdev=net0"]);
     status(
         "Emulator",
@@ -162,7 +177,14 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     crate::signals::register_child(child.id());
 
     // Wait for hdc to see the target booted (TCG boot is slow), like `skip android emulator launch`.
-    status("Emulator", "waiting for boot (TCG is slow — up to ~8 min)…");
+    status(
+        "Emulator",
+        if accel == "kvm" {
+            "waiting for boot (KVM-accelerated)…"
+        } else {
+            "waiting for boot (TCG software emulation is slow — up to ~8 min)…"
+        },
+    );
     for _ in 0..96 {
         if let Some(code) = child.try_wait().ok().flatten() {
             return Err(format!("qemu exited early ({code})"));

@@ -847,17 +847,21 @@ jobs:
   # the Oniro QEMU emulator boots via Day's own launcher; hvigor + ohpm (absent from the public SDK)
   # come from the command-line-tools, run under the runner's node.
   ohos-arkui:
-    # The ENTIRE HarmonyOS job — build gates AND emulator screenshots — runs on ONE macOS
-    # runner: the x86_64 Oniro guest is TCG-emulated on every GitHub runner arch, and only the
-    # macOS ARM hosts run it fast enough for the pipeline to work end to end (the first-boot
-    # keyguard never even rendered on the ubuntu hosts — `aa start` refused with 10106102 on
-    # every retry, and no screenshot was ever captured). Everything else (NDK cross-compile,
-    # hvigor via node wrappers, sign-hap, hdc) is validated on macOS, so a single host avoids
-    # duplicating the SDK/CLT/toolchain setup across two jobs. Build steps gate HARD; only the
-    # emulator boot + walkthrough are best-effort (per-STEP continue-on-error).
+    # EXPERIMENTAL (continue-on-error at the JOB level): the whole HarmonyOS job runs on ONE
+    # x86_64 Linux runner so the x86_64 Oniro guest can run KVM-accelerated (same-arch guest +
+    # /dev/kvm) instead of TCG software emulation — the boot + 8-variant walkthrough was ~25 min
+    # under TCG on macOS. `day ohos emulator launch` auto-selects `-accel kvm` when /dev/kvm
+    # exists (else TCG). The job is marked experimental so a HarmonyOS regression — or an emulator
+    # that still won't boot under KVM — never blocks the website/release jobs that `need` it.
+    #
+    # (History: this ran on macos-14 because under pure TCG only fast Apple-Silicon cores booted
+    # the guest reliably — ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
+    # TCG bottleneck, so x86_64 Linux should now be both far faster AND reliable. If KVM turns out
+    # unavailable, set `DAY_OHOS_ACCEL=tcg,thread=multi` to force software emulation.)
     name: ohos-arkui
-    runs-on: macos-14
-    needs: [macos-day]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: [linux-day]
     timeout-minutes: 90
     env:
       # hvigor + ohpm are NOT in the public SDK; they come from the OpenHarmony
@@ -886,11 +890,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      # The darwin OpenHarmony SDK — the NDK for the Rust cross-compile, hdc for the emulator,
-      # AND the full component set (ets/js/toolchains/previewer) hvigor builds against. 5.1.0 is
-      # API 18, matching build-profile's compile/compatibleSdkVersion — and its binaries are
-      # Mach-O: hvigor spawns SDK tools (syscap_tool, restool, es2abc) directly, so pointing it
-      # at the Linux CLT's bundled SDK fails with `spawn ENOEXEC` on a macOS runner.
+      # The host OpenHarmony SDK (Linux, from setup-ohos-sdk) — the NDK for the Rust cross-compile,
+      # hdc for the emulator, AND the full component set (ets/js/toolchains/previewer) hvigor builds
+      # against. 5.1.0 is API 18, matching build-profile's compile/compatibleSdkVersion. hvigor
+      # spawns SDK tools (syscap_tool, restool, es2abc) directly, so they must be host-native — which
+      # the Linux SDK provides natively (on the old macOS runner this had to be the darwin SDK to
+      # avoid `spawn ENOEXEC`; on Linux the ELF tools run directly).
       - uses: openharmony-rs/setup-ohos-sdk@v1
         id: ohos-sdk
         with:
@@ -919,8 +924,8 @@ jobs:
             curl -fSL -o clt.zip "$CLT_URL"
             unzip -q -o clt.zip && rm -f clt.zip
           fi
-          # Only the CLT's bundled tool/node is a Linux ELF — run the pure-JS hvigor/ohpm with
-          # the runner's own node (the validated local macOS recipe, docs/harmonyos.md).
+          # hvigor/ohpm are pure JS — run them with the runner's own node (docs/harmonyos.md),
+          # which stays identical to the local macOS dev recipe and is host-OS-agnostic.
           mkdir -p "$HOME/ohos-bin"
           printf '#!/usr/bin/env bash\nexec node "%s/hvigor/bin/hvigorw.js" "$@"\n' "$C" > "$HOME/ohos-bin/hvigorw"
           printf '#!/usr/bin/env bash\nexec node "%s/ohpm/bin/pm-cli.js" "$@"\n' "$C" > "$HOME/ohos-bin/ohpm"
@@ -932,9 +937,8 @@ jobs:
           set -euo pipefail
           # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") reads OHOS_BASE_SDK_HOME and
           # requires the NEW versioned layout (<base>/<api>/{ets,native,toolchains,…}). Build a
-          # versioned view over the darwin API-18 SDK from setup-ohos-sdk — NOT the CLT's bundled
-          # SDK, whose Linux-ELF tools ENOEXEC when hvigor spawns them on macOS (the CLT serves
-          # only the pure-JS hvigor/ohpm). Mirrors the validated local setup (docs/harmonyos.md).
+          # versioned view over the host API-18 SDK from setup-ohos-sdk. Mirrors the validated
+          # local setup (docs/harmonyos.md).
           OH="$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")"
           BASE="$HOME/ohos-ohsdk"
           mkdir -p "$BASE"
@@ -965,10 +969,19 @@ jobs:
       # ---- Emulator screenshots (best-effort from here to the walkthrough): the TCG guest is
       # slow and occasionally flaky, so these steps never fail the job — the build gates above
       # and the pack below stay hard. ----
+      - name: Enable KVM group perms
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        # Same recipe as the android job: make /dev/kvm world-accessible so `qemu -accel kvm`
+        # (auto-selected by `day ohos emulator launch` when /dev/kvm exists) can open it.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - name: Install QEMU
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true
-        run: brew install qemu
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils
       - name: Cache the Oniro emulator image
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@v5

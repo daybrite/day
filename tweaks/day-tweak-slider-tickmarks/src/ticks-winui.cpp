@@ -2,17 +2,23 @@
 // (docs/tweaks.md): the borrowed IUIElement* from `day_winui::with_native_raw` is copied into a
 // C++/WinRT reference (AddRef for the duration of the call), cast to the concrete Slider, and
 // configured. WindowsApp.lib is already linked by day-winui-sys.
+//
+// `cls` is the native class name Day realized for the node (here "Slider"). We confirm it before
+// touching the element — `try_as` is already a checked cast, but the class check lets the tweak
+// no-op cleanly (and cheaply) when applied to something that isn't a Slider.
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#include <cstring>
 
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
 
-extern "C" void day_tweak_slider_ticks_winui(void* abi, int count, int position, int snap) {
+extern "C" void day_tweak_slider_ticks_winui(void* abi, const char* cls, int count, int position, int snap) {
+    if (!cls || std::strcmp(cls, "Slider") != 0) return;
     try {
         WUX::UIElement e{ nullptr };
         winrt::copy_from_abi(e, abi); // AddRef; released when `e` drops at scope exit

@@ -16,9 +16,14 @@ use day_pieces::Decorate;
 fn apply(node: RNode) {
     #[cfg(feature = "appkit")]
     {
-        // Day labels are non-editable NSTextFields; selectable text is one setter away.
-        let _ = day_appkit::with_native(node, |view, _mtm| {
-            if let Some(field) = view.downcast_ref::<objc2_app_kit::NSTextField>() {
+        // Day realizes a plain `label` as a non-editable NSTextField today. Branch on the realized
+        // `class` (the metadata the ext hands us) rather than assuming one type: if a future
+        // rich-text / link-bearing label backs onto an NSTextView, add an arm here — the tweak
+        // won't silently mis-cast, it just no-ops on a backing it doesn't recognize.
+        let _ = day_appkit::with_native(node, |view, class, _mtm| {
+            if class == "NSTextField"
+                && let Some(field) = view.downcast_ref::<objc2_app_kit::NSTextField>()
+            {
                 field.setSelectable(true);
             }
         });
@@ -26,7 +31,8 @@ fn apply(node: RNode) {
     #[cfg(feature = "gtk")]
     {
         use gtk4::prelude::*;
-        let _ = day_gtk::with_native(node, |w| {
+        // `class` is "GtkLabel"; the downcast is the guard for this single-backing piece.
+        let _ = day_gtk::with_native(node, |w, _class| {
             if let Some(l) = w.downcast_ref::<gtk4::Label>() {
                 l.set_selectable(true);
             }
@@ -34,10 +40,10 @@ fn apply(node: RNode) {
     }
     #[cfg(all(feature = "widget", target_os = "android"))]
     {
-        // Day labels are android.widget.TextView; JNI through the ext module's attached env.
+        // Day labels are android.widget.TextView (`class`); JNI through the ext's attached env.
         use day_android::DayEnv;
         use day_android::jni::objects::JValue;
-        let _ = day_android::with_native(node, |view, env| {
+        let _ = day_android::with_native(node, |view, _class, env| {
             let _ = env.dcall(view, "setTextIsSelectable", "(Z)V", &[JValue::Bool(true)]);
         });
     }

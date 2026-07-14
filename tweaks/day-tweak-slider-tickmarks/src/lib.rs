@@ -76,7 +76,7 @@ fn apply(node: RNode, t: Tickmarks) {
     #[cfg(feature = "appkit")]
     {
         use objc2_app_kit::{NSSlider, NSTickMarkPosition};
-        let _ = day_appkit::with_native(node, |view, _mtm| {
+        let _ = day_appkit::with_native(node, |view, _class, _mtm| {
             if let Some(s) = view.downcast_ref::<NSSlider>() {
                 s.setNumberOfTickMarks(t.count as isize);
                 s.setAllowsTickMarkValuesOnly(t.snap);
@@ -92,7 +92,7 @@ fn apply(node: RNode, t: Tickmarks) {
     #[cfg(feature = "gtk")]
     {
         use gtk4::prelude::*;
-        let _ = day_gtk::with_native(node, |w| {
+        let _ = day_gtk::with_native(node, |w, _class| {
             if let Some(scale) = w.downcast_ref::<gtk4::Scale>() {
                 let (lo, hi) = (scale.adjustment().lower(), scale.adjustment().upper());
                 scale.clear_marks();
@@ -118,7 +118,7 @@ fn apply(node: RNode, t: Tickmarks) {
         // when stepped — `snap: false` is not honorable here, per the table above).
         use day_android::DayEnv;
         use day_android::jni::objects::JValue;
-        let _ = day_android::with_native(node, |view, env| {
+        let _ = day_android::with_native(node, |view, _class, env| {
             let lo = env
                 .dcall(view, "getValueFrom", "()F", &[])
                 .and_then(|v| v.f())
@@ -148,38 +148,44 @@ fn apply(node: RNode, t: Tickmarks) {
     #[cfg(feature = "qt")]
     {
         // Own C++ against the raw QWidget* (src/ticks-qt.cpp) — the bring-your-own recipe.
-        // day-qt sliders use a fixed 0..1000 integer range (day-qt-sys shim).
+        // day-qt sliders use a fixed 0..1000 integer range (day-qt-sys shim). The class name the
+        // ext hands us lets the C++ guard its `static_cast` instead of casting a blind pointer.
         unsafe extern "C" {
             fn day_tweak_slider_ticks_qt(
                 w: *mut std::os::raw::c_void,
+                cls: *const std::os::raw::c_char,
                 interval: std::os::raw::c_int,
                 position: std::os::raw::c_int,
             );
         }
-        if let Some(w) = day_qt::with_native_raw(node) {
+        if let Some((w, class)) = day_qt::with_native_raw(node) {
+            let cls = std::ffi::CString::new(class).unwrap_or_default();
             let interval = (1000 / (t.count.saturating_sub(1).max(1))) as std::os::raw::c_int;
             let pos = match t.position {
                 TickPosition::Below => 0,
                 TickPosition::Above => 1,
                 TickPosition::Both => 2,
             };
-            unsafe { day_tweak_slider_ticks_qt(w, interval, pos) };
+            unsafe { day_tweak_slider_ticks_qt(w, cls.as_ptr(), interval, pos) };
             day_core::invalidate_size(node);
         }
         // snap: QSlider has no native snap-to-ticks — documented, not emulated.
     }
     #[cfg(all(feature = "winui", windows))]
     {
-        // Own C++/WinRT against the borrowed ABI pointer (src/ticks-winui.cpp).
+        // Own C++/WinRT against the borrowed ABI pointer (src/ticks-winui.cpp). The class name
+        // lets the C++ confirm the element is a Slider before `try_as`.
         unsafe extern "C" {
             fn day_tweak_slider_ticks_winui(
                 abi: *mut std::os::raw::c_void,
+                cls: *const std::os::raw::c_char,
                 count: std::os::raw::c_int,
                 position: std::os::raw::c_int,
                 snap: std::os::raw::c_int,
             );
         }
-        if let Some(abi) = day_winui::with_native_raw(node) {
+        if let Some((abi, class)) = day_winui::with_native_raw(node) {
+            let cls = std::ffi::CString::new(class).unwrap_or_default();
             let pos = match t.position {
                 TickPosition::Below => 0,
                 TickPosition::Above => 1,
@@ -188,6 +194,7 @@ fn apply(node: RNode, t: Tickmarks) {
             unsafe {
                 day_tweak_slider_ticks_winui(
                     abi,
+                    cls.as_ptr(),
                     t.count as std::os::raw::c_int,
                     pos,
                     t.snap as std::os::raw::c_int,
@@ -199,17 +206,20 @@ fn apply(node: RNode, t: Tickmarks) {
     #[cfg(all(feature = "arkui", target_env = "ohos"))]
     {
         // Own C++ against the NDK node handle (src/ticks-arkui.cpp). ArkUI's stepped slider
-        // always snaps; `NODE_SLIDER_STEP` is a percentage of the range.
+        // always snaps; `NODE_SLIDER_STEP` is a percentage of the range. The node type name lets
+        // the C++ guard before acting on the handle.
         unsafe extern "C" {
             fn day_tweak_slider_ticks_arkui(
                 node: *mut std::os::raw::c_void,
+                cls: *const std::os::raw::c_char,
                 step_percent: f32,
                 show: std::os::raw::c_int,
             );
         }
-        if let Some(h) = day_arkui::with_native_raw(node) {
+        if let Some((h, class)) = day_arkui::with_native_raw(node) {
+            let cls = std::ffi::CString::new(class).unwrap_or_default();
             let step = 100.0 / (t.count.saturating_sub(1).max(1)) as f32;
-            unsafe { day_tweak_slider_ticks_arkui(h, step, 1) };
+            unsafe { day_tweak_slider_ticks_arkui(h, cls.as_ptr(), step, 1) };
         }
     }
     #[cfg(not(any(

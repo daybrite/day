@@ -2417,6 +2417,13 @@ Mechanism (implemented; docs/tweaks.md is normative):
   `.qt_raw(…)/.winui_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no
   Windows.UI.Xaml bindings, so WinUI hands out the borrowed ABI pointer via the existing
   `day_winui_unbox` seam; C++/WinRT recipes are the supported path).
+- Native-class metadata (Level 1): every accessor also hands the closure the realized widget's
+  concrete class name (`&str`), with no new trait method. Typed tiers read the live object's
+  runtime class (objc `object_getClass`, GTK GType name), so a *conditional backing* — e.g. a
+  plain `label` as `UILabel` vs a link-bearing one as `UITextView` — is reported accurately and a
+  tweak branches instead of guessing a downcast. Raw tiers can't introspect the opaque pointer, so
+  Day reads the node's kind off the same `node_kind` seam and maps it to the class it realized —
+  the metadata a C++ tweak crosses the FFI with to guard its cast rather than blind-`static_cast`.
 - Packaged tweaks: `tweaks/day-tweak-*` crates mirror piece crates' Cargo shape and reuse
   `[package.metadata.day.piece] backends` for §15.2's feature union. Three in-tree examples
   (button-bezel / label-selectable / slider-tickmarks) span single-toolkit trivial to
