@@ -24,6 +24,10 @@ anstream = "1"
 # the template tree into the binary.
 handlebars = "6"
 include_dir = "0.7"
+# Interactive `day new` prompts (src/interactive.rs): text input, single-select, and checkbox
+# multi-select (arrow keys / space to toggle / type-to-filter). inquire renders to stderr, so
+# stdout stays clean for `--format json` result events.
+inquire = "0.7"
 # Day.toml (the project manifest) — `toml` parses it via serde; `toml_edit` (the library under
 # cargo-edit/cargo itself) performs format- and comment-preserving edits (`day app add-toolkit`).
 toml = "0.8"

@@ -3,11 +3,30 @@
 //! present, the corresponding question below fills it in. That is the whole flag↔dialog link — there
 //! is no separate "wizard" code path that could drift from the flags (see `new.rs`).
 //!
-//! Everything is written to **stderr** (never stdout) so `--format json` result events on stdout stay
-//! machine-parseable, and reads from stdin. When stdin/stderr is not a TTY (CI, pipes) prompting is
-//! disabled and callers fall back to defaults or a clean error instead of blocking on a read.
+//! The prompts are driven by [`inquire`](https://github.com/mikaelmello/inquire): free text
+//! ([`Text`]), single-choice ([`Select`]), and a checkbox multi-select ([`MultiSelect`], with
+//! space to toggle, arrow keys to move, and type-to-filter). inquire renders to **stderr** (never
+//! stdout), so `--format json` result events on stdout stay machine-parseable. When stdin/stderr is
+//! not a TTY (CI, pipes), or `--no-input` / `DAY_NO_INPUT` is set, prompting is disabled and callers
+//! fall back to defaults or a clean error instead of blocking on a read.
 
-use std::io::{self, BufRead, IsTerminal, Write};
+use std::io::{self, IsTerminal};
+
+use inquire::{InquireError, MultiSelect, Select, Text};
+
+/// Resolve an inquire result: Ctrl-C aborts the whole command (like any interrupted CLI); every
+/// other outcome (Esc, EOF, a non-tty I/O error) falls back to the caller's default so the flow
+/// degrades gracefully instead of failing.
+fn resolve<T>(res: Result<T, InquireError>, fallback: impl FnOnce() -> T) -> T {
+    match res {
+        Ok(value) => value,
+        Err(InquireError::OperationInterrupted) => {
+            eprintln!();
+            std::process::exit(130); // 128 + SIGINT
+        }
+        Err(_) => fallback(),
+    }
+}
 
 /// A prompter that is `enabled` only when it is safe to block on interactive input.
 pub struct Prompt {
@@ -29,39 +48,20 @@ impl Prompt {
         self.enabled
     }
 
-    fn read_line() -> Option<String> {
-        let mut s = String::new();
-        match io::stdin().lock().read_line(&mut s) {
-            Ok(0) => None, // EOF
-            Ok(_) => Some(s.trim().to_string()),
-            Err(_) => None,
-        }
-    }
-
-    /// Free-text answer. Empty input accepts `default` (shown in brackets). A required field (no
-    /// default) re-asks until it gets a non-empty answer. Callers must check [`enabled`] first when a
-    /// value is mandatory and there is no default; disabled prompts return `default` (or empty).
+    /// Free-text answer. With a `default`, empty input accepts it (shown in brackets by inquire); a
+    /// required field (no default) re-asks until it gets a non-empty answer. Callers must check
+    /// [`enabled`](Self::enabled) first when a value is mandatory and there is no default; disabled
+    /// prompts return `default` (or empty).
     pub fn line(&self, question: &str, default: Option<&str>) -> String {
         if !self.enabled {
             return default.unwrap_or_default().to_string();
         }
-        loop {
-            match default {
-                Some(d) => eprint!("{question} [{d}]: "),
-                None => eprint!("{question}: "),
-            }
-            let _ = io::stderr().flush();
-            match Self::read_line() {
-                None => return default.unwrap_or_default().to_string(), // EOF: stop asking
-                Some(s) if s.is_empty() => {
-                    if let Some(d) = default {
-                        return d.to_string();
-                    }
-                    // required — re-ask
-                }
-                Some(s) => return s,
-            }
-        }
+        let text = match default {
+            Some(d) => Text::new(question).with_default(d),
+            // No default ⇒ mandatory: inquire re-asks on an empty submission.
+            None => Text::new(question).with_validator(inquire::required!()),
+        };
+        resolve(text.prompt(), || default.unwrap_or_default().to_string())
     }
 
     /// Single choice among `options` (0-based `default` preselected). Returns the chosen index.
@@ -70,27 +70,16 @@ impl Prompt {
         if !self.enabled || options.is_empty() {
             return default.min(options.len().saturating_sub(1));
         }
-        eprintln!("{question}");
-        for (i, opt) in options.iter().enumerate() {
-            eprintln!("  {}. {opt}", i + 1);
-        }
-        loop {
-            eprint!("Choose [{}]: ", default + 1);
-            let _ = io::stderr().flush();
-            match Self::read_line() {
-                None => return default,
-                Some(s) if s.is_empty() => return default,
-                Some(s) => match s.parse::<usize>() {
-                    Ok(n) if (1..=options.len()).contains(&n) => return n - 1,
-                    _ => eprintln!("  please enter a number from 1 to {}", options.len()),
-                },
-            }
-        }
+        let start = default.min(options.len() - 1);
+        let picked = Select::new(question, options.to_vec())
+            .with_starting_cursor(start)
+            .raw_prompt();
+        resolve(picked.map(|opt| opt.index), || start)
     }
 
-    /// Multi choice. Accepts a comma/space-separated list of numbers, `all`, or `none`; empty input
-    /// accepts `preselected`. Returns the chosen indices (deduped, in menu order). Disabled ⇒ returns
-    /// `preselected`.
+    /// Multi choice — a checkbox list (space toggles, arrows move, typing filters). `preselected`
+    /// indices start ticked. Returns the chosen indices (deduped, in menu order). An empty selection
+    /// is allowed (mandatory callers reject it themselves). Disabled ⇒ returns `preselected`.
     pub fn choose_multi(
         &self,
         question: &str,
@@ -103,63 +92,12 @@ impl Prompt {
         if !self.enabled || options.is_empty() {
             return normalize(preselected);
         }
-        let default_label = if preselected.is_empty() {
-            "none".to_string()
-        } else {
-            preselected
-                .iter()
-                .map(|i| (i + 1).to_string())
-                .collect::<Vec<_>>()
-                .join(",")
-        };
-        eprintln!("{question}");
-        for (i, opt) in options.iter().enumerate() {
-            let mark = if preselected.contains(&i) { "x" } else { " " };
-            eprintln!("  [{mark}] {}. {opt}", i + 1);
-        }
-        eprintln!("  (enter numbers separated by commas, or `all` / `none`)");
-        loop {
-            eprint!("Select [{default_label}]: ");
-            let _ = io::stderr().flush();
-            let ans = match Self::read_line() {
-                None => return normalize(preselected),
-                Some(s) => s,
-            };
-            if ans.is_empty() {
-                return normalize(preselected);
-            }
-            let lower = ans.to_ascii_lowercase();
-            if lower == "all" {
-                return (0..options.len()).collect();
-            }
-            if lower == "none" {
-                return Vec::new();
-            }
-            let mut picked = Vec::new();
-            let mut ok = true;
-            for tok in ans.split([',', ' ']).filter(|t| !t.is_empty()) {
-                match tok.parse::<usize>() {
-                    Ok(n) if (1..=options.len()).contains(&n) => {
-                        if !picked.contains(&(n - 1)) {
-                            picked.push(n - 1);
-                        }
-                    }
-                    _ => {
-                        eprintln!("  `{tok}` is not a choice from 1 to {}", options.len());
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            if ok {
-                if picked.is_empty() {
-                    // A non-empty answer that parsed to nothing (e.g. a lone `,`) — re-ask rather
-                    // than return an empty selection, which mandatory callers treat as fatal.
-                    eprintln!("  enter at least one number, or `all` / `none`");
-                    continue;
-                }
-                return normalize(&picked);
-            }
-        }
+        let picked = MultiSelect::new(question, options.to_vec())
+            .with_default(preselected)
+            .raw_prompt();
+        resolve(
+            picked.map(|opts| normalize(&opts.iter().map(|opt| opt.index).collect::<Vec<_>>())),
+            || normalize(preselected),
+        )
     }
 }
