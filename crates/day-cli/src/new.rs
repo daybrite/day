@@ -1847,7 +1847,7 @@ const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java fac
 
 use super::*;
 use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_android::{AHandle, Android, DayEnv, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
 const FIELD_CLASS: &str = "__CLASSPATH__";
@@ -1857,7 +1857,7 @@ fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
         let ph = env.new_string(&p.placeholder).expect("placeholder");
         let init = env.new_string(&p.text).expect("initial");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 FIELD_CLASS,
                 "makeField",
                 "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
@@ -1870,7 +1870,7 @@ fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
             .expect("Day__PASCAL__.makeField")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -1878,7 +1878,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
     with_env(|env| {
         let s = env.new_string(t).expect("text");
-        let _ = env.call_static_method(
+        let _ = env.dcall_static(
             FIELD_CLASS,
             "setFieldText",
             "(Landroid/view/View;Ljava/lang/String;)V",
@@ -2245,13 +2245,13 @@ const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shi
 // (it registers NO renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
 // through day-android's re-exported `jni`.
 
-use day_android::with_env;
+use day_android::{DayEnv, with_env};
 
 const CLASS: &str = "__CLASSPATH__";
 
 pub fn status() -> Option<super::Sample> {
     let value: i64 = with_env(|env| {
-        env.call_static_method(CLASS, "read", "()J", &[])
+        env.dcall_static(CLASS, "read", "()J", &[])
             .ok()
             .and_then(|v| v.j().ok())
     })?;
