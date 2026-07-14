@@ -7,6 +7,7 @@
 
 use super::{NetworkKind, NetworkStatus};
 use day_android::with_env;
+use day_android::DayEnv;
 
 const NETWORK_CLASS: &str = "dev/daybrite/day/network/DayNetwork";
 
@@ -14,7 +15,7 @@ pub fn status() -> Option<NetworkStatus> {
     // `read()` packs the snapshot into a long: (online << 16) | (kind << 8) | expensiveByte,
     // or -1 when unavailable (no Context / no ConnectivityManager).
     let packed: i64 = with_env(|env| {
-        env.call_static_method(NETWORK_CLASS, "read", "()J", &[])
+        env.dcall_static(NETWORK_CLASS, "read", "()J", &[])
             .ok()
             .and_then(|v| v.j().ok())
     })?;

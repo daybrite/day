@@ -17,4 +17,7 @@ day-pieces = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
+# jni 0.22 redesign: JNIEnv split into `Env`/`EnvUnowned`, `GlobalRef` → `Global<T>`, scoped
+# `attach_current_thread(callback)`, and `call_*`/`find_class` take typed name/signature (JNIStr /
+# MethodSignature) rather than `&str`. The `jni compat` helpers in lib.rs adapt the &str ergonomics.
 jni = "0.22"

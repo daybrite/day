@@ -7,6 +7,7 @@
 
 use super::Haptic;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::with_env;
 
 const HAPTICS_CLASS: &str = "dev/daybrite/day/haptics/DayHaptics";
@@ -29,7 +30,7 @@ pub fn play(h: Haptic) {
     with_env(|env| {
         // Fire-and-forget: a failed JNI call (e.g. no Context yet) is swallowed — haptics are never
         // load-bearing.
-        let _ = env.call_static_method(HAPTICS_CLASS, "play", "(I)V", &[JValue::Int(code)]);
+        let _ = env.dcall_static(HAPTICS_CLASS, "play", "(I)V", &[JValue::Int(code)]);
     });
 }
 

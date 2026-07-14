@@ -468,6 +468,7 @@ mod uikit_impl {
 mod android_impl {
     use super::*;
     use day_android::jni::objects::JValue;
+    use day_android::DayEnv;
     use day_android::{AHandle, Android, make_view, with_env};
     use day_spec::NodeId;
 
@@ -493,7 +494,7 @@ mod android_impl {
         // Android only reflects selection changes (item lists are set once at build).
         if let ComboPatch::Selected(sel) = patch {
             with_env(|env| {
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     day_android::BRIDGE,
                     "setSpinnerSelected",
                     "(Landroid/view/View;I)V",

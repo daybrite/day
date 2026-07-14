@@ -9,6 +9,7 @@
 
 use super::DeviceInfo;
 use day_android::jni::objects::JString;
+use day_android::DayEnv;
 use day_android::with_env;
 
 const DEVICEINFO_CLASS: &str = "dev/daybrite/day/deviceinfo/DayDeviceInfo";
@@ -17,14 +18,14 @@ const SEP: char = '\u{1f}';
 pub fn get() -> DeviceInfo {
     let joined: Option<String> = with_env(|env| {
         let obj = env
-            .call_static_method(DEVICEINFO_CLASS, "read", "()Ljava/lang/String;", &[])
+            .dcall_static(DEVICEINFO_CLASS, "read", "()Ljava/lang/String;", &[])
             .ok()?
             .l()
             .ok()?;
         if obj.is_null() {
             return None;
         }
-        env.get_string(&JString::from(obj)).ok().map(|s| s.into())
+        env.dstr(&day_android::as_jstring(obj)).ok().map(|s| s.into())
     });
     parse(joined.as_deref())
 }

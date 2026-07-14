@@ -36,8 +36,9 @@ fn apply(node: RNode) {
     {
         // Day labels are android.widget.TextView; JNI through the ext module's attached env.
         use day_android::jni::objects::JValue;
+        use day_android::DayEnv;
         let _ = day_android::with_native(node, |view, env| {
-            let _ = env.call_method(view, "setTextIsSelectable", "(Z)V", &[JValue::Bool(1)]);
+            let _ = env.dcall(view, "setTextIsSelectable", "(Z)V", &[JValue::Bool(true)]);
         });
     }
     #[cfg(not(any(

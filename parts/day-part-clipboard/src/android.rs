@@ -7,6 +7,7 @@
 // focus — get_text()/has_text() return None/false in the background. Writing is always allowed.
 
 use day_android::jni::objects::{JString, JValue};
+use day_android::DayEnv;
 use day_android::with_env;
 
 const CLIPBOARD_CLASS: &str = "dev/daybrite/day/clipboard/DayClipboard";
@@ -16,7 +17,7 @@ pub fn set_text(text: &str) -> bool {
         let Ok(s) = env.new_string(text) else {
             return false;
         };
-        env.call_static_method(
+        env.dcall_static(
             CLIPBOARD_CLASS,
             "setText",
             "(Ljava/lang/String;)Z",
@@ -31,20 +32,20 @@ pub fn set_text(text: &str) -> bool {
 pub fn get_text() -> Option<String> {
     with_env(|env| {
         let obj = env
-            .call_static_method(CLIPBOARD_CLASS, "getText", "()Ljava/lang/String;", &[])
+            .dcall_static(CLIPBOARD_CLASS, "getText", "()Ljava/lang/String;", &[])
             .ok()?
             .l()
             .ok()?;
         if obj.is_null() {
             return None; // empty clipboard, non-text clip, or read denied (unfocused)
         }
-        env.get_string(&JString::from(obj)).ok().map(|s| s.into())
+        env.dstr(&day_android::as_jstring(obj)).ok().map(|s| s.into())
     })
 }
 
 pub fn has_text() -> bool {
     with_env(|env| {
-        env.call_static_method(CLIPBOARD_CLASS, "hasText", "()Z", &[])
+        env.dcall_static(CLIPBOARD_CLASS, "hasText", "()Z", &[])
             .ok()
             .and_then(|v| v.z().ok())
             .unwrap_or(false)

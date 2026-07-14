@@ -7,6 +7,7 @@
 // day-android's re-exported `jni`.
 
 use day_android::jni::objects::{JDoubleArray, JValue};
+use day_android::DayEnv;
 use day_android::with_env;
 
 use super::{SensorKind, SensorReading};
@@ -24,7 +25,7 @@ fn kind_code(kind: SensorKind) -> i32 {
 
 pub fn is_available(kind: SensorKind) -> bool {
     with_env(|env| {
-        env.call_static_method(
+        env.dcall_static(
             SENSORS_CLASS,
             "isAvailable",
             "(I)Z",
@@ -41,7 +42,7 @@ pub fn read(kind: SensorKind) -> Option<SensorReading> {
     // missing or no event has arrived yet (the first call only registers the listener).
     with_env(|env| {
         let obj = env
-            .call_static_method(
+            .dcall_static(
                 SENSORS_CLASS,
                 "read",
                 "(I)[D",
@@ -53,9 +54,9 @@ pub fn read(kind: SensorKind) -> Option<SensorReading> {
         if obj.is_null() {
             return None;
         }
-        let arr = JDoubleArray::from(obj);
+        let arr: day_android::jni::objects::JDoubleArray = unsafe { std::mem::transmute(obj) };
         let mut xyz = [0.0f64; 3];
-        env.get_double_array_region(&arr, 0, &mut xyz).ok()?;
+        arr.get_region(env, 0, &mut xyz).ok()?;
         Some(SensorReading {
             x: xyz[0],
             y: xyz[1],

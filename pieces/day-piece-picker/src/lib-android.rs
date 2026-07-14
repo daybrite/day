@@ -9,6 +9,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
@@ -28,7 +29,7 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
     with_env(|env| {
         let s = env.new_string(&joined).expect("items");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 PICKER_CLASS,
                 "makePicker",
                 "(JILjava/lang/String;I)Landroid/view/View;",
@@ -42,7 +43,7 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
             .expect("DayPicker.makePicker")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -50,7 +51,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
     {
         let PickerPatch::Selected(i) = patch;
         with_env(|env| {
-            let _ = env.call_static_method(
+            let _ = env.dcall_static(
                 PICKER_CLASS,
                 "setPickerSelected",
                 "(Landroid/view/View;I)V",

@@ -222,52 +222,55 @@ macro_rules! ios_main {
 #[macro_export]
 macro_rules! android_main {
     ($root:expr) => {
+        // jni 0.22 native methods receive the FFI-safe `EnvUnowned`; `with_env` upgrades it to the
+        // real `Env` (sharing the frame's `'local`, so the object args pass straight in) and wraps
+        // the body in a `catch_unwind` so a panic never unwinds across the JNI boundary.
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeStart(
-            mut env: $crate::android::jni::JNIEnv,
-            _class: $crate::android::jni::objects::JClass,
-            root: $crate::android::jni::objects::JObject,
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeStart<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
+            root: $crate::android::jni::objects::JObject<'local>,
             density: $crate::android::jni::sys::jfloat,
             w: $crate::android::jni::sys::jint,
             h: $crate::android::jni::sys::jint,
-            autodrive: $crate::android::jni::objects::JString,
-            locale: $crate::android::jni::objects::JString,
-            env_blob: $crate::android::jni::objects::JString,
+            autodrive: $crate::android::jni::objects::JString<'local>,
+            locale: $crate::android::jni::objects::JString<'local>,
+            env_blob: $crate::android::jni::objects::JString<'local>,
         ) {
-            fn opt_string(
-                env: &mut $crate::android::jni::JNIEnv,
-                s: &$crate::android::jni::objects::JString,
-            ) -> ::core::option::Option<::std::string::String> {
-                if s.is_null() {
-                    ::core::option::Option::None
-                } else {
-                    env.get_string(s).ok().map(|v| v.into())
-                }
-            }
-            let a = opt_string(&mut env, &autodrive);
-            let l = opt_string(&mut env, &locale);
-            let e = opt_string(&mut env, &env_blob);
-            $crate::android::start(&mut env, root, density, w, h, a, l, e, $root);
+            let _ = env
+                .with_env(|env| {
+                    let a = $crate::android::read_jstring(env, &autodrive);
+                    let l = $crate::android::read_jstring(env, &locale);
+                    let e = $crate::android::read_jstring(env, &env_blob);
+                    $crate::android::start(env, root, density, w, h, a, l, e, $root);
+                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
+                })
+                .into_outcome();
         }
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeOnEvent(
-            mut env: $crate::android::jni::JNIEnv,
-            _class: $crate::android::jni::objects::JClass,
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeOnEvent<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
             id: $crate::android::jni::sys::jlong,
             kind: $crate::android::jni::sys::jint,
             num: $crate::android::jni::sys::jdouble,
-            s: $crate::android::jni::objects::JString,
+            s: $crate::android::jni::objects::JString<'local>,
         ) {
-            $crate::android::dispatch_event(&mut env, id, kind, num, &s);
+            let _ = env
+                .with_env(|env| {
+                    $crate::android::dispatch_event(env, id, kind, num, &s);
+                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
+                })
+                .into_outcome();
         }
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeRunPosted(
-            _env: $crate::android::jni::JNIEnv,
+            _env: $crate::android::jni::EnvUnowned,
             _class: $crate::android::jni::objects::JClass,
             token: $crate::android::jni::sys::jlong,
         ) {
@@ -277,7 +280,7 @@ macro_rules! android_main {
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListLen(
-            _env: $crate::android::jni::JNIEnv,
+            _env: $crate::android::jni::EnvUnowned,
             _class: $crate::android::jni::objects::JClass,
             host_id: $crate::android::jni::sys::jlong,
         ) -> $crate::android::jni::sys::jint {
@@ -286,14 +289,19 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListBind<'a>(
-            mut env: $crate::android::jni::JNIEnv<'a>,
-            _class: $crate::android::jni::objects::JClass<'a>,
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListBind<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
             host_id: $crate::android::jni::sys::jlong,
             position: $crate::android::jni::sys::jint,
-            cell: $crate::android::jni::objects::JObject<'a>,
+            cell: $crate::android::jni::objects::JObject<'local>,
         ) {
-            $crate::android::list_bind(&mut env, host_id, position, cell);
+            let _ = env
+                .with_env(|env| {
+                    $crate::android::list_bind(env, host_id, position, cell);
+                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
+                })
+                .into_outcome();
         }
     };
 }
@@ -302,11 +310,11 @@ macro_rules! android_main {
 #[cfg(all(feature = "widget", target_os = "android"))]
 pub mod android {
     pub use day_android::jni;
-    pub use day_android::{dispatch_event, list_bind, list_len, run_posted};
+    pub use day_android::{dispatch_event, list_bind, list_len, read_jstring, run_posted};
 
     #[allow(clippy::too_many_arguments)]
     pub fn start(
-        env: &mut jni::JNIEnv,
+        env: &mut jni::Env,
         root: jni::objects::JObject,
         density: f32,
         w: i32,

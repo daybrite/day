@@ -7,6 +7,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
@@ -17,28 +18,28 @@ fn make(_backend: &mut Android, p: &LottieProps, _id: NodeId) -> AHandle {
     with_env(|env| {
         let name = env.new_string(&p.name).expect("name");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 LOTTIE_CLASS,
                 "makeLottie",
                 "(Ljava/lang/String;ZZF)Landroid/view/View;",
                 &[
                     JValue::Object(&name),
-                    JValue::Bool(p.looping as u8),
-                    JValue::Bool(p.autoplay as u8),
+                    JValue::Bool(p.looping),
+                    JValue::Bool(p.autoplay),
                     JValue::Float(p.speed as f32),
                 ],
             )
             .expect("DayLottie.makeLottie")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &LottiePatch) {
     match patch {
         LottiePatch::Speed(s) => with_env(|env| {
-            let _ = env.call_static_method(
+            let _ = env.dcall_static(
                 LOTTIE_CLASS,
                 "setSpeed",
                 "(Landroid/view/View;F)V",

@@ -8,6 +8,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
@@ -17,16 +18,16 @@ const ACTIVITY_CLASS: &str = "dev/daybrite/day/piece/activity/DayActivity";
 fn make(_backend: &mut Android, p: &ActivityProps, _id: NodeId) -> AHandle {
     with_env(|env| {
         let view = env
-            .call_static_method(
+            .dcall_static(
                 ACTIVITY_CLASS,
                 "makeActivity",
                 "(ZZ)Landroid/view/View;",
-                &[JValue::Bool(p.animating as u8), JValue::Bool(p.large as u8)],
+                &[JValue::Bool(p.animating), JValue::Bool(p.large)],
             )
             .expect("DayActivity.makeActivity")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -34,11 +35,11 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Animating(on) => {
             with_env(|env| {
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     ACTIVITY_CLASS,
                     "setActivityAnimating",
                     "(Landroid/view/View;Z)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*on as u8)],
+                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
                 );
             });
         }

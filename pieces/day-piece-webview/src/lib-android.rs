@@ -9,6 +9,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
@@ -19,7 +20,7 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
     with_env(|env| {
         let url = env.new_string(&p.url).expect("url");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 WEBVIEW_CLASS,
                 "makeWebView",
                 "(JLjava/lang/String;)Landroid/view/View;",
@@ -28,7 +29,7 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
             .expect("DayWebView.makeWebView")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -43,7 +44,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
     };
     with_env(|env| {
         let s = env.new_string(url).expect("cmd url");
-        let _ = env.call_static_method(
+        let _ = env.dcall_static(
             WEBVIEW_CLASS,
             "webCommand",
             "(Landroid/view/View;ILjava/lang/String;)V",

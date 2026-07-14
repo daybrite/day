@@ -6,13 +6,14 @@
 
 use super::{BatteryState, BatteryStatus};
 use day_android::with_env;
+use day_android::DayEnv;
 
 const BATTERY_CLASS: &str = "dev/daybrite/day/battery/DayBattery";
 
 pub fn status() -> Option<BatteryStatus> {
     // `read()` packs the reading into a long: (state << 8) | levelByte (255 = unknown level).
     let packed: i64 = with_env(|env| {
-        env.call_static_method(BATTERY_CLASS, "read", "()J", &[])
+        env.dcall_static(BATTERY_CLASS, "read", "()J", &[])
             .ok()
             .and_then(|v| v.j().ok())
     })?;

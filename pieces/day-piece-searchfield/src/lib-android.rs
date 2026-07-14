@@ -10,6 +10,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
@@ -21,7 +22,7 @@ fn make(_backend: &mut Android, p: &SearchProps, id: NodeId) -> AHandle {
         let ph = env.new_string(&p.placeholder).expect("placeholder");
         let init = env.new_string(&p.text).expect("initial");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 SEARCH_CLASS,
                 "makeSearch",
                 "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
@@ -34,7 +35,7 @@ fn make(_backend: &mut Android, p: &SearchProps, id: NodeId) -> AHandle {
             .expect("DaySearch.makeSearch")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -42,7 +43,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &SearchPatch) {
     let SearchPatch::SetText(t) = patch;
     with_env(|env| {
         let s = env.new_string(t).expect("text");
-        let _ = env.call_static_method(
+        let _ = env.dcall_static(
             SEARCH_CLASS,
             "setSearchText",
             "(Landroid/view/View;Ljava/lang/String;)V",

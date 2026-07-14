@@ -12,6 +12,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
@@ -23,7 +24,7 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
         let ph = env.new_string(&p.placeholder).expect("placeholder");
         let init = env.new_string(&p.text).expect("initial");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 TA_CLASS,
                 "makeTextArea",
                 "(JLjava/lang/String;Ljava/lang/String;II)Landroid/view/View;",
@@ -38,7 +39,7 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
             .expect("DayTextArea.makeTextArea")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -46,7 +47,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &TextPatch) {
     let TextPatch::SetText(t) = patch;
     with_env(|env| {
         let s = env.new_string(t).expect("text");
-        let _ = env.call_static_method(
+        let _ = env.dcall_static(
             TA_CLASS,
             "setTextAreaText",
             "(Landroid/view/View;Ljava/lang/String;)V",
@@ -60,7 +61,7 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     // the EditText). The Java helper returns dp, so no density conversion is needed here.
     let avail_w = p.width.unwrap_or(200.0).max(120.0);
     let h_dp = with_env(|env| {
-        env.call_static_method(
+        env.dcall_static(
             TA_CLASS,
             "measureHeight",
             "(Landroid/view/View;I)I",

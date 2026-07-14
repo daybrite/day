@@ -85,9 +85,100 @@ mod imp {
         }
     }
 
-    use jni::objects::{GlobalRef, JObject, JString, JValue};
-    use jni::{JNIEnv, JavaVM};
+    use jni::objects::{Global, JClass, JObject, JString, JValue, JValueOwned};
+    use jni::signature::{
+        FieldSignature, MethodSignature, RuntimeFieldSignature, RuntimeMethodSignature,
+    };
+    use jni::strings::JNIString;
+    use jni::{Env, JavaVM};
     use linkme::distributed_slice;
+
+    /// A shared global reference to a native View. jni 0.22's `Global` is a bare `'static` ref that
+    /// is NOT `Clone` (cloning a global ref is a JNI call), so we wrap it in `Arc` — restoring the
+    /// `Arc`-backed sharing `GlobalRef` had in 0.21, which `AHandle: Clone` (a day-core `Handle`)
+    /// requires. The underlying JNI global ref is released when the last `Arc` owner drops.
+    type Gref = std::sync::Arc<Global<JObject<'static>>>;
+
+    /// jni 0.22 compat: `&str`-ergonomic wrappers over the typed name/signature API. In 0.22
+    /// `call_*`/`find_class`/`get_static_field` take `AsRef<JNIStr>` names and pre-parsed
+    /// `MethodSignature`/`FieldSignature` rather than `&str`; these adapt at runtime so the many
+    /// call sites keep passing plain string literals. Public so piece/part crates with their own
+    /// Android JNI code share one adapter: `use day_android::DayEnv;`.
+    pub trait DayEnv<'l> {
+        fn dcall_static(
+            &mut self,
+            class: &str,
+            name: &str,
+            sig: &str,
+            args: &[JValue],
+        ) -> jni::errors::Result<JValueOwned<'l>>;
+        fn dcall(
+            &mut self,
+            obj: &JObject,
+            name: &str,
+            sig: &str,
+            args: &[JValue],
+        ) -> jni::errors::Result<JValueOwned<'l>>;
+        fn dfield(
+            &mut self,
+            class: &str,
+            name: &str,
+            sig: &str,
+        ) -> jni::errors::Result<JValueOwned<'l>>;
+        fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>>;
+        fn dstr(&self, s: &JString) -> jni::errors::Result<String>;
+    }
+    impl<'l> DayEnv<'l> for Env<'l> {
+        fn dcall_static(
+            &mut self,
+            class: &str,
+            name: &str,
+            sig: &str,
+            args: &[JValue],
+        ) -> jni::errors::Result<JValueOwned<'l>> {
+            let sig = sig.parse::<RuntimeMethodSignature>()?;
+            self.call_static_method(
+                &JNIString::from(class),
+                &JNIString::from(name),
+                MethodSignature::from(&sig),
+                args,
+            )
+        }
+        fn dcall(
+            &mut self,
+            obj: &JObject,
+            name: &str,
+            sig: &str,
+            args: &[JValue],
+        ) -> jni::errors::Result<JValueOwned<'l>> {
+            let sig = sig.parse::<RuntimeMethodSignature>()?;
+            self.call_method(
+                obj,
+                &JNIString::from(name),
+                MethodSignature::from(&sig),
+                args,
+            )
+        }
+        fn dfield(
+            &mut self,
+            class: &str,
+            name: &str,
+            sig: &str,
+        ) -> jni::errors::Result<JValueOwned<'l>> {
+            let sig = sig.parse::<RuntimeFieldSignature>()?;
+            self.get_static_field(
+                &JNIString::from(class),
+                &JNIString::from(name),
+                FieldSignature::from(&sig),
+            )
+        }
+        fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>> {
+            self.find_class(&JNIString::from(name))
+        }
+        fn dstr(&self, s: &JString) -> jni::errors::Result<String> {
+            Ok(s.mutf8_chars(self)?.to_string())
+        }
+    }
 
     use day_spec::props::*;
     use day_spec::{
@@ -104,7 +195,7 @@ mod imp {
             std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
-        static LIST_CELLS: std::cell::RefCell<std::collections::HashMap<i32, GlobalRef>> =
+        static LIST_CELLS: std::cell::RefCell<std::collections::HashMap<i32, Gref>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
     }
 
@@ -115,15 +206,17 @@ mod imp {
 
     /// Fill a recycled cell — the Java adapter's getView calls this. A stable GlobalRef per
     /// physical cell (keyed by identityHashCode) gives day-core a consistent cell key.
-    pub fn list_bind(env: &mut JNIEnv, host_id: i64, position: i32, cell: JObject) {
+    pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject) {
         let hash = env
-            .call_method(&cell, "hashCode", "()I", &[])
+            .dcall(&cell, "hashCode", "()I", &[])
             .and_then(|v| v.i())
             .unwrap_or(0);
         let gref = LIST_CELLS.with(|m| {
             m.borrow_mut()
                 .entry(hash)
-                .or_insert_with(|| env.new_global_ref(&cell).expect("global ref"))
+                .or_insert_with(|| {
+                    std::sync::Arc::new(env.new_global_ref(&cell).expect("global ref"))
+                })
                 .clone()
         });
         let raw = gref.as_obj().as_raw() as RawHandle;
@@ -136,12 +229,12 @@ mod imp {
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
     #[derive(Clone)]
-    pub struct AHandle(pub GlobalRef);
+    pub struct AHandle(pub Gref);
 
     static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
     /// GlobalRef to the DayBridge class: FindClass from spawned native threads uses the SYSTEM
     /// class loader and cannot see app classes — cache the class on the main thread at init.
-    static BRIDGE_CLASS: OnceLock<GlobalRef> = OnceLock::new();
+    static BRIDGE_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 
     // --- Bundled data resources via the NDK AAssetManager (§18.3) --------------------------------
     // `resource("name")` reads the APK asset `name` with a zero-copy pointer into the (uncompressed)
@@ -172,7 +265,7 @@ mod imp {
     /// The app's `AAssetManager` plus a GlobalRef to the Java `AssetManager` that keeps it alive.
     struct AssetMgr {
         aam: *mut aasset::AAssetManager,
-        _keepalive: GlobalRef,
+        _keepalive: Global<JObject<'static>>,
     }
     // The AAssetManager pointer is valid for the app lifetime; resource() runs on the main thread.
     unsafe impl Send for AssetMgr {}
@@ -180,15 +273,15 @@ mod imp {
     static ASSET_MGR: OnceLock<AssetMgr> = OnceLock::new();
 
     /// Capture the `AAssetManager` from `DayBridge.ctx.getAssets()` and register the opener (init).
-    fn register_resource_opener(env: &mut JNIEnv) {
+    fn register_resource_opener(env: &mut Env) {
         let Ok(ctx) = env
-            .get_static_field(BRIDGE, "ctx", "Landroid/content/Context;")
+            .dfield(BRIDGE, "ctx", "Landroid/content/Context;")
             .and_then(|f| f.l())
         else {
             return;
         };
         let Ok(am) = env
-            .call_method(
+            .dcall(
                 &ctx,
                 "getAssets",
                 "()Landroid/content/res/AssetManager;",
@@ -259,26 +352,46 @@ mod imp {
         DENSITY.with(|d| d.get())
     }
 
-    /// Run with an attached JNIEnv (public: external renderers use this too).
-    pub fn with_env<R>(f: impl FnOnce(&mut JNIEnv) -> R) -> R {
+    /// Run with an attached `Env` (public: external renderers use this too). jni 0.22's
+    /// `attach_current_thread` is callback-scoped; the callback returns `Ok` so the outer
+    /// `Result` just unwraps.
+    pub fn with_env<R>(f: impl FnOnce(&mut Env) -> R) -> R {
         let vm = JAVA_VM.get().expect("day-android: init() not called");
-        let mut guard = vm.attach_current_thread().expect("attach_current_thread");
-        f(&mut guard)
+        vm.attach_current_thread(|env| Ok::<R, jni::errors::Error>(f(env)))
+            .expect("attach_current_thread")
     }
 
-    /// Call a DayBridge static returning a View, as a global ref (public helper).
-    pub fn make_view(env: &mut JNIEnv, method: &str, sig: &str, args: &[JValue]) -> GlobalRef {
+    /// Read a Java `String` local ref into a Rust `String` (`None` when the ref is null). Public:
+    /// the `day` crate's JNI native methods use it to decode incoming string args.
+    pub fn read_jstring(env: &Env, s: &JString) -> Option<String> {
+        if s.is_null() {
+            None
+        } else {
+            s.mutf8_chars(env).ok().map(|c| c.to_string())
+        }
+    }
+
+    /// View a `java.lang.String` object as a `JString`. String return values arrive as a
+    /// `JObject` from `JValueOwned::l()`; casting is safe — `JString` is a transparent wrapper over
+    /// the same `jobject`. Public: piece/part crates reading Java strings use it.
+    pub fn as_jstring<'a>(obj: JObject<'a>) -> JString<'a> {
+        // Safety: same repr (a jobject); caller guarantees the object is a java.lang.String.
+        unsafe { std::mem::transmute(obj) }
+    }
+
+    /// Call a DayBridge static returning a View, as a shared global ref (public helper).
+    pub fn make_view(env: &mut Env, method: &str, sig: &str, args: &[JValue]) -> Gref {
         let obj = env
-            .call_static_method(BRIDGE, method, sig, args)
+            .dcall_static(BRIDGE, method, sig, args)
             .expect("DayBridge call")
             .l()
             .expect("View");
-        env.new_global_ref(obj).expect("global ref")
+        std::sync::Arc::new(env.new_global_ref(obj).expect("global ref"))
     }
 
     fn call_void(method: &str, sig: &str, args: &[JValue]) {
         with_env(|env| {
-            let _ = env.call_static_method(BRIDGE, method, sig, args);
+            let _ = env.dcall_static(BRIDGE, method, sig, args);
         });
     }
 
@@ -293,16 +406,16 @@ mod imp {
             &[
                 JValue::Object(h.0.as_obj()),
                 JValue::Int(bg.map(argb_i32).unwrap_or(0)),
-                JValue::Bool(bg.is_some() as u8),
+                JValue::Bool(bg.is_some()),
                 JValue::Float((corner_radius * d) as f32),
-                JValue::Bool(clips as u8),
+                JValue::Bool(clips),
             ],
         );
     }
 
     fn measure_call(h: &AHandle, method: &str) -> f64 {
         with_env(|env| {
-            env.call_static_method(
+            env.dcall_static(
                 BRIDGE,
                 method,
                 "(Landroid/view/View;)I",
@@ -315,11 +428,11 @@ mod imp {
     }
 
     /// Initialize globals from the Activity's nativeStart (called by `day::android_start`).
-    pub fn init(env: &mut JNIEnv, root: JObject, density_: f32, w: i32, h: i32) {
+    pub fn init(env: &mut Env, root: JObject, density_: f32, w: i32, h: i32) {
         if let Ok(vm) = env.get_java_vm() {
             let _ = JAVA_VM.set(vm);
         }
-        if let Ok(cls) = env.find_class(BRIDGE)
+        if let Ok(cls) = env.dfind(BRIDGE)
             && let Ok(global) = env.new_global_ref(cls)
         {
             let _ = BRIDGE_CLASS.set(global);
@@ -327,18 +440,22 @@ mod imp {
         register_resource_opener(env);
         let d = density_ as f64;
         DENSITY.with(|x| x.set(d));
-        let handle = AHandle(env.new_global_ref(root).expect("root global ref"));
+        let handle = AHandle(std::sync::Arc::new(
+            env.new_global_ref(root).expect("root global ref"),
+        ));
         let size = Size::new(w as f64 / d, h as f64 / d);
         ROOT.with(|r| *r.borrow_mut() = Some((handle, size)));
         // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save staging
         // area (docs/files.md) so `save_file(..)` can write its temp before handing off to SAF.
         if let Ok(dir) = env
-            .call_static_method(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
+            .dcall_static(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
             .and_then(|v| v.l())
-            && let Ok(s) = env.get_string(&JString::from(dir))
         {
-            let path: String = s.into();
-            if !path.is_empty() {
+            // cacheDirPath returns a java.lang.String; view the object as a JString to read it.
+            let jstr: JString = unsafe { std::mem::transmute(dir) };
+            if let Ok(path) = env.dstr(&jstr)
+                && !path.is_empty()
+            {
                 day_spec::present::set_app_temp_dir(path);
             }
         }
@@ -346,15 +463,11 @@ mod imp {
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here).
     /// Kinds: 0=press 1=text 2=toggle 3=value 4=select.
-    pub fn dispatch_event(env: &mut JNIEnv, id: i64, kind: i32, num: f64, jstr: &JString) {
+    pub fn dispatch_event(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         let ev = match kind {
             0 => Event::Pressed,
             1 => {
-                let text = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 Event::TextChanged(text)
             }
             2 => Event::ToggleChanged(num != 0.0),
@@ -368,11 +481,7 @@ mod imp {
             },
             // Nav page size report, "w,h" in px.
             6 => {
-                let text: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 let Some((w, h)) = text.split_once(',') else {
                     return;
                 };
@@ -384,11 +493,7 @@ mod imp {
             }
             // Warm deep link: the nav piece handles Custom("deeplink").
             7 => {
-                let route: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let route: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 Event::custom("deeplink", route)
             }
             // Presentation answers (docs/dialogs.md): id == request id.
@@ -397,11 +502,7 @@ mod imp {
                 result: day_spec::present::PresentResult::Button(num as i64),
             },
             9 => {
-                let text: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::Text(text),
@@ -414,11 +515,7 @@ mod imp {
             // File-picker answer (docs/files.md): string = chosen locators (a cache path for open,
             // a content:// URI for save), joined by the unit separator. Reuse the `decode` tag 3.
             15 => {
-                let text: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::decode(3, 0, text),
@@ -427,11 +524,7 @@ mod imp {
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
             // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
             11 => {
-                let text: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
                     return;
@@ -462,11 +555,7 @@ mod imp {
             // JNI, so the tag is empty and the piece reads the primitive `num`/`text` payload. A piece
             // (e.g. day-piece-webview) calls `DayBridge.nativeOnEvent(id, 12, num, text)`.
             12 => {
-                let text: String = env
-                    .get_string(jstr)
-                    .ok()
-                    .map(|s| s.into())
-                    .unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
@@ -513,7 +602,7 @@ mod imp {
         }
     }
 
-    fn jstr(env: &mut JNIEnv, s: &str) -> jni::objects::JString<'static> {
+    fn jstr(env: &mut Env, s: &str) -> jni::objects::JString<'static> {
         // SAFETY: local ref used immediately within the same JNI frame.
         unsafe { std::mem::transmute(env.new_string(s).expect("new_string")) }
     }
@@ -702,13 +791,13 @@ mod imp {
                     let message = jstr(env, spec.message().unwrap_or(""));
                     let buttons = jstr(env, &spec.buttons_joined());
                     let roles = jstr(env, &spec.roles_joined());
-                    let _ = env.call_static_method(
+                    let _ = env.dcall_static(
                         BRIDGE,
                         "present",
                         "(JZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
                         &[
                             JValue::Long(reqj),
-                            JValue::Bool(*sheet as u8),
+                            JValue::Bool(*sheet),
                             JValue::Object(&title),
                             JValue::Object(&message),
                             JValue::Object(&buttons),
@@ -729,7 +818,7 @@ mod imp {
                     let init = jstr(env, initial);
                     let okj = jstr(env, ok);
                     let cancelj = jstr(env, cancel);
-                    let _ = env.call_static_method(
+                    let _ = env.dcall_static(
                         BRIDGE,
                         "presentPrompt",
                         "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
@@ -750,7 +839,7 @@ mod imp {
                 PresentSpec::OpenFile { .. } => with_env(|env| {
                     let title = jstr(env, spec.title());
                     let filters = jstr(env, &spec.filters_joined());
-                    let _ = env.call_static_method(
+                    let _ = env.dcall_static(
                         BRIDGE,
                         "presentFileOpen",
                         "(JLjava/lang/String;Ljava/lang/String;)V",
@@ -770,7 +859,7 @@ mod imp {
                     let name = jstr(env, suggested_name);
                     let src = jstr(env, src_path);
                     let filters = jstr(env, &spec.filters_joined());
-                    let _ = env.call_static_method(
+                    let _ = env.dcall_static(
                         BRIDGE,
                         "presentFileSave",
                         "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
@@ -837,7 +926,7 @@ mod imp {
                             &[
                                 JValue::Long(id.0 as i64),
                                 JValue::Int((rowh * d).round() as i32),
-                                JValue::Bool(p.selectable as u8),
+                                JValue::Bool(p.selectable),
                             ],
                         ))
                     });
@@ -932,7 +1021,7 @@ mod imp {
                             Some(f) => JObject::from(jstr(env, f)),
                             None => JObject::null(),
                         };
-                        let _ = env.call_static_method(
+                        let _ = env.dcall_static(
                             BRIDGE,
                             "setLabelFont",
                             "(Landroid/view/View;FIZLjava/lang/String;)V",
@@ -940,19 +1029,19 @@ mod imp {
                                 JValue::Object(view.as_obj()),
                                 JValue::Float(sp),
                                 JValue::Int(weight),
-                                JValue::Bool(italic as u8),
+                                JValue::Bool(italic),
                                 JValue::Object(&fam),
                             ],
                         );
                         if let Some(col) = p.color {
-                            let _ = env.call_static_method(
+                            let _ = env.dcall_static(
                                 BRIDGE,
                                 "setLabelColor",
                                 "(Landroid/view/View;IZ)V",
                                 &[
                                     JValue::Object(view.as_obj()),
                                     JValue::Int(argb_i32(col)),
-                                    JValue::Bool(1),
+                                    JValue::Bool(true),
                                 ],
                             );
                         }
@@ -978,7 +1067,7 @@ mod imp {
                             env,
                             "makeToggle",
                             "(JZ)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Bool(p.on as u8)],
+                            &[JValue::Long(idj), JValue::Bool(p.on)],
                         ))
                     })
                 }
@@ -1022,7 +1111,7 @@ mod imp {
                             "makeProgress",
                             "(ZD)Landroid/view/View;",
                             &[
-                                JValue::Bool(p.value.is_some() as u8),
+                                JValue::Bool(p.value.is_some()),
                                 JValue::Double(p.value.unwrap_or(0.0)),
                             ],
                         ))
@@ -1098,7 +1187,7 @@ mod imp {
                         match p {
                             NavPatch::Pushed { title } => with_env(|env| {
                                 let s = jstr(env, title);
-                                let _ = env.call_static_method(
+                                let _ = env.dcall_static(
                                     BRIDGE,
                                     "navPush",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1119,7 +1208,7 @@ mod imp {
                         match p {
                             LabelPatch::Text(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.call_static_method(
+                                let _ = env.dcall_static(
                                     BRIDGE,
                                     "setLabel",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1134,7 +1223,7 @@ mod imp {
                                         Some(name) => JObject::from(jstr(env, name)),
                                         None => JObject::null(),
                                     };
-                                    let _ = env.call_static_method(
+                                    let _ = env.dcall_static(
                                         BRIDGE,
                                         "setLabelFont",
                                         "(Landroid/view/View;FIZLjava/lang/String;)V",
@@ -1142,7 +1231,7 @@ mod imp {
                                             JValue::Object(h.0.as_obj()),
                                             JValue::Float(sp),
                                             JValue::Int(weight),
-                                            JValue::Bool(italic as u8),
+                                            JValue::Bool(italic),
                                             JValue::Object(&fam),
                                         ],
                                     );
@@ -1155,7 +1244,7 @@ mod imp {
                                     &[
                                         JValue::Object(h.0.as_obj()),
                                         JValue::Int(c.map(argb_i32).unwrap_or(0)),
-                                        JValue::Bool(c.is_some() as u8),
+                                        JValue::Bool(c.is_some()),
                                     ],
                                 );
                             }
@@ -1167,7 +1256,7 @@ mod imp {
                         match p {
                             ButtonPatch::Title(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.call_static_method(
+                                let _ = env.dcall_static(
                                     BRIDGE,
                                     "setLabel",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1177,7 +1266,7 @@ mod imp {
                             ButtonPatch::Enabled(e) => call_void(
                                 "setEnabled",
                                 "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e as u8)],
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
                             ),
                         }
                     }
@@ -1188,12 +1277,12 @@ mod imp {
                             TogglePatch::On(on) => call_void(
                                 "setToggle",
                                 "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on as u8)],
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
                             ),
                             TogglePatch::Enabled(e) => call_void(
                                 "setEnabled",
                                 "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e as u8)],
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
                             ),
                         }
                     }
@@ -1213,7 +1302,7 @@ mod imp {
                             SliderPatch::Enabled(e) => call_void(
                                 "setEnabled",
                                 "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e as u8)],
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
                             ),
                         }
                     }
@@ -1236,7 +1325,7 @@ mod imp {
                                 if !*from_native {
                                     with_env(|env| {
                                         let s = jstr(env, text);
-                                        let _ = env.call_static_method(
+                                        let _ = env.dcall_static(
                                             BRIDGE,
                                             "setTextField",
                                             "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1247,7 +1336,7 @@ mod imp {
                             }
                             TextFieldPatch::Placeholder(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.call_static_method(
+                                let _ = env.dcall_static(
                                     BRIDGE,
                                     "setPlaceholder",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1257,7 +1346,7 @@ mod imp {
                             TextFieldPatch::Enabled(e) => call_void(
                                 "setEnabled",
                                 "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e as u8)],
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
                             ),
                         }
                     }
@@ -1337,7 +1426,7 @@ mod imp {
                         Some(pw) if natural_w > pw => {
                             let wpx = (pw * d).round() as i32;
                             let hh = with_env(|env| {
-                                env.call_static_method(
+                                env.dcall_static(
                                     BRIDGE,
                                     "measureHeightForWidth",
                                     "(Landroid/view/View;I)I",
@@ -1435,7 +1524,7 @@ mod imp {
                 &[
                     JValue::Object(h.0.as_obj()),
                     JValue::Long(node.0 as i64),
-                    JValue::Bool(is_drag as u8),
+                    JValue::Bool(is_drag),
                 ],
             );
         }
@@ -1445,7 +1534,7 @@ mod imp {
             serialize_menu(items, &mut spec);
             with_env(|env| {
                 let jspec = jstr(env, &spec);
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     BRIDGE,
                     "setContextMenu",
                     "(Landroid/view/View;Ljava/lang/String;)V",
@@ -1461,7 +1550,7 @@ mod imp {
             serialize_menu(items, &mut spec);
             with_env(|env| {
                 let jspec = jstr(env, &spec);
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     BRIDGE,
                     "setAppMenu",
                     "(Ljava/lang/String;)V",
@@ -1491,8 +1580,10 @@ mod imp {
         fn adopt(&mut self, raw: RawHandle) -> AHandle {
             // A recycling ListView cell (a DayFixed) — Day fills/rebinds its row content in place.
             with_env(|env| {
-                let obj = unsafe { JObject::from_raw(raw as jni::sys::jobject) };
-                AHandle(env.new_global_ref(&obj).expect("adopt: global ref"))
+                let obj = unsafe { JObject::from_raw(env, raw as jni::sys::jobject) };
+                AHandle(std::sync::Arc::new(
+                    env.new_global_ref(&obj).expect("adopt: global ref"),
+                ))
             })
         }
 
@@ -1500,7 +1591,7 @@ mod imp {
             with_env(|env| {
                 let label = jstr(env, a11y.label.as_deref().unwrap_or(""));
                 let value = jstr(env, a11y.value.as_deref().unwrap_or(""));
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     BRIDGE,
                     "setA11y",
                     "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
@@ -1508,7 +1599,7 @@ mod imp {
                         JValue::Object(h.0.as_obj()),
                         JValue::Object(&label),
                         JValue::Object(&value),
-                        JValue::Bool(a11y.hidden as u8),
+                        JValue::Bool(a11y.hidden),
                     ],
                 );
             });
@@ -1517,13 +1608,10 @@ mod imp {
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             let (nums, texts) = day_spec::encode_ops(ops);
             with_env(|env| {
-                let arr = env
-                    .new_double_array(nums.len() as i32)
-                    .expect("double array");
-                env.set_double_array_region(&arr, 0, &nums)
-                    .expect("fill array");
+                let arr = env.new_double_array(nums.len()).expect("double array");
+                arr.set_region(env, 0, &nums).expect("fill array");
                 let joined = jstr(env, &texts.join("\u{1f}"));
-                let _ = env.call_static_method(
+                let _ = env.dcall_static(
                     BRIDGE,
                     "setCanvasOps",
                     "(Landroid/view/View;[DLjava/lang/String;)V",
@@ -1555,17 +1643,24 @@ mod imp {
 
         fn post(f: Box<dyn FnOnce() + Send>) {
             let token = Box::into_raw(Box::new(f)) as i64;
-            let vm = JAVA_VM.get().expect("day-android: init() not called");
-            let mut env = vm.attach_current_thread().expect("attach");
-            let cls = BRIDGE_CLASS
-                .get()
-                .expect("day-android: bridge class not cached");
-            let jcls: &jni::objects::JClass = cls.as_obj().into();
-            let res = env.call_static_method(jcls, "postMain", "(J)V", &[JValue::Long(token)]);
-            if res.is_err() {
-                let _ = env.exception_describe();
-                let _ = env.exception_clear();
-            }
+            with_env(|env| {
+                // Native-spawned threads see only the system class loader, so call through the
+                // JClass cached on the main thread at init rather than a name lookup.
+                let cls = BRIDGE_CLASS
+                    .get()
+                    .expect("day-android: bridge class not cached");
+                let sig = "(J)V".parse::<RuntimeMethodSignature>().expect("sig");
+                let res = env.call_static_method(
+                    &**cls,
+                    &JNIString::from("postMain"),
+                    MethodSignature::from(&sig),
+                    &[JValue::Long(token)],
+                );
+                if res.is_err() {
+                    let _ = env.exception_describe();
+                    let _ = env.exception_clear();
+                }
+            });
         }
     }
 }

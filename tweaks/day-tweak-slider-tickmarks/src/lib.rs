@@ -117,31 +117,32 @@ fn apply(node: RNode, t: Tickmarks) {
         // Material Slider: a step size yields visible ticks AND snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
         use day_android::jni::objects::JValue;
+        use day_android::DayEnv;
         let _ = day_android::with_native(node, |view, env| {
             let lo = env
-                .call_method(view, "getValueFrom", "()F", &[])
+                .dcall(view, "getValueFrom", "()F", &[])
                 .and_then(|v| v.f())
                 .unwrap_or(0.0);
             let hi = env
-                .call_method(view, "getValueTo", "()F", &[])
+                .dcall(view, "getValueTo", "()F", &[])
                 .and_then(|v| v.f())
                 .unwrap_or(1.0);
             let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
-            let _ = env.call_method(view, "setStepSize", "(F)V", &[JValue::Float(step)]);
+            let _ = env.dcall(view, "setStepSize", "(F)V", &[JValue::Float(step)]);
             // A stepped Material slider requires EVERY value to sit on the step grid — it
             // hard-crashes at the next layout pass otherwise (BaseSlider.validateValues). Snap
             // the current value now. NOTE: a programmatic setValue does NOT notify the bound
             // Signal (fromUser=false), so an off-grid initial value diverges from the widget
             // until the next user interaction — start stepped sliders on a grid value.
             let value = env
-                .call_method(view, "getValue", "()F", &[])
+                .dcall(view, "getValue", "()F", &[])
                 .and_then(|v| v.f())
                 .unwrap_or(lo);
             let snapped = (lo + ((value - lo) / step).round() * step).clamp(lo, hi);
             if snapped != value {
-                let _ = env.call_method(view, "setValue", "(F)V", &[JValue::Float(snapped)]);
+                let _ = env.dcall(view, "setValue", "(F)V", &[JValue::Float(snapped)]);
             }
-            let _ = env.call_method(view, "setTickVisible", "(Z)V", &[JValue::Bool(1)]);
+            let _ = env.dcall(view, "setTickVisible", "(Z)V", &[JValue::Bool(true)]);
         });
     }
     #[cfg(feature = "qt")]

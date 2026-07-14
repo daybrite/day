@@ -8,6 +8,7 @@
 
 use super::*;
 use day_android::jni::objects::JValue;
+use day_android::DayEnv;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
@@ -18,22 +19,22 @@ fn make(_backend: &mut Android, p: &MediaProps, _id: NodeId) -> AHandle {
     with_env(|env| {
         let url = env.new_string(&p.url).expect("url");
         let view = env
-            .call_static_method(
+            .dcall_static(
                 MEDIA_CLASS,
                 "makeMedia",
                 "(Ljava/lang/String;ZZZZ)Landroid/view/View;",
                 &[
                     JValue::Object(&url),
-                    JValue::Bool(p.autoplay as u8),
-                    JValue::Bool(p.looping as u8),
-                    JValue::Bool(p.muted as u8),
-                    JValue::Bool(p.controls as u8),
+                    JValue::Bool(p.autoplay),
+                    JValue::Bool(p.looping),
+                    JValue::Bool(p.muted),
+                    JValue::Bool(p.controls),
                 ],
             )
             .expect("DayMedia.makeMedia")
             .l()
             .expect("View");
-        AHandle(env.new_global_ref(view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
     })
 }
 
@@ -46,7 +47,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &MediaPatch) {
     };
     with_env(|env| {
         let s = env.new_string(url).expect("cmd url");
-        let _ = env.call_static_method(
+        let _ = env.dcall_static(
             MEDIA_CLASS,
             "mediaCommand",
             "(Landroid/view/View;ILjava/lang/String;)V",

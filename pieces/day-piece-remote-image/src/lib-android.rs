@@ -9,7 +9,8 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::jni::JNIEnv;
+use day_android::jni::Env;
+use day_android::DayEnv;
 use day_android::jni::objects::{JObject, JValue};
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
@@ -42,11 +43,11 @@ fn argb(c: Color) -> i32 {
 }
 
 /// Push bytes (or clear on `None`) into `view` via `DayRemoteImage.setBytes(View, byte[])`.
-fn push_bytes(env: &mut JNIEnv, view: &JObject, bytes: &Option<std::sync::Arc<Vec<u8>>>) {
+fn push_bytes(env: &mut Env, view: &JObject, bytes: &Option<std::sync::Arc<Vec<u8>>>) {
     match bytes {
         Some(b) => {
             let arr = env.byte_array_from_slice(b).expect("byte[]");
-            let _ = env.call_static_method(
+            let _ = env.dcall_static(
                 IMAGE_CLASS,
                 "setBytes",
                 SET_BYTES_SIG,
@@ -55,7 +56,7 @@ fn push_bytes(env: &mut JNIEnv, view: &JObject, bytes: &Option<std::sync::Arc<Ve
         }
         None => {
             let null = JObject::null();
-            let _ = env.call_static_method(
+            let _ = env.dcall_static(
                 IMAGE_CLASS,
                 "setBytes",
                 SET_BYTES_SIG,
@@ -69,7 +70,7 @@ fn make(_backend: &mut Android, p: &RemoteImageProps, id: NodeId) -> AHandle {
     let (clip, radius) = clip_args(p.clip);
     with_env(|env| {
         let view = env
-            .call_static_method(
+            .dcall_static(
                 IMAGE_CLASS,
                 "makeImage",
                 "(JIIDI)Landroid/view/View;",
@@ -85,7 +86,7 @@ fn make(_backend: &mut Android, p: &RemoteImageProps, id: NodeId) -> AHandle {
             .l()
             .expect("View");
         push_bytes(env, &view, &p.bytes);
-        AHandle(env.new_global_ref(&view).expect("global ref"))
+        AHandle(std::sync::Arc::new(env.new_global_ref(&view).expect("global ref")))
     })
 }
 
