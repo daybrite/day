@@ -9,7 +9,6 @@
 
 use super::DeviceInfo;
 use day_android::DayEnv;
-use day_android::jni::objects::JString;
 use day_android::with_env;
 
 const DEVICEINFO_CLASS: &str = "dev/daybrite/day/deviceinfo/DayDeviceInfo";
@@ -25,9 +24,7 @@ pub fn get() -> DeviceInfo {
         if obj.is_null() {
             return None;
         }
-        env.dstr(&day_android::as_jstring(obj))
-            .ok()
-            .map(|s| s.into())
+        env.dstr(&day_android::as_jstring(obj)).ok()
     });
     parse(joined.as_deref())
 }

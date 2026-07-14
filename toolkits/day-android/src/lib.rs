@@ -138,8 +138,8 @@ mod imp {
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeMethodSignature>()?;
             self.call_static_method(
-                &JNIString::from(class),
-                &JNIString::from(name),
+                JNIString::from(class),
+                JNIString::from(name),
                 MethodSignature::from(&sig),
                 args,
             )
@@ -154,7 +154,7 @@ mod imp {
             let sig = sig.parse::<RuntimeMethodSignature>()?;
             self.call_method(
                 obj,
-                &JNIString::from(name),
+                JNIString::from(name),
                 MethodSignature::from(&sig),
                 args,
             )
@@ -167,13 +167,13 @@ mod imp {
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeFieldSignature>()?;
             self.get_static_field(
-                &JNIString::from(class),
-                &JNIString::from(name),
+                JNIString::from(class),
+                JNIString::from(name),
                 FieldSignature::from(&sig),
             )
         }
         fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>> {
-            self.find_class(&JNIString::from(name))
+            self.find_class(JNIString::from(name))
         }
         fn dstr(&self, s: &JString) -> jni::errors::Result<String> {
             Ok(s.mutf8_chars(self)?.to_string())
@@ -467,7 +467,7 @@ mod imp {
         let ev = match kind {
             0 => Event::Pressed,
             1 => {
-                let text = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text = env.dstr(jstr).ok().unwrap_or_default();
                 Event::TextChanged(text)
             }
             2 => Event::ToggleChanged(num != 0.0),
@@ -481,7 +481,7 @@ mod imp {
             },
             // Nav page size report, "w,h" in px.
             6 => {
-                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let Some((w, h)) = text.split_once(',') else {
                     return;
                 };
@@ -493,7 +493,7 @@ mod imp {
             }
             // Warm deep link: the nav piece handles Custom("deeplink").
             7 => {
-                let route: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let route: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::custom("deeplink", route)
             }
             // Presentation answers (docs/dialogs.md): id == request id.
@@ -502,7 +502,7 @@ mod imp {
                 result: day_spec::present::PresentResult::Button(num as i64),
             },
             9 => {
-                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::Text(text),
@@ -515,7 +515,7 @@ mod imp {
             // File-picker answer (docs/files.md): string = chosen locators (a cache path for open,
             // a content:// URI for save), joined by the unit separator. Reuse the `decode` tag 3.
             15 => {
-                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::decode(3, 0, text),
@@ -524,7 +524,7 @@ mod imp {
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
             // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
             11 => {
-                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
                     return;
@@ -555,7 +555,7 @@ mod imp {
             // JNI, so the tag is empty and the piece reads the primitive `num`/`text` payload. A piece
             // (e.g. day-piece-webview) calls `DayBridge.nativeOnEvent(id, 12, num, text)`.
             12 => {
-                let text: String = env.dstr(jstr).ok().map(|s| s.into()).unwrap_or_default();
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
@@ -1652,13 +1652,13 @@ mod imp {
                 let sig = "(J)V".parse::<RuntimeMethodSignature>().expect("sig");
                 let res = env.call_static_method(
                     &**cls,
-                    &JNIString::from("postMain"),
+                    JNIString::from("postMain"),
                     MethodSignature::from(&sig),
                     &[JValue::Long(token)],
                 );
                 if res.is_err() {
-                    let _ = env.exception_describe();
-                    let _ = env.exception_clear();
+                    env.exception_describe();
+                    env.exception_clear();
                 }
             });
         }

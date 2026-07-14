@@ -7,7 +7,7 @@
 // platform. No manifest permission is required — SharedPreferences is app-private storage.
 
 use day_android::DayEnv;
-use day_android::jni::objects::{JString, JValue};
+use day_android::jni::objects::JValue;
 use day_android::with_env;
 
 const PREFS_CLASS: &str = "dev/daybrite/day/prefs/DayPrefs";
@@ -45,9 +45,7 @@ pub fn get(key: &str) -> Option<String> {
         if obj.is_null() {
             return None; // key absent
         }
-        env.dstr(&day_android::as_jstring(obj))
-            .ok()
-            .map(|s| s.into())
+        env.dstr(&day_android::as_jstring(obj)).ok()
     })
 }
 

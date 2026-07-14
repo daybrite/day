@@ -7,7 +7,7 @@
 // focus — get_text()/has_text() return None/false in the background. Writing is always allowed.
 
 use day_android::DayEnv;
-use day_android::jni::objects::{JString, JValue};
+use day_android::jni::objects::JValue;
 use day_android::with_env;
 
 const CLIPBOARD_CLASS: &str = "dev/daybrite/day/clipboard/DayClipboard";
@@ -39,9 +39,7 @@ pub fn get_text() -> Option<String> {
         if obj.is_null() {
             return None; // empty clipboard, non-text clip, or read denied (unfocused)
         }
-        env.dstr(&day_android::as_jstring(obj))
-            .ok()
-            .map(|s| s.into())
+        env.dstr(&day_android::as_jstring(obj)).ok()
     })
 }
 

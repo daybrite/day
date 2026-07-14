@@ -9,7 +9,7 @@
 //! use day_android::jni::{objects::JValue, signature::RuntimeMethodSignature, strings::JNIString};
 //! label("selectable").android(|view, env| {
 //!     let sig = "(Z)V".parse::<RuntimeMethodSignature>().unwrap();
-//!     let _ = env.call_method(view, &JNIString::from("setTextIsSelectable"),
+//!     let _ = env.call_method(view, JNIString::from("setTextIsSelectable"),
 //!                             (&sig).into(), &[JValue::Bool(true)]);
 //! });
 //! ```

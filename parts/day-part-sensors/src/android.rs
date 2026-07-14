@@ -54,7 +54,7 @@ pub fn read(kind: SensorKind) -> Option<SensorReading> {
         if obj.is_null() {
             return None;
         }
-        let arr: day_android::jni::objects::JDoubleArray = unsafe { std::mem::transmute(obj) };
+        let arr: JDoubleArray = unsafe { std::mem::transmute(obj) };
         let mut xyz = [0.0f64; 3];
         arr.get_region(env, 0, &mut xyz).ok()?;
         Some(SensorReading {
