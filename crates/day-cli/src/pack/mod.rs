@@ -207,11 +207,28 @@ pub(crate) fn windows_kit_tool_probe(tool: &str) -> Option<String> {
 
 pub fn sha256_file(path: &Path) -> Result<String, String> {
     use sha2::{Digest, Sha256};
+    use std::io::Read;
     let mut file =
         std::fs::File::open(path).map_err(|e| format!("checksum {}: {e}", path.display()))?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher).map_err(|e| e.to_string())?;
-    Ok(format!("{:x}", hasher.finalize()))
+    // Stream the file through the hasher (sha2 0.11 dropped the `io::Write` hasher impl that let
+    // `io::copy` write into it directly).
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("checksum {}: {e}", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    // sha2 0.11's digest output no longer implements `LowerHex` — hex-encode by hand.
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// Run a command, returning a readable error with the failing tool's tail output.

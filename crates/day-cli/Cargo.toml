@@ -27,18 +27,18 @@ include_dir = "0.7"
 # Interactive `day new` prompts (src/interactive.rs): text input, single-select, and checkbox
 # multi-select (arrow keys / space to toggle / type-to-filter). inquire renders to stderr, so
 # stdout stays clean for `--format json` result events.
-inquire = "0.7"
+inquire = "0.9"
 # Day.toml (the project manifest) — `toml` parses it via serde; `toml_edit` (the library under
 # cargo-edit/cargo itself) performs format- and comment-preserving edits (`day app add-toolkit`).
-toml = "0.8"
-toml_edit = "0.22"
+toml = "1.1"
+toml_edit = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 # Background "is a newer day-cli on crates.io?" check (update.rs). ureq is a small synchronous HTTP
 # client with bundled roots — no OS cert-store dependency, works on a fresh machine.
-ureq = "2"
+ureq = "3"
 # Shared host-toolchain/SDK discovery (docs/environment.md) — same code the build scripts use.
 day-toolchain = { workspace = true }
 # Font name-table parsing + family→ident rules (§18.4) — the SAME leaf crate the runtimes use (via

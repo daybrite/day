@@ -80,11 +80,14 @@ fn fetch_latest() -> Option<String> {
         env!("CARGO_PKG_REPOSITORY"),
     );
     let body = ureq::get("https://crates.io/api/v1/crates/day-cli")
-        .set("User-Agent", &ua)
-        .timeout(std::time::Duration::from_secs(5))
+        .header("User-Agent", &ua)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build()
         .call()
         .ok()?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .ok()?;
     serde_json::from_str::<CratesResp>(&body)
         .ok()?

@@ -38,7 +38,7 @@ objc2-core-motion = { version = "0.3", default-features = false, features = [
 # GetCurrentReading() is a synchronous poll, no XAML/event subscription. Target-gated so it never
 # touches the Linux/macOS builds. Only the Devices_Sensors namespace feature is enabled.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61", features = ["Devices_Sensors"] }
+windows = { version = "0.62", features = ["Devices_Sensors"] }
 
 # Android reads SensorManager through a Java shim + day-android's cached JVM/Context. This is the one
 # platform where the headless crate rides on the day runtime (like the pieces' Android backends).

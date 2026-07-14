@@ -128,7 +128,7 @@ day-winui = { path = "toolkits/day-winui", version = "0.0.7" }
 day-winui-sys = { path = "toolkits/day-winui-sys", version = "0.0.7" }
 day-arkui = { path = "toolkits/day-arkui", version = "0.0.7" }
 day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.0.7" }
-slotmap = "1.0"
+slotmap = "1.1"
 linkme = "0.3"
 
 [profile.release]
