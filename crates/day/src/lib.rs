@@ -18,8 +18,8 @@ pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 // Localization text source + arg trait (§12) at the crate root so generated `res::str::<key>(…)`
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
-pub use day_fluent::{IntoFArg, LocalizedText, tr};
 pub use day_core::{lifecycle_supported, on_lifecycle};
+pub use day_fluent::{IntoFArg, LocalizedText, tr};
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};

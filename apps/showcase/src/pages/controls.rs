@@ -144,7 +144,10 @@ fn pickers_section() -> impl Piece {
                 .id("picker-inline"),
         ),
         // The one shared readout the walkthrough asserts after driving each styling.
-        labeled(crate::res::str::picker_selected(), label(value).id("picker-value")),
+        labeled(
+            crate::res::str::picker_selected(),
+            label(value).id("picker-value"),
+        ),
     ))
     .title(crate::res::str::nav_pickers())
 }

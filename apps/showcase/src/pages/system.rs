@@ -90,7 +90,9 @@ fn sensors_section() -> impl Piece {
                 format!("{:+.2}", r.z),
             )
             .format(),
-            None if day_part_sensors::is_available(kind) => crate::res::str::sensor_waiting().format(),
+            None if day_part_sensors::is_available(kind) => {
+                crate::res::str::sensor_waiting().format()
+            }
             None => crate::res::str::sensor_unavailable().format(),
         }
     }
@@ -284,8 +286,7 @@ fn network_line() -> LocalizedText {
 fn deviceinfo_lines() -> (String, String, String) {
     let d = day_part_deviceinfo::get();
     let model = crate::res::str::deviceinfo_model(d.model).format();
-    let system =
-        crate::res::str::deviceinfo_system(d.system_name, d.system_version).format();
+    let system = crate::res::str::deviceinfo_system(d.system_name, d.system_version).format();
     // Each branch is a full literal tr(...) call so `day lint` sees both keys (never tr(if ...)).
     let sim_value = if d.is_simulator {
         crate::res::str::deviceinfo_yes().format()

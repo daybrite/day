@@ -128,7 +128,9 @@ fn plan_images(dir: &Path) -> Result<Vec<Entry>, String> {
                  its stem is lowercase [a-z0-9_] (e.g. `{sane}`)."
             ));
         }
-        let ent = seen.entry(base.clone()).or_insert_with(|| (Vec::new(), src.clone()));
+        let ent = seen
+            .entry(base.clone())
+            .or_insert_with(|| (Vec::new(), src.clone()));
         if ent.0.contains(&scale) {
             return Err(format!(
                 "day-build: two files map to image {base:?} at the same scale ({}, {src}) — keep \
@@ -182,8 +184,7 @@ fn plan_fonts(dir: &Path) -> Result<Vec<Entry>, String> {
             continue; // non-font files are ignored (matches scan_fonts, which errors at stage time)
         }
         let src = display(&path);
-        let bytes =
-            std::fs::read(&path).map_err(|e| format!("day-build: reading {src}: {e}"))?;
+        let bytes = std::fs::read(&path).map_err(|e| format!("day-build: reading {src}: {e}"))?;
         let names = day_fonts::parse_font_names(&bytes)
             .ok_or_else(|| format!("day-build: {src}: not a recognizable font (no name table)"))?;
         entries.push(Entry {
@@ -390,7 +391,12 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
             .params
             .iter()
             .enumerate()
-            .map(|(i, p)| format!("{}: impl day::IntoFArg<M{i}>", ident_token(&sanitize_ident(p))))
+            .map(|(i, p)| {
+                format!(
+                    "{}: impl day::IntoFArg<M{i}>",
+                    ident_token(&sanitize_ident(p))
+                )
+            })
             .collect();
         let generic_list = if generics.is_empty() {
             String::new()
@@ -575,9 +581,11 @@ mod tests {
         assert!(code.contains("#[allow(non_upper_case_globals, dead_code, unused_imports)]"));
         assert!(code.contains("pub mod images {"));
         assert!(code.contains("use day::ImageName;"));
-        assert!(code.contains(
-            "pub const nav_system: ImageName = ImageName::from_static(\"nav_system\");"
-        ));
+        assert!(
+            code.contains(
+                "pub const nav_system: ImageName = ImageName::from_static(\"nav_system\");"
+            )
+        );
     }
 
     #[test]
@@ -671,7 +679,9 @@ mod tests {
         let code = render(&plan);
         assert!(code.contains("pub mod str {"));
         assert!(
-            code.contains("pub fn hello_world() -> day::LocalizedText { day::tr(\"hello_world\") }")
+            code.contains(
+                "pub fn hello_world() -> day::LocalizedText { day::tr(\"hello_world\") }"
+            )
         );
         assert!(code.contains(
             "pub fn deviceinfo_system<M0, M1>(name: impl day::IntoFArg<M0>, version: impl day::IntoFArg<M1>) -> day::LocalizedText { day::tr(\"deviceinfo_system\").arg(\"name\", name).arg(\"version\", version) }"

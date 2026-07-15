@@ -37,10 +37,10 @@ fn resource_lines() -> (String, String) {
         None => "numbers.bin: (not bundled)".to_string(),
     };
     let greeting = match resource(crate::res::assets::greeting_txt) {
-        Some(r) => crate::res::str::resources_greeting(
-            String::from_utf8_lossy(r.as_slice()).into_owned(),
-        )
-        .format(),
+        Some(r) => {
+            crate::res::str::resources_greeting(String::from_utf8_lossy(r.as_slice()).into_owned())
+                .format()
+        }
         None => "greeting.txt: (not bundled)".to_string(),
     };
     (numbers, greeting)

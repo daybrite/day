@@ -90,9 +90,7 @@ pub(crate) fn history(count: Signal<i64>) -> AnyPiece {
             move || entries.get(),
             |e| e.0,
             move |slot: ItemSlot<(u64, i64), u64>| {
-                label(move || {
-                    crate::res::str::history_entry(slot.field(|t| t.1)).format()
-                })
+                label(move || crate::res::str::history_entry(slot.field(|t| t.1)).format())
             },
         ),
     ))

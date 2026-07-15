@@ -80,12 +80,22 @@ pub(crate) fn install_app_menu() {
 /// EITHER the app menu bar or this context menu. See docs/menus.md.
 pub(crate) fn menus_page() -> AnyPiece {
     column((
-        heading(crate::res::str::nav_menus(), "menus-title", Some(crate::res::str::menus_caption())),
+        heading(
+            crate::res::str::nav_menus(),
+            "menus-title",
+            Some(crate::res::str::menus_caption()),
+        ),
         // Live readouts: the last menu action (app menu or context menu), and the last app-lifecycle
         // phase (docs/lifecycle.md) — Quit fires WillTerminate; switching apps fires resign/active.
         column((
-            label(move || format!("{}  {}", crate::res::str::menus_last().format(), menu_log().get()))
-                .id("menus-last"),
+            label(move || {
+                format!(
+                    "{}  {}",
+                    crate::res::str::menus_last().format(),
+                    menu_log().get()
+                )
+            })
+            .id("menus-last"),
             label(move || {
                 format!(
                     "{}  {}",

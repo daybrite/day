@@ -20,19 +20,47 @@ pub(crate) fn text_page() -> AnyPiece {
             Font::LargeTitle,
         ),
         specimen("Title", crate::res::str::text_style_title(), Font::Title),
-        specimen("Title 2", crate::res::str::text_style_title2(), Font::Title2),
-        specimen("Title 3", crate::res::str::text_style_title3(), Font::Title3),
-        specimen("Headline", crate::res::str::text_style_headline(), Font::Headline),
+        specimen(
+            "Title 2",
+            crate::res::str::text_style_title2(),
+            Font::Title2,
+        ),
+        specimen(
+            "Title 3",
+            crate::res::str::text_style_title3(),
+            Font::Title3,
+        ),
+        specimen(
+            "Headline",
+            crate::res::str::text_style_headline(),
+            Font::Headline,
+        ),
         specimen(
             "Subheadline",
             crate::res::str::text_style_subheadline(),
             Font::Subheadline,
         ),
         specimen("Body", crate::res::str::text_style_body(), Font::Body),
-        specimen("Callout", crate::res::str::text_style_callout(), Font::Callout),
-        specimen("Footnote", crate::res::str::text_style_footnote(), Font::Footnote),
-        specimen("Caption", crate::res::str::text_style_caption(), Font::Caption),
-        specimen("Caption 2", crate::res::str::text_style_caption2(), Font::Caption2),
+        specimen(
+            "Callout",
+            crate::res::str::text_style_callout(),
+            Font::Callout,
+        ),
+        specimen(
+            "Footnote",
+            crate::res::str::text_style_footnote(),
+            Font::Footnote,
+        ),
+        specimen(
+            "Caption",
+            crate::res::str::text_style_caption(),
+            Font::Caption,
+        ),
+        specimen(
+            "Caption 2",
+            crate::res::str::text_style_caption2(),
+            Font::Caption2,
+        ),
     ))
     .spacing(6.0)
     .align(HAlign::Leading);
@@ -58,7 +86,9 @@ pub(crate) fn text_page() -> AnyPiece {
     let styling = column((
         label(crate::res::str::text_styling_header()).font(Font::Headline),
         label(crate::res::str::text_bold()).bold().id("text-bold"),
-        label(crate::res::str::text_italic()).italic().id("text-italic"),
+        label(crate::res::str::text_italic())
+            .italic()
+            .id("text-italic"),
         label(crate::res::str::text_bolditalic())
             .bold()
             .italic()
@@ -123,7 +153,11 @@ pub(crate) fn text_page() -> AnyPiece {
 
     scroll(
         column((
-            heading(crate::res::str::nav_text(), "text-title", Some(crate::res::str::text_caption())),
+            heading(
+                crate::res::str::nav_text(),
+                "text-title",
+                Some(crate::res::str::text_caption()),
+            ),
             // Bundled fonts lead the page: the most visually distinctive section, and the one
             // the walkthrough screenshot must show above the fold.
             fonts,

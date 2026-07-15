@@ -146,9 +146,24 @@ fn haptics_section() -> impl Piece {
             .font(Font::Footnote)
             .id("haptics-supported"),
         row((
-            haptic_button("haptics-light", crate::res::str::haptics_light(), Haptic::Light, last),
-            haptic_button("haptics-medium", crate::res::str::haptics_medium(), Haptic::Medium, last),
-            haptic_button("haptics-heavy", crate::res::str::haptics_heavy(), Haptic::Heavy, last),
+            haptic_button(
+                "haptics-light",
+                crate::res::str::haptics_light(),
+                Haptic::Light,
+                last,
+            ),
+            haptic_button(
+                "haptics-medium",
+                crate::res::str::haptics_medium(),
+                Haptic::Medium,
+                last,
+            ),
+            haptic_button(
+                "haptics-heavy",
+                crate::res::str::haptics_heavy(),
+                Haptic::Heavy,
+                last,
+            ),
         ))
         .spacing(8.0),
         row((
@@ -164,7 +179,12 @@ fn haptics_section() -> impl Piece {
                 Haptic::Warning,
                 last,
             ),
-            haptic_button("haptics-error", crate::res::str::haptics_error(), Haptic::Error, last),
+            haptic_button(
+                "haptics-error",
+                crate::res::str::haptics_error(),
+                Haptic::Error,
+                last,
+            ),
             haptic_button(
                 "haptics-selection",
                 crate::res::str::haptics_selection(),

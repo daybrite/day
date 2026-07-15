@@ -1849,9 +1849,9 @@ pub mod prelude {
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
     pub use day_spec::props::RowHeight;
+    pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, GestureKind};
     pub use day_spec::{DrawOp, Shape, TextAnchor};
-    pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     pub use day_spec::{MenuItem, MenuRole, Shortcut};
 }
