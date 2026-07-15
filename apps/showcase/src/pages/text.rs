@@ -105,16 +105,16 @@ pub(crate) fn text_page() -> AnyPiece {
         label(tr("text-fonts-header")).font(Font::Headline),
         label(tr("text-fonts-note")).font(Font::Footnote),
         label("Pacifico — flowing script")
-            .font(Font::Custom("Pacifico", 24.0))
+            .font(Font::custom(crate::res::fonts::pacifico, 24.0))
             .id("text-font-pacifico"),
         label("BUNGEE — chromatic display")
-            .font(Font::Custom("Bungee", 20.0))
+            .font(Font::custom(crate::res::fonts::bungee, 20.0))
             .id("text-font-bungee"),
         label("Special Elite — typewriter keys")
-            .font(Font::Custom("Special Elite", 20.0))
+            .font(Font::custom(crate::res::fonts::special_elite, 20.0))
             .id("text-font-specialelite"),
         label("Pacifico at 36 points")
-            .font(Font::Custom("Pacifico", 36.0))
+            .font(Font::custom(crate::res::fonts::pacifico, 36.0))
             .color(Color::hex(0x2F6FDE))
             .id("text-font-pacifico-lg"),
     ))

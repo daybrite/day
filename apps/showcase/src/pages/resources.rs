@@ -12,10 +12,10 @@ pub(crate) fn resources_page() -> AnyPiece {
             "resources-title",
             Some(tr("resources-caption")),
         ),
-        // `image("day_logo")` resolves `images/day_logo.png` by name through the backend's native
+        // `image(crate::res::images::day_logo)` resolves `images/day_logo.png` by name through the backend's native
         // image path (bundle file / Assets.car / R.drawable / …). `.frame` gives it a fixed box;
         // it scales to Fit (default content mode) — preserving aspect, never stretching.
-        image("day_logo").frame(96.0, 96.0),
+        image(crate::res::images::day_logo).frame(96.0, 96.0),
         label(move || numbers_line.clone()).id("resources-numbers"),
         label(move || greeting_line.clone()).id("resources-greeting"),
     ))
@@ -28,7 +28,7 @@ pub(crate) fn resources_page() -> AnyPiece {
 /// Open two bundled data resources and format one random-access read from each. `numbers.bin` holds
 /// the bytes `0..=255`, so `byte[100]` must be `100`; `greeting.txt` is a short UTF-8 string.
 fn resource_lines() -> (String, String) {
-    let numbers = match resource("numbers.bin") {
+    let numbers = match resource(crate::res::assets::numbers_bin) {
         Some(r) => {
             let mut b = [0u8; 1];
             r.read_at(100, &mut b);
@@ -39,7 +39,7 @@ fn resource_lines() -> (String, String) {
         }
         None => "numbers.bin: (not bundled)".to_string(),
     };
-    let greeting = match resource("greeting.txt") {
+    let greeting = match resource(crate::res::assets::greeting_txt) {
         Some(r) => tr("resources-greeting")
             .arg("text", String::from_utf8_lossy(r.as_slice()).into_owned())
             .format(),

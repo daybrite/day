@@ -1,4 +1,4 @@
-# Resources (§18.3, §18.4)
+# Resources (§18.3, §18.4, §18.5)
 
 Day apps bundle three kinds of resource, all looked up by name, all routed through each platform's
 native resource machinery so they get the platform's optimizations and load paths for free. Day
@@ -6,16 +6,55 @@ never rewrites your pixels or bytes itself. It hands the raw files to the native
 optionally optimizes them (actool re-encodes/dedupes, aapt2 crunches, …). Data is stored
 uncompressed wherever the platform allows, so the runtime can return a zero-copy view.
 
-| Project dir | Kind | API | Native store |
+| Project dir | Kind | API (typed, §18.5) | Native store |
 |---|---|---|---|
-| `resource/images/` | processed images | `image("logo")` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
-| `resource/assets/` | arbitrary data | `resource("stations.json")` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `resource/fonts/` | custom fonts | `Font::Custom("Family", pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | `image(res::images::logo)` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
+| `resource/assets/` | arbitrary data | `resource(res::assets::stations_json)` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
+| `resource/fonts/` | custom fonts | `Font::custom(res::fonts::family, pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
 
-## Images — `image("name")`
+## Referencing resources — typed constants (§18.5)
+
+You don't reference bundled resources by bare string. An app's `build.rs` — one line, wired into the
+`day new` scaffold — generates a typed constant for every file under `resource/`:
+
+```rust
+// build.rs
+fn main() { day_build::generate_resources().expect("day-build: resource codegen"); }
+```
+
+```rust
+// src/lib.rs — surface the generated constants once
+pub mod res { include!(concat!(env!("OUT_DIR"), "/day_resources.rs")); }
+```
+
+```rust
+image(res::images::logo)                  // ImageName  ← resource/images/logo.png
+resource(res::assets::stations_json)      // AssetName  ← resource/assets/stations.json
+Font::custom(res::fonts::pacifico, 24.0)  // FontFamily ← resource/fonts/*.ttf (family "Pacifico")
+```
+
+Referencing a resource that isn't bundled is a **compile error**, the available names **autocomplete**,
+and dropping a file into `resource/` makes its constant appear on the next build (`cargo:rerun-if-changed`).
+Symbols are lowercase `[a-z0-9_]`: the file stem for images, the full file name (sanitized, e.g.
+`numbers.bin` → `numbers_bin`) for assets, and the parsed font family (`"Special Elite"` →
+`special_elite`) for fonts.
+
+For a name known only at runtime, opt in explicitly — this bypasses the presence guarantee:
+
+```rust
+image(ImageName::dynamic(user_choice))
+resource(AssetName::dynamic(format!("page-{n}.json")))
+```
+
+`day-build` also fails the build with a fix hint if an image stem isn't **portable** across toolkits
+(e.g. `Logo.png` resolves verbatim on Apple/GTK/Qt but as `logo` on Android/ArkUI — rename to
+`logo.png`), or if two files **collide** on one symbol. The same crate is the single source of the
+name→identifier rule the CLI stagers use, so a constant's string is exactly the name staged natively.
+
+## Images — `image(res::images::name)`
 
 Drop `resource/images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
-each image into the target's native image pipeline; `image("logo")` (the existing piece) then
+each image into the target's native image pipeline; `image(res::images::logo)` (the piece) then
 resolves the name through the native by-name API. Nothing about the piece API changes, only how
 the backend resolves the name.
 
@@ -36,13 +75,13 @@ the backend resolves the name.
 - **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
 
-## Data — `resource("name")`
+## Data — `resource(res::assets::name)`
 
-`day::resource("stations.json")` returns a `Resource` with efficient random read-only access, backed
-directly by the native store (zero-copy where the platform exposes a stable pointer):
+`day::resource(res::assets::stations_json)` returns a `Resource` with efficient random read-only
+access, backed directly by the native store (zero-copy where the platform exposes a stable pointer):
 
 ```rust
-let res = day::resource("stations.json").expect("bundled");
+let res = day::resource(res::assets::stations_json).expect("bundled");
 let all: &[u8] = res.as_slice();          // zero-copy view
 let n = res.len();                        // byte length
 let mut hdr = [0u8; 16];
@@ -57,7 +96,7 @@ Backing per platform: Apple = mmap of the bundle file (the "plain file handle");
 opener once via `day_core::set_resource_opener`; absent that, the default mmap-file opener is used
 (which is exactly the Apple path). See `crates/day-core/src/resource.rs`.
 
-## Fonts — `Font::Custom("Family", pt)` (§18.4)
+## Fonts — `Font::custom(res::fonts::family, pt)` (§18.4)
 
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. The single invariant that makes the name resolve everywhere with no
@@ -106,7 +145,7 @@ unknown family logs `day: unknown font family …` and falls back to the system 
 font is a visual bug, never a crash. Weight overrides on custom fonts map to synthesized bold
 (`>= Semibold`) where the family has no such face.
 
-## Scaling — `image("logo").content_mode(…)` / `.aspect_ratio(…)`
+## Scaling — `image(res::images::logo).content_mode(…)` / `.aspect_ratio(…)`
 
 Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, never stretch). Tune
 with `.content_mode(ContentMode::Fill)` (preserve aspect, crop), `.stretch()`, or the shorthands

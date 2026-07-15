@@ -1851,6 +1851,7 @@ pub mod prelude {
     pub use day_spec::props::RowHeight;
     pub use day_spec::{DragPhase, GestureKind};
     pub use day_spec::{DrawOp, Shape, TextAnchor};
+    pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     pub use day_spec::{MenuItem, MenuRole, Shortcut};
 }
@@ -2336,9 +2337,9 @@ pub struct Image {
     decorative: bool,
 }
 
-pub fn image(asset_name: &str) -> Image {
+pub fn image(name: impl Into<day_spec::ImageName>) -> Image {
     Image {
-        source: asset_name.to_owned(),
+        source: name.into().as_str().to_owned(),
         content_mode: ContentMode::default(),
         aspect_ratio: None,
         decorative: false,
@@ -2797,20 +2798,21 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         });
         self
     }
-    /// Like [`item`](Self::item) but with a native icon: `icon` is a BUNDLED IMAGE NAME (resolved
-    /// like [`image`]) shown beside the label where the backend's nav supports it (e.g. the Windows
+    /// Like [`item`](Self::item) but with a native icon: `icon` is a bundled-image name (typed
+    /// [`ImageName`](day_spec::ImageName), resolved like [`image`], e.g. `res::images::nav_home`)
+    /// shown beside the label where the backend's nav supports it (e.g. the Windows
     /// NavigationView, the iOS/macOS source list). Backends that can't decorate rows ignore it.
     pub fn item_icon<M, P: Piece>(
         mut self,
         key: impl Into<K>,
         title: impl IntoText<M>,
-        icon: impl Into<String>,
+        icon: impl Into<day_spec::ImageName>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
         self.items.push(SelItem {
             key: key.into(),
             title: title.into_text(),
-            icon: Some(icon.into()),
+            icon: Some(icon.into().as_str().to_owned()),
             build: Box::new(move || AnyPiece::new(build())),
         });
         self

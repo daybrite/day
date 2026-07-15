@@ -198,25 +198,11 @@ pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
 }
 
 /// Sanitize a name to the strictest platform identifier rules (Android `R` / ArkUI): lowercase, and
-/// only `[a-z0-9_]`, leading letter. Used by the backends that need identifier-safe names.
-#[allow(dead_code)] // consumed by the android/arkui stagers (landing).
-pub fn sanitize_ident(name: &str) -> String {
-    let mut s: String = name
-        .chars()
-        .map(|c| {
-            let c = c.to_ascii_lowercase();
-            if c.is_ascii_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if !s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
-        s.insert(0, 'r');
-    }
-    s
-}
+/// only `[a-z0-9_]`, leading letter. Re-exported from `day-build` — the single source of truth — so
+/// the identifier a stager writes into a backend's native store is exactly the one the generated
+/// `res::…` constants (produced by the same crate) resolve by (§18.5). Used by the android/arkui
+/// stagers that need identifier-safe names.
+pub use day_build::sanitize_ident;
 
 /// Resolve the platform-appropriate app icon from the project's `icons/` directory (§18.2): the
 /// LARGEST file of the wanted type in the first candidate subdirectory that has one. The convention

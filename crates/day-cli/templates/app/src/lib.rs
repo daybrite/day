@@ -6,6 +6,14 @@ use day::prelude::*;
 mod pages;
 use crate::pages::*;
 
+/// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
+/// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`. Reference bundled resources
+/// through these — `image(res::images::app_logo)` — so a typo is a compile error and the resource is
+/// guaranteed present. Drop a file into `resource/images/` and its constant appears on the next build.
+pub mod res {
+    include!(concat!(env!("OUT_DIR"), "/day_resources.rs"));
+}
+
 day::routes! {
     /// The app's sections, typed (https://daybrite.dev/docs/navigation): each variant's key is
     /// what deep links, dayscript, and `current_route()` speak, and the `.item(Section::…)`

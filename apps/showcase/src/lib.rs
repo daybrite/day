@@ -13,6 +13,13 @@ mod widgets;
 
 use crate::pages::*;
 
+/// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
+/// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`. The showcase references its
+/// bundled resources through these, so a renamed/removed file is a compile error, not a runtime miss.
+pub mod res {
+    include!(concat!(env!("OUT_DIR"), "/day_resources.rs"));
+}
+
 thread_local! {
     /// The most recent app-lifecycle phase, shown live on the Menus page (docs/lifecycle.md).
     static LIFECYCLE_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
@@ -124,47 +131,47 @@ pub fn root() -> AnyPiece {
         .item_icon(
             Section::Controls,
             tr("nav-controls"),
-            "nav_controls",
+            res::images::nav_controls,
             controls_page,
         )
-        .item_icon(Section::Text, tr("nav-text"), "nav_text", text_page)
-        .item_icon(Section::Canvas, tr("nav-canvas"), "nav_canvas", canvas_page)
-        .item_icon(Section::System, tr("nav-system"), "nav_system", system_page)
+        .item_icon(Section::Text, tr("nav-text"), res::images::nav_text, text_page)
+        .item_icon(Section::Canvas, tr("nav-canvas"), res::images::nav_canvas, canvas_page)
+        .item_icon(Section::System, tr("nav-system"), res::images::nav_system, system_page)
         .item_icon(
             Section::Services,
             tr("nav-services"),
-            "nav_services",
+            res::images::nav_services,
             services_page,
         )
-        .item_icon(Section::Menus, tr("nav-menus"), "nav_menus", menus_page)
-        .item_icon(Section::Modals, tr("nav-modals"), "nav_modals", modals_page)
-        .item_icon(Section::List, tr("nav-list"), "nav_list", list_page)
-        .item_icon(Section::Tabs, tr("nav-tabs"), "nav_tabs", tabs_page)
-        .item_icon(Section::Stack, tr("nav-stack"), "nav_stack", stack_page)
-        .item_icon(Section::Media, tr("nav-media"), "nav_media", media_page)
+        .item_icon(Section::Menus, tr("nav-menus"), res::images::nav_menus, menus_page)
+        .item_icon(Section::Modals, tr("nav-modals"), res::images::nav_modals, modals_page)
+        .item_icon(Section::List, tr("nav-list"), res::images::nav_list, list_page)
+        .item_icon(Section::Tabs, tr("nav-tabs"), res::images::nav_tabs, tabs_page)
+        .item_icon(Section::Stack, tr("nav-stack"), res::images::nav_stack, stack_page)
+        .item_icon(Section::Media, tr("nav-media"), res::images::nav_media, media_page)
         .item_icon(
             Section::Resources,
             tr("nav-resources"),
-            "nav_resources",
+            res::images::nav_resources,
             resources_page,
         )
         .item_icon(
             Section::WebView,
             tr("nav-webview"),
-            "nav_webview",
+            res::images::nav_webview,
             webview_page,
         )
-        .item_icon(Section::Tweaks, tr("nav-tweaks"), "nav_tweaks", tweaks_page);
+        .item_icon(Section::Tweaks, tr("nav-tweaks"), res::images::nav_tweaks, tweaks_page);
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let nav = nav.item_icon(Section::Map, tr("nav-map"), "nav_map", map_page);
-    nav.item_icon(Section::About, tr("nav-about"), "nav_about", about_page)
+    let nav = nav.item_icon(Section::Map, tr("nav-map"), res::images::nav_map, map_page);
+    nav.item_icon(Section::About, tr("nav-about"), res::images::nav_about, about_page)
         .id("nav")
 }
 
 fn sidebar_header() -> AnyPiece {
     row((
-        image("day_logo").frame(28.0, 28.0),
+        image(res::images::day_logo).frame(28.0, 28.0),
         label(tr("app-title")).font(Font::Headline).id("home-title"),
     ))
     .spacing(8.0)

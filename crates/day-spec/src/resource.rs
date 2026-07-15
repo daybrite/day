@@ -12,8 +12,91 @@
 //! [default opener](default_open) mmaps the file resolved from `DAY_ASSET_ROOT` or the app bundle.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+
+// ---------------------------------------------------------------------------
+// Typed resource identifiers (§18.5)
+//
+// `image(...)`, `resource(...)`, and `Font::custom(...)` take these newtypes rather than a bare
+// `&str`. Every value is meant to come from a generated `res::images/assets/fonts::…` constant
+// (`day-build`), so referencing a resource that isn't bundled is a compile error and the available
+// names autocomplete. A string *literal* deliberately does NOT coerce — that is what turns "present"
+// from a convention into a guarantee; a name only known at runtime uses the explicit `::dynamic`
+// escape hatch (or, for images/assets, `From<String>`).
+// ---------------------------------------------------------------------------
+
+macro_rules! resource_name {
+    ($(#[$m:meta])* $name:ident, $what:literal) => {
+        $(#[$m])*
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct $name(Cow<'static, str>);
+
+        impl $name {
+            #[doc = concat!("A ", $what, " known at compile time — the form the generated `res::…` constants use.")]
+            pub const fn from_static(name: &'static str) -> Self {
+                $name(Cow::Borrowed(name))
+            }
+            #[doc = concat!("Escape hatch for a ", $what, " computed at runtime (no build-time presence guarantee).")]
+            pub fn dynamic(name: impl Into<String>) -> Self {
+                $name(Cow::Owned(name.into()))
+            }
+            /// The underlying wire name the backend resolves by.
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        // Owned strings convert (dynamic names); a `&str` literal intentionally does not, so
+        // `image("typo")` / `resource("typo")` fail to compile.
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                $name(Cow::Owned(s))
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+    };
+}
+
+resource_name!(
+    /// The bundled-image name that [`image`](crate::resource) callers resolve by (the file stem).
+    ImageName,
+    "bundled-image name"
+);
+resource_name!(
+    /// The bundled-data name that [`resource`] resolves by (the full file name, extension included).
+    AssetName,
+    "bundled-asset name"
+);
+
+/// The family name of a bundled custom font, feeding `Font::custom`. Holds a `&'static str` (so
+/// `Font` stays `Copy`); generated `res::fonts::…` constants supply it. The untyped
+/// `Font::Custom(&'static str, f64)` variant remains the escape hatch for a family known another way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FontFamily(&'static str);
+
+impl FontFamily {
+    /// A font family known at compile time — the form the generated `res::fonts::…` constants use.
+    pub const fn from_static(family: &'static str) -> Self {
+        FontFamily(family)
+    }
+    /// The underlying family name (what `Font::Custom` carries).
+    pub const fn as_str(&self) -> &'static str {
+        self.0
+    }
+}
+
+impl std::fmt::Display for FontFamily {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
 
 /// A handle to a bundled resource's bytes with efficient random read-only access.
 ///
@@ -108,9 +191,12 @@ pub fn set_resource_opener(opener: ResourceOpener) {
 
 /// Open a bundled resource by name for efficient random read-only access.
 ///
-/// Returns `None` if the backend has no resource with that name. Names match the file names staged
-/// by `day build` from the project's `assets/` directory (e.g. `resource("stations.json")`).
-pub fn resource(name: &str) -> Option<Resource> {
+/// Returns `None` if the backend has no resource with that name. Takes an [`AssetName`] — pass a
+/// generated `res::assets::…` constant (e.g. `resource(res::assets::stations_json)`) for a checked,
+/// guaranteed-present reference, or [`AssetName::dynamic`] for a name known only at runtime.
+pub fn resource(name: impl Into<AssetName>) -> Option<Resource> {
+    let name = name.into();
+    let name = name.as_str();
     match OPENER.get() {
         Some(open) => open(name),
         None => default_open(name),
@@ -217,7 +303,7 @@ mod tests {
         }
 
         // default data opener: whole view + random access + clamping + miss.
-        let res = resource("blob.bin").expect("resource present");
+        let res = resource(AssetName::from_static("blob.bin")).expect("resource present");
         assert_eq!(res.len(), 1000);
         assert!(!res.is_empty());
         assert_eq!(res.as_slice(), &payload[..]);
@@ -227,7 +313,9 @@ mod tests {
         assert_eq!(res.read_at(995, &mut buf), 5);
         assert_eq!(&buf[..5], &payload[995..1000]);
         assert_eq!(res.read_at(2000, &mut buf), 0);
-        assert!(resource("does-not-exist.bin").is_none());
+        assert!(resource(AssetName::from_static("does-not-exist.bin")).is_none());
+        // Dynamic names go through the explicit escape hatch.
+        assert!(resource(AssetName::dynamic(String::from("nope.bin"))).is_none());
 
         // image-file resolver: extension inference + exact + miss.
         assert_eq!(resolve_image_file("logo"), Some(dir.join("logo.png")));

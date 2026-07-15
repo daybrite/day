@@ -649,6 +649,9 @@ fn template_context(
         },
     );
     ctx.insert("day_dep", deps.dep("day", ""));
+    // The resource-constant codegen helper the app's build.rs calls (§18.5) — same source (git /
+    // version / local path) as the `day` dep so it resolves identically.
+    ctx.insert("day_build_dep", deps.dep("day-build", ""));
     ctx.insert(
         "targets_toml",
         targets

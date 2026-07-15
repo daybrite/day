@@ -6,6 +6,10 @@ use day::prelude::*;
 pub(crate) fn home_page() -> AnyPiece {
     let count = Signal::new(0i64);
     column((
+        // A bundled image referenced by its typed constant (§18.5): `res::images::app_logo` is
+        // generated from `resource/images/app_logo.png`, so this is a compile error if the file is
+        // missing. Replace the placeholder PNG with your own (any name works — the constant follows).
+        image(crate::res::images::app_logo).frame(64.0, 64.0),
         label(tr("home-welcome")).font(Font::Title).id("home-title"),
         label(tr("home-blurb")),
         row((

@@ -15,7 +15,7 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
-pub use day_core::{Resource, resource};
+pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 pub use day_core::{lifecycle_supported, on_lifecycle};
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
@@ -68,7 +68,7 @@ pub mod prelude {
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
-    pub use day_core::{Resource, resource};
+    pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
     // Toolkit capability probe (docs): lets app/piece content adapt to the backend, e.g. skip a
     // title the native nav already shows (`Cap::NavHeader`). `capability(cap) -> Support`.
     pub use day_core::capability;

@@ -4,7 +4,7 @@ use crate::widgets::battery_line;
 
 pub(crate) fn about_page() -> AnyPiece {
     column((
-        image("day_logo").frame(96.0, 96.0),
+        image(crate::res::images::day_logo).frame(96.0, 96.0),
         label(tr("app-title")).font(Font::Headline),
         label(tr("about-text")).id("about-text"),
         // A HEADLESS capability crate (day-part-battery, docs/battery.md): app Rust calls

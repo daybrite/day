@@ -46,6 +46,7 @@ members = [
     "tweaks/day-tweak-label-selectable",
     "tweaks/day-tweak-slider-tickmarks",
     "crates/day-toolchain",
+    "crates/day-build",
     "crates/day-cli",
 ]
 # apps/matrix is its OWN workspace (it pulls the heavy matrix-rust-sdk tree — ~400 crates — which must
@@ -57,6 +58,7 @@ default-members = [
     "crates/day-fluent",
     "crates/day-geometry",
     "crates/day-fonts",
+    "crates/day-build",
     "crates/day-reactive",
     "crates/day-spec",
     "crates/day-mock",
@@ -66,11 +68,12 @@ default-members = [
     "crates/day-fluent",
 ]
 
-# crates.io publishing policy: for now ONLY `day-cli` and its two leaf dependencies (`day-fonts`,
-# `day-toolchain`) are published, so `cargo install day-cli` works while the rest of the crate names
-# stay unclaimed and free to rename. Every other member carries `publish = false`, so
-# `cargo publish --workspace` (and the `release` CI job) publishes exactly those three, in dependency
-# order. To publish another crate later, drop its `publish = false`.
+# crates.io publishing policy: for now ONLY `day-cli` and its leaf dependencies (`day-fonts`,
+# `day-toolchain`, and `day-build` — the resource-constant build helper an app's `build.rs` depends
+# on) are published, so `cargo install day-cli` and a scaffolded app's `[build-dependencies]` both
+# resolve while the rest of the crate names stay unclaimed and free to rename. Every other member
+# carries `publish = false`, so `cargo publish --workspace` (and the `release` CI job) publishes
+# exactly those four, in dependency order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
 version = "0.0.7"
 authors = ["Daybrite <hello@daybrite.dev>"]
@@ -118,6 +121,7 @@ day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.
 day-tweak-label-selectable = { path = "tweaks/day-tweak-label-selectable", version = "0.0.7" }
 day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", version = "0.0.7" }
 day-toolchain = { path = "crates/day-toolchain", version = "0.0.7" }
+day-build = { path = "crates/day-build", version = "0.0.7" }
 day-appkit = { path = "toolkits/day-appkit", version = "0.0.7" }
 day-gtk = { path = "toolkits/day-gtk", version = "0.0.7" }
 day-qt = { path = "toolkits/day-qt", version = "0.0.7" }

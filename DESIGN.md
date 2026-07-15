@@ -2073,6 +2073,9 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
   (into `day_meta.rs`), so `Asset::named` typos are lint-able and `day lint` cross-checks
   references. Piece-package resources aggregate per §15.2.
 
+> **Superseded:** the shipped data API is `resource("name")` (§18.3), not `Asset::named`; the
+> "generated index, lint-able typos" goal is realized as the **typed resource constants of §18.5**.
+
 ### §18.2 Icons and images
 
 - **Vector icons, first-class — with an honest pipeline:** android.graphics and Qt Widgets cannot
@@ -2115,6 +2118,28 @@ register at startup: CoreText (AppKit/UIKit), fontconfig + CoreText (GTK, per-OS
 (Qt), XAML `path#family` (WinUI — unpackaged apps have no registration API). Validation is
 build-time and hard: only ttf/otf, a parseable name table, no family-ident collisions. An unknown
 family at runtime falls back to the system font with a log line, never a crash.
+
+### §18.5 Typed resource constants (docs/resources.md)
+
+Every bundled resource is also surfaced to app code as a **typed constant**, so a reference is
+checked at compile time instead of failing at runtime on whichever backend can't find the name. An
+app's `build.rs` calls `day_build::generate_resources()`, which scans `resource/{images,assets,fonts}`
+and emits (into `$OUT_DIR`, surfaced by the scaffold's one-line `pub mod res { include!(…) }`):
+`res::images::<stem>: ImageName`, `res::assets::<file>: AssetName`, `res::fonts::<family>: FontFamily`.
+`image`, `resource`, and `Font::custom` take those newtypes, so `image(res::images::nav_home)` is a
+build error if the file is missing and the available names autocomplete; `cargo:rerun-if-changed`
+regenerates when a file is added or removed. A name known only at runtime uses the explicit
+`ImageName::dynamic(…)` / `AssetName::dynamic(…)` escape hatch (a bare string literal deliberately does
+**not** coerce — that is what turns "present" from convention into guarantee); the untyped
+`Font::Custom(&'static str, pt)` variant remains the font escape hatch.
+
+`day-build` (a published leaf, `day-fonts` + std only, so an app can take it as a `[build-dependencies]`)
+is the **single source of truth** for the name→identifier rule (`sanitize_ident`) — the CLI stagers of
+§18.3/§18.4 re-export it, so the string baked into a constant is exactly the name staged into each
+backend's native store. It rejects at build time any image stem that is not portable across toolkits
+(differs after sanitization — verbatim on Apple/GTK/Qt but re-sanitized on Android/ArkUI) and any two
+files that collide on one symbol, each with a rename hint. This realizes §18.1's "generated,
+lint-able asset index" intent for the shipped `image()` / `resource()` / `Font` APIs.
 
 ---
 

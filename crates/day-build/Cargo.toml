@@ -1,0 +1,18 @@
+[package]
+name = "day-build"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A build-script helper: scan a Day project's `resource/{images,assets,fonts}` and emit typed
+# symbolic constants (`res::images::nav_system: ImageName`, …) so app code references resources by a
+# compiler-checked symbol instead of a bare string (§18.5). Pure std + `day-fonts` (for the font
+# family → identifier rule), so an app's `build.rs` can depend on it as a `[build-dependencies]`
+# entry without pulling the toolkit graph. Also the single source of truth for the resource
+# name → identifier mapping that the CLI stagers (`day-cli/src/resources`) reuse, so the generated
+# constant string can never drift from the staged native name.
+[dependencies]
+day-fonts = { workspace = true }

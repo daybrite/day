@@ -400,12 +400,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-build"
+version = "0.0.7"
+dependencies = [
+ "day-fonts",
+]
+
+[[package]]
 name = "day-cli"
 version = "0.0.7"
 dependencies = [
  "anstream",
  "anstyle",
  "clap",
+ "day-build",
  "day-fonts",
  "day-toolchain",
  "handlebars",
@@ -2543,6 +2551,7 @@ name = "showcase"
 version = "0.0.7"
 dependencies = [
  "day",
+ "day-build",
  "day-part-battery",
  "day-part-clipboard",
  "day-part-deviceinfo",

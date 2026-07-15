@@ -10,7 +10,10 @@ pub use day_geometry::*;
 
 /// Bundled-resource random-access API + the per-backend opener seam (§18.3).
 pub mod resource;
-pub use resource::{Resource, ResourceOpener, resolve_image_file, resource, set_resource_opener};
+pub use resource::{
+    AssetName, FontFamily, ImageName, Resource, ResourceOpener, resolve_image_file, resource,
+    set_resource_opener,
+};
 
 /// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution
 /// (§18.4). Shared by the CLI stagers and the backends' startup registration. Lives in the leaf
@@ -584,6 +587,17 @@ pub enum Font {
     /// (or the platform synthesizes) such a face. An unknown family falls back to the system font
     /// of the same size, with a warning in the log.
     Custom(&'static str, f64),
+}
+
+impl Font {
+    /// A bundled custom font by **typed family**, at a point size — the checked form of
+    /// [`Font::Custom`]. Pass a generated `res::fonts::…` constant
+    /// (`Font::custom(res::fonts::pacifico, 24.0)`), which exists only if the family ships in the
+    /// project's `fonts/` directory, so the font is guaranteed bundled. For a family name known
+    /// another way, the untyped [`Font::Custom`] variant is the escape hatch.
+    pub const fn custom(family: FontFamily, size: f64) -> Font {
+        Font::Custom(family.as_str(), size)
+    }
 }
 
 /// Font weight, matching `UIFont.Weight` / SwiftUI `Font.Weight` (lightest → heaviest).

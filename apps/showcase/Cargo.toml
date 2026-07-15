@@ -4,6 +4,9 @@ publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+# Generate typed resource constants (`res::images::…`, `res::assets::…`, `res::fonts::…`) from
+# `resource/` on every build (§18.5) — dogfoods day-build; see build.rs and the `res` module in lib.rs.
+build = "build.rs"
 
 # Each backend line is JUST the `day/<backend>` toolkit. The Day CLI derives every standalone piece's
 # `<pkg>/<backend>` renderer feature from `[package.metadata.day.piece]` and unions it into the build
@@ -31,6 +34,10 @@ mock = ["day/mock"]
 # on the windows-gnu ABI (windows-gtk / windows-qt): "too many exported symbols, max 65535".
 [lib]
 crate-type = ["rlib"]
+
+[build-dependencies]
+# Resource-constant codegen (§18.5) — the same crate a scaffolded app's build.rs uses.
+day-build = { workspace = true }
 
 [dependencies]
 day = { workspace = true }

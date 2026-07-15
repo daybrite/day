@@ -19,7 +19,9 @@ pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
 pub use present::*;
 // The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
-pub use day_spec::resource::{Resource, ResourceOpener, resource, set_resource_opener};
+pub use day_spec::resource::{
+    AssetName, FontFamily, ImageName, Resource, ResourceOpener, resource, set_resource_opener,
+};
 pub use tree::*;
 
 /// The app-wide layout direction (docs/localization): mirrors every horizontal placement in
