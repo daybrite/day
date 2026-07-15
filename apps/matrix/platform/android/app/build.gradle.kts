@@ -38,7 +38,9 @@ android {
             pieceJavaDirs.forEach { java.srcDir(it) }
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
-            assets.srcDir(rootProject.projectDir.resolve("../../assets"))
+            // The project's `resource/assets/` — raw data bundled into the APK `assets/` root and
+            // read via the NDK `AAssetManager` (§18.3).
+            assets.srcDir(rootProject.projectDir.resolve("../../resource/assets"))
         }
         // Android <uses-permission>s contributed by standalone pieces (docs/extending.md) live in a
         // generated overlay manifest that AGP merges into the app manifest. Point the build-type
