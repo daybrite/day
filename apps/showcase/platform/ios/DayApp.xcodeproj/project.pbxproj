@@ -17,7 +17,7 @@
 		DA0000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA0000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA0000000000000000000003 /* Showcase.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Showcase.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		DA0000000000000000000004 /* hello.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = hello.json; path = "../../assets/hello.json"; sourceTree = SOURCE_ROOT; };
+		DA0000000000000000000004 /* hello.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = hello.json; path = "../../resource/assets/hello.json"; sourceTree = SOURCE_ROOT; };
 		DA0000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 

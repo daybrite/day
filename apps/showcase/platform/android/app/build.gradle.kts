@@ -57,7 +57,9 @@ android {
             pieceJavaDirs.forEach { java.srcDir(it) }
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
-            assets.srcDir(rootProject.projectDir.resolve("../../assets"))
+            // The project's `resource/assets/` — raw data (e.g. Lottie `hello.json`) bundled into
+            // the APK `assets/` root and read via the NDK `AAssetManager` (§18.3).
+            assets.srcDir(rootProject.projectDir.resolve("../../resource/assets"))
             // Processed images (§18.3): images/ staged into res/drawable* -> R.drawable, crunched by aapt2.
             res.srcDir(rootProject.projectDir.resolve("../../build/day/android/res"))
         }
