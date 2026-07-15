@@ -8,9 +8,9 @@ use crate::widgets::{battery_line, page};
 /// form `section`; the readout rows are `labeled`, so their labels align form-wide.
 pub(crate) fn system_page() -> AnyPiece {
     page(
-        tr("nav-system"),
+        crate::res::str::nav_system(),
         "system-title",
-        Some(tr("system-caption")),
+        Some(crate::res::str::system_caption()),
         form((
             battery_section(),
             network_section(),
@@ -35,7 +35,7 @@ fn battery_section() -> impl Piece {
     section((
         battery_view(level, charging),
         labeled(
-            tr("battery-level"),
+            crate::res::str::battery_level(),
             row((
                 slider(level).range(0.0..=100.0).id("battery-level"),
                 label(move || format!("{:.0}%", level.get())).id("battery-level-value"),
@@ -43,11 +43,11 @@ fn battery_section() -> impl Piece {
             .spacing(8.0),
         ),
         labeled(
-            tr("battery-charging"),
+            crate::res::str::battery_charging(),
             toggle(charging).id("battery-charging"),
         ),
         row((
-            button(tr("battery-refresh"))
+            button(crate::res::str::battery_refresh())
                 .bordered()
                 .action(move || {
                     reading.set(battery_line().format());
@@ -63,34 +63,35 @@ fn battery_section() -> impl Piece {
         ))
         .spacing(8.0),
     ))
-    .title(tr("nav-battery"))
+    .title(crate::res::str::nav_battery())
 }
 
 fn network_section() -> impl Piece {
     let reading = Signal::new(network_line().format());
     section((row((
-        button(tr("network-refresh"))
+        button(crate::res::str::network_refresh())
             .bordered()
             .action(move || reading.set(network_line().format()))
             .id("network-refresh"),
         label(move || reading.get()).id("network-reading"),
     ))
     .spacing(8.0),))
-    .title(tr("nav-network"))
+    .title(crate::res::str::nav_network())
 }
 
 fn sensors_section() -> impl Piece {
     use day_part_sensors::SensorKind;
     fn sensor_line(kind: SensorKind, unit: &str) -> String {
         match day_part_sensors::read(kind) {
-            Some(r) => tr("sensor-reading")
-                .arg("x", format!("{:+.2}", r.x))
-                .arg("y", format!("{:+.2}", r.y))
-                .arg("z", format!("{:+.2}", r.z))
-                .arg("unit", unit)
-                .format(),
-            None if day_part_sensors::is_available(kind) => tr("sensor-waiting").format(),
-            None => tr("sensor-unavailable").format(),
+            Some(r) => crate::res::str::sensor_reading(
+                unit,
+                format!("{:+.2}", r.x),
+                format!("{:+.2}", r.y),
+                format!("{:+.2}", r.z),
+            )
+            .format(),
+            None if day_part_sensors::is_available(kind) => crate::res::str::sensor_waiting().format(),
+            None => crate::res::str::sensor_unavailable().format(),
         }
     }
     let accel = Signal::new(sensor_line(SensorKind::Accelerometer, "m/s²"));
@@ -98,18 +99,18 @@ fn sensors_section() -> impl Piece {
     let magnet = Signal::new(sensor_line(SensorKind::Magnetometer, "µT"));
     section((
         labeled(
-            tr("sensor-accelerometer"),
+            crate::res::str::sensor_accelerometer(),
             label(move || accel.get()).id("sensor-accel"),
         ),
         labeled(
-            tr("sensor-gyroscope"),
+            crate::res::str::sensor_gyroscope(),
             label(move || gyro.get()).id("sensor-gyro"),
         ),
         labeled(
-            tr("sensor-magnetometer"),
+            crate::res::str::sensor_magnetometer(),
             label(move || magnet.get()).id("sensor-magnet"),
         ),
-        button(tr("sensors-refresh"))
+        button(crate::res::str::sensors_refresh())
             .bordered()
             .action(move || {
                 accel.set(sensor_line(SensorKind::Accelerometer, "m/s²"));
@@ -118,7 +119,7 @@ fn sensors_section() -> impl Piece {
             })
             .id("sensors-refresh"),
     ))
-    .title(tr("nav-sensors"))
+    .title(crate::res::str::nav_sensors())
 }
 
 fn device_section() -> impl Piece {
@@ -131,7 +132,7 @@ fn device_section() -> impl Piece {
         label(move || model.get()).id("deviceinfo-model"),
         label(move || system.get()).id("deviceinfo-system"),
         label(move || simulator.get()).id("deviceinfo-simulator"),
-        button(tr("deviceinfo-refresh"))
+        button(crate::res::str::deviceinfo_refresh())
             .bordered()
             .action(move || {
                 let (m, s, sim) = deviceinfo_lines();
@@ -141,7 +142,7 @@ fn device_section() -> impl Piece {
             })
             .id("deviceinfo-refresh"),
     ))
-    .title(tr("nav-deviceinfo"))
+    .title(crate::res::str::nav_deviceinfo())
 }
 
 /// Draw a battery on a canvas: rounded body + terminal nub, a level fill colored by band
@@ -249,7 +250,7 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
     // label/value (value is a build-time snapshot; reactive a11y is a follow-up).
     .a11y(move |a| {
         a.role(Role::Meter)
-            .label(tr("nav-battery").format())
+            .label(crate::res::str::nav_battery().format())
             .value(format!("{:.0}%", level.get_untracked()))
     })
     .id("battery")
@@ -261,21 +262,20 @@ fn battery_view(level: Signal<f64>, charging: Signal<bool>) -> AnyPiece {
 fn network_line() -> LocalizedText {
     match day_part_network::status() {
         Some(n) => {
-            let line = if n.online {
-                tr("network-reading-online")
+            if n.online {
+                crate::res::str::network_reading_online(
+                    match n.expensive {
+                        Some(true) => "yes",
+                        Some(false) => "no",
+                        None => "?",
+                    },
+                    format!("{:?}", n.kind),
+                )
             } else {
-                tr("network-reading-offline")
-            };
-            line.arg("kind", format!("{:?}", n.kind)).arg(
-                "expensive",
-                match n.expensive {
-                    Some(true) => "yes",
-                    Some(false) => "no",
-                    None => "?",
-                },
-            )
+                crate::res::str::network_reading_offline()
+            }
         }
-        None => tr("network-reading-none"),
+        None => crate::res::str::network_reading_none(),
     }
 }
 
@@ -283,17 +283,15 @@ fn network_line() -> LocalizedText {
 /// `(model, "name version", simulator)`. Values vary by host, so nothing is asserted exactly.
 fn deviceinfo_lines() -> (String, String, String) {
     let d = day_part_deviceinfo::get();
-    let model = tr("deviceinfo-model").arg("value", d.model).format();
-    let system = tr("deviceinfo-system")
-        .arg("name", d.system_name)
-        .arg("version", d.system_version)
-        .format();
+    let model = crate::res::str::deviceinfo_model(d.model).format();
+    let system =
+        crate::res::str::deviceinfo_system(d.system_name, d.system_version).format();
     // Each branch is a full literal tr(...) call so `day lint` sees both keys (never tr(if ...)).
     let sim_value = if d.is_simulator {
-        tr("deviceinfo-yes").format()
+        crate::res::str::deviceinfo_yes().format()
     } else {
-        tr("deviceinfo-no").format()
+        crate::res::str::deviceinfo_no().format()
     };
-    let simulator = tr("deviceinfo-simulator").arg("value", sim_value).format();
+    let simulator = crate::res::str::deviceinfo_simulator(sim_value).format();
     (model, system, simulator)
 }

@@ -15,13 +15,13 @@ pub(crate) fn webview_page() -> AnyPiece {
     let stop = Trigger::new();
     let reload = Trigger::new();
     column((
-        heading(tr("nav-webview"), "webview-title", None),
+        heading(crate::res::str::nav_webview(), "webview-title", None),
         // URL bar: the field is bound to the view's URL; Go loads whatever it holds.
         row((
             text_field(url)
-                .placeholder(tr("webview-url-hint"))
+                .placeholder(crate::res::str::webview_url_hint())
                 .id("webview-url"),
-            button(tr("webview-go"))
+            button(crate::res::str::webview_go())
                 .prominent()
                 .action(move || go.notify())
                 .id("webview-go"),
@@ -29,19 +29,19 @@ pub(crate) fn webview_page() -> AnyPiece {
         .spacing(8.0),
         // History controls. "Stop" is the demo's cancel.
         row((
-            button(tr("webview-back"))
+            button(crate::res::str::webview_back())
                 .bordered()
                 .action(move || back.notify())
                 .id("webview-back"),
-            button(tr("webview-forward"))
+            button(crate::res::str::webview_forward())
                 .bordered()
                 .action(move || forward.notify())
                 .id("webview-forward"),
-            button(tr("webview-stop"))
+            button(crate::res::str::webview_stop())
                 .bordered()
                 .action(move || stop.notify())
                 .id("webview-stop"),
-            button(tr("webview-reload"))
+            button(crate::res::str::webview_reload())
                 .bordered()
                 .action(move || reload.notify())
                 .id("webview-reload"),

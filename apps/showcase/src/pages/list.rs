@@ -8,18 +8,18 @@ pub(crate) fn list_page() -> AnyPiece {
     let count = Signal::new(500i64);
     column((
         row((
-            heading(tr("nav-list"), "list-title", None),
+            heading(crate::res::str::nav_list(), "list-title", None),
             spacer(),
-            button(tr("list-add"))
+            button(crate::res::str::list_add())
                 .prominent()
                 .action(move || count.update(|c| *c += 100))
                 .id("list-add"),
         )),
-        label(tr("list-caption").arg("count", count)).id("list-caption"),
+        label(crate::res::str::list_caption(count)).id("list-caption"),
         list(
             move || {
                 (1..=count.get())
-                    .map(|i| tr("list-row").arg("n", i).format())
+                    .map(|i| crate::res::str::list_row(i).format())
                     .collect::<Vec<_>>()
             },
             |s: &String| s.clone(),

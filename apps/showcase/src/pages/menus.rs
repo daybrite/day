@@ -80,16 +80,16 @@ pub(crate) fn install_app_menu() {
 /// EITHER the app menu bar or this context menu. See docs/menus.md.
 pub(crate) fn menus_page() -> AnyPiece {
     column((
-        heading(tr("nav-menus"), "menus-title", Some(tr("menus-caption"))),
+        heading(crate::res::str::nav_menus(), "menus-title", Some(crate::res::str::menus_caption())),
         // Live readouts: the last menu action (app menu or context menu), and the last app-lifecycle
         // phase (docs/lifecycle.md) — Quit fires WillTerminate; switching apps fires resign/active.
         column((
-            label(move || format!("{}  {}", tr("menus-last").format(), menu_log().get()))
+            label(move || format!("{}  {}", crate::res::str::menus_last().format(), menu_log().get()))
                 .id("menus-last"),
             label(move || {
                 format!(
                     "{}  {}",
-                    tr("menus-lifecycle").format(),
+                    crate::res::str::menus_lifecycle().format(),
                     lifecycle_log().get()
                 )
             })
@@ -98,9 +98,9 @@ pub(crate) fn menus_page() -> AnyPiece {
         .spacing(6.0)
         .align(HAlign::Leading),
         divider(),
-        label(tr("menus-context-hint")).font(Font::Headline),
+        label(crate::res::str::menus_context_hint()).font(Font::Headline),
         // A target for the context menu: nested submenu + a separator + a standard role.
-        label(tr("menus-target"))
+        label(crate::res::str::menus_target())
             .font(Font::Body)
             .padding(Insets::symmetric(20.0, 28.0))
             .id("menus-context-target")
@@ -126,7 +126,7 @@ pub(crate) fn menus_page() -> AnyPiece {
                     .action(move || menu_log().set("Context ▸ Delete".into())),
             ]),
         divider(),
-        label(tr("menus-shortcut-hint")).font(Font::Footnote),
+        label(crate::res::str::menus_shortcut_hint()).font(Font::Footnote),
     ))
     .spacing(12.0)
     .align(HAlign::Leading)

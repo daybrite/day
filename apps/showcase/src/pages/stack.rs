@@ -39,8 +39,8 @@ pub(crate) fn stack_page() -> AnyPiece {
     }
     let path = Signal::new(Vec::<Drill>::new());
     let root = column((
-        label(tr("stack-root-body")).id("stack-root"),
-        button(tr("stack-push"))
+        label(crate::res::str::stack_root_body()).id("stack-root"),
+        button(crate::res::str::stack_push())
             .prominent()
             .action(move || push(path))
             .id("stack-push"),
@@ -48,7 +48,7 @@ pub(crate) fn stack_page() -> AnyPiece {
         // the enclosing selector at Section::Stack, resets this stack, pushes Item { id: 42 };
         // the destination builder reads the ?hint= param via route_param().
         nav_link_to(
-            tr("stack-link-42"),
+            crate::res::str::stack_link_42(),
             route(&Section::Stack)
                 .then(&Drill::Item { id: 42 })
                 .param("hint", "linked"),
@@ -62,13 +62,13 @@ pub(crate) fn stack_page() -> AnyPiece {
         .destination(move |d: &Drill| {
             // The typed value arrives parsed — match, don't split strings.
             let title = match d {
-                Drill::Depth(n) => tr("stack-detail-title").arg("depth", n.to_string()),
-                Drill::Item { id } => tr("stack-item-title").arg("id", id.to_string()),
+                Drill::Depth(n) => crate::res::str::stack_detail_title(n.to_string()),
+                Drill::Item { id } => crate::res::str::stack_item_title(id.to_string()),
             };
             // Params travel with navigate() — a push performed by writing the path signal
             // carries its data in the route value itself (docs/navigation.md).
             let hint: AnyPiece = match route_param("hint") {
-                Some(h) => label(tr("stack-param-hint").arg("hint", h))
+                Some(h) => label(crate::res::str::stack_param_hint(h))
                     .font(Font::Footnote)
                     .id("stack-param")
                     .any(),
@@ -76,9 +76,9 @@ pub(crate) fn stack_page() -> AnyPiece {
             };
             column((
                 label(title).font(Font::Title).id("stack-detail"),
-                label(tr("stack-detail-body")),
+                label(crate::res::str::stack_detail_body()),
                 hint,
-                button(tr("stack-push"))
+                button(crate::res::str::stack_push())
                     .prominent()
                     .action(move || push(path))
                     .id("stack-deeper"),

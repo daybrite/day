@@ -404,6 +404,7 @@ name = "day-build"
 version = "0.0.7"
 dependencies = [
  "day-fonts",
+ "fluent-syntax",
 ]
 
 [[package]]

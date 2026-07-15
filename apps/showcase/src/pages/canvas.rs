@@ -9,9 +9,9 @@ use crate::widgets::{gauge, page};
 /// group in its own themed section.
 pub(crate) fn canvas_page() -> AnyPiece {
     page(
-        tr("nav-canvas"),
+        crate::res::str::nav_canvas(),
         "canvas-title",
-        Some(tr("canvas-caption")),
+        Some(crate::res::str::canvas_caption()),
         form((
             shapes_section(),
             transform_section(),
@@ -55,7 +55,7 @@ fn shapes_section() -> impl Piece {
         ))
         .spacing(12.0),
     ))
-    .title(tr("shapes-kinds"))
+    .title(crate::res::str::shapes_kinds())
 }
 
 fn transform_section() -> impl Piece {
@@ -65,7 +65,7 @@ fn transform_section() -> impl Piece {
     let base = Signal::new((0.0f64, 0.0f64));
     section((
         labeled(
-            tr("shapes-angle"),
+            crate::res::str::shapes_angle(),
             slider(angle).range(0.0..=360.0).id("shapes-angle-slider"),
         ),
         row((
@@ -106,21 +106,21 @@ fn transform_section() -> impl Piece {
                 .frame(90.0, 90.0),
         ))
         .spacing(20.0),
-        label(tr("shapes-interact-hint")).font(Font::Footnote),
+        label(crate::res::str::shapes_interact_hint()).font(Font::Footnote),
     ))
-    .title(tr("shapes-transform"))
+    .title(crate::res::str::shapes_transform())
 }
 
 fn gauge_section() -> impl Piece {
     let level = Signal::new(40.0f64);
     section((
         labeled(
-            tr("volume-label"),
+            crate::res::str::volume_label(),
             slider(level).range(0.0..=100.0).id("gauge-slider"),
         ),
         gauge(level),
     ))
-    .title(tr("canvas-gauge"))
+    .title(crate::res::str::canvas_gauge())
 }
 
 fn compose_section() -> impl Piece {
@@ -138,25 +138,25 @@ fn compose_section() -> impl Piece {
     let accent = Color::hex(0x30_B0_60);
 
     section((
-        label(tr("compose-caption")).font(Font::Footnote),
+        label(crate::res::str::compose_caption()).font(Font::Footnote),
         // 1) Interactive star rating (canvas-polygon compose piece): tap a star, and the text
         //    field beside it updates with the count (the `bind` above drives it).
         labeled(
-            tr("compose-rating-label"),
+            crate::res::str::compose_rating_label(),
             rating(stars).id("compose-rating"),
         ),
         labeled(
-            tr("compose-rating-count"),
+            crate::res::str::compose_rating_count(),
             text_field(rating_text)
-                .placeholder(tr("compose-rating-placeholder"))
+                .placeholder(crate::res::str::compose_rating_placeholder())
                 .id("compose-rating-value"),
         ),
         // 2) Card modifier — a reusable surface wrapping arbitrary content — plus the badge
         //    overlay (a numbered pill on an icon's top-trailing corner).
         row((
             column((
-                label(tr("compose-card-title")).font(Font::Headline),
-                label(tr("compose-card-body")),
+                label(crate::res::str::compose_card_title()).font(Font::Headline),
+                label(crate::res::str::compose_card_body()),
             ))
             .spacing(4.0)
             .align(HAlign::Leading)
@@ -171,8 +171,8 @@ fn compose_section() -> impl Piece {
         .spacing(20.0),
         // 3) ButtonStyle — a FilledButtonStyle button next to a plain one for contrast.
         row((
-            button(tr("compose-plain-btn")).id("compose-plain-btn"),
-            button(tr("compose-styled-btn"))
+            button(crate::res::str::compose_plain_btn()).id("compose-plain-btn"),
+            button(crate::res::str::compose_styled_btn())
                 .style(FilledButtonStyle {
                     color: Color::hex(0x0A_84_FF),
                 })
@@ -182,11 +182,11 @@ fn compose_section() -> impl Piece {
         // 4) Ambient environment flow — a descendant tints itself from the provided Accent.
         with_environment(Accent(accent), || {
             let tint = environment::<Accent>().map(|a| a.0).unwrap_or(Color::BLACK);
-            label(tr("compose-env-value"))
+            label(crate::res::str::compose_env_value())
                 .font(Font::Headline)
                 .color(tint)
                 .id("compose-env-value")
         }),
     ))
-    .title(tr("nav-compose"))
+    .title(crate::res::str::nav_compose())
 }

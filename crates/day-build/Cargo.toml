@@ -16,3 +16,7 @@ license.workspace = true
 # constant string can never drift from the staged native name.
 [dependencies]
 day-fonts = { workspace = true }
+# Parse app `.ftl` files to extract each message's parameters (§18.5 `res::str`) — the same parser
+# `fluent-bundle` (the runtime engine) is built on, so the keys/params we generate match what
+# resolves at runtime. Pinned to the version `fluent-bundle 0.16` already pulls into the tree.
+fluent-syntax = "0.12"

@@ -17,14 +17,14 @@ pub(crate) fn tweaks_page() -> AnyPiece {
 
     // day-tweak-button-bezel: the trivial single-toolkit tweak (AppKit bezel constants).
     let bezel_card = column((
-        label(tr("tweaks-bezel-title")).font(Font::Headline),
-        label(tr("tweaks-bezel-caption")).font(Font::Footnote),
+        label(crate::res::str::tweaks_bezel_title()).font(Font::Headline),
+        label(crate::res::str::tweaks_bezel_caption()).font(Font::Footnote),
         row((
-            button(tr("tweaks-stock")).id("tweak-bezel-stock"),
-            button(tr("tweaks-tweaked"))
+            button(crate::res::str::tweaks_stock()).id("tweak-bezel-stock"),
+            button(crate::res::str::tweaks_tweaked())
                 .bezel(Bezel::Toolbar)
                 .id("tweak-bezel-toolbar"),
-            button(tr("tweaks-tweaked"))
+            button(crate::res::str::tweaks_tweaked())
                 .bezel(Bezel::Badge)
                 .id("tweak-bezel-badge"),
         ))
@@ -36,9 +36,9 @@ pub(crate) fn tweaks_page() -> AnyPiece {
 
     // day-tweak-label-selectable: three toolkits, three access tiers (objc2 / gtk4-rs / JNI).
     let selectable_card = column((
-        label(tr("tweaks-selectable-title")).font(Font::Headline),
-        label(tr("tweaks-selectable-caption")).font(Font::Footnote),
-        label(tr("tweaks-selectable-text"))
+        label(crate::res::str::tweaks_selectable_title()).font(Font::Headline),
+        label(crate::res::str::tweaks_selectable_caption()).font(Font::Footnote),
+        label(crate::res::str::tweaks_selectable_text())
             .selectable()
             .id("tweak-selectable-label"),
     ))
@@ -49,16 +49,16 @@ pub(crate) fn tweaks_page() -> AnyPiece {
     // day-tweak-slider-tickmarks: the full-range tweak — six toolkits, incl. its own Qt/WinUI/
     // ArkUI native code. The tweaked slider snaps to its marks where the platform supports it.
     let ticks_card = column((
-        label(tr("tweaks-ticks-title")).font(Font::Headline),
-        label(tr("tweaks-ticks-caption")).font(Font::Footnote),
+        label(crate::res::str::tweaks_ticks_title()).font(Font::Headline),
+        label(crate::res::str::tweaks_ticks_caption()).font(Font::Footnote),
         row((
-            label(tr("tweaks-stock")).font(Font::Caption),
+            label(crate::res::str::tweaks_stock()).font(Font::Caption),
             slider(free).range(0.0..=100.0).id("tweak-ticks-stock"),
             label(move || format!("{:.0}", free.get())).id("tweak-ticks-stock-value"),
         ))
         .spacing(8.0),
         row((
-            label(tr("tweaks-tweaked")).font(Font::Caption),
+            label(crate::res::str::tweaks_tweaked()).font(Font::Caption),
             slider(snapped)
                 .range(0.0..=100.0)
                 .tickmarks(
@@ -77,8 +77,8 @@ pub(crate) fn tweaks_page() -> AnyPiece {
 
     // NativeRef: imperative access with liveness — unmount the Tweaked Piece and the ref clears.
     let ref_card = column((
-        label(tr("tweaks-ref-title")).font(Font::Headline),
-        label(tr("tweaks-ref-caption")).font(Font::Footnote),
+        label(crate::res::str::tweaks_ref_title()).font(Font::Headline),
+        label(crate::res::str::tweaks_ref_caption()).font(Font::Footnote),
         toggle(ref_mounted)
             .id("tweak-ref-toggle")
             .a11y(|a| a.label("Mount the tweaked piece")),
@@ -100,9 +100,9 @@ pub(crate) fn tweaks_page() -> AnyPiece {
             // NativeRef reads are tracked: this re-runs on the ref's mount/clear transitions.
             move || {
                 if r.node().is_some() {
-                    tr("tweaks-ref-live").format()
+                    crate::res::str::tweaks_ref_live().format()
                 } else {
-                    tr("tweaks-ref-cleared").format()
+                    crate::res::str::tweaks_ref_cleared().format()
                 }
             }
         })
@@ -114,7 +114,7 @@ pub(crate) fn tweaks_page() -> AnyPiece {
 
     scroll(
         column((
-            heading(tr("nav-tweaks"), "tweaks-title", Some(tr("tweaks-intro"))),
+            heading(crate::res::str::nav_tweaks(), "tweaks-title", Some(crate::res::str::tweaks_intro())),
             bezel_card,
             selectable_card,
             ticks_card,

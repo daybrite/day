@@ -6,10 +6,10 @@ use day::prelude::*;
 pub(crate) fn canvas_page() -> AnyPiece {
     let level = Signal::new(40.0f64);
     column((
-        label(tr("canvas-title"))
+        label(crate::res::str::canvas_title())
             .font(Font::Title)
             .id("canvas-title"),
-        label(tr("canvas-blurb")),
+        label(crate::res::str::canvas_blurb()),
         slider(level).range(0.0..=100.0).id("canvas-slider"),
         canvas(move |d, size| {
             if size.width <= 0.0 {

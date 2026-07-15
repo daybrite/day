@@ -8,7 +8,7 @@ pub(crate) fn controls_page() -> AnyPiece {
     let level = Signal::new(35.0f64);
     let text = Signal::new(String::new());
     column((
-        label(tr("controls-title"))
+        label(crate::res::str::controls_title())
             .font(Font::Title)
             .id("controls-title"),
         row((
@@ -22,10 +22,10 @@ pub(crate) fn controls_page() -> AnyPiece {
         ))
         .spacing(8.0),
         text_field(text)
-            .placeholder(tr("controls-field-placeholder"))
+            .placeholder(crate::res::str::controls_field_placeholder())
             .id("field"),
         row((
-            label(tr("controls-echo")),
+            label(crate::res::str::controls_echo()),
             label(move || text.get()).id("echo"),
         ))
         .spacing(8.0),

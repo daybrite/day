@@ -13,57 +13,57 @@ pub(crate) fn text_page() -> AnyPiece {
     }
     // Every semantic style (largest → smallest), each rendered in its own style.
     let styles = column((
-        label(tr("text-styles-header")).font(Font::Headline),
+        label(crate::res::str::text_styles_header()).font(Font::Headline),
         specimen(
             "Large Title",
-            tr("text-style-large-title"),
+            crate::res::str::text_style_large_title(),
             Font::LargeTitle,
         ),
-        specimen("Title", tr("text-style-title"), Font::Title),
-        specimen("Title 2", tr("text-style-title2"), Font::Title2),
-        specimen("Title 3", tr("text-style-title3"), Font::Title3),
-        specimen("Headline", tr("text-style-headline"), Font::Headline),
+        specimen("Title", crate::res::str::text_style_title(), Font::Title),
+        specimen("Title 2", crate::res::str::text_style_title2(), Font::Title2),
+        specimen("Title 3", crate::res::str::text_style_title3(), Font::Title3),
+        specimen("Headline", crate::res::str::text_style_headline(), Font::Headline),
         specimen(
             "Subheadline",
-            tr("text-style-subheadline"),
+            crate::res::str::text_style_subheadline(),
             Font::Subheadline,
         ),
-        specimen("Body", tr("text-style-body"), Font::Body),
-        specimen("Callout", tr("text-style-callout"), Font::Callout),
-        specimen("Footnote", tr("text-style-footnote"), Font::Footnote),
-        specimen("Caption", tr("text-style-caption"), Font::Caption),
-        specimen("Caption 2", tr("text-style-caption2"), Font::Caption2),
+        specimen("Body", crate::res::str::text_style_body(), Font::Body),
+        specimen("Callout", crate::res::str::text_style_callout(), Font::Callout),
+        specimen("Footnote", crate::res::str::text_style_footnote(), Font::Footnote),
+        specimen("Caption", crate::res::str::text_style_caption(), Font::Caption),
+        specimen("Caption 2", crate::res::str::text_style_caption2(), Font::Caption2),
     ))
     .spacing(6.0)
     .align(HAlign::Leading);
     // Font weights on a body-size line.
     let weights = column((
-        label(tr("text-weights-header")).font(Font::Headline),
-        label(tr("text-weight-ultralight"))
+        label(crate::res::str::text_weights_header()).font(Font::Headline),
+        label(crate::res::str::text_weight_ultralight())
             .weight(FontWeight::UltraLight)
             .id("text-w-ultralight"),
-        label(tr("text-weight-light")).weight(FontWeight::Light),
-        label(tr("text-weight-regular")).weight(FontWeight::Regular),
-        label(tr("text-weight-medium")).weight(FontWeight::Medium),
-        label(tr("text-weight-semibold")).weight(FontWeight::Semibold),
-        label(tr("text-weight-bold"))
+        label(crate::res::str::text_weight_light()).weight(FontWeight::Light),
+        label(crate::res::str::text_weight_regular()).weight(FontWeight::Regular),
+        label(crate::res::str::text_weight_medium()).weight(FontWeight::Medium),
+        label(crate::res::str::text_weight_semibold()).weight(FontWeight::Semibold),
+        label(crate::res::str::text_weight_bold())
             .weight(FontWeight::Bold)
             .id("text-w-bold"),
-        label(tr("text-weight-heavy")).weight(FontWeight::Heavy),
-        label(tr("text-weight-black")).weight(FontWeight::Black),
+        label(crate::res::str::text_weight_heavy()).weight(FontWeight::Heavy),
+        label(crate::res::str::text_weight_black()).weight(FontWeight::Black),
     ))
     .spacing(4.0)
     .align(HAlign::Leading);
     // Bold / italic / both, and everything-at-once.
     let styling = column((
-        label(tr("text-styling-header")).font(Font::Headline),
-        label(tr("text-bold")).bold().id("text-bold"),
-        label(tr("text-italic")).italic().id("text-italic"),
-        label(tr("text-bolditalic"))
+        label(crate::res::str::text_styling_header()).font(Font::Headline),
+        label(crate::res::str::text_bold()).bold().id("text-bold"),
+        label(crate::res::str::text_italic()).italic().id("text-italic"),
+        label(crate::res::str::text_bolditalic())
             .bold()
             .italic()
             .id("text-bolditalic"),
-        label(tr("text-emphasis-label"))
+        label(crate::res::str::text_emphasis_label())
             .font(Font::Title2)
             .weight(FontWeight::Heavy)
             .italic()
@@ -74,12 +74,12 @@ pub(crate) fn text_page() -> AnyPiece {
     .align(HAlign::Leading);
     // Color.
     let colors = column((
-        label(tr("text-colors-header")).font(Font::Headline),
+        label(crate::res::str::text_colors_header()).font(Font::Headline),
         row((
-            label(tr("color-red")).color(Color::hex(0xE74C3C)),
-            label(tr("color-green")).color(Color::hex(0x27AE60)),
-            label(tr("color-blue")).color(Color::hex(0x2F6FDE)),
-            label(tr("color-orange")).color(Color::hex(0xE67E22)),
+            label(crate::res::str::color_red()).color(Color::hex(0xE74C3C)),
+            label(crate::res::str::color_green()).color(Color::hex(0x27AE60)),
+            label(crate::res::str::color_blue()).color(Color::hex(0x2F6FDE)),
+            label(crate::res::str::color_orange()).color(Color::hex(0xE67E22)),
         ))
         .spacing(12.0),
     ))
@@ -87,8 +87,8 @@ pub(crate) fn text_page() -> AnyPiece {
     .align(HAlign::Leading);
     // Custom sizes — Font::System(pt), still scaled by the platform accessibility text size.
     let custom = column((
-        label(tr("text-custom-header")).font(Font::Headline),
-        label(tr("text-custom-note")).font(Font::Footnote),
+        label(crate::res::str::text_custom_header()).font(Font::Headline),
+        label(crate::res::str::text_custom_note()).font(Font::Footnote),
         label("13 pt").font(Font::System(13.0)),
         label("20 pt").font(Font::System(20.0)),
         label("28 pt").font(Font::System(28.0)).id("text-custom-28"),
@@ -102,8 +102,8 @@ pub(crate) fn text_page() -> AnyPiece {
     // directory; `Font::Custom` references them by FAMILY name (what the font file reports),
     // and `day build` + the backend make that name resolve on every platform.
     let fonts = column((
-        label(tr("text-fonts-header")).font(Font::Headline),
-        label(tr("text-fonts-note")).font(Font::Footnote),
+        label(crate::res::str::text_fonts_header()).font(Font::Headline),
+        label(crate::res::str::text_fonts_note()).font(Font::Footnote),
         label("Pacifico — flowing script")
             .font(Font::custom(crate::res::fonts::pacifico, 24.0))
             .id("text-font-pacifico"),
@@ -123,7 +123,7 @@ pub(crate) fn text_page() -> AnyPiece {
 
     scroll(
         column((
-            heading(tr("nav-text"), "text-title", Some(tr("text-caption"))),
+            heading(crate::res::str::nav_text(), "text-title", Some(crate::res::str::text_caption())),
             // Bundled fonts lead the page: the most visually distinctive section, and the one
             // the walkthrough screenshot must show above the fold.
             fonts,

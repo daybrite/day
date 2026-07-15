@@ -33,18 +33,18 @@ pub(crate) fn items_page() -> AnyPiece {
     }
     let path = Signal::new(Vec::<Item>::new());
     let root = column((
-        label(tr("items-title")).font(Font::Title).id("items-title"),
-        label(tr("items-blurb")),
-        button(tr("item-open").arg("id", "1"))
+        label(crate::res::str::items_title()).font(Font::Title).id("items-title"),
+        label(crate::res::str::items_blurb()),
+        button(crate::res::str::item_open("1"))
             .action(move || open(path, 1))
             .id("item-1"),
-        button(tr("item-open").arg("id", "2"))
+        button(crate::res::str::item_open("2"))
             .action(move || open(path, 2))
             .id("item-2"),
         // The same destination, addressed as an ABSOLUTE typed route with a query param —
         // one string reaches it from anywhere (a cold-start deep link included).
         nav_link_to(
-            tr("item-link"),
+            crate::res::str::item_link(),
             route(&Section::Items)
                 .then(&Item { id: 3 })
                 .param("via", "link"),
@@ -57,18 +57,18 @@ pub(crate) fn items_page() -> AnyPiece {
     stack(path, root)
         .destination(move |item: &Item| {
             let via: AnyPiece = match route_param("via") {
-                Some(v) => label(tr("item-via").arg("via", v))
+                Some(v) => label(crate::res::str::item_via(v))
                     .font(Font::Footnote)
                     .any(),
                 None => label("").any(),
             };
             column((
-                label(tr("item-title").arg("id", item.id.to_string()))
+                label(crate::res::str::item_title(item.id.to_string()))
                     .font(Font::Title)
                     .id("item-detail"),
-                label(tr("item-body")),
+                label(crate::res::str::item_body()),
                 via,
-                button(tr("item-home"))
+                button(crate::res::str::item_home())
                     .action(|| {
                         let _ = navigate_to(&Section::Home);
                     })

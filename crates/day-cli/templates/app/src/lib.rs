@@ -34,11 +34,11 @@ pub fn root() -> AnyPiece {
     let section = Signal::new(None::<Section>);
     selector(section)
         .style(SelectorStyle::Sidebar)
-        .title(tr("app-title"))
-        .item(Section::Home, tr("nav-home"), home_page)
-        .item(Section::Controls, tr("nav-controls"), controls_page)
-        .item(Section::Canvas, tr("nav-canvas"), canvas_page)
-        .item(Section::Items, tr("nav-items"), items_page)
+        .title(crate::res::str::app_title())
+        .item(Section::Home, crate::res::str::nav_home(), home_page)
+        .item(Section::Controls, crate::res::str::nav_controls(), controls_page)
+        .item(Section::Canvas, crate::res::str::nav_canvas(), canvas_page)
+        .item(Section::Items, crate::res::str::nav_items(), items_page)
         .id("nav")
         .any()
 }

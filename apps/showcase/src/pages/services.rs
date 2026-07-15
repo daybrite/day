@@ -8,9 +8,9 @@ use crate::widgets::page;
 /// round-trip, persisted preferences, haptic feedback, and the native file pickers.
 pub(crate) fn services_page() -> AnyPiece {
     page(
-        tr("nav-services"),
+        crate::res::str::nav_services(),
         "services-title",
-        Some(tr("services-caption")),
+        Some(crate::res::str::services_caption()),
         form((
             clipboard_section(),
             prefs_section(),
@@ -24,33 +24,33 @@ pub(crate) fn services_page() -> AnyPiece {
 fn clipboard_section() -> impl Piece {
     let draft = Signal::new(String::new());
     let pasted = Signal::new(String::new());
-    let status = Signal::new(tr("clipboard-idle").format());
+    let status = Signal::new(crate::res::str::clipboard_idle().format());
     section((
-        label(tr("clipboard-caption")).font(Font::Footnote),
+        label(crate::res::str::clipboard_caption()).font(Font::Footnote),
         text_field(draft)
-            .placeholder(tr("clipboard-placeholder"))
+            .placeholder(crate::res::str::clipboard_placeholder())
             .id("clipboard-field"),
         row((
-            button(tr("clipboard-copy"))
+            button(crate::res::str::clipboard_copy())
                 .bordered()
                 .action(move || {
                     let ok = draft.with(|t| day_part_clipboard::set_text(t));
                     let msg = if ok {
-                        tr("clipboard-copied")
+                        crate::res::str::clipboard_copied()
                     } else {
-                        tr("clipboard-copy-failed")
+                        crate::res::str::clipboard_copy_failed()
                     };
                     status.set(msg.format());
                 })
                 .id("clipboard-copy"),
-            button(tr("clipboard-paste"))
+            button(crate::res::str::clipboard_paste())
                 .bordered()
                 .action(move || match day_part_clipboard::get_text() {
                     Some(text) => {
                         pasted.set(text);
-                        status.set(tr("clipboard-pasted").format());
+                        status.set(crate::res::str::clipboard_pasted().format());
                     }
-                    None => status.set(tr("clipboard-empty").format()),
+                    None => status.set(crate::res::str::clipboard_empty().format()),
                 })
                 .id("clipboard-paste"),
             label(move || status.get()).id("clipboard-status"),
@@ -58,62 +58,62 @@ fn clipboard_section() -> impl Piece {
         .spacing(8.0),
         label(move || pasted.get()).id("clipboard-pasted"),
     ))
-    .title(tr("nav-clipboard"))
+    .title(crate::res::str::nav_clipboard())
 }
 
 fn prefs_section() -> impl Piece {
     const KEY: &str = "showcase.remembered";
     let field = Signal::new(String::new());
-    let value = Signal::new(tr("prefs-empty").format());
-    let status = Signal::new(tr("prefs-idle").format());
+    let value = Signal::new(crate::res::str::prefs_empty().format());
+    let status = Signal::new(crate::res::str::prefs_idle().format());
     section((
-        label(tr("prefs-caption")).font(Font::Footnote),
+        label(crate::res::str::prefs_caption()).font(Font::Footnote),
         text_field(field)
-            .placeholder(tr("prefs-placeholder"))
+            .placeholder(crate::res::str::prefs_placeholder())
             .id("prefs-field"),
         row((
-            button(tr("prefs-save"))
+            button(crate::res::str::prefs_save())
                 .bordered()
                 .action(move || {
                     let ok = field.with(|t| day_part_prefs::set(KEY, t));
                     let msg = if ok {
-                        tr("prefs-saved")
+                        crate::res::str::prefs_saved()
                     } else {
-                        tr("prefs-save-failed")
+                        crate::res::str::prefs_save_failed()
                     };
                     status.set(msg.format());
                 })
                 .id("prefs-save"),
-            button(tr("prefs-load"))
+            button(crate::res::str::prefs_load())
                 .bordered()
                 .action(move || match day_part_prefs::get(KEY) {
                     Some(v) => {
                         value.set(v);
-                        status.set(tr("prefs-loaded").format());
+                        status.set(crate::res::str::prefs_loaded().format());
                     }
                     None => {
-                        value.set(tr("prefs-empty").format());
-                        status.set(tr("prefs-missing").format());
+                        value.set(crate::res::str::prefs_empty().format());
+                        status.set(crate::res::str::prefs_missing().format());
                     }
                 })
                 .id("prefs-load"),
-            button(tr("prefs-clear"))
+            button(crate::res::str::prefs_clear())
                 .bordered()
                 .action(move || {
                     day_part_prefs::remove(KEY);
-                    value.set(tr("prefs-empty").format());
-                    status.set(tr("prefs-cleared").format());
+                    value.set(crate::res::str::prefs_empty().format());
+                    status.set(crate::res::str::prefs_cleared().format());
                 })
                 .id("prefs-clear"),
             label(move || status.get()).id("prefs-status"),
         ))
         .spacing(8.0),
         labeled(
-            tr("prefs-value-label"),
+            crate::res::str::prefs_value_label(),
             label(move || value.get()).id("prefs-value"),
         ),
     ))
-    .title(tr("nav-prefs"))
+    .title(crate::res::str::nav_prefs())
 }
 
 /// One button that plays a haptic and records the style name into `#haptics-last-played`.
@@ -127,62 +127,58 @@ fn haptic_button(
         .bordered()
         .action(move || {
             day_part_haptics::play(h);
-            last.set(
-                tr("haptics-last-played")
-                    .arg("style", format!("{h:?}"))
-                    .format(),
-            );
+            last.set(crate::res::str::haptics_last_played(format!("{h:?}")).format());
         })
         .id(id)
         .any()
 }
 
 fn haptics_section() -> impl Piece {
-    let last = Signal::new(tr("haptics-none").format());
+    let last = Signal::new(crate::res::str::haptics_none().format());
     // Report whether this platform has a haptic engine (each branch a full `tr(...)` for `day lint`).
     let supported = if day_part_haptics::is_supported() {
-        tr("haptics-supported-yes")
+        crate::res::str::haptics_supported_yes()
     } else {
-        tr("haptics-supported-no")
+        crate::res::str::haptics_supported_no()
     };
     section((
         label(supported)
             .font(Font::Footnote)
             .id("haptics-supported"),
         row((
-            haptic_button("haptics-light", tr("haptics-light"), Haptic::Light, last),
-            haptic_button("haptics-medium", tr("haptics-medium"), Haptic::Medium, last),
-            haptic_button("haptics-heavy", tr("haptics-heavy"), Haptic::Heavy, last),
+            haptic_button("haptics-light", crate::res::str::haptics_light(), Haptic::Light, last),
+            haptic_button("haptics-medium", crate::res::str::haptics_medium(), Haptic::Medium, last),
+            haptic_button("haptics-heavy", crate::res::str::haptics_heavy(), Haptic::Heavy, last),
         ))
         .spacing(8.0),
         row((
             haptic_button(
                 "haptics-success",
-                tr("haptics-success"),
+                crate::res::str::haptics_success(),
                 Haptic::Success,
                 last,
             ),
             haptic_button(
                 "haptics-warning",
-                tr("haptics-warning"),
+                crate::res::str::haptics_warning(),
                 Haptic::Warning,
                 last,
             ),
-            haptic_button("haptics-error", tr("haptics-error"), Haptic::Error, last),
+            haptic_button("haptics-error", crate::res::str::haptics_error(), Haptic::Error, last),
             haptic_button(
                 "haptics-selection",
-                tr("haptics-selection"),
+                crate::res::str::haptics_selection(),
                 Haptic::Selection,
                 last,
             ),
         ))
         .spacing(8.0),
         labeled(
-            tr("haptics-last"),
+            crate::res::str::haptics_last(),
             label(move || last.get()).id("haptics-last-played"),
         ),
     ))
-    .title(tr("nav-haptics"))
+    .title(crate::res::str::nav_haptics())
 }
 
 fn files_section() -> impl Piece {
@@ -191,17 +187,17 @@ fn files_section() -> impl Piece {
     let status = Signal::new(String::new());
     let opened = Signal::new(String::new());
     section((
-        label(tr("files-caption")).font(Font::Footnote),
+        label(crate::res::str::files_caption()).font(Font::Footnote),
         text_field(content)
-            .placeholder(tr("files-placeholder"))
+            .placeholder(crate::res::str::files_placeholder())
             .id("files-content"),
         row((
-            button(tr("files-open"))
+            button(crate::res::str::files_open())
                 .bordered()
                 .action(move || {
                     day::task(async move {
                         match open_file()
-                            .title(tr("files-open"))
+                            .title(crate::res::str::files_open())
                             .filter("Text", &["txt", "md"])
                             .await
                         {
@@ -218,13 +214,13 @@ fn files_section() -> impl Piece {
                     })
                 })
                 .id("btn-open-file"),
-            button(tr("files-save"))
+            button(crate::res::str::files_save())
                 .bordered()
                 .action(move || {
                     day::task(async move {
                         let data = content.get_untracked().into_bytes();
                         match save_file(data)
-                            .title(tr("files-save"))
+                            .title(crate::res::str::files_save())
                             .suggested_name("day-notes.txt")
                             .filter("Text", &["txt"])
                             .await
@@ -241,8 +237,8 @@ fn files_section() -> impl Piece {
         .spacing(8.0),
         when(
             move || !opened.with(|s| s.is_empty()),
-            move || label(tr("files-opened").arg("name", opened)).id("files-opened-name"),
+            move || label(crate::res::str::files_opened(opened)).id("files-opened-name"),
         ),
     ))
-    .title(tr("nav-files"))
+    .title(crate::res::str::nav_files())
 }

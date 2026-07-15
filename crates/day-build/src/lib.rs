@@ -33,12 +33,22 @@ pub struct Entry {
     pub source: String,
 }
 
+/// A generated localization function: the Fluent message `key` (also the Rust fn name) and the sorted
+/// `params` (the `$variables` the message references, agreed across all locales).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrEntry {
+    pub key: String,
+    pub params: Vec<String>,
+}
+
 /// The full set of constants to emit, grouped by bucket.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResourcePlan {
     pub images: Vec<Entry>,
     pub assets: Vec<Entry>,
     pub fonts: Vec<Entry>,
+    /// Localization keys → `res::str::<key>(params…)` functions (§18.5).
+    pub strings: Vec<StrEntry>,
 }
 
 /// The build-script entry point: scan `resource/{images,assets,fonts}` under `CARGO_MANIFEST_DIR`,
@@ -53,7 +63,7 @@ pub fn generate_resources() -> Result<(), String> {
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
     // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this reliably).
-    for bucket in ["images", "assets", "fonts"] {
+    for bucket in ["images", "assets", "fonts", "locales"] {
         println!("cargo:rerun-if-changed=resource/{bucket}");
     }
     Ok(())
@@ -69,6 +79,7 @@ pub fn plan_resources(root: &Path) -> Result<ResourcePlan, String> {
         images: plan_images(&root.join("resource/images"))?,
         assets: plan_assets(&root.join("resource/assets"))?,
         fonts: plan_fonts(&root.join("resource/fonts"))?,
+        strings: plan_strings(&root.join("resource/locales"))?,
     })
 }
 
@@ -199,17 +210,210 @@ fn dedup_symbols(entries: Vec<Entry>, kind: &str) -> Result<Vec<Entry>, String> 
     Ok(entries)
 }
 
+/// Recursively collect every `*.ftl` under `dir` (sorted, for deterministic diagnostics/output).
+fn ftl_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "ftl") {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Localization keys → parameter-typed `res::str` functions. Parses each `.ftl` with `fluent-syntax`
+/// (the same syntax `fluent-bundle` resolves at runtime), collects every message's `$variable` set,
+/// unions keys across locales, and enforces two build-time rules: each key must be a valid Rust
+/// identifier (the kebab→snake forcing rule) and all locales must agree on a key's parameter set.
+fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
+    // key -> (sorted params, the locale file that first defined it)
+    let mut agreed: std::collections::BTreeMap<String, (Vec<String>, String)> = Default::default();
+    for path in ftl_files(dir) {
+        let src = std::fs::read_to_string(&path)
+            .map_err(|e| format!("day-build: reading {}: {e}", display(&path)))?;
+        let loc = display(&path);
+        for (key, params) in ftl_messages(&src) {
+            if !is_rust_ident(&key) {
+                return Err(format!(
+                    "day-build: localization key {key:?} ({loc}) is not a valid Rust identifier — \
+                     rename it to snake_case (e.g. `{}`) in every resource/locales/*/*.ftl (Fluent \
+                     allows `-`, Rust identifiers do not).",
+                    key.replace('-', "_")
+                ));
+            }
+            match agreed.get(&key) {
+                None => {
+                    agreed.insert(key, (params, loc.clone()));
+                }
+                Some((prev, prev_loc)) if *prev != params => {
+                    return Err(format!(
+                        "day-build: localization key {key:?} references different parameters across \
+                         locales — {prev_loc} has {{{}}}, {loc} has {{{}}}. Every locale's message \
+                         must use the same `$variables`.",
+                        prev.join(", "),
+                        params.join(", ")
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+    Ok(agreed
+        .into_iter()
+        .map(|(key, (params, _))| StrEntry { key, params })
+        .collect())
+}
+
+/// Parse a Fluent resource → `(message key, sorted unique $variable names)` per message.
+/// Terms, attributes, comments, and junk are ignored; a parse error on an unrelated entry is
+/// tolerated (the partial resource is still walked).
+fn ftl_messages(src: &str) -> Vec<(String, Vec<String>)> {
+    use fluent_syntax::ast::Entry;
+    let res = match fluent_syntax::parser::parse(src) {
+        Ok(r) => r,
+        Err((r, _errs)) => r,
+    };
+    let mut out = Vec::new();
+    for entry in &res.body {
+        if let Entry::Message(m) = entry {
+            let mut vars = std::collections::BTreeSet::new();
+            if let Some(value) = &m.value {
+                collect_pattern_vars(value, &mut vars);
+            }
+            out.push((m.id.name.to_string(), vars.into_iter().collect()));
+        }
+    }
+    out
+}
+
+type Vars = std::collections::BTreeSet<String>;
+
+fn collect_pattern_vars(p: &fluent_syntax::ast::Pattern<&str>, out: &mut Vars) {
+    use fluent_syntax::ast::PatternElement;
+    for el in &p.elements {
+        if let PatternElement::Placeable { expression } = el {
+            collect_expr_vars(expression, out);
+        }
+    }
+}
+
+fn collect_expr_vars(e: &fluent_syntax::ast::Expression<&str>, out: &mut Vars) {
+    use fluent_syntax::ast::Expression;
+    match e {
+        Expression::Inline(ie) => collect_inline_vars(ie, out),
+        Expression::Select { selector, variants } => {
+            collect_inline_vars(selector, out);
+            for v in variants {
+                collect_pattern_vars(&v.value, out);
+            }
+        }
+    }
+}
+
+fn collect_inline_vars(ie: &fluent_syntax::ast::InlineExpression<&str>, out: &mut Vars) {
+    use fluent_syntax::ast::InlineExpression as X;
+    match ie {
+        X::VariableReference { id } => {
+            out.insert(id.name.to_string());
+        }
+        X::Placeable { expression } => collect_expr_vars(expression, out),
+        X::FunctionReference { arguments, .. } => {
+            for a in &arguments.positional {
+                collect_inline_vars(a, out);
+            }
+            for n in &arguments.named {
+                collect_inline_vars(&n.value, out);
+            }
+        }
+        X::TermReference {
+            arguments: Some(arguments),
+            ..
+        } => {
+            for a in &arguments.positional {
+                collect_inline_vars(a, out);
+            }
+            for n in &arguments.named {
+                collect_inline_vars(&n.value, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A valid Rust identifier: leading `[A-Za-z_]`, remaining `[A-Za-z0-9_]`, and not the bare `_`.
+/// Keyword idents still count as valid — `ident_token` raw-escapes them at render time.
+fn is_rust_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && s != "_"
+}
+
 /// Render a plan to the `day_resources.rs` source text. This file is `include!`d inside the app's
 /// `pub mod res { … }`, so the lint waivers are **outer** attributes on each bucket module (an inner
 /// `#![…]` is not valid at an `include!` site) and cover a bucket with no constants (unused `use`).
 pub fn render(plan: &ResourcePlan) -> String {
     let mut s = String::new();
     s.push_str("// @generated by day-build — do not edit.\n");
-    s.push_str("// Regenerated on every build from resource/{images,assets,fonts}.\n\n");
+    s.push_str("// Regenerated on every build from resource/{images,assets,fonts,locales}.\n\n");
     render_bucket(&mut s, "images", "ImageName", &plan.images);
     render_bucket(&mut s, "assets", "AssetName", &plan.assets);
     render_bucket(&mut s, "fonts", "FontFamily", &plan.fonts);
+    render_strings(&mut s, &plan.strings);
     s
+}
+
+/// Render the `str` bucket: one `pub fn` per localization key whose signature carries the message's
+/// parameters, so `res::str::greeting(name)` == `tr("greeting").arg("name", name)` — checked at
+/// compile time (a missing key or wrong arity is an error).
+fn render_strings(s: &mut String, entries: &[StrEntry]) {
+    s.push_str("#[allow(dead_code, unused_imports, non_snake_case, clippy::too_many_arguments)]\n");
+    s.push_str("pub mod str {\n");
+    for e in entries {
+        // Each param is `impl day::IntoFArg<Mn>` (a distinct marker generic per arg); the Rust
+        // parameter ident is sanitized while the `.arg("…")` string stays the exact Fluent variable.
+        let generics: Vec<String> = (0..e.params.len()).map(|i| format!("M{i}")).collect();
+        let sig_params: Vec<String> = e
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("{}: impl day::IntoFArg<M{i}>", ident_token(&sanitize_ident(p))))
+            .collect();
+        let generic_list = if generics.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", generics.join(", "))
+        };
+        let mut body = format!("day::tr({:?})", e.key);
+        for p in &e.params {
+            body.push_str(&format!(".arg({p:?}, {})", ident_token(&sanitize_ident(p))));
+        }
+        s.push_str(&format!(
+            "    /// `tr({:?})`{}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
+            e.key,
+            if e.params.is_empty() {
+                String::new()
+            } else {
+                format!(" — params: {}", e.params.join(", "))
+            },
+            ident_token(&e.key),
+            sig_params.join(", "),
+        ));
+    }
+    s.push_str("}\n\n");
 }
 
 fn render_bucket(s: &mut String, module: &str, ty: &str, entries: &[Entry]) {
@@ -365,8 +569,7 @@ mod tests {
                 value: "nav_system".into(),
                 source: "resource/images/nav_system.png".into(),
             }],
-            assets: vec![],
-            fonts: vec![],
+            ..Default::default()
         };
         let code = render(&plan);
         assert!(code.contains("#[allow(non_upper_case_globals, dead_code, unused_imports)]"));
@@ -396,6 +599,82 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let plan = plan_resources(&root).unwrap();
         assert!(plan.images.is_empty() && plan.assets.is_empty() && plan.fonts.is_empty());
+        assert!(plan.strings.is_empty());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn ftl(root: &Path, locale: &str, body: &str) {
+        let dir = root.join("resource/locales").join(locale);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("app.ftl"), body).unwrap();
+    }
+
+    #[test]
+    fn extracts_keys_and_params_including_select() {
+        let root = tmp("str-extract");
+        // `counter_value` uses $count in a plural select (multiline) — same variable SET as a flat
+        // value; `greeting` has one param; `nav_home` has none.
+        ftl(
+            &root,
+            "en",
+            "nav_home = Home\n\
+             greeting = Hello, { $name }!\n\
+             counter_value = { $count ->\n    [one] { $count } click\n   *[other] { $count } clicks\n}\n",
+        );
+        let plan = plan_resources(&root).unwrap();
+        let by: std::collections::BTreeMap<_, _> = plan
+            .strings
+            .iter()
+            .map(|e| (e.key.as_str(), e.params.clone()))
+            .collect();
+        assert_eq!(by["nav_home"], Vec::<String>::new());
+        assert_eq!(by["greeting"], vec!["name".to_string()]);
+        assert_eq!(by["counter_value"], vec!["count".to_string()]);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn kebab_key_is_rejected() {
+        let root = tmp("str-kebab");
+        ftl(&root, "en", "nav-home = Home\n");
+        let err = plan_resources(&root).unwrap_err();
+        assert!(err.contains("not a valid Rust identifier"), "{err}");
+        assert!(err.contains("nav_home"), "{err}"); // suggests the fix
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn cross_locale_param_disagreement_is_rejected() {
+        let root = tmp("str-params");
+        ftl(&root, "en", "greeting = Hello, { $name }!\n");
+        ftl(&root, "fr", "greeting = Bonjour, { $nom }!\n");
+        let err = plan_resources(&root).unwrap_err();
+        assert!(err.contains("different parameters"), "{err}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn renders_param_typed_functions() {
+        let plan = ResourcePlan {
+            strings: vec![
+                StrEntry {
+                    key: "hello_world".into(),
+                    params: vec![],
+                },
+                StrEntry {
+                    key: "deviceinfo_system".into(),
+                    params: vec!["name".into(), "version".into()],
+                },
+            ],
+            ..Default::default()
+        };
+        let code = render(&plan);
+        assert!(code.contains("pub mod str {"));
+        assert!(
+            code.contains("pub fn hello_world() -> day::LocalizedText { day::tr(\"hello_world\") }")
+        );
+        assert!(code.contains(
+            "pub fn deviceinfo_system<M0, M1>(name: impl day::IntoFArg<M0>, version: impl day::IntoFArg<M1>) -> day::LocalizedText { day::tr(\"deviceinfo_system\").arg(\"name\", name).arg(\"version\", version) }"
+        ));
     }
 }

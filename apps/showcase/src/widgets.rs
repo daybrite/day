@@ -6,15 +6,13 @@ use day::prelude::*;
 /// enum debug form — it is a value, not prose). Shared by the Battery and About pages.
 pub(crate) fn battery_line() -> LocalizedText {
     match day_part_battery::status() {
-        Some(b) => tr("battery-reading")
-            .arg(
-                "percent",
-                b.percent()
-                    .map(|p| format!("{p}%"))
-                    .unwrap_or_else(|| "?".into()),
-            )
-            .arg("state", format!("{:?}", b.state)),
-        None => tr("battery-reading-none"),
+        Some(b) => crate::res::str::battery_reading(
+            b.percent()
+                .map(|p| format!("{p}%"))
+                .unwrap_or_else(|| "?".into()),
+            format!("{:?}", b.state),
+        ),
+        None => crate::res::str::battery_reading_none(),
     }
 }
 
@@ -62,7 +60,7 @@ pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
     // so they reach the native widget. Value is a build-time snapshot (reactive a11y is a follow-up).
     .a11y(move |a| {
         a.role(Role::Meter)
-            .label(tr("volume-label").format())
+            .label(crate::res::str::volume_label().format())
             .value(format!("{:.0}", value.get_untracked()))
     })
     .id("gauge")
@@ -87,15 +85,13 @@ pub(crate) fn history(count: Signal<i64>) -> AnyPiece {
         },
     );
     column((
-        label(tr("history-title")).font(Font::Headline),
+        label(crate::res::str::history_title()).font(Font::Headline),
         each(
             move || entries.get(),
             |e| e.0,
             move |slot: ItemSlot<(u64, i64), u64>| {
                 label(move || {
-                    tr("history-entry")
-                        .arg("value", slot.field(|t| t.1))
-                        .format()
+                    crate::res::str::history_entry(slot.field(|t| t.1)).format()
                 })
             },
         ),

@@ -8,53 +8,53 @@ use crate::widgets::heading;
 pub(crate) fn modals_page() -> AnyPiece {
     let last = Signal::new(String::new());
     column((
-        heading(tr("nav-modals"), "modals-title", None),
-        button(tr("modal-alert"))
+        heading(crate::res::str::nav_modals(), "modals-title", None),
+        button(crate::res::str::modal_alert())
             .bordered()
             .action(move || {
                 day::task(async move {
-                    alert(tr("alert-title"))
-                        .message(tr("alert-body"))
-                        .button(tr("ok"), ())
+                    alert(crate::res::str::alert_title())
+                        .message(crate::res::str::alert_body())
+                        .button(crate::res::str::ok(), ())
                         .present()
                         .await;
                     last.set("alert-ok".into());
                 })
             })
             .id("btn-alert"),
-        button(tr("modal-confirm"))
+        button(crate::res::str::modal_confirm())
             .bordered()
             .action(move || {
                 day::task(async move {
-                    let ok = confirm(tr("confirm-title"))
-                        .message(tr("confirm-body"))
+                    let ok = confirm(crate::res::str::confirm_title())
+                        .message(crate::res::str::confirm_body())
                         .await;
                     last.set(if ok { "confirm-yes" } else { "confirm-no" }.into());
                 })
             })
             .id("btn-confirm"),
-        button(tr("modal-delete"))
+        button(crate::res::str::modal_delete())
             .bordered()
             .action(move || {
                 day::task(async move {
-                    let ok = confirm(tr("delete-title"))
-                        .message(tr("delete-body"))
-                        .confirm_label(tr("delete"))
+                    let ok = confirm(crate::res::str::delete_title())
+                        .message(crate::res::str::delete_body())
+                        .confirm_label(crate::res::str::delete())
                         .destructive()
                         .await;
                     last.set(if ok { "delete-yes" } else { "delete-no" }.into());
                 })
             })
             .id("btn-delete"),
-        button(tr("modal-sheet"))
+        button(crate::res::str::modal_sheet())
             .bordered()
             .action(move || {
                 day::task(async move {
-                    let choice = Alert::new(tr("flavor-title"))
+                    let choice = Alert::new(crate::res::str::flavor_title())
                         .sheet()
-                        .button(tr("vanilla"), 0i64)
-                        .button(tr("pistachio"), 1i64)
-                        .cancel(tr("cancel"))
+                        .button(crate::res::str::vanilla(), 0i64)
+                        .button(crate::res::str::pistachio(), 1i64)
+                        .cancel(crate::res::str::cancel())
                         .present()
                         .await;
                     last.set(match choice {
@@ -64,11 +64,11 @@ pub(crate) fn modals_page() -> AnyPiece {
                 })
             })
             .id("btn-sheet"),
-        button(tr("modal-prompt"))
+        button(crate::res::str::modal_prompt())
             .bordered()
             .action(move || {
                 day::task(async move {
-                    let name = prompt(tr("name-placeholder")).await;
+                    let name = prompt(crate::res::str::name_placeholder()).await;
                     last.set(match name {
                         Some(t) => format!("prompt-{t}"),
                         None => "prompt-none".into(),

@@ -20,7 +20,7 @@ flow:
   - toggle: { id: subscribe-toggle, value: true }
   - assert_value: { id: subscribe-toggle, value: true }
   - tap: { id: increment-button, repeat: 3 }
-  - assert_text: { id: counter-label, key: counter-value, args: { count: 3 } }
+  - assert_text: { id: counter-label, key: counter_value, args: { count: 3 } }
   - select: { id: flavor-combo, index: 2 }
   # Flavor options are localized — assert by key so the check resolves in the run's locale.
   - assert_text: { id: flavor-value, key: pistachio }
@@ -29,22 +29,22 @@ flow:
   # The three picker stylings share ONE selection signal: selecting via any styling must move
   # the other two (each row's readout mirrors the same signal).
   - select: { id: picker-segmented, index: 2 }
-  - assert_text: { id: picker-value, key: size-large }
+  - assert_text: { id: picker-value, key: size_large }
   - select: { id: picker-inline, index: 0 }
-  - assert_text: { id: picker-value, key: size-small }
+  - assert_text: { id: picker-value, key: size_small }
   - select: { id: picker-menu, index: 1 }
-  - assert_text: { id: picker-value, key: size-medium }
+  - assert_text: { id: picker-value, key: size_medium }
   # Search section: the native search field filters reactively; Clear proves the reverse binding.
   # The fruits are localized, so the QUERY is typed by key too (`input.key` resolves the Fluent
   # key in the run's locale) — typing the full localized name always matches exactly itself.
-  - input: { id: search-input, key: fruit-cherry }
-  - assert_text: { id: search-result, key: fruit-cherry }
+  - input: { id: search-input, key: fruit_cherry }
+  - assert_text: { id: search-result, key: fruit_cherry }
   - tap: { id: search-clear }
   # Feedback section: the progress bar tracks its slider; the activity spinner obeys its toggle.
   - set_value: { id: progress-slider, value: 80 }
   - assert_value: { id: volume-progress, value: 0.8 }
   - toggle: { id: activity-toggle, value: false }
-  - assert_text: { id: activity-status, key: activity-off }
+  - assert_text: { id: activity-status, key: activity_off }
   - screenshot: controls
 
   # Canvas & shapes: shape kinds, live transforms + gestures, the slider-driven gauge, and the
@@ -110,9 +110,9 @@ flow:
   - tap: { id: haptics-medium }
   # `#haptics-last-played` is `tr("haptics-last-played")` — a localized string, so assert by
   # key + args so it resolves in the run's locale, not a hardcoded English literal.
-  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Medium" } }
+  - assert_text: { id: haptics-last-played, key: haptics_last_played, args: { style: "Medium" } }
   - tap: { id: haptics-success }
-  - assert_text: { id: haptics-last-played, key: haptics-last-played, args: { style: "Success" } }
+  - assert_text: { id: haptics-last-played, key: haptics_last_played, args: { style: "Success" } }
   - tap: { id: btn-save-file }
   - assert_presented: {}
   - respond: { path: "day-walkthrough.txt" }
@@ -121,7 +121,7 @@ flow:
   - assert_presented: {}
   - respond: { path: "day-walkthrough.txt" }
   - assert_text: { id: files-status, text: "opened" }
-  - assert_text: { id: files-opened-name, key: files-opened, args: { name: "day-walkthrough.txt" } }
+  - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" } }
 
   # Menus & lifecycle (docs/menus.md, docs/lifecycle.md).
   - navigate: { route: menus }
@@ -187,7 +187,7 @@ flow:
   # the destination reads ?hint= via route_param.
   - tap: { id: stack-link }
   - assert_route: { route: stack/item-42 }
-  - assert_text: { id: stack-param, key: stack-param-hint, args: { hint: "linked" } }
+  - assert_text: { id: stack-param, key: stack_param_hint, args: { hint: "linked" } }
   - nav_back:
   - assert_route: { route: stack }
   # Leaving via a route the stack doesn't own falls through to the enclosing selector.
@@ -244,11 +244,11 @@ flow:
   - assert_visible: { id: tweak-bezel-toolbar }
   - assert_visible: { id: tweak-selectable-label }
   - assert_visible: { id: tweak-ticks-slider }
-  - assert_text: { id: tweak-ref-status, key: tweaks-ref-live }
+  - assert_text: { id: tweak-ref-status, key: tweaks_ref_live }
   - toggle: { id: tweak-ref-toggle, value: false }
-  - assert_text: { id: tweak-ref-status, key: tweaks-ref-cleared }
+  - assert_text: { id: tweak-ref-status, key: tweaks_ref_cleared }
   - toggle: { id: tweak-ref-toggle, value: true }
-  - assert_text: { id: tweak-ref-status, key: tweaks-ref-live }
+  - assert_text: { id: tweak-ref-status, key: tweaks_ref_live }
   - screenshot: tweaks
 
   # Text playground: semantic styles, weights, and the BUNDLED CUSTOM FONTS (docs/resources.md) —

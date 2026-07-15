@@ -23,14 +23,14 @@ pub(crate) fn tabs_page() -> AnyPiece {
     // (the desktop NSTabView/GtkNotebook/QTabWidget) ignore the icon and just show the label.
     selector(tab)
         .style(SelectorStyle::Tabs)
-        .item_icon(Tab::One, tr("tab-one"), crate::res::images::tab_one, || {
-            pane(tr("tab-one"), tr("tab-one-body"), "tab-one-content")
+        .item_icon(Tab::One, crate::res::str::tab_one(), crate::res::images::tab_one, || {
+            pane(crate::res::str::tab_one(), crate::res::str::tab_one_body(), "tab-one-content")
         })
-        .item_icon(Tab::Two, tr("tab-two"), crate::res::images::tab_two, || {
-            pane(tr("tab-two"), tr("tab-two-body"), "tab-two-content")
+        .item_icon(Tab::Two, crate::res::str::tab_two(), crate::res::images::tab_two, || {
+            pane(crate::res::str::tab_two(), crate::res::str::tab_two_body(), "tab-two-content")
         })
-        .item_icon(Tab::Three, tr("tab-three"), crate::res::images::tab_three, || {
-            pane(tr("tab-three"), tr("tab-three-body"), "tab-three-content")
+        .item_icon(Tab::Three, crate::res::str::tab_three(), crate::res::images::tab_three, || {
+            pane(crate::res::str::tab_three(), crate::res::str::tab_three_body(), "tab-three-content")
         })
         .id("demo-tabs")
 }

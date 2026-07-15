@@ -8,9 +8,9 @@ pub(crate) fn resources_page() -> AnyPiece {
     let (numbers_line, greeting_line) = resource_lines();
     column((
         heading(
-            tr("nav-resources"),
+            crate::res::str::nav_resources(),
             "resources-title",
-            Some(tr("resources-caption")),
+            Some(crate::res::str::resources_caption()),
         ),
         // `image(crate::res::images::day_logo)` resolves `images/day_logo.png` by name through the backend's native
         // image path (bundle file / Assets.car / R.drawable / …). `.frame` gives it a fixed box;
@@ -32,17 +32,15 @@ fn resource_lines() -> (String, String) {
         Some(r) => {
             let mut b = [0u8; 1];
             r.read_at(100, &mut b);
-            tr("resources-numbers")
-                .arg("len", r.len() as f64)
-                .arg("byte", b[0] as f64)
-                .format()
+            crate::res::str::resources_numbers(b[0] as f64, r.len() as f64).format()
         }
         None => "numbers.bin: (not bundled)".to_string(),
     };
     let greeting = match resource(crate::res::assets::greeting_txt) {
-        Some(r) => tr("resources-greeting")
-            .arg("text", String::from_utf8_lossy(r.as_slice()).into_owned())
-            .format(),
+        Some(r) => crate::res::str::resources_greeting(
+            String::from_utf8_lossy(r.as_slice()).into_owned(),
+        )
+        .format(),
         None => "greeting.txt: (not bundled)".to_string(),
     };
     (numbers, greeting)

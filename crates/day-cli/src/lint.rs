@@ -36,6 +36,36 @@ fn ftl_keys(src: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// Collect keys referenced via the generated `res::str::<key>(…)` functions (§18.5). Unlike
+/// `tr("key")` these aren't quote-delimited: after `res::str::` (possibly through a `crate::`/module
+/// path) read the Rust identifier, stripping a `r#` raw prefix — that identifier is the Fluent key.
+fn scan_res_str(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            scan_res_str(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs")
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            let pat = "res::str::";
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find(pat) {
+                rest = &rest[i + pat.len()..];
+                let s = rest.strip_prefix("r#").unwrap_or(rest);
+                let end = s
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(s.len());
+                if end > 0 {
+                    out.push(s[..end].to_string());
+                }
+            }
+        }
+    }
+}
+
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -208,6 +238,9 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     }
     let mut used_keys = Vec::new();
     scan_sources(&project.root.join("src"), "tr(\"", &mut used_keys);
+    // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) — the
+    // symbol IS the key (snake_case), so they count as used just like a `tr("key")` literal.
+    scan_res_str(&project.root.join("src"), &mut used_keys);
     let used: BTreeSet<String> = used_keys.into_iter().collect();
 
     // Default = "en" if present, else first.

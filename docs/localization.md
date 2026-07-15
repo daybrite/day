@@ -16,6 +16,26 @@ label(tr("greeting").arg("name", user_name))   // reactive, localized
 set_locale("fr");                               // every visible string updates
 ```
 
+## Checked keys — `res::str::…()` (§18.5)
+
+`tr("…")` is stringly-typed: a typo or a wrong `.arg` name only shows up at runtime as `⟨key⟩`. Day's
+`build.rs` (`day_build::generate_resources()`, wired into `day new`) also generates a **function per
+Fluent key** under `res::str`, so the same text is checked at compile time and autocompletes:
+
+```rust
+label(res::str::greeting(user_name))            // == tr("greeting").arg("name", user_name)
+label(res::str::counter_value(count))           // params come from the message's { $variables }
+label(res::str::nav_home())                      // 0-param keys are nullary functions
+```
+
+- The function's **signature mirrors the message's parameters** (each `impl IntoFArg`, so it accepts
+  `&str`/`String`/`i64`/`f64`/`Signal`), so a missing key or wrong argument count is a build error.
+- Keys must be **valid Rust identifiers → snake_case** (`nav_home`, not the Fluent-legal `nav-home`);
+  `day-build` fails the build with a rename hint otherwise.
+- **All locales must agree on a key's parameters** — `en` `{ $name }` vs `fr` `{ $nom }` is a build error.
+- Using the functions is **optional** — `tr("…")` stays for keys built at runtime, and `day lint`
+  counts a `res::str::key` reference as a use just like `tr("key")`.
+
 ## Two layers: the app catalog and the core catalog
 
 There are two tiers of Fluent bundles:

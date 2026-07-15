@@ -11,9 +11,9 @@ use crate::widgets::{history, page};
 /// and progress/activity feedback — each in its own themed section, labels aligned form-wide.
 pub(crate) fn controls_page() -> AnyPiece {
     page(
-        tr("nav-controls"),
+        crate::res::str::nav_controls(),
         "controls-title",
-        Some(tr("controls-caption")),
+        Some(crate::res::str::controls_caption()),
         form((
             basics_section(),
             pickers_section(),
@@ -30,9 +30,9 @@ fn basics_section() -> impl Piece {
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
     let flavors = Signal::new(vec![
-        tr("vanilla").format(),
-        tr("chocolate").format(),
-        tr("pistachio").format(),
+        crate::res::str::vanilla().format(),
+        crate::res::str::chocolate().format(),
+        crate::res::str::pistachio().format(),
     ]);
     let flavor = Signal::new(Some(0usize));
     section((
@@ -40,15 +40,15 @@ fn basics_section() -> impl Piece {
         row((
             // The buttons log to the two standard streams (stderr / stdout) so
             // `day launch` can demonstrate forwarding both, per platform.
-            button(tr("decrement"))
+            button(crate::res::str::decrement())
                 .bordered()
                 .action(move || {
                     count.update(|c| *c -= 1);
                     eprintln!("counter decremented to {}", count.get_untracked());
                 })
                 .id("decrement-button"),
-            label(tr("counter-value").arg("count", count)).id("counter-label"),
-            button(tr("increment"))
+            label(crate::res::str::counter_value(count)).id("counter-label"),
+            button(crate::res::str::increment())
                 .prominent()
                 .action(move || {
                     count.update(|c| *c += 1);
@@ -59,15 +59,15 @@ fn basics_section() -> impl Piece {
         .spacing(8.0),
         // — text input + conditional —
         text_field(name)
-            .placeholder(tr("name-placeholder"))
+            .placeholder(crate::res::str::name_placeholder())
             .id("name-field"),
         when(
             move || !name.with(|s| s.is_empty()),
-            move || label(tr("greeting").arg("name", name)).id("greeting-label"),
+            move || label(crate::res::str::greeting(name)).id("greeting-label"),
         ),
         // — slider with live readout —
         labeled(
-            tr("volume-label"),
+            crate::res::str::volume_label(),
             row((
                 slider(volume).range(0.0..=100.0).id("volume-slider"),
                 label(move || format!("{:.0}", volume.get())).id("volume-value"),
@@ -75,14 +75,14 @@ fn basics_section() -> impl Piece {
             .spacing(8.0),
         ),
         labeled(
-            tr("subscribe-label"),
+            crate::res::str::subscribe_label(),
             toggle(subscribed)
                 .id("subscribe-toggle")
                 .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5
         ),
         // — an EXTERNAL Day Piece, registered like any built-in (§8.2, DP-21) —
         labeled(
-            tr("flavor-label"),
+            crate::res::str::flavor_label(),
             row((
                 combo_box(flavors, flavor).id("flavor-combo"),
                 label(move || {
@@ -99,7 +99,7 @@ fn basics_section() -> impl Piece {
         // — keyed collection (watch + monotonic keys, §5.4 / A.1) —
         history(count),
     ))
-    .title(tr("controls-basics"))
+    .title(crate::res::str::controls_basics())
 }
 
 fn pickers_section() -> impl Piece {
@@ -111,42 +111,42 @@ fn pickers_section() -> impl Piece {
     // Localized option list (resolved once at build — the locale is fixed for the run) shared
     // by all three picker stylings and the per-row readouts.
     let sizes = std::rc::Rc::new(vec![
-        tr("size-small").format(),
-        tr("size-medium").format(),
-        tr("size-large").format(),
+        crate::res::str::size_small().format(),
+        crate::res::str::size_medium().format(),
+        crate::res::str::size_large().format(),
     ]);
     let value = {
         let sizes = sizes.clone();
         move || sizes[choice.get().min(2)].clone()
     };
     section((
-        label(tr("picker-shared-caption")).font(Font::Footnote),
+        label(crate::res::str::picker_shared_caption()).font(Font::Footnote),
         // Segmented — a horizontal one-of-N control. (No per-row readout: the shared state is
         // already visible in the other two stylings, and one quiet readout below serves all.)
         labeled(
-            tr("picker-segmented"),
+            crate::res::str::picker_segmented(),
             picker(sizes.iter().cloned(), choice)
                 .segmented()
                 .id("picker-segmented"),
         ),
         // Menu — a pop-up / dropdown.
         labeled(
-            tr("picker-menu"),
+            crate::res::str::picker_menu(),
             picker(sizes.iter().cloned(), choice)
                 .menu()
                 .id("picker-menu"),
         ),
         // Inline — a vertical radio group.
         labeled(
-            tr("picker-inline"),
+            crate::res::str::picker_inline(),
             picker(sizes.iter().cloned(), choice)
                 .inline()
                 .id("picker-inline"),
         ),
         // The one shared readout the walkthrough asserts after driving each styling.
-        labeled(tr("picker-selected"), label(value).id("picker-value")),
+        labeled(crate::res::str::picker_selected(), label(value).id("picker-value")),
     ))
-    .title(tr("nav-pickers"))
+    .title(crate::res::str::nav_pickers())
 }
 
 fn search_section() -> impl Piece {
@@ -156,9 +156,9 @@ fn search_section() -> impl Piece {
         // (proving the reverse binding patches the native control).
         row((
             search_field(query)
-                .placeholder(tr("search-placeholder"))
+                .placeholder(crate::res::str::search_placeholder())
                 .id("search-input"),
-            button(tr("search-clear"))
+            button(crate::res::str::search_clear())
                 .bordered()
                 .action(move || query.set(String::new()))
                 .id("search-clear"),
@@ -168,16 +168,16 @@ fn search_section() -> impl Piece {
         label(move || search_first_match(&query.get())).id("search-result"),
         // The filtered fruit list — each row is a reactive `when`-gated label.
         column((
-            search_fruit_row(query, tr("fruit-apple").format()),
-            search_fruit_row(query, tr("fruit-banana").format()),
-            search_fruit_row(query, tr("fruit-cherry").format()),
-            search_fruit_row(query, tr("fruit-date").format()),
-            search_fruit_row(query, tr("fruit-elderberry").format()),
+            search_fruit_row(query, crate::res::str::fruit_apple().format()),
+            search_fruit_row(query, crate::res::str::fruit_banana().format()),
+            search_fruit_row(query, crate::res::str::fruit_cherry().format()),
+            search_fruit_row(query, crate::res::str::fruit_date().format()),
+            search_fruit_row(query, crate::res::str::fruit_elderberry().format()),
         ))
         .spacing(4.0)
         .align(HAlign::Leading),
     ))
-    .title(tr("nav-search"))
+    .title(crate::res::str::nav_search())
 }
 
 fn feedback_section() -> impl Piece {
@@ -187,15 +187,15 @@ fn feedback_section() -> impl Piece {
     let spinning = Signal::new(true);
     let status = move || {
         if spinning.get() {
-            tr("activity-on")
+            crate::res::str::activity_on()
         } else {
-            tr("activity-off")
+            crate::res::str::activity_off()
         }
         .format()
     };
     section((
         labeled(
-            tr("progress-label"),
+            crate::res::str::progress_label(),
             row((
                 slider(volume).range(0.0..=100.0).id("progress-slider"),
                 progress(move || volume.get() / 100.0)
@@ -204,9 +204,9 @@ fn feedback_section() -> impl Piece {
             ))
             .spacing(8.0),
         ),
-        labeled(tr("busy-label"), spinner().id("busy-spinner")),
+        labeled(crate::res::str::busy_label(), spinner().id("busy-spinner")),
         labeled(
-            tr("activity-animating"),
+            crate::res::str::activity_animating(),
             row((
                 toggle(spinning).id("activity-toggle"),
                 activity().animating(spinning).id("activity-spinner"),
@@ -215,17 +215,17 @@ fn feedback_section() -> impl Piece {
             .spacing(8.0),
         ),
     ))
-    .title(tr("controls-feedback"))
+    .title(crate::res::str::controls_feedback())
 }
 
 /// The fruit list, localized (resolved once at build — the locale is fixed for the run).
 fn search_fruits() -> Vec<String> {
     [
-        "fruit-apple",
-        "fruit-banana",
-        "fruit-cherry",
-        "fruit-date",
-        "fruit-elderberry",
+        "fruit_apple",
+        "fruit_banana",
+        "fruit_cherry",
+        "fruit_date",
+        "fruit_elderberry",
     ]
     .iter()
     .map(|k| tr(k).format())

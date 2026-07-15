@@ -10,14 +10,14 @@ pub(crate) fn map_page() -> AnyPiece {
     const NYC: (f64, f64) = (40.7128, -74.0060);
     let center = Signal::new(SF);
     column((
-        label(tr("nav-map")).font(Font::Title).id("map-title"),
-        label(tr("map-caption")).id("map-caption"),
+        label(crate::res::str::nav_map()).font(Font::Title).id("map-title"),
+        label(crate::res::str::map_caption()).id("map-caption"),
         row((
-            button(tr("map-sf"))
+            button(crate::res::str::map_sf())
                 .bordered()
                 .action(move || center.set(SF))
                 .id("map-sf"),
-            button(tr("map-nyc"))
+            button(crate::res::str::map_nyc())
                 .bordered()
                 .action(move || center.set(NYC))
                 .id("map-nyc"),

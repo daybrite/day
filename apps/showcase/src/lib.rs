@@ -126,53 +126,53 @@ pub fn root() -> AnyPiece {
     // where the backend supports it (e.g. the Windows NavigationView pane).
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
-        .title(tr("app-title"))
+        .title(crate::res::str::app_title())
         .header(sidebar_header)
         .item_icon(
             Section::Controls,
-            tr("nav-controls"),
+            crate::res::str::nav_controls(),
             res::images::nav_controls,
             controls_page,
         )
-        .item_icon(Section::Text, tr("nav-text"), res::images::nav_text, text_page)
-        .item_icon(Section::Canvas, tr("nav-canvas"), res::images::nav_canvas, canvas_page)
-        .item_icon(Section::System, tr("nav-system"), res::images::nav_system, system_page)
+        .item_icon(Section::Text, crate::res::str::nav_text(), res::images::nav_text, text_page)
+        .item_icon(Section::Canvas, crate::res::str::nav_canvas(), res::images::nav_canvas, canvas_page)
+        .item_icon(Section::System, crate::res::str::nav_system(), res::images::nav_system, system_page)
         .item_icon(
             Section::Services,
-            tr("nav-services"),
+            crate::res::str::nav_services(),
             res::images::nav_services,
             services_page,
         )
-        .item_icon(Section::Menus, tr("nav-menus"), res::images::nav_menus, menus_page)
-        .item_icon(Section::Modals, tr("nav-modals"), res::images::nav_modals, modals_page)
-        .item_icon(Section::List, tr("nav-list"), res::images::nav_list, list_page)
-        .item_icon(Section::Tabs, tr("nav-tabs"), res::images::nav_tabs, tabs_page)
-        .item_icon(Section::Stack, tr("nav-stack"), res::images::nav_stack, stack_page)
-        .item_icon(Section::Media, tr("nav-media"), res::images::nav_media, media_page)
+        .item_icon(Section::Menus, crate::res::str::nav_menus(), res::images::nav_menus, menus_page)
+        .item_icon(Section::Modals, crate::res::str::nav_modals(), res::images::nav_modals, modals_page)
+        .item_icon(Section::List, crate::res::str::nav_list(), res::images::nav_list, list_page)
+        .item_icon(Section::Tabs, crate::res::str::nav_tabs(), res::images::nav_tabs, tabs_page)
+        .item_icon(Section::Stack, crate::res::str::nav_stack(), res::images::nav_stack, stack_page)
+        .item_icon(Section::Media, crate::res::str::nav_media(), res::images::nav_media, media_page)
         .item_icon(
             Section::Resources,
-            tr("nav-resources"),
+            crate::res::str::nav_resources(),
             res::images::nav_resources,
             resources_page,
         )
         .item_icon(
             Section::WebView,
-            tr("nav-webview"),
+            crate::res::str::nav_webview(),
             res::images::nav_webview,
             webview_page,
         )
-        .item_icon(Section::Tweaks, tr("nav-tweaks"), res::images::nav_tweaks, tweaks_page);
+        .item_icon(Section::Tweaks, crate::res::str::nav_tweaks(), res::images::nav_tweaks, tweaks_page);
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let nav = nav.item_icon(Section::Map, tr("nav-map"), res::images::nav_map, map_page);
-    nav.item_icon(Section::About, tr("nav-about"), res::images::nav_about, about_page)
+    let nav = nav.item_icon(Section::Map, crate::res::str::nav_map(), res::images::nav_map, map_page);
+    nav.item_icon(Section::About, crate::res::str::nav_about(), res::images::nav_about, about_page)
         .id("nav")
 }
 
 fn sidebar_header() -> AnyPiece {
     row((
         image(res::images::day_logo).frame(28.0, 28.0),
-        label(tr("app-title")).font(Font::Headline).id("home-title"),
+        label(crate::res::str::app_title()).font(Font::Headline).id("home-title"),
     ))
     .spacing(8.0)
     .padding(12.0)

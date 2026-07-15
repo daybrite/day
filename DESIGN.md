@@ -2141,6 +2141,16 @@ backend's native store. It rejects at build time any image stem that is not port
 files that collide on one symbol, each with a rename hint. This realizes §18.1's "generated,
 lint-able asset index" intent for the shipped `image()` / `resource()` / `Font` APIs.
 
+The same `build.rs` also emits a **`res::str`** bucket for localization (§12): one function per Fluent
+message key under `resource/locales/`, so `res::str::greeting(name)` is a checked, autocompleting stand-in
+for `tr("greeting").arg("name", name)`. `day-build` parses each `.ftl` with `fluent-syntax` and shapes
+each function's signature from the message's `$variables` (`res::str::hello_world()`,
+`res::str::counter_value(count)`, `res::str::deviceinfo_system(name, version)`), so a missing key or wrong
+argument count is a compile error, not a runtime `⟨key⟩`. Two build-time rules apply: every key must be a
+valid Rust identifier (so keys are **snake_case**, not the Fluent-legal kebab-case), and **all locales must
+agree on a key's parameter set** (`en {name}` vs `fr {nom}` → error). `tr("…")` stays for dynamic keys, and
+using the generated functions is optional (`day lint` counts a `res::str::key` reference as a use).
+
 ---
 
 ## §19 Repository layout, examples, and docs site

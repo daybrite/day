@@ -16,17 +16,17 @@ pub(crate) fn media_page() -> AnyPiece {
     let pause = Trigger::new();
     let load = Trigger::new();
     let player = column((
-        heading(tr("nav-media"), "media-title", None),
+        heading(crate::res::str::nav_media(), "media-title", None),
         row((
-            button(tr("media-play"))
+            button(crate::res::str::media_play())
                 .prominent()
                 .action(move || play.notify())
                 .id("media-play"),
-            button(tr("media-pause"))
+            button(crate::res::str::media_pause())
                 .bordered()
                 .action(move || pause.notify())
                 .id("media-pause"),
-            button(tr("media-load"))
+            button(crate::res::str::media_load())
                 .bordered()
                 .action(move || load.notify())
                 .id("media-load"),
@@ -57,10 +57,10 @@ fn lottie_section() -> impl Piece {
     // native LottieAnimationView live (a `Speed` patch per change).
     let speed = Signal::new(1.0);
     column((
-        label(tr("nav-lottie"))
+        label(crate::res::str::nav_lottie())
             .font(Font::Headline)
             .id("lottie-title"),
-        label(tr("lottie-caption"))
+        label(crate::res::str::lottie_caption())
             .font(Font::Footnote)
             .id("lottie-caption"),
         lottie("hello")
@@ -68,7 +68,7 @@ fn lottie_section() -> impl Piece {
             .frame(220.0, 220.0)
             .id("lottie-view"),
         labeled(
-            tr("lottie-speed"),
+            crate::res::str::lottie_speed(),
             row((
                 slider(speed)
                     .range(0.25..=3.0)
