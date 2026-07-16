@@ -17,7 +17,7 @@ flavor_label = النكهة
 history_title = السجلّ
 history_entry = أصبح العدّاد { $value }
 nav_controls = عناصر التحكّم
-nav_menus = القوائم
+nav_menus = القوائم والحوارات
 nav_text = النص
 nav_battery = البطارية
 nav_sensors = المستشعرات
@@ -81,7 +81,6 @@ tab_one_body = علامة تبويب النظرة العامة. تحتفظ كل 
 tab_two_body = علامة تبويب التفاصيل، تُحدَّد بمفتاح مسارها.
 tab_three_body = علامة تبويب الإعدادات. الروابط العميقة وdayscript يحدّدان علامات التبويب بالمفتاح.
 about_text = تطبيق أصلي متعدد المنصات مبني بـ day.
-nav_modals = النوافذ المشروطة
 modal_alert = إظهار تنبيه
 modal_confirm = تأكيد
 modal_delete = حذف…
@@ -158,9 +157,8 @@ text_fonts_note = ‏Font.Custom("Family", pt) — ملفات من مجلد reso
 
 # Menus playground
 menus_caption = قوائم أصلية — شريط قوائم التطبيق وقوائم السياق لكل قطعة — مع قوائم فرعية متداخلة واختصارات لوحة المفاتيح وأوامر التحرير القياسية.
-menus_last = آخر إجراء:
-menus_lifecycle = آخر مرحلة دورة حياة:
-menus_context_hint = قائمة السياق
+menus_last = آخر إجراء
+menus_lifecycle = دورة الحياة
 menus_target = انقر بزر الفأرة الأيمن هنا (ضغطة مطوّلة على الجوال) لقائمة سياق
 menus_shortcut_hint = اختصارات لوحة المفاتيح (⌘/Ctrl + مفتاح) تظهر في شريط القوائم وتعمل أثناء تركيز التطبيق — مثل جديد (N)، حفظ (S)، إعادة تحميل (R)، حفظ باسم (⇧S).
 
@@ -295,3 +293,29 @@ color_red = أحمر
 color_green = أخضر
 color_blue = أزرق
 color_orange = برتقالي
+
+# القوائم والحوارات (صفحة مدموجة)
+menus_appmenu_section = قائمة التطبيق
+menus_context_section = القائمة السياقية
+menus_dialogs_section = الحوارات
+modal_result_label = النتيجة
+
+# صفحة الوسائط
+media_caption = مشغّل وسائط أصلي — عرض المنصة نفسها، والتحكم عبر المشغّلات.
+media_player_section = الفيديو
+
+# أقسام صفحة الموارد
+resources_image_section = صورة مضمّنة
+resources_modes_note = صورة واحدة بثلاثة أوضاع — الملاءمة تحفظ النسب، والملء يقص، والتمديد يشوّه.
+image_mode_fit = ملاءمة
+image_mode_fill = ملء
+image_mode_stretch = تمديد
+resources_data_section = بيانات مضمّنة
+
+# صفحة حول
+about_caption = ما هو هذا التطبيق، والمنصة التي يعمل عليها.
+about_app_section = هذا التطبيق
+about_version = الإصدار
+about_toolkit = عدة الأدوات
+about_battery = البطارية
+history_hint = اضغط + أو − أعلاه وسيظهر كل تغيير هنا.

@@ -1,12 +1,11 @@
 use day::prelude::*;
 use std::cell::OnceCell;
 
-use crate::lifecycle_log;
-use crate::widgets::heading;
+use crate::widgets::page;
 
 thread_local! {
     /// The last menu action fired — shared between the app menu (installed in `root`) and this
-    /// Menus page so both demonstrate action dispatch. Created lazily inside the reactive runtime.
+    /// page so both demonstrate action dispatch. Created lazily inside the reactive runtime.
     static MENU_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
 }
 
@@ -75,71 +74,150 @@ pub(crate) fn install_app_menu() {
     ]);
 }
 
-/// Menus playground: a context menu (secondary-click on desktop, long-press on mobile) with nested
-/// submenus, standard roles, and shortcuts, plus a live readout of the last menu action fired — from
-/// EITHER the app menu bar or this context menu. See docs/menus.md.
+/// Menus & dialogs — the app's transient native surfaces in one place: the menu bar and
+/// context menus (docs/menus.md), and the imperative dialogs (docs/dialogs.md), each in its own
+/// themed section with a live result readout.
 pub(crate) fn menus_page() -> AnyPiece {
-    column((
-        heading(
-            crate::res::str::nav_menus(),
-            "menus-title",
-            Some(crate::res::str::menus_caption()),
+    page(
+        crate::res::str::nav_menus(),
+        "menus-title",
+        Some(crate::res::str::menus_caption()),
+        form((app_menu_section(), context_section(), dialogs_section())).any(),
+    )
+}
+
+/// The app-menu section: a live readout of the last action fired from the menu bar (or the
+/// context menu below), plus the keyboard-shortcut hint.
+fn app_menu_section() -> impl Piece {
+    section((
+        labeled(
+            crate::res::str::menus_last(),
+            label(move || menu_log().get()).id("menus-last"),
         ),
-        // Live readouts: the last menu action (app menu or context menu), and the last app-lifecycle
-        // phase (docs/lifecycle.md) — Quit fires WillTerminate; switching apps fires resign/active.
-        column((
-            label(move || {
-                format!(
-                    "{}  {}",
-                    crate::res::str::menus_last().format(),
-                    menu_log().get()
-                )
-            })
-            .id("menus-last"),
-            label(move || {
-                format!(
-                    "{}  {}",
-                    crate::res::str::menus_lifecycle().format(),
-                    lifecycle_log().get()
-                )
-            })
-            .id("menus-lifecycle"),
-        ))
-        .spacing(6.0)
-        .align(HAlign::Leading),
-        divider(),
-        label(crate::res::str::menus_context_hint()).font(Font::Headline),
-        // A target for the context menu: nested submenu + a separator + a standard role.
-        label(crate::res::str::menus_target())
-            .font(Font::Body)
-            .padding(Insets::symmetric(20.0, 28.0))
-            .id("menus-context-target")
-            .context_menu(vec![
-                menu_item("Rename").action(move || menu_log().set("Context ▸ Rename".into())),
-                menu_item("Duplicate")
-                    .key("d")
-                    .action(move || menu_log().set("Context ▸ Duplicate".into())),
-                menu_separator(),
-                sub_menu(
-                    "Move To",
-                    vec![
-                        menu_item("Inbox")
-                            .action(move || menu_log().set("Context ▸ Move ▸ Inbox".into())),
-                        menu_item("Archive")
-                            .action(move || menu_log().set("Context ▸ Move ▸ Archive".into())),
-                    ],
-                ),
-                menu_separator(),
-                menu_role(MenuRole::Copy),
-                menu_item("Delete")
-                    .shortcut(Shortcut::plain("Delete"))
-                    .action(move || menu_log().set("Context ▸ Delete".into())),
-            ]),
-        divider(),
         label(crate::res::str::menus_shortcut_hint()).font(Font::Footnote),
     ))
-    .spacing(12.0)
-    .align(HAlign::Leading)
-    .padding(16.0)
-    .any()
+    .title(crate::res::str::menus_appmenu_section())
+}
+
+/// The context-menu section: a visually delineated target the user secondary-clicks
+/// (long-presses on mobile) — nested submenu, separator, and a standard role.
+fn context_section() -> impl Piece {
+    section((label(crate::res::str::menus_target())
+        .padding(Insets::symmetric(24.0, 24.0))
+        .id("menus-context-target")
+        .context_menu(vec![
+            menu_item("Rename").action(move || menu_log().set("Context ▸ Rename".into())),
+            menu_item("Duplicate")
+                .key("d")
+                .action(move || menu_log().set("Context ▸ Duplicate".into())),
+            menu_separator(),
+            sub_menu(
+                "Move To",
+                vec![
+                    menu_item("Inbox")
+                        .action(move || menu_log().set("Context ▸ Move ▸ Inbox".into())),
+                    menu_item("Archive")
+                        .action(move || menu_log().set("Context ▸ Move ▸ Archive".into())),
+                ],
+            ),
+            menu_separator(),
+            menu_role(MenuRole::Copy),
+            menu_item("Delete")
+                .shortcut(Shortcut::plain("Delete"))
+                .action(move || menu_log().set("Context ▸ Delete".into())),
+        ])
+        .background(Color::rgba(0.5, 0.5, 0.55, 0.16))
+        .corner_radius(10.0),))
+    .title(crate::res::str::menus_context_section())
+}
+
+/// Imperative dialogs (docs/dialogs.md): each button opens a native dialog from within an
+/// async task and writes a fixed result token to `modal-result` (locale-independent so the
+/// walkthrough can assert it).
+fn dialogs_section() -> impl Piece {
+    let last = Signal::new(String::new());
+    section((
+        row((
+            button(crate::res::str::modal_alert())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        alert(crate::res::str::alert_title())
+                            .message(crate::res::str::alert_body())
+                            .button(crate::res::str::ok(), ())
+                            .present()
+                            .await;
+                        last.set("alert-ok".into());
+                    })
+                })
+                .id("btn-alert"),
+            button(crate::res::str::modal_confirm())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let ok = confirm(crate::res::str::confirm_title())
+                            .message(crate::res::str::confirm_body())
+                            .await;
+                        last.set(if ok { "confirm-yes" } else { "confirm-no" }.into());
+                    })
+                })
+                .id("btn-confirm"),
+            button(crate::res::str::modal_delete())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let ok = confirm(crate::res::str::delete_title())
+                            .message(crate::res::str::delete_body())
+                            .confirm_label(crate::res::str::delete())
+                            .destructive()
+                            .await;
+                        last.set(if ok { "delete-yes" } else { "delete-no" }.into());
+                    })
+                })
+                .id("btn-delete"),
+        ))
+        .spacing(8.0),
+        row((
+            button(crate::res::str::modal_sheet())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let choice = Alert::new(crate::res::str::flavor_title())
+                            .sheet()
+                            .button(crate::res::str::vanilla(), 0i64)
+                            .button(crate::res::str::pistachio(), 1i64)
+                            .cancel(crate::res::str::cancel())
+                            .present()
+                            .await;
+                        last.set(match choice {
+                            Some(i) => format!("sheet-{i}"),
+                            None => "sheet-cancel".into(),
+                        });
+                    })
+                })
+                .id("btn-sheet"),
+            button(crate::res::str::modal_prompt())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let name = prompt(crate::res::str::name_placeholder()).await;
+                        last.set(match name {
+                            Some(t) => format!("prompt-{t}"),
+                            None => "prompt-none".into(),
+                        });
+                    })
+                })
+                .id("btn-prompt"),
+        ))
+        .spacing(8.0),
+        labeled(
+            crate::res::str::modal_result_label(),
+            label(move || {
+                let v = last.get();
+                if v.is_empty() { "—".into() } else { v }
+            })
+            .id("modal-result"),
+        ),
+    ))
+    .title(crate::res::str::menus_dialogs_section())
 }

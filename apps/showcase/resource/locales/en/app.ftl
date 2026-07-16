@@ -14,7 +14,7 @@ flavor_label = Flavor
 history_title = History
 history_entry = count became { $value }
 nav_controls = Controls
-nav_menus = Menus
+nav_menus = Menus & dialogs
 nav_text = Text
 nav_battery = Battery
 nav_sensors = Sensors
@@ -78,7 +78,6 @@ tab_one_body = The overview tab. Each tab keeps its own state.
 tab_two_body = The details tab, selected by its route key.
 tab_three_body = The settings tab. Deep links and dayscript select tabs by key.
 about_text = A native cross-platform app built with day.
-nav_modals = Modals
 modal_alert = Show alert
 modal_confirm = Confirm
 modal_delete = Delete…
@@ -154,10 +153,9 @@ text_fonts_header = Bundled fonts
 text_fonts_note = Font.Custom("Family", pt) — files from the app's resource/fonts/ directory, bundled by day build and resolved by family name on every platform.
 
 # Menus playground
-menus_caption = Native menus — the app menu bar and per-piece context menus — with nested submenus, keyboard shortcuts, and standard Edit commands.
-menus_last = Last action:
-menus_lifecycle = Last lifecycle phase:
-menus_context_hint = Context menu
+menus_caption = The transient native surfaces: the menu bar, per-piece context menus, and imperative dialogs.
+menus_last = Last action
+menus_lifecycle = Lifecycle
 menus_target = Right-click here (long-press on mobile) for a context menu
 menus_shortcut_hint = Keyboard shortcuts (⌘/Ctrl + key) are shown in the menu bar and work while the app is focused — e.g. New (N), Save (S), Reload (R), Save As (⇧S).
 
@@ -292,3 +290,29 @@ color_red = Red
 color_green = Green
 color_blue = Blue
 color_orange = Orange
+
+# Menus & dialogs (merged page)
+menus_appmenu_section = App menu
+menus_context_section = Context menu
+menus_dialogs_section = Dialogs
+modal_result_label = Result
+
+# Media page
+media_caption = A native media player — the platform's own view, transport driven by triggers.
+media_player_section = Video
+
+# Resources page sections
+resources_image_section = Bundled image
+resources_modes_note = One image, three content modes — Fit preserves aspect, Fill crops, Stretch distorts.
+image_mode_fit = Fit
+image_mode_fill = Fill
+image_mode_stretch = Stretch
+resources_data_section = Data assets
+
+# About page
+about_caption = What this app is, and the platform it landed on.
+about_app_section = This app
+about_version = Version
+about_toolkit = Toolkit
+about_battery = Battery
+history_hint = Tap + or − above and each change lands here.

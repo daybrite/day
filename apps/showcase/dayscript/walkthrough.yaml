@@ -1,8 +1,8 @@
 name: showcase-walkthrough
 description: Navigate every destination, exercise every control, take localized screenshots
   (DESIGN.md §14.1, docs/navigation.md). Top-level nav is a selector(Sidebar); tabs a
-  selector(Tabs); the stack section is a genuine push/pop stack bound to a path signal. Pages
-  are grouped forms (docs/forms.md) — several old pages merged into themed sections.
+  selector(Tabs); the stack section is a genuine push/pop stack bound to a path signal. Every
+  page is a grouped form (docs/forms.md) of themed sections — menus & dialogs share one page.
 flow:
   - wait_for: { id: home-title }
   - screenshot: home
@@ -66,6 +66,32 @@ flow:
   - assert_text: { id: compose-rating-value, text: "4" }
   - screenshot: canvas
 
+  # Menus & dialogs (docs/menus.md, docs/dialogs.md): the transient native surfaces in one
+  # page — the app-menu action readout, the context-menu target, and the imperative dialogs.
+  # Screenshot the pristine form first, then open each dialog, answer it, assert the result.
+  - navigate: { route: menus }
+  - assert_route: { route: menus }
+  - assert_visible: { id: menus-title }
+  - assert_visible: { id: menus-last }
+  - assert_visible: { id: menus-context-target }
+  - screenshot: menus
+  - tap: { id: btn-confirm }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "confirm-yes" }
+  - tap: { id: btn-delete }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "delete-yes" }
+  - tap: { id: btn-prompt }
+  - assert_presented: {}
+  - respond: { text: "Ada" }
+  - assert_text: { id: modal-result, text: "prompt-Ada" }
+  - tap: { id: btn-sheet }
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_text: { id: modal-result, text: "sheet-1" }
+
   # Device & sensors: the headless device-state parts in one form. The battery preview slider +
   # charging toggle drive a deterministic state (65% + bolt) for the screenshot, then a low
   # level checks the readout; sensors need a second poll after the first read arms the listener
@@ -123,33 +149,6 @@ flow:
   - assert_text: { id: files-status, text: "opened" }
   - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" } }
 
-  # Menus & lifecycle (docs/menus.md, docs/lifecycle.md).
-  - navigate: { route: menus }
-  - assert_route: { route: menus }
-  - assert_visible: { id: menus-title }
-  - screenshot: menus
-
-  # Imperative modals (docs/dialogs.md): open a native dialog, answer it, assert the result.
-  - navigate: { route: modals }
-  - assert_route: { route: modals }
-  - screenshot: modals
-  - tap: { id: btn-confirm }
-  - assert_presented: {}
-  - respond: { button: 1 }
-  - assert_text: { id: modal-result, text: "confirm-yes" }
-  - tap: { id: btn-delete }
-  - assert_presented: {}
-  - respond: { button: 1 }
-  - assert_text: { id: modal-result, text: "delete-yes" }
-  - tap: { id: btn-prompt }
-  - assert_presented: {}
-  - respond: { text: "Ada" }
-  - assert_text: { id: modal-result, text: "prompt-Ada" }
-  - tap: { id: btn-sheet }
-  - assert_presented: {}
-  - respond: { button: 1 }
-  - assert_text: { id: modal-result, text: "sheet-1" }
-
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.
   - navigate: { route: tabs }
@@ -194,6 +193,9 @@ flow:
   - navigate: { route: about }
   - assert_route: { route: about }
   - assert_visible: { id: about-text }
+  - assert_visible: { id: about-version }
+  - assert_visible: { id: about-toolkit }
+  - assert_visible: { id: about-lifecycle }
   - screenshot: about
   - nav_back:
   - assert_route: { route: "" }

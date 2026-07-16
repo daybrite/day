@@ -3,5 +3,7 @@ description: Verify stroked shapes are not clipped at the edges.
 flow:
   - wait_for: { id: home-title }
   - navigate: { route: canvas }
-  - assert_visible: { id: shapes-title }
+  - assert_visible: { id: canvas-title }
+  - assert_visible: { id: shape-rect }
+  - assert_visible: { id: shape-arc }
   - screenshot: shapes

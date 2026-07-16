@@ -21,7 +21,7 @@ pub mod res {
 }
 
 thread_local! {
-    /// The most recent app-lifecycle phase, shown live on the Menus page (docs/lifecycle.md).
+    /// The most recent app-lifecycle phase, shown live on the About page (docs/lifecycle.md).
     static LIFECYCLE_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
 }
 pub(crate) fn lifecycle_log() -> Signal<String> {
@@ -80,16 +80,15 @@ day::routes! {
         Controls => "controls",
         Text => "text",
         Canvas => "canvas",
-        System => "system",
-        Services => "services",
-        Menus => "menus",
-        Modals => "modals",
         List => "list",
         Tabs => "tabs",
         Stack => "stack",
         Media => "media",
-        Resources => "resources",
         WebView => "webview",
+        Menus => "menus",
+        System => "system",
+        Services => "services",
+        Resources => "resources",
         Tweaks => "tweaks",
         Map => "map",
         About => "about",
@@ -128,6 +127,9 @@ pub fn root() -> AnyPiece {
         .style(SelectorStyle::Sidebar)
         .title(crate::res::str::app_title())
         .header(sidebar_header)
+        // Ordered as a story: author content (controls, text, drawing), put it in collections
+        // and navigate it, embed rich views, then reach the platform around the app — with the
+        // meta pages (resources, tweaks, about) closing the list.
         .item_icon(
             Section::Controls,
             crate::res::str::nav_controls(),
@@ -145,30 +147,6 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_canvas(),
             res::images::nav_canvas,
             canvas_page,
-        )
-        .item_icon(
-            Section::System,
-            crate::res::str::nav_system(),
-            res::images::nav_system,
-            system_page,
-        )
-        .item_icon(
-            Section::Services,
-            crate::res::str::nav_services(),
-            res::images::nav_services,
-            services_page,
-        )
-        .item_icon(
-            Section::Menus,
-            crate::res::str::nav_menus(),
-            res::images::nav_menus,
-            menus_page,
-        )
-        .item_icon(
-            Section::Modals,
-            crate::res::str::nav_modals(),
-            res::images::nav_modals,
-            modals_page,
         )
         .item_icon(
             Section::List,
@@ -195,16 +173,34 @@ pub fn root() -> AnyPiece {
             media_page,
         )
         .item_icon(
-            Section::Resources,
-            crate::res::str::nav_resources(),
-            res::images::nav_resources,
-            resources_page,
-        )
-        .item_icon(
             Section::WebView,
             crate::res::str::nav_webview(),
             res::images::nav_webview,
             webview_page,
+        )
+        .item_icon(
+            Section::Menus,
+            crate::res::str::nav_menus(),
+            res::images::nav_menus,
+            menus_page,
+        )
+        .item_icon(
+            Section::System,
+            crate::res::str::nav_system(),
+            res::images::nav_system,
+            system_page,
+        )
+        .item_icon(
+            Section::Services,
+            crate::res::str::nav_services(),
+            res::images::nav_services,
+            services_page,
+        )
+        .item_icon(
+            Section::Resources,
+            crate::res::str::nav_resources(),
+            res::images::nav_resources,
+            resources_page,
         )
         .item_icon(
             Section::Tweaks,

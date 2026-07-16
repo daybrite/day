@@ -1,6 +1,6 @@
 use day::prelude::*;
 
-use crate::widgets::heading;
+use crate::widgets::page;
 
 /// Typography playground: every semantic text style (mapped to the platform's native styles + Dynamic
 /// Type / font-scale accessibility sizing), font weights, bold/italic, color, and accessibility-scaled
@@ -12,8 +12,7 @@ pub(crate) fn text_page() -> AnyPiece {
         label(name).font(f).id_keyed("text-style", id).any()
     }
     // Every semantic style (largest → smallest), each rendered in its own style.
-    let styles = column((
-        label(crate::res::str::text_styles_header()).font(Font::Headline),
+    let styles = section((
         specimen(
             "Large Title",
             crate::res::str::text_style_large_title(),
@@ -62,11 +61,9 @@ pub(crate) fn text_page() -> AnyPiece {
             Font::Caption2,
         ),
     ))
-    .spacing(6.0)
-    .align(HAlign::Leading);
+    .title(crate::res::str::text_styles_header());
     // Font weights on a body-size line.
-    let weights = column((
-        label(crate::res::str::text_weights_header()).font(Font::Headline),
+    let weights = section((
         label(crate::res::str::text_weight_ultralight())
             .weight(FontWeight::UltraLight)
             .id("text-w-ultralight"),
@@ -80,11 +77,9 @@ pub(crate) fn text_page() -> AnyPiece {
         label(crate::res::str::text_weight_heavy()).weight(FontWeight::Heavy),
         label(crate::res::str::text_weight_black()).weight(FontWeight::Black),
     ))
-    .spacing(4.0)
-    .align(HAlign::Leading);
+    .title(crate::res::str::text_weights_header());
     // Bold / italic / both, and everything-at-once.
-    let styling = column((
-        label(crate::res::str::text_styling_header()).font(Font::Headline),
+    let styling = section((
         label(crate::res::str::text_bold()).bold().id("text-bold"),
         label(crate::res::str::text_italic())
             .italic()
@@ -100,24 +95,18 @@ pub(crate) fn text_page() -> AnyPiece {
             .color(Color::hex(0x8E44AD))
             .id("text-emphasis"),
     ))
-    .spacing(4.0)
-    .align(HAlign::Leading);
+    .title(crate::res::str::text_styling_header());
     // Color.
-    let colors = column((
-        label(crate::res::str::text_colors_header()).font(Font::Headline),
-        row((
-            label(crate::res::str::color_red()).color(Color::hex(0xE74C3C)),
-            label(crate::res::str::color_green()).color(Color::hex(0x27AE60)),
-            label(crate::res::str::color_blue()).color(Color::hex(0x2F6FDE)),
-            label(crate::res::str::color_orange()).color(Color::hex(0xE67E22)),
-        ))
-        .spacing(12.0),
+    let colors = section((row((
+        label(crate::res::str::color_red()).color(Color::hex(0xE74C3C)),
+        label(crate::res::str::color_green()).color(Color::hex(0x27AE60)),
+        label(crate::res::str::color_blue()).color(Color::hex(0x2F6FDE)),
+        label(crate::res::str::color_orange()).color(Color::hex(0xE67E22)),
     ))
-    .spacing(4.0)
-    .align(HAlign::Leading);
+    .spacing(12.0),))
+    .title(crate::res::str::text_colors_header());
     // Custom sizes — Font::System(pt), still scaled by the platform accessibility text size.
-    let custom = column((
-        label(crate::res::str::text_custom_header()).font(Font::Headline),
+    let custom = section((
         label(crate::res::str::text_custom_note()).font(Font::Footnote),
         label("13 pt").font(Font::System(13.0)),
         label("20 pt").font(Font::System(20.0)),
@@ -126,13 +115,11 @@ pub(crate) fn text_page() -> AnyPiece {
             .font(Font::System(40.0))
             .weight(FontWeight::Bold),
     ))
-    .spacing(4.0)
-    .align(HAlign::Leading);
+    .title(crate::res::str::text_custom_header());
     // Bundled custom fonts (docs/resources.md): the three families ship in the app's fonts/
     // directory; `Font::Custom` references them by FAMILY name (what the font file reports),
     // and `day build` + the backend make that name resolve on every platform.
-    let fonts = column((
-        label(crate::res::str::text_fonts_header()).font(Font::Headline),
+    let fonts = section((
         label(crate::res::str::text_fonts_note()).font(Font::Footnote),
         label("Pacifico — flowing script")
             .font(Font::custom(crate::res::fonts::pacifico, 24.0))
@@ -148,33 +135,14 @@ pub(crate) fn text_page() -> AnyPiece {
             .color(Color::hex(0x2F6FDE))
             .id("text-font-pacifico-lg"),
     ))
-    .spacing(6.0)
-    .align(HAlign::Leading);
+    .title(crate::res::str::text_fonts_header());
 
-    scroll(
-        column((
-            heading(
-                crate::res::str::nav_text(),
-                "text-title",
-                Some(crate::res::str::text_caption()),
-            ),
-            // Bundled fonts lead the page: the most visually distinctive section, and the one
-            // the walkthrough screenshot must show above the fold.
-            fonts,
-            divider(),
-            styles,
-            divider(),
-            weights,
-            divider(),
-            styling,
-            divider(),
-            colors,
-            divider(),
-            custom,
-        ))
-        .spacing(12.0)
-        .align(HAlign::Leading)
-        .padding(16.0),
+    // Bundled fonts lead the page: the most visually distinctive section, and the one the
+    // walkthrough screenshot must show above the fold.
+    page(
+        crate::res::str::nav_text(),
+        "text-title",
+        Some(crate::res::str::text_caption()),
+        form((fonts, styles, weights, styling, colors, custom)).any(),
     )
-    .any()
 }

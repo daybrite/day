@@ -84,8 +84,13 @@ pub(crate) fn history(count: Signal<i64>) -> AnyPiece {
             });
         },
     );
+    // The enclosing form section's title carries the "History" heading; an empty collection
+    // still shows the hint line so the card never renders blank.
     column((
-        label(crate::res::str::history_title()).font(Font::Headline),
+        when(
+            move || entries.with(|e| e.is_empty()),
+            move || label(crate::res::str::history_hint()).font(Font::Footnote),
+        ),
         each(
             move || entries.get(),
             |e| e.0,

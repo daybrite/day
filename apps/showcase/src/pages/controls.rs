@@ -10,12 +10,16 @@ use crate::widgets::{history, page};
 /// walkthrough (§14): the basics (counter, text, slider, toggle), the picker stylings, search,
 /// and progress/activity feedback — each in its own themed section, labels aligned form-wide.
 pub(crate) fn controls_page() -> AnyPiece {
+    // The counter signal is shared: Basics owns the buttons, the History section derives its
+    // keyed collection from the same signal (watch + monotonic keys, §5.4 / A.1).
+    let count = Signal::new(0i64);
     page(
         crate::res::str::nav_controls(),
         "controls-title",
         Some(crate::res::str::controls_caption()),
         form((
-            basics_section(),
+            basics_section(count),
+            history_section(count),
             pickers_section(),
             search_section(),
             feedback_section(),
@@ -24,8 +28,7 @@ pub(crate) fn controls_page() -> AnyPiece {
     )
 }
 
-fn basics_section() -> impl Piece {
-    let count = Signal::new(0i64);
+fn basics_section(count: Signal<i64>) -> impl Piece {
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
@@ -96,10 +99,12 @@ fn basics_section() -> impl Piece {
             ))
             .spacing(8.0),
         ),
-        // — keyed collection (watch + monotonic keys, §5.4 / A.1) —
-        history(count),
     ))
     .title(crate::res::str::controls_basics())
+}
+
+fn history_section(count: Signal<i64>) -> impl Piece {
+    section((history(count),)).title(crate::res::str::history_title())
 }
 
 fn pickers_section() -> impl Piece {

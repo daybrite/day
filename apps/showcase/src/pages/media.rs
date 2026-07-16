@@ -1,7 +1,7 @@
 use day::prelude::*;
 use day_piece_media::media;
 
-use crate::widgets::heading;
+use crate::widgets::page;
 
 /// A native media player (day-piece-media, an EXTERNAL standalone piece): AVPlayerView /
 /// AVPlayerViewController / QMediaPlayer+QVideoWidget / android.widget.VideoView / GtkVideo.
@@ -15,8 +15,18 @@ pub(crate) fn media_page() -> AnyPiece {
     let play = Trigger::new();
     let pause = Trigger::new();
     let load = Trigger::new();
-    let player = column((
-        heading(crate::res::str::nav_media(), "media-title", None),
+    let video = section((
+        // muted: CI walkthroughs screenshot this page — don't blast audio on runners. The
+        // fixed height keeps the 16:9 sample balanced against the transport row instead of
+        // flooding the page with letterboxing.
+        media(url)
+            .looping(true)
+            .muted(true)
+            .play(play)
+            .pause(pause)
+            .load(load)
+            .id("media")
+            .height(300.0),
         row((
             button(crate::res::str::media_play())
                 .prominent()
@@ -32,21 +42,18 @@ pub(crate) fn media_page() -> AnyPiece {
                 .id("media-load"),
         ))
         .spacing(8.0),
-        // muted: CI walkthroughs screenshot this page — don't blast audio on runners.
-        media(url)
-            .looping(true)
-            .muted(true)
-            .play(play)
-            .pause(pause)
-            .load(load)
-            .id("media"),
     ))
-    .spacing(10.0)
-    .align(HAlign::Leading)
-    .padding(16.0);
+    .title(crate::res::str::media_player_section());
     #[cfg(any(target_os = "ios", target_os = "android"))]
-    let player = column((player, lottie_section())).align(HAlign::Leading);
-    player.any()
+    let body = form((video, lottie_section())).any();
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    let body = form((video,)).any();
+    page(
+        crate::res::str::nav_media(),
+        "media-title",
+        Some(crate::res::str::media_caption()),
+        body,
+    )
 }
 
 /// A native Lottie animation (day-piece-lottie): a LottieAnimationView driven by airbnb's
@@ -56,10 +63,7 @@ fn lottie_section() -> impl Piece {
     // Playback rate, bound two ways: the slider drives it and `.speed(speed)` pushes it to the
     // native LottieAnimationView live (a `Speed` patch per change).
     let speed = Signal::new(1.0);
-    column((
-        label(crate::res::str::nav_lottie())
-            .font(Font::Headline)
-            .id("lottie-title"),
+    section((
         label(crate::res::str::lottie_caption())
             .font(Font::Footnote)
             .id("lottie-caption"),
@@ -79,9 +83,7 @@ fn lottie_section() -> impl Piece {
             .spacing(8.0),
         ),
     ))
-    .spacing(10.0)
-    .align(HAlign::Leading)
-    .padding(16.0)
+    .title(crate::res::str::nav_lottie())
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]

@@ -14,7 +14,7 @@ flavor_label = Parfum
 history_title = Historique
 history_entry = le compteur est passé à { $value }
 nav_controls = Contrôles
-nav_menus = Menus
+nav_menus = Menus et dialogues
 nav_text = Texte
 nav_battery = Batterie
 nav_sensors = Capteurs
@@ -78,7 +78,6 @@ tab_one_body = L'onglet aperçu. Chaque onglet conserve son propre état.
 tab_two_body = L'onglet détails, sélectionné par sa clé de route.
 tab_three_body = L'onglet réglages. Les liens profonds et dayscript choisissent les onglets par clé.
 about_text = Une application native multiplateforme construite avec day.
-nav_modals = Fenêtres
 modal_alert = Afficher l'alerte
 modal_confirm = Confirmer
 modal_delete = Supprimer…
@@ -155,9 +154,8 @@ text_fonts_note = Font.Custom("Famille", pt) — fichiers du dossier resource/fo
 
 # Aire de jeu Menus
 menus_caption = Menus natifs — la barre de menus de l'application et les menus contextuels par élément — avec sous-menus imbriqués, raccourcis clavier et commandes d'édition standard.
-menus_last = Dernière action :
-menus_lifecycle = Dernière phase du cycle de vie :
-menus_context_hint = Menu contextuel
+menus_last = Dernière action
+menus_lifecycle = Cycle de vie
 menus_target = Clic droit ici (appui long sur mobile) pour un menu contextuel
 menus_shortcut_hint = Les raccourcis clavier (⌘/Ctrl + touche) apparaissent dans la barre de menus et fonctionnent quand l'application est active — p. ex. Nouveau (N), Enregistrer (S), Recharger (R).
 
@@ -292,3 +290,29 @@ color_red = Rouge
 color_green = Vert
 color_blue = Bleu
 color_orange = Orange
+
+# Menus & dialogues (page fusionnée)
+menus_appmenu_section = Menu de l’application
+menus_context_section = Menu contextuel
+menus_dialogs_section = Dialogues
+modal_result_label = Résultat
+
+# Page Média
+media_caption = Un lecteur multimédia natif — la vue de la plateforme, transport piloté par déclencheurs.
+media_player_section = Vidéo
+
+# Sections de la page Ressources
+resources_image_section = Image embarquée
+resources_modes_note = Une image, trois modes — Ajuster préserve les proportions, Remplir rogne, Étirer déforme.
+image_mode_fit = Ajuster
+image_mode_fill = Remplir
+image_mode_stretch = Étirer
+resources_data_section = Données embarquées
+
+# Page À propos
+about_caption = Ce qu’est cette app, et la plateforme où elle s’exécute.
+about_app_section = Cette app
+about_version = Version
+about_toolkit = Boîte à outils
+about_battery = Batterie
+history_hint = Touchez + ou − ci-dessus : chaque changement s’affiche ici.

@@ -1,28 +1,65 @@
 use day::prelude::*;
 
-use crate::widgets::heading;
+use crate::widgets::page;
 
 /// Bundled resources (§18.3): an image loaded *by name* from the `images/` resource (the native
-/// image pipeline), plus efficient random-access reads of arbitrary embedded data via `resource()`.
+/// image pipeline) shown in each content mode, plus efficient random-access reads of arbitrary
+/// embedded data via `resource()`.
 pub(crate) fn resources_page() -> AnyPiece {
-    let (numbers_line, greeting_line) = resource_lines();
-    column((
-        heading(
-            crate::res::str::nav_resources(),
-            "resources-title",
-            Some(crate::res::str::resources_caption()),
-        ),
-        // `image(crate::res::images::day_logo)` resolves `images/day_logo.png` by name through the backend's native
-        // image path (bundle file / Assets.car / R.drawable / …). `.frame` gives it a fixed box;
-        // it scales to Fit (default content mode) — preserving aspect, never stretching.
+    page(
+        crate::res::str::nav_resources(),
+        "resources-title",
+        Some(crate::res::str::resources_caption()),
+        form((image_section(), data_section())).any(),
+    )
+}
+
+/// `image(res::images::…)` resolves by name through the backend's native image path (bundle
+/// file / Assets.car / R.drawable / …). One asset rendered under each content mode shows what
+/// Fit (default), Fill, and Stretch each do to a non-square frame.
+fn image_section() -> impl Piece {
+    fn mode(label_text: LocalizedText, img: AnyPiece) -> AnyPiece {
+        column((img, label(label_text).font(Font::Caption)))
+            .spacing(6.0)
+            .align(HAlign::Center)
+            .any()
+    }
+    section((
         image(crate::res::images::day_logo).frame(96.0, 96.0),
+        label(crate::res::str::resources_modes_note()).font(Font::Footnote),
+        row((
+            mode(
+                crate::res::str::image_mode_fit(),
+                image(crate::res::images::day_logo).frame(120.0, 72.0).any(),
+            ),
+            mode(
+                crate::res::str::image_mode_fill(),
+                image(crate::res::images::day_logo)
+                    .fill()
+                    .frame(120.0, 72.0)
+                    .any(),
+            ),
+            mode(
+                crate::res::str::image_mode_stretch(),
+                image(crate::res::images::day_logo)
+                    .stretch()
+                    .frame(120.0, 72.0)
+                    .any(),
+            ),
+        ))
+        .spacing(16.0),
+    ))
+    .title(crate::res::str::resources_image_section())
+}
+
+/// Random-access reads of two bundled data resources, via the zero-copy `resource()` view.
+fn data_section() -> impl Piece {
+    let (numbers_line, greeting_line) = resource_lines();
+    section((
         label(move || numbers_line.clone()).id("resources-numbers"),
         label(move || greeting_line.clone()).id("resources-greeting"),
     ))
-    .spacing(10.0)
-    .align(HAlign::Leading)
-    .padding(16.0)
-    .any()
+    .title(crate::res::str::resources_data_section())
 }
 
 /// Open two bundled data resources and format one random-access read from each. `numbers.bin` holds
