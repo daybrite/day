@@ -258,27 +258,6 @@ pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
     ),
 ];
 
-#[cfg(test)]
-mod default_icon_tests {
-    use super::DEFAULT_ICONS;
-
-    /// Guards the embedded files: each entry must be a real PNG whose IHDR pixel size matches
-    /// its declared hicolor size (a mismatched size directory breaks the icon-theme lookup).
-    #[test]
-    fn default_icons_are_pngs_at_their_declared_sizes() {
-        for (size, bytes) in DEFAULT_ICONS {
-            assert!(
-                bytes.starts_with(&[0x89, b'P', b'N', b'G']),
-                "{size}: not a PNG"
-            );
-            // IHDR: width at bytes 16..20, height at 20..24, big-endian.
-            let dim = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
-            assert_eq!(dim(16), size, "{size}: IHDR width mismatch");
-            assert_eq!(dim(20), size, "{size}: IHDR height mismatch");
-        }
-    }
-}
-
 /// Stage a project's declared resources into the native locations for `target`, before its platform
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
@@ -301,5 +280,26 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         "qt" => qt::stage(project, &set),
         "winui" => winui::stage(project, &set),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DEFAULT_ICONS;
+
+    /// Guards the embedded files: each entry must be a real PNG whose IHDR pixel size matches
+    /// its declared hicolor size (a mismatched size directory breaks the icon-theme lookup).
+    #[test]
+    fn default_icons_are_pngs_at_their_declared_sizes() {
+        for (size, bytes) in DEFAULT_ICONS {
+            assert!(
+                bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+                "{size}: not a PNG"
+            );
+            // IHDR: width at bytes 16..20, height at 20..24, big-endian.
+            let dim = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+            assert_eq!(dim(16), size, "{size}: IHDR width mismatch");
+            assert_eq!(dim(20), size, "{size}: IHDR height mismatch");
+        }
     }
 }
