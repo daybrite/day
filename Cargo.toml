@@ -75,7 +75,7 @@ default-members = [
 # carries `publish = false`, so `cargo publish --workspace` (and the `release` CI job) publishes
 # exactly those four, in dependency order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
-version = "0.0.8"
+version = "0.0.9"
 authors = ["Daybrite <hello@daybrite.dev>"]
 edition = "2024"
 description = "Declarative app development API using native UI toolkits"
@@ -87,51 +87,51 @@ categories = ["gui", "command-line-utilities"]
 rust-version = "1.89"
 
 [workspace.dependencies]
-day-geometry = { path = "crates/day-geometry", version = "0.0.8" }
-day-fonts = { path = "crates/day-fonts", version = "0.0.8" }
-day-reactive = { path = "crates/day-reactive", version = "0.0.8" }
-day-spec = { path = "crates/day-spec", version = "0.0.8" }
-day-mock = { path = "crates/day-mock", version = "0.0.8" }
-day-core = { path = "crates/day-core", version = "0.0.8" }
-day-pieces = { path = "crates/day-pieces", version = "0.0.8" }
-day-l10n = { path = "crates/day-l10n", version = "0.0.8" }
-day-fluent = { path = "crates/day-fluent", version = "0.0.8" }
-day-script = { path = "crates/day-script", version = "0.0.8" }
-day = { path = "crates/day", version = "0.0.8" }
-day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.0.8" }
-day-piece-picker = { path = "pieces/day-piece-picker", version = "0.0.8" }
-day-piece-webview = { path = "pieces/day-piece-webview", version = "0.0.8" }
-day-piece-lottie = { path = "pieces/day-piece-lottie", version = "0.0.8" }
-day-part-battery = { path = "parts/day-part-battery", version = "0.0.8" }
-day-part-sensors = { path = "parts/day-part-sensors", version = "0.0.8" }
-day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.0.8" }
-day-part-network = { path = "parts/day-part-network", version = "0.0.8" }
-day-piece-media = { path = "pieces/day-piece-media", version = "0.0.8" }
-day-part-haptics = { path = "parts/day-part-haptics", version = "0.0.8" }
-day-part-prefs = { path = "parts/day-part-prefs", version = "0.0.8" }
-day-part-deviceinfo = { path = "parts/day-part-deviceinfo", version = "0.0.8" }
-day-piece-activity = { path = "pieces/day-piece-activity", version = "0.0.8" }
-day-piece-searchfield = { path = "pieces/day-piece-searchfield", version = "0.0.8" }
-day-piece-map = { path = "pieces/day-piece-map", version = "0.0.8" }
-day-piece-remote-image = { path = "pieces/day-piece-remote-image", version = "0.0.8" }
-day-piece-textarea = { path = "pieces/day-piece-textarea", version = "0.0.8" }
-day-piece-rating = { path = "pieces/day-piece-rating", version = "0.0.8" }
+day-geometry = { path = "crates/day-geometry", version = "0.0.9" }
+day-fonts = { path = "crates/day-fonts", version = "0.0.9" }
+day-reactive = { path = "crates/day-reactive", version = "0.0.9" }
+day-spec = { path = "crates/day-spec", version = "0.0.9" }
+day-mock = { path = "crates/day-mock", version = "0.0.9" }
+day-core = { path = "crates/day-core", version = "0.0.9" }
+day-pieces = { path = "crates/day-pieces", version = "0.0.9" }
+day-l10n = { path = "crates/day-l10n", version = "0.0.9" }
+day-fluent = { path = "crates/day-fluent", version = "0.0.9" }
+day-script = { path = "crates/day-script", version = "0.0.9" }
+day = { path = "crates/day", version = "0.0.9" }
+day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.0.9" }
+day-piece-picker = { path = "pieces/day-piece-picker", version = "0.0.9" }
+day-piece-webview = { path = "pieces/day-piece-webview", version = "0.0.9" }
+day-piece-lottie = { path = "pieces/day-piece-lottie", version = "0.0.9" }
+day-part-battery = { path = "parts/day-part-battery", version = "0.0.9" }
+day-part-sensors = { path = "parts/day-part-sensors", version = "0.0.9" }
+day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.0.9" }
+day-part-network = { path = "parts/day-part-network", version = "0.0.9" }
+day-piece-media = { path = "pieces/day-piece-media", version = "0.0.9" }
+day-part-haptics = { path = "parts/day-part-haptics", version = "0.0.9" }
+day-part-prefs = { path = "parts/day-part-prefs", version = "0.0.9" }
+day-part-deviceinfo = { path = "parts/day-part-deviceinfo", version = "0.0.9" }
+day-piece-activity = { path = "pieces/day-piece-activity", version = "0.0.9" }
+day-piece-searchfield = { path = "pieces/day-piece-searchfield", version = "0.0.9" }
+day-piece-map = { path = "pieces/day-piece-map", version = "0.0.9" }
+day-piece-remote-image = { path = "pieces/day-piece-remote-image", version = "0.0.9" }
+day-piece-textarea = { path = "pieces/day-piece-textarea", version = "0.0.9" }
+day-piece-rating = { path = "pieces/day-piece-rating", version = "0.0.9" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
-day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.0.8" }
-day-tweak-label-selectable = { path = "tweaks/day-tweak-label-selectable", version = "0.0.8" }
-day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", version = "0.0.8" }
-day-toolchain = { path = "crates/day-toolchain", version = "0.0.8" }
-day-build = { path = "crates/day-build", version = "0.0.8" }
-day-appkit = { path = "toolkits/day-appkit", version = "0.0.8" }
-day-gtk = { path = "toolkits/day-gtk", version = "0.0.8" }
-day-qt = { path = "toolkits/day-qt", version = "0.0.8" }
-day-qt-sys = { path = "toolkits/day-qt-sys", version = "0.0.8" }
-day-uikit = { path = "toolkits/day-uikit", version = "0.0.8" }
-day-android = { path = "toolkits/day-android", version = "0.0.8" }
-day-winui = { path = "toolkits/day-winui", version = "0.0.8" }
-day-winui-sys = { path = "toolkits/day-winui-sys", version = "0.0.8" }
-day-arkui = { path = "toolkits/day-arkui", version = "0.0.8" }
-day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.0.8" }
+day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.0.9" }
+day-tweak-label-selectable = { path = "tweaks/day-tweak-label-selectable", version = "0.0.9" }
+day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", version = "0.0.9" }
+day-toolchain = { path = "crates/day-toolchain", version = "0.0.9" }
+day-build = { path = "crates/day-build", version = "0.0.9" }
+day-appkit = { path = "toolkits/day-appkit", version = "0.0.9" }
+day-gtk = { path = "toolkits/day-gtk", version = "0.0.9" }
+day-qt = { path = "toolkits/day-qt", version = "0.0.9" }
+day-qt-sys = { path = "toolkits/day-qt-sys", version = "0.0.9" }
+day-uikit = { path = "toolkits/day-uikit", version = "0.0.9" }
+day-android = { path = "toolkits/day-android", version = "0.0.9" }
+day-winui = { path = "toolkits/day-winui", version = "0.0.9" }
+day-winui-sys = { path = "toolkits/day-winui-sys", version = "0.0.9" }
+day-arkui = { path = "toolkits/day-arkui", version = "0.0.9" }
+day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.0.9" }
 slotmap = "1.1"
 linkme = "0.3"
 
