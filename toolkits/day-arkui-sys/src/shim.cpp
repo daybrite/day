@@ -610,25 +610,40 @@ static std::vector<std::string> split_texts(const std::string& joined) {
     return out;
 }
 
-// A decoded kind-14 record (set-linear-gradient): unit start/end + stops, applied as the
-// brush's shader effect for the NEXT fill-shape record (resolved against that shape's bounds).
+// A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry + stops,
+// applied as the brush's shader effect for the NEXT fill-shape record (resolved against that
+// shape's bounds).
 struct PendingGradient {
     bool active = false;
-    float sx = 0, sy = 0, ex = 0, ey = 0;
+    int kind = 0;
+    float sx = 0, sy = 0, ex = 0, ey = 0; // linear: start/end unit points; radial: sx,sy=center, ex=radius
     std::vector<uint32_t> colors;
     std::vector<float> offsets;
 };
 
 static void apply_gradient(OH_Drawing_Brush* brush, PendingGradient& g,
                            float x, float y, float w, float h) {
-    OH_Drawing_Point* start = OH_Drawing_PointCreate(x + g.sx * w, y + g.sy * h);
-    OH_Drawing_Point* end = OH_Drawing_PointCreate(x + g.ex * w, y + g.ey * h);
-    OH_Drawing_ShaderEffect* fx = OH_Drawing_ShaderEffectCreateLinearGradient(
-        start, end, g.colors.data(), g.offsets.data(), (uint32_t)g.colors.size(), CLAMP);
+    OH_Drawing_ShaderEffect* fx = nullptr;
+    if (g.kind == 1) {
+        // Radial, elliptical-to-bounds: circular in unit space, stretched onto the bounds by
+        // the shader's local matrix (the same rule as every other backend).
+        OH_Drawing_Point2D center{ g.sx, g.sy };
+        OH_Drawing_Matrix* m = OH_Drawing_MatrixCreate();
+        OH_Drawing_MatrixSetMatrix(m, w, 0, x, 0, h, y, 0, 0, 1);
+        fx = OH_Drawing_ShaderEffectCreateRadialGradientWithLocalMatrix(
+            &center, g.ex > 1e-4f ? g.ex : 1e-4f, g.colors.data(), g.offsets.data(),
+            (uint32_t)g.colors.size(), CLAMP, m);
+        OH_Drawing_MatrixDestroy(m);
+    } else {
+        OH_Drawing_Point* start = OH_Drawing_PointCreate(x + g.sx * w, y + g.sy * h);
+        OH_Drawing_Point* end = OH_Drawing_PointCreate(x + g.ex * w, y + g.ey * h);
+        fx = OH_Drawing_ShaderEffectCreateLinearGradient(
+            start, end, g.colors.data(), g.offsets.data(), (uint32_t)g.colors.size(), CLAMP);
+        OH_Drawing_PointDestroy(start);
+        OH_Drawing_PointDestroy(end);
+    }
     OH_Drawing_BrushSetShaderEffect(brush, fx);
     OH_Drawing_ShaderEffectDestroy(fx);
-    OH_Drawing_PointDestroy(start);
-    OH_Drawing_PointDestroy(end);
     g.active = false;
 }
 
@@ -767,8 +782,9 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 OH_Drawing_PathDestroy(path);
                 break;
             }
-            case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
+            case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
                 std::string stops = text_i < texts.size() ? texts[text_i++] : std::string();
+                grad.kind = (int)f;
                 grad.colors.clear();
                 grad.offsets.clear();
                 size_t p = 0;

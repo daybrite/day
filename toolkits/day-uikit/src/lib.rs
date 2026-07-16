@@ -1023,7 +1023,7 @@ mod imp {
                         // the line resolved from the unit points in the shape's bounds.
                         let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
                         if let (Some(p), Some(ctx), Some(grad)) =
-                            (bezier(shape), ctx, cggradient(g))
+                            (bezier(shape), ctx, cggradient(&g.stops))
                         {
                             let b = shape.bounds();
                             let (s, e) = (g.start.resolve(b), g.end.resolve(b));
@@ -1034,6 +1034,33 @@ mod imp {
                                 Some(&grad),
                                 CGPoint::new(s.x, s.y),
                                 CGPoint::new(e.x, e.y),
+                                objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
+                                    | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
+                            );
+                            CGContext::restore_g_state(Some(&ctx));
+                        }
+                    }
+                    day_spec::Paint::Radial(g) => {
+                        // Native radial gradient: clip to the path, map unit space onto the
+                        // bounds via the CTM (elliptical in non-square bounds), draw circular
+                        // in unit coordinates.
+                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                        if let (Some(p), Some(ctx), Some(grad)) =
+                            (bezier(shape), ctx, cggradient(&g.stops))
+                        {
+                            let b = shape.bounds();
+                            CGContext::save_g_state(Some(&ctx));
+                            p.addClip();
+                            CGContext::translate_ctm(Some(&ctx), b.origin.x, b.origin.y);
+                            CGContext::scale_ctm(Some(&ctx), b.size.width, b.size.height);
+                            let c = CGPoint::new(g.center.x, g.center.y);
+                            CGContext::draw_radial_gradient(
+                                Some(&ctx),
+                                Some(&grad),
+                                c,
+                                0.0,
+                                c,
+                                g.radius,
                                 objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
                                     | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
                             );
@@ -1101,24 +1128,23 @@ mod imp {
 
     /// A `CGGradient` from a display-list gradient's stops (device RGB, like every canvas color).
     fn cggradient(
-        g: &day_spec::LinearGradient,
+        stops: &[(f64, day_spec::Color)],
     ) -> Option<objc2_core_foundation::CFRetained<objc2_core_graphics::CGGradient>> {
-        if g.stops.is_empty() {
+        if stops.is_empty() {
             return None;
         }
-        let components: Vec<f64> = g
-            .stops
+        let components: Vec<f64> = stops
             .iter()
             .flat_map(|(_, c)| [c.r, c.g, c.b, c.a])
             .collect();
-        let locations: Vec<f64> = g.stops.iter().map(|(o, _)| *o).collect();
+        let locations: Vec<f64> = stops.iter().map(|(o, _)| *o).collect();
         let space = objc2_core_graphics::CGColorSpace::new_device_rgb();
         unsafe {
             objc2_core_graphics::CGGradient::with_color_components(
                 space.as_deref(),
                 components.as_ptr(),
                 locations.as_ptr(),
-                g.stops.len(),
+                stops.len(),
             )
         }
     }

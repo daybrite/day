@@ -13,8 +13,8 @@ use day_core::*;
 use day_reactive::{Scope, Signal, bind, bind_seeded, watch};
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, Color, DrawOp, Event, Font, Insets, LinearGradient, Paint, Point, Rect, Role, Shape,
-    Size, kinds,
+    A11yProps, Color, DrawOp, Event, Font, Insets, LinearGradient, Paint, Point, RadialGradient,
+    Rect, Role, Shape, Size, kinds,
 };
 
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
@@ -1852,7 +1852,9 @@ pub mod prelude {
     pub use day_spec::props::RowHeight;
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, GestureKind};
-    pub use day_spec::{DrawOp, LinearGradient, Paint, Shape, TextAnchor, UnitPoint};
+    pub use day_spec::{
+        DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
+    };
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     pub use day_spec::{MenuItem, MenuRole, Shortcut};
 }
@@ -2113,6 +2115,7 @@ pub struct ShapePiece {
     kind: Reactive<ShapeKind>,
     fill: Option<Reactive<Color>>,
     fill_linear: Option<Reactive<LinearGradient>>,
+    fill_radial: Option<Reactive<RadialGradient>>,
     stroke: Option<(Reactive<Color>, Reactive<f64>)>,
     inset: Reactive<f64>,
     rotate: Reactive<f64>,
@@ -2128,6 +2131,7 @@ pub fn shape<M>(kind: impl IntoReactive<ShapeKind, M>) -> ShapePiece {
         kind: kind.into_reactive(),
         fill: None,
         fill_linear: None,
+        fill_radial: None,
         stroke: None,
         inset: Reactive::Const(0.0),
         rotate: Reactive::Const(0.0),
@@ -2172,6 +2176,12 @@ impl ShapePiece {
     /// `rectangle().fill_linear(move || sky_gradient(state.get()))`.
     pub fn fill_linear<M>(mut self, g: impl IntoReactive<LinearGradient, M>) -> Self {
         self.fill_linear = Some(g.into_reactive());
+        self
+    }
+    /// Fill with a [`RadialGradient`] (center + radius in the unit space of the shape's bounds,
+    /// stretching elliptically in non-square bounds). Precedence: radial over linear over solid.
+    pub fn fill_radial<M>(mut self, g: impl IntoReactive<RadialGradient, M>) -> Self {
+        self.fill_radial = Some(g.into_reactive());
         self
     }
     pub fn stroke<M1, M2>(
@@ -2234,6 +2244,7 @@ impl Piece for ShapePiece {
             kind,
             fill,
             fill_linear,
+            fill_radial,
             stroke,
             inset,
             rotate,
@@ -2274,7 +2285,9 @@ impl Piece for ShapePiece {
                 d.save();
                 d.concat(m);
             }
-            if let Some(g) = &fill_linear {
+            if let Some(g) = &fill_radial {
+                d.fill(geom.clone(), g.get());
+            } else if let Some(g) = &fill_linear {
                 d.fill(geom.clone(), g.get());
             } else if let Some(fill) = &fill {
                 d.fill(geom.clone(), fill.get());

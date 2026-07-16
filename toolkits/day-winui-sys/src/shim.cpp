@@ -620,10 +620,11 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
     std::vector<WUXM::Matrix> stack;
     WUXM::Matrix cur = mat_identity();
     const double DEG = 3.14159265358979323846 / 180.0;
-    // A decoded kind-14 record (set-linear-gradient), consumed by the NEXT fill-shape record.
-    // XAML's default MappingMode is RelativeToBoundingBox, so the encoded unit start/end points
-    // map onto each shape's bounds with no extra math.
-    WUXM::LinearGradientBrush gradPending{ nullptr };
+    // A decoded kind-14 record (set-gradient), consumed by the NEXT fill-shape record. XAML's
+    // default MappingMode is RelativeToBoundingBox, so the encoded unit geometry maps onto each
+    // shape's bounds with no extra math — and a RadialGradientBrush (OS 1903+, the app
+    // manifest's MinVersion) is naturally elliptical in non-square bounds, the shared rule.
+    WUXM::Brush gradPending{ nullptr };
     auto fill_brush = [&](unsigned col) -> WUXM::Brush {
         if (gradPending) {
             WUXM::Brush b = gradPending;
@@ -797,33 +798,49 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
             }
             break;
         }
-        case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
+        case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
-            WUXM::LinearGradientBrush lgb;
-            lgb.StartPoint(WF::Point{ (float)a, (float)b });
-            lgb.EndPoint(WF::Point{ (float)c, (float)d });
-            size_t pos = 0;
-            while (pos < t.size()) {
-                size_t sp = t.find(' ', pos);
-                std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-                pos = sp == std::string::npos ? t.size() : sp + 1;
-                size_t comma = pair.find(',');
-                if (comma == std::string::npos || comma == 0) continue;
-                float off = 0.0f;
-                std::from_chars(pair.data(), pair.data() + comma, off);
-                unsigned bits = 0;
-                std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), bits, 16);
-                WUXM::GradientStop gs;
-                gs.Offset(off);
-                WUI::Color cc;
-                cc.A = static_cast<uint8_t>((bits >> 24) & 0xff);
-                cc.R = static_cast<uint8_t>((bits >> 16) & 0xff);
-                cc.G = static_cast<uint8_t>((bits >> 8) & 0xff);
-                cc.B = static_cast<uint8_t>(bits & 0xff);
-                gs.Color(cc);
-                lgb.GradientStops().Append(gs);
+            // Parse the shared stop format once, into whichever brush the type selects.
+            auto parse_stops = [&](auto appendStop) {
+                size_t pos = 0, count = 0;
+                while (pos < t.size()) {
+                    size_t sp = t.find(' ', pos);
+                    std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+                    pos = sp == std::string::npos ? t.size() : sp + 1;
+                    size_t comma = pair.find(',');
+                    if (comma == std::string::npos || comma == 0) continue;
+                    float off = 0.0f;
+                    std::from_chars(pair.data(), pair.data() + comma, off);
+                    unsigned bits = 0;
+                    std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), bits, 16);
+                    WUXM::GradientStop gs;
+                    gs.Offset(off);
+                    WUI::Color cc;
+                    cc.A = static_cast<uint8_t>((bits >> 24) & 0xff);
+                    cc.R = static_cast<uint8_t>((bits >> 16) & 0xff);
+                    cc.G = static_cast<uint8_t>((bits >> 8) & 0xff);
+                    cc.B = static_cast<uint8_t>(bits & 0xff);
+                    gs.Color(cc);
+                    appendStop(gs);
+                    count++;
+                }
+                return count;
+            };
+            if ((int)f == 1) {
+                WUXM::RadialGradientBrush rgb;
+                rgb.Center(WF::Point{ (float)a, (float)b });
+                rgb.GradientOrigin(WF::Point{ (float)a, (float)b });
+                rgb.RadiusX(c);
+                rgb.RadiusY(c);
+                if (parse_stops([&](WUXM::GradientStop gs) { rgb.GradientStops().Append(gs); }) >= 2)
+                    gradPending = rgb;
+            } else {
+                WUXM::LinearGradientBrush lgb;
+                lgb.StartPoint(WF::Point{ (float)a, (float)b });
+                lgb.EndPoint(WF::Point{ (float)c, (float)d });
+                if (parse_stops([&](WUXM::GradientStop gs) { lgb.GradientStops().Append(gs); }) >= 2)
+                    gradPending = lgb;
             }
-            if (lgb.GradientStops().Size() >= 2) gradPending = lgb;
             break;
         }
         }

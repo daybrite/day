@@ -21,19 +21,36 @@ public class DayCanvasView extends View {
         invalidate();
     }
 
-    // A decoded kind-14 record (set-linear-gradient): unit start/end + parsed stops, applied as
-    // the paint's shader for the NEXT fill-shape record (resolved against that shape's bounds).
+    // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
+    // parsed stops, applied as the paint's shader for the NEXT fill-shape record (resolved
+    // against that shape's bounds).
     private boolean gradPending = false;
+    private int gradType = 0;
     private float gsx, gsy, gex, gey;
     private int[] gradColors = new int[0];
     private float[] gradOffsets = new float[0];
 
     /** Install the pending gradient shader for a fill over `bounds`; caller clears it after. */
     private void applyGradient(RectF bounds) {
-        paint.setShader(new android.graphics.LinearGradient(
-                bounds.left + gsx * bounds.width(), bounds.top + gsy * bounds.height(),
-                bounds.left + gex * bounds.width(), bounds.top + gey * bounds.height(),
-                gradColors, gradOffsets, android.graphics.Shader.TileMode.CLAMP));
+        android.graphics.Shader shader;
+        if (gradType == 1) {
+            // Radial, elliptical-to-bounds: circular in unit space (a,b = center gsx,gsy,
+            // c = radius gex), stretched onto the bounds by the shader's local matrix.
+            android.graphics.RadialGradient rg = new android.graphics.RadialGradient(
+                    gsx, gsy, Math.max(gex, 1e-4f),
+                    gradColors, gradOffsets, android.graphics.Shader.TileMode.CLAMP);
+            Matrix m = new Matrix();
+            m.setScale(bounds.width(), bounds.height());
+            m.postTranslate(bounds.left, bounds.top);
+            rg.setLocalMatrix(m);
+            shader = rg;
+        } else {
+            shader = new android.graphics.LinearGradient(
+                    bounds.left + gsx * bounds.width(), bounds.top + gsy * bounds.height(),
+                    bounds.left + gex * bounds.width(), bounds.top + gey * bounds.height(),
+                    gradColors, gradOffsets, android.graphics.Shader.TileMode.CLAMP);
+        }
+        paint.setShader(shader);
         gradPending = false;
     }
 
@@ -132,8 +149,9 @@ public class DayCanvasView extends View {
                     }
                     break;
                 }
-                case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb …"
+                case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb …"
                     String t = ti < texts.length ? texts[ti++] : "";
+                    gradType = (int) f;
                     String[] parts = t.split(" ");
                     int[] colors = new int[parts.length];
                     float[] offsets = new float[parts.length];

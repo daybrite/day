@@ -177,7 +177,9 @@ pub(crate) fn appx_manifest(
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0"/>
+    <!-- MinVersion 18362 (Windows 10 1903): the canvas radial gradient uses XAML's
+         RadialGradientBrush, which does not exist on 1809 (long end-of-life). -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.22621.0"/>
   </Dependencies>
   <Resources><Resource Language="en-us"/></Resources>
   <Applications>

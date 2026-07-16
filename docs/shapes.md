@@ -29,7 +29,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 - `Shape { Rect(Rect), RoundedRect(Rect, f64), Ellipse(Rect), Arc{rect,start_deg,sweep_deg},
   Line(Point,Point), Polygon(Vec<Point>) }`: the geometry enum (`day-spec`).
 - `Draw::fill(Shape, Color)`, `Draw::stroke(Shape, Color, f64)`, `Draw::text(...)`.
-- `Color { r,g,b,a }` (rgba/hex), or a `LinearGradient` via `.fill_linear(...)` (radial/angular are later phases).
+- `Color { r,g,b,a }` (rgba/hex), a `LinearGradient` via `.fill_linear(...)`, or a `RadialGradient` via `.fill_radial(...)` (angular is a later phase).
 - `Decorate` blanket impl → `.id/.id_keyed/.a11y/.frame/.padding/.any` for every Piece.
 - Reserved seams: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
   §8.4's "day-driven frame-clock ticker for canvas only", the exact hook shape animation needs.
@@ -126,13 +126,16 @@ Polygon, Path, Custom) introduce a `PathData` primitive + one path-fill/stroke c
 pub enum Paint {
     Solid(Color),
     Linear(LinearGradient),   // { start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)> }
+    Radial(RadialGradient),   // { center: UnitPoint, radius: f64 (unit, elliptical-to-bounds), stops }
     // ── later phases ──
-    // Radial  { stops: Vec<(f64, Color)>, center: UnitPoint, radius: f64 },
-    // Angular { stops: Vec<(f64, Color)>, center: UnitPoint, start_deg: f64 },
+    // Angular { stops: Vec<(f64, Color)>, center: UnitPoint, start_deg: f64 } — native on
+    //   Apple (CGContextDrawConicGradient) / Qt (QConicalGradient) / Android (SweepGradient) /
+    //   OH_Drawing (sweep); needs a wedge-fan fallback on cairo + WinUI XAML (the hop recipe).
     // Token(SemanticColor),                            // §6 theme tokens, late-bound
 }
 impl From<Color> for Paint { /* … */ }
 impl From<LinearGradient> for Paint { /* … */ }
+impl From<RadialGradient> for Paint { /* … */ }
 
 #[derive(Clone)]
 pub struct Stroke {
@@ -290,11 +293,16 @@ before firing `.on_tap`/`.on_long_press`. Bounding-box fallback if a kind has no
 This is more correct than SwiftUI's default (which needs `.contentShape` to get precise
 hit testing) and needs no backend work beyond the gesture events Day already plans.
 
-## 7. Gradients & `ShapeStyle` (linear: DONE; radial/angular: later)
+## 7. Gradients & `ShapeStyle` (linear + radial: DONE; angular: later)
 
-Linear gradients are implemented end-to-end: `Paint::Linear(LinearGradient)` on the `Fill` op,
-`Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)` on shape pieces (reactive), and
-native replay on every backend. `Paint` still grows to `Radial/Angular` + semantic `Token`s later.
+Linear and radial gradients are implemented end-to-end: `Paint::Linear`/`Paint::Radial` on the
+`Fill` op, `Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)`/`.fill_radial(...)`
+on shape pieces (reactive), and native replay on every backend (radial: NSGradient center-draw,
+CGContextDrawRadialGradient, cairo radial pattern, QRadialGradient in ObjectMode, Android
+RadialGradient shader + local matrix, WinUI RadialGradientBrush — OS 1903+, now the msix
+MinVersion — and OH_Drawing radial shader with local matrix). Radial geometry is unit-space and
+stretches elliptically to non-square bounds on every backend. `Paint` still grows to `Angular` +
+semantic `Token`s later.
 This is the one place the
 canvas layer must grow: a `Fill(Shape, Paint)`/`Stroke(Shape, Paint, StrokeStyle)` op (Paint, not
 just Color) + per-backend gradient replay (CGGradient, cairo pattern, QGradient/QConicalGradient,

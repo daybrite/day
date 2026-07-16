@@ -71,6 +71,38 @@ fn gradients_section() -> impl Piece {
                 .id("gradient-angle"),
         ))
         .spacing(12.0),
+        // Radial: centered glow, off-center highlight, and a multi-stop "sunset" in a
+        // non-square frame (the unit-space radius stretches elliptically to the bounds).
+        row((
+            circle()
+                .fill_radial(RadialGradient::centered(
+                    Color::hex(0xFFF2B0),
+                    Color::hex(0xE67E22),
+                ))
+                .frame(56.0, 56.0)
+                .id("gradient-radial"),
+            circle()
+                .fill_radial(RadialGradient::new(
+                    UnitPoint::new(0.35, 0.35),
+                    0.75,
+                    vec![(0.0, Color::hex(0xBBDEFB)), (1.0, Color::hex(0x1D5FA8))],
+                ))
+                .frame(56.0, 56.0)
+                .id("gradient-radial-offset"),
+            rounded_rectangle(12.0)
+                .fill_radial(RadialGradient::new(
+                    UnitPoint::BOTTOM,
+                    1.0,
+                    vec![
+                        (0.0, Color::hex(0xFFD24A)),
+                        (0.5, Color::hex(0xE74C3C)),
+                        (1.0, Color::hex(0x2C3E50)),
+                    ],
+                ))
+                .frame(76.0, 56.0)
+                .id("gradient-radial-stops"),
+        ))
+        .spacing(12.0),
         labeled(
             crate::res::str::gradient_angle(),
             slider(angle).range(0.0..=360.0).id("gradient-angle-slider"),

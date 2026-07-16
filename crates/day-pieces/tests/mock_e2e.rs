@@ -1272,10 +1272,46 @@ fn shape_fill_linear_records_gradient_paint() {
     // stops ride the texts channel.
     let ops = probe.widget(node).ops.clone();
     let (nums, texts) = day_spec::encode_ops(&ops);
-    assert_eq!(nums[0], 14.0, "set-linear-gradient record first");
+    assert_eq!(nums[0], 14.0, "set-gradient record first");
     assert_eq!(nums[9], 0.0, "fill-rect record second");
     assert!(
         texts[0].split(' ').count() == 2 && texts[0].contains(','),
+        "two stops on the texts channel: {:?}",
+        texts[0]
+    );
+}
+
+#[test]
+fn shape_fill_radial_records_gradient_paint() {
+    let probe = boot(move || {
+        circle()
+            .fill_radial(RadialGradient::centered(
+                Color::hex(0xfff2b0),
+                Color::hex(0x3e86c9),
+            ))
+            .frame(60.0, 60.0)
+            .any()
+    });
+    let node = probe.find_by_kind("day.canvas")[0].0;
+    let ops = probe.widget(node).ops.clone();
+    match ops.first() {
+        Some(DrawOp::Fill(_, Paint::Radial(g))) => {
+            assert_eq!(g.center, UnitPoint::CENTER);
+            assert_eq!(g.radius, 0.5);
+            assert_eq!(g.stops.len(), 2);
+        }
+        other => panic!("expected a radial fill, got {other:?}"),
+    }
+    // Encoding: one kind-14 set-gradient record with the radial discriminant (slot f = 1),
+    // center in a,b and radius in c, then the fill-shape record.
+    let (nums, texts) = day_spec::encode_ops(&ops);
+    assert_eq!(nums[0], 14.0, "set-gradient record first");
+    assert_eq!(nums[6], 1.0, "radial type discriminant in slot f");
+    assert_eq!((nums[1], nums[2]), (0.5, 0.5), "center unit point");
+    assert_eq!(nums[3], 0.5, "unit radius");
+    assert_eq!(nums[9], 3.0, "fill-ellipse record second");
+    assert!(
+        texts[0].split(' ').count() == 2,
         "two stops on the texts channel: {:?}",
         texts[0]
     );

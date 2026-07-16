@@ -760,6 +760,7 @@ void day_qt_dismiss_present(uint64_t req) {
 #include <QPaintEvent>
 #include <QPainter>
 #include <QLinearGradient>
+#include <QRadialGradient>
 #include <QPolygonF>
 #include <QVector>
 
@@ -776,16 +777,27 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         int ti = 0;
-        // A decoded kind-14 record (set-linear-gradient): unit start/end + stops, applied as the
-        // brush of the NEXT fill-shape record (resolved against that shape's bounding rect).
+        // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
+        // stops, applied as the brush of the NEXT fill-shape record (resolved against that
+        // shape's bounding rect).
         bool gradPending = false;
+        int gradType = 0;
         double gsx = 0, gsy = 0, gex = 0, gey = 0;
         QGradientStops gstops;
         auto gradBrush = [&](const QRectF &bounds) {
+            gradPending = false;
+            if (gradType == 1) {
+                // Radial: ObjectMode maps the unit square onto the drawn shape's bounding
+                // rect, so a unit-space circle renders elliptically in non-square bounds —
+                // the same rule as every other backend. (a,b = center, c = radius: gsx,gsy,gex.)
+                QRadialGradient rg(QPointF(gsx, gsy), gex, QPointF(gsx, gsy));
+                rg.setCoordinateMode(QGradient::ObjectMode);
+                rg.setStops(gstops);
+                return QBrush(rg);
+            }
             QLinearGradient lg(bounds.x() + gsx * bounds.width(), bounds.y() + gsy * bounds.height(),
                                bounds.x() + gex * bounds.width(), bounds.y() + gey * bounds.height());
             lg.setStops(gstops);
-            gradPending = false;
             return QBrush(lg);
         };
         for (int i = 0; i + 8 < nums.size(); i += 9) {
@@ -848,8 +860,9 @@ protected:
                     }
                     break;
                 }
-                case 14: { // set-linear-gradient: stops ride the texts channel as "offset,aarrggbb …"
+                case 14: { // set-gradient (f = type): stops ride the texts channel as "offset,aarrggbb …"
                     QString t = ti < texts.size() ? texts[ti++] : QString();
+                    gradType = (int)f;
                     gstops.clear();
                     for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
                         int comma = pair.indexOf(',');

@@ -853,7 +853,7 @@ fn draw_op(op: &DrawOp) {
                 day_spec::Paint::Linear(g) => {
                     // Native linear gradient: clip to the shape's path, then NSGradient along
                     // the line resolved from the gradient's unit points in the shape's bounds.
-                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(g)) {
+                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(&g.stops)) {
                         let b = shape.bounds();
                         let (s, e) = (g.start.resolve(b), g.end.resolve(b));
                         NSGraphicsContext::saveGraphicsState_class();
@@ -861,6 +861,26 @@ fn draw_op(op: &DrawOp) {
                         grad.drawFromPoint_toPoint_options(
                             NSPoint::new(s.x, s.y),
                             NSPoint::new(e.x, e.y),
+                            objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
+                                | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation,
+                        );
+                        NSGraphicsContext::restoreGraphicsState_class();
+                    }
+                }
+                day_spec::Paint::Radial(g) => {
+                    // Native radial gradient: clip to the path, map unit space onto the bounds
+                    // (elliptical in non-square bounds), draw circular in unit coordinates.
+                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(&g.stops)) {
+                        let b = shape.bounds();
+                        NSGraphicsContext::saveGraphicsState_class();
+                        p.addClip();
+                        concat_unit_to_bounds(b);
+                        let c = NSPoint::new(g.center.x, g.center.y);
+                        grad.drawFromCenter_radius_toCenter_radius_options(
+                            c,
+                            0.0,
+                            c,
+                            g.radius,
                             objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
                                 | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation,
                         );
@@ -923,15 +943,15 @@ fn draw_op(op: &DrawOp) {
 
 /// An `NSGradient` from a display-list gradient's stops (sRGB, like every canvas color).
 fn nsgradient(
-    g: &day_spec::LinearGradient,
+    stops: &[(f64, day_spec::Color)],
 ) -> Option<objc2::rc::Retained<objc2_app_kit::NSGradient>> {
-    if g.stops.is_empty() {
+    if stops.is_empty() {
         return None;
     }
     let colors = objc2_foundation::NSArray::from_retained_slice(
-        &g.stops.iter().map(|(_, c)| nscolor(*c)).collect::<Vec<_>>(),
+        &stops.iter().map(|(_, c)| nscolor(*c)).collect::<Vec<_>>(),
     );
-    let locations: Vec<f64> = g.stops.iter().map(|(o, _)| *o).collect();
+    let locations: Vec<f64> = stops.iter().map(|(o, _)| *o).collect();
     unsafe {
         objc2_app_kit::NSGradient::initWithColors_atLocations_colorSpace(
             objc2_app_kit::NSGradient::alloc(),
@@ -940,6 +960,21 @@ fn nsgradient(
             &objc2_app_kit::NSColorSpace::sRGBColorSpace(),
         )
     }
+}
+
+/// Concat a bounds-mapping transform (unit gradient space → `b`) onto the current context, so a
+/// circular gradient drawn in unit coordinates renders elliptically stretched to the bounds.
+fn concat_unit_to_bounds(b: day_spec::Rect) {
+    let t = NSAffineTransform::new();
+    t.setTransformStruct(NSAffineTransformStruct {
+        m11: b.size.width,
+        m12: 0.0,
+        m21: 0.0,
+        m22: b.size.height,
+        tX: b.origin.x,
+        tY: b.origin.y,
+    });
+    unsafe { t.concat() };
 }
 
 fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::NSBezierPath>> {

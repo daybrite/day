@@ -55,33 +55,51 @@ fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     );
 }
 
-/// A decoded kind-14 record (set-linear-gradient), waiting for its fill-shape record. Unit
-/// start/end resolve against the shape's bounding box; stops are (offset, 0xAARRGGBB).
+/// A decoded kind-14 record (set-gradient), waiting for its fill-shape record. Unit geometry
+/// resolves against the shape's bounding box; stops are (offset, 0xAARRGGBB).
 struct PendingGradient {
-    start: (f64, f64),
-    end: (f64, f64),
+    /// Encoded gradient type: 0 = linear (a,b→c,d unit points), 1 = radial (a,b center, c radius).
+    kind: u8,
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
     stops: Vec<(f64, u32)>,
 }
 
 impl PendingGradient {
     /// Install the gradient as the cairo source, resolved against the shape's bbox.
     fn set_source(&self, cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64) {
-        let lg = gtk4::cairo::LinearGradient::new(
-            x + self.start.0 * w,
-            y + self.start.1 * h,
-            x + self.end.0 * w,
-            y + self.end.1 * h,
-        );
-        for (o, bits) in &self.stops {
-            lg.add_color_stop_rgba(
-                *o,
-                ((bits >> 16) & 0xff) as f64 / 255.0,
-                ((bits >> 8) & 0xff) as f64 / 255.0,
-                (bits & 0xff) as f64 / 255.0,
-                ((bits >> 24) & 0xff) as f64 / 255.0,
+        let stops = |g: &gtk4::cairo::Gradient| {
+            for (o, bits) in &self.stops {
+                g.add_color_stop_rgba(
+                    *o,
+                    ((bits >> 16) & 0xff) as f64 / 255.0,
+                    ((bits >> 8) & 0xff) as f64 / 255.0,
+                    (bits & 0xff) as f64 / 255.0,
+                    ((bits >> 24) & 0xff) as f64 / 255.0,
+                );
+            }
+        };
+        if self.kind == 1 {
+            // Radial, elliptical-to-bounds: a circular gradient in the unit space of the
+            // bounds, mapped by the PATTERN matrix (user → pattern space, so the inverse of
+            // the unit→bounds map).
+            let rg = gtk4::cairo::RadialGradient::new(self.a, self.b, 0.0, self.a, self.b, self.c);
+            stops(rg.as_ref());
+            let m = gtk4::cairo::Matrix::new(1.0 / w, 0.0, 0.0, 1.0 / h, -x / w, -y / h);
+            rg.set_matrix(m);
+            let _ = cr.set_source(&rg);
+        } else {
+            let lg = gtk4::cairo::LinearGradient::new(
+                x + self.a * w,
+                y + self.b * h,
+                x + self.c * w,
+                y + self.d * h,
             );
+            stops(lg.as_ref());
+            let _ = cr.set_source(&lg);
         }
-        let _ = cr.set_source(&lg);
     }
 }
 
@@ -227,8 +245,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
                 cr.transform(m);
             }
-            // Set-linear-gradient: unit start/end in a..d; "offset,aarrggbb …" stops ride the
-            // texts channel. Applies to the next fill-shape record (encode_ops contract).
+            // Set-gradient (f = type: 0 linear a,b→c,d; 1 radial a,b center + c radius);
+            // "offset,aarrggbb …" stops ride the texts channel. Applies to the next
+            // fill-shape record (encode_ops contract).
             14 => {
                 let raw = texts.get(ti).cloned().unwrap_or_default();
                 ti += 1;
@@ -240,8 +259,11 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                     })
                     .collect();
                 pending = Some(PendingGradient {
-                    start: (a, b),
-                    end: (c, d),
+                    kind: f as u8,
+                    a,
+                    b,
+                    c,
+                    d,
                     stops,
                 });
             }

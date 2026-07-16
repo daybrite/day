@@ -611,13 +611,40 @@ impl LinearGradient {
     }
 }
 
-/// A fill source: a solid color, or a linear gradient (docs/shapes.md §3.2 — radial/angular and
+/// A radial gradient (docs/shapes.md §3.2 / §7): color stops from `center` outward. Both the
+/// center and the radius live in the unit space of the filled shape's bounding box, so the
+/// gradient stretches into an ELLIPSE when the bounds aren't square (the WinUI relative-brush
+/// behavior; the other backends reproduce it with a local matrix on a circular gradient). A
+/// `radius` of `0.5` from the default center touches the edge midpoints of the bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RadialGradient {
+    pub center: UnitPoint,
+    pub radius: f64,
+    pub stops: Vec<(f64, Color)>,
+}
+
+impl RadialGradient {
+    pub fn new(center: UnitPoint, radius: f64, stops: Vec<(f64, Color)>) -> Self {
+        RadialGradient {
+            center,
+            radius,
+            stops,
+        }
+    }
+    /// Centered, edge-touching (radius 0.5) between two colors — the everyday glow case.
+    pub fn centered(inner: Color, outer: Color) -> Self {
+        RadialGradient::new(UnitPoint::CENTER, 0.5, vec![(0.0, inner), (1.0, outer)])
+    }
+}
+
+/// A fill source: a solid color, or a linear/radial gradient (docs/shapes.md §3.2 — angular and
 /// semantic tokens are later phases). `From<Color>` keeps every existing `fill(shape, color)`
 /// call site compiling unchanged.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
     Solid(Color),
     Linear(LinearGradient),
+    Radial(RadialGradient),
 }
 
 impl From<Color> for Paint {
@@ -629,6 +656,12 @@ impl From<Color> for Paint {
 impl From<LinearGradient> for Paint {
     fn from(g: LinearGradient) -> Self {
         Paint::Linear(g)
+    }
+}
+
+impl From<RadialGradient> for Paint {
+    fn from(g: RadialGradient) -> Self {
+        Paint::Radial(g)
     }
 }
 
@@ -1426,10 +1459,11 @@ impl<B: Toolkit> Registry<B> {
 /// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered), 8 save, 9 restore,
 /// 10 concat(a..f=affine), 11 fill-polygon / 12 stroke-polygon(g=w) — polygon points ride the
 /// texts channel as "x,y x,y …" (closed automatically), 13 stroke-rrect(e=r, g=w),
-/// 14 set-linear-gradient(a,b=start unit point, c,d=end unit point, e=stop count) — the stops
-/// ride the texts channel as "offset,aarrggbb offset,aarrggbb …"; the gradient applies to the
-/// NEXT fill-shape record (whose color slot is then unused) and is cleared after it. Unit
-/// points resolve against the filled shape's bounding box.
+/// 14 set-gradient(f=type: 0 linear with a,b=start / c,d=end unit points; 1 radial with
+/// a,b=center unit point, c=unit radius; e=stop count) — the stops ride the texts channel as
+/// "offset,aarrggbb offset,aarrggbb …"; the gradient applies to the NEXT fill-shape record
+/// (whose color slot is then unused) and is cleared after it. Unit geometry resolves against
+/// the filled shape's bounding box, so a radial stretches elliptically in non-square bounds.
 ///
 /// Transports join `texts` with the unit separator U+001F (one entry per kind-7/11/12/14
 /// record, in order), so text payloads must not contain U+001F. Known asymmetry:
@@ -1550,34 +1584,43 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     for op in ops {
         match op {
             DrawOp::Fill(shape, paint) => {
+                // A gradient emits one kind-14 set-gradient record before its shape record;
+                // the stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
+                // Geometry per type rides slots a..d, the type discriminant slot f — ONE
+                // record shape, so every decoder keeps a single gradient code path.
+                let mut gradient = |geo: [f64; 4], kind: f64, stops: &[(f64, Color)]| {
+                    push(
+                        14.0,
+                        geo[0],
+                        geo[1],
+                        geo[2],
+                        geo[3],
+                        stops.len() as f64,
+                        kind,
+                        0.0,
+                        Color::CLEAR,
+                        &mut nums,
+                    );
+                    texts.push(
+                        stops
+                            .iter()
+                            .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    );
+                };
                 let col = match paint {
                     Paint::Solid(c) => *c,
                     Paint::Linear(g) => {
-                        // Kind 14 (set-linear-gradient) precedes its shape record; the stops
-                        // ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
-                        push(
-                            14.0,
-                            g.start.x,
-                            g.start.y,
-                            g.end.x,
-                            g.end.y,
-                            g.stops.len() as f64,
-                            0.0,
-                            0.0,
-                            Color::CLEAR,
-                            &mut nums,
-                        );
-                        texts.push(
-                            g.stops
-                                .iter()
-                                .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
-                                .collect::<Vec<_>>()
-                                .join(" "),
-                        );
+                        gradient([g.start.x, g.start.y, g.end.x, g.end.y], 0.0, &g.stops);
                         // The gradient replaces the shape record's color — but it must be
                         // OPAQUE, not clear: Skia-based decoders (Android Paint, OH_Drawing)
                         // modulate a shader by the paint alpha, so a clear slot would render
                         // the whole gradient invisible.
+                        Color::WHITE
+                    }
+                    Paint::Radial(g) => {
+                        gradient([g.center.x, g.center.y, g.radius, 0.0], 1.0, &g.stops);
                         Color::WHITE
                     }
                 };
