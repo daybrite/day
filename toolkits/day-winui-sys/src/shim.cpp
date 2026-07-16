@@ -17,6 +17,7 @@
 
 #include <string>
 #include <limits>
+#include <algorithm> // std::sort — radial-gradient stop ordering
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -154,6 +155,63 @@ static WUXM::SolidColorBrush brush_bits(unsigned col) {
     c.G = static_cast<uint8_t>((col >> 8) & 0xff);
     c.B = static_cast<uint8_t>(col & 0xff);
     return WUXM::SolidColorBrush(c);
+}
+// System XAML (Windows.UI.Xaml.Media) ships LinearGradientBrush but no RadialGradientBrush — that
+// type lives only in WinUI 2 (Microsoft.UI.Xaml), which this shim doesn't pull in. Synthesize the
+// equivalent: rasterize the radial ramp into a unit-square WriteableBitmap and paint it through an
+// ImageBrush with Stretch::Fill, which maps the unit square onto the shape's bounds — so the circle
+// stretches to an ellipse in non-square bounds, matching LinearGradientBrush's RelativeToBoundingBox.
+static WUI::Color radial_color_at(std::vector<std::pair<float, WUI::Color>> const& stops, double t) {
+    if (stops.empty()) return WUI::Color{};
+    if (t <= stops.front().first) return stops.front().second;
+    if (t >= stops.back().first) return stops.back().second;
+    for (size_t i = 1; i < stops.size(); ++i) {
+        if (t <= stops[i].first) {
+            double span = stops[i].first - stops[i - 1].first;
+            double u = span > 0.0 ? (t - stops[i - 1].first) / span : 0.0;
+            WUI::Color a = stops[i - 1].second, b = stops[i].second;
+            auto mix = [u](uint8_t x, uint8_t y) {
+                return static_cast<uint8_t>(std::lround(x + (y - x) * u));
+            };
+            WUI::Color c;
+            c.A = mix(a.A, b.A);
+            c.R = mix(a.R, b.R);
+            c.G = mix(a.G, b.G);
+            c.B = mix(a.B, b.B);
+            return c;
+        }
+    }
+    return stops.back().second;
+}
+static WUXM::ImageBrush make_radial_brush(double cx, double cy, double radius,
+                                          std::vector<std::pair<float, WUI::Color>> stops) {
+    std::sort(stops.begin(), stops.end(),
+              [](auto const& l, auto const& r) { return l.first < r.first; });
+    const int N = 256;
+    WUXM::Imaging::WriteableBitmap wb(N, N);
+    uint8_t* px = nullptr;
+    wb.PixelBuffer().as<::Windows::Storage::Streams::IBufferByteAccess>()->Buffer(&px);
+    for (int y = 0; y < N; ++y) {
+        double v = static_cast<double>(y) / (N - 1);
+        for (int x = 0; x < N; ++x) {
+            double u = static_cast<double>(x) / (N - 1);
+            double du = radius > 0.0 ? (u - cx) / radius : 0.0;
+            double dv = radius > 0.0 ? (v - cy) / radius : 0.0;
+            double t = std::sqrt(du * du + dv * dv);
+            WUI::Color c = radial_color_at(stops, t > 1.0 ? 1.0 : t);
+            // WriteableBitmap's PixelBuffer is premultiplied BGRA8.
+            size_t o = (static_cast<size_t>(y) * N + x) * 4;
+            px[o + 0] = static_cast<uint8_t>(c.B * c.A / 255);
+            px[o + 1] = static_cast<uint8_t>(c.G * c.A / 255);
+            px[o + 2] = static_cast<uint8_t>(c.R * c.A / 255);
+            px[o + 3] = c.A;
+        }
+    }
+    wb.Invalidate();
+    WUXM::ImageBrush ib;
+    ib.ImageSource(wb);
+    ib.Stretch(WUXM::Stretch::Fill);
+    return ib;
 }
 static WUXM::Matrix mat_identity() {
     WUXM::Matrix m{};
@@ -622,8 +680,8 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
     const double DEG = 3.14159265358979323846 / 180.0;
     // A decoded kind-14 record (set-gradient), consumed by the NEXT fill-shape record. XAML's
     // default MappingMode is RelativeToBoundingBox, so the encoded unit geometry maps onto each
-    // shape's bounds with no extra math — and a RadialGradientBrush (OS 1903+, the app
-    // manifest's MinVersion) is naturally elliptical in non-square bounds, the shared rule.
+    // shape's bounds with no extra math; make_radial_brush mirrors that with Stretch::Fill so both
+    // gradient kinds turn naturally elliptical in non-square bounds, the shared rule.
     WUXM::Brush gradPending{ nullptr };
     auto fill_brush = [&](unsigned col) -> WUXM::Brush {
         if (gradPending) {
@@ -827,13 +885,11 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
                 return count;
             };
             if ((int)f == 1) {
-                WUXM::RadialGradientBrush rgb;
-                rgb.Center(WF::Point{ (float)a, (float)b });
-                rgb.GradientOrigin(WF::Point{ (float)a, (float)b });
-                rgb.RadiusX(c);
-                rgb.RadiusY(c);
-                if (parse_stops([&](WUXM::GradientStop gs) { rgb.GradientStops().Append(gs); }) >= 2)
-                    gradPending = rgb;
+                std::vector<std::pair<float, WUI::Color>> stops;
+                if (parse_stops([&](WUXM::GradientStop gs) {
+                        stops.emplace_back(static_cast<float>(gs.Offset()), gs.Color());
+                    }) >= 2)
+                    gradPending = make_radial_brush(a, b, c, std::move(stops));
             } else {
                 WUXM::LinearGradientBrush lgb;
                 lgb.StartPoint(WF::Point{ (float)a, (float)b });
