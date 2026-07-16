@@ -243,6 +243,42 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
     None
 }
 
+/// The built-in fallback icon (the Day logo) at the appstream-compose icon-policy sizes, for
+/// packagers whose format REQUIRES an icon when the project ships none: flatpak's appstream
+/// catalog and the MSIX logo slots. The sizes are load-bearing — compose only probes its policy
+/// sizes (48/64/128) plus the standard upscale candidates, so e.g. a lone 192×192 icon fails
+/// `appstreamcli compose` with `icon-not-found` (verified against appstream 1.0.2 on
+/// ubuntu-24.04, the flatpak-builder CI environment).
+pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
+    (48, include_bytes!("../../resources/icons/day-icon-48.png")),
+    (64, include_bytes!("../../resources/icons/day-icon-64.png")),
+    (
+        128,
+        include_bytes!("../../resources/icons/day-icon-128.png"),
+    ),
+];
+
+#[cfg(test)]
+mod default_icon_tests {
+    use super::DEFAULT_ICONS;
+
+    /// Guards the embedded files: each entry must be a real PNG whose IHDR pixel size matches
+    /// its declared hicolor size (a mismatched size directory breaks the icon-theme lookup).
+    #[test]
+    fn default_icons_are_pngs_at_their_declared_sizes() {
+        for (size, bytes) in DEFAULT_ICONS {
+            assert!(
+                bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+                "{size}: not a PNG"
+            );
+            // IHDR: width at bytes 16..20, height at 20..24, big-endian.
+            let dim = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+            assert_eq!(dim(16), size, "{size}: IHDR width mismatch");
+            assert_eq!(dim(20), size, "{size}: IHDR height mismatch");
+        }
+    }
+}
+
 /// Stage a project's declared resources into the native locations for `target`, before its platform
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).

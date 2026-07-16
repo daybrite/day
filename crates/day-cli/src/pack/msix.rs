@@ -104,8 +104,11 @@ pub fn pack(
                 "Packing",
                 "no resource/icons/*.png — using the default Day icon for the MSIX logo slots (add resource/icons/windows/day-icon-256.png to brand the app)",
             );
+            // The largest built-in default (sideload doesn't lint slot sizes; the Store does).
+            let (_, bytes) =
+                crate::resources::DEFAULT_ICONS[crate::resources::DEFAULT_ICONS.len() - 1];
             for slot in LOGO_SLOTS {
-                std::fs::write(assets_dir.join(slot), crate::template::default_icon_png())
+                std::fs::write(assets_dir.join(slot), bytes)
                     .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
             }
         }

@@ -243,24 +243,24 @@ modules:
 
 fn stage_icons(project: &Project, stage: &Path, id: &str) {
     if stage_project_icons(project, stage, id) == 0 {
-        // No project icons: stage the built-in default. The .desktop says `Icon={id}` and the
+        // No project icons: stage the built-in defaults. The .desktop says `Icon={id}` and the
         // appstream catalog REQUIRES a resolvable icon for a desktop-application component —
         // flatpak-builder's `appstreamcli compose` fails the whole bundle with `icon-not-found`
-        // otherwise, so an icon-less project must still export one.
+        // otherwise, so an icon-less project must still export one. All the policy sizes are
+        // staged (48/64/128): compose only probes those, so a single off-policy size stays
+        // invisible to it (see resources::DEFAULT_ICONS).
         status(
             "Packing",
             "no resource/icons/*.png — using the default Day icon (add resource/icons/linux/<name>-<size>.png to brand the app)",
         );
-        let size = crate::template::DEFAULT_ICON_SIZE;
-        let dest_dir = stage
-            .join("share/icons/hicolor")
-            .join(format!("{size}x{size}"))
-            .join("apps");
-        if std::fs::create_dir_all(&dest_dir).is_ok() {
-            let _ = std::fs::write(
-                dest_dir.join(format!("{id}.png")),
-                crate::template::default_icon_png(),
-            );
+        for (size, bytes) in crate::resources::DEFAULT_ICONS {
+            let dest_dir = stage
+                .join("share/icons/hicolor")
+                .join(format!("{size}x{size}"))
+                .join("apps");
+            if std::fs::create_dir_all(&dest_dir).is_ok() {
+                let _ = std::fs::write(dest_dir.join(format!("{id}.png")), bytes);
+            }
         }
     }
 }

@@ -736,7 +736,13 @@ pub fn run() -> i32 {
             // (agents) and non-keep-alive scripted runs (CI) return here without blocking on
             // device log pumps that never EOF; attached runs already streamed logs live while
             // the script drove the app.
+            //
+            // Reap the tracked children first (`--keep-alive` is what asks for the app to stay
+            // running). Returning without this leaves the log pumps (`adb logcat`, `simctl
+            // launch --console`) orphaned holding the inherited stdout/stderr — in CI the step's
+            // pipe then never reaches EOF and the job hangs after the final "steps passed" line.
             if script_mode && !(spec.attached && keep_alive) {
+                crate::signals::kill_all();
                 return if script_failures > 0 { 5 } else { 0 };
             }
             if spec.attached {
