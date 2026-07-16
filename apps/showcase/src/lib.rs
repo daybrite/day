@@ -78,6 +78,7 @@ day::routes! {
     /// and any `navigate_to`/`route` call sites are compile-checked against this enum.
     pub(crate) enum Section {
         Controls => "controls",
+        Focus => "focus",
         Text => "text",
         Canvas => "canvas",
         List => "list",
@@ -135,6 +136,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_controls(),
             res::images::nav_controls,
             controls_page,
+        )
+        .item_icon(
+            Section::Focus,
+            crate::res::str::nav_focus(),
+            res::images::nav_focus,
+            focus_page,
         )
         .item_icon(
             Section::Text,

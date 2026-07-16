@@ -8,12 +8,15 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
@@ -293,6 +296,25 @@ public final class DayBridge {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
         });
+        // Focus + submit (docs/focus.md): kind 16 reports the gain/loss pair; kind 17 is the
+        // IME action ("done"/enter). Returning false keeps the platform default (dismiss).
+        e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            public void onFocusChange(View x, boolean hasFocus) {
+                nativeOnEvent(id, 16, hasFocus ? 1 : 0, null);
+            }
+        });
+        e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            public boolean onEditorAction(TextView x, int actionId, KeyEvent ev) {
+                // A real IME action (done/next/go/...), or a hardware-enter key-DOWN — the
+                // unspecified-action key-UP call must not fire a second submit.
+                boolean action = actionId != EditorInfo.IME_ACTION_NONE
+                        && actionId != EditorInfo.IME_ACTION_UNSPECIFIED;
+                boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && ev.getAction() == KeyEvent.ACTION_DOWN;
+                if (action || enter) nativeOnEvent(id, 17, 0, null);
+                return false;
+            }
+        });
         box.addView(e, new TextInputLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return box;
@@ -307,6 +329,25 @@ public final class DayBridge {
     public static void setPlaceholder(View v, String value) {
         if (v instanceof TextInputLayout) ((TextInputLayout) v).setHint(value);
         else ((EditText) v).setHint(value);
+    }
+
+    /** Drive focus (docs/focus.md): request it (raising the IME for editables), or resign it
+     *  to the focusable content root, dismissing the IME. Resign only acts while this view (or
+     *  its inner editable) still owns focus, so a stale release can't blur a sibling. */
+    public static void focusView(View v, boolean focused) {
+        final View target = (v instanceof TextInputLayout) ? editTextOf(v) : v;
+        InputMethodManager imm =
+                (InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (focused) {
+            if (target.requestFocus() && target instanceof EditText && imm != null) {
+                imm.showSoftInput(target, 0);
+            }
+        } else if (target.hasFocus()) {
+            if (imm != null) imm.hideSoftInputFromWindow(target.getWindowToken(), 0);
+            // Android focus is never "nowhere": DayActivity's root is focusable-in-touch-mode,
+            // so clearing lands there instead of snapping back to the first focusable field.
+            target.clearFocus();
+        }
     }
 
     public static View makeToggle(final long id, boolean value) {

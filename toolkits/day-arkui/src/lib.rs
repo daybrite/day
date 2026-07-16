@@ -281,6 +281,9 @@ mod imp {
                 Event::TextChanged(s)
             }
             2 => Event::ToggleChanged(num != 0.0),
+            // Focus pair + text-input submit (docs/focus.md); kinds match the Android bridge.
+            16 => Event::FocusChanged(num != 0.0),
+            17 => Event::Submitted,
             3 => {
                 // ArkUI slider reports 0..100; map back to the node's day range.
                 let (min, max) = SLIDER_RANGE
@@ -495,6 +498,7 @@ mod imp {
                     unsafe {
                         ffi::day_ark_set_button_label(n.0, cstr(&p.title).as_ptr());
                         ffi::day_ark_register_event(n.0, 0, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 0);
                     }
                     n
                 }
@@ -505,6 +509,7 @@ mod imp {
                         ffi::day_ark_set_input_text(n.0, cstr(&p.text).as_ptr());
                         ffi::day_ark_set_placeholder(n.0, cstr(&p.placeholder).as_ptr());
                         ffi::day_ark_register_event(n.0, 1, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 1);
                     }
                     n
                 }
@@ -514,6 +519,7 @@ mod imp {
                     unsafe {
                         ffi::day_ark_set_toggle(n.0, p.on as c_int);
                         ffi::day_ark_register_event(n.0, 2, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 0);
                     }
                     n
                 }
@@ -525,6 +531,7 @@ mod imp {
                     unsafe {
                         ffi::day_ark_set_slider(n.0, pct);
                         ffi::day_ark_register_event(n.0, 3, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 0);
                     }
                     n
                 }
@@ -870,6 +877,12 @@ mod imp {
                     frame.size.height,
                 )
             };
+        }
+
+        fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
+            // The shim clears the UI context's focus only while this node still owns it, and
+            // swallows typed non-focusable errors — no event, and the signal snaps back.
+            unsafe { ffi::day_ark_focus(h.0, focused as c_int) };
         }
 
         fn set_event_sink(&mut self, sink: EventSink) {

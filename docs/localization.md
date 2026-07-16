@@ -30,11 +30,25 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 
 - The function's **signature mirrors the message's parameters** (each `impl IntoFArg`, so it accepts
   `&str`/`String`/`i64`/`f64`/`Signal`), so a missing key or wrong argument count is a build error.
+- A variable used as a **plural / `select` selector** (`{ $count -> [one]… }`) is typed
+  `impl IntoNumberFArg` instead, so you can't pass a string where CLDR plural rules need a number:
+  ```rust
+  res::str::counter_value(count)   // ok: i64 / f64 / Signal<i64|f64>
+  res::str::counter_value("3")     // compile error: &str: IntoNumberFArg is not satisfied
+  ```
+  (A string `select` such as `$gender -> [male] [female]` is *not* forced numeric.)
+- Each function's **doc comment shows the reference-locale value**, so IDE hover reveals the actual
+  text — e.g. `` /// `greeting` — `Hello, { $name }!` ``.
 - Keys must be **valid Rust identifiers → snake_case** (`nav_home`, not the Fluent-legal `nav-home`);
   `day-build` fails the build with a rename hint otherwise.
-- **All locales must agree on a key's parameters** — `en` `{ $name }` vs `fr` `{ $nom }` is a build error.
+- **All locales must agree on a key's parameter names** — `en` `{ $name }` vs `fr` `{ $nom }` is a
+  build error (numeric-ness is OR-ed across locales, so a plural in *any* locale makes the param numeric).
 - Using the functions is **optional** — `tr("…")` stays for keys built at runtime, and `day lint`
   counts a `res::str::key` reference as a use just like `tr("key")`.
+
+> Fluent parsing is centralized: the codegen, `day lint`'s coverage checks (`day_build::message_keys`),
+> and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
+> resolves at runtime.
 
 ## Two layers: the app catalog and the core catalog
 

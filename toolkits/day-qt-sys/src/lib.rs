@@ -117,6 +117,10 @@ unsafe extern "C" {
         is_drag: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
+    // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
+    // drive via setFocus/clearFocus.
+    pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));
+    pub fn day_qt_widget_focus(w: *mut c_void, focused: c_int);
     pub fn day_qt_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
     pub fn day_qt_present_dialog(
         req: u64,

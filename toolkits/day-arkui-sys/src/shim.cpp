@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include <arkui/native_interface.h>
+#include <arkui/native_interface_focus.h>
 #include <arkui/native_node.h>
 #include <arkui/native_node_napi.h>
 #include <arkui/native_type.h>
@@ -140,6 +141,16 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
             day_arkui_on_event(id, 6, c ? (double)c->data[0].i32 : 0.0, "");
             break;
         }
+        // Focus pair + text-input submit (docs/focus.md) — kinds match the Android bridge.
+        case NODE_ON_FOCUS:
+            day_arkui_on_event(id, 16, 1.0, "");
+            break;
+        case NODE_ON_BLUR:
+            day_arkui_on_event(id, 16, 0.0, "");
+            break;
+        case NODE_TEXT_INPUT_ON_SUBMIT:
+            day_arkui_on_event(id, 17, 0.0, "");
+            break;
         default:
             break;
     }
@@ -356,6 +367,33 @@ void day_ark_register_event(void* n, int32_t kind, uint64_t id) {
         default: return;
     }
     g_api->registerNodeEvent((ArkUI_NodeHandle)n, t, 0, (void*)(uintptr_t)id);
+}
+
+// Focus (docs/focus.md): observe gain/blur (+ the text-input submit action) on the node.
+void day_ark_enable_focus(void* n, uint64_t id, int32_t is_text_input) {
+    if (!g_api) return;
+    auto h = (ArkUI_NodeHandle)n;
+    g_api->registerNodeEvent(h, NODE_ON_FOCUS, 0, (void*)(uintptr_t)id);
+    g_api->registerNodeEvent(h, NODE_ON_BLUR, 0, (void*)(uintptr_t)id);
+    if (is_text_input)
+        g_api->registerNodeEvent(h, NODE_TEXT_INPUT_ON_SUBMIT, 0, (void*)(uintptr_t)id);
+}
+
+// Drive focus: request it (typed errors for non-focusable targets are deliberately ignored —
+// no event means the signal snaps back, docs/focus.md rule 2), or clear the UI context's
+// focus — only while this node still owns it, so a stale release can't blur a sibling.
+void day_ark_focus(void* n, int32_t focused) {
+    if (!g_api) return;
+    auto h = (ArkUI_NodeHandle)n;
+    if (focused) {
+        (void)OH_ArkUI_FocusRequest(h);
+    } else {
+        const ArkUI_AttributeItem* st = g_api->getAttribute(h, NODE_FOCUS_STATUS);
+        bool owns = st && st->value && st->size > 0 && st->value[0].i32 != 0;
+        if (!owns) return;
+        ArkUI_ContextHandle ctx = OH_ArkUI_GetContextByNode(h);
+        if (ctx) OH_ArkUI_FocusClear(ctx);
+    }
 }
 
 int32_t day_ark_content_add(void* content, void* node) {

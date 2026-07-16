@@ -29,8 +29,9 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
     NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSScrollView, NSSlider, NSSwitch, NSTabView, NSTabViewItem,
-    NSTextField, NSTextFieldDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSTabView,
+    NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
+    NSTextMovementUserInfoKey, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
@@ -39,8 +40,8 @@ use objc2_app_kit::{
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_foundation::{
-    NSAffineTransform, NSAffineTransformStruct, NSDictionary, NSNotification, NSObject, NSPoint,
-    NSRect, NSSize, NSString,
+    NSAffineTransform, NSAffineTransformStruct, NSDictionary, NSNotification, NSNumber, NSObject,
+    NSPoint, NSRect, NSSize, NSString,
 };
 
 use day_spec::present;
@@ -174,12 +175,68 @@ define_class!(
                     emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
                 }
         }
+
+        /// End of an editing session (docs/focus.md). Return submits — AppKit keeps the field
+        /// first responder and re-selects, so it is not a focus loss; every other movement
+        /// (tab, click-away, cancel) reports `FocusChanged(false)`.
+        #[unsafe(method(controlTextDidEndEditing:))]
+        fn control_text_did_end_editing(&self, notification: &NSNotification) {
+            let node = self.ivars().node;
+            let movement = unsafe { notification.userInfo() }
+                .and_then(|ui| ui.objectForKey(unsafe { NSTextMovementUserInfoKey }.as_ref()))
+                .and_then(|n| n.downcast::<NSNumber>().ok())
+                .map(|n| NSTextMovement(n.integerValue()))
+                .unwrap_or(NSTextMovement::Other);
+            if movement == NSTextMovement::Return {
+                emit(node, Event::Submitted);
+            } else {
+                emit(node, Event::FocusChanged(false));
+            }
+        }
     }
 );
 
 impl DayTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DayTextField — NSTextField that reports focus gain (docs/focus.md)
+// ---------------------------------------------------------------------------
+
+struct FieldIvars {
+    node: NodeId,
+}
+
+define_class!(
+    #[unsafe(super(NSTextField))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTextField"]
+    #[ivars = FieldIvars]
+    struct DayTextField;
+
+    impl DayTextField {
+        /// Focus gain. Key events go to the shared field editor, but the field itself receives
+        /// `becomeFirstResponder` first — the reliable gain hook (`controlTextDidBeginEditing:`
+        /// waits for the first keystroke). Loss comes from `controlTextDidEndEditing:` on the
+        /// delegate.
+        #[unsafe(method(becomeFirstResponder))]
+        fn become_first_responder(&self) -> bool {
+            let ok: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+            if ok {
+                emit(self.ivars().node, Event::FocusChanged(true));
+            }
+            ok
+        }
+    }
+);
+
+impl DayTextField {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -1405,7 +1462,9 @@ impl Toolkit for AppKit {
             kinds::TEXT_FIELD => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
-                let tf = unsafe { NSTextField::new(mtm) };
+                // Retained<DayTextField> → Retained<NSTextField> (its declared superclass) so
+                // the AsRef<NSView> bound on `view_of` resolves.
+                let tf: Retained<NSTextField> = Retained::into_super(DayTextField::new(mtm, id));
                 unsafe {
                     tf.setStringValue(&NSString::from_str(&p.text));
                     tf.setPlaceholderString(Some(&NSString::from_str(&p.placeholder)));
@@ -2190,6 +2249,30 @@ impl Toolkit for AppKit {
                     NSSize::new(target.size.width, target.size.height),
                 ))
             };
+        }
+    }
+
+    fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
+        let Some(window) = h.window() else { return };
+        let responder: &NSResponder = h;
+        if focused {
+            window.makeFirstResponder(Some(responder));
+            return;
+        }
+        // Resign only while this view still owns focus, so a stale release can't blur a
+        // sibling. A focused NSTextField's first responder is the shared field editor —
+        // unwrap it back to the field via its delegate.
+        let owns = window.firstResponder().is_some_and(|fr| {
+            if Retained::as_ptr(&fr) as usize == ptr_of(h) {
+                return true;
+            }
+            fr.downcast::<NSText>().is_ok_and(|text| {
+                unsafe { text.delegate() }
+                    .is_some_and(|d| Retained::as_ptr(&d) as *const () as usize == ptr_of(h))
+            })
+        });
+        if owns {
+            window.makeFirstResponder(None);
         }
     }
 

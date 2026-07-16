@@ -46,6 +46,8 @@ pub struct NodeProbe {
     pub flag: bool,
     pub selected: i64,
     pub enabled: bool,
+    /// Native keyboard focus, mirrored from `Event::FocusChanged` (docs/focus.md).
+    pub focused: bool,
 }
 
 pub struct NodeData<H> {
@@ -366,6 +368,10 @@ pub trait TreeOps {
     /// Attach a native gesture recognizer to `node` (docs/shapes.md): the backend then emits
     /// `Event::Tap/LongPress/Drag` for it. The node must have a native handle.
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind);
+    /// Move native keyboard focus to (or away from) `node` (docs/focus.md).
+    fn focus_node(&mut self, node: RNode, focused: bool);
+    /// Mirror a `FocusChanged` event into the node's dayscript probe (pump-only).
+    fn set_probe_focused(&mut self, node: RNode, focused: bool);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
@@ -582,6 +588,20 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(h) = n.handle.clone()
         {
             self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
+        }
+    }
+
+    fn focus_node(&mut self, node: RNode, focused: bool) {
+        if let Some(n) = self.nodes.get(node)
+            && let Some(h) = n.handle.clone()
+        {
+            self.toolkit.focus(&h, rnode_to_id(node), focused);
+        }
+    }
+
+    fn set_probe_focused(&mut self, node: RNode, focused: bool) {
+        if let Some(n) = self.nodes.get_mut(node) {
+            n.probe.focused = focused;
         }
     }
 
@@ -949,7 +969,15 @@ pub fn has_tree() -> bool {
 /// The enqueue-only event sink installed into every backend (§8.3). May be invoked
 /// re-entrantly from inside any Toolkit method; dispatch happens at the next safe point.
 pub fn enqueue_event(id: NodeId, ev: Event) {
-    EVENTS.with(|e| e.borrow_mut().push_back((id, ev)));
+    enqueue_events([(id, ev)]);
+}
+
+/// Enqueue several events into ONE drain before dispatching. Backends that observe a focus
+/// move at a single point (Qt's `focusChanged(old, new)`, an AppKit first-responder change)
+/// deliver the loss+gain pair through this so the pump can dispatch the gain first and a
+/// shared group signal never passes through `None` (docs/focus.md).
+pub fn enqueue_events(evs: impl IntoIterator<Item = (NodeId, Event)>) {
+    EVENTS.with(|e| e.borrow_mut().extend(evs));
     let tree_free = TREE.with(|t| t.try_borrow_mut().is_ok());
     if tree_free {
         pump_events();
@@ -1003,20 +1031,53 @@ fn pump_events_inner() {
             crate::lifecycle::dispatch_lifecycle(phase);
             continue;
         }
-        let node = if id == day_spec::WINDOW_NODE {
-            with_tree(|t| t.root_node())
-        } else {
-            id_to_rnode(id)
-        };
-        let handlers = with_tree(|t| t.handlers_for(node));
-        if handlers.is_empty() {
-            continue;
-        }
-        day_reactive::batch(|| {
-            for h in &handlers {
-                h(&ev);
+        // Focus loss/gain pairing (docs/focus.md): when focus moves between two Day controls,
+        // the loss and gain arrive as separate events. Dispatching the queued GAIN first lets a
+        // shared group signal transition `Some(A)` → `Some(B)` without an observable `None`
+        // (the loss handler only clears the signal if it still names its own control).
+        if ev == Event::FocusChanged(false) {
+            let paired = EVENTS.with(|e| {
+                let mut q = e.borrow_mut();
+                let gain = q
+                    .iter()
+                    .position(|(gid, gev)| *gid != id && *gev == Event::FocusChanged(true));
+                gain.map(|i| q.remove(i).expect("indexed event"))
+            });
+            if let Some((gid, gev)) = paired {
+                dispatch_focus_probe(gid, &gev);
+                dispatch_to_node(gid, &gev);
             }
-        });
+        }
+        if let Event::FocusChanged(_) = ev {
+            dispatch_focus_probe(id, &ev);
+        }
+        dispatch_to_node(id, &ev);
     }
     day_reactive::flush_sync();
+}
+
+/// Mirror a focus event into the node's dayscript probe (`assert_focused` reads it).
+fn dispatch_focus_probe(id: NodeId, ev: &Event) {
+    if let Event::FocusChanged(f) = ev {
+        let node = id_to_rnode(id);
+        with_tree(|t| t.set_probe_focused(node, *f));
+    }
+}
+
+/// Run one already-routed event through its node's handlers (the tail of the pump loop).
+fn dispatch_to_node(id: NodeId, ev: &Event) {
+    let node = if id == day_spec::WINDOW_NODE {
+        with_tree(|t| t.root_node())
+    } else {
+        id_to_rnode(id)
+    };
+    let handlers = with_tree(|t| t.handlers_for(node));
+    if handlers.is_empty() {
+        return;
+    }
+    day_reactive::batch(|| {
+        for h in &handlers {
+            h(ev);
+        }
+    });
 }

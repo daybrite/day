@@ -118,6 +118,20 @@ pub enum Step {
         #[serde(default)]
         id: Option<String>,
     },
+    /// Move native focus to the control — the real Toolkit duty, not a synthetic event, so
+    /// keyboards and end-editing flows engage (docs/focus.md). `focused: false` resigns it.
+    Focus {
+        id: String,
+        #[serde(default)]
+        focused: Option<bool>,
+    },
+    /// Assert the control's focus state as Day resolved it (`NodeProbe.focused`; retryable —
+    /// focus lands a turn after the request). `focused` defaults to `true`.
+    AssertFocused {
+        id: String,
+        #[serde(default)]
+        focused: Option<bool>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -375,6 +389,24 @@ fn exec(step: Step) -> Reply {
                             "{id:?}: expected {value}, probe text={:?} value={} flag={}",
                             p.text, p.value, p.flag
                         ),
+                        true,
+                    ))
+                }
+            }
+            Step::Focus { id, focused } => {
+                let node = find(&id)?;
+                with_tree(|t| t.focus_node(node, focused.unwrap_or(true)));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::AssertFocused { id, focused } => {
+                let want = focused.unwrap_or(true);
+                let got = probe(&id)?.focused;
+                if got == want {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!("{id:?}: expected focused={want}, found focused={got}"),
                         true,
                     ))
                 }

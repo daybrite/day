@@ -9,7 +9,9 @@
 use day_pieces::{IntoText, TextSource};
 
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
-pub use day_l10n::{FArg, IntoFArg, SigM, ValM, format_in, locale, set_locale, strip_isolates, t};
+pub use day_l10n::{
+    FArg, IntoFArg, IntoNumberFArg, SigM, ValM, format_in, locale, set_locale, strip_isolates, t,
+};
 
 /// Register the app's locales (see [`day_l10n::install`]) and fix the layout direction from the
 /// locale that actually resolved (docs/localization): an RTL locale (Arabic, Hebrew, …) mirrors

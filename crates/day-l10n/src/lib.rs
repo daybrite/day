@@ -182,6 +182,17 @@ impl IntoFArg<SigM> for Signal<f64> {
     }
 }
 
+/// Marker for [`IntoFArg`] values that carry a **number** — required for a Fluent variable used as a
+/// plural / `select` selector, where CLDR plural rules select on a number (so a string can't be
+/// passed there by mistake). Implemented for the numeric `IntoFArg` types only (`i64`, `f64`, and
+/// their `Signal`s); the generated `res::str::<key>(…)` functions (§18.5) type such parameters as
+/// `impl IntoNumberFArg` instead of `impl IntoFArg`.
+pub trait IntoNumberFArg<M>: IntoFArg<M> {}
+impl IntoNumberFArg<ValM> for i64 {}
+impl IntoNumberFArg<ValM> for f64 {}
+impl IntoNumberFArg<SigM> for Signal<i64> {}
+impl IntoNumberFArg<SigM> for Signal<f64> {}
+
 /// Resolve `key` in the given locale from one bundle map (exact locale, then the language half).
 fn message_from(
     map: &HashMap<String, FluentBundle<FluentResource>>,

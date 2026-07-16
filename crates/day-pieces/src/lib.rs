@@ -71,6 +71,43 @@ pub struct StaticMark;
 pub struct SignalMark;
 pub struct FnMark;
 
+/// A focus-binding target for [`Decorate::focused`] (docs/focus.md): either a `Signal<bool>`
+/// (one control) or a `(Signal<Option<K>>, K)` pair (one control of a group sharing a signal).
+/// The two-marker split is the same E0119 dodge as [`IntoText`].
+pub trait IntoFocusBinding<M> {
+    /// Split into (desired-focus tracked read, native-change write-back).
+    #[allow(clippy::type_complexity)]
+    fn into_focus_binding(self) -> (Box<dyn Fn() -> bool>, Box<dyn Fn(bool)>);
+}
+
+pub struct FocusBoolMark;
+pub struct FocusGroupMark;
+
+impl IntoFocusBinding<FocusBoolMark> for Signal<bool> {
+    fn into_focus_binding(self) -> (Box<dyn Fn() -> bool>, Box<dyn Fn(bool)>) {
+        (Box::new(move || self.get()), Box::new(move |f| self.set(f)))
+    }
+}
+
+impl<K: Copy + PartialEq + 'static> IntoFocusBinding<FocusGroupMark> for (Signal<Option<K>>, K) {
+    fn into_focus_binding(self) -> (Box<dyn Fn() -> bool>, Box<dyn Fn(bool)>) {
+        let (sig, key) = self;
+        (
+            Box::new(move || sig.get() == Some(key)),
+            Box::new(move |f| {
+                if f {
+                    sig.set(Some(key));
+                } else if sig.get_untracked() == Some(key) {
+                    // Only clear if the signal still names THIS control — when focus moved to a
+                    // sibling, the paired gain (dispatched first, docs/focus.md) already wrote
+                    // the new value and the group signal never passes through `None`.
+                    sig.set(None);
+                }
+            }),
+        )
+    }
+}
+
 impl IntoText<StaticMark> for &str {
     fn into_text(self) -> TextSource {
         TextSource::Static(self.to_owned())
@@ -481,18 +518,27 @@ impl<S: SignalRw<f64>> Piece for Slider<S> {
 pub struct TextField<S: SignalRw<String>> {
     value: S,
     placeholder: Option<TextSource>,
+    on_submit: Option<Rc<dyn Fn()>>,
 }
 
 pub fn text_field<S: SignalRw<String>>(value: S) -> TextField<S> {
     TextField {
         value,
         placeholder: None,
+        on_submit: None,
     }
 }
 
 impl<S: SignalRw<String>> TextField<S> {
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
+        self
+    }
+    /// Fire when the user submits the field (Return / the keyboard's action key). Field
+    /// chaining is a focus write inside the handler: `focus.set(Some(Field::Next))`
+    /// (docs/focus.md).
+    pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
+        self.on_submit = Some(Rc::new(f));
         self
     }
 }
@@ -540,12 +586,17 @@ impl<S: SignalRw<String>> Piece for TextField<S> {
             },
         );
         let v = self.value;
+        let submit = self.on_submit;
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
                 *guard.borrow_mut() = Some(t.clone());
                 v.set_rw(t.clone());
             }
-            Event::Submitted => {}
+            Event::Submitted => {
+                if let Some(f) = &submit {
+                    f();
+                }
+            }
             _ => {}
         });
         if let Some(p) = self.placeholder {
@@ -1611,6 +1662,48 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Bind this control's keyboard focus to a signal (docs/focus.md), two-way like every other
+    /// binding: native focus changes write the signal; writing the signal moves focus. Takes a
+    /// `Signal<bool>` for one control, or `(Signal<Option<K>>, K::Variant)` binding one control
+    /// of a group — writing `false`/`None` resigns focus (dismissing the soft keyboard on
+    /// mobile). Focus applies asynchronously: a write is a request, resolved on the next turn,
+    /// and the signal always ends up reflecting what the platform actually did.
+    fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> AnyPiece {
+        let (want, on_native) = binding.into_focus_binding();
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            // Echo cell: the control's focus state as last reported by the NATIVE side. An
+            // apply whose desired state matches it is the echo of a native change (or already
+            // satisfied) and must not re-drive the toolkit — the selector echo-cell rule.
+            let native = Rc::new(Cell::new(false));
+            {
+                let native = native.clone();
+                cx.on(n, move |ev| {
+                    if let Event::FocusChanged(f) = ev {
+                        native.set(*f);
+                        on_native(*f);
+                    }
+                });
+            }
+            // Signal → native, deferred one turn (`on_main`): focus is async by contract, and
+            // the deferral also lets a mount-time `Some(K::V)` land after the widget is in the
+            // window (dialog default focus). The initial `false` is not applied — resigning
+            // focus the control never had would steal it from whoever has it.
+            let first = Cell::new(true);
+            bind(want, move |want: &bool| {
+                let want = *want;
+                if first.replace(false) && !want {
+                    return;
+                }
+                if native.get() == want {
+                    return;
+                }
+                day_reactive::on_main(move || with_tree(|t| t.focus_node(n, want)));
+            });
+            n
+        })
+    }
+
     /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)
     /// or long-press (mobile). Items are built with [`menu_item`]/[`sub_menu`]/[`menu_role`]/
     /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
@@ -1832,13 +1925,13 @@ pub mod prelude {
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
-        FilledButtonStyle, FormSection, HAlign, IntoFraction, IntoReactive, IntoText, ItemSlot,
-        List, MenuEntry, Modifier, NativeRef, OpenFile, Prompt, Reactive, Route, RoutePath,
-        SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece, SignalRw, Stack, VAlign, ZStack,
-        alert, app_menu, arc, button, canvas, capsule, circle, column, confirm, current_route,
-        divider, each, ellipse, environment, form, image, label, labeled, list, menu_item,
-        menu_role, menu_separator, nav_back, nav_link, nav_link_to, navigate, navigate_to,
-        open_file, progress, prompt, rectangle, rounded_rectangle, route, route_param,
+        FilledButtonStyle, FormSection, HAlign, IntoFocusBinding, IntoFraction, IntoReactive,
+        IntoText, ItemSlot, List, MenuEntry, Modifier, NativeRef, OpenFile, Prompt, Reactive,
+        Route, RoutePath, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece, SignalRw,
+        Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule, circle, column,
+        confirm, current_route, divider, each, ellipse, environment, form, image, label, labeled,
+        list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to, navigate,
+        navigate_to, open_file, progress, prompt, rectangle, rounded_rectangle, route, route_param,
         route_params, row, save_file, scroll, section, selector, shape, slider, spacer, spinner,
         stack, sub_menu, text_field, toggle, when, with_environment, zstack,
     };

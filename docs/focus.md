@@ -1,19 +1,20 @@
-# Focus — design plan
+# Focus
 
-> Status: **plan for review** — nothing here is implemented yet. `Event::FocusChanged(bool)`
-> exists in day-spec (reserved by §8.3) with no producers or consumers; everything else is new.
-> DESIGN.md already charters focus to day-core (§3.2) and depends on focus knowledge for the
-> controlled-input rule (§4.4: "the native widget is the source of truth **while it has focus**"),
-> so this is a correctness workstream as much as a feature.
+> Status: **implemented** on every backend — AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, and
+> mock. `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
+> behind it, and DESIGN §4.4's controlled-input rule ("the native widget is the source of truth
+> **while it has focus**") now rests on actual focus knowledge. The showcase's Focus page
+> exercises every permutation below; the walkthrough asserts it on every scripted platform.
 
 Day apps need two things from focus: to know when a control gains or loses it, and to move it.
-Both should be declarative — one reactive signal per form, no focus-node objects, no view
-references — and both should ride the machinery Day already has: the event sink, origin-tagged
-writes, and per-node Toolkit duties.
+Both are declarative — one reactive signal per form, no focus-node objects, no view references —
+and both ride the machinery Day already has: the event sink, origin-tagged writes, and per-node
+Toolkit duties.
 
 ## 1. The API
 
-Focus binds to a signal, exactly like every other two-way control binding:
+Focus binds to a signal with `.focused(…)`, exactly like every other two-way control binding.
+One name covers both shapes (a marker-trait overload, the `IntoText` pattern):
 
 ```rust
 // One field: a Bool signal. Native focus writes it; writing it moves focus.
@@ -21,12 +22,14 @@ let editing = Signal::new(false);
 text_field(query).focused(editing)
 
 // A form: one Option<K> signal for the whole group (the recommended shape).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Field { User, Pass }
 let focus = Signal::new(Some(Field::User));
 column((
-    text_field(user).focused_eq(focus, Field::User),
-    text_field(pass).focused_eq(focus, Field::Pass),
+    text_field(user)
+        .on_submit(move || focus.set(Some(Field::Pass)))
+        .focused((focus, Field::User)),
+    text_field(pass).focused((focus, Field::Pass)),
     button("Log in").action(move || {
         if user.with(|s| s.is_empty()) { focus.set(Some(Field::User)); return; }
         …
@@ -35,122 +38,109 @@ column((
 ```
 
 - **Native → signal.** When the control gains focus the signal becomes `true` / `Some(K)`; when
-  it loses focus, `false` / `None` (unless another bound control gained it in the same turn, in
-  which case the group signal moves straight to that control's value).
+  it loses focus, `false` / `None` — unless another bound control gained it in the same turn, in
+  which case the group signal moves straight to that control's value (no `None` in between).
 - **Signal → native.** Writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it — on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
 - **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other —
-  no separate "is focused" query, no event wiring (the gap floem's users hit).
-- **Field chaining** is a write in `on_submit`: `focus.set(Some(Field::Pass))`.
+  no separate "is focused" query, no event wiring.
+- **Field chaining** is a write in `on_submit(f)`, which ships with the same change: the native
+  end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
-`on_submit(f)` on text fields ships in the same change: the native end-editing / return hooks
-focus needs are the same ones `Event::Submitted` needs, and the pieces layer already has its
-(empty) `Submitted` arm.
-
-Reserved for later, with names but no v1 implementation: `.focusable()` (opt a custom piece into
-focus), `default_focus(…)` on containers, `focus_order(n)`, and focus scopes for dialogs.
-Tab/Shift-Tab traversal stays native — Day wraps real widgets, so platform traversal is already
-correct (§13: focus order follows layout order).
+Reserved with names but not implemented: `.focusable()` (opt a custom piece into focus),
+`default_focus(…)` on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab
+traversal stays native — Day wraps real widgets, so platform traversal is already correct
+(§13: focus order follows layout order).
 
 ## 2. Semantics — the rules
 
-Prior art agrees on the traps (SwiftUI's state/reality divergence, Flutter's node lifecycle,
-floem's write/read asymmetry). Day's rules:
-
-1. **Writes are requests.** Focus requests coalesce per turn; the last write in a turn wins, and
-   conflicting writes in one turn log a debug warning (SwiftUI's duplicate-binding warning,
-   moved to where the mistake happens).
-2. **The signal is eventually truthful.** day-core resolves requests at the end of the turn and
-   writes the *actual* outcome back into the signal through the echo guard. A request naming a
-   disabled, hidden, or unmounted piece leaves platform focus unchanged and the signal snaps
-   back to reality. No silent lying state.
-3. **One-turn latency is documented.** `focus.set(…)` then `focus.get()` in the same turn reads
-   the old value — the same asynchrony every reference framework has, made explicit.
+1. **Writes are requests.** A write asks the toolkit on the next main-loop turn; the last write
+   in a turn wins.
+2. **The signal converges on reality.** Backends report the *resulting* state through
+   `Event::FocusChanged`, and that report is what lands in the signal (through the echo guard).
+   A request naming a target the platform will not focus produces no event — platform focus is
+   unchanged, and the next real focus event corrects the signal.
+3. **One-turn latency.** `focus.set(…)` then `focus.get()` in the same turn reads the old
+   value — the same asynchrony every reference framework has, made explicit.
 4. **Mount reconciliation.** When a piece bound to `K::V` mounts and the signal already reads
    `Some(K::V)`, it requests focus. Set the signal, then present the sheet: the field focuses
-   when it appears. This covers most of what SwiftUI needs `defaultFocus` for.
+   when it appears. (The initial `false`/`None` is *not* applied — resigning focus a control
+   never had would steal it from whoever has it.)
 5. **Echo discipline.** A programmatic focus move fires native focus events; those must not
-   re-request. The pieces layer uses the selector's echo-cell pattern; backends additionally
-   skip the apply when the control already has focus (the `set_if_changed` layer).
-6. **Focus loss without a successor** (user clicked empty space, window resigned) writes
-   `false` / `None`. Window-level activation is a separate concern and stays with lifecycle.
+   re-request. The pieces layer keeps a per-binding echo cell of the native state and skips
+   applies that already match it; backends additionally skip resigns when the control doesn't
+   own focus (so a stale release can't blur a sibling).
+6. **Loss and gain pair up.** When focus moves between two controls bound to the same group
+   signal, the event pump dispatches the queued gain *before* the loss it arrived with, so the
+   signal transitions `Some(A)` → `Some(B)` without an observable `None`. A loss with no queued
+   successor (click on empty space, window resigned) writes `false` / `None`.
 
 ## 3. How it rides the existing machinery
 
-| layer | change |
+| layer | what shipped |
 |---|---|
-| day-spec | `Event::FocusChanged(bool)` — **already declared**, becomes real. New defaulted Toolkit duty: `fn focus(&mut self, h: &Handle, node: NodeId, focused: bool) {}` (the `scroll_to` / `enable_gesture` shape; default no-op keeps all backends compiling). |
-| day-core | Routes `FocusChanged` through the existing per-node handler path (no pump changes). Tracks the resolved focus per window for rule 2/4, and mirrors it into `NodeProbe.focused` for dayscript. |
-| day-pieces | `.focused(sig)` / `.focused_eq(sig, K)` on `Decorate` (the `on_tap` template: enable + `cx.on`), echo cell per binding, `on_submit(f)` on `text_field`. |
-| day-mock | Logs `focus #N true/false` ops; `MockWidget.focused`; tests drive both directions (`probe.emit(node, FocusChanged(true))`, and signal writes asserting the logged duty). |
-| day-script | `focus: { id }` step (drives the real duty, not a synthetic event, so keyboards and Submitted flows engage) and `assert_focused: { id }` reading `NodeProbe.focused`. The script engine still cannot see the native IME (§14.2) — manual keyboard smokes stay. |
+| day-spec | `Event::FocusChanged(bool)` became real. New defaulted duty: `fn focus(&mut self, h: &Handle, node: NodeId, focused: bool) {}` — the `scroll_to`/`enable_gesture` shape. |
+| day-core | `TreeOps::focus_node` (clones the handle, calls the duty), `NodeProbe.focused` (mirrored from `FocusChanged` for dayscript), gain-before-loss pairing in the pump, `enqueue_events` batch enqueue. |
+| day-pieces | `Decorate::focused(…)` with `IntoFocusBinding` markers for `Signal<bool>` and `(Signal<Option<K>>, K)`; the echo cell; `on_submit(f)` on `text_field`. |
+| day-mock | `focus #N true/false` op log + `MockWidget.focused` — the F1 test contract. The mock duty does **not** synthesize `FocusChanged` back; tests emit events explicitly. |
+| day-script | `focus: { id, focused? }` drives the real duty (keyboards and end-editing flows engage) and `assert_focused: { id, focused? }` reads `NodeProbe.focused` (retryable — focus lands a turn after the request). |
 
-## 4. Per-toolkit implementation map
+## 4. Per-toolkit implementation
 
-Every backend already delivers per-node events through one sink; focus rides the same channel.
 "Observe" is gain/loss detection, "drive" is the request/resign duty.
 
-| backend | observe | drive | notes |
-|---|---|---|---|
-| AppKit | `controlTextDidBeginEditing`/`DidEndEditing` on the existing `DayTarget` delegate for text fields; one KVO on `NSWindow.firstResponder` (unwrapping the **field editor** back to its delegate field) for everything else | `window.makeFirstResponder(view)` / `(None)` | The first responder for a focused `NSTextField` is the shared field-editor `NSTextView`, never the field itself — map it back via the existing view→target table. Buttons/sliders join the key loop only with Full Keyboard Access on; programmatic focus works regardless. |
-| UIKit | `EditingDidBegin`/`DidEnd` (+ `EditingDidEndOnExit` for Submitted) added to the existing `addTarget` wiring | `becomeFirstResponder()` / `resignFirstResponder()` | Focus **is** the keyboard on iOS: request raises it, resign dismisses it. Buttons are not first-responder focusable; the iPadOS `UIFocusSystem` is out of v1 scope. |
-| GTK 4 | `EventControllerFocus` (`enter`/`leave`) attached at realize — tracks focus-within, which handles `GtkEntry`'s internal `GtkText` child | `widget.grab_focus()`; resign via `window.set_focus(None)` | Only works once mapped (rule 4's mount reconciliation handles this). `:focus-visible` means keyboard-initiated focus draws a ring, click focus may not — events still fire. |
-| Qt 6 | `day_qt_enable_focus(w, id, cb)` — an event filter for `FocusIn`/`FocusOut`, one-for-one with the existing `DayGestureFilter` pattern (no subclassing) | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` | `QFocusEvent::reason()` lets us ignore popup/menu transient focus-out. Button focus policy is style-dependent on macOS (matches the OS convention). |
-| Android | `View.OnFocusChangeListener` → `nativeOnEvent(id, 16, hasFocus, null)` (new event kind), attached to the inner `TextInputEditText` via the existing `editTextOf` helper | `requestFocus()` / `clearFocus()` **plus** `InputMethodManager` show/hide for text fields | `requestFocus` alone does not raise the soft keyboard — the duty must pair with IMM. Touch mode: buttons/toggles are focusable only via d-pad/keyboard; don't force `focusableInTouchMode`. Resign needs a focusable root or focus snaps to the first focusable view. |
-| WinUI | `GotFocus`/`LostFocus` on each control (system XAML has no global FocusManager event) | `control.Focus(FocusState::Programmatic)`; no clear — resign moves focus to a focusable root | Only `Control` subclasses have `Focus()` in system XAML. `Programmatic` focus draws no focus visual (by design). Island↔Win32 focus handoff (`NavigateFocus`) is out of v1 scope. |
-| ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` added to the shim's event registration + receiver switch | `OH_ArkUI_FocusRequest(node)`; `OH_ArkUI_FocusClear(ctx)` via `OH_ArkUI_GetContextByNode` | The focus NDK header is since API 15; the scaffold targets API 18. `FocusRequest` returns typed errors (non-focusable / non-existent) — exactly what rule 2 wants. `NODE_FOCUS_ON_TOUCH` controls tap-to-focus per node. |
-| mock | logged op + `MockWidget.focused` | logged op | The op log is the M1 test contract. |
+| backend | observe | drive |
+|---|---|---|
+| AppKit | text fields: `DayTextField` overrides `becomeFirstResponder` (gain); `controlTextDidEndEditing:` on the `DayTarget` delegate (loss — except `NSTextMovementReturn`, which is `Submitted`: AppKit keeps the field first responder on return). Non-text controls drive but don't observe in v1. | `makeFirstResponder(view)` / `(None)`. The resign guard unwraps the shared **field editor** back to its delegate field before deciding ownership. |
+| UIKit | `EditingDidBegin` / `EditingDidEnd` targets on the text field; `EditingDidEndOnExit` is `Submitted` (registering it is also what makes Return dismiss the keyboard). | `becomeFirstResponder()` / `resignFirstResponder()` — focus **is** the keyboard on iOS. Buttons are not first-responder focusable. |
+| GTK 4 | `EventControllerFocus` (`enter`/`leave`) on entry, button, switch, and scale — it tracks focus-within, which covers `GtkEntry`'s inner `GtkText`. `Entry::activate` is `Submitted`. | `grab_focus()`, retried once at `map` if the widget isn't mapped yet (rule 4); resign via `root.set_focus(None)`, only while the widget holds focus-within. |
+| Qt 6 | `day_qt_enable_focus` — a `FocusIn`/`FocusOut` event filter (the `DayGestureFilter` pattern) on line edit, button, checkbox, and slider; popup-reason focus-outs are ignored (menus are transient). `returnPressed` is `Submitted`. | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` (only while focused). Qt delivers focus events only in the *active* window, so the duty activates it first — via the OS when allowed, else app-locally (`QApplication::setActiveWindow`, kept by Qt for exactly this driving/embedding case). |
+| Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, hide the IME and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
+| WinUI | `GotFocus`/`LostFocus` per control (system XAML has no global focus event) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual — by design); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
+| ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, and slider; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
+| mock | logged op + `MockWidget.focused` | logged op |
 
-**Focusability truth table (v1):** text fields and search fields are focusable everywhere; on
-desktop, buttons/toggles/sliders/lists too (with the macOS Full-Keyboard-Access and Qt-style
-caveats); on touch mobile, non-text controls generally are not. The docs state this per
-platform; a runtime `Cap`-style probe is deferred until a real app needs to branch on it.
+**Focusability in practice:** text fields are focusable everywhere. On desktop, buttons,
+toggles, and sliders are too — with the platform's own keyboard-access rules (macOS buttons
+join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't observe them; Qt
+button focus policy is style-dependent). On touch mobile, non-text controls generally are not
+focusable, and the bindings stay quiet there.
 
-## 5. Prior art — what Day adopts and rejects
+## 5. Testing it
+
+- **Unit (mock):** two-way Bool binding, group moves without a `None` blip, mount-time
+  `Some(K)` requests focus, `on_submit` fires — `day-pieces/tests/mock_e2e.rs`.
+- **dayscript:** the showcase walkthrough's Focus block runs `focus` / `assert_focused` against
+  the real duty on every scripted platform (macOS AppKit/GTK/Qt, iOS, Android — 208/208), with
+  assertions kept to text fields, the one control focusable everywhere.
+- **Showcase:** the Focus page (`apps/showcase/src/pages/focus.rs`) demonstrates the group
+  signal steering a form (with Return chaining), the plain Bool binding, and non-text-control
+  focus with a live readout.
+
+## 6. Prior art — what Day adopted and rejected
 
 - **SwiftUI** (`@FocusState`, `.focused(_:equals:)`): adopted — the Bool + Optional-of-Hashable
   binding shape, `nil` clears focus and dismisses the keyboard, moved focus writes back on loss.
   Rejected: the unconstructible binding (state can't live outside the view) — Day signals have
-  no such wall — and the possibility of state that disagrees with reality (rule 2).
+  no such wall.
 - **Flutter** (`FocusNode`/`FocusScope`): rejected as an API (imperative node lifecycle inside a
-  declarative tree is the exact residue Day avoids); adopted as semantics — the scope-restore
-  behavior for dialogs informs the reserved focus-scope design, and "focus changes apply after
-  the build phase" confirms rule 3.
-- **floem** (nearest cousin): its `request_focus(when)` proves signal-driven focus writes work;
-  its event-only *reads* are the asymmetry rule 2 closes. Its `FocusNavMeta` (order, group,
-  scope) previews the reserved traversal names.
+  declarative tree); adopted as semantics — "focus changes apply after the build phase" is
+  rule 3, and the scope-restore behavior informs the reserved focus-scope design.
+- **floem** (nearest cousin): its `request_focus(when)` proved signal-driven focus writes work;
+  its event-only *reads* are the asymmetry rule 2 closes.
 - **iced / egui / Slint / GPUI**: converge on last-write-wins, next-frame application, and
-  focus-nowhere being representable — all reflected in the rules. GPUI's open "initial focus"
-  discussion is why rule 4 is in v1 rather than deferred.
+  focus-nowhere being representable — all reflected in the rules.
 
-## 6. Phasing
+## 7. Resolved design questions
 
-- **F1 — spec + core + pieces + mock.** The duty, the two modifiers, the rules engine
-  (coalesce/resolve/write-back), `NodeProbe.focused`, mock ops, unit tests for the echo loop and
-  the unmounted-target snap-back. `Event::Submitted` plumbing in pieces (`on_submit`).
-- **F2 — desktop backends.** AppKit (field-editor mapping is the risk item), GTK, Qt. dayscript
-  `focus` / `assert_focused` steps; a showcase Controls-page demo (focus follows an enum signal
-  across the form) exercised by the walkthrough on all three.
-- **F3 — mobile + OHOS.** UIKit and Android (keyboard raise/dismiss paired with the §7.7
-  keyboard-insets work — same workstream from the app's view), ArkUI, WinUI in CI. Emulator
-  walkthrough steps where the platform allows; manual IME smokes per §14.2.
-- **Reserved.** `.focusable()`, `default_focus`, `focus_order`, focus scopes with restore,
-  focused-value publication (menus reading the focused field) — a derived signal once focus is
-  a signal, so nothing in F1–F3 needs to anticipate it.
-
-## 7. Open questions
-
-1. **Group-signal loss semantics.** When focus moves between two controls bound to the same
-   group signal, the signal should transition `Some(A)` → `Some(B)` without an observable `None`
-   in between — this needs the end-of-turn resolution to pair the loss+gain events. Confirm the
-   event ordering per backend allows it (Qt's `focusChanged(old, now)` does; per-element event
-   pairs need turn-level pairing).
-2. **Resign target on Android/WinUI.** Both platforms have no true "focus nothing" — decide
-   whether Day resigns to the window root (needs a focusable root container) or documents that
-   `None` only dismisses the keyboard there.
-3. **`focused_eq` naming.** `focused(sig)` + `focused_eq(sig, value)` vs a single overloaded
-   name via a marker trait (the `IntoText` two-marker pattern would allow one name). Cosmetic;
-   decide at implementation.
-4. **Does the walkthrough assert focus on GTK CI?** Headless xvfb windows may never be "active",
-   which can suppress focus events — verify early in F2, fall back to assert-on-probe if so.
+1. **Group-signal loss semantics** — solved in the pump: a `FocusChanged(false)` scans the
+   queue for a paired `FocusChanged(true)` from another node and dispatches the gain first, so
+   group signals never blip through `None` (rule 6).
+2. **Resign target on Android/WinUI** — both resign to a focusable root: Android to the
+   activity's focusable-in-touch-mode content root, WinUI to a hidden focus-sink control.
+3. **`focused_eq` naming** — one `.focused()` name via two marker-trait impls; the tuple form
+   `(signal, key)` replaces a second method.
+4. **Headless CI focus** — programmatic `grab_focus`/`setFocus` is window-local on every
+   backend (Qt after the app-local activation above), so scripted runs don't depend on the
+   window manager granting real OS focus.

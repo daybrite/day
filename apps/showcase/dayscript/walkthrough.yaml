@@ -47,6 +47,35 @@ flow:
   - assert_text: { id: activity-status, key: activity_off }
   - screenshot: controls
 
+  # Focus (docs/focus.md): `focus`/`assert_focused` drive the REAL toolkit duty, so the native
+  # focus ring, the signal, and the probe must agree. Assertions stay on text fields — the one
+  # control focusable on every platform.
+  - navigate: { route: focus }
+  - assert_route: { route: focus }
+  - assert_visible: { id: focus-title }
+  # Programmatic request through the group signal: the "next" button starts the cycle at Name.
+  - tap: { id: focus-next-button }
+  - assert_focused: { id: focus-name-field }
+  - assert_text: { id: focus-current, key: focus_name_label }
+  # Script-driven duty: land focus directly on the email field. The readout following proves the
+  # loss/gain pair moved the group signal without blipping through None.
+  - focus: { id: focus-email-field }
+  - assert_focused: { id: focus-email-field }
+  - assert_focused: { id: focus-name-field, focused: false }
+  - assert_text: { id: focus-current, key: focus_email_label }
+  # Clear resigns: nobody holds focus and the readout empties.
+  - tap: { id: focus-clear-button }
+  - assert_focused: { id: focus-email-field, focused: false }
+  - assert_text: { id: focus-current, text: "—" }
+  # Bool binding: buttons write the signal; the readout mirrors what the toolkit reports back.
+  - tap: { id: focus-bool-focus }
+  - assert_focused: { id: focus-bool-field }
+  - assert_text: { id: focus-bool-state, key: focus_state_on }
+  - tap: { id: focus-bool-blur }
+  - assert_focused: { id: focus-bool-field, focused: false }
+  - assert_text: { id: focus-bool-state, key: focus_state_off }
+  - screenshot: focus
+
   # Canvas & shapes: shape kinds, live transforms + gestures, the slider-driven gauge, and the
   # composition-tier widgets. Drive a rotation + a recolor tap so the screenshot shows both.
   - navigate: { route: canvas }

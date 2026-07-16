@@ -14,28 +14,6 @@ pub struct Finding {
     pub message: String,
 }
 
-fn ftl_keys(src: &str) -> BTreeSet<String> {
-    src.lines()
-        .filter_map(|l| {
-            let l = l.trim_start();
-            if l.starts_with('#') {
-                return None;
-            }
-            let (k, _) = l.split_once('=')?;
-            let k = k.trim();
-            if !k.is_empty()
-                && k.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                && !k.starts_with('-')
-            {
-                Some(k.to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
 /// Collect keys referenced via the generated `res::str::<key>(…)` functions (§18.5). Unlike
 /// `tr("key")` these aren't quote-delimited: after `res::str::` (possibly through a `crate::`/module
 /// path) read the Rust identifier, stripping a `r#` raw prefix — that identifier is the Fluent key.
@@ -228,7 +206,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                         if f.path().extension().is_some_and(|x| x == "ftl")
                             && let Ok(src) = std::fs::read_to_string(f.path())
                         {
-                            keys.extend(ftl_keys(&src));
+                            keys.extend(day_build::message_keys(&src));
                         }
                     }
                 }

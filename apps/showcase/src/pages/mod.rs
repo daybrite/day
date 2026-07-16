@@ -3,6 +3,7 @@
 pub(crate) mod about;
 pub(crate) mod canvas;
 pub(crate) mod controls;
+pub(crate) mod focus;
 pub(crate) mod list;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod map;
@@ -20,6 +21,7 @@ pub(crate) mod webview;
 pub(crate) use about::about_page;
 pub(crate) use canvas::canvas_page;
 pub(crate) use controls::controls_page;
+pub(crate) use focus::focus_page;
 pub(crate) use list::list_page;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) use map::map_page;

@@ -98,6 +98,13 @@ column((
 ))
 ```
 
+Keyboard focus is a binding too: `.focused(editing)` ties a control to a `Signal<bool>`, or
+`.focused((field, Field::Name))` binds one control of a form sharing a `Signal<Option<Field>>` —
+native focus changes write the signal, writing the signal moves focus (and `None` dismisses the
+soft keyboard on mobile). `text_field(...).on_submit(...)` handles the Return key, so chaining
+fields is one signal write. The [focus reference](/docs/internal/focus) has the rules and the
+per-platform map.
+
 ## Conditionals and collections
 
 `when` shows a subtree while a condition holds; it is itself reactive.

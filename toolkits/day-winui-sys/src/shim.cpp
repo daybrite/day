@@ -339,6 +339,9 @@ struct AppWindow {
     // both used to share `root` at (0,0), overlapping day's header with File/Edit/View.
     WUXC::Canvas content{ nullptr };
     WUXC::MenuBar menubar{ nullptr };
+    // Focus parking spot (docs/focus.md): system XAML has no "focus nothing", so resigning
+    // hands focus to this invisible non-tab-stop control.
+    WUXC::ContentControl focus_sink{ nullptr };
 };
 
 static AppWindow* g_app = nullptr;
@@ -553,6 +556,19 @@ void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h
     WUXC::Canvas::SetTop(content, 0);
     root.Children().Append(content);
     aw->content = content;
+    // The focus sink: 1×1, transparent, off the visible canvas, never a tab stop (resign
+    // flips IsTabStop around a programmatic Focus call, then removes it from tab order again).
+    {
+        WUXC::ContentControl sink;
+        sink.Width(1);
+        sink.Height(1);
+        sink.Opacity(0);
+        sink.IsTabStop(false);
+        WUXC::Canvas::SetLeft(sink, -100);
+        WUXC::Canvas::SetTop(sink, -100);
+        root.Children().Append(sink);
+        aw->focus_sink = sink;
+    }
     g_app = aw;
     return aw;
 } catch (winrt::hresult_error const& e) {
@@ -1326,6 +1342,38 @@ void day_winui_tabs_content_size(void* tabs, double* w, double* h) {
     double ah = p.ActualHeight();
     *h = ah > 48 ? ah - 48 : ah; // subtract the header strip
 }
+
+// ---- focus (docs/focus.md) ----
+// Observe: kind 1 = gained, 0 = lost, 2 = submitted (Enter in a TextBox). System XAML has no
+// global focus event, so each control reports its own GotFocus/LostFocus.
+void day_winui_enable_focus(void* h, unsigned long long id,
+                            void (*cb)(unsigned long long, int)) try {
+    auto c = elem(h).try_as<WUXC::Control>();
+    if (!c) return;
+    c.GotFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 1); });
+    c.LostFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 0); });
+    if (auto tb = c.try_as<WUXC::TextBox>()) {
+        tb.KeyDown([id, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+            if (a.Key() == winrt::Windows::System::VirtualKey::Enter) cb(id, 2);
+        });
+    }
+} catch (...) {}
+
+// Drive: request programmatic focus, or resign it to the window's focus sink — only while
+// this control still owns focus, so a stale release can't blur a sibling. (Programmatic
+// focus draws no focus visual; that is system-XAML behavior, not a bug.)
+void day_winui_control_focus(void* h, int focused) try {
+    auto c = elem(h).try_as<WUXC::Control>();
+    if (!c) return;
+    if (focused) {
+        c.Focus(WUX::FocusState::Programmatic);
+    } else if (c.FocusState() != WUX::FocusState::Unfocused && g_app && g_app->focus_sink) {
+        auto sink = g_app->focus_sink;
+        sink.IsTabStop(true);
+        sink.Focus(WUX::FocusState::Programmatic);
+        sink.IsTabStop(false);
+    }
+} catch (...) {}
 
 // ---- textbox ----
 

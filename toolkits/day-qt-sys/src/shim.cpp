@@ -996,6 +996,63 @@ void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb)
     widget->installEventFilter(f);
 }
 
+// --- focus (docs/focus.md) ---
+// kind: 1 = gained, 0 = lost, 2 = submitted (line-edit return key).
+typedef void (*DayFocusCb)(uint64_t node, int kind);
+
+class DayFocusFilter : public QObject {
+public:
+    uint64_t node; DayFocusCb cb;
+    DayFocusFilter(uint64_t n, DayFocusCb c) : node(n), cb(c) {}
+protected:
+    bool eventFilter(QObject *, QEvent *ev) override {
+        if (ev->type() == QEvent::FocusIn) {
+            cb(node, 1);
+        } else if (ev->type() == QEvent::FocusOut) {
+            // Popup grabs (menus, combo dropdowns) are transient — focus returns when they
+            // close — so they are not reported as a loss.
+            if (static_cast<QFocusEvent *>(ev)->reason() != Qt::PopupFocusReason) cb(node, 0);
+        }
+        return false; // observe only: never consume
+    }
+};
+
+void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    DayFocusFilter *f = new DayFocusFilter(node, cb);
+    f->setParent(widget); // freed with the widget
+    widget->installEventFilter(f);
+    if (QLineEdit *e = qobject_cast<QLineEdit *>(widget))
+        QObject::connect(e, &QLineEdit::returnPressed, [node, cb]() { cb(node, 2); });
+}
+
+// Drive focus: request it, or clear it only while this widget still owns it (a stale
+// release must not blur a sibling).
+void day_qt_widget_focus(void *w, int focused) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    if (focused) {
+        // Qt only delivers focus events inside the ACTIVE window; an inactive one just
+        // records the focus widget for later. Day's duty is window-local (AppKit's
+        // makeFirstResponder, GTK's grab_focus) — so activate: politely via the OS, then
+        // app-locally (the scripted/background-launch path, where the OS says no).
+        QWidget *win = widget->window();
+        if (win && !win->isActiveWindow()) {
+            win->activateWindow();
+            if (QApplication::activeWindow() != win) {
+                QT_WARNING_PUSH
+                QT_WARNING_DISABLE_DEPRECATED
+                // Deprecated for user code (it bypasses the window manager) — that bypass is
+                // the point here, and Qt keeps it for exactly this embedding/driving case.
+                QApplication::setActiveWindow(win);
+                QT_WARNING_POP
+            }
+        }
+        widget->setFocus(Qt::OtherFocusReason);
+    } else if (widget->hasFocus()) {
+        widget->clearFocus();
+    }
+}
+
 // ---- Menus (docs/menus.md) -------------------------------------------------
 // A flat builder mirrored from the day-neutral MenuItem tree: Rust walks the tree and issues
 // add_submenu / add_action / add_role / add_separator calls. Custom actions fire g_menu_cb(id);

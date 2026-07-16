@@ -1282,6 +1282,126 @@ fn shape_fill_linear_records_gradient_paint() {
 }
 
 #[test]
+fn focus_two_way_bool_binding() {
+    let editing = Signal::new(false);
+    let probe = boot(move || text_field(Signal::new(String::new())).focused(editing));
+    let node = node_id(&probe, "day.text_field", 0);
+
+    // Native gain writes the signal; the echo cell must swallow the resulting bind apply
+    // (no `focus` duty op for a state the widget already has).
+    let before = probe.log_len();
+    probe.emit(node, Event::FocusChanged(true));
+    flush_sync();
+    assert!(editing.get_untracked(), "native gain writes the signal");
+    assert!(
+        !probe
+            .log_since(before)
+            .iter()
+            .any(|l| l.starts_with("focus #")),
+        "a native focus change must not re-drive the toolkit"
+    );
+
+    // A programmatic resign drives the duty.
+    batch(|| editing.set(false));
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.ends_with(" false") && l.starts_with("focus #")),
+        "programmatic resign drives the focus duty: {:?}",
+        probe.log()
+    );
+}
+
+#[test]
+fn focus_group_moves_without_none_blip() {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Field {
+        A,
+        B,
+    }
+    let focus = Signal::new(None::<Field>);
+    let blipped = Rc::new(std::cell::Cell::new(false));
+    let b2 = blipped.clone();
+    let probe = boot(move || {
+        // Watch for an observable None between A and B.
+        let seen_a = std::cell::Cell::new(false);
+        watch(
+            move || focus.get(),
+            move |new, _| {
+                if *new == Some(Field::A) {
+                    seen_a.set(true);
+                } else if new.is_none() && seen_a.get() {
+                    b2.set(true);
+                }
+            },
+        );
+        column((
+            text_field(Signal::new(String::new())).focused((focus, Field::A)),
+            text_field(Signal::new(String::new())).focused((focus, Field::B)),
+        ))
+        .any()
+    });
+    let (a, b) = (
+        node_id(&probe, "day.text_field", 0),
+        node_id(&probe, "day.text_field", 1),
+    );
+
+    probe.emit(a, Event::FocusChanged(true));
+    flush_sync();
+    assert_eq!(focus.get_untracked(), Some(Field::A));
+
+    // Focus moves natively: the loss for A and the gain for B arrive in the same drain — the
+    // pump dispatches the gain first (docs/focus.md), so the group signal never reads None.
+    day_core::enqueue_events([
+        (a, Event::FocusChanged(false)),
+        (b, Event::FocusChanged(true)),
+    ]);
+    flush_sync();
+    assert_eq!(focus.get_untracked(), Some(Field::B));
+    assert!(!blipped.get(), "group signal must not blip through None");
+
+    // Losing focus to a non-Day target clears the signal.
+    probe.emit(b, Event::FocusChanged(false));
+    flush_sync();
+    assert_eq!(focus.get_untracked(), None);
+}
+
+#[test]
+fn focus_initial_some_requests_focus_on_mount() {
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Field {
+        Name,
+    }
+    let focus = Signal::new(Some(Field::Name));
+    let probe = boot(move || text_field(Signal::new(String::new())).focused((focus, Field::Name)));
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("focus #") && l.ends_with(" true")),
+        "a signal that already names the control requests focus at mount: {:?}",
+        probe.log()
+    );
+}
+
+#[test]
+fn text_field_on_submit_fires() {
+    let submitted = Signal::new(0i64);
+    let probe = boot(move || {
+        text_field(Signal::new(String::new()))
+            .on_submit(move || submitted.update(|n| *n += 1))
+            .any()
+    });
+    let node = node_id(&probe, "day.text_field", 0);
+    probe.emit(node, Event::Submitted);
+    flush_sync();
+    assert_eq!(submitted.get_untracked(), 1);
+}
+
+#[test]
 fn shape_fill_radial_records_gradient_paint() {
     let probe = boot(move || {
         circle()

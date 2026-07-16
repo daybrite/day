@@ -315,6 +315,14 @@ extern "C" fn on_slider(id: u64, v: f64) {
     // WinUI's Slider is driven in the app's real f64 units, so its Value is the event value as-is.
     emit(NodeId(id), Event::ValueChanged(v));
 }
+/// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
+extern "C" fn on_focus(id: u64, kind: c_int) {
+    let ev = match kind {
+        2 => Event::Submitted,
+        k => Event::FocusChanged(k != 0),
+    };
+    emit(NodeId(id), ev);
+}
 
 /// A `0.0..=1.0` fraction as ProgressBar ticks (0..1000), clamped.
 fn progress_ticks(fraction: f64) -> c_int {
@@ -851,12 +859,14 @@ impl Toolkit for WinUi {
                     if p.style == day_spec::props::ButtonStyleSpec::Prominent {
                         ffi::day_winui_button_prominent(h);
                     }
+                    ffi::day_winui_enable_focus(h, id.0, on_focus);
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
                 kinds::TOGGLE => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let h = ffi::day_winui_toggle_new(p.on as c_int, id.0, on_toggle);
+                    ffi::day_winui_enable_focus(h, id.0, on_focus);
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
@@ -865,8 +875,8 @@ impl Toolkit for WinUi {
                     // Default to a fine 1/1000-of-range step (matching the GTK backend) when the app
                     // leaves it unset, so the slider stays effectively continuous.
                     let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
-                    let h =
-                        ffi::day_winui_slider_new(p.value, p.min, p.max, step, id.0, on_slider);
+                    let h = ffi::day_winui_slider_new(p.value, p.min, p.max, step, id.0, on_slider);
+                    ffi::day_winui_enable_focus(h, id.0, on_focus);
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
@@ -878,6 +888,7 @@ impl Toolkit for WinUi {
                         id.0,
                         on_text,
                     );
+                    ffi::day_winui_enable_focus(h, id.0, on_focus);
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
@@ -1410,6 +1421,12 @@ impl Toolkit for WinUi {
             return;
         }
         unsafe { ffi::day_winui_enable_gesture(h.0, node.0, k, on_gesture) };
+    }
+
+    fn focus(&mut self, h: &WinHandle, _node: NodeId, focused: bool) {
+        // The shim resigns to the window's invisible focus sink — system XAML has no
+        // "focus nothing" — and only while this control still owns focus.
+        unsafe { ffi::day_winui_control_focus(h.0, focused as c_int) };
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {

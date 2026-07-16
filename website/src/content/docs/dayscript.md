@@ -52,9 +52,9 @@ keys instead of literal strings, so the same script passes in every language.
 | Group | Steps |
 |---|---|
 | Waiting | `wait_for` (an id appears), `pause` |
-| Acting | `tap`, `input`, `set_value`, `toggle`, `select` |
+| Acting | `tap`, `input`, `set_value`, `toggle`, `select`, `focus` |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Asserting | `assert_visible`, `assert_text`, `assert_value` |
+| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused` |
 | Dialogs | `assert_presented`, `respond` |
 | Evidence | `screenshot`, `a11y_audit` |
 

@@ -129,6 +129,26 @@ mod imp {
                     emit(node, Event::Pressed);
                 }
             }
+
+            /// EditingDidBegin — the keyboard is up and this field owns it (docs/focus.md).
+            #[unsafe(method(editBegan:))]
+            fn edit_began(&self, _sender: &UIControl) {
+                emit(self.ivars().node, Event::FocusChanged(true));
+            }
+
+            /// EditingDidEnd — the field resigned (keyboard dismissed or focus moved on).
+            #[unsafe(method(editEnded:))]
+            fn edit_ended(&self, _sender: &UIControl) {
+                emit(self.ivars().node, Event::FocusChanged(false));
+            }
+
+            /// EditingDidEndOnExit — the Return key. Registering this handler is also what
+            /// makes Return dismiss the keyboard (the UIKit convention); an `on_submit` that
+            /// moves focus re-raises it on the next field.
+            #[unsafe(method(editExit:))]
+            fn edit_exit(&self, _sender: &UIControl) {
+                emit(self.ivars().node, Event::Submitted);
+            }
         }
     );
 
@@ -1720,6 +1740,23 @@ mod imp {
                             sel!(fire:),
                             UIControlEvents::EditingChanged,
                         );
+                        // Focus + submit (docs/focus.md): begin/end report the focus pair;
+                        // end-on-exit is the Return key (and makes Return dismiss the keyboard).
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editBegan:),
+                            UIControlEvents::EditingDidBegin,
+                        );
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editEnded:),
+                            UIControlEvents::EditingDidEnd,
+                        );
+                        tf.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(editExit:),
+                            UIControlEvents::EditingDidEndOnExit,
+                        );
                     }
                     let view = view_of(tf);
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
@@ -2191,6 +2228,19 @@ mod imp {
         fn set_scroll_content(&mut self, h: &Handle, content: Size) {
             if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
                 unsafe { sv.setContentSize(CGSize::new(content.width, content.height)) };
+            }
+        }
+
+        fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
+            // Focus IS the keyboard on iOS: becoming first responder raises it, resigning
+            // dismisses it. Resign only while this view still owns it, so a stale release
+            // can't drop a sibling's keyboard.
+            unsafe {
+                if focused {
+                    h.becomeFirstResponder();
+                } else if h.isFirstResponder() {
+                    h.resignFirstResponder();
+                }
             }
         }
 

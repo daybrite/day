@@ -163,6 +163,15 @@ extern "C" fn on_slider(id: u64, v: c_int) {
     let value = min + (v as f64 / 1000.0) * (max - min);
     emit(NodeId(id), Event::ValueChanged(value));
 }
+/// Focus callback from the C++ event filter (docs/focus.md).
+/// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
+extern "C" fn on_focus(id: u64, kind: c_int) {
+    let ev = match kind {
+        2 => Event::Submitted,
+        k => Event::FocusChanged(k != 0),
+    };
+    emit(NodeId(id), ev);
+}
 
 /// Gesture callback from the C++ event filter. phase: 0=tap, 1=drag began, 2=changed, 3=ended.
 extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
@@ -794,15 +803,15 @@ impl Toolkit for Qt {
                 }
                 kinds::BUTTON => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
-                    QtHandle(ffi::day_qt_button_new(
-                        cstr(&p.title).as_ptr(),
-                        id.0,
-                        on_press,
-                    ))
+                    let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
+                    ffi::day_qt_enable_focus(w, id.0, on_focus);
+                    QtHandle(w)
                 }
                 kinds::TOGGLE => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
-                    QtHandle(ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle))
+                    let w = ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle);
+                    ffi::day_qt_enable_focus(w, id.0, on_focus);
+                    QtHandle(w)
                 }
                 kinds::SLIDER => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
@@ -813,16 +822,19 @@ impl Toolkit for Qt {
                         on_slider,
                     );
                     RANGES_BY_PTR.with(|r| r.borrow_mut().insert(w as usize, (p.min, p.max)));
+                    ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
                 kinds::TEXT_FIELD => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
-                    QtHandle(ffi::day_qt_lineedit_new(
+                    let w = ffi::day_qt_lineedit_new(
                         cstr(&p.text).as_ptr(),
                         cstr(&p.placeholder).as_ptr(),
                         id.0,
                         on_text,
-                    ))
+                    );
+                    ffi::day_qt_enable_focus(w, id.0, on_focus);
+                    QtHandle(w)
                 }
                 kinds::DIVIDER => QtHandle(ffi::day_qt_separator_new()),
                 kinds::PROGRESS => {
@@ -1312,6 +1324,12 @@ impl Toolkit for Qt {
 
     fn dismiss(&mut self, req: u64) {
         unsafe { ffi::day_qt_dismiss_present(req) };
+    }
+
+    fn focus(&mut self, h: &QtHandle, _node: NodeId, focused: bool) {
+        // The shim clears only while this widget still owns focus, so a stale release
+        // can't blur a sibling.
+        unsafe { ffi::day_qt_widget_focus(h.0, focused as c_int) };
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {

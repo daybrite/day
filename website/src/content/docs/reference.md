@@ -19,6 +19,7 @@ they tend to lead the guides when something changes.
 | [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
 | [menus](/docs/internal/menus) | app menu bar, context menus, roles and shortcuts |
 | [tabs](/docs/internal/tabs) | tabbed containers |
+| [focus](/docs/internal/focus) | keyboard focus as a signal: bindings, rules, per-backend map |
 | [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |
 | [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
 | [progress](/docs/internal/progress) | determinate bars and spinners |

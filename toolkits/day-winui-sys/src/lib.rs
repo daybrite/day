@@ -175,6 +175,11 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
 
+    // focus (docs/focus.md): observe via GotFocus/LostFocus (kind 1 gained / 0 lost / 2
+    // submitted); drive via Focus(Programmatic), resigning to the window's focus sink.
+    pub fn day_winui_enable_focus(elem: *mut c_void, id: u64, cb: extern "C" fn(u64, c_int));
+    pub fn day_winui_control_focus(elem: *mut c_void, focused: c_int);
+
     /// Capture the window's client area to a PNG file. Returns 0 on success.
     pub fn day_winui_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
 

@@ -280,6 +280,15 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+/// Report focus gain/loss into the sink (docs/focus.md). `EventControllerFocus` tracks
+/// focus-within, so a `GtkEntry`'s inner `GtkText` grabbing focus still counts as the entry.
+fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
+    let focus = gtk4::EventControllerFocus::new();
+    focus.connect_enter(move |_| emit(id, Event::FocusChanged(true)));
+    focus.connect_leave(move |_| emit(id, Event::FocusChanged(false)));
+    w.add_controller(focus);
+}
+
 // ---------------------------------------------------------------------------
 // Menus (§ menus): render day's MenuItem model as a GMenu (GtkPopoverMenu for context menus,
 // GtkPopoverMenuBar for the app menu). Custom items → SimpleActions under the "daymenu" prefix that
@@ -1354,6 +1363,7 @@ impl Toolkit for Gtk {
                     btn.add_css_class("suggested-action");
                 }
                 btn.connect_clicked(move |_| emit(id, Event::Pressed));
+                wire_focus(&btn, id);
                 btn.upcast()
             }
             kinds::TOGGLE => {
@@ -1361,6 +1371,7 @@ impl Toolkit for Gtk {
                 let sw = gtk4::Switch::new();
                 sw.set_active(p.on);
                 sw.connect_active_notify(move |s| emit(id, Event::ToggleChanged(s.is_active())));
+                wire_focus(&sw, id);
                 sw.upcast()
             }
             kinds::SLIDER => {
@@ -1371,6 +1382,7 @@ impl Toolkit for Gtk {
                 scale.set_value(p.value);
                 scale.set_draw_value(false);
                 scale.connect_value_changed(move |s| emit(id, Event::ValueChanged(s.value())));
+                wire_focus(&scale, id);
                 scale.upcast()
             }
             kinds::TEXT_FIELD => {
@@ -1379,6 +1391,8 @@ impl Toolkit for Gtk {
                 entry.set_text(&p.text);
                 entry.set_placeholder_text(Some(&p.placeholder));
                 entry.connect_changed(move |e| emit(id, Event::TextChanged(e.text().to_string())));
+                entry.connect_activate(move |_| emit(id, Event::Submitted));
+                wire_focus(&entry, id);
                 entry.upcast()
             }
             kinds::DIVIDER => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
@@ -1944,6 +1958,33 @@ impl Toolkit for Gtk {
         let inner = content_of(h);
         if inner.as_ptr() != h.as_ptr() {
             inner.set_size_request(content.width.round() as i32, content.height.round() as i32);
+        }
+    }
+
+    fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
+        if focused {
+            // grab_focus only lands on a mapped widget; a request racing the first map
+            // (mount reconciliation, docs/focus.md rule 4) retries once at map time.
+            if h.is_mapped() {
+                h.grab_focus();
+            } else {
+                let handler = Rc::new(RefCell::new(None));
+                let handler2 = handler.clone();
+                *handler.borrow_mut() = Some(h.connect_map(move |w| {
+                    w.grab_focus();
+                    if let Some(sig) = handler2.borrow_mut().take() {
+                        w.disconnect(sig);
+                    }
+                }));
+            }
+        } else if h
+            .state_flags()
+            .intersects(gtk4::StateFlags::FOCUSED | gtk4::StateFlags::FOCUS_WITHIN)
+            && let Some(root) = h.root()
+        {
+            // Resign only while this widget (or its inner text) holds focus, so a stale
+            // release can't blur a sibling.
+            root.set_focus(None::<&gtk4::Widget>);
         }
     }
 

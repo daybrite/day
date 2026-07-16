@@ -39,6 +39,8 @@ pub struct MockWidget {
     pub surface_role: Option<day_spec::SurfaceRole>,
     /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
     pub font: Option<day_spec::FontSpec>,
+    /// Last focus state driven through the `focus` duty (docs/focus.md) — probe-visible.
+    pub focused: bool,
 }
 
 #[derive(Default)]
@@ -161,6 +163,16 @@ impl MockProbe {
         } else {
             panic!("day-mock: no event sink installed");
         }
+    }
+
+    /// The current op-log length — pair with [`Self::log_since`] to scope assertions.
+    pub fn log_len(&self) -> usize {
+        self.state.borrow().log.len()
+    }
+
+    /// The op-log entries recorded after `mark` (from [`Self::log_len`]).
+    pub fn log_since(&self, mark: usize) -> Vec<String> {
+        self.state.borrow().log[mark..].to_vec()
     }
 }
 
@@ -482,6 +494,14 @@ impl Toolkit for MockToolkit {
         self.state
             .borrow_mut()
             .log(format!("enable_gesture #{} {:?}", h.0, kind));
+    }
+
+    fn focus(&mut self, h: &MockHandle, _node: NodeId, focused: bool) {
+        let mut st = self.state.borrow_mut();
+        st.log(format!("focus #{} {}", h.0, focused));
+        if let Some(w) = st.widgets.get_mut(&h.0) {
+            w.focused = focused;
+        }
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {

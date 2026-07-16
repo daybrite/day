@@ -35,6 +35,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
         DayBridge.ctx = this;
         final DayFixed root = new DayFixed(this);
+        // A focusable root gives "focus nowhere" a home (docs/focus.md): resigning a field
+        // hands focus here instead of snapping to the first focusable view.
+        root.setFocusableInTouchMode(true);
         // RTL locales (docs/localization): mirror native widget internals (text alignment,
         // slider fill, back affordances) by flipping the view hierarchy's direction. Day's own
         // absolute frames are direction-independent — the Rust layout engine mirrors those.

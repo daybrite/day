@@ -33,12 +33,23 @@ pub struct Entry {
     pub source: String,
 }
 
-/// A generated localization function: the Fluent message `key` (also the Rust fn name) and the sorted
-/// `params` (the `$variables` the message references, agreed across all locales).
+/// A generated localization function: the Fluent message `key` (the Rust fn name), its sorted
+/// `params` (each `$variable` the message references, agreed across all locales), and `doc` (the
+/// reference-locale value text, for the generated doc comment).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrEntry {
     pub key: String,
-    pub params: Vec<String>,
+    pub params: Vec<StrParam>,
+    pub doc: String,
+}
+
+/// One generated function parameter: the Fluent `$variable` name and whether it is used as a
+/// **number** (a plural/`select` selector or `NUMBER()` argument) — which types it as
+/// `IntoNumberFArg` instead of `IntoFArg`, so a string can't be passed where a plural count is needed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrParam {
+    pub name: String,
+    pub numeric: bool,
 }
 
 /// The full set of constants to emit, grouped by bucket.
@@ -232,53 +243,111 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The message keys defined in a Fluent source (terms/attributes/comments ignored). Public so the
+/// CLI lint (`day lint` fluent coverage) shares this one `fluent-syntax` parser with the codegen and
+/// the runtime resolver, instead of a hand-rolled line scanner.
+pub fn message_keys(ftl_src: &str) -> Vec<String> {
+    ftl_messages(ftl_src).into_iter().map(|m| m.key).collect()
+}
+
 /// Localization keys → parameter-typed `res::str` functions. Parses each `.ftl` with `fluent-syntax`
-/// (the same syntax `fluent-bundle` resolves at runtime), collects every message's `$variable` set,
-/// unions keys across locales, and enforces two build-time rules: each key must be a valid Rust
-/// identifier (the kebab→snake forcing rule) and all locales must agree on a key's parameter set.
+/// (the same syntax `fluent-bundle` resolves at runtime), collects every message's `$variable` set
+/// (and which vars are numeric — plural/`select` selectors), unions keys across locales, and enforces
+/// two build-time rules: each key must be a valid Rust identifier (the kebab→snake forcing rule) and
+/// all locales must agree on a key's parameter names. A param is typed numeric if *any* locale uses it
+/// numerically; the generated doc shows the value from the reference locale (`en` if present).
 fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
-    // key -> (sorted params, the locale file that first defined it)
-    let mut agreed: std::collections::BTreeMap<String, (Vec<String>, String)> = Default::default();
+    // key -> (params: name -> numeric, the locale file that first defined it)
+    let mut agreed: std::collections::BTreeMap<String, (Params, String)> = Default::default();
+    // key -> (reference value text, whether it came from `en`)
+    let mut docs: std::collections::BTreeMap<String, (String, bool)> = Default::default();
     for path in ftl_files(dir) {
         let src = std::fs::read_to_string(&path)
             .map_err(|e| format!("day-build: reading {}: {e}", display(&path)))?;
         let loc = display(&path);
-        for (key, params) in ftl_messages(&src) {
-            if !is_rust_ident(&key) {
+        let is_en = locale_of(&path) == "en";
+        for msg in ftl_messages(&src) {
+            if !is_rust_ident(&msg.key) {
                 return Err(format!(
-                    "day-build: localization key {key:?} ({loc}) is not a valid Rust identifier — \
+                    "day-build: localization key {:?} ({loc}) is not a valid Rust identifier — \
                      rename it to snake_case (e.g. `{}`) in every resource/locales/*/*.ftl (Fluent \
                      allows `-`, Rust identifiers do not).",
-                    key.replace('-', "_")
+                    msg.key,
+                    msg.key.replace('-', "_")
                 ));
             }
-            match agreed.get(&key) {
-                None => {
-                    agreed.insert(key, (params, loc.clone()));
+            // Doc: prefer the `en` value, else keep the first one seen.
+            let have_en = matches!(docs.get(&msg.key), Some((_, true)));
+            if !have_en && (is_en || !docs.contains_key(&msg.key)) {
+                docs.insert(msg.key.clone(), (msg.value_text, is_en));
+            }
+            // Params: names must agree across locales; numeric is the OR across locales.
+            use std::collections::btree_map::Entry;
+            match agreed.entry(msg.key.clone()) {
+                Entry::Vacant(v) => {
+                    v.insert((msg.params, loc.clone()));
                 }
-                Some((prev, prev_loc)) if *prev != params => {
-                    return Err(format!(
-                        "day-build: localization key {key:?} references different parameters across \
-                         locales — {prev_loc} has {{{}}}, {loc} has {{{}}}. Every locale's message \
-                         must use the same `$variables`.",
-                        prev.join(", "),
-                        params.join(", ")
-                    ));
+                Entry::Occupied(mut o) => {
+                    let (prev, prev_loc) = o.get_mut();
+                    let prev_names: Vars = prev.keys().cloned().collect();
+                    let this_names: Vars = msg.params.keys().cloned().collect();
+                    if prev_names != this_names {
+                        return Err(format!(
+                            "day-build: localization key {:?} references different parameters across \
+                             locales — {prev_loc} has {{{}}}, {loc} has {{{}}}. Every locale's \
+                             message must use the same `$variables`.",
+                            msg.key,
+                            comma(&prev_names),
+                            comma(&this_names)
+                        ));
+                    }
+                    for (name, numeric) in msg.params {
+                        if numeric && let Some(v) = prev.get_mut(&name) {
+                            *v = true;
+                        }
+                    }
                 }
-                Some(_) => {}
             }
         }
     }
     Ok(agreed
         .into_iter()
-        .map(|(key, (params, _))| StrEntry { key, params })
+        .map(|(key, (params, _))| {
+            let doc = docs.remove(&key).map(|(t, _)| t).unwrap_or_default();
+            StrEntry {
+                key,
+                params: params
+                    .into_iter()
+                    .map(|(name, numeric)| StrParam { name, numeric })
+                    .collect(),
+                doc,
+            }
+        })
         .collect())
 }
 
-/// Parse a Fluent resource → `(message key, sorted unique $variable names)` per message.
-/// Terms, attributes, comments, and junk are ignored; a parse error on an unrelated entry is
-/// tolerated (the partial resource is still walked).
-fn ftl_messages(src: &str) -> Vec<(String, Vec<String>)> {
+fn comma(names: &Vars) -> String {
+    names.iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
+/// The locale directory name of a `resource/locales/<locale>/*.ftl` path (its parent dir name).
+fn locale_of(path: &Path) -> String {
+    path.parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// One parsed Fluent message: its key, `$variables` (name → used-as-a-number), and value text.
+struct FtlMessage {
+    key: String,
+    params: Params,
+    value_text: String,
+}
+
+/// Parse a Fluent resource → one [`FtlMessage`] per message (terms/attributes/comments/junk ignored;
+/// a parse error on an unrelated entry is tolerated — the partial resource is still walked).
+fn ftl_messages(src: &str) -> Vec<FtlMessage> {
     use fluent_syntax::ast::Entry;
     let res = match fluent_syntax::parser::parse(src) {
         Ok(r) => r,
@@ -287,53 +356,71 @@ fn ftl_messages(src: &str) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
     for entry in &res.body {
         if let Entry::Message(m) = entry {
-            let mut vars = std::collections::BTreeSet::new();
-            if let Some(value) = &m.value {
-                collect_pattern_vars(value, &mut vars);
-            }
-            out.push((m.id.name.to_string(), vars.into_iter().collect()));
+            let mut params = Params::new();
+            let value_text = match &m.value {
+                Some(value) => {
+                    collect_pattern_vars(value, &mut params, false);
+                    pattern_text(value)
+                }
+                None => String::new(),
+            };
+            out.push(FtlMessage {
+                key: m.id.name.to_string(),
+                params,
+                value_text,
+            });
         }
     }
     out
 }
 
 type Vars = std::collections::BTreeSet<String>;
+/// `$variable` name → whether it is used numerically (plural/`select` selector or `NUMBER()` arg).
+type Params = std::collections::BTreeMap<String, bool>;
 
-fn collect_pattern_vars(p: &fluent_syntax::ast::Pattern<&str>, out: &mut Vars) {
+fn collect_pattern_vars(p: &fluent_syntax::ast::Pattern<&str>, out: &mut Params, numeric: bool) {
     use fluent_syntax::ast::PatternElement;
     for el in &p.elements {
         if let PatternElement::Placeable { expression } = el {
-            collect_expr_vars(expression, out);
+            collect_expr_vars(expression, out, numeric);
         }
     }
 }
 
-fn collect_expr_vars(e: &fluent_syntax::ast::Expression<&str>, out: &mut Vars) {
+fn collect_expr_vars(e: &fluent_syntax::ast::Expression<&str>, out: &mut Params, numeric: bool) {
     use fluent_syntax::ast::Expression;
     match e {
-        Expression::Inline(ie) => collect_inline_vars(ie, out),
+        Expression::Inline(ie) => collect_inline_vars(ie, out, numeric),
         Expression::Select { selector, variants } => {
-            collect_inline_vars(selector, out);
+            // A plural/number select makes its selector numeric; a string select (`$gender ->
+            // [male]…`) does not. Variant bodies are ordinary (non-numeric) context.
+            collect_inline_vars(selector, out, is_number_select(variants));
             for v in variants {
-                collect_pattern_vars(&v.value, out);
+                collect_pattern_vars(&v.value, out, false);
             }
         }
     }
 }
 
-fn collect_inline_vars(ie: &fluent_syntax::ast::InlineExpression<&str>, out: &mut Vars) {
+fn collect_inline_vars(
+    ie: &fluent_syntax::ast::InlineExpression<&str>,
+    out: &mut Params,
+    numeric: bool,
+) {
     use fluent_syntax::ast::InlineExpression as X;
     match ie {
         X::VariableReference { id } => {
-            out.insert(id.name.to_string());
+            *out.entry(id.name.to_string()).or_insert(false) |= numeric;
         }
-        X::Placeable { expression } => collect_expr_vars(expression, out),
-        X::FunctionReference { arguments, .. } => {
+        X::Placeable { expression } => collect_expr_vars(expression, out, numeric),
+        X::FunctionReference { id, arguments } => {
+            // The built-in `NUMBER(...)` forces its positional arg numeric; named options don't.
+            let num = id.name.eq_ignore_ascii_case("NUMBER");
             for a in &arguments.positional {
-                collect_inline_vars(a, out);
+                collect_inline_vars(a, out, num);
             }
             for n in &arguments.named {
-                collect_inline_vars(&n.value, out);
+                collect_inline_vars(&n.value, out, false);
             }
         }
         X::TermReference {
@@ -341,13 +428,56 @@ fn collect_inline_vars(ie: &fluent_syntax::ast::InlineExpression<&str>, out: &mu
             ..
         } => {
             for a in &arguments.positional {
-                collect_inline_vars(a, out);
+                collect_inline_vars(a, out, false);
             }
             for n in &arguments.named {
-                collect_inline_vars(&n.value, out);
+                collect_inline_vars(&n.value, out, false);
             }
         }
         _ => {}
+    }
+}
+
+/// Whether a `select` is a **plural / number** select (selector is a number) rather than a string
+/// select (e.g. `$gender -> [male] [female]`): true if any variant key is a number literal or a CLDR
+/// plural category other than the ambiguous `other` (which both plural and string selects use).
+fn is_number_select(variants: &[fluent_syntax::ast::Variant<&str>]) -> bool {
+    use fluent_syntax::ast::VariantKey;
+    const PLURAL: &[&str] = &["zero", "one", "two", "few", "many"];
+    variants.iter().any(|v| match &v.key {
+        VariantKey::NumberLiteral { .. } => true,
+        VariantKey::Identifier { name } => PLURAL.contains(&name.to_ascii_lowercase().as_str()),
+    })
+}
+
+/// A one-line, human-readable rendering of a message value for the generated doc comment
+/// (`Hello, { $name }!`, `{ $count -> … }`), whitespace collapsed. Backticks are stripped so the
+/// value can be wrapped in a doc-comment code span.
+fn pattern_text(p: &fluent_syntax::ast::Pattern<&str>) -> String {
+    use fluent_syntax::ast::PatternElement;
+    let mut s = String::new();
+    for el in &p.elements {
+        match el {
+            PatternElement::TextElement { value } => s.push_str(value),
+            PatternElement::Placeable { expression } => s.push_str(&placeable_text(expression)),
+        }
+    }
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('`', "'")
+}
+
+fn placeable_text(e: &fluent_syntax::ast::Expression<&str>) -> String {
+    use fluent_syntax::ast::{Expression, InlineExpression as X};
+    match e {
+        Expression::Inline(X::VariableReference { id }) => format!("{{ ${} }}", id.name),
+        Expression::Inline(X::StringLiteral { value }) => format!("{{ \"{value}\" }}"),
+        Expression::Select {
+            selector: X::VariableReference { id },
+            ..
+        } => format!("{{ ${} -> … }}", id.name),
+        _ => "{ … }".to_string(),
     }
 }
 
@@ -384,17 +514,23 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
     s.push_str("#[allow(dead_code, unused_imports, non_snake_case, clippy::too_many_arguments)]\n");
     s.push_str("pub mod str {\n");
     for e in entries {
-        // Each param is `impl day::IntoFArg<Mn>` (a distinct marker generic per arg); the Rust
-        // parameter ident is sanitized while the `.arg("…")` string stays the exact Fluent variable.
+        // Each param is `impl day::IntoFArg<Mn>` — or `IntoNumberFArg` when the message uses it as a
+        // plural/`select` selector (a distinct marker generic per arg). The Rust parameter ident is
+        // sanitized while the `.arg("…")` string stays the exact Fluent variable.
         let generics: Vec<String> = (0..e.params.len()).map(|i| format!("M{i}")).collect();
         let sig_params: Vec<String> = e
             .params
             .iter()
             .enumerate()
             .map(|(i, p)| {
+                let ty = if p.numeric {
+                    "IntoNumberFArg"
+                } else {
+                    "IntoFArg"
+                };
                 format!(
-                    "{}: impl day::IntoFArg<M{i}>",
-                    ident_token(&sanitize_ident(p))
+                    "{}: impl day::{ty}<M{i}>",
+                    ident_token(&sanitize_ident(&p.name))
                 )
             })
             .collect();
@@ -405,16 +541,20 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
         };
         let mut body = format!("day::tr({:?})", e.key);
         for p in &e.params {
-            body.push_str(&format!(".arg({p:?}, {})", ident_token(&sanitize_ident(p))));
+            body.push_str(&format!(
+                ".arg({:?}, {})",
+                p.name,
+                ident_token(&sanitize_ident(&p.name))
+            ));
         }
+        // Doc shows the key + the reference-locale value, so IDE hover reveals the actual text.
+        let doc = if e.doc.is_empty() {
+            format!("`{}`", e.key)
+        } else {
+            format!("`{}` — `{}`", e.key, e.doc)
+        };
         s.push_str(&format!(
-            "    /// `tr({:?})`{}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
-            e.key,
-            if e.params.is_empty() {
-                String::new()
-            } else {
-                format!(" — params: {}", e.params.join(", "))
-            },
+            "    /// {doc}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
             ident_token(&e.key),
             sig_params.join(", "),
         ));
@@ -617,11 +757,22 @@ mod tests {
         std::fs::write(dir.join("app.ftl"), body).unwrap();
     }
 
+    fn entry<'a>(plan: &'a ResourcePlan, key: &str) -> &'a StrEntry {
+        plan.strings
+            .iter()
+            .find(|e| e.key == key)
+            .expect("key present")
+    }
+    fn names(e: &StrEntry) -> Vec<&str> {
+        e.params.iter().map(|p| p.name.as_str()).collect()
+    }
+
     #[test]
-    fn extracts_keys_and_params_including_select() {
+    fn extracts_keys_params_numeric_and_doc() {
         let root = tmp("str-extract");
         // `counter_value` uses $count in a plural select (multiline) — same variable SET as a flat
-        // value; `greeting` has one param; `nav_home` has none.
+        // value, and numeric (a plural selector); `greeting` has one non-numeric param; `nav_home`
+        // has none. The doc captures the reference-locale value text (#5).
         ftl(
             &root,
             "en",
@@ -630,15 +781,59 @@ mod tests {
              counter_value = { $count ->\n    [one] { $count } click\n   *[other] { $count } clicks\n}\n",
         );
         let plan = plan_resources(&root).unwrap();
-        let by: std::collections::BTreeMap<_, _> = plan
-            .strings
-            .iter()
-            .map(|e| (e.key.as_str(), e.params.clone()))
-            .collect();
-        assert_eq!(by["nav_home"], Vec::<String>::new());
-        assert_eq!(by["greeting"], vec!["name".to_string()]);
-        assert_eq!(by["counter_value"], vec!["count".to_string()]);
+        assert!(names(entry(&plan, "nav_home")).is_empty());
+        assert_eq!(names(entry(&plan, "greeting")), vec!["name"]);
+        assert_eq!(entry(&plan, "greeting").doc, "Hello, { $name }!"); // #5
+        assert!(!entry(&plan, "greeting").params[0].numeric);
+        // #2: a plural-select selector is typed numeric.
+        assert_eq!(names(entry(&plan, "counter_value")), vec!["count"]);
+        assert!(entry(&plan, "counter_value").params[0].numeric);
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn string_select_selector_is_not_numeric() {
+        let root = tmp("str-gender");
+        // A `select` on a string (gender) must NOT force its selector numeric.
+        ftl(
+            &root,
+            "en",
+            "hi = { $gender ->\n    [male] Mr\n    [female] Ms\n   *[other] Mx\n} { $name }\n",
+        );
+        let plan = plan_resources(&root).unwrap();
+        let g = entry(&plan, "hi");
+        assert!(
+            !g.params
+                .iter()
+                .find(|p| p.name == "gender")
+                .unwrap()
+                .numeric
+        );
+        assert!(!g.params.iter().find(|p| p.name == "name").unwrap().numeric);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn numeric_is_ored_across_locales() {
+        let root = tmp("str-numeric-or");
+        // `en` uses $count as a plural selector (numeric); `zh` uses it as a flat interpolation.
+        // The param must be numeric because SOME locale needs a number.
+        ftl(
+            &root,
+            "en",
+            "n = { $count ->\n    [one] one\n   *[other] many\n}\n",
+        );
+        ftl(&root, "zh", "n = { $count } times\n");
+        let plan = plan_resources(&root).unwrap();
+        assert!(entry(&plan, "n").params[0].numeric);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn message_keys_lists_message_ids_only() {
+        // Public parser shared with `day lint`: messages only (terms/comments excluded).
+        let keys = message_keys("a = x\n# comment\n-term = y\nb = { $v }\n");
+        assert_eq!(keys, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
@@ -663,26 +858,42 @@ mod tests {
 
     #[test]
     fn renders_param_typed_functions() {
+        let p = |name: &str, numeric: bool| StrParam {
+            name: name.into(),
+            numeric,
+        };
         let plan = ResourcePlan {
             strings: vec![
                 StrEntry {
                     key: "hello_world".into(),
                     params: vec![],
+                    doc: "Hello!".into(),
+                },
+                StrEntry {
+                    key: "counter_value".into(),
+                    params: vec![p("count", true)], // numeric plural → IntoNumberFArg
+                    doc: "{ $count -> … }".into(),
                 },
                 StrEntry {
                     key: "deviceinfo_system".into(),
-                    params: vec!["name".into(), "version".into()],
+                    params: vec![p("name", false), p("version", false)],
+                    doc: String::new(),
                 },
             ],
             ..Default::default()
         };
         let code = render(&plan);
         assert!(code.contains("pub mod str {"));
+        assert!(code.contains("/// `hello_world` — `Hello!`")); // #5: doc shows the value
         assert!(
             code.contains(
                 "pub fn hello_world() -> day::LocalizedText { day::tr(\"hello_world\") }"
             )
         );
+        // #2: a numeric param is `IntoNumberFArg`; non-numeric stays `IntoFArg`.
+        assert!(code.contains(
+            "pub fn counter_value<M0>(count: impl day::IntoNumberFArg<M0>) -> day::LocalizedText { day::tr(\"counter_value\").arg(\"count\", count) }"
+        ));
         assert!(code.contains(
             "pub fn deviceinfo_system<M0, M1>(name: impl day::IntoFArg<M0>, version: impl day::IntoFArg<M1>) -> day::LocalizedText { day::tr(\"deviceinfo_system\").arg(\"name\", name).arg(\"version\", version) }"
         ));

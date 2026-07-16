@@ -78,6 +78,10 @@ unsafe extern "C" {
 
     /// Register a native event (0=click 1=text 2=toggle 3=slider 6=swiper); `id` returns as userData.
     pub fn day_ark_register_event(node: *mut c_void, kind: c_int, id: u64);
+    // Focus (docs/focus.md): observe gain/blur (+ text-input submit); drive via
+    // OH_ArkUI_FocusRequest / OH_ArkUI_FocusClear.
+    pub fn day_ark_enable_focus(node: *mut c_void, id: u64, is_text_input: c_int);
+    pub fn day_ark_focus(node: *mut c_void, focused: c_int);
 
     /// Canvas (§11): register the custom node's on-draw receiver.
     pub fn day_ark_canvas_init(node: *mut c_void);

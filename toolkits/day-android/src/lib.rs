@@ -567,6 +567,9 @@ mod imp {
                 Some(phase) => Event::Lifecycle(phase),
                 None => return,
             },
+            // Focus pair + IME submit action (docs/focus.md).
+            16 => Event::FocusChanged(num != 0.0),
+            17 => Event::Submitted,
             _ => return,
         };
         emit(NodeId(id as u64), ev);
@@ -1509,6 +1512,16 @@ mod imp {
                     JValue::Int((content.width * d).round() as i32),
                     JValue::Int((content.height * d).round() as i32),
                 ],
+            );
+        }
+
+        fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
+            // DayBridge pairs the request with the IME (show on gain, hide on resign) and
+            // resigns to the focusable content root — Android focus is never "nowhere".
+            call_void(
+                "focusView",
+                "(Landroid/view/View;Z)V",
+                &[JValue::Object(h.0.as_obj()), JValue::Bool(focused)],
             );
         }
 
