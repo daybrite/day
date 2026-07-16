@@ -1224,7 +1224,7 @@ fn shape_fill_rebinds_reactively() {
     let node = probe.find_by_kind("day.canvas")[0].0;
     let red = |p: &MockProbe| {
         matches!(p.widget(node).ops.first(),
-        Some(DrawOp::Fill(_, c)) if c.r > 0.5)
+        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.r > 0.5)
     };
     assert!(!red(&probe));
     batch(|| on.set(true));
@@ -1232,6 +1232,52 @@ fn shape_fill_rebinds_reactively() {
     assert!(
         red(&probe),
         "fill colour must re-record when its signal flips"
+    );
+}
+
+#[test]
+fn shape_fill_linear_records_gradient_paint() {
+    let night = Signal::new(false);
+    let probe = boot(move || {
+        rectangle()
+            .fill_linear(move || {
+                if night.get() {
+                    LinearGradient::vertical(Color::hex(0x0e1430), Color::hex(0x2c3a66))
+                } else {
+                    LinearGradient::vertical(Color::hex(0x2e6fb8), Color::hex(0x7fb2e5))
+                }
+            })
+            .frame(60.0, 60.0)
+            .any()
+    });
+    let node = probe.find_by_kind("day.canvas")[0].0;
+    let top_red = |p: &MockProbe| match p.widget(node).ops.first() {
+        Some(DrawOp::Fill(_, Paint::Linear(g))) => {
+            assert_eq!(g.start, UnitPoint::TOP);
+            assert_eq!(g.end, UnitPoint::BOTTOM);
+            assert_eq!(g.stops.len(), 2);
+            g.stops[0].1.r
+        }
+        other => panic!("expected a gradient fill, got {other:?}"),
+    };
+    assert!(top_red(&probe) > 0.15, "day sky top stop");
+    batch(|| night.set(true));
+    flush_sync();
+    assert!(
+        top_red(&probe) < 0.1,
+        "gradient must re-record when its signal flips"
+    );
+
+    // The packed encoding round-trips the gradient: kind 14 precedes its fill record and the
+    // stops ride the texts channel.
+    let ops = probe.widget(node).ops.clone();
+    let (nums, texts) = day_spec::encode_ops(&ops);
+    assert_eq!(nums[0], 14.0, "set-linear-gradient record first");
+    assert_eq!(nums[9], 0.0, "fill-rect record second");
+    assert!(
+        texts[0].split(' ').count() == 2 && texts[0].contains(','),
+        "two stops on the texts channel: {:?}",
+        texts[0]
     );
 }
 

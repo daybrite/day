@@ -14,12 +14,69 @@ pub(crate) fn canvas_page() -> AnyPiece {
         Some(crate::res::str::canvas_caption()),
         form((
             shapes_section(),
+            gradients_section(),
             transform_section(),
             gauge_section(),
             compose_section(),
         ))
         .any(),
     )
+}
+
+/// Linear gradients (docs/shapes.md §7): `.fill_linear` on shape pieces — static, multi-stop,
+/// and one whose geometry is driven live by the angle slider.
+fn gradients_section() -> impl Piece {
+    let angle = Signal::new(0.0f64);
+    section((
+        row((
+            rectangle()
+                .fill_linear(LinearGradient::vertical(
+                    Color::hex(0x2E6FB8),
+                    Color::hex(0x7FB2E5),
+                ))
+                .frame(56.0, 56.0)
+                .id("gradient-vertical"),
+            rounded_rectangle(12.0)
+                .fill_linear(LinearGradient::horizontal(
+                    Color::hex(0x8E44AD),
+                    Color::hex(0xE67E22),
+                ))
+                .frame(76.0, 56.0)
+                .id("gradient-horizontal"),
+            circle()
+                .fill_linear(LinearGradient::new(
+                    UnitPoint::TOP_LEADING,
+                    UnitPoint::BOTTOM_TRAILING,
+                    vec![
+                        (0.0, Color::hex(0xE74C3C)),
+                        (0.5, Color::hex(0xF1C40F)),
+                        (1.0, Color::hex(0x27AE60)),
+                    ],
+                ))
+                .frame(56.0, 56.0)
+                .id("gradient-stops"),
+            // The gradient line is reactive like any other shape property: the slider swings
+            // its end point around the shape's unit box.
+            rounded_rectangle(12.0)
+                .fill_linear(move || {
+                    let t = angle.get().to_radians();
+                    let (dx, dy) = (t.cos() * 0.5, t.sin() * 0.5);
+                    LinearGradient::new(
+                        UnitPoint::new(0.5 - dx, 0.5 - dy),
+                        UnitPoint::new(0.5 + dx, 0.5 + dy),
+                        vec![(0.0, Color::hex(0x16A085)), (1.0, Color::hex(0x2C3E50))],
+                    )
+                })
+                .frame(76.0, 56.0)
+                .id("gradient-angle"),
+        ))
+        .spacing(12.0),
+        labeled(
+            crate::res::str::gradient_angle(),
+            slider(angle).range(0.0..=360.0).id("gradient-angle-slider"),
+        ),
+    ))
+    .title(crate::res::str::gradients_title())
 }
 
 fn shapes_section() -> impl Piece {

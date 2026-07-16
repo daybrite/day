@@ -21,11 +21,28 @@ public class DayCanvasView extends View {
         invalidate();
     }
 
+    // A decoded kind-14 record (set-linear-gradient): unit start/end + parsed stops, applied as
+    // the paint's shader for the NEXT fill-shape record (resolved against that shape's bounds).
+    private boolean gradPending = false;
+    private float gsx, gsy, gex, gey;
+    private int[] gradColors = new int[0];
+    private float[] gradOffsets = new float[0];
+
+    /** Install the pending gradient shader for a fill over `bounds`; caller clears it after. */
+    private void applyGradient(RectF bounds) {
+        paint.setShader(new android.graphics.LinearGradient(
+                bounds.left + gsx * bounds.width(), bounds.top + gsy * bounds.height(),
+                bounds.left + gex * bounds.width(), bounds.top + gey * bounds.height(),
+                gradColors, gradOffsets, android.graphics.Shader.TileMode.CLAMP));
+        gradPending = false;
+    }
+
     @Override protected void onDraw(Canvas cv) {
         float density = getResources().getDisplayMetrics().density;
         cv.save();
         cv.scale(density, density);
         int ti = 0;
+        gradPending = false;
         for (int i = 0; i + 8 < nums.length; i += 9) {
             int k = (int) nums[i];
             float a = (float) nums[i+1], b = (float) nums[i+2], c = (float) nums[i+3], d = (float) nums[i+4];
@@ -33,12 +50,28 @@ public class DayCanvasView extends View {
             long col = (long) nums[i+8];
             paint.setColor((int) col);
             paint.setStrokeCap(Paint.Cap.ROUND);
+            if (!gradPending) paint.setShader(null);
             switch (k) {
-                case 0: paint.setStyle(Paint.Style.FILL); cv.drawRect(a, b, a+c, b+d, paint); break;
+                case 0: paint.setStyle(Paint.Style.FILL);
+                        if (gradPending) applyGradient(new RectF(a, b, a+c, b+d));
+                        cv.drawRect(a, b, a+c, b+d, paint);
+                        paint.setShader(null); break;
                 case 1: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawRect(a, b, a+c, b+d, paint); break;
-                case 2: paint.setStyle(Paint.Style.FILL); cv.drawRoundRect(new RectF(a, b, a+c, b+d), e, e, paint); break;
+                case 2: {
+                    paint.setStyle(Paint.Style.FILL);
+                    RectF r2 = new RectF(a, b, a+c, b+d);
+                    if (gradPending) applyGradient(r2);
+                    cv.drawRoundRect(r2, e, e, paint);
+                    paint.setShader(null); break;
+                }
                 case 13: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawRoundRect(new RectF(a, b, a+c, b+d), e, e, paint); break;
-                case 3: paint.setStyle(Paint.Style.FILL); cv.drawOval(new RectF(a, b, a+c, b+d), paint); break;
+                case 3: {
+                    paint.setStyle(Paint.Style.FILL);
+                    RectF r3 = new RectF(a, b, a+c, b+d);
+                    if (gradPending) applyGradient(r3);
+                    cv.drawOval(r3, paint);
+                    paint.setShader(null); break;
+                }
                 case 4: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawOval(new RectF(a, b, a+c, b+d), paint); break;
                 case 5: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g);
                         cv.drawArc(new RectF(a, b, a+c, b+d), e, f, false, paint); break;
@@ -85,11 +118,42 @@ public class DayCanvasView extends View {
                         path.close();
                         if (k == 11) {
                             paint.setStyle(Paint.Style.FILL);
+                            if (gradPending) {
+                                RectF pb = new RectF();
+                                path.computeBounds(pb, true);
+                                applyGradient(pb);
+                            }
                         } else {
                             paint.setStyle(Paint.Style.STROKE);
                             paint.setStrokeWidth(g);
                         }
                         cv.drawPath(path, paint);
+                        paint.setShader(null);
+                    }
+                    break;
+                }
+                case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb …"
+                    String t = ti < texts.length ? texts[ti++] : "";
+                    String[] parts = t.split(" ");
+                    int[] colors = new int[parts.length];
+                    float[] offsets = new float[parts.length];
+                    int n = 0;
+                    for (String pair : parts) {
+                        int comma = pair.indexOf(',');
+                        if (comma <= 0) continue;
+                        try {
+                            offsets[n] = Float.parseFloat(pair.substring(0, comma));
+                            colors[n] = (int) Long.parseLong(pair.substring(comma + 1), 16);
+                            n++;
+                        } catch (NumberFormatException nfe) {
+                            android.util.Log.w("Day", "gradient stop parse failed: " + pair, nfe);
+                        }
+                    }
+                    if (n >= 2) {
+                        gradColors = java.util.Arrays.copyOf(colors, n);
+                        gradOffsets = java.util.Arrays.copyOf(offsets, n);
+                        gsx = a; gsy = b; gex = c; gey = d;
+                        gradPending = true;
                     }
                     break;
                 }

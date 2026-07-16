@@ -29,6 +29,8 @@ nav_lottie = Lottie
 nav_about = 关于
 
 shapes_kinds = 种类
+gradients_title = 渐变
+gradient_angle = 角度
 shapes_transform = 变换
 shapes_angle = 角度
 

@@ -29,7 +29,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 - `Shape { Rect(Rect), RoundedRect(Rect, f64), Ellipse(Rect), Arc{rect,start_deg,sweep_deg},
   Line(Point,Point), Polygon(Vec<Point>) }`: the geometry enum (`day-spec`).
 - `Draw::fill(Shape, Color)`, `Draw::stroke(Shape, Color, f64)`, `Draw::text(...)`.
-- `Color { r,g,b,a }` (rgba/hex). No gradients yet.
+- `Color { r,g,b,a }` (rgba/hex), or a `LinearGradient` via `.fill_linear(...)` (radial/angular are later phases).
 - `Decorate` blanket impl → `.id/.id_keyed/.a11y/.frame/.padding/.any` for every Piece.
 - Reserved seams: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
   §8.4's "day-driven frame-clock ticker for canvas only", the exact hook shape animation needs.
@@ -117,18 +117,22 @@ Polygon, Path, Custom) introduce a `PathData` primitive + one path-fill/stroke c
 ### 3.2 Style: `Paint` and `Stroke` (data, growable)
 
 ```rust
-/// A fill/stroke source. v1 renders only `Solid` (existing canvas ops); gradients are phase 2
-/// (§7) and add native-gradient replay to each backend (a canvas-layer investment, no new node).
-#[derive(Clone)]
+/// A fill source (day-spec). `Solid` and `Linear` are IMPLEMENTED: `DrawOp::Fill(Shape, Paint)`
+/// replays native gradients on every backend (NSGradient, CGGradient, cairo pattern,
+/// QLinearGradient, Android LinearGradient shader, WinUI LinearGradientBrush, OH_Drawing shader
+/// effect); gradient unit points resolve against the filled shape's bounding box, and the packed
+/// encoding carries stops on the texts channel (kind 14 — see day-spec::encode_ops).
+#[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
     Solid(Color),
-    // ── phase 2 ──
-    // Linear  { stops: Vec<(f64, Color)>, start: UnitPoint, end: UnitPoint },
+    Linear(LinearGradient),   // { start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)> }
+    // ── later phases ──
     // Radial  { stops: Vec<(f64, Color)>, center: UnitPoint, radius: f64 },
     // Angular { stops: Vec<(f64, Color)>, center: UnitPoint, start_deg: f64 },
     // Token(SemanticColor),                            // §6 theme tokens, late-bound
 }
 impl From<Color> for Paint { /* … */ }
+impl From<LinearGradient> for Paint { /* … */ }
 
 #[derive(Clone)]
 pub struct Stroke {
@@ -286,9 +290,12 @@ before firing `.on_tap`/`.on_long_press`. Bounding-box fallback if a kind has no
 This is more correct than SwiftUI's default (which needs `.contentShape` to get precise
 hit testing) and needs no backend work beyond the gesture events Day already plans.
 
-## 7. Gradients & `ShapeStyle` (phase 2)
+## 7. Gradients & `ShapeStyle` (linear: DONE; radial/angular: later)
 
-`Paint` grows to `Linear/Radial/Angular` gradients + semantic `Token`s. This is the one place the
+Linear gradients are implemented end-to-end: `Paint::Linear(LinearGradient)` on the `Fill` op,
+`Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)` on shape pieces (reactive), and
+native replay on every backend. `Paint` still grows to `Radial/Angular` + semantic `Token`s later.
+This is the one place the
 canvas layer must grow: a `Fill(Shape, Paint)`/`Stroke(Shape, Paint, StrokeStyle)` op (Paint, not
 just Color) + per-backend gradient replay (CGGradient, cairo pattern, QGradient/QConicalGradient,
 Android shaders, WinUI brushes). hop already implemented this on four toolkits (linear and radial

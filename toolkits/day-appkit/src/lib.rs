@@ -15,7 +15,9 @@ use std::rc::Rc;
 use linkme::distributed_slice;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{
+    AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
+};
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
@@ -841,12 +843,31 @@ fn ns_rect(r: day_spec::Rect) -> NSRect {
 fn draw_op(op: &DrawOp) {
     unsafe {
         match op {
-            DrawOp::Fill(shape, color) => {
-                nscolor(*color).setFill();
-                if let Some(p) = bezier(shape) {
-                    p.fill();
+            DrawOp::Fill(shape, paint) => match paint {
+                day_spec::Paint::Solid(color) => {
+                    nscolor(*color).setFill();
+                    if let Some(p) = bezier(shape) {
+                        p.fill();
+                    }
                 }
-            }
+                day_spec::Paint::Linear(g) => {
+                    // Native linear gradient: clip to the shape's path, then NSGradient along
+                    // the line resolved from the gradient's unit points in the shape's bounds.
+                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(g)) {
+                        let b = shape.bounds();
+                        let (s, e) = (g.start.resolve(b), g.end.resolve(b));
+                        NSGraphicsContext::saveGraphicsState_class();
+                        p.addClip();
+                        grad.drawFromPoint_toPoint_options(
+                            NSPoint::new(s.x, s.y),
+                            NSPoint::new(e.x, e.y),
+                            objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
+                                | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation,
+                        );
+                        NSGraphicsContext::restoreGraphicsState_class();
+                    }
+                }
+            },
             DrawOp::Stroke(shape, color, width) => {
                 nscolor(*color).setStroke();
                 if let Some(p) = bezier(shape) {
@@ -897,6 +918,27 @@ fn draw_op(op: &DrawOp) {
                 t.concat();
             }
         }
+    }
+}
+
+/// An `NSGradient` from a display-list gradient's stops (sRGB, like every canvas color).
+fn nsgradient(
+    g: &day_spec::LinearGradient,
+) -> Option<objc2::rc::Retained<objc2_app_kit::NSGradient>> {
+    if g.stops.is_empty() {
+        return None;
+    }
+    let colors = objc2_foundation::NSArray::from_retained_slice(
+        &g.stops.iter().map(|(_, c)| nscolor(*c)).collect::<Vec<_>>(),
+    );
+    let locations: Vec<f64> = g.stops.iter().map(|(o, _)| *o).collect();
+    unsafe {
+        objc2_app_kit::NSGradient::initWithColors_atLocations_colorSpace(
+            objc2_app_kit::NSGradient::alloc(),
+            &colors,
+            locations.as_ptr(),
+            &objc2_app_kit::NSColorSpace::sRGBColorSpace(),
+        )
     }
 }
 

@@ -620,6 +620,18 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
     std::vector<WUXM::Matrix> stack;
     WUXM::Matrix cur = mat_identity();
     const double DEG = 3.14159265358979323846 / 180.0;
+    // A decoded kind-14 record (set-linear-gradient), consumed by the NEXT fill-shape record.
+    // XAML's default MappingMode is RelativeToBoundingBox, so the encoded unit start/end points
+    // map onto each shape's bounds with no extra math.
+    WUXM::LinearGradientBrush gradPending{ nullptr };
+    auto fill_brush = [&](unsigned col) -> WUXM::Brush {
+        if (gradPending) {
+            WUXM::Brush b = gradPending;
+            gradPending = nullptr;
+            return b;
+        }
+        return brush_bits(col);
+    };
 
     for (int i = 0; i + 8 < n; i += 9) {
         int k = static_cast<int>(nums[i]);
@@ -663,7 +675,7 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
                 p.Stroke(brush_bits(col));
                 p.StrokeThickness(g);
             } else {
-                p.Fill(brush_bits(col));
+                p.Fill(fill_brush(col));
             }
             place_shape(canvas, p, cur);
             break;
@@ -680,7 +692,7 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
                 p.Stroke(brush_bits(col));
                 p.StrokeThickness(g);
             } else {
-                p.Fill(brush_bits(col));
+                p.Fill(fill_brush(col));
             }
             place_shape(canvas, p, cur);
             break;
@@ -779,10 +791,39 @@ void day_winui_canvas_set_ops(void* h, const double* nums, int n, const char* te
                     p.Stroke(brush_bits(col));
                     p.StrokeThickness(g);
                 } else {
-                    p.Fill(brush_bits(col));
+                    p.Fill(fill_brush(col));
                 }
                 place_shape(canvas, p, cur);
             }
+            break;
+        }
+        case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
+            std::string t = ti < texts.size() ? texts[ti++] : std::string();
+            WUXM::LinearGradientBrush lgb;
+            lgb.StartPoint(WF::Point{ (float)a, (float)b });
+            lgb.EndPoint(WF::Point{ (float)c, (float)d });
+            size_t pos = 0;
+            while (pos < t.size()) {
+                size_t sp = t.find(' ', pos);
+                std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+                pos = sp == std::string::npos ? t.size() : sp + 1;
+                size_t comma = pair.find(',');
+                if (comma == std::string::npos || comma == 0) continue;
+                float off = 0.0f;
+                std::from_chars(pair.data(), pair.data() + comma, off);
+                unsigned bits = 0;
+                std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), bits, 16);
+                WUXM::GradientStop gs;
+                gs.Offset(off);
+                WUI::Color cc;
+                cc.A = static_cast<uint8_t>((bits >> 24) & 0xff);
+                cc.R = static_cast<uint8_t>((bits >> 16) & 0xff);
+                cc.G = static_cast<uint8_t>((bits >> 8) & 0xff);
+                cc.B = static_cast<uint8_t>(bits & 0xff);
+                gs.Color(cc);
+                lgb.GradientStops().Append(gs);
+            }
+            if (lgb.GradientStops().Size() >= 2) gradPending = lgb;
             break;
         }
         }

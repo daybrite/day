@@ -36,6 +36,7 @@
 #include <native_drawing/drawing_point.h>
 #include <native_drawing/drawing_rect.h>
 #include <native_drawing/drawing_round_rect.h>
+#include <native_drawing/drawing_shader_effect.h>
 #include <native_drawing/drawing_text_blob.h>
 
 #include <map>
@@ -609,6 +610,28 @@ static std::vector<std::string> split_texts(const std::string& joined) {
     return out;
 }
 
+// A decoded kind-14 record (set-linear-gradient): unit start/end + stops, applied as the
+// brush's shader effect for the NEXT fill-shape record (resolved against that shape's bounds).
+struct PendingGradient {
+    bool active = false;
+    float sx = 0, sy = 0, ex = 0, ey = 0;
+    std::vector<uint32_t> colors;
+    std::vector<float> offsets;
+};
+
+static void apply_gradient(OH_Drawing_Brush* brush, PendingGradient& g,
+                           float x, float y, float w, float h) {
+    OH_Drawing_Point* start = OH_Drawing_PointCreate(x + g.sx * w, y + g.sy * h);
+    OH_Drawing_Point* end = OH_Drawing_PointCreate(x + g.ex * w, y + g.ey * h);
+    OH_Drawing_ShaderEffect* fx = OH_Drawing_ShaderEffectCreateLinearGradient(
+        start, end, g.colors.data(), g.offsets.data(), (uint32_t)g.colors.size(), CLAMP);
+    OH_Drawing_BrushSetShaderEffect(brush, fx);
+    OH_Drawing_ShaderEffectDestroy(fx);
+    OH_Drawing_PointDestroy(start);
+    OH_Drawing_PointDestroy(end);
+    g.active = false;
+}
+
 static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     auto it = g_canvas.find(node);
     if (it == g_canvas.end()) return;
@@ -627,6 +650,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     OH_Drawing_CanvasConcatMatrix(cv, scale);
 
     size_t text_i = 0;
+    PendingGradient grad;
     for (size_t i = 0; i + 8 < n.size(); i += 9) {
         int kind = (int)n[i];
         float a = (float)n[i + 1], b = (float)n[i + 2], c = (float)n[i + 3], dd = (float)n[i + 4];
@@ -636,6 +660,18 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         OH_Drawing_PenSetWidth(pen, g > 0 ? g : 1.0f);
         OH_Drawing_BrushSetColor(brush, col);
         bool stroke = (kind == 1 || kind == 4 || kind == 5 || kind == 6 || kind == 12 || kind == 13);
+        // Fill kinds consume a pending gradient (kind 14) as the brush's shader effect.
+        if (grad.active) {
+            switch (kind) {
+                case 0: case 2: case 3:
+                    apply_gradient(brush, grad, a, b, c, dd);
+                    break;
+                default:
+                    break; // kind 11 resolves after its points parse (bounds unknown here)
+            }
+        } else {
+            OH_Drawing_BrushSetShaderEffect(brush, nullptr);
+        }
         if (stroke) OH_Drawing_CanvasAttachPen(cv, pen);
         else OH_Drawing_CanvasAttachBrush(cv, brush);
         switch (kind) {
@@ -717,8 +753,38 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     p = sp + 1;
                 }
                 OH_Drawing_PathClose(path);
+                if (kind == 11 && grad.active) {
+                    OH_Drawing_Rect* pb = OH_Drawing_RectCreate(0, 0, 0, 0);
+                    OH_Drawing_PathGetBounds(path, pb);
+                    float bx = OH_Drawing_RectGetLeft(pb), by = OH_Drawing_RectGetTop(pb);
+                    float bw = OH_Drawing_RectGetWidth(pb), bh = OH_Drawing_RectGetHeight(pb);
+                    OH_Drawing_RectDestroy(pb);
+                    OH_Drawing_CanvasDetachBrush(cv);
+                    apply_gradient(brush, grad, bx, by, bw, bh);
+                    OH_Drawing_CanvasAttachBrush(cv, brush);
+                }
                 OH_Drawing_CanvasDrawPath(cv, path);
                 OH_Drawing_PathDestroy(path);
+                break;
+            }
+            case 14: { // set-linear-gradient: stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
+                std::string stops = text_i < texts.size() ? texts[text_i++] : std::string();
+                grad.colors.clear();
+                grad.offsets.clear();
+                size_t p = 0;
+                while (p < stops.size()) {
+                    size_t sp = stops.find(' ', p);
+                    std::string tok = stops.substr(p, sp == std::string::npos ? sp : sp - p);
+                    size_t comma = tok.find(',');
+                    if (comma != std::string::npos && comma > 0) {
+                        grad.offsets.push_back(strtof(tok.substr(0, comma).c_str(), nullptr));
+                        grad.colors.push_back((uint32_t)strtoul(tok.substr(comma + 1).c_str(), nullptr, 16));
+                    }
+                    if (sp == std::string::npos) break;
+                    p = sp + 1;
+                }
+                grad.sx = a; grad.sy = b; grad.ex = c; grad.ey = dd;
+                grad.active = grad.colors.size() >= 2;
                 break;
             }
             default:

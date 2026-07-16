@@ -35,6 +35,8 @@ nav_lottie = Lottie
 nav_about = حول
 
 shapes_kinds = الأنواع
+gradients_title = التدرجات اللونية
+gradient_angle = الزاوية
 shapes_transform = التحويل
 shapes_angle = الزاوية
 

@@ -32,6 +32,8 @@ nav_lottie = Lottie
 nav_about = À propos
 
 shapes_kinds = Types
+gradients_title = Dégradés
+gradient_angle = Angle
 shapes_transform = Transformation
 shapes_angle = Angle
 

@@ -55,9 +55,40 @@ fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     );
 }
 
+/// A decoded kind-14 record (set-linear-gradient), waiting for its fill-shape record. Unit
+/// start/end resolve against the shape's bounding box; stops are (offset, 0xAARRGGBB).
+struct PendingGradient {
+    start: (f64, f64),
+    end: (f64, f64),
+    stops: Vec<(f64, u32)>,
+}
+
+impl PendingGradient {
+    /// Install the gradient as the cairo source, resolved against the shape's bbox.
+    fn set_source(&self, cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64) {
+        let lg = gtk4::cairo::LinearGradient::new(
+            x + self.start.0 * w,
+            y + self.start.1 * h,
+            x + self.end.0 * w,
+            y + self.end.1 * h,
+        );
+        for (o, bits) in &self.stops {
+            lg.add_color_stop_rgba(
+                *o,
+                ((bits >> 16) & 0xff) as f64 / 255.0,
+                ((bits >> 8) & 0xff) as f64 / 255.0,
+                (bits & 0xff) as f64 / 255.0,
+                ((bits >> 24) & 0xff) as f64 / 255.0,
+            );
+        }
+        let _ = cr.set_source(&lg);
+    }
+}
+
 fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
     let (nums, texts) = day_spec::encode_ops(ops);
     let mut ti = 0;
+    let mut pending: Option<PendingGradient> = None;
     for chunk in nums.chunks(9) {
         let (k, a, b, c, d, e, f, g, col) = (
             chunk[0] as i32,
@@ -75,6 +106,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
             0 | 1 => {
                 cr.rectangle(a, b, c, d);
                 if k == 0 {
+                    if let Some(gr) = pending.take() {
+                        gr.set_source(cr, a, b, c, d);
+                    }
                     let _ = cr.fill();
                 } else {
                     cr.set_line_width(g);
@@ -93,6 +127,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.arc(a + r, b + r, r, 2.0 * FRAC_PI_2, 3.0 * FRAC_PI_2);
                 cr.close_path();
                 if k == 2 {
+                    if let Some(gr) = pending.take() {
+                        gr.set_source(cr, a, b, c, d);
+                    }
                     let _ = cr.fill();
                 } else {
                     cr.set_line_width(g);
@@ -106,6 +143,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
                 cr.restore().ok();
                 if k == 3 {
+                    if let Some(gr) = pending.take() {
+                        gr.set_source(cr, a, b, c, d);
+                    }
                     let _ = cr.fill();
                 } else {
                     cr.set_line_width(g);
@@ -153,10 +193,13 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 let pts = texts.get(ti).cloned().unwrap_or_default();
                 ti += 1;
                 let mut first = true;
+                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
                 for pair in pts.split(' ') {
                     if let Some((x, y)) = pair.split_once(',')
                         && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
                     {
+                        (x0, y0) = (x0.min(x), y0.min(y));
+                        (x1, y1) = (x1.max(x), y1.max(y));
                         if first {
                             cr.move_to(x, y);
                             first = false;
@@ -168,6 +211,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 if !first {
                     cr.close_path();
                     if k == 11 {
+                        if let Some(gr) = pending.take() {
+                            gr.set_source(cr, x0, y0, x1 - x0, y1 - y0);
+                        }
                         let _ = cr.fill();
                     } else {
                         cr.set_line_width(g);
@@ -180,6 +226,24 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 // same row-vector meaning as day_geometry::Affine.
                 let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
                 cr.transform(m);
+            }
+            // Set-linear-gradient: unit start/end in a..d; "offset,aarrggbb …" stops ride the
+            // texts channel. Applies to the next fill-shape record (encode_ops contract).
+            14 => {
+                let raw = texts.get(ti).cloned().unwrap_or_default();
+                ti += 1;
+                let stops = raw
+                    .split(' ')
+                    .filter_map(|s| {
+                        let (o, c) = s.split_once(',')?;
+                        Some((o.parse::<f64>().ok()?, u32::from_str_radix(c, 16).ok()?))
+                    })
+                    .collect();
+                pending = Some(PendingGradient {
+                    start: (a, b),
+                    end: (c, d),
+                    stops,
+                });
             }
             _ => {}
         }
@@ -455,6 +519,28 @@ thread_local! {
     /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
     /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
     static SURFACE: RefCell<HashMap<usize, gtk4::CssProvider>> = RefCell::new(HashMap::new());
+}
+
+/// Install (once) the CSS that makes Day scroll viewports transparent, so a backdrop layered
+/// behind a scroll (zstack) shows through — matching AppKit's `setDrawsBackground(false)`.
+fn scroll_transparent_css() {
+    thread_local! {
+        static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if DONE.with(|c| c.replace(true)) {
+        return;
+    }
+    let p = gtk4::CssProvider::new();
+    p.load_from_data(
+        "scrolledwindow.day-scroll, scrolledwindow.day-scroll > viewport { background: none; }",
+    );
+    if let Some(display) = gtk4::gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &p,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
 }
 
 /// Apply a `background`/`corner_radius` surface to a container widget via a scoped CSS provider
@@ -1221,6 +1307,10 @@ impl Toolkit for Gtk {
                 let sw = gtk4::ScrolledWindow::new();
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&gtk4::Fixed::new()));
+                // Transparent like AppKit's `setDrawsBackground(false)` scroll: content layered
+                // BEHIND the viewport (e.g. a gradient backdrop in a zstack) must show through.
+                scroll_transparent_css();
+                sw.add_css_class("day-scroll");
                 sw.upcast()
             }
             kinds::LABEL => {

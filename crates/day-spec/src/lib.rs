@@ -521,6 +521,117 @@ pub enum Shape {
     Polygon(Vec<Point>),
 }
 
+impl Shape {
+    /// The shape's bounding rectangle — the box gradient [`UnitPoint`]s resolve against.
+    pub fn bounds(&self) -> Rect {
+        match self {
+            Shape::Rect(r) | Shape::RoundedRect(r, _) | Shape::Ellipse(r) => *r,
+            Shape::Arc { rect, .. } => *rect,
+            Shape::Line(a, b) => points_bounds(&[*a, *b]),
+            Shape::Polygon(pts) => points_bounds(pts),
+        }
+    }
+}
+
+fn points_bounds(pts: &[Point]) -> Rect {
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for p in pts {
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    if pts.is_empty() {
+        return Rect::ZERO;
+    }
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// A point in the unit space of a shape's bounding box: (0,0) = top-leading, (1,1) =
+/// bottom-trailing. Gradient geometry is expressed in unit points so one paint value works for
+/// any shape size (docs/shapes.md §3.2).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnitPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl UnitPoint {
+    pub const fn new(x: f64, y: f64) -> Self {
+        UnitPoint { x, y }
+    }
+    pub const TOP: UnitPoint = UnitPoint::new(0.5, 0.0);
+    pub const BOTTOM: UnitPoint = UnitPoint::new(0.5, 1.0);
+    pub const LEADING: UnitPoint = UnitPoint::new(0.0, 0.5);
+    pub const TRAILING: UnitPoint = UnitPoint::new(1.0, 0.5);
+    pub const TOP_LEADING: UnitPoint = UnitPoint::new(0.0, 0.0);
+    pub const TOP_TRAILING: UnitPoint = UnitPoint::new(1.0, 0.0);
+    pub const BOTTOM_LEADING: UnitPoint = UnitPoint::new(0.0, 1.0);
+    pub const BOTTOM_TRAILING: UnitPoint = UnitPoint::new(1.0, 1.0);
+    pub const CENTER: UnitPoint = UnitPoint::new(0.5, 0.5);
+
+    /// Resolve to an absolute point within `rect`.
+    pub fn resolve(&self, rect: Rect) -> Point {
+        Point::new(
+            rect.origin.x + self.x * rect.size.width,
+            rect.origin.y + self.y * rect.size.height,
+        )
+    }
+}
+
+/// A linear gradient (docs/shapes.md §3.2 / §7): color stops along the line from `start` to
+/// `end`, both in the unit space of the filled shape's bounding box. Stops are
+/// `(offset 0..=1, color)`, ascending.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinearGradient {
+    pub start: UnitPoint,
+    pub end: UnitPoint,
+    pub stops: Vec<(f64, Color)>,
+}
+
+impl LinearGradient {
+    pub fn new(start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)>) -> Self {
+        LinearGradient { start, end, stops }
+    }
+    /// Top-to-bottom between two colors — the everyday sky/backdrop case.
+    pub fn vertical(top: Color, bottom: Color) -> Self {
+        LinearGradient::new(
+            UnitPoint::TOP,
+            UnitPoint::BOTTOM,
+            vec![(0.0, top), (1.0, bottom)],
+        )
+    }
+    /// Leading-to-trailing between two colors.
+    pub fn horizontal(leading: Color, trailing: Color) -> Self {
+        LinearGradient::new(
+            UnitPoint::LEADING,
+            UnitPoint::TRAILING,
+            vec![(0.0, leading), (1.0, trailing)],
+        )
+    }
+}
+
+/// A fill source: a solid color, or a linear gradient (docs/shapes.md §3.2 — radial/angular and
+/// semantic tokens are later phases). `From<Color>` keeps every existing `fill(shape, color)`
+/// call site compiling unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Paint {
+    Solid(Color),
+    Linear(LinearGradient),
+}
+
+impl From<Color> for Paint {
+    fn from(c: Color) -> Self {
+        Paint::Solid(c)
+    }
+}
+
+impl From<LinearGradient> for Paint {
+    fn from(g: LinearGradient) -> Self {
+        Paint::Linear(g)
+    }
+}
+
 /// How canvas text hangs on its `at` point (style rule: no bare bools in public APIs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum TextAnchor {
@@ -533,7 +644,7 @@ pub enum TextAnchor {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawOp {
-    Fill(Shape, Color),
+    Fill(Shape, Paint),
     Stroke(Shape, Color, f64),
     Text {
         text: String,
@@ -1314,12 +1425,16 @@ impl<B: Toolkit> Registry<B> {
 /// 4 stroke-ellipse(g=w), 5 stroke-arc(e=start°, f=sweep°, g=w), 6 line(a,b→c,d, g=w),
 /// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered), 8 save, 9 restore,
 /// 10 concat(a..f=affine), 11 fill-polygon / 12 stroke-polygon(g=w) — polygon points ride the
-/// texts channel as "x,y x,y …" (closed automatically), 13 stroke-rrect(e=r, g=w).
+/// texts channel as "x,y x,y …" (closed automatically), 13 stroke-rrect(e=r, g=w),
+/// 14 set-linear-gradient(a,b=start unit point, c,d=end unit point, e=stop count) — the stops
+/// ride the texts channel as "offset,aarrggbb offset,aarrggbb …"; the gradient applies to the
+/// NEXT fill-shape record (whose color slot is then unused) and is cleared after it. Unit
+/// points resolve against the filled shape's bounding box.
 ///
-/// Transports join `texts` with the unit separator U+001F (one entry per kind-7/11/12 record,
-/// in order), so text payloads must not contain U+001F. Known asymmetry: `Fill(Shape::Arc)`
-/// encodes as kind 5 (stroke) with width 0 — filled arcs render only on the direct-replay
-/// backends (AppKit/UIKit); use a polygon fan if a filled arc must be portable.
+/// Transports join `texts` with the unit separator U+001F (one entry per kind-7/11/12/14
+/// record, in order), so text payloads must not contain U+001F. Known asymmetry:
+/// `Fill(Shape::Arc)` encodes as kind 5 (stroke) with width 0 — filled arcs render only on the
+/// direct-replay backends (AppKit/UIKit); use a polygon fan if a filled arc must be portable.
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     fn color_bits(c: Color) -> f64 {
         let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
@@ -1328,108 +1443,148 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         let a = (c.a.clamp(0.0, 1.0) * 255.0) as u32;
         ((a << 24) | (r << 16) | (g << 8) | b) as f64
     }
+    #[allow(clippy::too_many_arguments)]
+    fn push(
+        k: f64,
+        a: f64,
+        b: f64,
+        c: f64,
+        d: f64,
+        e: f64,
+        f: f64,
+        g: f64,
+        col: Color,
+        nums: &mut Vec<f64>,
+    ) {
+        nums.extend_from_slice(&[k, a, b, c, d, e, f, g, color_bits(col)]);
+    }
+    /// One shape record (the fill/stroke kinds shared by both ops).
+    fn shape_record(
+        stroke: bool,
+        shape: &Shape,
+        w: f64,
+        col: Color,
+        nums: &mut Vec<f64>,
+        texts: &mut Vec<String>,
+    ) {
+        match shape {
+            Shape::Rect(r) => push(
+                if stroke { 1.0 } else { 0.0 },
+                r.origin.x,
+                r.origin.y,
+                r.size.width,
+                r.size.height,
+                0.0,
+                0.0,
+                w,
+                col,
+                nums,
+            ),
+            Shape::RoundedRect(r, rad) => push(
+                if stroke { 13.0 } else { 2.0 },
+                r.origin.x,
+                r.origin.y,
+                r.size.width,
+                r.size.height,
+                *rad,
+                0.0,
+                w,
+                col,
+                nums,
+            ),
+            Shape::Ellipse(r) => push(
+                if stroke { 4.0 } else { 3.0 },
+                r.origin.x,
+                r.origin.y,
+                r.size.width,
+                r.size.height,
+                0.0,
+                0.0,
+                w,
+                col,
+                nums,
+            ),
+            Shape::Arc {
+                rect,
+                start_deg,
+                sweep_deg,
+            } => push(
+                5.0,
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+                *start_deg,
+                *sweep_deg,
+                w,
+                col,
+                nums,
+            ),
+            Shape::Line(p1, p2) => push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, col, nums),
+            Shape::Polygon(pts) => {
+                // Variable-length points ride the texts side-channel ("x,y x,y …"),
+                // consumed in record order exactly like text payloads.
+                push(
+                    if stroke { 12.0 } else { 11.0 },
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    w,
+                    col,
+                    nums,
+                );
+                texts.push(
+                    pts.iter()
+                        .map(|p| format!("{},{}", p.x, p.y))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            }
+        }
+    }
     let mut nums = Vec::with_capacity(ops.len() * 9);
     let mut texts = Vec::new();
-    let push = |k: f64,
-                a: f64,
-                b: f64,
-                c: f64,
-                d: f64,
-                e: f64,
-                f: f64,
-                g: f64,
-                col: Color,
-                nums: &mut Vec<f64>| {
-        nums.extend_from_slice(&[k, a, b, c, d, e, f, g, color_bits(col)]);
-    };
     for op in ops {
         match op {
-            DrawOp::Fill(shape, col) | DrawOp::Stroke(shape, col, _) => {
-                let w = if let DrawOp::Stroke(_, _, w) = op {
-                    *w
-                } else {
-                    0.0
-                };
-                let stroke = matches!(op, DrawOp::Stroke(..));
-                match shape {
-                    Shape::Rect(r) => push(
-                        if stroke { 1.0 } else { 0.0 },
-                        r.origin.x,
-                        r.origin.y,
-                        r.size.width,
-                        r.size.height,
-                        0.0,
-                        0.0,
-                        w,
-                        *col,
-                        &mut nums,
-                    ),
-                    Shape::RoundedRect(r, rad) => push(
-                        if stroke { 13.0 } else { 2.0 },
-                        r.origin.x,
-                        r.origin.y,
-                        r.size.width,
-                        r.size.height,
-                        *rad,
-                        0.0,
-                        w,
-                        *col,
-                        &mut nums,
-                    ),
-                    Shape::Ellipse(r) => push(
-                        if stroke { 4.0 } else { 3.0 },
-                        r.origin.x,
-                        r.origin.y,
-                        r.size.width,
-                        r.size.height,
-                        0.0,
-                        0.0,
-                        w,
-                        *col,
-                        &mut nums,
-                    ),
-                    Shape::Arc {
-                        rect,
-                        start_deg,
-                        sweep_deg,
-                    } => push(
-                        5.0,
-                        rect.origin.x,
-                        rect.origin.y,
-                        rect.size.width,
-                        rect.size.height,
-                        *start_deg,
-                        *sweep_deg,
-                        w,
-                        *col,
-                        &mut nums,
-                    ),
-                    Shape::Line(p1, p2) => {
-                        push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, *col, &mut nums)
-                    }
-                    Shape::Polygon(pts) => {
-                        // Variable-length points ride the texts side-channel ("x,y x,y …"),
-                        // consumed in record order exactly like text payloads.
+            DrawOp::Fill(shape, paint) => {
+                let col = match paint {
+                    Paint::Solid(c) => *c,
+                    Paint::Linear(g) => {
+                        // Kind 14 (set-linear-gradient) precedes its shape record; the stops
+                        // ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
                         push(
-                            if stroke { 12.0 } else { 11.0 },
+                            14.0,
+                            g.start.x,
+                            g.start.y,
+                            g.end.x,
+                            g.end.y,
+                            g.stops.len() as f64,
                             0.0,
                             0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            w,
-                            *col,
+                            Color::CLEAR,
                             &mut nums,
                         );
                         texts.push(
-                            pts.iter()
-                                .map(|p| format!("{},{}", p.x, p.y))
+                            g.stops
+                                .iter()
+                                .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
                                 .collect::<Vec<_>>()
                                 .join(" "),
                         );
+                        // The gradient replaces the shape record's color — but it must be
+                        // OPAQUE, not clear: Skia-based decoders (Android Paint, OH_Drawing)
+                        // modulate a shader by the paint alpha, so a clear slot would render
+                        // the whole gradient invisible.
+                        Color::WHITE
                     }
-                }
+                };
+                shape_record(false, shape, 0.0, col, &mut nums, &mut texts);
+            }
+            DrawOp::Stroke(shape, col, w) => {
+                shape_record(true, shape, *w, *col, &mut nums, &mut texts);
             }
             DrawOp::Text {
                 text,

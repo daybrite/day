@@ -373,7 +373,14 @@ void *day_qt_scroll_new() {
     sa->setWidgetResizable(false);
     sa->setFrameShape(QFrame::NoFrame);
     sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    // Transparent like AppKit's `setDrawsBackground(false)` scroll (and GTK's day-scroll CSS):
+    // content layered BEHIND the scroll (e.g. a gradient backdrop in a zstack) must show
+    // through. Both the palette flags AND the stylesheet are needed — QScrollArea otherwise
+    // erases its viewport with the palette Window brush on some styles.
+    sa->viewport()->setAutoFillBackground(false);
+    sa->setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }");
     QWidget *content = new QWidget();
+    content->setAutoFillBackground(false);
     sa->setWidget(content);
     return sa;
 }
@@ -752,6 +759,7 @@ void day_qt_dismiss_present(uint64_t req) {
 // --- canvas + image (day M8) ---
 #include <QPaintEvent>
 #include <QPainter>
+#include <QLinearGradient>
 #include <QPolygonF>
 #include <QVector>
 
@@ -768,6 +776,18 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         int ti = 0;
+        // A decoded kind-14 record (set-linear-gradient): unit start/end + stops, applied as the
+        // brush of the NEXT fill-shape record (resolved against that shape's bounding rect).
+        bool gradPending = false;
+        double gsx = 0, gsy = 0, gex = 0, gey = 0;
+        QGradientStops gstops;
+        auto gradBrush = [&](const QRectF &bounds) {
+            QLinearGradient lg(bounds.x() + gsx * bounds.width(), bounds.y() + gsy * bounds.height(),
+                               bounds.x() + gex * bounds.width(), bounds.y() + gey * bounds.height());
+            lg.setStops(gstops);
+            gradPending = false;
+            return QBrush(lg);
+        };
         for (int i = 0; i + 8 < nums.size(); i += 9) {
             int k = (int)nums[i];
             double a = nums[i+1], b = nums[i+2], c = nums[i+3], d = nums[i+4];
@@ -776,11 +796,14 @@ protected:
             QColor color((col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, (col >> 24) & 0xff);
             QPen pen(color); pen.setWidthF(g); pen.setCapStyle(Qt::RoundCap);
             switch (k) {
-                case 0: p.fillRect(QRectF(a, b, c, d), color); break;
+                case 0:
+                    if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
+                    else p.fillRect(QRectF(a, b, c, d), color);
+                    break;
                 case 1: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(QRectF(a, b, c, d)); break;
-                case 2: p.setPen(Qt::NoPen); p.setBrush(color); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+                case 2: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
                 case 13: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
-                case 3: p.setPen(Qt::NoPen); p.setBrush(color); p.drawEllipse(QRectF(a, b, c, d)); break;
+                case 3: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawEllipse(QRectF(a, b, c, d)); break;
                 case 4: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QRectF(a, b, c, d)); break;
                 case 5: // arc: spec is clockwise-degrees; Qt is CCW 1/16°
                     p.setPen(pen); p.setBrush(Qt::NoBrush);
@@ -816,9 +839,28 @@ protected:
                             poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
                     }
                     if (poly.size() >= 2) {
-                        if (k == 11) { p.setPen(Qt::NoPen); p.setBrush(color); p.drawPolygon(poly); }
+                        if (k == 11) {
+                            p.setPen(Qt::NoPen);
+                            p.setBrush(gradPending ? gradBrush(poly.boundingRect()) : QBrush(color));
+                            p.drawPolygon(poly);
+                        }
                         else { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPolygon(poly); }
                     }
+                    break;
+                }
+                case 14: { // set-linear-gradient: stops ride the texts channel as "offset,aarrggbb …"
+                    QString t = ti < texts.size() ? texts[ti++] : QString();
+                    gstops.clear();
+                    for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
+                        int comma = pair.indexOf(',');
+                        if (comma <= 0) continue;
+                        double off = pair.left(comma).toDouble();
+                        unsigned bits = pair.mid(comma + 1).toUInt(nullptr, 16);
+                        gstops << QGradientStop(off, QColor((bits >> 16) & 0xff, (bits >> 8) & 0xff,
+                                                            bits & 0xff, (bits >> 24) & 0xff));
+                    }
+                    gsx = a; gsy = b; gex = c; gey = d;
+                    gradPending = !gstops.isEmpty();
                     break;
                 }
             }
