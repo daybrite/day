@@ -242,12 +242,38 @@ modules:
 }
 
 fn stage_icons(project: &Project, stage: &Path, id: &str) {
-    // hicolor icons named by app id, from icons/linux/*-<N>.png (falling back to any png).
+    if stage_project_icons(project, stage, id) == 0 {
+        // No project icons: stage the built-in default. The .desktop says `Icon={id}` and the
+        // appstream catalog REQUIRES a resolvable icon for a desktop-application component —
+        // flatpak-builder's `appstreamcli compose` fails the whole bundle with `icon-not-found`
+        // otherwise, so an icon-less project must still export one.
+        status(
+            "Packing",
+            "no resource/icons/*.png — using the default Day icon (add resource/icons/linux/<name>-<size>.png to brand the app)",
+        );
+        let size = crate::template::DEFAULT_ICON_SIZE;
+        let dest_dir = stage
+            .join("share/icons/hicolor")
+            .join(format!("{size}x{size}"))
+            .join("apps");
+        if std::fs::create_dir_all(&dest_dir).is_ok() {
+            let _ = std::fs::write(
+                dest_dir.join(format!("{id}.png")),
+                crate::template::default_icon_png(),
+            );
+        }
+    }
+}
+
+/// Stage the project's own hicolor icons (app-id-named, from icons/linux/*-<N>.png, falling back
+/// to any png). Returns how many were staged.
+fn stage_project_icons(project: &Project, stage: &Path, id: &str) -> usize {
     let icons_dir = project.root.join("resource/icons/linux");
     let entries = std::fs::read_dir(&icons_dir)
         .or_else(|_| std::fs::read_dir(project.root.join("resource/icons/png")))
         .or_else(|_| std::fs::read_dir(project.root.join("resource/icons")));
-    let Ok(entries) = entries else { return };
+    let Ok(entries) = entries else { return 0 };
+    let mut staged = 0;
     for e in entries.flatten() {
         let p = e.path();
         if p.extension().and_then(|x| x.to_str()) != Some("png") {
@@ -266,10 +292,13 @@ fn stage_icons(project: &Project, stage: &Path, id: &str) {
             .join("share/icons/hicolor")
             .join(format!("{size}x{size}"))
             .join("apps");
-        if std::fs::create_dir_all(&dest_dir).is_ok() {
-            let _ = std::fs::copy(&p, dest_dir.join(format!("{id}.png")));
+        if std::fs::create_dir_all(&dest_dir).is_ok()
+            && std::fs::copy(&p, dest_dir.join(format!("{id}.png"))).is_ok()
+        {
+            staged += 1;
         }
     }
+    staged
 }
 
 fn on_path(tool: &str) -> bool {

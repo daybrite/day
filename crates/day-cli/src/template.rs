@@ -38,6 +38,20 @@ pub fn builtin_app() -> Vec<TemplateFile> {
     out
 }
 
+/// The default app icon (the template's 192×192 Android launcher PNG), for packagers whose
+/// format requires an icon when the project ships none (flatpak's appstream catalog, the MSIX
+/// logo slots). The lookup is an invariant of the embedded template — the file ships inside
+/// this binary — so a miss is a build defect, not a runtime condition.
+pub fn default_icon_png() -> &'static [u8] {
+    APP_TEMPLATE
+        .get_file("platform/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png")
+        .expect("embedded app template ships ic_launcher.png")
+        .contents()
+}
+
+/// The pixel size of [`default_icon_png`] (hicolor icon directories are size-named).
+pub const DEFAULT_ICON_SIZE: u32 = 192;
+
 fn collect_embedded(dir: &Dir, out: &mut Vec<TemplateFile>) {
     for f in dir.files() {
         out.push(TemplateFile {
@@ -204,9 +218,24 @@ mod tests {
         m.insert("id", "dev.example.hello_world".to_string());
         m.insert("scheme", "helloworld".to_string());
         m.insert("day_dep", "day = { version = \"0.0.0\" }".to_string());
+        m.insert(
+            "day_build_dep",
+            "day-build = { version = \"0.0.0\" }".to_string(),
+        );
         m.insert("targets_toml", "\"macos-appkit\"".to_string());
         m.insert("first_target", "macos-appkit".to_string());
         m
+    }
+
+    #[test]
+    fn default_icon_is_a_png() {
+        // Guards the embedded path: a template reorganization that moves ic_launcher.png would
+        // otherwise only surface as a panic inside `day pack`.
+        let bytes = default_icon_png();
+        assert!(
+            bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+            "default icon must be a PNG"
+        );
     }
 
     #[test]

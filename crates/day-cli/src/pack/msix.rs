@@ -76,6 +76,9 @@ pub fn pack(
     let assets_dir = stage.join("Assets");
     std::fs::create_dir_all(&assets_dir).map_err(|e| PackError::Other(e.to_string()))?;
     // MSIX logo slots, from the largest available PNG (Store lints sizes; sideload does not).
+    // The generated AppxManifest.xml references all three slots unconditionally, and makeappx
+    // fails on a manifest entry with no file — so an icon-less project gets the built-in
+    // default rather than no slots.
     let logo = project
         .root
         .join("resource/icons/windows/day-icon-256.png")
@@ -84,13 +87,27 @@ pub fn pack(
         .or_else(|| {
             crate::resources::app_icon(project, "gtk") // any png via the linux/png lookup
         });
-    if let Some(png) = logo {
-        for slot in [
-            "StoreLogo.png",
-            "Square150x150Logo.png",
-            "Square44x44Logo.png",
-        ] {
-            let _ = std::fs::copy(&png, assets_dir.join(slot));
+    const LOGO_SLOTS: [&str; 3] = [
+        "StoreLogo.png",
+        "Square150x150Logo.png",
+        "Square44x44Logo.png",
+    ];
+    match logo {
+        Some(png) => {
+            for slot in LOGO_SLOTS {
+                std::fs::copy(&png, assets_dir.join(slot))
+                    .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
+            }
+        }
+        None => {
+            status(
+                "Packing",
+                "no resource/icons/*.png — using the default Day icon for the MSIX logo slots (add resource/icons/windows/day-icon-256.png to brand the app)",
+            );
+            for slot in LOGO_SLOTS {
+                std::fs::write(assets_dir.join(slot), crate::template::default_icon_png())
+                    .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
+            }
         }
     }
     std::fs::write(
