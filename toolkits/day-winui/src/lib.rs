@@ -36,9 +36,6 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
-    /// Slider f64 range, keyed by node id (event callbacks) and handle ptr (patch application).
-    static RANGES: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
-    static RANGES_BY_PTR: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
     /// Tabs host ptr → (Pivot ptr, pages, initial). Pages reuse day.container.
     static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
     static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
@@ -314,17 +311,9 @@ extern "C" fn on_text(id: u64, s: *const c_char) {
     let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
     emit(NodeId(id), Event::TextChanged(text));
 }
-extern "C" fn on_slider(id: u64, v: c_int) {
-    let (min, max) = RANGES.with(|r| r.borrow().get(&id).copied().unwrap_or((0.0, 1.0)));
-    let value = min + (v as f64 / 1000.0) * (max - min);
-    emit(NodeId(id), Event::ValueChanged(value));
-}
-
-fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
-    if max <= min {
-        return 0;
-    }
-    (((value - min) / (max - min)) * 1000.0).round() as c_int
+extern "C" fn on_slider(id: u64, v: f64) {
+    // WinUI's Slider is driven in the app's real f64 units, so its Value is the event value as-is.
+    emit(NodeId(id), Event::ValueChanged(v));
 }
 
 /// A `0.0..=1.0` fraction as ProgressBar ticks (0..1000), clamped.
@@ -873,13 +862,11 @@ impl Toolkit for WinUi {
                 }
                 kinds::SLIDER => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
-                    RANGES.with(|r| r.borrow_mut().insert(id.0, (p.min, p.max)));
-                    let h = ffi::day_winui_slider_new(
-                        slider_ticks(p.value, p.min, p.max),
-                        id.0,
-                        on_slider,
-                    );
-                    RANGES_BY_PTR.with(|r| r.borrow_mut().insert(h as usize, (p.min, p.max)));
+                    // Default to a fine 1/1000-of-range step (matching the GTK backend) when the app
+                    // leaves it unset, so the slider stays effectively continuous.
+                    let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
+                    let h =
+                        ffi::day_winui_slider_new(p.value, p.min, p.max, step, id.0, on_slider);
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
@@ -1033,12 +1020,7 @@ impl Toolkit for WinUi {
                 kinds::SLIDER => {
                     if let Some(p) = patch.downcast_ref::<SliderPatch>() {
                         match p {
-                            SliderPatch::Value(v) => {
-                                let (min, max) = RANGES_BY_PTR
-                                    .with(|r| r.borrow().get(&(h.0 as usize)).copied())
-                                    .unwrap_or((0.0, 1.0));
-                                ffi::day_winui_slider_set(h.0, slider_ticks(*v, min, max));
-                            }
+                            SliderPatch::Value(v) => ffi::day_winui_slider_set(h.0, *v),
                             SliderPatch::Enabled(e) => ffi::day_winui_set_enabled(h.0, *e as c_int),
                         }
                     }
@@ -1124,7 +1106,6 @@ impl Toolkit for WinUi {
 
     fn release(&mut self, h: WinHandle) {
         let key = h.0 as usize;
-        RANGES_BY_PTR.with(|r| r.borrow_mut().remove(&key));
         TABS_STATE.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_TITLES.with(|m| m.borrow_mut().remove(&key));

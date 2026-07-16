@@ -99,11 +99,14 @@ unsafe extern "C" {
     pub fn day_winui_toggle_set(w: *mut c_void, on: c_int);
 
     pub fn day_winui_slider_new(
-        value: c_int,
+        value: f64,
+        min: f64,
+        max: f64,
+        step: f64,
         id: u64,
-        cb: extern "C" fn(u64, c_int),
+        cb: extern "C" fn(u64, f64),
     ) -> *mut c_void;
-    pub fn day_winui_slider_set(w: *mut c_void, value: c_int);
+    pub fn day_winui_slider_set(w: *mut c_void, value: f64);
 
     pub fn day_winui_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
     pub fn day_winui_progress_set(w: *mut c_void, value: c_int);

@@ -1249,29 +1249,33 @@ void day_winui_toggle_set(void* h, int on) {
         if (t.IsOn() != (on != 0)) t.IsOn(on != 0);
 }
 
-// ---- slider (integer positions 0..1000; Rust maps the f64 range) ----
+// ---- slider (native double range: day passes the app's f64 min/max/step/value straight through) ----
 
-void* day_winui_slider_new(int value, unsigned long long id, void (*cb)(unsigned long long, int)) {
+void* day_winui_slider_new(double value, double min, double max, double step, unsigned long long id,
+                           void (*cb)(unsigned long long, double)) {
     WUXC::Slider s;
-    s.Minimum(0);
-    s.Maximum(1000);
-    s.StepFrequency(1);
-    // The Rust side maps the app's f64 range onto these 0..1000 ticks (like the Qt backend, whose
-    // QSlider is integer-only). WinUI's Slider — unlike QSlider — shows a thumb tooltip by default,
-    // which would surface the raw tick (e.g. 400 for a 0..100 slider at 40). Day's design has the
-    // app render the value itself (the GTK backend likewise hides its native readout via
-    // set_draw_value(false)), so suppress the native tooltip rather than show a misleading number.
+    // WinUI's Slider.Value/Minimum/Maximum/StepFrequency are all `double`, so day drives it in the
+    // app's real units directly (like the GTK backend's Scale) — no 0..1000 integer-tick mapping.
+    // That indirection only exists in the Qt backend because its QSlider is integer-only. Set the
+    // bounds before the value so WinUI doesn't clamp the value against the default 0..100 range.
+    s.Minimum(min);
+    s.Maximum(max);
+    // StepFrequency governs keyboard/drag snapping; day passes the app's step (or a fine
+    // 1/1000-of-range default, matching GTK) so the slider stays effectively continuous.
+    if (step > 0.0) s.StepFrequency(step);
+    // Day has the app render the value itself (the GTK backend likewise hides its native readout via
+    // set_draw_value(false)), so suppress WinUI's thumb tooltip rather than duplicate it.
     s.IsThumbToolTipEnabled(false);
     s.Value(value);
     s.ValueChanged([id, cb](WF::IInspectable const& sender,
                             WUXCP::RangeBaseValueChangedEventArgs const&) {
-        cb(id, static_cast<int>(sender.as<WUXC::Slider>().Value()));
+        cb(id, sender.as<WUXC::Slider>().Value());
     });
     return boxh(s);
 }
-void day_winui_slider_set(void* h, int value) {
+void day_winui_slider_set(void* h, double value) {
     if (auto s = elem(h).try_as<WUXC::Slider>())
-        if (static_cast<int>(s.Value()) != value) s.Value(value);
+        if (s.Value() != value) s.Value(value);
 }
 
 // ---- progress (determinate ProgressBar 0..1000, or indeterminate ProgressRing) ----
