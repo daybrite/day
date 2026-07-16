@@ -1256,6 +1256,12 @@ void* day_winui_slider_new(int value, unsigned long long id, void (*cb)(unsigned
     s.Minimum(0);
     s.Maximum(1000);
     s.StepFrequency(1);
+    // The Rust side maps the app's f64 range onto these 0..1000 ticks (like the Qt backend, whose
+    // QSlider is integer-only). WinUI's Slider — unlike QSlider — shows a thumb tooltip by default,
+    // which would surface the raw tick (e.g. 400 for a 0..100 slider at 40). Day's design has the
+    // app render the value itself (the GTK backend likewise hides its native readout via
+    // set_draw_value(false)), so suppress the native tooltip rather than show a misleading number.
+    s.IsThumbToolTipEnabled(false);
     s.Value(value);
     s.ValueChanged([id, cb](WF::IInspectable const& sender,
                             WUXCP::RangeBaseValueChangedEventArgs const&) {
