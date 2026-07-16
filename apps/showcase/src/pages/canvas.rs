@@ -23,28 +23,53 @@ pub(crate) fn canvas_page() -> AnyPiece {
     )
 }
 
-/// Linear gradients (docs/shapes.md §7): `.fill_linear` on shape pieces — static, multi-stop,
-/// and one whose geometry is driven live by the angle slider.
+/// Rotate a gradient unit point about the box centre (0.5, 0.5) — the shared angle applied to
+/// every swatch's base geometry.
+fn spin(p: UnitPoint, deg: f64) -> UnitPoint {
+    let (s, c) = deg.to_radians().sin_cos();
+    let (dx, dy) = (p.x - 0.5, p.y - 0.5);
+    UnitPoint::new(0.5 + dx * c - dy * s, 0.5 + dx * s + dy * c)
+}
+
+/// Linear + radial gradients (docs/shapes.md §7): `.fill_linear`/`.fill_radial` on shape pieces.
+/// ONE angle slider drives the whole group — each swatch's closure re-records with its base
+/// geometry rotated by the shared signal (linear lines spin about the unit-box centre; radial
+/// centres orbit it, so the centred glow is — correctly — the only invariant).
 fn gradients_section() -> impl Piece {
     let angle = Signal::new(0.0f64);
+    // Base geometry + stops per swatch, spun by the shared angle at record time.
+    let linear = move |start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)>| {
+        move || {
+            LinearGradient::new(
+                spin(start, angle.get()),
+                spin(end, angle.get()),
+                stops.clone(),
+            )
+        }
+    };
+    let radial = move |center: UnitPoint, radius: f64, stops: Vec<(f64, Color)>| {
+        move || RadialGradient::new(spin(center, angle.get()), radius, stops.clone())
+    };
     section((
         row((
             rectangle()
-                .fill_linear(LinearGradient::vertical(
-                    Color::hex(0x2E6FB8),
-                    Color::hex(0x7FB2E5),
+                .fill_linear(linear(
+                    UnitPoint::TOP,
+                    UnitPoint::BOTTOM,
+                    vec![(0.0, Color::hex(0x2E6FB8)), (1.0, Color::hex(0x7FB2E5))],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-vertical"),
             rounded_rectangle(12.0)
-                .fill_linear(LinearGradient::horizontal(
-                    Color::hex(0x8E44AD),
-                    Color::hex(0xE67E22),
+                .fill_linear(linear(
+                    UnitPoint::LEADING,
+                    UnitPoint::TRAILING,
+                    vec![(0.0, Color::hex(0x8E44AD)), (1.0, Color::hex(0xE67E22))],
                 ))
                 .frame(76.0, 56.0)
                 .id("gradient-horizontal"),
             circle()
-                .fill_linear(LinearGradient::new(
+                .fill_linear(linear(
                     UnitPoint::TOP_LEADING,
                     UnitPoint::BOTTOM_TRAILING,
                     vec![
@@ -55,18 +80,12 @@ fn gradients_section() -> impl Piece {
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-stops"),
-            // The gradient line is reactive like any other shape property: the slider swings
-            // its end point around the shape's unit box.
             rounded_rectangle(12.0)
-                .fill_linear(move || {
-                    let t = angle.get().to_radians();
-                    let (dx, dy) = (t.cos() * 0.5, t.sin() * 0.5);
-                    LinearGradient::new(
-                        UnitPoint::new(0.5 - dx, 0.5 - dy),
-                        UnitPoint::new(0.5 + dx, 0.5 + dy),
-                        vec![(0.0, Color::hex(0x16A085)), (1.0, Color::hex(0x2C3E50))],
-                    )
-                })
+                .fill_linear(linear(
+                    UnitPoint::LEADING,
+                    UnitPoint::TRAILING,
+                    vec![(0.0, Color::hex(0x16A085)), (1.0, Color::hex(0x2C3E50))],
+                ))
                 .frame(76.0, 56.0)
                 .id("gradient-angle"),
         ))
@@ -75,14 +94,15 @@ fn gradients_section() -> impl Piece {
         // non-square frame (the unit-space radius stretches elliptically to the bounds).
         row((
             circle()
-                .fill_radial(RadialGradient::centered(
-                    Color::hex(0xFFF2B0),
-                    Color::hex(0xE67E22),
+                .fill_radial(radial(
+                    UnitPoint::CENTER,
+                    0.5,
+                    vec![(0.0, Color::hex(0xFFF2B0)), (1.0, Color::hex(0xE67E22))],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-radial"),
             circle()
-                .fill_radial(RadialGradient::new(
+                .fill_radial(radial(
                     UnitPoint::new(0.35, 0.35),
                     0.75,
                     vec![(0.0, Color::hex(0xBBDEFB)), (1.0, Color::hex(0x1D5FA8))],
@@ -90,7 +110,7 @@ fn gradients_section() -> impl Piece {
                 .frame(56.0, 56.0)
                 .id("gradient-radial-offset"),
             rounded_rectangle(12.0)
-                .fill_radial(RadialGradient::new(
+                .fill_radial(radial(
                     UnitPoint::BOTTOM,
                     1.0,
                     vec![

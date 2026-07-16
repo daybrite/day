@@ -1308,6 +1308,15 @@ pub trait Toolkit: Sized + 'static {
     // when it has a handler. Idempotent per (handle, kind).
     fn enable_gesture(&mut self, _h: &Self::Handle, _node: NodeId, _kind: GestureKind) {}
 
+    // focus (docs/focus.md): move native keyboard focus to (or away from) this control.
+    // `focused = true` requests focus (on mobile this also raises the soft keyboard for text
+    // inputs); `false` resigns it (dismissing the keyboard; platforms without a "focus nothing"
+    // state resign to a focusable root). Backends report the RESULTING state — user- or
+    // programmatic — with `Event::FocusChanged(bool)` through the sink; a request that cannot
+    // be honored (unfocusable, unmounted) simply produces no event. The default no-op means a
+    // backend without focus support neither moves nor reports focus.
+    fn focus(&mut self, _h: &Self::Handle, _node: NodeId, _focused: bool) {}
+
     // recycling list (docs/list.md, §10): day-core hands the `LIST` host its row-pull `source`
     // once, right after realize. A recycling backend stores it and calls it from its native
     // data-source; the default no-op means a backend without list support simply renders nothing.
