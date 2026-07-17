@@ -65,6 +65,18 @@ fn build_winui() {
          (Visual Studio 'Desktop development with C++'), or point DAY_CPPWINRT / \
          DAY_WINDOWS_KITS_ROOT at a relocated install (docs/environment.md).",
     );
+    // The system-XAML WebView (EdgeHTML) is unsupported in Day's Win32 XAML-Islands host — it renders
+    // blank and crashes on navigation. The supported engine is WebView2, hosted as a child window over
+    // the XAML content. WebView2.h + the loader ship in the Microsoft.Web.WebView2 NuGet package (NOT
+    // the base SDK); we statically link WebView2LoaderStatic.lib so there is no DLL to bundle (the
+    // WebView2 Runtime itself is a system-wide install, present on Win11 and the CI runners).
+    let webview2 = webview2_sdk_root();
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("x86_64") => "x64",
+        Ok("aarch64") => "arm64",
+        Ok("x86") => "x86",
+        other => panic!("day-piece-webview: unsupported WebView2 target arch {other:?}"),
+    };
     let mut build = cc::Build::new();
     build
         .cpp(true)
@@ -72,12 +84,80 @@ fn build_winui() {
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
         .file("src/lib-winui-shim.cpp")
         .include(&cppwinrt)
+        .include(webview2.join("build/native/include"))
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("daywebviewwinuishim");
     // WindowsApp.lib (WinRT umbrella) + the day_winui_box/unbox seam are already linked by
-    // day-winui-sys; nothing extra to link here.
+    // day-winui-sys. Add the statically-linked WebView2 loader (pulls in the runtime at first use).
+    println!(
+        "cargo:rustc-link-search=native={}",
+        webview2.join(format!("build/native/{arch}")).display()
+    );
+    println!("cargo:rustc-link-lib=static=WebView2LoaderStatic");
+}
+
+/// Locate the Microsoft.Web.WebView2 SDK (headers + static loader), returning its package root.
+/// Resolution order: `DAY_WEBVIEW2_SDK` override → the NuGet global cache → download+extract the
+/// pinned `.nupkg` (a zip) into `OUT_DIR`. The runner-friendly middle path avoids any network on
+/// dev machines that already have the package restored.
+fn webview2_sdk_root() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    const VERSION: &str = "1.0.3179.45";
+    let has_header = |root: &std::path::Path| root.join("build/native/include/WebView2.h").exists();
+
+    println!("cargo:rerun-if-env-changed=DAY_WEBVIEW2_SDK");
+    if let Ok(p) = std::env::var("DAY_WEBVIEW2_SDK") {
+        let root = PathBuf::from(&p);
+        assert!(
+            has_header(&root),
+            "DAY_WEBVIEW2_SDK={p} has no build/native/include/WebView2.h"
+        );
+        return root;
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        let cached = PathBuf::from(home)
+            .join(".nuget/packages/microsoft.web.webview2")
+            .join(VERSION);
+        if has_header(&cached) {
+            return cached;
+        }
+    }
+    // Last resort: fetch the pinned package. `curl`/`tar` ship in-box on Windows 10+ and the CI
+    // runners; a .nupkg is an OPC zip that bsdtar extracts. Cache the extraction in OUT_DIR.
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let sdk = out.join(format!("webview2-{VERSION}"));
+    if has_header(&sdk) {
+        return sdk;
+    }
+    std::fs::create_dir_all(&sdk).expect("create webview2 sdk dir");
+    let nupkg = out.join(format!("webview2-{VERSION}.nupkg"));
+    let url = format!("https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{VERSION}");
+    run("curl", &["-sSL", "-o", nupkg.to_str().unwrap(), &url]);
+    run(
+        "tar",
+        &["-xf", nupkg.to_str().unwrap(), "-C", sdk.to_str().unwrap()],
+    );
+    assert!(
+        has_header(&sdk),
+        "failed to obtain WebView2 SDK {VERSION} (set DAY_WEBVIEW2_SDK to a restored package root)"
+    );
+    sdk
+}
+
+/// Run a build helper command, panicking with its output on failure.
+fn run(cmd: &str, args: &[&str]) {
+    let out = std::process::Command::new(cmd)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("day-piece-webview: spawning `{cmd}`: {e}"));
+    assert!(
+        out.status.success(),
+        "day-piece-webview: `{cmd} {}` failed:\n{}",
+        args.join(" "),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 /// True if pkg-config knows the module (used to pick the real QWebEngineView shim vs. the label
 /// fallback). `--exists` is the standard availability probe; a missing pkg-config counts as absent.

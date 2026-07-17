@@ -613,6 +613,12 @@ void day_winui_set_app_icon(void* win, const char* ico_path) {
     if (small_) SendMessageW(app->host, WM_SETICON, ICON_SMALL, (LPARAM)small_);
 }
 
+// Top-level host HWND, for a piece that needs the window handle behind the XAML island — the WebView2
+// web view passes it as the composition controller's parentWindow (DPI / IME / input association),
+// while the page renders windowless into a composition visual spliced into the XAML tree. Single
+// window (v1), via g_app.
+void* day_winui_host_hwnd() { return g_app ? reinterpret_cast<void*>(g_app->host) : nullptr; }
+
 void day_winui_run(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
     auto interop2 = app->source.as<::IDesktopWindowXamlSourceNative2>();

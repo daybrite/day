@@ -17,6 +17,10 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_winui_window_root(win: *mut c_void) -> *mut c_void;
     pub fn day_winui_window_show(win: *mut c_void);
+    /// Top-level host HWND of the (single, v1) app window — for a piece that needs the window handle
+    /// behind the XAML island. The WebView2 web view passes it as the composition controller's
+    /// parentWindow (DPI / IME / input association) while rendering windowless into the XAML tree.
+    pub fn day_winui_host_hwnd() -> *mut c_void;
     /// Title-bar + taskbar icon from a multi-size `.ico` (§18.2).
     pub fn day_winui_set_app_icon(win: *mut c_void, ico_path: *const c_char);
     pub fn day_winui_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
