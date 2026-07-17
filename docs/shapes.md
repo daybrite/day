@@ -224,7 +224,7 @@ That is the entire v1 renderer. No `day-spec`, `day-core`, or backend changes fo
 built-in kinds with solid fill/stroke. `.id`, `.a11y`, `.frame`, `.padding` come from `Decorate`
 unchanged. Reactivity, diffing, and native replay come from the canvas machinery unchanged.
 
-### 3.5 Worked example: re-express the gauge
+### 3.5 Reference example: re-express the gauge
 
 ```rust
 // Today (raw canvas):

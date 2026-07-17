@@ -2,6 +2,7 @@
 
 **An industry-strength Rust framework for cross-platform application development with native toolkits.**
 
+> [!IMPORTANT]
 > Status: **implemented and shipping.** This document began as the pre-implementation design
 > (adversarially reviewed 2026-07-01); the framework has since been built. Seven native targets
 > plus the headless mock toolkit run today; the showcase app passes its 200+-step scripted
@@ -9,9 +10,9 @@
 > scripts, and packs for every target; CI exercises all of it. The document is now the
 > **architecture overview and rationale**:
 >
-> - **Part I (§0–§20)** describes the system as built. Where the shipped design differs from
->   the original text, a `> **Status:**` note at the top of the section says exactly how.
-> - **Part II (§21–§24)** is the preserved historical record — the milestone plan, decision
+> - **Part I ([§0](#0-vision-lineage-and-non-goals)–[§20](#20-continuous-integration))** describes the system as built. Where the shipped design differs from
+>   the original text, a status alert at the top of the section says exactly how.
+> - **[Part II](#part-ii--historical-record) ([§21](#21-mvp-definition-and-milestone-plan)–[§24](#24-adversarial-review-findings-and-resolutions))** is the preserved historical record — the milestone plan, decision
 >   points, and adversarial-review findings. It is complete; nothing in it is open. It stays
 >   because it documents *why* the architecture is shaped this way.
 >
@@ -21,15 +22,18 @@
 
 ## Reading this document
 
-Each Part I section is annotated with one of:
+Sections carry a status alert whose type says how far to trust the text below it:
 
-- **Shipped as written** — the code matches this text.
-- **Shipped differently** — the goal survived, the mechanism changed; the note says how and
-  where the real design is documented.
-- **Not implemented** — specified here but never built (kept as a recorded design).
-- *(unannotated sections describe concepts and rationale that are accurate as written)*
+- A **Note** alert — the section matches the code (or is an outcome/context note). This
+  includes "shipped as written" stamps and sections whose body was rewritten to the current
+  design.
+- An **Important** alert — the goal survived but the mechanism changed, or only part shipped;
+  the alert says exactly how, and where the real design is documented.
+- A **Warning** alert — the design below was never built or was superseded. It is kept as a
+  recorded design; don't build against it.
+- Unannotated sections describe concepts and rationale that are accurate as written.
 
-Part I still names milestones (M0–M9) in places; those refer to §21.2's historical plan — all
+Part I still names milestones (M0–M9) in places; those refer to [§21.2](#212-milestones-each-lands-green-ci--tests-forward-dependencies-eliminated)'s historical plan — all
 of it is complete. Read "an M5 acceptance item" as "verified when that milestone landed".
 
 ### Subsystem index
@@ -39,27 +43,27 @@ the architecture-level view and the rationale.
 
 | subsystem | normative doc | overview here |
 |---|---|---|
-| navigation — `routes!`, `selector`, `stack`, deep links, predictive back | docs/navigation.md | §10.5 |
-| native recycling lists | docs/list.md | §10 |
-| tabs | docs/tabs.md | §10.5 |
-| menus — app menu, context menus, roles, shortcuts | docs/menus.md | §8.1 |
-| dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | §8.1 |
-| forms — `form`/`section`/`labeled` | docs/forms.md | §5.3 |
-| keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | docs/focus.md | §4.4, §8.3 |
-| canvas, shapes, gradients, gestures | docs/shapes.md | §11 |
-| text & typography | docs/text.md | §6.4 |
-| localization — Fluent, `res::str` typed keys, locales | docs/localization.md | §12, §18.5 |
-| resources — images, data assets, custom fonts, typed constants | docs/resources.md | §18 |
-| accessibility & the a11y audit | docs/accessibility.md | §13 |
-| app lifecycle | docs/lifecycle.md | §8.1, §9 |
-| tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | Addendum |
-| extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | §15 |
-| scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | §14 |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md | §15 |
-| bundled pieces (webview, media, map, lottie, picker, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/picker.md, docs/searchfield.md | §15 |
-| HarmonyOS / OpenHarmony | docs/harmonyos.md | §9 |
-| toolchain & environment discovery | docs/environment.md | §16 |
-| API design conventions | docs/api-style.md | §5.1 |
+| navigation — `routes!`, `selector`, `stack`, deep links, predictive back | docs/navigation.md | [§10.5](#105-navigation-and-presentation) |
+| native recycling lists | docs/list.md | [§10](#10-native-list-integration) |
+| tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
+| menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
+| dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
+| forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
+| keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | docs/focus.md | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
+| canvas, shapes, gradients, gestures | docs/shapes.md | [§11](#11-canvas) |
+| text & typography | docs/text.md | [§6.4](#64-typography) |
+| localization — Fluent, `res::str` typed keys, locales | docs/localization.md | [§12](#12-localization-fluent), [§18.5](#185-typed-resource-constants-docsresourcesmd) |
+| resources — images, data assets, custom fonts, typed constants | docs/resources.md | [§18](#18-resources-icons-and-theming) |
+| accessibility & the a11y audit | docs/accessibility.md | [§13](#13-accessibility) |
+| app lifecycle | docs/lifecycle.md | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
+| tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
+| extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (webview, media, map, lottie, picker, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/picker.md, docs/searchfield.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
+| toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
+| API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
 **Maintenance rule (binding):** any change that alters what this document describes — day-spec
 duties or events, the built-in piece vocabulary, CLI commands, dayscript steps, the extension
@@ -73,43 +77,43 @@ section would restate something a `docs/*.md` file owns, point to it instead of 
 
 **Part I — the architecture as built**
 
-- §0 Vision, lineage, and non-goals
-- §1 Glossary and naming
-- §2 The four pillars
-- §3 Architecture overview and crate graph
-- §4 Reactive core (`day-reactive`)
-- §5 The Piece model (`day-core`)
-- §6 Styling and per-target variation
-- §7 Layout
-- §8 The Toolkit specification (`day-spec`)
-- §9 The eight toolkits (and the extra combinations)
-- §10 Native list integration
-- §11 Canvas
-- §12 Localization (Fluent)
-- §13 Accessibility
-- §14 Scripting (dayscript)
-- §15 Extensibility: pieces, parts, and tweaks
-- §16 The `day` CLI
-- §17 The Conventional Day Project and `Day.toml`
-- §18 Resources, icons, and theming
-- §19 Repository layout, examples, and docs site
-- §20 Continuous integration
+- [§0 Vision, lineage, and non-goals](#0-vision-lineage-and-non-goals)
+- [§1 Glossary and naming](#1-glossary-and-naming)
+- [§2 The four pillars](#2-the-four-pillars)
+- [§3 Architecture overview and crate graph](#3-architecture-overview-and-crate-graph)
+- [§4 Reactive core (`day-reactive`)](#4-reactive-core-day-reactive)
+- [§5 The Piece model (`day-core`)](#5-the-piece-model-day-core)
+- [§6 Styling and per-target variation](#6-styling-and-per-target-variation)
+- [§7 Layout](#7-layout)
+- [§8 The Toolkit specification (`day-spec`)](#8-the-toolkit-specification-day-spec)
+- [§9 The eight toolkits (and the extra combinations)](#9-the-eight-toolkits-and-the-extra-combinations)
+- [§10 Native list integration](#10-native-list-integration)
+- [§11 Canvas](#11-canvas)
+- [§12 Localization (Fluent)](#12-localization-fluent)
+- [§13 Accessibility](#13-accessibility)
+- [§14 Scripting (dayscript)](#14-scripting-dayscript)
+- [§15 Extensibility: pieces, parts, and tweaks](#15-extensibility-pieces-parts-and-tweaks)
+- [§16 The `day` CLI](#16-the-day-cli)
+- [§17 The Conventional Day Project and `Day.toml`](#17-the-conventional-day-project-and-daytoml)
+- [§18 Resources, icons, and theming](#18-resources-icons-and-theming)
+- [§19 Repository layout, examples, and docs site](#19-repository-layout-examples-and-docs-site)
+- [§20 Continuous integration](#20-continuous-integration)
 
-**Part II — historical record (complete; kept for rationale)**
+**[Part II — historical record (complete; kept for rationale)](#part-ii--historical-record)**
 
-- §21 MVP definition and milestone plan
-- §22 Decision points for review
-- §23 Risks
-- §24 Adversarial review findings and resolutions
-- Addendum (2026-07-09): Tweaks
+- [§21 MVP definition and milestone plan](#21-mvp-definition-and-milestone-plan)
+- [§22 Decision points for review](#22-decision-points-for-review)
+- [§23 Risks](#23-risks)
+- [§24 Adversarial review findings and resolutions](#24-adversarial-review-findings-and-resolutions)
+- [Addendum (2026-07-09): Tweaks](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces)
 
 **Appendices**
 
-- Appendix A: The showcase app (pointer to the live app)
-- Appendix B: Worked extension examples — design-era sketches with shipped outcomes
-- Appendix C: dayscript reference (v1)
-- Appendix D: `day` CLI transcripts (illustrative)
-- Appendix E: Implementation notes for the builder (historical)
+- [Appendix A: The showcase app (pointer to the live app)](#appendix-a--the-showcase-app-end-to-end)
+- [Appendix B: Extension examples — design-era sketches with shipped outcomes](#appendix-b--extension-examples)
+- [Appendix C: dayscript reference (v1)](#appendix-c--dayscript-reference-v1)
+- [Appendix D: `day` CLI transcripts (illustrative)](#appendix-d--day-cli-transcripts)
+- [Appendix E: Implementation notes for the builder (historical)](#appendix-e--implementation-notes-for-the-builder-historical)
 
 ---
 
@@ -138,9 +142,9 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `ohos-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers (docs/harmonyos.md) |
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
-measurements, so the whole pipeline is unit-testable without a display (§3.2). A `web-html`
+measurements, so the whole pipeline is unit-testable without a display ([§3.2](#32-crates)). A `web-html`
 (wasm32 + DOM) backend was sketched in the original design and **was never built**; no `day-web`
-crate exists. The sketch is preserved in §9 as a recorded design.
+crate exists. The sketch is preserved in [§9](#9-the-eight-toolkits-and-the-extra-combinations) as a recorded design.
 
 Because GTK and Qt are themselves portable, the **non-default combinations** `macos-gtk`,
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
@@ -151,7 +155,7 @@ on a single macOS host: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Si
 A `day` command-line tool — deliberately modeled on the architecture of `flutter_tools`
 (`flutter/packages/flutter_tools`) — creates, builds, signs, launches, packs, lints, scripts,
 and drives Day projects, and is designed for use by humans, CI, IDEs, and AI agents alike
-(`day drive` and `day mcp-server` are the agent surface — docs/agent.md, §16).
+(`day drive` and `day mcp-server` are the agent surface — docs/agent.md, [§16](#16-the-day-cli)).
 
 ### §0.2 Lineage — what each ancestor contributes
 
@@ -159,11 +163,11 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 
 | ancestor | what Day inherits | what Day changes |
 |---|---|---|
-| **pane/** (Rust, 6 native backends running) | The `Backend`-trait shape with an associated `Handle`; one-toolkit-per-binary monomorphization; the open, link-time component registry (`linkme`); descriptor-carried value bindings (signal + `on_change` closure, per-widget callback tables keyed by id); the C++ shim pattern for Qt and WinUI; the JNI + Java-shim pattern for Android; the objc2 patterns for AppKit/UIKit; the headless mock toolkit for unit testing the whole pipeline | pane re-renders observing views and reconciles; Day builds the tree **once** and binds attributes reactively (§4) — no tree diffing on state change |
+| **pane/** (Rust, 6 native backends running) | The `Backend`-trait shape with an associated `Handle`; one-toolkit-per-binary monomorphization; the open, link-time component registry (`linkme`); descriptor-carried value bindings (signal + `on_change` closure, per-widget callback tables keyed by id); the C++ shim pattern for Qt and WinUI; the JNI + Java-shim pattern for Android; the objc2 patterns for AppKit/UIKit; the headless mock toolkit for unit testing the whole pipeline | pane re-renders observing views and reconciles; Day builds the tree **once** and binds attributes reactively ([§4](#4-reactive-core-day-reactive)) — no tree diffing on state change |
 | **hop/** (Swift, 4 desktop toolkits) | The parent-proposes/child-chooses layout engine and the lessons it banked (text height-for-width measurement, GTK window shrink, scroll/split interactions); AX-tree diff validation; the CI screenshot pipeline (content-validated captures, `GITHUB_STEP_SUMMARY` galleries); `hoppack`'s per-OS packaging Stage pipeline | Day's layout engine is a from-scratch Rust design informed by hop's, with an open `Layout` trait |
-| **skip/ + skipstone/** (Swift↔Kotlin app tooling) | The Conventional Project shape (a normal language-native project plus per-platform scaffolds); metadata conveyance via generated files (`Skip.env` → xcconfig); the discipline of gradle/xcodebuild orchestration; emulator/simulator management; polyglot bridging scar tissue (skip-bridge) | Day's polyglot boundary is a small stable C ABI (§15), not transpilation or generated JNI bridging |
+| **skip/ + skipstone/** (Swift↔Kotlin app tooling) | The Conventional Project shape (a normal language-native project plus per-platform scaffolds); metadata conveyance via generated files (`Skip.env` → xcconfig); the discipline of gradle/xcodebuild orchestration; emulator/simulator management; polyglot bridging scar tissue (skip-bridge) | Day's polyglot boundary is a small stable C ABI ([§15](#15-extensibility-pieces-parts-and-tweaks)), not transpilation or generated JNI bridging |
 | **floem/** (Rust, GPU-rendered) | The authoring surface: plain functions and builder methods, **no required macros**; `Copy` signals in a scope-owned arena; `create_updater`-style bind-to-setter effects; keyed `dyn_stack` and virtualized `virtual_stack` decomposition; `canvas(|cx, size| …)`; Fluent-based localization proven in this exact API style | floem renders its own pixels (vello/vger + taffy); Day drives native widgets and owns a native-measurement-aware layout engine |
-| **flutter/** (Dart; tool studied at `flutter/packages/flutter_tools`) | CLI architecture: DI'd services behind a context for testability; the `Command` envelope (`validate → run`); `doctor` + per-platform workflows; templates for `create`; **the platform-shell callback build pattern** (the Xcode/Gradle project calls back into the tool for the framework part, so native IDE builds are never stale); `gradle_errors`-style failure translation; the machine/daemon protocol for IDEs | Day has no VM: no hot reload in v1 (fast recompile + relaunch + dayscript replay instead, §16.9); Day's platform shells host native widgets, not a rendering engine |
+| **flutter/** (Dart; tool studied at `flutter/packages/flutter_tools`) | CLI architecture: DI'd services behind a context for testability; the `Command` envelope (`validate → run`); `doctor` + per-platform workflows; templates for `create`; **the platform-shell callback build pattern** (the Xcode/Gradle project calls back into the tool for the framework part, so native IDE builds are never stale); `gradle_errors`-style failure translation; the machine/daemon protocol for IDEs | Day has no VM: no hot reload in v1 (fast recompile + relaunch + dayscript replay instead, [§16.9](#169-the-inner-loop-no-hot-reload--the-honest-story)); Day's platform shells host native widgets, not a rendering engine |
 
 ### §0.3 Non-goals
 
@@ -172,7 +176,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 - **Not pixel-identical across platforms.** A Day app looks like a Mac app on macOS and a Material
   app on Android. Cross-platform *consistency of behavior and information architecture*, native
   *look and feel*.
-- **Not a Dart/JS-style VM platform.** Rust compiles ahead of time. No hot reload in v1 (§16.9
+- **Not a Dart/JS-style VM platform.** Rust compiles ahead of time. No hot reload in v1 ([§16.9](#169-the-inner-loop-no-hot-reload--the-honest-story)
   explains the mitigation and the roadmap position).
 - **Not a widget-toolkit abstraction of lowest common denominator.** Where platforms diverge, the
   Piece API exposes capability flags and per-target styling rather than pretending divergence away;
@@ -186,24 +190,24 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info — exposing signals/functions with per-OS native halves (`parts/day-part-*`, §15). |
-| **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; Addendum, docs/tweaks.md). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
 | **Toolkit** | A native widget system: UIKit, android.widget, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`toolkits/day-appkit`, `toolkits/day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
-| **Signal / Memo / Effect / Scope** | The reactive primitives (§4). |
+| **Signal / Memo / Effect / Scope** | The reactive primitives ([§4](#4-reactive-core-day-reactive)). |
 | **Route** | A typed navigation destination declared with the `routes!` macro; what `selector`/`stack`, deep links, and dayscript `navigate` speak (docs/navigation.md). |
-| **dayffi** | *(superseded)* The C ABI designed for polyglot extensions; never shipped. The shipped mechanism is `[package.metadata.day.<platform>]` (§15). |
-| **dayscript** | The Maestro-inspired YAML UI-scripting language and its embedded engine (§14); a project's scripts live in `dayscript/` and the showcase's main script is "the walkthrough". |
-| **Day.toml** | The project manifest (§17.3). |
-| **Porcelain / plumbing** | User-facing CLI commands vs. stable hidden commands invoked by build systems (`day xcode-backend build`, `day gradle-backend build`) (§16, §17.4). |
+| **dayffi** | *(superseded)* The C ABI designed for polyglot extensions; never shipped. The shipped mechanism is `[package.metadata.day.<platform>]` ([§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **dayscript** | The Maestro-inspired YAML UI-scripting language and its embedded engine ([§14](#14-scripting-dayscript)); a project's scripts live in `dayscript/` and the showcase's main script is "the walkthrough". |
+| **Day.toml** | The project manifest ([§17.3](#173-daytoml)). |
+| **Porcelain / plumbing** | User-facing CLI commands vs. stable hidden commands invoked by build systems (`day xcode-backend build`, `day gradle-backend build`) ([§16](#16-the-day-cli), [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)). |
 
 **Crate naming.** All crates are prefixed `day-` (`day-core`, `day-reactive`, `day-appkit`, …); the
 umbrella facade crate that apps depend on is `day` with the binary tool in `day-cli` producing a
-binary named `day`. DP-24 (§22) deferred crates.io reservation during the design phase; the
+binary named `day`. DP-24 ([§22](#22-decision-points-for-review)) deferred crates.io reservation during the design phase; the
 release lane is since **wired for crates.io** (publishability verified per PR; Trusted
-Publishing on semver tags, §20) but the crates are **not yet published** — scaffolds default to
+Publishing on semver tags, [§20](#20-continuous-integration)) but the crates are **not yet published** — scaffolds default to
 git dependencies (`day new --git`), with `--registry` ready for the day they are.
 
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
@@ -218,18 +222,18 @@ where OS doesn't matter (styling varies by toolkit far more often than by OS).
 Every Day app must be **1. localizable, 2. accessible, 3. scriptable, and 4. extensible** — and the
 pillars deliberately build on each other:
 
-1. **Localizable (§12).** Mozilla Fluent throughout. Every user-facing string in a Piece is a
-   Fluent key by convention — enforced in practice by the `res::str` typed keys (§18.5), which
+1. **Localizable ([§12](#12-localization-fluent)).** Mozilla Fluent throughout. Every user-facing string in a Piece is a
+   Fluent key by convention — enforced in practice by the `res::str` typed keys ([§18.5](#185-typed-resource-constants-docsresourcesmd)), which
    make a missing key a compile error, with `day lint` covering cross-locale coverage. The
    current locale is a *signal*, so locale switches are just another fine-grained update.
-2. **Accessible (§13).** Accessibility rides the platform's native accessibility tree — Day uses
+2. **Accessible ([§13](#13-accessibility)).** Accessibility rides the platform's native accessibility tree — Day uses
    native widgets, so baseline accessibility is inherited rather than reimplemented. Day adds a
    uniform annotation API and, critically, **stable identifiers**.
-3. **Scriptable (§14).** dayscript targets elements by those same accessibility identifiers — the
+3. **Scriptable ([§14](#14-scripting-dayscript)).** dayscript targets elements by those same accessibility identifiers — the
    accessibility pillar is the scripting pillar's addressing scheme. Scripts run against localized
    builds (`day launch --locale fr-FR --script …`), so pillar 1 × pillar 3 = automated per-locale
    screenshots and e2e tests in CI.
-4. **Extensible (§15).** Pieces, parts, and toolkit renderers are registered through open
+4. **Extensible ([§15](#15-extensibility-pieces-parts-and-tweaks)).** Pieces, parts, and toolkit renderers are registered through open
    registries, so external crates (with native halves where needed) participate as equals of
    the built-ins — including in accessibility (they annotate through the same API) and
    scripting (their elements are addressable like any other). Lint rules and dayscript steps
@@ -264,12 +268,13 @@ pillars deliberately build on each other:
 ```
 
 Beside the runtime graph sit the build-time crates: `day-build` (an app's `build.rs` dependency —
-typed resource constants, §18.5), `day-fonts` (font name-table parsing shared by the CLI and the
+typed resource constants, [§18.5](#185-typed-resource-constants-docsresourcesmd)), `day-fonts` (font name-table parsing shared by the CLI and the
 runtimes), `day-toolchain` (host SDK/toolchain discovery shared by the CLI and the `-sys` build
 scripts), and `day-cli` (the `day` binary).
 
 ### §3.2 Crates
 
+> [!IMPORTANT]
 > **Status: shipped differently.** This table reflects the crates as they exist. Relative to the
 > original design: `day-canvas` was folded into `day-pieces`/`day-spec` (the `DrawOp` types live
 > in the spec, the `canvas()`/shape pieces in day-pieces); `day-script-proto` was dropped (the
@@ -283,17 +288,17 @@ scripts), and `day-cli` (the `day` binary).
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
-| `day-pieces` | the built-in vocabulary (§5.3), the `Decorate` modifier set, `routes!`, forms, `selector`/`stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
+| `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `selector`/`stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
-| `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules (§18.5) | — |
+| `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
-| `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` (§18.5); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
-| `day-fonts` | sfnt name-table parsing (§18.4), shared by the CLI stagers and the runtimes | — |
+| `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
+| `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-arkui` (+`day-arkui-sys`) | backend crates | day-spec (NOT day-core) |
-| `day-cli` | the `day` binary (§16) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
+| `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
 
@@ -302,7 +307,7 @@ Two structural rules carried over from pane, both still enforced:
    the mock toolkit a true stand-in.
 2. **One backend per binary.** The active toolkit is selected by cargo feature at app link time
    (`day launch -p macos-gtk` builds with `--features day/gtk`). The running `ToolkitId` is a
-   process constant, which §6 exploits for zero-cost per-target styling. Cross-toolkit code paths
+   process constant, which [§6](#6-styling-and-per-target-variation) exploits for zero-cost per-target styling. Cross-toolkit code paths
    (e.g. a Day Piece with per-toolkit renderers) select at link time via the registry, not at
    runtime via dynamic dispatch across toolkits. The `day` umbrella crate emits a
    `compile_error!` when more than one backend feature is enabled, and CI enumerates backend
@@ -343,10 +348,10 @@ Two structural rules carried over from pane, both still enforced:
 
   `day_reactive::flush_sync()` runs steps 2–3 immediately — used by day-mock tests and dayscript's
   `wait_idle`; its scoped form `Scope::flush_now(scope)` serves the RowHost's sanctioned
-  `bind_row` exception (§10.2).
+  `bind_row` exception ([§10.2](#102-realization-the-rowhost-protocol)).
 - **Native events are never dispatched re-entrantly.** The backend event sink may be *invoked*
   re-entrantly (Qt/GTK/Android text setters fire change notifications synchronously) but its
-  contract is enqueue-only (§8.3); day-core drains queued events at safe points, each as a fresh
+  contract is enqueue-only ([§8.3](#83-events)); day-core drains queued events at safe points, each as a fresh
   batch.
 
 ---
@@ -355,10 +360,11 @@ Two structural rules carried over from pane, both still enforced:
 
 ### §4.1 The model: build once, bind forever
 
+> [!NOTE]
 > **Status: shipped as written**, with two deltas: the `piece_dyn` escape hatch was never
 > needed and does not exist — reactive structure is `when`/`each` (plus the navigation
 > containers); and the advisory `day lint` heuristic for signal-reads-outside-bindings was not
-> built (the shipped lint rule set is smaller, §16.5).
+> built (the shipped lint rule set is smaller, [§16.5](#165-subcommands)).
 
 This is Day's central architectural decision and its largest departure from pane.
 
@@ -389,7 +395,7 @@ Consequences worth internalizing (they answer most "but how does…" questions):
   "props changed, child re-renders" — there are only bindings.
 - There is no `@State`-by-structural-identity machinery (pane needed it because it re-rendered;
   Day does not). State is just signals created where you need them; dynamic pieces own their
-  state's `Scope`, so removal disposes it (§4.3).
+  state's `Scope`, so removal disposes it ([§4.3](#43-scopes-and-disposal)).
 - `if`/`for` in plain Rust run once at build time — correct for static structure. *Reactive*
   structure must use `when`/`each`/`piece_dyn`. Day catches the classic SolidJS footgun — a signal
   read in a component body that can never re-run — **at runtime in debug builds**: a tracked read
@@ -397,7 +403,7 @@ Consequences worth internalizing (they answer most "but how does…" questions):
   ("this read at src/lib.rs:41 will never re-run — wrap it in a binding or use `get_untracked`"),
   asserted by day-mock tests from M1. `day lint` additionally ships a lexical heuristic for the
   same pattern (direct `.get()` in `fn … -> impl Piece` bodies), explicitly labeled *advisory* — a
-  fast source-level lint cannot be sound without type information (§16.5).
+  fast source-level lint cannot be sound without type information ([§16.5](#165-subcommands)).
 
 ### §4.2 Primitives
 
@@ -431,7 +437,7 @@ bind(move || count.get().to_string(),
      move |text| node.patch(|p: &mut LabelProps| p.text = text));   // sparse typed patch → Toolkit::update
 ```
 
-- **Batching and ordering:** exactly the §3.3 turn state machine — synchronous fixpoint drain,
+- **Batching and ordering:** exactly the [§3.3](#33-threading-model-and-the-turn-state-machine) turn state machine — synchronous fixpoint drain,
   (priority, scope-depth, creation-seq) queue order, re-run cap with `#[track_caller]`
   attribution, one posted layout turn. Applies are equality-gated so no-op recomputes never touch
   the toolkit. (No `PartialEq`-"where available" specialization — that isn't stable Rust; the
@@ -466,7 +472,7 @@ collection so far.
   (generational liveness check at pop — pane's mechanism, promoted to a documented invariant); the
   (priority, scope-depth, seq) order guarantees owners run before descendants.
 - *Native release is deferred*: day-core queues all `toolkit.release` calls and drains them at the
-  turn boundary; the §8.1 contract lets backends defer further (Qt `deleteLater`) and requires
+  turn boundary; the [§8.1](#81-the-toolkit-trait) contract lets backends defer further (Qt `deleteLater`) and requires
   them to tolerate release at any main-loop-safe point.
 - *Disposed-handle access*: **writes are silent no-ops** with a once-per-callsite debug warning
   (`Setter` inherits this — async deliveries racing disposal are expected); **reads panic in debug**
@@ -482,7 +488,7 @@ semantics needed.
 
 Native events (button press, text change, slider drag) enter through the backend's **event
 trampoline** (per-widget callback table keyed by node id — pane's proven design). The sink is
-enqueue-only (§3.3, §8.3); day-core dispatches each queued event as a fresh batch.
+enqueue-only ([§3.3](#33-threading-model-and-the-turn-state-machine), [§8.3](#83-events)); day-core dispatches each queued event as a fresh batch.
 
 Two-way controls are **controlled**, with an IME-safe protocol (pane's value-equality guard is
 proven for ASCII only — it breaks CJK composition and autocorrect):
@@ -501,12 +507,13 @@ proven for ASCII only — it breaks CJK composition and autocorrect):
   no lost divergent value) lands in M0–M1.
 
 High-frequency events (slider drag) apply value writes per event; layout coalesces to the turn
-boundary (§3.3).
+boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 
 ### §4.5 Async
 
+> [!WARNING]
 > **Status: not implemented as designed.** `Resource`/`Load` never shipped. The shipped async
-> story is the smaller §3.3 surface — spawn a thread (or bring your own executor), send results
+> story is the smaller [§3.3](#33-threading-model-and-the-turn-state-machine) surface — spawn a thread (or bring your own executor), send results
 > back through a `Setter` or `day_reactive::on_main`; the network parts (docs/network.md) and
 > the real apps (Day Skies' weather fetch, the Matrix client) all use it. The design below is
 > kept as the recorded shape a future `Resource` should take.
@@ -598,6 +605,7 @@ inherent methods (good rustdoc, good autocomplete) — the common modifier set (
 
 ### §5.3 Built-in pieces (MVP set)
 
+> [!NOTE]
 > **Status: shipped and outgrown.** The design-era "MVP set" grew into the full vocabulary
 > below, which reflects the prelude as it exists in day-pieces. Deltas from the original text:
 > `stack_z` shipped as `zstack`; `piece_dyn` was never needed (structure is `when`/`each` plus
@@ -656,10 +664,10 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `picker`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
 `remote_image`, `textarea`) and headless services under `parts/` (battery, network, sensors,
-clipboard, prefs, haptics, deviceinfo) — §15 has the extension model.
+clipboard, prefs, haptics, deviceinfo) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
-complete reference, Appendix A):
+complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
 
 ```rust
 fn basics_section() -> impl Piece {
@@ -691,6 +699,7 @@ fn basics_section() -> impl Piece {
 
 ### §5.4 Keyed collections: `each`
 
+> [!IMPORTANT]
 > **Status: shipped with deltas.** The unified `ItemSlot` contract is real (`ItemSlot<T, K>`:
 > tracked `get()`/`with()`, `field()` projections, `key()`; keyed diff with per-key scopes,
 > slot writes for surviving keys, debug key-uniqueness assertion), and `each` and `list` share
@@ -698,7 +707,7 @@ fn basics_section() -> impl Piece {
 > were **not implemented** — rows that need two-way controls keep signals in app state (or in
 > the items) instead; nothing has needed the projection yet.
 
-**Resolved (DP-16: unified).** `each` and the native-recycling `list` (§10) share **one item
+**Resolved (DP-16: unified).** `each` and the native-recycling `list` ([§10](#10-native-list-integration)) share **one item
 contract**: the builder receives an **`ItemSlot<T>`**, never the item by value. The same row
 function serves both, so moving a collection from `each` to `list` is a one-word change.
 
@@ -736,14 +745,14 @@ Semantics (identical for `list`):
   (`todos.update(…)`) and every affected row updates fine-grained — the silent-staleness hole of
   a captured-by-value item cannot exist.
 - Two-way controls use `slot.rw(get, set)`: a write applies to the slot's value immediately (the
-  collection row is a controlled component, §4.4) and fires the collection's `.on_edit(key, &T)`
+  collection row is a controlled component, [§4.4](#44-events-and-controlled-inputs)) and fires the collection's `.on_edit(key, &T)`
   hook so the app writes it back to its source of truth; if the source later re-runs with a
   different value for that key, **the source wins**.
 - Debug builds **assert key uniqueness** per diff, panicking with the duplicate key and `each`'s
   creation site (floem's `dyn_stack` corrupts silently on duplicates).
 - Reactive *structure* inside a row still uses `when`/`piece_dyn` — deriving structure from
-  `slot.get()` in plain Rust freezes at first bind (the §10.1 trap; same rule here, same lint).
-- `Store<K, T>` (§4.3) remains the model-layer keyed state container; `each_store(store, build)`
+  `slot.get()` in plain Rust freezes at first bind (the [§10.1](#101-api--the-shared-itemslot-contract-unified-with-each--dp-16-resolved) trap; same rule here, same lint).
+- `Store<K, T>` ([§4.3](#43-scopes-and-disposal)) remains the model-layer keyed state container; `each_store(store, build)`
   is a thin adapter (keys from the store, slots fed from its per-key state). Items whose `T`
   carries `Signal` handles remain legal, but plain data + slots is the blessed default.
 
@@ -753,8 +762,8 @@ Every realized node has a `NodeId` (slotmap key). Separately, `.id("volume-slide
 **stable string identifier**, and `.id_keyed("todo-remove", key)` its keyed form for collection
 items (rendered as `todo-remove:<key>`; `day lint` enforces prefix uniqueness). Three consumers:
 the platform automation/accessibility identifier where one truly exists (the verified per-toolkit
-matrix is in §13 — notably Android has **no** external automation-id channel below API 33, and GTK
-has none at all today; the doc does not pretend otherwise), the dayscript element index (§14,
+matrix is in [§13](#13-accessibility) — notably Android has **no** external automation-id channel below API 33, and GTK
+has none at all today; the doc does not pretend otherwise), the dayscript element index ([§14](#14-scripting-dayscript),
 which reads day-core directly and therefore works uniformly regardless of platform id support),
 and `day lint` uniqueness checks. Ids are the contract between the app and its tests; a lint rule
 forbids leaking them into `contentDescription`/a11y labels (screen readers would speak them).
@@ -765,6 +774,7 @@ forbids leaking them into `contentDescription`/a11y labels (screen readers would
 
 ### §6.1 Style as a value, applied through a builder closure
 
+> [!IMPORTANT]
 > **Status: shipped differently.** The designed `Style` struct + `.style(|s| …)` closure never
 > shipped. Styling is **direct builder methods** on the piece and on `Decorate`, reactive like
 > every other attribute:
@@ -786,11 +796,12 @@ anything; nothing has needed it. `ButtonStyle` (`.bordered()`/`.prominent()`/cus
 Style properties remain **honest about native limits**: each documents its per-toolkit mapping
 (e.g. `corner_radius` → CALayer / GTK CSS provider / QSS / drawable), and the surface is a
 curated set every backend implements or explicitly declines — not a CSS engine. Grouped-surface
-styling (the §5.3 `form`/`section` cards) travels as a semantic `SurfaceRole`, which each backend
+styling (the [§5.3](#53-built-in-pieces-mvp-set) `form`/`section` cards) travels as a semantic `SurfaceRole`, which each backend
 resolves to its platform's own material (e.g. `quaternarySystemFill` on macOS 14+).
 
 ### §6.2 Per-target variation: `PerTarget<T>` values (no macros)
 
+> [!IMPORTANT]
 > **Status: shipped differently.** The `per_toolkit()`/`PerTarget` value combinators and
 > `style_on` never shipped. Per-target variation in practice is **plain Rust over compile-time
 > constants** — one backend per binary means `cfg` and feature flags resolve everything
@@ -805,13 +816,14 @@ let nav = nav.item_icon(Section::Map, …);
 let pad = if cfg!(feature = "qt") { 8.0 } else { 12.0 };
 ```
 
-In practice per-target styling has barely been needed: semantic fonts (§6.4), semantic surface
-roles (§6.1), and native controls absorb most platform variation by construction. The value-
-combinator design (from the `platform!{}` exploration in `pane/DESIGN.md` §4b) is kept here as
+In practice per-target styling has barely been needed: semantic fonts ([§6.4](#64-typography)), semantic surface
+roles ([§6.1](#61-style-as-a-value-applied-through-a-builder-closure)), and native controls absorb most platform variation by construction. The value-
+combinator design (from the `platform!{}` exploration in `pane/DESIGN.md` [§4](#4-reactive-core-day-reactive)b) is kept here as
 the recorded shape sugar could take if branching ever becomes common.
 
 ### §6.3 Semantic theme tokens
 
+> [!IMPORTANT]
 > **Status: shipped differently.** There is no `theme::` token module. Native fidelity comes
 > from a different split: **default appearance is native by construction** — text, controls,
 > separators, form cards, and window grounds take the platform's own dynamic colors inside each
@@ -825,6 +837,7 @@ the recorded shape sugar could take if branching ever becomes common.
 
 ### §6.4 Typography
 
+> [!NOTE]
 > **Status: shipped as written** (as an enum rather than constructor fns; no `env::font_scale`
 > signal — scaling is applied inside the backends).
 
@@ -835,7 +848,7 @@ the recorded shape sugar could take if branching ever becomes common.
 `NSFont.preferredFont`, documented ramps on gtk/qt) so **Dynamic Type / system font scaling
 works by default**. `Font::System(pt)` is the raw-size escape hatch, still scaled by the
 platform's accessibility text factor (UIFontMetrics / `sp` / GTK text-scaling-factor);
-`Font::Custom(family, pt)` selects a bundled font by family name (§18.4). `FontWeight` and
+`Font::Custom(family, pt)` selects a bundled font by family name ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)). `FontWeight` and
 italic ride the same spec (docs/text.md). A points-first API would have made Dynamic Type
 unfixable later; this one has been semantic-first from the start.
 
@@ -854,13 +867,13 @@ scale/density). Containers are dumb native panels (`NSView`/`PaneFixed`-style ab
 reporting min 0) and Qt child-clipping caveats.
 
 **Coordinate spaces, precisely:** `set_frame` rects are expressed in the **nearest realized
-*native* ancestor's** coordinate space. Layout-only wrapper nodes (§7.3 decorators, alignment
+*native* ancestor's** coordinate space. Layout-only wrapper nodes ([§7.3](#73-alignment-frames-and-modifiers) decorators, alignment
 wrappers) have no native handle; day-core accumulates their offsets when emitting frames. This
 rule is what permits a later optimization — flattening pure-layout containers out of the native
 tree entirely — as a non-breaking day-core change.
 
-Exceptions where the native container drives: `scroll` (§7.6 — Day measures content, native owns
-the viewport) and `list` (§10 — native recycling owns the viewport).
+Exceptions where the native container drives: `scroll` ([§7.6](#76-scroll) — Day measures content, native owns
+the viewport) and `list` ([§10](#10-native-list-integration) — native recycling owns the viewport).
 
 ### §7.2 The protocol: parent proposes, child chooses
 
@@ -903,7 +916,7 @@ pub trait Layout: 'static {
 are layout-affecting decorators implemented as wrapper nodes with trivial `Layout` impls — no
 special cases in the engine. Alignment and insets are **logical by default** (`HAlign::Leading`/
 `Trailing`, `Insets::leading/trailing`), resolved against the layout direction at place time
-(§7.8).
+([§7.8](#78-rtl-and-bidi)).
 
 ### §7.4 Incremental relayout and the measurement cache
 
@@ -925,12 +938,12 @@ When a binding changes a size-affecting attribute:
    node whose size is externally fixed **on both axes** (explicit two-axis `frame`, the window
    root, a scroll node, a `RowHeight::Uniform` list cell). One-axis frames are *not* boundaries
    under height-for-width. `RowHeight::Automatic` list cells are boundaries **with notification**
-   (§10.2).
+   ([§10.2](#102-realization-the-rowhost-protocol)).
 2. At the turn boundary, relayout **re-enters at each dirty subtree's boundary** and runs a normal
    measure+place pass from there: clean descendants answer from the proposal-keyed cache, and
    place-recursion prunes subtrees whose (proposal, size, origin) are all unchanged. A scroll
-   boundary re-runs its *content* layout and emits a content-size update (§7.6).
-3. `set_frame` is diffed with a half-device-pixel epsilon (§7.9), so a text change that moves
+   boundary re-runs its *content* layout and emits a content-size update ([§7.6](#76-scroll)).
+3. `set_frame` is diffed with a half-device-pixel epsilon ([§7.9](#79-pixel-snapping-and-density)), so a text change that moves
    nothing results in exactly one native `set_text` and zero frame calls.
 
 Note the soundness subtlety the naive version misses (and which is an M1 mock test): "unchanged
@@ -944,7 +957,7 @@ negotiated stack, so propagation stops at negotiation scopes, not at arbitrary n
   (what is the smallest you can be?), clamped up to a small platform default, overridable via
   `WindowOptions::min_size`. `measure(unconstrained)` provides only the *initial/ideal* size.
   (Deriving min from the unconstrained ideal produces unshrinkable windows — the exact hop lesson
-  §7.1 cites, reintroduced at the window level.)
+  [§7.1](#71-day-owns-layout) cites, reintroduced at the window level.)
 - Relayout runs with the actual size on every native resize, so text reflows.
 - **Locale switches** recompute the minimum; the window grows if it is below the new minimum and
   never auto-shrinks. A locale-switch relayout benchmark is an M6 acceptance item.
@@ -969,6 +982,7 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 
 ### §7.7 Safe areas, insets, and the keyboard
 
+> [!IMPORTANT]
 > **Status: partially shipped.** Safe-area insets are applied at the window root by the mobile
 > backends (UIKit reads `safeAreaInsets`; Android is edge-to-edge with the root inset), and the
 > soft keyboard is raised/dismissed through the focus system (docs/focus.md). The
@@ -989,13 +1003,14 @@ adjusts scroll insets behind frameworks' backs — so inset policy is v1, not po
 - `env::keyboard_insets(): Signal<Insets>` (from `keyboardLayoutGuide`/willShow-notifications and
   `WindowInsetsCompat.ime()`; zero on desktop). `scroll` applies it as bottom inset and reveals
   the focused field via `scroll_to`. Scoped into M5; a manual keyboard smoke is an M5 acceptance
-  item (dayscript cannot see the native keyboard — §14.2).
+  item (dayscript cannot see the native keyboard — [§14.2](#142-the-embedded-engine)).
 
 ### §7.8 RTL and BiDi
 
+> [!NOTE]
 > **Status: shipped**, with one delta: the `ar-XB` RTL *pseudolocale* was not built — the
 > showcase ships a real Arabic locale instead, and the walkthrough + an `rtl-check` dayscript
-> run against it (`en-XA` expansion pseudolocalization did ship, §12.2). `layout_direction()` /
+> run against it (`en-XA` expansion pseudolocalization did ship, [§12.2](#122-api)). `layout_direction()` /
 > `set_layout_direction` live in day-core; backends set per-widget native direction at realize.
 
 Day owns absolute placement, so **no native mirroring applies automatically** — RTL is the
@@ -1020,7 +1035,7 @@ engine's job:
 - Measure results are ceiled to the device grid, then converted back to points.
 - The `set_frame` diff uses a half-device-pixel epsilon.
 - Density is part of the measure-cache epoch: a monitor change / density configuration change
-  bumps the epoch and marks the tree `needs_measure` (Android delivery via §9's configuration
+  bumps the epoch and marks the tree `needs_measure` (Android delivery via [§9](#9-the-eight-toolkits-and-the-extra-combinations)'s configuration
   plumbing; frames are re-multiplied on the new scale).
 
 ---
@@ -1029,6 +1044,7 @@ engine's job:
 
 ### §8.1 The `Toolkit` trait
 
+> [!NOTE]
 > **Status: shipped and grown, exactly as the evolution policy intended.** The original v1
 > surface froze, and every later subsystem arrived as a defaulted duty. The listing below is
 > the **current** surface (crates/day-spec/src/lib.rs is normative — read the trait there for
@@ -1122,6 +1138,7 @@ and primitives, never text formats.
 
 ### §8.2 The open renderer registry
 
+> [!IMPORTANT]
 > **Status: shipped as the linkme layer.** Each backend exposes a `RENDERERS` distributed
 > slice (`#[distributed_slice(day_appkit::RENDERERS)] …`) that external piece crates populate;
 > the `day-spec` `Registry` folds them in at toolkit init. The layered hardening below — the
@@ -1138,13 +1155,13 @@ startup-time completeness check is impossible if the registry itself is the only
    implementable in **all** profiles: debug panics listing the missing (kind, toolkit) pairs;
    release logs loudly and shows an error surface. Never a mid-session surprise.
 2. For app targets built by `day build`, tier-1 registration calls are folded into the
-   **generated Rust registrant** (the same generated-registrant pattern as dayffi, §15.3) — fully
+   **generated Rust registrant** (the same generated-registrant pattern as dayffi, [§15.3](#153-dayffi-the-c-abi-superseded--never-built)) — fully
    deterministic, dead-strip-proof.
 3. The `linkme` distributed slice remains for zero-setup unit tests and pure-cargo development
    (pane's proven mechanism, kept as the ergonomic layer).
 
 CI includes a release+LTO ios-uikit build of showcase + day-piece-combobox that asserts via
-dayscript that the externally-registered piece actually rendered (§20).
+dayscript that the externally-registered piece actually rendered ([§20](#20-continuous-integration)).
 
 ### §8.3 Events
 
@@ -1171,27 +1188,29 @@ pub enum Event {
 ```
 
 (`Custom` shipped with a primitive `num`/`text` payload rather than the designed
-`DayValue` tree — §15 explains; `tag` is empty for events crossing a native boundary.)
+`DayValue` tree — [§15](#15-extensibility-pieces-parts-and-tweaks) explains; `tag` is empty for events crossing a native boundary.)
 
 The single sink keeps the backend ignorant of closures/lifetimes (day-core owns the `NodeId →
 handlers` table) — this is the shape that made pane's six backends small. The sink contract is
-enqueue-only (§8.1); handlers run under their registration scope (§4.3).
+enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registration scope ([§4.3](#43-scopes-and-disposal)).
 
 ### §8.4 Animation (reserved hooks — still unimplemented)
 
+> [!WARNING]
 > **Status: as designed, still reserved.** `AnimSpec` parameters sit on `set_frame`/`update`
 > and every backend ignores them; no `.transition`/`with_animation` surface exists yet.
 
 Native-widget frameworks that bolt animation on later end up breaking their backend ABI — so the
 seam ships now even though MVP backends ignore it. Day commits to **backend-executed animation**:
-Day passes *intent*, the platform animates (consistent with §0.3 — Day never ticks pixel frames
+Day passes *intent*, the platform animates (consistent with [§0.3](#03-non-goals) — Day never ticks pixel frames
 for native widgets). `AnimSpec { duration, curve, spring }` parameters already sit on `set_frame`
-and `update` (§8.1), no-op in MVP backends. The post-MVP surface (design sketch, not v1 API):
+and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-MVP surface (design sketch, not v1 API):
 `.transition(anim)` on `when`/`each` enter/exit, animated frame changes
 (`with_animation(anim, || …)`), and a day-driven frame-clock ticker **for canvas only**.
 
 ### §8.5 Panics and crashes
 
+> [!IMPORTANT]
 > **Status: partially shipped.** The event pump runs handler dispatch under `catch_unwind`
 > (day-core), which covers the main native-callback surface. The wider policy below — per-entry
 > guards on every trampoline, the debug error surface, the release panic hook and
@@ -1213,6 +1232,7 @@ report, so this policy was specified up front:
 
 ## §9 The eight toolkits (and the extra combinations)
 
+> [!IMPORTANT]
 > **Status: all eight shipped** (seven native + mock); `day-web` was never built. One material
 > change from the design: the Windows backend hosts **system XAML** (`Windows.UI.Xaml` controls
 > in a `DesktopWindowXamlSource` island inside a Win32 window), not WinUI 3 / Windows App SDK —
@@ -1230,11 +1250,11 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
 | `day-winui` | C++/WinRT shim (`day-winui-sys`, cppwinrt-staged headers) | XAML `Canvas` in a `DesktopWindowXamlSource` island | shipped; CI-verified build/walkthrough/pack |
 | `day-arkui` | ArkUI **NDK C API** via a C++ shim (`day-arkui-sys`; `aarch64-unknown-linux-ohos`) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day ohos` (docs/harmonyos.md) |
-| `day-mock` | — | — | shipped; the headless test double (§3.2) |
+| `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 
 Per-toolkit notes beyond pane's baseline (the day-new duties):
 
-- **a11y (§13):** UIKit/AppKit: `NSAccessibility`/`UIAccessibility` protocols (mostly free on
+- **a11y ([§13](#13-accessibility)):** UIKit/AppKit: `NSAccessibility`/`UIAccessibility` protocols (mostly free on
   native controls; Day sets labels/identifiers/traits). Android: `contentDescription`,
   `AccessibilityNodeInfo`, `importantForAccessibility`. GTK 4: `GtkAccessible` roles/properties
   (AT-SPI on Linux; off-Linux, GTK 4.18's **AccessKit backend** is the forward path but default
@@ -1243,13 +1263,13 @@ Per-toolkit notes beyond pane's baseline (the day-new duties):
   AccessKit and the build/env recipe is documented, not hidden). Qt: `QAccessible` (bridges to
   NSAccessibility/UIA/AT-SPI on all three OSes — Qt is the strongest cross-OS a11y story of the
   portable toolkits). WinUI: UIA, mostly free. Web: ARIA attributes.
-- **canvas (§11):** CGContext in `drawRect:`/`draw(_:)`; `android.graphics.Canvas` in `onDraw`
+- **canvas ([§11](#11-canvas)):** CGContext in `drawRect:`/`draw(_:)`; `android.graphics.Canvas` in `onDraw`
   (display list crosses JNI once per redraw as a packed buffer); `GtkDrawingArea` + cairo;
   `QPainter` in `paintEvent`; Win2D or Direct2D via the shim; DOM `<canvas>` 2D.
-- **snapshot (§14):** `CALayer`/`NSView` bitmap render; `UIGraphicsImageRenderer`; `PixelCopy` /
+- **snapshot ([§14](#14-scripting-dayscript)):** `CALayer`/`NSView` bitmap render; `UIGraphicsImageRenderer`; `PixelCopy` /
   `View.draw(Canvas)`; `gtk_widget_snapshot` → cairo surface; `QWidget::grab`;
   `RenderTargetBitmap`; `<canvas>` composite (web: best-effort).
-- **list hosts (§10):** `UICollectionView` / `RecyclerView` / `NSTableView` / `GtkListView` /
+- **list hosts ([§10](#10-native-list-integration)):** `UICollectionView` / `RecyclerView` / `NSTableView` / `GtkListView` /
   `ItemsRepeater` / virtualized DOM. **Qt is the honest exception**: `QListView` recycles
   *delegate paintings*, not live `QWidget` rows (`setIndexWidget` is unvirtualized) — Qt's list
   host is day-side emulated recycling behind the same RowHost protocol, reported as
@@ -1262,9 +1282,9 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   Flutter's stance: the scaffold manifest declares
   `android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale"`, and the
   backend routes `onConfigurationChanged` into Day's signals and re-applies — dark mode natively
-  (backends resolve dynamic colors, §6.3), locale → the locale signal (§12), density →
-  measure-cache epoch bump + frame re-multiplication (§7.9). The
-  suspend/resume/memory hooks (§8.1) map to the Activity callbacks. Process-death state
+  (backends resolve dynamic colors, [§6.3](#63-semantic-theme-tokens)), locale → the locale signal ([§12](#12-localization-fluent)), density →
+  measure-cache epoch bump + frame re-multiplication ([§7.9](#79-pixel-snapping-and-density)). The
+  suspend/resume/memory hooks ([§8.1](#81-the-toolkit-trait)) map to the Activity callbacks. Process-death state
   restoration (`onSaveInstanceState`) is **DP-25** — v1 documents cold restart.
 - **Windows runtime choice.** The designed WinUI 3 / Windows App SDK backend (with its
   `MddBootstrapInitialize2` bootstrap and runtime-installer story) was **replaced by system
@@ -1274,11 +1294,11 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   (the shim forces `DAY_THEME` per-element on the root). Moving to WinUI 3 later is a backend
   swap behind the same day-spec surface.
 
-On mobile, the §8.1 "window" maps to the scene / activity content view; multi-window remains
-future, additive work (§8.1's status note).
+On mobile, the [§8.1](#81-the-toolkit-trait) "window" maps to the scene / activity content view; multi-window remains
+future, additive work ([§8.1](#81-the-toolkit-trait)'s status note).
 
 **Extra combinations** (`macos-gtk`, `macos-qt`, `windows-qt`, `windows-gtk`) need no extra code in
-the backend crates — GTK/Qt are portable; the *target* differs only in build/packaging (§16, §17:
+the backend crates — GTK/Qt are portable; the *target* differs only in build/packaging ([§16](#16-the-day-cli), [§17](#17-the-conventional-day-project-and-daytoml):
 where the toolkit libraries come from and whether `day pack` can bundle them; bundling GTK/Qt into
 a redistributable macOS/Windows app is real work and is explicitly **post-MVP**, DP-7). The
 `Day.toml` `targets:` list and `day doctor` gate which combinations a project claims.
@@ -1286,7 +1306,7 @@ a redistributable macOS/Windows app is real work and is explicitly **post-MVP**,
 **web-html sketch (never built):** wasm32 binary; pieces map to semantic elements
 (`<button>`, `<input>`, `<label>`); Day layout emits `position:absolute; transform:translate(…)`
 placements; text measurement via a hidden measurement element or `canvas.measureText` (cached);
-events via `wasm-bindgen` closures; scripting transport is a `WebSocket` (§14.5). The open
+events via `wasm-bindgen` closures; scripting transport is a `WebSocket` ([§14.5](#145-transport-and-rendezvous)). The open
 question — whether absolute placement forfeits too much of the browser (text selection across
 elements, native scrolling) — is recorded as DP-8 with a proposed hybrid (Day layout, but `scroll`
 maps to overflow scrolling).
@@ -1300,11 +1320,12 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 
 ## §10 Native list integration
 
+> [!NOTE]
 > **Status: shipped** (docs/list.md is normative). The duty landed as
 > `Toolkit::attach_list(host, ListSource)` rather than the sketched `ListHost` object — the
 > host pulls `len`/`bind_row` through the `ListSource`, and the mock/walkthrough tests assert
 > recycled cells rebind with a slot write, not a rebuild. Qt's emulated recycling shipped as
-> designed (DP-19). The `rw`/`.on_edit` two-way projections did not ship (§5.4).
+> designed (DP-19). The `rw`/`.on_edit` two-way projections did not ship ([§5.4](#54-keyed-collections-each)).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -1314,7 +1335,7 @@ virtualization, scroll physics, and platform behaviors.
 
 Because cells are **recycled**, the row builder cannot receive the item by value (a moved value
 can never be swapped later — recycling would be a rebuild). The builder receives the same
-**`ItemSlot<T>`** as `each` (§5.4 — one contract, one row function serves both; migrating a
+**`ItemSlot<T>`** as `each` ([§5.4](#54-keyed-collections-each) — one contract, one row function serves both; migrating a
 collection from `scroll(column(each(…)))` to `list` is a one-word change):
 
 ```rust
@@ -1330,7 +1351,7 @@ list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message>| {
 .on_select(move |id| open(id))
 ```
 
-All `ItemSlot` semantics are as specified in §5.4 (Copy handle, tracked `get()`,
+All `ItemSlot` semantics are as specified in [§5.4](#54-keyed-collections-each) (Copy handle, tracked `get()`,
 equality-gated `field()` projections, `rw` + `.on_edit` write-back, key-uniqueness assert, the
 structure-from-`get()` trap and its lint). `list` adds `.row_kind`, mapping to the host's native
 reuse identifiers (one pool per kind; default single kind).
@@ -1348,15 +1369,15 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    **builds** the row piece into that container (first use per pool) or **rebinds** a recycled
    row: one slot write. Because hosts measure cells synchronously after binding, `bind_row` runs
    `Scope::flush_now(row_scope)` and row layout **before returning** — the sanctioned exception to
-   turn batching (§3.3); without it, recycled cells would display stale content and `Automatic`
+   turn batching ([§3.3](#33-threading-model-and-the-turn-state-machine)); without it, recycled cells would display stale content and `Automatic`
    mode would cache wrong heights.
 3. Row layout runs Day's engine inside the cell bounds. `RowHeight::Uniform` cells are true layout
-   boundaries (§7.4); `::Automatic` cells are boundaries **with notification** — when a row's
+   boundaries ([§7.4](#74-incremental-relayout-and-the-measurement-cache)); `::Automatic` cells are boundaries **with notification** — when a row's
    content size changes, Day calls `host.row_size_invalidated(key)`, mapping to
    `reconfigureItems`/preferred-attributes (UICollectionView), `noteHeightOfRows` (NSTableView),
    `requestLayout` (RecyclerView), `InvalidateMeasure` (ItemsRepeater).
 4. Selection, separators, swipe actions, section headers are host-native features exposed as list
-   options gated on `Toolkit::capability` (§8.1); Qt reports `Emulated` recycling (DP-19).
+   options gated on `Toolkit::capability` ([§8.1](#81-the-toolkit-trait)); Qt reports `Emulated` recycling (DP-19).
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking
@@ -1364,6 +1385,7 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 
 ### §10.5 Navigation and presentation
 
+> [!NOTE]
 > **Status: shipped** (docs/navigation.md, docs/dialogs.md, and docs/menus.md are normative).
 > The DP-23 "native containers" resolution held, delivered through a richer surface than the
 > sketch below:
@@ -1396,6 +1418,7 @@ made native nav containers possible without a scaffold migration.
 
 ## §11 Canvas
 
+> [!NOTE]
 > **Status: shipped** (docs/shapes.md is normative), and extended beyond the sketch: the
 > unified **shape pieces** (`rectangle()`, `rounded_rectangle(r)`, `circle()`, `capsule()`,
 > `ellipse()`, `arc(start, sweep)`) record through the same display list with path-precise
@@ -1424,11 +1447,11 @@ pub fn gauge(value: Signal<f64>) -> AnyPiece {
   this node.
 - `Draw` **records** into a `Vec<DrawOp>` (fill/stroke path, rect, rounded-rect, ellipse, line,
   text run, image, clip, transform, save/restore — types from `day-geometry`); the backend
-  **replays natively** (`replay()` in §8.1) — CoreGraphics, android Canvas, cairo, QPainter,
+  **replays natively** (`replay()` in [§8.1](#81-the-toolkit-trait)) — CoreGraphics, android Canvas, cairo, QPainter,
   Direct2D, `<canvas>`. One FFI hop per redraw (the op buffer is a packed, pod-friendly encoding),
   not one per op — this matters on Android/JNI.
 - Display lists make canvas **unit-testable on `day-mock`** (assert ops) and diffable —
-  `DrawOp: PartialEq` is the §4.2 binding equality gate, so an unchanged recording skips the
+  `DrawOp: PartialEq` is the [§4.2](#42-primitives) binding equality gate, so an unchanged recording skips the
   replay entirely.
 - Text on canvas uses the toolkit's text engine via `DrawOp::Text` (native fonts, shaping, BiDi) —
   Day never rasterizes text. Per-toolkit shaping engines are pinned in the design because the
@@ -1471,16 +1494,17 @@ decrement = Decrement
 
 ### §12.2 API
 
+> [!IMPORTANT]
 > **Status: shipped with deltas** (docs/localization.md is normative). The engine is
 > `day-l10n` with `day-fluent` as the app-facing API (`install_locales(default, &[(locale,
 > ftl_source)])` compiles the bundles in via `include_str!`; `set_locale` switches live). The
 > **preferred authoring surface is now the generated `res::str::key(args…)` functions**
-> (§18.5) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
+> ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
 > keys. Keys are therefore **snake_case** (they must be Rust identifiers), not kebab-case as
 > sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions were **not** wired up;
 > plural/`select` rules work (exercised by every locale in CI), and the `res::str` typing
 > forces numeric arguments where CLDR plural selection needs them. `en-XA` pseudolocalization
-> shipped; `ar-XB` did not (a real `ar` locale covers RTL, §7.8).
+> shipped; `ar-XB` did not (a real `ar` locale covers RTL, [§7.8](#78-rtl-and-bidi)).
 
 ```rust
 label(res::str::greeting(name))               // generated, typed (name: Signal<String> — live)
@@ -1507,7 +1531,7 @@ label(tr("app-title"))                        // dynamic-key escape hatch
 - The **current locale is a `Signal<LanguageIdentifier>`** in `day-fluent`, initialized from
   (1) `--locale` launch override → (2) OS preference list (`Platform::locale_hints`, negotiated
   via fluent-langneg) → (3) default. Every `tr` binding reads it, so a locale change updates every
-  visible string fine-grained, then one incremental relayout (§7.5's grow-never-shrink window
+  visible string fine-grained, then one incremental relayout ([§7.5](#75-window-sizing)'s grow-never-shrink window
   policy; German is long). Each binding captures its resolved message reference once per locale —
   the per-locale parsed-bundle cache is the only cache (no (key, args) memo: Fluent args include
   `f64`, and applies are already equality-gated).
@@ -1521,11 +1545,11 @@ label(tr("app-title"))                        // dynamic-key escape hatch
   under `resource/locales/` are the source of truth for the codegen, the lint, and the runtime
   alike), with per-message fallback to the default bundle. Fluent's `use_isolating` stays
   **on** (FSI/PDI isolation marks around placeables); dayscript text comparison normalizes
-  U+2068/U+2069 (§14, Appendix C).
+  U+2068/U+2069 ([§14](#14-scripting-dayscript), [Appendix C](#appendix-c--dayscript-reference-v1)).
 - **Native-side metadata** localization (generated `InfoPlist.strings` / `strings.xml` display
   names from reserved Fluent keys) was **not built** — the display title comes from
   `Day.toml [app] title` un-localized. The design stands for when a store submission needs it.
-- Pseudolocales ship built-in: **`en-XA`** (expansion + accents) and **`ar-XB`** (RTL, §7.8).
+- Pseudolocales ship built-in: **`en-XA`** (expansion + accents) and **`ar-XB`** (RTL, [§7.8](#78-rtl-and-bidi)).
   Pseudolocalization parses messages with `fluent-syntax` and transforms only `TextElement`s
   (naive string transforms corrupt placeables and selectors), and pseudolocales bypass negotiation
   (an explicit pre-negotiation check — otherwise `en-XA` silently negotiates to `en`):
@@ -1554,7 +1578,7 @@ canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
   `IntoText` (a11y strings are localized like any other, and they update reactively).
 - Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/…` —
   most built-ins set their role automatically; `role` matters for canvas and custom pieces.
-- **Identifiers** (§5.5): the verified per-toolkit truth table — no pretending:
+- **Identifiers** ([§5.5](#55-node-identity-ids-and-the-element-index)): the verified per-toolkit truth table — no pretending:
 
   | toolkit | native automation-id channel |
   |---|---|
@@ -1565,17 +1589,17 @@ canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
   | GTK | widget *name* is GtkInspector-only — **no public settable AT-SPI accessible-id today** (tracked upstream) |
   | web | DOM `id` ✓ |
 
-  dayscript is unaffected by the gaps (its element index reads day-core, §14.2); the table
+  dayscript is unaffected by the gaps (its element index reads day-core, [§14.2](#142-the-embedded-engine)); the table
   matters for *external* tools (Appium, UIA scrapers) and is documented per target.
 - Policy: `day lint` a11y rules — interactive piece without a derivable label (icon-only button,
   unlabeled image) is a warning, `--strict` error; ids leaking into a11y labels is an error
-  (§5.5). Focus order follows layout order; programmatic keyboard focus is its own shipped
+  ([§5.5](#55-node-identity-ids-and-the-element-index)). Focus order follows layout order; programmatic keyboard focus is its own shipped
   subsystem (`.focused()`, docs/focus.md); `.focus_group` and `.a11y_sort_priority` remain
   unimplemented.
-- **Verification is automated**: the dayscript `a11y_audit` step (§14, Appendix C) walks the
+- **Verification is automated**: the dayscript `a11y_audit` step ([§14](#14-scripting-dayscript), [Appendix C](#appendix-c--dayscript-reference-v1)) walks the
   *native* accessibility tree in-process and diffs it against day-core's expectations — nothing in
   CI trusts `set_a11y` blindly.
-- Reality check per toolkit lives in §9; the honest summary: primary combinations have first-class
+- Reality check per toolkit lives in [§9](#9-the-eight-toolkits-and-the-extra-combinations); the honest summary: primary combinations have first-class
   native a11y; `macos-gtk`/`windows-gtk` currently have none (GTK's AccessKit backend exists as of
   4.18 but isn't in default builds), which is precisely why they're secondary. Qt is solid on all
   three desktop OSes.
@@ -1586,8 +1610,9 @@ canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
 
 ### §14.1 A script
 
+> [!NOTE]
 > **Status: shipped** — the showcase's real `dayscript/walkthrough.yaml` runs 200+ steps on
-> every scripted target; Appendix C lists the shipped step catalog exactly.
+> every scripted target; [Appendix C](#appendix-c--dayscript-reference-v1) lists the shipped step catalog exactly.
 
 ```yaml
 # dayscript/walkthrough.yaml
@@ -1617,7 +1642,7 @@ The shipped step catalog — waiting (`wait_for`, `wait_idle`, `pause`), acting 
 `set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `nav_back`, `assert_route`),
 asserting (`assert_visible`, `assert_text`, `assert_value`, `assert_focused`), dialogs
 (`assert_presented`, `respond`), and evidence (`screenshot`, `a11y_audit`) — is specified in
-Appendix C, with `day drive` exposing the same vocabulary to agents (docs/agent.md).
+[Appendix C](#appendix-c--dayscript-reference-v1), with `day drive` exposing the same vocabulary to agents (docs/agent.md).
 
 ### §14.2 The embedded engine
 
@@ -1625,19 +1650,19 @@ Appendix C, with `day drive` exposing the same vocabulary to agents (docs/agent.
 in release only if `Day.toml` sets `scripting.release: true` — and `day pack` verifies that
 release artifacts without the opt-in contain no engine). It:
 
-- maintains the **element index**: id → NodeId (from §5.5), plus role/text/value accessors that
+- maintains the **element index**: id → NodeId (from [§5.5](#55-node-identity-ids-and-the-element-index)), plus role/text/value accessors that
   read day-core's cached last-applied props (not platform a11y trees — one implementation, all
   toolkits; the `a11y_audit` step below is the deliberate exception that reads the native tree);
 - executes steps **as synthesized Day events** (tap = the button's action path; input = the
-  controlled-text path), on the main thread, between flushes (`flush_sync`, §3.3) — deterministic
+  controlled-text path), on the main thread, between flushes (`flush_sync`, [§3.3](#33-threading-model-and-the-turn-state-machine)) — deterministic
   and toolkit-uniform. (Driving *native* input synthesis instead is deliberately rejected for v1:
   per-toolkit event forgery is flaky and permission-gated. DP-13.)
 - does **not** enforce the designed actionability preconditions (enabled/occlusion checks,
   auto-scroll-into-view) — that gating was never built; scripts scroll explicitly where needed
-  and target ids they know to be interactive (Appendix C notes this per step).
+  and target ids they know to be interactive ([Appendix C](#appendix-c--dayscript-reference-v1) notes this per step).
 - is honest about **what it cannot verify**: the native keyboard and IME, native hit-testing,
   native animations, and out-of-process UI. Manual smokes in M2/M5/M6 acceptance carry that load.
-- serves the **transport** (§14.5), implements `screenshot` via `Toolkit::snapshot_window`, and
+- serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window`, and
   implements **`a11y_audit`**: walk the *native* accessibility tree in-process
   (NSAccessibility/UIAccessibility — hop's proven recipe; `AccessibilityNodeInfo` on Android;
   GtkAccessible/QAccessibleInterface where present), diff role/label/identifier against day-core's
@@ -1650,12 +1675,13 @@ Every retryable step has an implicit bounded wait (5 s default) — element not 
 pending assertions poll rather than fail instantly. `wait_idle` flushes the reactive drain;
 `screenshot` additionally waits on `Toolkit::ui_idle` (native transitions settled), which is
 what keeps captures from showing half-dismissed dialogs. (The designed richer idle definition —
-in-flight `Resource`s, `busy_scope()` — fell away with `Resource`, §4.5.) No sleeps in
+in-flight `Resource`s, `busy_scope()` — fell away with `Resource`, [§4.5](#45-async).) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
-isolation marks (§12.2).
+isolation marks ([§12.2](#122-api)).
 
 ### §14.4 Results
 
+> [!IMPORTANT]
 > **Status: shipped differently.** The runner is `--script` on `day launch` (exit code 5 on an
 > assertion failure — the CI entry point) and `day drive` for step-at-a-time agent sessions;
 > a standalone `day script` command and JUnit XML output were not built. Screenshots land in
@@ -1665,6 +1691,7 @@ isolation marks (§12.2).
 
 ### §14.5 Transport and rendezvous
 
+> [!IMPORTANT]
 > **Status: shipped simpler.** The protocol is **newline-delimited JSON over localhost TCP**,
 > defined by serde types inside `day-script` itself (`Request { token, step }` → `Reply { ok,
 > error, retryable, png_base64, … }`); the separate `day-script-proto` crate and length-prefixed
@@ -1692,6 +1719,7 @@ allows only the step catalog.
 
 ## §15 Extensibility: pieces, parts, and tweaks
 
+> [!IMPORTANT]
 > **Status: shipped differently — and simpler.** The promise held: external crates add UI and
 > platform services without touching Day or the app's scaffolds. The mechanism did not need a
 > C ABI. docs/extending.md is the normative reference; docs/tweaks.md covers tweaks. The
@@ -1706,17 +1734,17 @@ Qt/WinUI/ArkUI — without touching Day or the app's platform scaffolds.
 
 The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 
-- **Tweaks** (below composition; Addendum, docs/tweaks.md): configure the native widget behind
+- **Tweaks** (below composition; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md): configure the native widget behind
   an existing built-in — `Decorate::tweak`/`native_ref`, packaged as `tweaks/day-tweak-*`.
 - **Tier 0 — composition:** pure Day pieces (a gauge from `canvas`, `day-piece-rating`). No
   native code.
 - **Tier 1 — Rust renderers:** per-toolkit renderers written in Rust against the backend's own
   FFI (objc2 / gtk4-rs / jni / the C++ shims), registered link-time into each backend's
-  `RENDERERS` slice with the `renderer!` macro (§8.2). Most `pieces/day-piece-*` crates are
+  `RENDERERS` slice with the `renderer!` macro ([§8.2](#82-the-open-renderer-registry)). Most `pieces/day-piece-*` crates are
   this tier.
 - **Native halves:** where a piece or part needs platform-language code or third-party native
   libraries, its `Cargo.toml` declares them under **`[package.metadata.day.<platform>]`** and
-  `day build` folds them into the app's native build (§15.2). Events come back through the
+  `day build` folds them into the app's native build ([§15.2](#152-package-layout-and-aggregation)). Events come back through the
   standard sink (`Event::Custom { tag, num, text }` for open piece-defined events); foreign
   views enter the tree via `Toolkit::adopt`.
 
@@ -1772,16 +1800,17 @@ reference generically, exactly once:
   as designed — under the shipped name `DayPieces`.)
 
 This mirrors how Flutter plugins carry `android/`/`ios/` folders the tool weaves into host
-projects. It is the reason Day's scaffolds are real Xcode/Gradle projects (§17).
+projects. It is the reason Day's scaffolds are real Xcode/Gradle projects ([§17](#17-the-conventional-day-project-and-daytoml)).
 
 ### §15.3 dayffi: the C ABI (superseded — never built)
 
+> [!WARNING]
 > **Status: superseded.** The design specified a versioned C ABI (`DayValue` tagged trees, a
 > `DayPieceVTable` with sync/async commands, `day_host_emit`, generated per-platform
 > registrants) so native-language halves could implement pieces behind a stable boundary. None
 > of it was needed: the shipped extension crates pair **Rust renderers** (tier 1, `adopt`ing
 > native views created by their own shims) with **staged native sources**
-> (`[package.metadata.day.*]`, §15.2), and the open event channel shipped as the primitive
+> (`[package.metadata.day.*]`, [§15.2](#152-package-layout-and-aggregation)), and the open event channel shipped as the primitive
 > `Event::Custom { tag, num, text }` — one string and one number cover every real piece so far
 > (webview URLs, picked dates, media positions), with no cross-language value-tree management.
 >
@@ -1793,7 +1822,7 @@ projects. It is the reason Day's scaffolds are real Xcode/Gradle projects (§17)
 > out-of-process native logic, the dayffi design remains in this file's git history
 > (pre-2026-07 revisions) as the starting point.
 
-Worked examples of the shipped mechanisms are in Appendix B: **ComboBox** (tier 1 — one native
+Reference examples of the shipped mechanisms are in [Appendix B](#appendix-b--extension-examples): **ComboBox** (tier 1 — one native
 control per toolkit), **Battery** (a part: headless, per-OS halves), **WebView** (commands +
 events over the shipped channel), **Lottie** (bridging famous native libraries via
 `[package.metadata.day.*]`).
@@ -1811,6 +1840,7 @@ command tree with flags and descriptions for agent consumption).
 
 ### §16.2 Crate choices
 
+> [!IMPORTANT]
 > **Status: shipped leaner.** The CLI kept the small set — `clap` v4 (derive), `anstream` for
 > terminal color, `inquire` for the interactive `day new`, `serde` + **`serde_norway`** for
 > YAML (DP-14's resolution held) — and skipped the rest of the designed stack: no `indicatif`,
@@ -1823,6 +1853,7 @@ command tree with flags and descriptions for agent consumption).
 
 ### §16.3 Global contract (every subcommand)
 
+> [!IMPORTANT]
 > **Status: shipped smaller.** The global flags are `--project <dir>` (nearest-ancestor
 > `Day.toml` default) and `--format {plain,json}` (NDJSON result events); `--no-input` exists
 > where prompting exists (`day new`, `day app`). `--yes`/`--color`/`-v`/`--log-file` and the
@@ -1859,10 +1890,11 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 
 ### §16.4 Architecture (from flutter_tools, translated to Rust)
 
+> [!IMPORTANT]
 > **Status: the ideas shipped; the framework didn't.** The CLI is a plain clap command tree
 > with per-target modules — no `CliContext` DI, no `DayCommand` envelope, no daemon. What
 > survived from flutter_tools is what mattered: the **doctor workflows**, the **plumbing
-> tier** (`xcode-backend`/`gradle-backend` callbacks, §17.4), and failure translation where it
+> tier** (`xcode-backend`/`gradle-backend` callbacks, [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)), and failure translation where it
 > counts (gradle/xcodebuild error surfacing). The designed structure below is kept as the shape
 > to grow into if the CLI's complexity ever demands it.
 
@@ -1881,13 +1913,14 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 - **Plumbing tier:** stable, documented, hidden-from-default-help subcommands invoked by build
   systems: the arg-less `day xcode-backend build` / `day gradle-backend build` entrypoints
   (called by the Xcode Run-Script phase and the Gradle task, reading their parameters from the
-  build system's environment — §17.4). Porcelain may change UX; plumbing changes are
+  build system's environment — [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)). Porcelain may change UX; plumbing changes are
   semver-relevant.
 - **`day daemon --machine`** (roadmap, post-MVP): long-lived JSON-RPC for IDEs, mirroring
-  flutter's daemon; the NDJSON event schema of §16.3 is designed to be reused by it.
+  flutter's daemon; the NDJSON event schema of [§16.3](#163-global-contract-every-subcommand) is designed to be reused by it.
 
 ### §16.5 Subcommands
 
+> [!IMPORTANT]
 > **Status: shipped, with a different final roster.** Of the designed set, `new`, `build`,
 > `sign`, `launch`, `pack`, `lint`, and `doctor` shipped; `day script` became `--script` on
 > launch plus **`day drive`**; `day clean` and `day config` were not built (machine-local
@@ -1910,22 +1943,22 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day ohos` | HarmonyOS helpers (emulator management, …; docs/harmonyos.md) |
-| `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into (§17.4) |
+| `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) |
 
 #### `day new`
 
 Interactive when run bare (`inquire` prompts: name, id, targets, locales); non-interactive with
 flags + `--no-input` for CI/agents. Templates are embedded in the CLI binary; `app`, `piece`,
-and `part` scaffolds exist — the latter two produce the §15 package shapes with per-toolkit
+and `part` scaffolds exist — the latter two produce the [§15](#15-extensibility-pieces-parts-and-tweaks) package shapes with per-toolkit
 feature wiring.
 
 #### `day build`
 
-Per target: (1) preflight, (2) conveyance generation from `Day.toml` (§17.5), (3) the target's
+Per target: (1) preflight, (2) conveyance generation from `Day.toml` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)), (3) the target's
 pipeline — `xcodebuild` for ios only; `gradle` for android; hvigor for ohos; **cargo + bundle
 assembly for all cargo-driven desktop targets including `macos-appkit`** (their "scaffold" is a
 packaging recipe, not an IDE project); MSBuild-free cargo + C++/WinRT shim for windows. The
-Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints (§17.4) for the Rust
+Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 
@@ -1943,7 +1976,7 @@ Build (+ sign where the destination requires) + install + run + stream logs, per
 parallel: desktop runs the binary/bundle; ios via `simctl` with `log stream`; android via
 `adb install` / `am start` with pid-scoped logcat; ohos via `hdc`. `--locale` moves the whole
 app's locale; `--env` passes app environment; each `--script` runs via the embedded engine
-(§14) — with scripts the command exits when the last one finishes (the CI entry point), and
+([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
 `--keep-alive` keeps the session drivable via `day drive` afterwards.
 
 #### `day pack`
@@ -1961,7 +1994,7 @@ the designed LGPL/licences-stage guard rails remain future work.
 Built-in rules only, source-level and fast: fluent coverage (missing/unused/unknown keys across
 all locales), duplicate element ids, unknown navigation routes, `Day.toml` schema validation.
 `day lint` exits nonzero on findings in strict mode. The wider designed rule set (a11y labels,
-bare literals, scroll nesting, RTL styling) has not been built; `res::str` (§18.5) made the
+bare literals, scroll nesting, RTL styling) has not been built; `res::str` ([§18.5](#185-typed-resource-constants-docsresourcesmd)) made the
 missing-key class a compile error instead.
 
 #### `day drive` (replaces the designed `day script`)
@@ -1993,8 +2026,9 @@ promise.
 
 ### §17.1 Project layout (`day new` output)
 
+> [!IMPORTANT]
 > **Status: shipped differently.** The real scaffold (below) differs from the design sketch:
-> resources live under one `resource/` tree (§18.3), scripts under `dayscript/`, and the
+> resources live under one `resource/` tree ([§18.3](#183-processed-images--random-access-data-resources-docsresourcesmd)), scripts under `dayscript/`, and the
 > starter is a small multi-page app rather than a bare root. `AGENTS.md` ships in every
 > scaffold — agent-readable project instructions are a first-class output. Platform scaffolds
 > appear only for the toolkits the app declares.
@@ -2034,7 +2068,7 @@ is generated into the scaffolds, calling `day::launch_with(Options::from_env(), 
 
 pane proved the hand-assembled path (`aapt2`+`d8`+`zip` APKs, hand-written `Info.plist` bundles) —
 excellent for framework CI smoke, structurally incapable of: native transitive dependencies (a
-Lottie AAR, an SPM package — §15's whole point), store submission (entitlements, provisioning,
+Lottie AAR, an SPM package — [§15](#15-extensibility-pieces-parts-and-tweaks)'s whole point), store submission (entitlements, provisioning,
 Play/App Store toolchains), and IDE escape hatches. Day therefore adopts the Flutter/Skip position
 from day one: **checked-in, template-generated, thin platform projects that remain buildable by
 their native tools**, with the callback hook keeping Rust fresh. The framework repo keeps a
@@ -2043,11 +2077,12 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 
 ### §17.3 `Day.toml`
 
+> [!IMPORTANT]
 > **Status: shipped with a smaller schema.** The shipped manifest keeps the principles below;
 > the concrete sections in real projects are `schema`, `[app]` (id, title, build, targets —
 > any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
 > and `[signing.*]` (env-var interpolated, degrade-loudly). Locales, images, assets, and fonts
-> are **convention, not configuration** — the `resource/` tree is scanned (§18). The extended
+> are **convention, not configuration** — the `resource/` tree is scanned ([§18](#18-resources-icons-and-theming)). The extended
 > schema sketched below (`[localization]`, `[assets]`, `[icons]`, `[scripting]`, `[lint]`,
 > per-OS tables) was not needed; `day metadata --json` is the tooling contract either way.
 
@@ -2152,9 +2187,9 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   (**never** writing into `src/main/jniLibs` — source-tree pollution and broken up-to-date
   checks), `outputs.upToDateWhen { false }`, `ExecOperations` only inside `@TaskAction`, invoking
   the arg-less `"$DAY_BIN" gradle-backend build`. A tested Gradle/AGP version matrix is published;
-  CI builds the scaffold with `--configuration-cache` (§20).
+  CI builds the scaffold with `--configuration-cache` ([§20](#20-continuous-integration)).
 - **Freshness and fresh clones**: both callback entrypoints regenerate conveyance from `Day.toml`
-  first (content-hashed, §17.5); because Xcode reads xcconfig *before* the phase runs, drift is
+  first (content-hashed, [§17.5](#175-metadata-conveyance-daytoml--each-build-system)); because Xcode reads xcconfig *before* the phase runs, drift is
   detected and that build fails with "metadata changed — build again". `settings.gradle.kts`
   guards the generated `day-pieces.gradle.kts` apply with an existence check throwing "run `Day
   build` once". Committed-vs-generated is explicit: `day.gradle.kts` and a bootstrap xcconfig stub
@@ -2166,12 +2201,13 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 
 ### §17.5 Metadata conveyance (Day.toml → each build system)
 
+> [!IMPORTANT]
 > **Status: shipped; concrete filenames evolved.** The mechanism is exactly as designed —
 > generated, gitignored, content-hashed files that committed scaffolds reference generically.
 > The real names: Android reads `build/day/android/day-app.properties`, `day-signing.properties`,
-> and `day-pieces.json` (§15.2); iOS conveys through the generated xcconfig + the `DayPieces`
+> and `day-pieces.json` ([§15.2](#152-package-layout-and-aggregation)); iOS conveys through the generated xcconfig + the `DayPieces`
 > SwiftPM package; the Rust side's "generated metadata" became the `day-build` resource
-> constants (§18.5). The `day-meta` shared library was folded into `day-cli` (its `meta`
+> constants ([§18.5](#185-typed-resource-constants-docsresourcesmd)). The `day-meta` shared library was folded into `day-cli` (its `meta`
 > module) + `day-build`. The table below records the designed shape:
 
 Generated at build time into ignored-by-git locations (like flutter's `Generated.xcconfig` +
@@ -2204,30 +2240,32 @@ resource/locale environment for `day launch`.
 Assets ship platform-idiomatically, with the per-target mechanics specified now:
 
 - **apple**: the template project's resources phase copies `build/day/gen/resources/` into the
-  bundle `Resources/` (same folder-reference rule as §17.4's l10n).
+  bundle `Resources/` (same folder-reference rule as [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)'s l10n).
 - **android**: `day.gradle.kts` registers the generated tree as an `assets` sourceSet dir;
   lookup via `AssetManager`.
 - **cargo desktop targets**: a staging dir beside the binary (bundled into `Resources/` by the
   macOS bundle recipe, `share/` on Linux, packaged content on Windows); dev runs resolve via
-  `DAY_ASSET_ROOT` (§17.5).
+  `DAY_ASSET_ROOT` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)).
 - Uniform API: `Asset::named("stations.json").bytes() / .string() / .url()`; locale-qualified
   variants (`assets/fr/…`) resolve like Fluent fallback. The asset index is generated at build
   (into `day_meta.rs`), so `Asset::named` typos are lint-able and `day lint` cross-checks
-  references. Piece-package resources aggregate per §15.2.
+  references. Piece-package resources aggregate per [§15.2](#152-package-layout-and-aggregation).
 
-> **Superseded:** the shipped data API is `resource("name")` (§18.3), not `Asset::named`; the
-> "generated index, lint-able typos" goal is realized as the **typed resource constants of §18.5**.
+> [!WARNING]
+> **Superseded:** the shipped data API is `resource("name")` ([§18.3](#183-processed-images--random-access-data-resources-docsresourcesmd)), not `Asset::named`; the
+> "generated index, lint-able typos" goal is realized as the **typed resource constants of [§18.5](#185-typed-resource-constants-docsresourcesmd)**.
 
 ### §18.2 Icons and images
 
+> [!IMPORTANT]
 > **Status: shipped differently.** There is no SVG render pipeline (`resvg` was not adopted).
-> In-app images are pre-exported PNGs under `resource/images/` (§18.3) — the Skip lesson
+> In-app images are pre-exported PNGs under `resource/images/` ([§18.3](#183-processed-images--random-access-data-resources-docsresourcesmd)) — the Skip lesson
 > (bundle the glyphs; don't rely on platform symbol names) is the working practice, with
 > Material Symbols exports as the common source. The **app icon** comes from
 > `resource/icons/{macos,linux,windows,png}/` PNG export sets (falling back to any root icon):
 > `day pack` assembles `.icns` via `sips` + `iconutil` on macOS, `.ico` on Windows, and the
 > freedesktop policy sizes (48/64/128) for flatpak — with embedded defaults so a bare project
-> still packs. Dark/light theming is native per toolkit (§6.3), forced only by `DAY_THEME`.
+> still packs. Dark/light theming is native per toolkit ([§6.3](#63-semantic-theme-tokens)), forced only by `DAY_THEME`.
 
 ### §18.3 Processed images + random-access data resources (docs/resources.md)
 
@@ -2274,13 +2312,13 @@ regenerates when a file is added or removed. A name known only at runtime uses t
 
 `day-build` (a published leaf, `day-fonts` + std only, so an app can take it as a `[build-dependencies]`)
 is the **single source of truth** for the name→identifier rule (`sanitize_ident`) — the CLI stagers of
-§18.3/§18.4 re-export it, so the string baked into a constant is exactly the name staged into each
+[§18.3](#183-processed-images--random-access-data-resources-docsresourcesmd)/[§18.4](#184-bundled-custom-fonts-docsresourcesmd) re-export it, so the string baked into a constant is exactly the name staged into each
 backend's native store. It rejects at build time any image stem that is not portable across toolkits
 (differs after sanitization — verbatim on Apple/GTK/Qt but re-sanitized on Android/ArkUI) and any two
-files that collide on one symbol, each with a rename hint. This realizes §18.1's "generated,
+files that collide on one symbol, each with a rename hint. This realizes [§18.1](#181-data-resources-lands-in-m5-with-the-scaffolds--fluent-m6-and-the-walkthrough-m7-depend-on-it)'s "generated,
 lint-able asset index" intent for the shipped `image()` / `resource()` / `Font` APIs.
 
-The same `build.rs` also emits a **`res::str`** bucket for localization (§12): one function per Fluent
+The same `build.rs` also emits a **`res::str`** bucket for localization ([§12](#12-localization-fluent)): one function per Fluent
 message key under `resource/locales/`, so `res::str::greeting(name)` is a checked, autocompleting stand-in
 for `tr("greeting").arg("name", name)`. `day-build` parses each `.ftl` with `fluent-syntax` and shapes
 each function's signature from the message's `$variables` (`res::str::hello_world()`,
@@ -2301,6 +2339,7 @@ tooling accepts matches what resolves.
 
 ## §19 Repository layout, examples, and docs site
 
+> [!IMPORTANT]
 > **Status: shipped differently.** The real tree:
 
 ```
@@ -2347,6 +2386,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 ## §20 Continuous integration
 
+> [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
 > carries the whole pipeline, plus `install.yml` (scheduled end-user install checks) in this
 > repo and the **`daybrite/actions`** companion repo (a reusable `build-day-app.yml` matrix
@@ -2366,7 +2406,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    degrading loudly to dev signing on fork PRs.
 4. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
    --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries, and crates.io
-   Trusted Publishing (wired; crates not yet published — §1).
+   Trusted Publishing (wired; crates not yet published — [§1](#1-glossary-and-naming)).
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation
@@ -2375,6 +2415,7 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 
 ### §20.5 Toolchain and dependency governance
 
+> [!IMPORTANT]
 > **Status: partially shipped.** The MSRV CI job and edition 2024 are real; `Cargo.lock` is
 > committed. `rust-toolchain.toml` and `cargo-deny` were not adopted (kept here as intended
 > future hardening).
@@ -2383,6 +2424,7 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 
 # Part II — Historical record
 
+> [!IMPORTANT]
 > Everything from here to the appendices is the **completed plan**: the MVP definition, the
 > milestones, the decision points, the risk register, and the adversarial-review record. It is
 > kept verbatim (plus outcome notes) because it documents *why* the architecture is shaped the
@@ -2391,10 +2433,11 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 
 ## §21 MVP definition and milestone plan
 
-> **Outcome: achieved and exceeded.** Every acceptance item in §21.1 passes today, and the
+> [!NOTE]
+> **Outcome: achieved and exceeded.** Every acceptance item in [§21.1](#211-mvp-acceptance-verbatim-goal) passes today, and the
 > M9+ roadmap items shipped too — lists, tabs, navigation, WinUI launch parity, plus systems
 > the plan never named (parts, tweaks, menus, dialogs, focus, gradients, OHOS, the agent
-> tooling). The walkthrough grew from the planned 13 steps to 200+. The §21.3 performance
+> tooling). The walkthrough grew from the planned 13 steps to 200+. The [§21.3](#213-performance-budget-asserted-in-ci-from-m5) performance
 > budget was **not** wired into CI (no frame-time assertions exist); it remains an aspiration.
 
 ### §21.1 MVP acceptance (verbatim goal)
@@ -2420,12 +2463,12 @@ annotations, and ids throughout.
 | M2 | `day-appkit` + desktop `launch()` + **default main menu** (Cmd+C/V/X/A via responder-chain selectors, Cmd+Q — NSTextField editing is broken without it); pieces: toggle/slider/text_field/spacer/scroll/when/each; styling core + `PerTarget`; `snapshot_window`; showcase v0 | manual + screenshot verification on host; **manual Japanese-IME smoke** |
 | M3 | `day-gtk`, `day-qt` (host macOS; C++ shim per pane) incl. `snapshot_window`; **`day-piece-combobox` tier-1 renderers (appkit/gtk/qt)**; showcase parity across 3 desktop toolkits | side-by-side screenshots; external piece renders on all 3 |
 | M4 | CLI v0: `new`/`build`/`launch` (desktop targets), Day.toml + day-meta, templates, doctor-lite, JSON events (hello/log/result), cancellation | `day new app t && cd t && day launch` works |
-| M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance (§18.1)**; safe-area/keyboard insets (§7.7); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
+| M5 | mobile: `day-uikit` + ios scaffold (VC-hosted root, xcode-backend callback, sandboxing off) + simctl pipeline; `day-android` + gradle scaffold (fragment-hosted root, DayRustBuildTask, configChanges) + adb pipeline; **assets/locales resource conveyance ([§18.1](#181-data-resources-lands-in-m5-with-the-scaffolds--fluent-m6-and-the-walkthrough-m7-depend-on-it))**; safe-area/keyboard insets ([§7.7](#77-safe-areas-insets-and-the-keyboard)); combobox uikit/android renderers | showcase on Simulator + emulator via `day launch`; wrapping-label reflow test; **manual keyboard + iOS IME smokes** |
 | M6 | `day-fluent` (tr/locale signal/negotiation/ICU4X functions/en-XA/ar-XB), a11y props + lint v0, ids, per-target locale plumbing | live locale switch + relayout benchmark; VoiceOver smoke on appkit/uikit; **`a11y_audit` green on apple targets**; fr/de number-format conformance |
 | M7 | dayscript: engine, rendezvous/transport, `day script`, screenshots, JUnit; `--locale`/`--script` on launch | walkthrough (showcase-v1, no gauge step yet) passes on all 5 targets locally |
 | M8a | canvas: `Draw`/DrawOp/replay on all 5 (PangoCairo/CoreText/QPainter/minikin/DirectWrite text); gauge joins showcase + walkthrough screenshot step | gauge renders natively on all 5; mock display-list tests |
-| M8b | `image` piece + §18.2 icons pipeline (resvg pre-render, per-platform icon matrix) | image/icons on all 5 |
-| M8c | `sign` v0 + `pack` (dmg / apk / zipped sim-.app); lint v1; site + CI complete | **MVP acceptance §21.1** |
+| M8b | `image` piece + [§18.2](#182-icons-and-images) icons pipeline (resvg pre-render, per-platform icon matrix) | image/icons on all 5 |
+| M8c | `sign` v0 + `pack` (dmg / apk / zipped sim-.app); lint v1; site + CI complete | **MVP acceptance [§21.1](#211-mvp-acceptance-verbatim-goal)** |
 | M9+ | list (native recycling), battery (first dayffi tier-2 proof), winui launch parity, `day upgrade`, webview→lottie→richtext, grid/tabs/nav (native containers per resolved DP-23), `day daemon`, real-device iOS, web-html experiment | — |
 
 Sequencing rationale: mock-first (M0–M1) makes the fine-grained-invalidation claim a regression
@@ -2447,77 +2490,80 @@ Fluent (M6) and the walkthrough (M7) read packaged resources.
 
 ## §22 Decision points for review
 
+> [!NOTE]
 > **Outcome notes (2026-07):** every DP is closed by implementation. Where reality diverged
 > from the recommendation: **DP-3/DP-4** — dayffi and its bindgen never happened; the C ABI
-> was superseded by `[package.metadata.day.*]` + `Event::Custom{tag,num,text}` (§15). **DP-8**
-> — the web experiment never ran; no web backend exists. **DP-9** — lists later shipped (§10).
+> was superseded by `[package.metadata.day.*]` + `Event::Custom{tag,num,text}` ([§15](#15-extensibility-pieces-parts-and-tweaks)). **DP-8**
+> — the web experiment never ran; no web backend exists. **DP-9** — lists later shipped ([§10](#10-native-list-integration)).
 > **DP-10** — doctor shipped; `clean`/`config` did not. **DP-22** — piece-internal
 > scriptability was never needed; dayscript drives everything through Day ids. **DP-24** —
-> crates.io publishing is wired but not yet executed (§1). **DP-25** — Android process-death
+> crates.io publishing is wired but not yet executed ([§1](#1-glossary-and-naming)). **DP-25** — Android process-death
 > restoration remains cold-restart, as accepted. The table is preserved as written.
 
 Each had a recommendation. **DP-16 (row contract) and DP-23 (navigation) were resolved**
-(owner-ratified 2026-07-01; resolutions folded into §5.4/§10). The rest resolved through
+(owner-ratified 2026-07-01; resolutions folded into [§5.4](#54-keyed-collections-each)/[§10](#10-native-list-integration)). The rest resolved through
 implementation as noted above.
 
 | # | question | options | recommendation |
 |---|---|---|---|
 | DP-1 | ~~crates.io naming~~ | — | **superseded by DP-24** |
-| DP-2 | style variation surface | `per_toolkit()` values + `style_on` (as specced) vs. only plain `match` | as specced (§6.2) |
-| DP-3 | dayffi payloads | `DayValue` tagged union vs. serialized (JSON/postcard) | `DayValue`, with the JNI packed-frame exception (§15.3) |
+| DP-2 | style variation surface | `per_toolkit()` values + `style_on` (as specced) vs. only plain `match` | as specced ([§6.2](#62-per-target-variation-pertargett-values-no-macros)) |
+| DP-3 | dayffi payloads | `DayValue` tagged union vs. serialized (JSON/postcard) | `DayValue`, with the JNI packed-frame exception ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)) |
 | DP-4 | `day bindgen` codegen for polyglot stubs | v1 hand-written conventions vs. generator in MVP | hand-written v1; generator M9+ |
-| DP-5 | iOS/macOS project generation | checked-in template `.xcodeproj` (flutter-style) vs. xcodegen/tuist dependency | template (no extra toolchain; scaffold-version handshake §17.3 covers evolution); revisit if pbxproj churn hurts |
-| DP-6 | Windows installer | `.msix` primary + `.msi` (WiX) optional vs. msi-only | msix primary, msi optional; note Azure Trusted Signing onboarding constraints (individual/org verification, subscription) affect who can sign — §16.5's provider enum keeps alternatives open |
-| DP-7 | bundling GTK/Qt into macOS/Windows apps for `pack` | support post-MVP vs. never (dev-only combos) | post-MVP support for qt (windeployqt/macdeployqt exist; **LGPL-3** obligations enforced by pack, §16.5); gtk (**LGPL-2.1+**, different obligations) stays dev-only until demand |
+| DP-5 | iOS/macOS project generation | checked-in template `.xcodeproj` (flutter-style) vs. xcodegen/tuist dependency | template (no extra toolchain; scaffold-version handshake [§17.3](#173-daytoml) covers evolution); revisit if pbxproj churn hurts |
+| DP-6 | Windows installer | `.msix` primary + `.msi` (WiX) optional vs. msi-only | msix primary, msi optional; note Azure Trusted Signing onboarding constraints (individual/org verification, subscription) affect who can sign — [§16.5](#165-subcommands)'s provider enum keeps alternatives open |
+| DP-7 | bundling GTK/Qt into macOS/Windows apps for `pack` | support post-MVP vs. never (dev-only combos) | post-MVP support for qt (windeployqt/macdeployqt exist; **LGPL-3** obligations enforced by pack, [§16.5](#165-subcommands)); gtk (**LGPL-2.1+**, different obligations) stays dev-only until demand |
 | DP-8 | web-html layout strategy | day-absolute-positioning (as specced) vs. hybrid with browser flow | start absolute + native `scroll`; evaluate hybrid in the experiment |
-| DP-9 | `list` excluded from MVP | confirm | confirm (spec hooks reserved, §10) |
+| DP-9 | `list` excluded from MVP | confirm | confirm (spec hooks reserved, [§10](#10-native-list-integration)) |
 | DP-10 | extra subcommands `doctor`/`clean`/`config` | approve / reject | approve (five toolchains make doctor indispensable; config is where doctor's fixes land) |
-| DP-11 | layout engine | own SwiftUI-model engine (as specced, now with measurement cache §7.4) vs. Taffy | own engine (native height-for-width measurement + proposal negotiation don't fit Taffy; hop/pane heritage de-risks it) |
+| DP-11 | layout engine | own SwiftUI-model engine (as specced, now with measurement cache [§7.4](#74-incremental-relayout-and-the-measurement-cache)) vs. Taffy | own engine (native height-for-width measurement + proposal negotiation don't fit Taffy; hop/pane heritage de-risks it) |
 | DP-12 | cross-thread signals | main-thread-only + `Setter`/`on_main` (as specced) vs. floem-style sync storage | main-thread-only v1 |
-| DP-13 | dayscript event injection level | day-event synthesis (as specced) vs. native input synthesis | day-event v1; native injection as later additive step tier (Appendix C) |
-| DP-14 | ~~YAML crate~~ | — | **resolved: `serde_norway`** wrapped in a shared `day_yaml` module (§16.2) |
-| DP-16 | ~~row contract unification~~ | — | **resolved (owner, 2026-07-01): unified.** `each` and `list` share the `ItemSlot<T>` contract (§5.4, §10.1) — one row function serves both, same-key value changes propagate automatically (`each_diff` dropped as subsumed); validated on day-mock in M1–M2 |
-| DP-17 | flush scheduling: when does the reactive drain run? | (A) synchronous fixpoint drain at batch end; layout in a coalesced posted callback (as specced §3.3); (B) always-posted flush (pane's literal model — simpler reentrancy, +1 turn latency on every event, fuzzier `wait_idle`) | **A** (already specced; this DP records the ratification) |
-| DP-18 | reading a disposed signal in **release** builds | (A) panic (floem/pane precedent, fail-fast); (B) log-once + default via try-path (leptos's panic-on-read is a notorious production footgun) | **A**, paired with the `try_*` doctrine of §4.3 — silent defaults hide real bugs and the no-op-write rule already covers legitimate async races |
+| DP-13 | dayscript event injection level | day-event synthesis (as specced) vs. native input synthesis | day-event v1; native injection as later additive step tier ([Appendix C](#appendix-c--dayscript-reference-v1)) |
+| DP-14 | ~~YAML crate~~ | — | **resolved: `serde_norway`** wrapped in a shared `day_yaml` module ([§16.2](#162-crate-choices)) |
+| DP-16 | ~~row contract unification~~ | — | **resolved (owner, 2026-07-01): unified.** `each` and `list` share the `ItemSlot<T>` contract ([§5.4](#54-keyed-collections-each), [§10.1](#101-api--the-shared-itemslot-contract-unified-with-each--dp-16-resolved)) — one row function serves both, same-key value changes propagate automatically (`each_diff` dropped as subsumed); validated on day-mock in M1–M2 |
+| DP-17 | flush scheduling: when does the reactive drain run? | (A) synchronous fixpoint drain at batch end; layout in a coalesced posted callback (as specced [§3.3](#33-threading-model-and-the-turn-state-machine)); (B) always-posted flush (pane's literal model — simpler reentrancy, +1 turn latency on every event, fuzzier `wait_idle`) | **A** (already specced; this DP records the ratification) |
+| DP-18 | reading a disposed signal in **release** builds | (A) panic (floem/pane precedent, fail-fast); (B) log-once + default via try-path (leptos's panic-on-read is a notorious production footgun) | **A**, paired with the `try_*` doctrine of [§4.3](#43-scopes-and-disposal) — silent defaults hide real bugs and the no-op-write rule already covers legitimate async races |
 | DP-19 | Qt list recycling (QListView recycles delegate *paintings*, not live QWidget rows; `setIndexWidget` is unvirtualized) | (A) day-side emulated recycling: QAbstractScrollArea host + pooled cell QWidgets behind the same RowHost protocol, reported `Support::Emulated`; (B) painted `QStyledItemDelegate` fast path, rows restricted to text/icon/accessory | **A** default (preserves "any piece is a row"), B as a later optimization |
-| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into §16.5; needed for macos-gtk/qt regardless) |
-| DP-21 | extensibility (pillar 4) in the MVP | (A) tier-1 combobox joins MVP acceptance; battery/dayffi defer to M9; scaffolds ship the (empty) generated-aggregator attachment points from M5; (B) A + one thin tier-2 slice (battery, apple+android) in M8 to force dayffi real before templates ossify (~1 milestone-week); (C) confirm full M9+ deferral and say pillar 4 ships unproven | **A** (folded into §21), with **B as stretch** if schedule allows |
-| DP-22 | scriptability of tier-2/adopted-native piece *internals* (a ComboBox popup or WebView content is one opaque handle to the element index) | (A) optional `script_query`/`script_act` dayffi vtable entries + sub-element locator syntax (`stations-combo#item:3`) — additive, keeps pillar composition true; (B) scope the claim to root nodes + exposed props, with capability-flagged structured errors | **A** for MVP-adjacent pieces (ComboBox); at minimum §2's claim stays scoped as now written |
-| DP-23 | ~~navigation architecture~~ | — | **resolved (owner, 2026-07-01): native containers.** `nav_stack` = UINavigationController / fragment+predictive-back hosts, desktop day-composed with native-style transitions (§10.5); prerequisites already in place — VC/fragment-hosted roots (§17.1) + reserved push/pop/present hooks (§10.5) |
+| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless) |
+| DP-21 | extensibility (pillar 4) in the MVP | (A) tier-1 combobox joins MVP acceptance; battery/dayffi defer to M9; scaffolds ship the (empty) generated-aggregator attachment points from M5; (B) A + one thin tier-2 slice (battery, apple+android) in M8 to force dayffi real before templates ossify (~1 milestone-week); (C) confirm full M9+ deferral and say pillar 4 ships unproven | **A** (folded into [§21](#21-mvp-definition-and-milestone-plan)), with **B as stretch** if schedule allows |
+| DP-22 | scriptability of tier-2/adopted-native piece *internals* (a ComboBox popup or WebView content is one opaque handle to the element index) | (A) optional `script_query`/`script_act` dayffi vtable entries + sub-element locator syntax (`stations-combo#item:3`) — additive, keeps pillar composition true; (B) scope the claim to root nodes + exposed props, with capability-flagged structured errors | **A** for MVP-adjacent pieces (ComboBox); at minimum [§2](#2-the-four-pillars)'s claim stays scoped as now written |
+| DP-23 | ~~navigation architecture~~ | — | **resolved (owner, 2026-07-01): native containers.** `nav_stack` = UINavigationController / fragment+predictive-back hosts, desktop day-composed with native-style transitions ([§10.5](#105-navigation-and-presentation)); prerequisites already in place — VC/fragment-hosted roots ([§17.1](#171-project-layout-day-new-output)) + reserved push/pop/present hooks ([§10.5](#105-navigation-and-presentation)) |
 | DP-24 | crates.io namespace (no namespacing on crates.io — RFC 3243 unshipped; `day-*` names are squattable once public; "Day" fights day.js for SEO) | (A) umbrella `day` + `day-*` crates; (B) umbrella `dayui` (SEO hedge), binary/brand stay `day`. Either way, reservation timing is its own call | **deferred by owner directive (2026-07-01): no crates.io reservation now.** Nothing in the MVP requires publishing (workspace + git deps); revisit naming + reservation together before anything is published or the design circulates publicly |
-| DP-25 | Android process-death restoration (`onSaveInstanceState`) | (A) v1: documented cold restart; post-MVP opt-in persisted signals (`Signal::persist("key")`) into the state bundle; (B) design persistence into day-spec v1 now | **A** — the §9 configChanges opt-out covers the common recreation triggers; cold restart is honest for v1 and `Signal::persist` is additive later |
+| DP-25 | Android process-death restoration (`onSaveInstanceState`) | (A) v1: documented cold restart; post-MVP opt-in persisted signals (`Signal::persist("key")`) into the state bundle; (B) design persistence into day-spec v1 now | **A** — the [§9](#9-the-eight-toolkits-and-the-extra-combinations) configChanges opt-out covers the common recreation triggers; cold restart is honest for v1 and `Signal::persist` is additive later |
 
 ---
 
 ## §23 Risks
 
+> [!NOTE]
 > **Outcome notes:** the two engineering risks the review weighted most — incremental relayout
 > with no ancestor implementation, and native list integration — both landed (the measure
-> cache and boundary re-entry live in day-core/src/layout.rs; lists in §10). The linkme/LTO
+> cache and boundary re-entry live in day-core/src/layout.rs; lists in [§10](#10-native-list-integration)). The linkme/LTO
 > gamble has not bitten in release builds. The M8c-density worry proved right in spirit —
 > packaging absorbed the most iteration of any subsystem (flatpak icon policy, WinUI installer,
-> OHOS hvigor). "No hot reload" stands, mitigated exactly as described (§16.9).
+> OHOS hvigor). "No hot reload" stands, mitigated exactly as described ([§16.9](#169-the-inner-loop-no-hot-reload--the-honest-story)).
 
 | risk | mitigation |
 |---|---|
-| **Scope breadth** (5 targets × 4 pillars × CLI) | milestone gating (§21.2); mock-first regression tests; MVP-adjacent tiers explicitly deferred |
-| **Incremental relayout is spec-sound but ancestor-unproven** (hop re-runs its whole engine; pane relayouts the whole tree — nobody in the lineage has implemented boundary re-entry + measure cache) | M1's measure-call-count and sibling-re-proposal mock tests are the gate; §21.3 wall-time budget regression-tracked |
-| Native list integration proves toolkit-hostile | deferred to M9 with spec hooks pre-reserved (§10.2 completed protocol); `scroll`+`each` is the honest fallback; Qt emulation is DP-19 |
-| GTK a11y off-Linux, GTK bundling | secondary-combination framing (§9, §13); doctor probes AccessKit; DP-7 |
-| Qt licensing (LGPL-3) | pack-enforced guard rails (§16.5): dynamic linking pinned, store/static configs require commercial attestation, LGPL texts + source offer bundled |
-| `build-once` model surprises (signal-read-outside-binding) | **runtime debug diagnostic** (once-per-callsite, `#[track_caller]`) is the sound mechanism; lint heuristic is advisory (§4.1); mock tests encode idioms |
-| linkme dead-strip under iOS release+LTO | layered registration (§8.2: generated registrant + all-profile required-kinds check) + a dedicated release+LTO CI leg — mitigated, but inherently a link-time gamble until that leg exists |
-| Toolchain drift (JDK/AGP/Xcode/NDK/Gradle config-cache) | `day doctor` with pinned known-good matrices; CI encodes them (§20, §20.5); scaffold-version handshake (§17.3) |
-| dayffi ABI lock-in | versioned vtables + written evolution policy (§15.3): [min,max] negotiation at registration, append-only growth, v1-pinned piece-ci cell |
+| **Scope breadth** (5 targets × 4 pillars × CLI) | milestone gating ([§21.2](#212-milestones-each-lands-green-ci--tests-forward-dependencies-eliminated)); mock-first regression tests; MVP-adjacent tiers explicitly deferred |
+| **Incremental relayout is spec-sound but ancestor-unproven** (hop re-runs its whole engine; pane relayouts the whole tree — nobody in the lineage has implemented boundary re-entry + measure cache) | M1's measure-call-count and sibling-re-proposal mock tests are the gate; [§21.3](#213-performance-budget-asserted-in-ci-from-m5) wall-time budget regression-tracked |
+| Native list integration proves toolkit-hostile | deferred to M9 with spec hooks pre-reserved ([§10.2](#102-realization-the-rowhost-protocol) completed protocol); `scroll`+`each` is the honest fallback; Qt emulation is DP-19 |
+| GTK a11y off-Linux, GTK bundling | secondary-combination framing ([§9](#9-the-eight-toolkits-and-the-extra-combinations), [§13](#13-accessibility)); doctor probes AccessKit; DP-7 |
+| Qt licensing (LGPL-3) | pack-enforced guard rails ([§16.5](#165-subcommands)): dynamic linking pinned, store/static configs require commercial attestation, LGPL texts + source offer bundled |
+| `build-once` model surprises (signal-read-outside-binding) | **runtime debug diagnostic** (once-per-callsite, `#[track_caller]`) is the sound mechanism; lint heuristic is advisory ([§4.1](#41-the-model-build-once-bind-forever)); mock tests encode idioms |
+| linkme dead-strip under iOS release+LTO | layered registration ([§8.2](#82-the-open-renderer-registry): generated registrant + all-profile required-kinds check) + a dedicated release+LTO CI leg — mitigated, but inherently a link-time gamble until that leg exists |
+| Toolchain drift (JDK/AGP/Xcode/NDK/Gradle config-cache) | `day doctor` with pinned known-good matrices; CI encodes them ([§20](#20-continuous-integration), [§20.5](#205-toolchain-and-dependency-governance)); scaffold-version handshake ([§17.3](#173-daytoml)) |
+| dayffi ABI lock-in | versioned vtables + written evolution policy ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)): [min,max] negotiation at registration, append-only growth, v1-pinned piece-ci cell |
 | Fluent runtime cost per binding | per-locale parsed-bundle cache + per-binding resolved-message capture (no (key,args) memo — args contain `f64`); ICU4X function cost measured in M6 |
 | **M8c density** (sign+pack+lint+site+CI in one gate) | already split from canvas/image (M8a/M8b); if it slips, the MVP claim slips with it — watch this milestone first |
-| No hot reload disappoints Flutter refugees | honest positioning + script-replay inner loop (§16.9); research item tracked |
-| dayscript blind spots (keyboard, IME, native hit-testing, animations) | §14.2 says so explicitly; manual smokes in M2/M5/M6 acceptance carry that load |
+| No hot reload disappoints Flutter refugees | honest positioning + script-replay inner loop ([§16.9](#169-the-inner-loop-no-hot-reload--the-honest-story)); research item tracked |
+| dayscript blind spots (keyboard, IME, native hit-testing, animations) | [§14.2](#142-the-embedded-engine) says so explicitly; manual smokes in M2/M5/M6 acceptance carry that load |
 
 ---
 
 ## §24 Adversarial review findings and resolutions
 
+> [!NOTE]
 > Historical record of the pre-implementation review. The "accepted resolutions" below were
 > folded into Part I's sections before implementation began; where implementation later
 > diverged (dayffi, day-script-proto, the CLI's error framework), Part I's status stamps are
@@ -2533,10 +2579,10 @@ points (DP-16–DP-25)**.
 
 ### Blockers and accepted resolutions
 
-- **§10 list contradiction** (by-value row builder vs recycling — 3 lenses converged): rows build
+- **[§10](#10-native-list-integration) list contradiction** (by-value row builder vs recycling — 3 lenses converged): rows build
   against a Copy slot handle with per-field projections; `SignalRw` for two-way controls;
   `row_kind` for reuse identifiers. `each`-unification → DP-16 (since resolved: unified as
-  `ItemSlot<T>`, §5.4).
+  `ItemSlot<T>`, [§5.4](#54-keyed-collections-each)).
 - **!Send hole in the async story** (`on_main(move || sig.set(v))` could never compile): `Send`
   `Setter<T>` write-handle with liveness check; `Resource` rebuilt on it (leptos two-closure
   shape, tracked source, latest-wins).
@@ -2566,33 +2612,33 @@ points (DP-16–DP-25)**.
 
 ### Notable majors (accepted; details in their sections)
 
-Runtime debug diagnostic replaces the unsoundly-promised static signal-read lint (§4.1);
-measurement cache + corrected boundary/sibling-re-proposal relayout rules (§7.4); min-size from
-`Proposal(0,0)` not unconstrained — the hop shrink lesson at window level (§7.5); safe-area/
-keyboard-inset policy — API-35 edge-to-edge bites at M5 (§7.7); RTL threaded through the M1 engine
-with `ar-XB` (§7.8); RowHost completion — `flush_now` on bind, `row_size_invalidated`,
-move-lowering (§10.2); IME-safe controlled inputs — origin-tagged writes + composition gating;
-pane never proved CJK (§4.4); AppKit default menu bar — Cmd+C/V/Q were broken in the flagship demo
-(M2); navigation section + reserved presentation hooks (§10.5, DP-23); `AppCx::create_window`
-reshape before the spec freeze (§8.1); animation `AnimSpec` parameter reserved (§8.4);
-panic/catch_unwind policy (§8.5); per-toolkit a11y-id truth table — Android `setTag` is invisible
-to automation, `uniqueId` is API 33+ (§13); native-tree `a11y_audit` step — nothing previously
-verified `set_a11y` landed (§14.2); dayscript step tiers + actionability preconditions — no more
-green taps on disabled/occluded elements (Appendix C); dayffi threading/async-command/
-ABI-negotiation/JNI-packed-frame (§15.3); piece.yaml re-keyed by target selectors (§15.2);
+Runtime debug diagnostic replaces the unsoundly-promised static signal-read lint ([§4.1](#41-the-model-build-once-bind-forever));
+measurement cache + corrected boundary/sibling-re-proposal relayout rules ([§7.4](#74-incremental-relayout-and-the-measurement-cache)); min-size from
+`Proposal(0,0)` not unconstrained — the hop shrink lesson at window level ([§7.5](#75-window-sizing)); safe-area/
+keyboard-inset policy — API-35 edge-to-edge bites at M5 ([§7.7](#77-safe-areas-insets-and-the-keyboard)); RTL threaded through the M1 engine
+with `ar-XB` ([§7.8](#78-rtl-and-bidi)); RowHost completion — `flush_now` on bind, `row_size_invalidated`,
+move-lowering ([§10.2](#102-realization-the-rowhost-protocol)); IME-safe controlled inputs — origin-tagged writes + composition gating;
+pane never proved CJK ([§4.4](#44-events-and-controlled-inputs)); AppKit default menu bar — Cmd+C/V/Q were broken in the flagship demo
+(M2); navigation section + reserved presentation hooks ([§10.5](#105-navigation-and-presentation), DP-23); `AppCx::create_window`
+reshape before the spec freeze ([§8.1](#81-the-toolkit-trait)); animation `AnimSpec` parameter reserved ([§8.4](#84-animation-reserved-hooks--still-unimplemented));
+panic/catch_unwind policy ([§8.5](#85-panics-and-crashes)); per-toolkit a11y-id truth table — Android `setTag` is invisible
+to automation, `uniqueId` is API 33+ ([§13](#13-accessibility)); native-tree `a11y_audit` step — nothing previously
+verified `set_a11y` landed ([§14.2](#142-the-embedded-engine)); dayscript step tiers + actionability preconditions — no more
+green taps on disabled/occluded elements ([Appendix C](#appendix-c--dayscript-reference-v1)); dayffi threading/async-command/
+ABI-negotiation/JNI-packed-frame ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)); piece.yaml re-keyed by target selectors ([§15.2](#152-package-layout-and-aggregation));
 arg-less `day xcode-backend` + configuration-cache-safe Gradle task + conveyance-drift detection +
-per-target `CARGO_TARGET_DIR` + scaffold-version handshake (§16–§17); NDJSON hello/protocol
-version (§16.3); CI-realistic signing — notarytool API-key auth, Windows HSM provider enum,
-WinAppSDK bootstrap, fork-PR no-notarize split (§16.5, §20); Fluent `NUMBER`/`DATETIME` via ICU4X —
+per-target `CARGO_TARGET_DIR` + scaffold-version handshake ([§16](#16-the-day-cli)–[§17](#17-the-conventional-day-project-and-daytoml)); NDJSON hello/protocol
+version ([§16.3](#163-global-contract-every-subcommand)); CI-realistic signing — notarytool API-key auth, Windows HSM provider enum,
+WinAppSDK bootstrap, fork-PR no-notarize split ([§16.5](#165-subcommands), [§20](#20-continuous-integration)); Fluent `NUMBER`/`DATETIME` via ICU4X —
 fluent-rs registers none by default, so French numbers rendered wrong as originally specced
-(§12.2); MSRV/cargo-deny governance (§20.5); Qt-LGPL pack guards + THIRD-PARTY-NOTICES stage
-(§16.5).
+([§12.2](#122-api)); MSRV/cargo-deny governance ([§20.5](#205-toolchain-and-dependency-governance)); Qt-LGPL pack guards + THIRD-PARTY-NOTICES stage
+([§16.5](#165-subcommands)).
 
 ### Dropped
 
 - Naming/ergonomics polish (`piece_dyn`→`dyn_piece`, crate renames): bikeshed against an already-
   coherent convention with real churn cost; the one substantive item (`.any()` on `Decorate`) was
-  folded into §5.1 instead.
+  folded into [§5.1](#51-authoring-surface-functions-and-builders-no-macros) instead.
 
 ### Remaining risks (carried into §23)
 
@@ -2600,14 +2646,14 @@ The incremental-relayout algorithm now has a sound spec but no ancestor implemen
 op-count and wall-time mock tests are the gate. Emulated Qt list recycling (DP-19) and
 piece-internal scriptability (DP-22) are accepted scope, not proven designs. linkme-under-LTO is
 mitigated but remains a link-time gamble until the release+LTO CI leg exists. dayscript still
-cannot see keyboards, IME, native hit-testing, or native animations — §14.2 says so, and manual
+cannot see keyboards, IME, native hit-testing, or native animations — [§14.2](#142-the-embedded-engine) says so, and manual
 smokes carry that load. M8c remains the densest single gate even after the M8 split.
 
 ---
 
 ## Addendum (2026-07-09) — Tweaks: per-toolkit configuration of built-in pieces
 
-Adopted post-review (owner-ratified): **tweaks** amend §15's tier ladder with a rung BELOW
+Adopted post-review (owner-ratified): **tweaks** amend [§15](#15-extensibility-pieces-parts-and-tweaks)'s tier ladder with a rung BELOW
 composition — configuring the native widget behind an existing built-in piece, case by case,
 without a new piece kind. A piece with a tweak applied is a **Tweaked Piece**. This supersedes
 the earlier composition-only stance for built-ins: "call two extra methods on the real NSButton /
@@ -2618,9 +2664,9 @@ Mechanism (implemented; docs/tweaks.md is normative):
   `node_handle_any(node) -> Option<Box<dyn Any>>` (a handle CLONE — retain / gobject ref /
   GlobalRef clone / Copy pointer). Toolkit `ext` modules downcast to their concrete handle.
 - Portable surface: `Decorate::tweak(FnOnce(RNode))` (runs once at mount, post-realize — the
-  §17.4/§5.2 synchronous-realize guarantee makes this sound), `Decorate::native_ref(&NativeRef)`
+  [§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)/[§5.2](#52-the-piece-trait) synchronous-realize guarantee makes this sound), `Decorate::native_ref(&NativeRef)`
   (retained, liveness-checked, reactive on mount/clear transitions), and
-  `day_core::invalidate_size(node)` for native mutations that change intrinsic size (§7.4's
+  `day_core::invalidate_size(node)` for native mutations that change intrinsic size ([§7.4](#74-incremental-relayout-and-the-measurement-cache)'s
   measure cache cannot see mutations Day didn't make).
 - Per-toolkit sugar: `.appkit(…)/.uikit(…)/.gtk(…)/.android(…)` typed ext traits;
   `.qt_raw(…)/.winui_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no
@@ -2634,7 +2680,7 @@ Mechanism (implemented; docs/tweaks.md is normative):
   Day reads the node's kind off the same `node_kind` seam and maps it to the class it realized —
   the metadata a C++ tweak crosses the FFI with to guard its cast rather than blind-`static_cast`.
 - Packaged tweaks: `tweaks/day-tweak-*` crates mirror piece crates' Cargo shape and reuse
-  `[package.metadata.day.piece] backends` for §15.2's feature union. Three in-tree examples
+  `[package.metadata.day.piece] backends` for [§15.2](#152-package-layout-and-aggregation)'s feature union. Three in-tree examples
   (button-bezel / label-selectable / slider-tickmarks) span single-toolkit trivial to
   six-toolkit with crate-owned Qt/WinRT/ArkUI native code; the showcase Tweaks page exercises
   them in CI.
@@ -2646,6 +2692,7 @@ Mechanism (implemented; docs/tweaks.md is normative):
 
 # Appendix A — The showcase app, end to end
 
+> [!WARNING]
 > **Status: superseded by the live app.** The design-era single-page sketch this appendix
 > carried is long outgrown — **`apps/showcase/` is the reference**, and it is deliberately
 > self-documenting: every page's source comments name the docs/ file and DESIGN section it
@@ -2653,7 +2700,7 @@ Mechanism (implemented; docs/tweaks.md is normative):
 
 What the shipped showcase covers, per navigation destination (a `selector` sidebar on desktop,
 a list-push on mobile — docs/navigation.md): **Controls** (every two-way binding, pickers,
-search, progress/activity), **Focus** (the §4.4/docs/focus.md permutations), **Text**
+search, progress/activity), **Focus** (the [§4.4](#44-events-and-controlled-inputs)/docs/focus.md permutations), **Text**
 (semantic styles, weights, custom fonts), **Canvas & shapes** (shape kinds, gradients, live
 transforms + gestures, the gauge, composition-tier widgets), **List** (native recycling),
 **Tabs**, **Stack** (push/pop bound to a path signal), **Media**, **Web View**, **Menus &
@@ -2677,13 +2724,15 @@ $ day launch -p macos-appkit --variant dark --env DAY_THEME=dark --script dayscr
 
 ---
 
-# Appendix B — Worked extension examples
+# Appendix B — Extension examples
 
+> [!NOTE]
 > **Status: design-era sketches with shipped outcomes.** Each example below now exists in the
 > repo; the outcome lines say what changed. docs/extending.md is the how-to.
 
 ### B.1 ComboBox (tier 1 — Rust renderers, the pane-combobox pattern)
 
+> [!NOTE]
 > **Shipped** as `pieces/day-piece-combobox`, on every toolkit. The `ForeignPiece` prop-bag
 > sketch became **typed props + the `renderer!` macro**:
 
@@ -2707,6 +2756,7 @@ App usage: add the crate with the matching toolkit features. No edits to day.
 // day-piece-battery/src/lib.rs
 pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Signal<f32>, pub charging: Signal<bool> }
 ```
+> [!NOTE]
 > **Shipped** as `parts/day-part-battery` — the first **part** (docs/battery.md). Per-OS Rust
 > halves selected by `cfg(target_os)` (IOKit on Apple targets — including `macos-gtk`/`-qt`,
 > exactly the selector case the design worried about; upower on Linux; `GetSystemPowerStatus`
@@ -2715,6 +2765,7 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 
 ### B.3 WebView (tier 2 — complex: commands + events)
 
+> [!NOTE]
 > **Shipped** as `pieces/day-piece-webview` (docs/webview.md): WKWebView / android.webkit /
 > WebKitGTK / QWebEngineView / WebView2 / ArkUI web, driven by tier-1 Rust renderers with C++
 > shims where the toolkit needs one. Navigation events ride `Event::Custom`; the
@@ -2722,14 +2773,16 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 
 ### B.4 Lottie (tier 2 — bridging famous native libraries)
 
+> [!NOTE]
 > **Shipped** as `pieces/day-piece-lottie` (docs/lottie.md): lottie-ios via
 > `[package.metadata.day.ios]` `swift-packages`, lottie-android via
 > `[package.metadata.day.android]` `gradle-dependencies` — the exact third-party-coordinate
-> flow this example was designed to prove, minus `piece.yaml` (§15.2). `Cap::Lottie` gates
+> flow this example was designed to prove, minus `piece.yaml` ([§15.2](#152-package-layout-and-aggregation)). `Cap::Lottie` gates
 > support per toolkit.
 
 ### B.5 RichText (tier 2 — deep native control)
 
+> [!WARNING]
 > **Not built.** The nearest shipped relative is `pieces/day-piece-textarea` (multi-line plain
 > text). The rich-text design stays here as future work; nothing in the shipped extension
 > mechanism blocks it.
@@ -2738,6 +2791,7 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 
 # Appendix C — dayscript reference (v1)
 
+> [!NOTE]
 > **Status: rewritten to the shipped catalog** (`day-script`'s `Step` enum is normative; the
 > website's dayscript page is the tutorial form). The designed catalog was larger in some
 > directions (locator qualifiers, `clear`/`key`/`scroll_to`/`repeat` blocks/`run_flow`,
@@ -2746,7 +2800,7 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > designed steps return "unknown step" errors, exactly as the step-tier plan intended.
 
 Scripts are YAML: `name`, `description`, and a `flow:` list of steps. Every element reference
-is a Day `.id()` (§5.5). Steps whose failure may resolve with time (element not found yet,
+is a Day `.id()` ([§5.5](#55-node-identity-ids-and-the-element-index)). Steps whose failure may resolve with time (element not found yet,
 assertion pending) retry within a bounded implicit wait (5 s default) — no sleeps in
 well-written scripts; `pause` exists for demos and settle-time.
 
@@ -2764,12 +2818,12 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `nav_back` | — | pop one level, the native back path |
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |
-| `assert_text` | `id`, `text?` \| `key?` + `args?` | FSI/PDI-normalized (§12.2) |
+| `assert_text` | `id`, `text?` \| `key?` + `args?` | FSI/PDI-normalized ([§12.2](#122-api)) |
 | `assert_value` | `id`, `value` | typed per piece kind: toggle = bool, slider = number, field = string |
 | `assert_focused` | `id`, `focused?` | reads the probe's focus mirror; retryable |
 | `assert_presented` | `title?` | a native modal is up (docs/dialogs.md) |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
-| `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations (§13, §14.2) |
+| `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `screenshot` | name | waits for `ui_idle` (native transitions settled) |
 | `pause` | `secs` | demos only |
 
@@ -2783,6 +2837,7 @@ implemented** — scripts scroll explicitly and the walkthrough is written accor
 
 # Appendix D — `day` CLI transcripts
 
+> [!NOTE]
 > Illustrative (paths/versions/timings are representative, not verbatim); `day --help` and
 > docs/cli.md (website) are authoritative.
 
@@ -2818,16 +2873,17 @@ $ day pack -p macos-appkit --profile release
 
 # Appendix E — Implementation notes for the builder (historical)
 
+> [!NOTE]
 > The build happened; these notes guided it. Kept because they explain the port order and the
 > "copy pane's FFI verbatim" strategy that made eight backends tractable. Items that changed
-> in flight: `day-meta` became day-cli's `meta` module + `day-build` (§17.5); the
-> registrant/aggregator codegen is the §15.2 metadata mechanism; the dayffi/piece-ci items were
-> superseded (§15.3).
+> in flight: `day-meta` became day-cli's `meta` module + `day-build` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)); the
+> registrant/aggregator codegen is the [§15.2](#152-package-layout-and-aggregation) metadata mechanism; the dayffi/piece-ci items were
+> superseded ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)).
 
 1. Port order for `day-reactive`: start from `pane-graph` (arena, Copy handles, push-pull,
    batching) and add scopes/ownership, `Setter`, `watch`, and `bind` (floem `create_updater`
    semantics). Property tests for diamond deps, disposal-during-drain, write-during-drain,
-   setter-after-dispose, the fixpoint re-run cap, and the reentrancy echo case (§4.4).
+   setter-after-dispose, the fixpoint re-run cap, and the reentrancy echo case ([§4.4](#44-events-and-controlled-inputs)).
 2. `day-mock` op-log format is the contract for M1's "exactly one op per state change" **and
    "bounded measure calls"** tests — design it for golden-file diffs from day one.
 3. Backends: copy pane's working FFI verbatim where possible (objc2 class registration pitfalls,
@@ -2840,10 +2896,10 @@ $ day pack -p macos-appkit --profile release
    semver. DP-16 (unified `ItemSlot`) and DP-23 (native navigation containers) are resolved — the
    freeze is unblocked; validate the `ItemSlot` contract on day-mock in M1–M2 as specified.
 5. Implement `day-meta` before the CLI (the `day` crate's build script needs it at M2; the CLI
-   reuses it at M4). Registrant/aggregator codegen (§8.2, §15.2, §15.3) is one subsystem — build
+   reuses it at M4). Registrant/aggregator codegen ([§8.2](#82-the-open-renderer-registry), [§15.2](#152-package-layout-and-aggregation), [§15.3](#153-dayffi-the-c-abi-superseded--never-built)) is one subsystem — build
    it once with three emitters (Swift/C, Kotlin, Rust).
 6. Every CI-critical toolchain fact (JDK version, `GSK_RENDERER=cairo`, rustup-not-homebrew,
    `aarch64-apple-ios-sim`, Gradle configuration-cache, `ENABLE_USER_SCRIPT_SANDBOXING`) is
    encoded in `day doctor` checks *and* asserted in CI, never tribal.
 7. piece-ci runs the dayffi ASAN ownership-round-trip suite and the v1-pinned ABI cell from the
-   first tier-2 piece onward (§15.3, §20).
+   first tier-2 piece onward ([§15.3](#153-dayffi-the-c-abi-superseded--never-built), [§20](#20-continuous-integration)).
