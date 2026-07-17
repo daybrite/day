@@ -751,8 +751,12 @@ impl Toolkit for WinUi {
                     WinHandle(h)
                 }
                 kinds::SCROLL => {
+                    let horizontal = props
+                        .downcast_ref::<day_spec::props::ScrollProps>()
+                        .map(|p| p.horizontal)
+                        .unwrap_or(false);
                     let mut content: *mut c_void = std::ptr::null_mut();
-                    let sv = ffi::day_winui_scroll_new(&mut content);
+                    let sv = ffi::day_winui_scroll_new(&mut content, horizontal as c_int);
                     SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
                     WinHandle(sv)
                 }

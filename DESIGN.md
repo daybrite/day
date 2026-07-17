@@ -973,6 +973,12 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   `UIScrollView.contentSize` / `GtkScrolledWindow` child min-size / `QScrollArea` widget resize /
   Android content-`ViewGroup` that stores the size and reports it from `onMeasure` under
   `UNSPECIFIED` / DOM overflow element.
+- **Axis.** Scroll defaults to the vertical axis; `scroll(child).horizontal()` (or
+  `.axis(Axis::Horizontal)`) flips it. The axis rides `realize` as
+  `day_spec::props::ScrollProps { horizontal }`, and each backend maps it to its native scroller:
+  `NSScrollView` horizontal/vertical scrollers, `GtkScrolledWindow` per-axis policy, `QScrollArea`
+  bar policy, Android `HorizontalScrollView` vs `ScrollView`, WinUI `ScrollViewer` scroll modes,
+  ArkUI `Scroll` direction. Content is measured unconstrained on the chosen axis.
 - The native side owns the viewport, physics, indicators, and emits `Event::ScrollChanged(Point)`.
   `Toolkit::scroll_to(handle, target_rect, animated)` and `scroll_offset(handle)` complete the
   surface (dayscript `scroll_to` and the keyboard focus-reveal ride these).

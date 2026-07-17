@@ -789,7 +789,13 @@ impl Toolkit for Qt {
                     NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
                     QtHandle(w)
                 }
-                kinds::SCROLL => QtHandle(ffi::day_qt_scroll_new()),
+                kinds::SCROLL => {
+                    let horizontal = props
+                        .downcast_ref::<day_spec::props::ScrollProps>()
+                        .map(|p| p.horizontal)
+                        .unwrap_or(false);
+                    QtHandle(ffi::day_qt_scroll_new(horizontal as c_int))
+                }
                 kinds::LABEL => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
@@ -866,7 +872,7 @@ impl Toolkit for Qt {
                 }
                 kinds::LIST => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
-                    let host = ffi::day_qt_scroll_new();
+                    let host = ffi::day_qt_scroll_new(0);
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,

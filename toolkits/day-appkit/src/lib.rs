@@ -1389,9 +1389,14 @@ impl Toolkit for AppKit {
                 view_of(v)
             }
             kinds::SCROLL => {
+                let horizontal = props
+                    .downcast_ref::<day_spec::props::ScrollProps>()
+                    .map(|p| p.horizontal)
+                    .unwrap_or(false);
                 let sv = unsafe { NSScrollView::new(mtm) };
                 unsafe {
-                    sv.setHasVerticalScroller(true);
+                    sv.setHasVerticalScroller(!horizontal);
+                    sv.setHasHorizontalScroller(horizontal);
                     sv.setDrawsBackground(false);
                 }
                 let doc = DayFlipped::new(mtm);

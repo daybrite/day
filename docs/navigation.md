@@ -120,8 +120,13 @@ two-way mapping:
 pub trait Route: Clone + PartialEq + 'static {
     fn key(&self) -> String;                  // typed value → path segment
     fn from_key(key: &str) -> Option<Self>;   // path segment → typed value
+    fn title(&self) -> String { self.key() }  // native nav-bar title (defaults to the key)
 }
 ```
+
+`title()` is the label a [stack](#stacks-pushpop-navigation) shows in the native navigation bar
+for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
+is not presentable (e.g. a route that carries only an id can look the name up from your data).
 
 `String` implements it (the untyped baseline — every segment parses), and for plain enums the
 `routes!` macro writes both sides:

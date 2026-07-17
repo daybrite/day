@@ -1335,8 +1335,16 @@ impl Toolkit for Gtk {
                 handle
             }
             kinds::SCROLL => {
+                let horizontal = props
+                    .downcast_ref::<day_spec::props::ScrollProps>()
+                    .map(|p| p.horizontal)
+                    .unwrap_or(false);
                 let sw = gtk4::ScrolledWindow::new();
-                sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                if horizontal {
+                    sw.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
+                } else {
+                    sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                }
                 sw.set_child(Some(&gtk4::Fixed::new()));
                 // Transparent like AppKit's `setDrawsBackground(false)` scroll: content layered
                 // BEHIND the viewport (e.g. a gradient backdrop in a zstack) must show through.

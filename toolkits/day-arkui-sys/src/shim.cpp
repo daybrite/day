@@ -220,6 +220,17 @@ void day_ark_node_dispose(void* n) {
 void day_ark_add_child(void* p, void* c) {
     if (g_api) g_api->addChild((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c);
 }
+// Scroll axis for an ARKUI_NODE_SCROLL (docs/shapes.md h-scroll): horizontal vs the default
+// vertical.
+void day_ark_scroll_direction(void* n, int horizontal) {
+    if (!g_api || !n) return;
+    ArkUI_NumberValue nv;
+    nv.i32 = horizontal ? ARKUI_SCROLL_DIRECTION_HORIZONTAL : ARKUI_SCROLL_DIRECTION_VERTICAL;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_SCROLL_DIRECTION, &it);
+}
 void day_ark_insert_child(void* p, void* c, int32_t pos) {
     if (g_api) g_api->insertChildAt((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c, pos);
 }

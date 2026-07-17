@@ -911,9 +911,20 @@ mod imp {
                     }
                     h
                 }
-                kinds::SCROLL => with_env(|env| {
-                    AHandle(make_view(env, "makeScroll", "()Landroid/view/View;", &[]))
-                }),
+                kinds::SCROLL => {
+                    let horizontal = props
+                        .downcast_ref::<day_spec::props::ScrollProps>()
+                        .map(|p| p.horizontal)
+                        .unwrap_or(false);
+                    with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeScroll",
+                            "(Z)Landroid/view/View;",
+                            &[JValue::Bool(horizontal)],
+                        ))
+                    })
+                }
                 kinds::LIST => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let d = DENSITY.with(|x| x.get());

@@ -646,10 +646,17 @@ void* day_winui_container_new() { WUXC::Canvas c; return boxh(c); }
 // content's children by absolute frame and reports the content extent via set_content_size; the
 // ScrollViewer then clips + scrolls. Horizontal scrolling is disabled (day's scroll is vertical,
 // matching the Qt/AppKit backends). out_content receives the inner Canvas — day adds children there.
-void* day_winui_scroll_new(void** out_content) {
+void* day_winui_scroll_new(void** out_content, int horizontal) {
     WUXC::ScrollViewer sv;
-    sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
-    sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+    if (horizontal) {
+        sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+        sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
+        sv.HorizontalScrollMode(WUXC::ScrollMode::Enabled);
+        sv.VerticalScrollMode(WUXC::ScrollMode::Disabled);
+    } else {
+        sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
+        sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+    }
     WUXC::Canvas content;
     sv.Content(content);
     if (out_content) *out_content = boxh(content);

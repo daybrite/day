@@ -18,6 +18,7 @@ unsafe extern "C" {
     pub fn day_ark_node_new(kind: c_int) -> *mut c_void;
     pub fn day_ark_node_dispose(node: *mut c_void);
     pub fn day_ark_add_child(parent: *mut c_void, child: *mut c_void);
+    pub fn day_ark_scroll_direction(n: *mut c_void, horizontal: c_int);
     pub fn day_ark_insert_child(parent: *mut c_void, child: *mut c_void, pos: c_int);
     pub fn day_ark_remove_child(parent: *mut c_void, child: *mut c_void);
     /// Navigation bridge (docs/navigation.md): mount `page` into a fresh ArkTS NodeContent and

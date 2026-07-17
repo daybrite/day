@@ -368,11 +368,14 @@ void day_qt_progress_set(void *w, int value) {
 }
 
 // --- scroll ---
-void *day_qt_scroll_new() {
+void *day_qt_scroll_new(int horizontal) {
     QScrollArea *sa = new QScrollArea();
     sa->setWidgetResizable(false);
     sa->setFrameShape(QFrame::NoFrame);
-    sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    if (horizontal)
+        sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    else
+        sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // Transparent like AppKit's `setDrawsBackground(false)` scroll (and GTK's day-scroll CSS):
     // content layered BEHIND the scroll (e.g. a gradient backdrop in a zstack) must show
     // through. Both the palette flags AND the stylesheet are needed — QScrollArea otherwise

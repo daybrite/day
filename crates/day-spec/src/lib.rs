@@ -809,6 +809,14 @@ pub mod props {
         Background(Option<Color>),
     }
 
+    /// Realize props for a `scroll` container: which axis it scrolls. Backends create the matching
+    /// native scroll view (vertical `UIScrollView`/`ScrollView`, horizontal
+    /// `HorizontalScrollView`, etc.).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScrollProps {
+        pub horizontal: bool,
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LabelProps {
         pub text: String,

@@ -456,7 +456,15 @@ mod imp {
                     }
                     n
                 }
-                kinds::SCROLL => new_node(K_SCROLL),
+                kinds::SCROLL => {
+                    let n = new_node(K_SCROLL);
+                    let horizontal = props
+                        .downcast_ref::<day_spec::props::ScrollProps>()
+                        .map(|p| p.horizontal)
+                        .unwrap_or(false);
+                    unsafe { ffi::day_ark_scroll_direction(n.0, horizontal as c_int) };
+                    n
+                }
                 kinds::IMAGE => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     let n = new_node(K_IMAGE);

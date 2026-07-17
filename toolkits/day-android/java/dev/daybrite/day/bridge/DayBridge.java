@@ -24,6 +24,7 @@ import android.widget.ListView;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ProgressBar;
+import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -145,15 +146,17 @@ public final class DayBridge {
         });
     }
 
-    public static View makeScroll() {
-        ScrollView sv = new ScrollView(ctx);
-        sv.setFillViewport(false);
+    public static View makeScroll(boolean horizontal) {
+        ViewGroup sv = horizontal ? new HorizontalScrollView(ctx) : new ScrollView(ctx);
+        if (sv instanceof ScrollView) ((ScrollView) sv).setFillViewport(false);
+        else ((HorizontalScrollView) sv).setFillViewport(false);
         sv.addView(new DayFixed(ctx));
         return sv;
     }
     public static View contentOf(View v) {
-        if (v instanceof ScrollView && ((ScrollView) v).getChildCount() > 0) {
-            return ((ScrollView) v).getChildAt(0);
+        if ((v instanceof ScrollView || v instanceof HorizontalScrollView)
+                && ((ViewGroup) v).getChildCount() > 0) {
+            return ((ViewGroup) v).getChildAt(0);
         }
         return v;
     }

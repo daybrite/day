@@ -81,7 +81,7 @@ unsafe extern "C" {
     pub fn day_qt_tabs_set_current(tabs: *mut c_void, index: c_int);
     pub fn day_qt_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
 
-    pub fn day_qt_scroll_new() -> *mut c_void;
+    pub fn day_qt_scroll_new(horizontal: c_int) -> *mut c_void;
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
     pub fn day_qt_scroll_to_bottom(w: *mut c_void);

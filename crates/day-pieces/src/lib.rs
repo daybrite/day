@@ -812,11 +812,27 @@ pub fn scroll<P: Piece>(child: P) -> Scroll<P> {
     }
 }
 
+impl<P: Piece> Scroll<P> {
+    /// Scroll horizontally instead of vertically (a filmstrip of cards, a chip row). The content
+    /// is measured unconstrained on the horizontal axis and the native view scrolls sideways.
+    pub fn horizontal(mut self) -> Self {
+        self.axis = Axis::Horizontal;
+        self
+    }
+    /// Set the scroll axis explicitly.
+    pub fn axis(mut self, axis: Axis) -> Self {
+        self.axis = axis;
+        self
+    }
+}
+
 impl<P: Piece> Piece for Scroll<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let node = cx.native(
             kinds::SCROLL,
-            &ContainerProps::default(),
+            &day_spec::props::ScrollProps {
+                horizontal: matches!(self.axis, Axis::Horizontal),
+            },
             Rc::new(ScrollLayout { axis: self.axis }),
             Flex {
                 grow_w: true,
@@ -947,14 +963,19 @@ impl<T: 'static, K: 'static> Clone for ItemSlot<T, K> {
 impl<T: 'static, K: 'static> Copy for ItemSlot<T, K> {}
 
 impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
-    /// Tracked whole-item read.
+    /// Tracked whole-item read. **Read it inside a reactive closure** — e.g.
+    /// `label(move || slot.get())` — not eagerly. A recycling [`list`] rebinds one physical row to
+    /// many items, and only bindings that read the slot reactively update on rebind; an eager
+    /// `let name = slot.get()` freezes the row at its first item.
     pub fn get(self) -> T {
         self.sig.get()
     }
+    /// Tracked read via a projection. Read it inside a reactive closure (see [`get`](Self::get)).
     pub fn with<R>(self, f: impl FnOnce(&T) -> R) -> R {
         self.sig.with(f)
     }
-    /// Tracked field projection (equality-gating happens in the binding layer).
+    /// Tracked field projection (equality-gating happens in the binding layer). Read it inside a
+    /// reactive closure (see [`get`](Self::get)) so recycled rows update on rebind.
     pub fn field<V: Clone>(self, f: impl FnOnce(&T) -> V) -> V {
         self.sig.with(f)
     }
@@ -2626,6 +2647,12 @@ pub trait Route: Clone + PartialEq + 'static {
     fn key(&self) -> String;
     /// Parse a path segment back into the typed value; `None` = not one of this type's routes.
     fn from_key(key: &str) -> Option<Self>;
+    /// The human-readable title shown in the native navigation bar when this route is the top of
+    /// a [`stack`]. Defaults to [`key`](Route::key); override it to show a display name (e.g. an
+    /// app's name) instead of the wire key.
+    fn title(&self) -> String {
+        self.key()
+    }
 }
 
 /// Raw string keys — the untyped baseline. Every segment parses.
@@ -3452,7 +3479,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     with_tree(|t| t.remove_subtree(e.page));
                 }
                 for key in want.iter().skip(common) {
-                    let title = key.key();
+                    let title = key.title();
                     let page = nav_page(
                         host,
                         &NavPageProps {
