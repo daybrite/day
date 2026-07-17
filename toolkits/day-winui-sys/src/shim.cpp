@@ -423,6 +423,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 extern "C" void day_winui_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb; }
 
+// Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
+// Fire and forget — the IAsyncOperation is discarded; an invalid URI throws and is swallowed.
+// Backs the `link` piece.
+extern "C" void day_winui_open_url(const char* url) try {
+    winrt::Windows::System::Launcher::LaunchUriAsync(
+        winrt::Windows::Foundation::Uri(hs(url)));
+} catch (...) {}
+
 extern "C" {
 
 void* day_winui_window_new(const char* title, int w, int h, int min_w, int min_h) try {

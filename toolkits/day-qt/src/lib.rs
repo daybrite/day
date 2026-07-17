@@ -1332,6 +1332,12 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_dismiss_present(req) };
     }
 
+    fn open_url(&mut self, url: &str) {
+        if let Ok(c) = std::ffi::CString::new(url) {
+            unsafe { ffi::day_qt_open_url(c.as_ptr()) };
+        }
+    }
+
     fn focus(&mut self, h: &QtHandle, _node: NodeId, focused: bool) {
         // The shim clears only while this widget still owns focus, so a stale release
         // can't blur a sibling.

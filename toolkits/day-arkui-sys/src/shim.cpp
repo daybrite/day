@@ -67,6 +67,11 @@ extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell
 // not the native NodeAPI. Called on the JS thread (day's loop runs there), so no threadsafe fn.
 static napi_ref g_file_picker = nullptr;
 
+// Opening a URL needs the UIAbility context's startAbility (a viewData Want), which lives in the
+// ArkTS layer — the native NodeAPI has no equivalent. ArkTS registers `registerOpenUrl(cb)` where
+// `cb` is `(url: string) => void`; day_ark_open_url invokes it. Null (unregistered) is a safe no-op.
+static napi_ref g_open_url = nullptr;
+
 // ---- Navigation bridge (docs/navigation.md) ---------------------------------
 // Day drives the ArkTS `Navigation` / `NavPathStack` — HarmonyOS's own navigation system — the
 // way it drives androidx fragments on Android: ArkTS registers push/pop/title callbacks
@@ -1085,6 +1090,42 @@ static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ArkTS registers its URL opener: `registerOpenUrl(cb)`, `cb` = `(url: string) => void`
+// (typically `context.startAbility({ action: 'ohos.want.action.viewData', uri: url })`).
+static napi_value RegisterOpenUrl(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (g_open_url) {
+        napi_delete_reference(env, g_open_url);
+        g_open_url = nullptr;
+    }
+    if (argv[0]) napi_create_reference(env, argv[0], 1, &g_open_url);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// Open `url` in the system's default handler via the ArkTS opener. JS thread only. No-op when the
+// app hasn't registered one.
+void day_ark_open_url(const char* url) {
+    if (!g_env || !g_open_url) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_open_url, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value arg;
+        napi_create_string_utf8(g_env, url ? url : "", NAPI_AUTO_LENGTH, &arg);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 1, &arg, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
 // ArkTS hands the app's resourceManager to native so the rawfile data-resource opener (§18.3) can
 // read staged assets: `registerResourceManager(getContext(this).resourceManager)`. OH_ResourceManager
 // _InitNativeResourceManager needs this ArkTS object — there is no native-only way to obtain it — so
@@ -1196,6 +1237,8 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_create_function(env, "registerFilePicker", NAPI_AUTO_LENGTH, RegisterFilePicker, nullptr,
                          &fn);
     napi_set_named_property(env, exports, "registerFilePicker", fn);
+    napi_create_function(env, "registerOpenUrl", NAPI_AUTO_LENGTH, RegisterOpenUrl, nullptr, &fn);
+    napi_set_named_property(env, exports, "registerOpenUrl", fn);
     napi_create_function(env, "onFileResult", NAPI_AUTO_LENGTH, OnFileResult, nullptr, &fn);
     napi_set_named_property(env, exports, "onFileResult", fn);
     napi_create_function(env, "registerResourceManager", NAPI_AUTO_LENGTH, RegisterResourceManager,

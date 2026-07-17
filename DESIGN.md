@@ -617,6 +617,8 @@ inherent methods (good rustdoc, good autocomplete) — the common modifier set (
 // text & controls — two-way controls take `impl SignalRw<T>` (Signal<T>, or a projection):
 label(text)                        // text: impl IntoText — value, Signal<String>, closure, or
                                    //   LocalizedText; styled via .font(Font::Headline) / .color(c)
+link(text, url)                    // tappable accent text → opens url in the system browser /
+                                   //   default handler (§8.1 open_url); .font() / .color() / .bold()
 button(text).action(f)             // .bordered() / .prominent() / .style(impl ButtonStyle)
 toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
@@ -1102,6 +1104,7 @@ pub trait Toolkit: Sized + 'static {
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
     fn dismiss(&mut self, req: u64) {}
+    fn open_url(&mut self, url: &str) {}   // system browser/handler for the `link` piece (§5.3)
 
     // pillars
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13

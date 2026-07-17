@@ -12,7 +12,7 @@ import { NodeContent } from '@kit.ArkUI';
 import { display } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
 
@@ -73,6 +73,14 @@ struct Index {
       },
       ctx.cacheDir
     );
+
+    // Bridge Day's `link` piece to the system browser via an implicit viewData Want.
+    nativeEntry.registerOpenUrl((url: string): void => {
+      const want: Want = { action: 'ohos.want.action.viewData', uri: url };
+      ctx.startAbility(want).catch((err: BusinessError) => {
+        console.error(`day: openUrl failed: ${err.code} ${err.message}`);
+      });
+    });
   }
 
   // Day → ArkTS file picker. mode 0 = open (copy the pick into app cache, hand back a readable

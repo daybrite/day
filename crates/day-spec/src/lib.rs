@@ -1373,6 +1373,12 @@ pub trait Toolkit: Sized + 'static {
     fn present(&mut self, _req: u64, _spec: &present::PresentSpec) {}
     fn dismiss(&mut self, _req: u64) {}
 
+    /// Open `url` in the platform's default handler — the system browser for `http(s)`, the mail
+    /// client for `mailto:`, etc. Backs the [`link`](../day_pieces/fn.link.html) piece. Fire and
+    /// forget: there is no result, and an unopenable URL is ignored. The default no-ops so a
+    /// backend that hasn't wired it up still compiles.
+    fn open_url(&mut self, _url: &str) {}
+
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}
     fn on_resume(&mut self) {}

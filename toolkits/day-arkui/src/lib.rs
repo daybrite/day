@@ -974,6 +974,10 @@ mod imp {
             }
         }
 
+        fn open_url(&mut self, url: &str) {
+            unsafe { ffi::day_ark_open_url(cstr(url).as_ptr()) };
+        }
+
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::FileDialogs => Support::Native,

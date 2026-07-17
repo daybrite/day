@@ -882,6 +882,18 @@ mod imp {
             call_void("dismissPresent", "(J)V", &[JValue::Long(req as i64)]);
         }
 
+        fn open_url(&mut self, url: &str) {
+            with_env(|env| {
+                let u = jstr(env, url);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "openUrl",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(&u)],
+                );
+            });
+        }
+
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
             let idj = id.0 as i64;
             match kind {

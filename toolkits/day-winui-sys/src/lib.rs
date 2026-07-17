@@ -190,6 +190,9 @@ unsafe extern "C" {
     // lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
     pub fn day_winui_set_lifecycle_cb(cb: extern "C" fn(c_int));
 
+    /// Open a URL in the system's default handler (the `link` piece's seam).
+    pub fn day_winui_open_url(url: *const c_char);
+
     // menus (docs/menus.md): a tab/newline spec parsed by the shim into MenuFlyout / MenuBar.
     pub fn day_winui_set_menu_cb(cb: extern "C" fn(u64));
     pub fn day_winui_set_context_menu(elem: *mut c_void, spec: *const c_char);

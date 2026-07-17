@@ -137,12 +137,30 @@ pub(crate) fn text_page() -> AnyPiece {
     ))
     .title(crate::res::str::text_fonts_header());
 
+    // Links (docs/text.md): tappable accent-coloured text that opens a URL in the system browser
+    // (or the mail client for `mailto:`) via the backend's `open_url`. `.color()` overrides the
+    // default tint; `.font()` and `.bold()` style the run like a label.
+    let links = section((
+        label("Tap a link to open it in the system browser.").font(Font::Footnote),
+        link("daybrite.dev", "https://daybrite.dev").id("text-link-web"),
+        link(
+            "Material Symbols on Google Fonts",
+            "https://fonts.google.com/icons",
+        )
+        .font(Font::Footnote)
+        .id("text-link-icons"),
+        link("Email the team", "mailto:hello@daybrite.dev")
+            .color(Color::hex(0x27AE60))
+            .id("text-link-mail"),
+    ))
+    .title("Links");
+
     // Bundled fonts lead the page: the most visually distinctive section, and the one the
     // walkthrough screenshot must show above the fold.
     page(
         crate::res::str::nav_text(),
         "text-title",
         Some(crate::res::str::text_caption()),
-        form((fonts, styles, weights, styling, colors, custom)).any(),
+        form((fonts, styles, weights, styling, colors, custom, links)).any(),
     )
 }

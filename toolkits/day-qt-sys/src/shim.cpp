@@ -45,6 +45,8 @@
 #include <QMenuBar>
 #include <QAction>
 #include <QKeySequence>
+#include <QDesktopServices>
+#include <QUrl>
 
 #include <cstdint>
 
@@ -174,6 +176,12 @@ void *day_qt_container_new() { return new QWidget(); }
 // only switches widget-INTERNAL text handling: label alignment + text direction.
 static bool g_rtl = false;
 void day_qt_app_set_rtl() { g_rtl = true; }
+
+// Open a URL in the desktop's default handler (browser for http(s), mail client for mailto:, ...).
+// QUrl::fromUserInput tolerates bare hosts ("daybrite.dev") as well as full URLs. Fire and forget.
+void day_qt_open_url(const char *url) {
+    QDesktopServices::openUrl(QUrl::fromUserInput(QString::fromUtf8(url)));
+}
 
 // SurfaceRole::SectionCard: the grouped-card background. A translucent neutral over the window
 // color stays subtle in every palette (it lightens dark themes and darkens light ones) — Qt has

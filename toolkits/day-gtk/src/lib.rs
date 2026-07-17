@@ -2388,6 +2388,13 @@ impl Toolkit for Gtk {
             c.cancel();
         }
     }
+
+    fn open_url(&mut self, url: &str) {
+        // Hand the URI to the desktop's default handler (xdg-open equivalent). Fire and forget;
+        // a bad URI just returns an error we ignore.
+        let _ =
+            gtk4::gio::AppInfo::launch_default_for_uri(url, None::<&gtk4::gio::AppLaunchContext>);
+    }
 }
 
 /// The GtkWindow to anchor a file picker on: the fixed content's toplevel.

@@ -12,6 +12,7 @@ unsafe extern "C" {
     pub fn day_qt_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
     pub fn day_qt_container_new() -> *mut c_void;
     pub fn day_qt_app_set_rtl();
+    pub fn day_qt_open_url(url: *const c_char);
     /// Apply a `background`/`corner_radius` surface via a scoped stylesheet (`#objName { ... }`
     /// so children don't inherit the fill) + `WA_StyledBackground`. `r,g,b` are 0..1, `a` is the
     /// alpha 0..1; `radius` in px; `clips != 0` requests rounded-child clipping (best-effort).

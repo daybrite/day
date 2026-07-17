@@ -563,6 +563,11 @@ impl Toolkit for MockToolkit {
     fn dismiss(&mut self, req: u64) {
         self.state.borrow_mut().log(format!("dismiss req={req}"));
     }
+
+    fn open_url(&mut self, url: &str) {
+        // No browser to launch; record it so op-log assertions can verify a `link` fired.
+        self.state.borrow_mut().log(format!("open_url {url}"));
+    }
 }
 
 impl Platform for MockToolkit {

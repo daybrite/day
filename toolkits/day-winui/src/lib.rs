@@ -1524,6 +1524,11 @@ impl Toolkit for WinUi {
         unsafe { ffi::day_winui_dismiss_present(req) };
     }
 
+    fn open_url(&mut self, url: &str) {
+        let c = cstr(url);
+        unsafe { ffi::day_winui_open_url(c.as_ptr()) };
+    }
+
     fn adopt(&mut self, raw: day_spec::RawHandle) -> WinHandle {
         // A recycling-list cell (a plain Canvas) — Day builds/rebinds its row content in place.
         WinHandle(raw)

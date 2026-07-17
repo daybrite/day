@@ -287,6 +287,64 @@ impl Piece for Label {
     }
 }
 
+/// The platform "tint" blue (iOS system blue, `#007AFF`) used as the default [`link`] colour.
+/// Override per-link with [`Link::color`] to match an app's accent.
+const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
+
+/// A tappable run of text that opens `url` in the platform's default handler — the system browser
+/// for `http`/`https`, the mail client for `mailto:`, and so on. This is Day's analogue of
+/// SwiftUI's `Link`.
+///
+/// It renders as accent-coloured [`label`] text and announces itself as actionable to assistive
+/// technology. The opening itself is delegated to the running backend
+/// ([`Toolkit::open_url`](../day_spec/trait.Toolkit.html#method.open_url)), so it works the same on
+/// every platform.
+///
+/// ```ignore
+/// link("daybrite.dev", "https://daybrite.dev")
+/// link(tr("email-us"), "mailto:hi@example.com").font(Font::Footnote)
+/// ```
+pub struct Link {
+    label: Label,
+    url: String,
+}
+
+/// Build a [`Link`] that opens `url` when tapped.
+pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Link {
+    Link {
+        label: label(text).color(LINK_BLUE),
+        url: url.into(),
+    }
+}
+
+impl Link {
+    /// The text style (default [`Font::Body`]).
+    pub fn font(mut self, f: Font) -> Self {
+        self.label = self.label.font(f);
+        self
+    }
+    /// Override the link colour (default the platform tint blue).
+    pub fn color(mut self, c: day_spec::Color) -> Self {
+        self.label = self.label.color(c);
+        self
+    }
+    /// Render the link text bold.
+    pub fn bold(mut self) -> Self {
+        self.label = self.label.bold();
+        self
+    }
+}
+
+impl Piece for Link {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let url = self.url;
+        self.label
+            .on_tap(move || day_core::open_url(&url))
+            .a11y(|b| b.role(Role::Button))
+            .build(cx)
+    }
+}
+
 pub struct Button {
     title: TextSource,
     action: Option<Rc<dyn Fn()>>,
@@ -1947,17 +2005,18 @@ pub mod prelude {
     pub use crate::{
         A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
         FilledButtonStyle, FormSection, HAlign, IntoFocusBinding, IntoFraction, IntoReactive,
-        IntoText, ItemSlot, List, MenuEntry, Modifier, NativeRef, OpenFile, Prompt, Reactive,
+        IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, OpenFile, Prompt, Reactive,
         Route, RoutePath, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece, SignalRw,
         Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule, circle, column,
         confirm, current_route, divider, each, ellipse, environment, form, image, label, labeled,
-        list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to, navigate,
-        navigate_to, open_file, progress, prompt, rectangle, rounded_rectangle, route, route_param,
-        route_params, row, save_file, scroll, section, selector, shape, slider, spacer, spinner,
-        stack, sub_menu, text_field, toggle, when, with_environment, zstack,
+        link, list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to,
+        navigate, navigate_to, open_file, progress, prompt, rectangle, rounded_rectangle, route,
+        route_param, route_params, row, save_file, scroll, section, selector, shape, slider,
+        spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment, zstack,
     };
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, invalidate_size, piece_fn,
+        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, invalidate_size, open_url,
+        piece_fn,
     };
     pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
     pub use day_reactive::{

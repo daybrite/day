@@ -411,6 +411,8 @@ pub trait TreeOps {
     fn present(&mut self, req: u64, spec: &present::PresentSpec);
     /// Dismiss the modal for `req` (programmatic resolve while it is still up).
     fn dismiss(&mut self, req: u64);
+    /// Open `url` in the platform's default handler (the `link` piece's seam).
+    fn open_url(&mut self, url: &str);
 
     // Recycling list seam (docs/list.md, §10). Called by day-core's own `ListSource` closures
     // (via `with_tree`) when the native list pulls rows; never nested inside another borrow.
@@ -454,6 +456,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn dismiss(&mut self, req: u64) {
         self.toolkit.dismiss(req);
+    }
+
+    fn open_url(&mut self, url: &str) {
+        self.toolkit.open_url(url);
     }
 
     fn create_node(
@@ -932,6 +938,14 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
 /// (`Cap::NavHeader`), or pick a presentation from `Cap::NavSplit`.
 pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
     with_tree(|t| t.capability(cap))
+}
+
+/// Open `url` in the platform's default handler (system browser for `http(s)`, mail client for
+/// `mailto:`, …). The seam behind the [`link`](../day_pieces/fn.link.html) piece; call it directly
+/// from a tap handler for a custom affordance. Fire and forget — no result, unopenable URLs are
+/// ignored by the backend.
+pub fn open_url(url: &str) {
+    with_tree(|t| t.open_url(url));
 }
 
 /// Tell layout that a node's intrinsic size may have changed. For tweaks (docs/tweaks.md):

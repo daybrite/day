@@ -2632,6 +2632,15 @@ impl Toolkit for AppKit {
             unsafe { window.endSheet(&panel) };
         }
     }
+
+    fn open_url(&mut self, url: &str) {
+        // NSWorkspace opens the URL in the user's default handler (Safari for http(s), Mail for
+        // mailto:, …). An unparseable string yields no NSURL and is silently ignored.
+        let nsurl = unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) };
+        if let Some(nsurl) = nsurl {
+            unsafe { objc2_app_kit::NSWorkspace::sharedWorkspace().openURL(&nsurl) };
+        }
+    }
 }
 
 thread_local! {

@@ -683,6 +683,20 @@ public final class DayBridge {
         }
     }
 
+    /** Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
+     *  Backs the `link` piece. NEW_TASK is required because ctx may be the application context. */
+    public static void openUrl(String url) {
+        if (ctx == null || url == null) return;
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+        } catch (Exception ignored) {
+            // No handler for the scheme, or the URI was malformed — nothing to open.
+        }
+    }
+
     // --- Native file open/save via the Storage Access Framework (docs/files.md) ---------------
     // startActivityForResult carries an int requestCode, so a small table correlates it back to the
     // Day request id (+ save mode/source). DayActivity.onActivityResult routes results here.

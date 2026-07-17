@@ -2558,6 +2558,21 @@ mod imp {
             modal_enqueue(ModalOp::Dismiss(req, 0));
         }
 
+        fn open_url(&mut self, url: &str) {
+            let Some(nsurl) =
+                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+            else {
+                return;
+            };
+            // `openURL:` is deprecated in favour of the options/completion form, which only adds an
+            // options-key type and a result block a fire-and-forget link ignores. This still hands
+            // the URL to the system (Safari for http(s), Mail for mailto:, …).
+            #[allow(deprecated)]
+            unsafe {
+                let _: bool = UIApplication::sharedApplication(mtm()).openURL(&nsurl);
+            }
+        }
+
         fn ui_idle(&mut self) -> bool {
             let active = MODAL_BUSY.get()
                 || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
