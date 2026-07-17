@@ -11,6 +11,15 @@ import rewriteInternalLinks from './plugins/rewrite-internal-links.mjs';
 export default defineConfig({
   site: 'https://daybrite.dev',
   trailingSlash: 'ignore',
+  // Minify CSS with esbuild rather than lightningcss. lightningcss mishandles the non-standard
+  // `background-clip: text`: it strips the `-webkit-background-clip: text` prefix and narrows the
+  // `@supports` guard, which regresses Safari/iOS and the older Chromium-based WebView /
+  // QtWebEngine builds Day's own web view renders this site in (the hero gradient text rendered as
+  // a filled rectangle). esbuild does not rewrite vendor prefixes or collapse `@supports`, so the
+  // hand-written cross-browser gradient-text CSS ships intact.
+  vite: {
+    build: { cssMinify: 'esbuild' },
+  },
   // mdx() lets individual docs pages pull in interactive components (e.g. the InstallPicker in
   // getting-started); plain .md remains the default for prose-only pages.
   integrations: [gallery(), mdx()],

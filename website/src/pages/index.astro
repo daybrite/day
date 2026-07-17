@@ -268,12 +268,19 @@ const compare = [
      code block scrolls inside its own box instead of stretching the page. */
   .hero-grid > *, .how-grid > * { min-width: 0; }
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; line-height: 1.08; }
-  /* "under the sun" in a warm amber gradient — a nod to the Ember Dawn mark. */
+  /* "under the sun" in a warm amber gradient — a nod to the Ember Dawn mark. Guarded like
+     `.grad-text` (global.css): the gradient clip is applied only where the browser can clip a
+     background to the text, so engines that can't fall back to a solid amber instead of a bar. */
   .sun-text {
-    background: linear-gradient(100deg, var(--sun) 0%, var(--sun-2) 100%);
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent; color: transparent;
+    color: var(--sun);
     white-space: nowrap;
+  }
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .sun-text {
+      background-image: linear-gradient(100deg, var(--sun) 0%, var(--sun-2) 100%);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; color: transparent;
+    }
   }
   .hero-lead { margin: 0 0 28px; }
   .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }

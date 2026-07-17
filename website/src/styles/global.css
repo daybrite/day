@@ -126,11 +126,22 @@ code, pre { font-family: var(--mono); }
 }
 .lead { color: var(--muted); font-size: 1.12rem; max-width: 62ch; }
 
+/* Gradient text. Guarded with @supports so engines that can't clip a background to the glyphs
+   (some older Chromium-based WebView / QtWebEngine builds) fall back to a solid, readable colour
+   instead of painting the gradient as a filled rectangle over now-invisible text. The gradient
+   background and the transparent fill are applied ONLY inside the @supports block, so a
+   non-supporting engine never receives a background to mis-paint. */
 .grad-text {
-  background: var(--grad-text);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--brand-strong);
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .grad-text {
+    background-image: var(--grad-text);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
 }
 
 /* ---- buttons ---- */
