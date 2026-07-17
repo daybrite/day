@@ -1,20 +1,23 @@
 # day-part-haptics
 
-Haptic feedback through native APIs: impact and notification styles on iOS, `Vibrator`
-effects on Android, and trackpad haptics on macOS.
+Haptic feedback through each platform's native API.
 
-`is_supported()` tells the truth per platform, and playing a haptic where there is no
-hardware is an honest no-op — never an error path in your app code.
+Impact and notification styles on iOS, vibration effects on Android, and trackpad taps on
+macOS. `is_supported()` reports what the device can actually do, and playing a haptic
+where there is no hardware simply does nothing — your app code never needs an error path
+for a missing motor.
 
-Parts are Day's headless extension unit — platform capability crates with no UI. This one
-works in **any Rust program**; a Day app is not required.
+Parts are Day's small capability crates: no UI, just a plain Rust API over something the
+platform already provides. This one works in any Rust program — you don't need a Day app
+around it.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

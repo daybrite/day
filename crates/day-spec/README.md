@@ -2,20 +2,26 @@
 
 The contract between Day's engine and its native backends.
 
-`day-spec` defines the `Toolkit` trait, the piece-kind vocabulary (`day.label`,
-`day.button`, …), typed props and patch enums, the event model, and the piece-registration
-seam that lets external crates ship native renderers. Backends depend on this crate and
-nothing else of Day's core, which is what keeps one-backend-per-binary linking honest.
+Day runs on seven native toolkits, and every backend implements the same Rust trait:
+`Toolkit`, defined here. This crate holds that trait and everything both sides must agree
+on — the vocabulary of built-in pieces, the typed properties that describe them, the
+events that flow back from native widgets, and the registry that lets other crates plug in
+renderers of their own.
 
-This is internal plumbing for [`day`](https://crates.io/crates/day); app code sees its
-types re-exported from there.
+The split is deliberate. Backends depend on `day-spec` and nothing else of Day, which
+keeps each one small and makes the headless test backend a true stand-in for the real
+ones.
+
+App code never uses this crate directly; its types arrive re-exported through
+[`day`](https://crates.io/crates/day).
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

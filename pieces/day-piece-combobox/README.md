@@ -1,20 +1,24 @@
 # day-piece-combobox
 
-An editable combo box for Day apps — one Rust API, a real native control per toolkit.
+An editable combo box for Day apps: type a value or pick one from the list.
 
-`NSComboBox` on macOS, a Material exposed-dropdown on Android, `GtkComboBoxText`,
-`QComboBox`, and so on. This crate is also the reference implementation of a "tier 1"
-external Day Piece: per-toolkit renderers registered link-time into the backend's registry.
+One Rust API, and a real native control on every platform — `NSComboBox` on macOS, a
+Material dropdown on Android, `GtkComboBoxText` on Linux, `QComboBox` on Qt, and so on.
 
-Pieces are Day's extension unit: a crate with one Rust API and per-toolkit native
-renderers, enabled per backend by cargo features (`day build` wires them automatically).
+This crate doubles as the reference example of a piece with per-toolkit Rust renderers:
+if you want to build a native component of your own, its source is the place to start.
+
+Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
+front, a real native control per platform behind it. Enable the backends you build for
+with cargo features, and `day build` wires up the native side automatically.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

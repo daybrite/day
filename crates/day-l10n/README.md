@@ -1,20 +1,24 @@
 # day-l10n
 
-Day's core localization engine: Fluent bundles, locale state, and formatting.
+The localization engine underneath Day's `tr()` and its generated string functions.
 
-It sits low in the crate graph on purpose, so even Day's own internals (dialog buttons,
-menu-role labels) can localize their strings the same way apps do. Holds the current-locale
-signal, per-locale bundle registry, and the built-in core catalog.
+It loads Fluent catalogs, tracks the current locale as a reactive value, resolves messages
+with per-locale fallback, and carries the small built-in catalog Day itself needs (dialog
+buttons, menu labels). It sits low in Day's crate stack on purpose, so the framework's own
+strings localize exactly the way an app's strings do.
 
-Most code uses [`day-fluent`](https://crates.io/crates/day-fluent)'s `tr(...)` on top of
-this; both arrive with [`day`](https://crates.io/crates/day).
+Apps don't reach for this crate directly — they use
+[`day-fluent`](https://crates.io/crates/day-fluent) or the typed constants from
+[`day-build`](https://crates.io/crates/day-build), and everything arrives through
+[`day`](https://crates.io/crates/day).
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

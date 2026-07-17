@@ -1,22 +1,27 @@
 # day-core
 
-Day's engine room: the piece model, the realized native tree, layout, and event routing.
+The engine at the center of Day: it turns your description of an interface into real
+native widgets, then keeps the two in step.
 
-`day-core` turns a tree of piece values into real native widgets exactly once, then keeps
-the two in sync — reactive updates arrive as targeted patches to individual nodes, never as
-a rebuild-and-diff pass. It owns measurement and absolute layout (each backend reports
-natural sizes; day-core decides frames), routes native events back to app closures, and is
-generic over the `Toolkit` trait so one backend is monomorphized into each binary.
+When a Day app starts, `day-core` walks the tree of pieces your code returned, asks the
+active backend to create a native widget for each one, and connects your signals to those
+widgets. That construction happens once. From then on, a state change flows directly to
+the one widget it affects — the tree is never rebuilt and never compared against a copy.
 
-Apps don't depend on this crate directly — it arrives through the
-[`day`](https://crates.io/crates/day) umbrella crate.
+The crate also owns layout and events. It measures native widgets (so text is exactly as
+tall as the platform says it is), decides where everything goes, and routes native events
+— a tap, a keystroke, a scroll — back to the Rust closures you wrote.
+
+You won't depend on `day-core` directly: the [`day`](https://crates.io/crates/day)
+umbrella crate brings it in and re-exports what apps need.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

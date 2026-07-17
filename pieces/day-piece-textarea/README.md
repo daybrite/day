@@ -1,18 +1,22 @@
 # day-piece-textarea
 
-A multi-line native text editor for Day apps — `NSTextView` in a scroll view on macOS,
-`UITextView` on iOS, `GtkTextView`, `QPlainTextEdit`, a Material `EditText` on Android —
-with a reactive text binding.
+Multi-line text editing with the platform's real editor.
 
-Pieces are Day's extension unit: a crate with one Rust API and per-toolkit native
-renderers, enabled per backend by cargo features (`day build` wires them automatically).
+`NSTextView` in a scroll view on macOS, `UITextView` on iOS, `GtkTextView` on Linux,
+`QPlainTextEdit` on Qt, and a Material `EditText` on Android — with the text bound both
+ways to a signal, so your app state and the editor never drift apart.
+
+Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
+front, a real native control per platform behind it. Enable the backends you build for
+with cargo features, and `day build` wires up the native side automatically.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

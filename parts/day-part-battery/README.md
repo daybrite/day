@@ -1,20 +1,22 @@
 # day-part-battery
 
-Cross-platform battery status through each platform's native API — level, charging state,
-and low-power mode, from one `status()` call.
+Ask the battery how it's doing, on any platform, with one call.
 
-macOS IOKit, iOS `UIDevice`, Android `BatteryManager`, Linux sysfs, Windows
-`GetSystemPowerStatus`.
+`status()` returns the charge level, whether the device is charging, and whether low-power
+mode is on. Behind that one call sit the native APIs: IOKit on macOS, `UIDevice` on iOS,
+`BatteryManager` on Android, sysfs on Linux, and `GetSystemPowerStatus` on Windows.
 
-Parts are Day's headless extension unit — platform capability crates with no UI. This one
-works in **any Rust program**; a Day app is not required.
+Parts are Day's small capability crates: no UI, just a plain Rust API over something the
+platform already provides. This one works in any Rust program — you don't need a Day app
+around it.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

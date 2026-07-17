@@ -59,10 +59,10 @@ keys instead of literal strings, so the same script passes in every language.
 | Evidence | `screenshot`, `a11y_audit` |
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, which
-removes the sleep-tuning that makes UI tests flaky. Before acting, the engine checks the target
-is actually actionable — enabled, visible, inside every ancestor's scroll viewport, topmost at
-its center — and a failure names the blocker ("occluded by #settings-sheet") instead of silently
-tapping the wrong thing.
+removes the sleep-tuning that makes UI tests flaky. Acting steps synthesize Day events on the
+main thread between flushes, so they are deterministic and behave identically on every toolkit —
+target elements by ids you know to be interactive, and scroll explicitly when a step needs an
+element brought into view.
 
 ## How it works, briefly
 

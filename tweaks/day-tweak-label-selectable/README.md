@@ -1,19 +1,21 @@
 # day-tweak-label-selectable
 
-Make a Day `label(…)`'s text user-selectable with `.selectable()` — on AppKit
-(`setSelectable`), GTK (`set_selectable`), and Android (`setTextIsSelectable`), each through
-a different native access tier. A documented no-op elsewhere.
+Let users select and copy a label's text: `.selectable()` on any `label(...)`.
 
-Tweaks are Day's lightest extension tier: per-toolkit configuration applied to the native
-widget behind a stock Day piece, packaged as a reusable crate. On toolkits a tweak doesn't
-cover, it is a documented no-op — apps never need platform `#[cfg]`s.
+Implemented on macOS, GTK, and Android — three platforms, three different native calls,
+one modifier. Elsewhere it does nothing, and says so in its documentation.
+
+Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
+behind a built-in piece. On platforms a tweak doesn't cover, it quietly does nothing, so
+your app code stays free of platform checks.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

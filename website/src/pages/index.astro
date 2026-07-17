@@ -338,7 +338,7 @@ const compare = [
     .hero-grid, .how-grid, .codeshow-grid { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 40px; }
     .how-code { order: 2; }
-    /* On the hero, show the carousel first (above the copy) on narrow screens. */
-    .hero-media { order: -1; }
+    /* On the hero, keep the copy (info column) first — above the carousel — on narrow screens
+       (source order; no reorder). */
   }
 </style>

@@ -1,20 +1,22 @@
 # day-geometry
 
-Plain `Copy` geometry types shared across Day: `Point`, `Size`, `Rect`, `Insets`, and friends.
+The small geometry types the rest of Day shares: `Point`, `Size`, `Rect`, `Insets`,
+`Color`, and friends.
 
-Everything is measured in points (density-independent pixels); each native backend converts
-to device pixels at its own boundary. This crate sits at the very bottom of Day's crate
-graph and has no dependencies of its own.
+All of them are plain `Copy` values measured in points (density-independent pixels); each
+native backend converts to device pixels at its own edge. The crate sits at the very
+bottom of Day's stack and depends on nothing.
 
-You will rarely add this crate yourself — it is re-exported wherever it matters, most
-visibly through [`day`](https://crates.io/crates/day).
+You'll rarely add it to a project yourself — it comes re-exported wherever you need it,
+most visibly through [`day`](https://crates.io/crates/day).
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

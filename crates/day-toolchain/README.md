@@ -1,23 +1,21 @@
 # day-toolchain
 
-One place that knows where host toolchains and SDKs live — shared by the
-[`day` CLI](https://crates.io/crates/day-cli) and by Day crates' build scripts.
+One crate that knows where developer toolchains and SDKs live on your machine.
 
-Android SDK/NDK and JDK, Windows kits and C++/WinRT, the OpenHarmony NDK, rustup homes,
-NSIS — every lookup follows the conventional environment variables first
-(`ANDROID_HOME`, `JAVA_HOME`, `OHOS_NDK_HOME`, `DAY_WINDOWS_KITS_ROOT`, …) and only then
-probes the usual install locations. No literal `C:\Program Files` paths buried in build
-scripts, and one crate to fix when a vendor moves things.
-
-Generic enough to read, small enough to audit — but shaped by what Day's build pipeline
-actually needs.
+The Android SDK, NDK, and a usable JDK; Windows kits and C++/WinRT; the OpenHarmony NDK;
+NSIS; rustup homes — every lookup checks the conventional environment variables first
+(`ANDROID_HOME`, `JAVA_HOME`, and so on) and only then probes the places installers put
+things. The `day` CLI, the backend build scripts, and generated projects all ask this
+crate instead of hard-coding paths, so when a vendor moves something, there is one place
+to fix it.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

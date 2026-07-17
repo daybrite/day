@@ -1,21 +1,23 @@
 # day-part-prefs
 
-A small persistent key/value store through each platform's native preferences facility —
-`set`/`get`/`remove`/`contains` for small strings that survive relaunches.
+A small persistent settings store: strings that survive relaunches.
 
-`NSUserDefaults` on macOS and iOS, `SharedPreferences` on Android, and a plain file store
-under the user config directory on Linux, Windows, and OpenHarmony (documented, corruption-
-tolerant format — no registry surprises).
+`set`, `get`, `remove`, and `contains`, kept in each platform's native preferences home —
+`NSUserDefaults` on macOS and iOS, `SharedPreferences` on Android, and a plain,
+documented file under the user's config directory on Linux, Windows, and OpenHarmony.
+Right-sized for window positions, chosen units, and the other small things apps remember.
 
-Parts are Day's headless extension unit — platform capability crates with no UI. This one
-works in **any Rust program**; a Day app is not required.
+Parts are Day's small capability crates: no UI, just a plain Rust API over something the
+platform already provides. This one works in any Rust program — you don't need a Day app
+around it.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

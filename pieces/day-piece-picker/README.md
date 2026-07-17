@@ -1,20 +1,23 @@
 # day-piece-picker
 
-A choice picker for Day apps in three stylings — `.menu`, `.segmented`, `.inline` — each a
-real native control per toolkit (`NSPopUpButton` / `NSSegmentedControl` on macOS,
-`UISegmentedControl` on iOS, Material controls on Android, …).
+Pick one option from a short list, in whichever style fits: a menu, a segmented control,
+or an inline list.
 
-One Rust API; the platform decides what a picker looks like.
+Each style is a real native control per platform — `NSPopUpButton` and
+`NSSegmentedControl` on macOS, `UISegmentedControl` on iOS, Material controls on Android,
+and so on. You state the options and the style; the platform decides what it looks like.
 
-Pieces are Day's extension unit: a crate with one Rust API and per-toolkit native
-renderers, enabled per backend by cargo features (`day build` wires them automatically).
+Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
+front, a real native control per platform behind it. Enable the backends you build for
+with cargo features, and `day build` wires up the native side automatically.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

@@ -1,21 +1,24 @@
 # day-arkui
 
-Day's HarmonyOS / OpenHarmony backend, over the ArkUI **Native NodeAPI**.
+Day's HarmonyOS / OpenHarmony backend, built on ArkUI's native C API.
 
-Every piece becomes a real `ArkUI_NodeHandle` (Text, Button, Slider, Swiper, …) built from
-native code and mounted into an ArkTS `NodeContent` slot — the same architecture as Day's
-Android backend, with ArkTS hosting the window and Rust owning the tree. This is the
-backend behind the `ohos-arkui` target.
+Pieces become real ArkUI nodes — text, buttons, sliders, swipers — created from native
+code and mounted into a slot provided by a small ArkTS host, which owns the window while
+Rust owns the widget tree. The shape mirrors Day's Android backend. This is the backend
+behind the `ohos-arkui` target; `day ohos` helps with emulators, and the details live in
+Day's HarmonyOS guide.
 
-Backends are picked by a cargo feature on [`day`](https://crates.io/crates/day) — one per
-binary; apps never depend on this crate directly.
+You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
+[`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
+`day` CLI selects the right one for the target you're building.
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

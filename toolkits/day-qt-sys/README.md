@@ -1,19 +1,20 @@
 # day-qt-sys
 
-Raw `extern "C"` declarations plus the Qt 6 C++ shim (one .cpp file) that
-[`day-qt`](https://crates.io/crates/day-qt) drives.
+The C++ side of Day's Qt backend.
 
-The shim is compiled by this crate's build script against the platform SDK; handles cross
-the FFI boundary as opaque pointers. There is no safe API here on purpose — the safe layer
-is `day-qt`, and apps depend on neither directly (the backend arrives via a cargo
-feature on [`day`](https://crates.io/crates/day)).
+This crate holds one C++ file and the raw `extern "C"` declarations for it. The build
+script compiles the file against your Qt installation, and Qt objects cross into Rust as
+opaque pointers. There is deliberately no safe API here: the safe layer is
+[`day-qt`](https://crates.io/crates/day-qt), and apps depend on neither crate directly —
+the backend arrives through a cargo feature on [`day`](https://crates.io/crates/day).
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust
-codebase. No web view, no bundled rendering engine: a `button("Save")` is an `NSButton` on
-macOS and a Material button on Android.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
+GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
+shows a Material button.
 
-Start at [daybrite.dev](https://daybrite.dev), or browse the
+New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).
