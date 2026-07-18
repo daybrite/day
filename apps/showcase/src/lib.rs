@@ -82,6 +82,7 @@ day::routes! {
         Text => "text",
         Canvas => "canvas",
         List => "list",
+        Refresh => "refresh",
         Tabs => "tabs",
         Stack => "stack",
         Media => "media",
@@ -160,6 +161,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_list(),
             res::images::nav_list,
             list_page,
+        )
+        .item_icon(
+            Section::Refresh,
+            crate::res::str::nav_refresh(),
+            res::images::nav_refresh,
+            refresh_page,
         )
         .item_icon(
             Section::Tabs,

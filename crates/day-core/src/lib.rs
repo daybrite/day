@@ -79,6 +79,24 @@ thread_local! {
 
 use day_spec::{Platform, WindowOptions};
 
+/// Run a posted main-thread task, CONTAINING any panic (the `pump_events` twin for the poster /
+/// scheduler doors): log the cause and reset the reactive runtime so the app keeps running
+/// (degraded) instead of aborting across the native trampoline's non-unwind boundary.
+fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
+    if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic".to_string());
+        eprintln!(
+            "day: a posted main-thread task panicked and was contained — the app continues, but \
+             reactive/UI state may be inconsistent until the next interaction. Cause: {msg}"
+        );
+        day_reactive::recover_from_panic();
+    }
+}
+
 /// Launch a Day app on the given platform backend: sets up the reactive scheduler and the
 /// cross-thread poster, mounts the root piece into the window's content container, runs the
 /// initial layout, and installs the turn-end layout callback (§3.3). The backend then owns
@@ -88,11 +106,17 @@ pub fn launch_with<P: Platform>(
     options: WindowOptions,
     root_piece: impl FnOnce() -> AnyPiece + 'static,
 ) {
-    // Reactive plumbing rides the platform's main-loop poster.
-    day_reactive::install_main_poster(|f| P::post(f));
+    // Reactive plumbing rides the platform's main-loop poster. Both doors CONTAIN panics (the
+    // `pump_events` rationale, tree.rs): posted closures run inside native main-loop trampolines
+    // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a
+    // panic in a `Setter` write's drain or a scheduled `flush_sync` would SIGABRT the app instead
+    // of surfacing. Contain at this single backend-agnostic boundary and reset the runtime.
+    day_reactive::install_main_poster(|f| {
+        P::post(Box::new(move || contain_posted_panic(f)));
+    });
     day_reactive::install_scheduler(|| {
         P::post(Box::new(|| {
-            day_reactive::flush_sync();
+            contain_posted_panic(Box::new(day_reactive::flush_sync));
         }))
     });
 
@@ -246,5 +270,21 @@ fn autodrive(spec: &str) {
             _ => continue,
         };
         tree::enqueue_event(tree::rnode_to_id(node), ev);
+    }
+}
+
+#[cfg(test)]
+mod posted_panic_tests {
+    /// A panic inside a posted main-thread task must be CONTAINED (logged + runtime reset), never
+    /// unwind into the native trampoline that posted it (`panic_cannot_unwind` → SIGABRT). This is
+    /// the poster/scheduler twin of `pump_events`' containment.
+    #[test]
+    fn posted_panic_is_contained() {
+        super::contain_posted_panic(Box::new(|| panic!("boom in a posted task")));
+        // Reaching here IS the assertion: the panic did not propagate. The runtime was reset, so
+        // subsequent reactive work still runs.
+        let s = day_reactive::Signal::new(1i32);
+        s.set(2);
+        assert_eq!(s.get_untracked(), 2);
     }
 }

@@ -30,7 +30,7 @@ the affected script instead of keeping stale results.
 | `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK root (standard) | `~/Library/Android/sdk` (macOS), `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux) |
 | `ANDROID_NDK_HOME` | NDK root | newest NDK under `<sdk>/ndk` |
 | `JAVA_HOME` | JDK for Gradle (AGP needs 21 exactly) | macOS: `/usr/libexec/java_home -v 21`, then Homebrew `openjdk@21` (either prefix) |
-| `DAY_ANDROID_ABI` | Force the cargo-ndk ABI list when no device is connected (CI: `x86_64`) | connected devices' ABIs, else `arm64-v8a` |
+| `DAY_ANDROID_ABI` | Force the cargo-ndk ABI list when no device is connected — comma/space-separated (CI walkthrough: `x86_64`; CI pack: `arm64-v8a,x86_64` for a dual-ABI apk/aab; each ABI needs its rustup target) | connected devices' ABIs, else `arm64-v8a` |
 
 ## OpenHarmony
 

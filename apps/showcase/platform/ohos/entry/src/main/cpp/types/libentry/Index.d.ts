@@ -24,6 +24,11 @@ export const onFileResult: (req: number, path: string) => void;
 // resource opener returns nothing (day_ark_res_available == 0).
 export const registerResourceManager: (resourceManager: Object) => void;
 
+// Register the ArkTS URL opener for Day's `link` piece: opening a URL lives in the ArkTS layer
+// (an implicit viewData Want via UIAbilityContext.startAbility — the native NodeAPI has no
+// equivalent). The callback is invoked on the JS thread with every URL Day wants opened.
+export const registerOpenUrl: (callback: (url: string) => void) => void;
+
 // --- Navigation bridge (docs/navigation.md) ---------------------------------
 // Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side BEFORE
 // `start()`: `push` must create a fresh NodeContent, push a NavDestination for it, and return

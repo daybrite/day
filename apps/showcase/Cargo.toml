@@ -51,6 +51,7 @@ day-piece-picker = { workspace = true }
 # A COMPOSE piece (pure composition — no native code, no cargo features): a plain dep, available on
 # every backend for free. No per-backend feature wiring above, the composition-first payoff.
 day-piece-rating = { workspace = true }
+day-piece-pullrefresh = { workspace = true }
 # Tweaks (docs/tweaks.md): packaged per-toolkit configuration of built-in pieces.
 day-tweak-button-bezel = { workspace = true }
 day-tweak-label-selectable = { workspace = true }

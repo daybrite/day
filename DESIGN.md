@@ -2796,6 +2796,20 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > text). The rich-text design stays here as future work; nothing in the shipped extension
 > mechanism blocks it.
 
+### B.6 PullRefresh (the reference CONTAINER piece — native/emulated hybrid)
+
+> [!NOTE]
+> **Shipped** as `pieces/day-piece-pullrefresh` (docs/pullrefresh.md): pull-to-refresh for any
+> scrollable, and the first external piece whose native view **hosts a Day child** — proving the
+> container seam needs no framework hook (day-core mounts children by handle; the piece supplies
+> a fill layout via `cx.native` + `cx.under` — docs/extending.md §5). Per toolkit it is a hybrid:
+> NATIVE wrappers where the platform has them (`UIRefreshControl` attached on subview-add,
+> `SwipeRefreshLayout` via `[package.metadata.day.android]`, `ARKUI_NODE_REFRESH` via its own NDK
+> shim — the first external ArkUI renderer), EMULATED elsewhere (a composed spinner overlay plus
+> overscroll observation: AppKit elastic-scroll bounds notifications, GTK `edge-overshot`). The
+> two-way `refreshing: Signal<bool>` contract mirrors SwiftUI's `refreshable`; dayscript drives it
+> through the existing `toggle:` step (`Event::ToggleChanged` as synthetic begin/end).
+
 ---
 
 # Appendix C — dayscript reference (v1)

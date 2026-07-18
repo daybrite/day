@@ -527,13 +527,17 @@ fn adb(serial: Option<&str>) -> Command {
 
 /// Every device in `adb devices` in the `device` state, paired with its primary ABI
 /// (`ro.product.cpu.abi`). `DAY_ANDROID_ABI`, when set, overrides the queried ABI for every device
-/// (CI's KVM emulator leg pins `x86_64`). Empty when nothing is connected.
+/// (CI's KVM emulator leg pins `x86_64`); when it holds a LIST, the first entry is the per-device
+/// override (a device runs one primary ABI — the full list matters to [`android_build_abis`]).
+/// Empty when nothing is connected.
 ///
 /// `ANDROID_SERIAL` (adb's own device-selection variable) narrows the list to that one device —
 /// so launches, installs, and dayscript sessions target it exclusively when several devices are
 /// attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
-    let forced = std::env::var("DAY_ANDROID_ABI").ok();
+    let forced = std::env::var("DAY_ANDROID_ABI")
+        .ok()
+        .and_then(|v| parse_abi_list(&v).into_iter().next());
     let only = std::env::var("ANDROID_SERIAL")
         .ok()
         .filter(|s| !s.is_empty());
@@ -573,16 +577,34 @@ pub(crate) fn android_devices() -> Vec<AndroidDevice> {
 }
 
 /// The set of ABIs to build for: the distinct ABIs of the connected devices, or — with nothing
-/// connected (e.g. `day build` on CI before the emulator boots) — the `DAY_ANDROID_ABI` override
-/// or the arm64-v8a default, so packaging still succeeds.
+/// connected (e.g. `day pack` on CI, or `day build` before the emulator boots) — the
+/// `DAY_ANDROID_ABI` override or the arm64-v8a default, so packaging still succeeds.
+/// `DAY_ANDROID_ABI` accepts a comma/space-separated LIST (`arm64-v8a,x86_64`), so a distribution
+/// pack carries `lib/<abi>/` for every listed ABI in one apk/aab (each ABI needs its rustup
+/// target, e.g. `rustup target add x86_64-linux-android`).
 fn android_build_abis() -> Vec<String> {
     let mut abis: Vec<String> = android_devices().into_iter().map(|d| d.abi).collect();
     abis.sort();
     abis.dedup();
     if abis.is_empty() {
-        abis.push(std::env::var("DAY_ANDROID_ABI").unwrap_or_else(|_| "arm64-v8a".into()));
+        abis = std::env::var("DAY_ANDROID_ABI")
+            .map(|v| parse_abi_list(&v))
+            .unwrap_or_default();
+    }
+    if abis.is_empty() {
+        abis.push("arm64-v8a".into());
     }
     abis
+}
+
+/// Split a `DAY_ANDROID_ABI` value into ABIs: comma- and/or whitespace-separated, empties dropped
+/// (`"arm64-v8a,x86_64"` and `"arm64-v8a x86_64"` both parse to two).
+fn parse_abi_list(v: &str) -> Vec<String> {
+    v.split([',', ' ', '\t'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Cross-compile the app cdylib for every ABI in `abis` into `out/<abi>/lib<name>.so` (one
@@ -926,4 +948,19 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
         }
         child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
     })
+}
+
+#[cfg(test)]
+mod abi_tests {
+    use super::parse_abi_list;
+
+    #[test]
+    fn abi_list_parses_commas_spaces_and_empties() {
+        assert_eq!(parse_abi_list("arm64-v8a"), vec!["arm64-v8a"]);
+        assert_eq!(parse_abi_list("arm64-v8a,x86_64"), vec!["arm64-v8a", "x86_64"]);
+        assert_eq!(parse_abi_list("arm64-v8a x86_64"), vec!["arm64-v8a", "x86_64"]);
+        assert_eq!(parse_abi_list(" arm64-v8a , x86_64 "), vec!["arm64-v8a", "x86_64"]);
+        assert!(parse_abi_list("").is_empty());
+        assert!(parse_abi_list(" , ").is_empty());
+    }
 }

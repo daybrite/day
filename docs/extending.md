@@ -176,6 +176,34 @@ winui = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-w
 The app mirrors each: `my-piece/<backend>` in the matching feature. That's it: no changes to `day`,
 the toolkit crates, the CLI, or the Gradle scaffold are needed to add a piece.
 
+## 5. Container pieces (hosting a Day child)
+
+A piece is not limited to leaves: it can be a **container** whose native view hosts a Day-built
+subtree. day-core mounts children **by handle, not by kind** — the tree walks to the nearest native
+ancestor and calls `Toolkit::insert(ancestor_handle, child_handle, index)` without consulting the
+ancestor's kind — so a piece-realized node is a valid insertion parent on every backend. The recipe
+(established by `pieces/day-piece-pullrefresh`, the reference container piece — docs/pullrefresh.md):
+
+```rust
+let node = cx.native(
+    KIND,
+    &MyProps { /* … */ },
+    Rc::new(day_core::FrameLayout { width: None, height: None }), // child fills the container
+    Flex { grow_w: true, grow_h: true, ..Default::default() },
+    day_core::Boundary::Yes,
+);
+cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Day child inside
+```
+
+- Supply a **layout** (`FrameLayout`/`PassThrough`, or your own `day_core::Layout`) — a container
+  node measures/places through its layout, not through the renderer's `measure` fn.
+- Your per-backend `make` must return a **container-capable native view**: any `NSView`/`UIView`,
+  any `QWidget`, any ArkUI FrameNode — but on GTK a `gtk4::Fixed`-backed view, on Android a
+  `ViewGroup`, and on WinUI a `Panel`, or the generic `insert` silently drops the child.
+  (Conveniently, native wrappers like Android's `SwipeRefreshLayout` ARE ViewGroups.)
+- Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
+  through `with_tree(|t| t.patch(node, …))` — identical to leaf pieces.
+
 ## Reference
 
 `pieces/day-piece-picker` implements all of the above: three SwiftUI-style stylings, six backends, its

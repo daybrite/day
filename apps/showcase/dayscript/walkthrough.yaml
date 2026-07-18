@@ -231,11 +231,31 @@ flow:
   - screenshot: back-home
 
   # Native recycling list (docs/list.md): 500 virtualized rows — visited after the delicate
-  # stack/tabs route assertions so they stay undisturbed.
+  # stack/tabs route assertions so they stay undisturbed. The list is wrapped in pull-to-refresh
+  # (day-piece-pullrefresh): a synthetic toggle begins a reload that adds 100 rows and ends itself.
   - navigate: { route: list }
   - assert_route: { route: list }
   - assert_visible: { id: list-title }
   - screenshot: list
+  - assert_text: { id: list-caption, key: list_caption, args: { count: 500 } }
+  - toggle: { id: list-refresh, value: true }
+  - pause: 2
+  - assert_text: { id: list-caption, key: list_caption, args: { count: 600 } }
+
+  # Pull-to-refresh (docs/pullrefresh.md): an EXTERNAL piece — and the reference CONTAINER piece —
+  # native (UIRefreshControl / SwipeRefreshLayout / ArkUI Refresh) or emulated (overlay spinner +
+  # overscroll gesture). The synthetic toggle begins a refresh; the page's fake reload prepends
+  # rows and ends it. The status label and tier label are asserted in the run's locale.
+  - navigate: { route: refresh }
+  - assert_route: { route: refresh }
+  - assert_visible: { id: refresh-title }
+  - assert_text: { id: refresh-status, key: refresh_status_idle }
+  - toggle: { id: feed-refresh, value: true }
+  - assert_text: { id: refresh-status, key: refresh_status_refreshing }
+  - screenshot: refresh
+  - pause: 2
+  - assert_text: { id: refresh-status, key: refresh_status_idle }
+  - assert_visible: { id: "refresh-row:12" }
 
   # Native media player (docs/media.md): an EXTERNAL piece wrapping each toolkit's native player
   # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo). The pause lets
