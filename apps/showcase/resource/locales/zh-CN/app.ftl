@@ -48,6 +48,21 @@ picker_segmented = 分段
 picker_menu = 菜单
 picker_inline = 内联
 
+# — day-piece-datetime —
+nav_dates = 日期与时间
+dates_caption = 原生日期和时间选择器与民用日期/时间信号双向绑定——同一分组内的选择器共享同一信号。
+dates_date_section = 日期
+dates_time_section = 时间
+dates_composed_section = 组合
+date_compact = 紧凑
+date_inline = 日历
+time_compact = 紧凑
+time_seconds = 含秒
+dates_composed = 日期和时间
+date_bounded = 2026 年内
+date_picked = 所选日期
+time_picked = 所选时间
+
 compose_caption = 纯组合部件——无原生代码、无 cargo 特性，每个后端都直接可用。
 compose_rating_label = 星级评分
 compose_rating_count = 已选星数：

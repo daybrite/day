@@ -800,6 +800,23 @@ pub fn launch_android(
             adb(Some(&dev.serial)).args(["shell", "am", "force-stop", &app_id]),
             &format!("am force-stop ({})", dev.serial),
         )?;
+        // EMULATORS ONLY: suppress the system ANR/crash dialogs (the standard test-device
+        // setting). A loaded host makes an emulated main thread miss Android's hardcoded 5 s
+        // input-dispatch deadline, and the resulting "isn't responding" dialog overlays the app —
+        // obscuring screenshots and blocking taps mid-walkthrough. The ANR itself still lands in
+        // logcat. Never touched on a physical device (a global, persistent setting); best-effort.
+        if dev.serial.starts_with("emulator-") {
+            let _ = adb(Some(&dev.serial))
+                .args([
+                    "shell",
+                    "settings",
+                    "put",
+                    "global",
+                    "hide_error_dialogs",
+                    "1",
+                ])
+                .output();
+        }
         // DAY_THEME must be in effect BEFORE the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
         // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —

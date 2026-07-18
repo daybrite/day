@@ -52,6 +52,7 @@ day-piece-picker = { workspace = true }
 # every backend for free. No per-backend feature wiring above, the composition-first payoff.
 day-piece-rating = { workspace = true }
 day-piece-pullrefresh = { workspace = true }
+day-piece-datetime = { workspace = true }
 # Tweaks (docs/tweaks.md): packaged per-toolkit configuration of built-in pieces.
 day-tweak-button-bezel = { workspace = true }
 day-tweak-label-selectable = { workspace = true }

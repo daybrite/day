@@ -54,6 +54,21 @@ picker_segmented = مقسّم
 picker_menu = قائمة
 picker_inline = مضمّن
 
+# — day-piece-datetime —
+nav_dates = التاريخ والوقت
+dates_caption = منتقيات تاريخ ووقت أصلية مرتبطة باتجاهين بإشارات مدنية — منتقيات القسم الواحد تتشارك الإشارة نفسها.
+dates_date_section = التاريخ
+dates_time_section = الوقت
+dates_composed_section = مركّب
+date_compact = مضغوط
+date_inline = التقويم
+time_compact = مضغوط
+time_seconds = بالثواني
+dates_composed = التاريخ والوقت
+date_bounded = ضمن 2026
+date_picked = التاريخ المختار
+time_picked = الوقت المختار
+
 compose_caption = قطع تركيبية بحتة — بلا شيفرة أصلية ولا ميزات cargo، وتعمل على كل واجهة خلفية مباشرة.
 compose_rating_label = تقييم بالنجوم
 compose_rating_count = النجوم المحدّدة:

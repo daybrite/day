@@ -46,6 +46,8 @@ they tend to lead the guides when something changes.
 | [media](/docs/internal/media) | `day-piece-media` — audio/video playback |
 | [lottie](/docs/internal/lottie) | `day-piece-lottie` — Lottie animations |
 | [activity](/docs/internal/activity) | `day-piece-activity` — activity rings |
+| [pullrefresh](/docs/internal/pullrefresh) | `day-piece-pullrefresh` — pull-to-refresh for scrollables |
+| [datepicker](/docs/internal/datepicker) | `day-piece-datetime` — native date & time pickers |
 
 ## Parts
 

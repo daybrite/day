@@ -47,6 +47,28 @@ flow:
   - assert_text: { id: activity-status, key: activity_off }
   - screenshot: controls
 
+  # Date & time (docs/datepicker.md): native pickers bound two-way to civil date/time signals.
+  # Every picker accepts a synthetic ISO `input:` on every backend, and the readouts are
+  # locale-independent ISO from the bound signals — the same steps assert the two-way binding
+  # under NSDatePicker, UIDatePicker, Material dialogs, QDateEdit, and the composed GTK build.
+  - navigate: { route: dates }
+  - assert_route: { route: dates }
+  - assert_visible: { id: dates-title }
+  - input: { id: date-compact, text: "2026-11-05" }
+  - assert_text: { id: date-value, text: "2026-11-05" }
+  # The inline calendar is bound to the SAME date signal — driving it moves the same readout.
+  - input: { id: date-inline, text: "2026-03-09" }
+  - assert_text: { id: date-value, text: "2026-03-09" }
+  # Both time pickers share one signal; the seconds variant mirrors the compact one.
+  - input: { id: time-compact, text: "14:45" }
+  - assert_text: { id: time-value, text: "14:45" }
+  - input: { id: time-seconds, text: "14:45:30" }
+  - assert_text: { id: time-value, text: "14:45:30" }
+  # The bounded picker clamps every pick into 2026 (min/max, docs/datepicker.md).
+  - input: { id: date-bounded, text: "2027-06-15" }
+  - assert_text: { id: date-bounded-value, text: "2026-12-31" }
+  - screenshot: dates
+
   # Focus (docs/focus.md): `focus`/`assert_focused` drive the REAL toolkit duty, so the native
   # focus ring, the signal, and the probe must agree. Assertions stay on text fields — the one
   # control focusable on every platform.

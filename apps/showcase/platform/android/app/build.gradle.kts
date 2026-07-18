@@ -15,6 +15,8 @@ val dayPieces: Map<String, Any> =
 @Suppress("UNCHECKED_CAST")
 val pieceJavaDirs = (dayPieces["javaSrcDirs"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
+val pieceResDirs = (dayPieces["resSrcDirs"] as? List<String>) ?: emptyList()
+@Suppress("UNCHECKED_CAST")
 val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
 val piecePermissions = (dayPieces["permissions"] as? List<String>) ?: emptyList()
@@ -53,8 +55,9 @@ android {
             // day-pieces.json — wherever cargo has the crate (workspace, git checkout, or
             // registry source). See the guard below for what happens when it is absent.
             (dayPieces["dayJavaSrcDir"] as? String)?.let { java.srcDir(it) }
-            // Standalone pieces' own Java/Kotlin (docs/extending.md).
+            // Standalone pieces' own Java/Kotlin and Android resources (docs/extending.md).
             pieceJavaDirs.forEach { java.srcDir(it) }
+            pieceResDirs.forEach { res.srcDir(it) }
             // Rust .so staged by `day build` / `day gradle-backend build` (§17.4 — never src/main).
             jniLibs.srcDir(rootProject.projectDir.resolve("../../build/day/jniLibs"))
             // The project's `resource/assets/` — raw data (e.g. Lottie `hello.json`) bundled into

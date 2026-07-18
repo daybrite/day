@@ -7,6 +7,7 @@
 //! Android contract (`[package.metadata.day.android]`):
 //! ```toml
 //! java = ["android/java"]                 # dirs (rel. to the crate) → Gradle java srcDirs
+//! res = ["android/res"]                   # dirs (rel. to the crate) → Gradle res srcDirs
 //! gradle-dependencies = ["g:a:v", …]      # → the app module's dependencies { }
 //! gradle-repositories = ["https://…", …]  # → extra Maven repos
 //! permissions = ["android.permission.INTERNET", …]  # → <uses-permission>s merged into the manifest
@@ -49,6 +50,10 @@ pub struct AndroidPieces {
     /// Absolute Java/Kotlin source dirs to add as Gradle `java.srcDir`s.
     #[serde(rename = "javaSrcDirs")]
     pub java_src_dirs: Vec<String>,
+    /// Absolute Android resource dirs to add as Gradle `res.srcDir`s — a piece can ship its own
+    /// styles/drawables (e.g. a theme overlay its dialog needs) without touching the scaffold.
+    #[serde(rename = "resSrcDirs")]
+    pub res_src_dirs: Vec<String>,
     /// Gradle dependency coordinates (`group:artifact:version`).
     pub dependencies: Vec<String>,
     /// Extra Maven repository URLs.
@@ -93,6 +98,8 @@ struct Dep {
 struct AndroidMeta {
     #[serde(default)]
     java: StringOrVec,
+    #[serde(default)]
+    res: StringOrVec,
     #[serde(default, rename = "gradle-dependencies")]
     gradle_dependencies: Vec<String>,
     #[serde(default, rename = "gradle-repositories")]
@@ -261,6 +268,17 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             let abs = dir.to_string_lossy().into_owned();
             if seen_java.insert(abs.clone()) {
                 pieces.java_src_dirs.push(abs);
+            }
+        }
+        for rel in &android.res.0 {
+            let dir = crate_dir.join(rel);
+            if !dir.is_dir() {
+                eprintln!("day: {} res dir {:?} not found — skipping", pkg.id, dir);
+                continue;
+            }
+            let abs = dir.to_string_lossy().into_owned();
+            if !pieces.res_src_dirs.contains(&abs) {
+                pieces.res_src_dirs.push(abs);
             }
         }
         for dep in android.gradle_dependencies {

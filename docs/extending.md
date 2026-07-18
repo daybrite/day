@@ -98,6 +98,7 @@ The piece carries its own Java/Kotlin under a crate dir and declares it in `Carg
 ```toml
 [package.metadata.day.android]
 java = ["android/java"]                                        # → Gradle java srcDirs
+res = ["android/res"]                                          # → Gradle res srcDirs (optional)
 gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → app dependencies { }
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
 permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
@@ -106,7 +107,14 @@ permissions = ["android.permission.INTERNET"]                 # → <uses-permis
 `day build` (for `android-widget`) runs `cargo metadata`, walks the app's dependency closure, collects
 every piece's contributions, and writes `build/day/android/day-pieces.json`. The app's checked-in
 `platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file generically (a loop, so
-per-piece edits are never needed) and add the Java dirs, dependencies, and repos.
+per-piece edits are never needed) and add the Java dirs, res dirs, dependencies, and repos.
+
+**Piece resources.** `res` dirs compile into the APP's resource table, so a piece can ship the styles
+or drawables its Java needs (e.g. a theme overlay for a dialog). The app's `R` package differs per
+app, so the piece's Java resolves its own resources by name at runtime:
+`ctx.getResources().getIdentifier("SomeStyleName", "style", ctx.getPackageName())`. Prefix names with
+the piece to avoid collisions (resource names are one flat namespace per app).
+`day-piece-datetime/android/res` is the reference.
 
 **Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
 app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated

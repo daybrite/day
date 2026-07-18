@@ -51,6 +51,21 @@ picker_segmented = Segmenté
 picker_menu = Menu
 picker_inline = Aligné
 
+# — day-piece-datetime —
+nav_dates = Date et heure
+dates_caption = Sélecteurs natifs de date et d'heure liés en double sens à des signaux civils — les sélecteurs d'une même section partagent le même signal.
+dates_date_section = Date
+dates_time_section = Heure
+dates_composed_section = Composé
+date_compact = Compact
+date_inline = Calendrier
+time_compact = Compact
+time_seconds = Avec les secondes
+dates_composed = Date et heure
+date_bounded = En 2026
+date_picked = Date choisie
+time_picked = Heure choisie
+
 compose_caption = Pièces de pure composition — sans code natif, sans fonctionnalités cargo, sur tous les backends gratuitement.
 compose_rating_label = Note en étoiles
 compose_rating_count = Étoiles sélectionnées :

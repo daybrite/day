@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The MaterialTimePicker dialog theme, made safe for Day's non-AppCompat host. The dialog's
+     layout inflates plain <Button> tags with style="?attr/borderlessButtonStyle"; under a
+     Theme.Material3Expressive app theme that attribute points at an Expressive button style whose
+     padding reads ?attr/containerPaddingTop — an attribute defined only inside the
+     SizeOverlay.Material3Expressive.Button.* overlays that MaterialButton applies at construction.
+     DayActivity is a plain FragmentActivity (no AppCompat/Material view inflater), so the tags
+     inflate as framework android.widget.Button, the overlay never applies, and attribute
+     resolution throws (InflateException → crash). Material's own time-picker overlay — unlike its
+     calendar overlay, which pins the buttonBar styles — does not override borderlessButtonStyle,
+     so the Expressive value leaks through. This child overlay pins it to the plain-Button-safe
+     Material3 dialog text-button style; DayDateTime.java passes it via
+     MaterialTimePicker.Builder.setTheme (resolved by name — the R package differs per app). -->
+<resources>
+    <style name="DayPieceDatetimeTimePickerTheme" parent="ThemeOverlay.Material3.MaterialTimePicker">
+        <item name="borderlessButtonStyle">@style/Widget.Material3.Button.TextButton.Dialog</item>
+    </style>
+</resources>

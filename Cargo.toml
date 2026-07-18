@@ -43,6 +43,7 @@ members = [
     "pieces/day-piece-textarea",
     "pieces/day-piece-rating",
     "pieces/day-piece-pullrefresh",
+    "pieces/day-piece-datetime",
     "tweaks/day-tweak-button-bezel",
     "tweaks/day-tweak-label-selectable",
     "tweaks/day-tweak-slider-tickmarks",
@@ -118,6 +119,7 @@ day-piece-remote-image = { path = "pieces/day-piece-remote-image", version = "0.
 day-piece-textarea = { path = "pieces/day-piece-textarea", version = "0.0.11" }
 day-piece-rating = { path = "pieces/day-piece-rating", version = "0.0.11" }
 day-piece-pullrefresh = { path = "pieces/day-piece-pullrefresh", version = "0.0.11" }
+day-piece-datetime = { path = "pieces/day-piece-datetime", version = "0.0.11" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.0.11" }
 day-tweak-label-selectable = { path = "tweaks/day-tweak-label-selectable", version = "0.0.11" }

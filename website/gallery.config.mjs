@@ -83,6 +83,7 @@ export const suites = [
     shots: [
       { id: 'home', label: 'Home', source: 'apps/showcase/src/lib.rs' },
       { id: 'controls', label: 'Controls form', source: 'apps/showcase/src/pages/controls.rs' },
+      { id: 'dates', label: 'Date & time pickers', source: 'apps/showcase/src/pages/dates.rs' },
       { id: 'canvas', label: 'Canvas & shapes', source: 'apps/showcase/src/pages/canvas.rs' },
       { id: 'system', label: 'Device & sensors', source: 'apps/showcase/src/pages/system.rs' },
       { id: 'services', label: 'Platform services', source: 'apps/showcase/src/pages/services.rs' },

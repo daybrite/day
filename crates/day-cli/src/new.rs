@@ -1004,6 +1004,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
              # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
              [package.metadata.day.android]\n\
              java = [\"android/java\"]\n\
+             # res = [\"android/res\"]\n\
              # gradle-dependencies = [\"group:artifact:version\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
         );

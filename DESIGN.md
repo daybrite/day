@@ -1780,6 +1780,7 @@ day-piece-lottie/
 ```toml
 [package.metadata.day.android]
 java = ["android/java"]                    # dirs → Gradle java srcDirs
+res = []                                   # dirs → Gradle res srcDirs (piece-shipped styles/drawables)
 gradle-dependencies = ["com.airbnb.android:lottie:6.x"]
 gradle-repositories = []                   # extra Maven repos if needed
 permissions = []                           # <uses-permission> entries merged into the manifest
@@ -2809,6 +2810,22 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > overscroll observation: AppKit elastic-scroll bounds notifications, GTK `edge-overshot`). The
 > two-way `refreshing: Signal<bool>` contract mirrors SwiftUI's `refreshable`; dayscript drives it
 > through the existing `toggle:` step (`Event::ToggleChanged` as synthetic begin/end).
+
+### B.7 Date & time pickers (the first all-seven-toolkits external piece)
+
+> [!NOTE]
+> **Shipped** as `pieces/day-piece-datetime` (docs/datepicker.md): `date_picker(Signal<DayDate>)`
+> and `time_picker(Signal<DayTime>)` — TWO pieces, because a combined date-time control exists on
+> only 3 of the 7 toolkits while separate controls are native on all of them (combined = row
+> composition). Two style intents (`Compact` = field → transient chooser, `Inline` = embedded
+> calendar/wheels) map to `NSDatePicker`, `UIDatePicker`, Material dialogs launched through
+> `DayActivity`'s FragmentManager, `QDateEdit`/`QCalendarWidget` (own shim), `CalendarDatePicker`/
+> `CalendarView`/`TimePicker` (own shim), the ArkUI NDK picker nodes (own shim), and a
+> GTK-composed `GtkMenuButton`+`GtkCalendar`/spin-button build (GTK4 has no stock picker —
+> `support()` reports Emulated there). The first external piece covering EVERY backend's renderer
+> slice. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
+> user's locale, so platforms localize month names while the value never shifts by zone; dayscript
+> drives every picker via the existing `input:` step (`Event::TextChanged` with ISO text).
 
 ---
 

@@ -609,6 +609,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-datetime"
+version = "0.0.11"
+dependencies = [
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-arkui",
+ "day-arkui-sys",
+ "day-core",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "day-toolchain",
+ "day-uikit",
+ "day-winui",
+ "day-winui-sys",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-piece-lottie"
 version = "0.0.11"
 dependencies = [
@@ -2588,6 +2617,7 @@ dependencies = [
  "day-part-sensors",
  "day-piece-activity",
  "day-piece-combobox",
+ "day-piece-datetime",
  "day-piece-lottie",
  "day-piece-map",
  "day-piece-media",
