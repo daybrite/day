@@ -109,7 +109,11 @@ void day_datetime_winui_time_set(void *handle, int64_t secs) {
     WF::IInspectable e{nullptr};
     winrt::copy_from_abi(e, day_winui_unbox(handle));
     if (auto p = e.try_as<WUXC::TimePicker>()) {
-        if (p.Time().count() / TICKS_PER_SECOND != secs)
+        // The system-XAML TimePicker has only minute resolution (no seconds column), so re-display
+        // only when the minute changes. Re-setting it for a seconds-only delta would round to the
+        // minute and echo that back via TimeChanged, dropping the sub-minute part the signal holds.
+        int64_t cur = p.Time().count() / TICKS_PER_SECOND;
+        if (cur / 60 != secs / 60)
             p.Time(WF::TimeSpan{secs * TICKS_PER_SECOND});
     }
 }
