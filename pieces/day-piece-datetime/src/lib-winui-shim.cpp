@@ -53,7 +53,7 @@ void *day_datetime_winui_date_new(int inline_style, int64_t days, int has_min, i
         cv.SelectedDates().Append(value);
         cv.SetDisplayDate(value);
         cv.SelectedDatesChanged([id, cb](WUXC::CalendarView const &,
-                                         WUXC::CalendarViewSelectionChangedEventArgs const &args) {
+                                         WUXC::CalendarViewSelectedDatesChangedEventArgs const &args) {
             auto added = args.AddedDates();
             if (added.Size() > 0)
                 cb(id, toEpochDays(added.GetAt(0)));
