@@ -66,9 +66,11 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
         <p class="lead suite-blurb">{suite.blurb}</p>
       </div>
 
+      {/* Each row's id is its anchor — the front-page hero carousel links each screenshot to
+          its row (`/gallery#<shot>`). Shot ids must stay unique across suites. */}
       <div class="rows" data-pagefind-ignore>
         {suite.shots.map((shot, ri) => (
-          <div class="row">
+          <div class="row" id={shot.id}>
             <div class="container row-head">
               <h3 class="row-title">{shot.label}</h3>
               {shot.source && (
@@ -383,7 +385,9 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .suite-title { font-size: 1.7rem; margin: 0 0 6px; }
   .suite-blurb { margin: 0 0 4px; }
 
-  .row { margin-top: 30px; }
+  /* Anchor landings (hero-carousel links, #<shot> URLs) must clear the sticky site header
+     (61px) + the pinned theme/language toolbar below it. */
+  .row { margin-top: 30px; scroll-margin-top: 132px; }
   .row-head { display: flex; align-items: baseline; gap: 12px; }
   .row-title {
     font-size: 0.95rem; font-weight: 700; margin: 0 0 12px;

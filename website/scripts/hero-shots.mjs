@@ -153,6 +153,8 @@ export async function assembleHeroShots(opts = {}) {
       writeFileSync(join(outDir, file), out);
       shots.push({
         src: `hero/${file}`,
+        // The gallery shot id — the carousel links each image to its row anchor (`/gallery#<shot>`).
+        shot,
         os: platform.os,
         toolkit: platform.toolkit,
         accent: OS_ACCENT[platform.os] ?? 'macos',

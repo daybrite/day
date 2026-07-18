@@ -5,28 +5,33 @@
 import { url } from '../lib/site';
 import shotsData from '../data/hero-shots.json';
 
-const shots: { src: string; os: string; toolkit: string; accent: string; alt: string }[] =
+const shots: { src: string; shot?: string; os: string; toolkit: string; accent: string; alt: string }[] =
   shotsData.shots ?? [];
 ---
 {shots.length > 0 && (
   <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
-    <div class="hc-frame">
-      <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
-      {shots.map((s, i) => (
-        <img
-          class:list={['hc-img', { 'is-active': i === 0 }]}
-          src={url(s.src)}
-          alt={s.alt}
-          width="1000"
-          height="750"
-          decoding="async"
-          loading={i < 3 ? 'eager' : 'lazy'}
-          data-os={s.os}
-          data-toolkit={s.toolkit}
-          data-accent={s.accent}
-        />
-      ))}
-    </div>
+    {/* The frame links to the gallery, anchored at the row for the screen currently showing —
+        the controller retargets the href on every image change. */}
+    <a class="hc-link" data-hc-link href={url('gallery')} aria-label="See this screen on every platform in the gallery">
+      <div class="hc-frame">
+        <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
+        {shots.map((s, i) => (
+          <img
+            class:list={['hc-img', { 'is-active': i === 0 }]}
+            src={url(s.src)}
+            alt={s.alt}
+            width="1000"
+            height="750"
+            decoding="async"
+            loading={i < 3 ? 'eager' : 'lazy'}
+            data-shot={s.shot}
+            data-os={s.os}
+            data-toolkit={s.toolkit}
+            data-accent={s.accent}
+          />
+        ))}
+      </div>
+    </a>
     <div class="hc-track" data-hc-track aria-hidden="true">
       {shots.map(() => <span class="hc-seg"><i></i></span>)}
     </div>
@@ -41,6 +46,9 @@ const shots: { src: string; os: string; toolkit: string; accent: string; alt: st
 
 <style>
   .hero-carousel { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+
+  .hc-link { display: block; border-radius: var(--radius-lg); }
+  .hc-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
   .hc-frame {
     position: relative;
@@ -122,6 +130,7 @@ const shots: { src: string; os: string; toolkit: string; accent: string; alt: st
 
     const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.hc-img'));
     const segs = Array.from(root.querySelectorAll<HTMLElement>('.hc-seg'));
+    const link = root.querySelector<HTMLAnchorElement>('[data-hc-link]');
     const glow = root.querySelector<HTMLElement>('[data-hc-glow]');
     const caption = root.querySelector<HTMLElement>('[data-hc-caption]');
     const osEl = root.querySelector<HTMLElement>('[data-hc-os]');
@@ -157,6 +166,14 @@ const shots: { src: string; os: string; toolkit: string; accent: string; alt: st
         seg.classList.toggle('is-past', i < p);
       });
 
+      // Retarget the frame link at the gallery row for the screen now showing (the row anchors
+      // are the shot ids); without a shot id the link falls back to the gallery top.
+      if (link) {
+        const base = (link.getAttribute('href') ?? '').split('#')[0];
+        const shot = img.dataset.shot;
+        link.setAttribute('href', shot ? `${base}#${shot}` : base);
+      }
+
       if (osEl) osEl.textContent = img.dataset.os ?? '';
       if (tkEl) tkEl.textContent = img.dataset.toolkit ?? '';
       // Restart the caption entrance animation.
@@ -179,8 +196,8 @@ const shots: { src: string; os: string; toolkit: string; accent: string; alt: st
       if (timer) { clearInterval(timer); timer = undefined; }
     }
 
-    // Click / tap the frame to jump ahead.
-    root.querySelector('.hc-frame')?.addEventListener('click', () => { advance(); stop(); start(); });
+    // Clicking the frame follows its link to the gallery row for the current screen (no
+    // click-to-advance — hover already pauses, and the timer keeps cycling otherwise).
     root.addEventListener('mouseenter', stop);
     root.addEventListener('mouseleave', start);
     document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
