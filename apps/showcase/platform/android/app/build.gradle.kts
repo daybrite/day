@@ -20,6 +20,11 @@ val pieceResDirs = (dayPieces["resSrcDirs"] as? List<String>) ?: emptyList()
 val pieceDeps = (dayPieces["dependencies"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
 val piecePermissions = (dayPieces["permissions"] as? List<String>) ?: emptyList()
+// R8/ProGuard keep rules aggregated by `day build`: the framework's own (bridge + native methods)
+// plus one per Part/Piece/app that hands Java classes to native code by name (docs/extending.md).
+val dayProguardFile = dayPieces["dayProguardFile"] as? String
+@Suppress("UNCHECKED_CAST")
+val pieceProguardFiles = (dayPieces["proguardFiles"] as? List<String>) ?: emptyList()
 
 // Day.toml identity/version, conveyed by `day build` / `day pack` (§17.5). Read generically with
 // scaffold fallbacks, so a bare `./gradlew` build still configures.
@@ -87,7 +92,17 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Release builds minify with R8 (shrink + rename). Day's Java bridge — and any Part,
+            // Piece, or app JNI shim — is reached from native (Rust) code BY NAME (JNI FindClass,
+            // dcall_static, reflection), so `day build` folds in keep rules that stop R8 renaming
+            // those classes: the framework's own (dayProguardFile) plus each component's declared
+            // proguard-rules.pro (pieceProguardFiles). Without them the APK installs then crashes at
+            // launch. Day's rules add -dontoptimize, so the optimize base still shrinks + renames
+            // but skips the aggressive optimizations that break reflection-heavy deps (Room/WorkManager).
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            dayProguardFile?.let { proguardFiles(it) }
+            pieceProguardFiles.forEach { proguardFiles(it) }
             if (daySigningFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }

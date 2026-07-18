@@ -102,6 +102,7 @@ res = ["android/res"]                                          # → Gradle res 
 gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → app dependencies { }
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
 permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
+proguard = ["android/proguard-rules.pro"]                     # → R8 keep rules (see below)
 ```
 
 `day build` (for `android-widget`) runs `cargo metadata`, walks the app's dependency closure, collects
@@ -124,6 +125,40 @@ entries into the app manifest (deduping against any the app already declares). S
 needs no manual manifest edit: the piece declares the permission and it shows up in the merged
 manifest. `day-piece-webview` is the reference. (A piece can only add a permission; it never
 removes or narrows the app's own.)
+
+**Release minification (R8/ProGuard).** A `day build --profile release` (and `day pack`) minifies with
+R8 — it shrinks unused code and **renames** classes and methods. But Day reaches Java from native
+(Rust) code *by name*: JNI `FindClass("dev/daybrite/day/piece/picker/DayPicker")`, `dcall_static` on a
+method name, WorkManager instantiating a `Worker` from its class-name string, Room looking up a
+`<Database>_Impl`. A renamed class breaks every one of those lookups, so an un-kept release APK
+installs and then crashes at launch (`NoClassDefFound` / `ClassNotFoundException` / `UnsatisfiedLinkError`).
+
+Two layers keep the right names:
+
+- **The framework keeps its own namespace.** `day-android` ships a `proguard-rules.pro` (bundled by
+  `day build` from the crate, like the Java shim) that keeps all of `dev.daybrite.day.**` — the render
+  bridge and *every official Part/Piece shim* — plus every class with `native` methods. So a first-party
+  piece needs no rules of its own. It also sets `-dontoptimize`: AGP forces the `proguard-android-optimize`
+  base, whose aggressive optimizations break reflection-heavy libraries (WorkManager's Room database is
+  the classic casualty), and Day would rather ship predictable release builds than squeeze the last few
+  percent — R8 still shrinks and renames everything a keep rule doesn't protect.
+
+- **Everything outside `dev.daybrite.day.**` keeps itself.** An **app**'s own JNI classes (its install
+  bridge, a background `Worker`) live in the *app's* package, and a **third-party piece** lives in its
+  own namespace — neither is covered by the framework rule. Each ships a `proguard-rules.pro` and lists
+  it in `proguard = [...]`. `day build` collects all of them (framework + every piece + the app) into
+  the release build's proguard configuration, exactly like it collects Java dirs and Gradle deps. An app
+  also keeps here anything its *dependencies* reach reflectively that their own consumer rules miss
+  (e.g. `-keep class * extends androidx.room.RoomDatabase { *; }` for a WorkManager user).
+
+```proguard
+# android/proguard-rules.pro — keep the classes native code reaches by name.
+-keep class com.example.mypiece.MyPieceView { *; }
+```
+
+The app's `platform/android/app/build.gradle.kts` reads `dayProguardFile` + `proguardFiles` from
+`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-picker` (framework
+side) and App Fair's `android/proguard-rules.pro` (app side) are the references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).

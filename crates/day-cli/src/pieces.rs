@@ -11,6 +11,7 @@
 //! gradle-dependencies = ["g:a:v", …]      # → the app module's dependencies { }
 //! gradle-repositories = ["https://…", …]  # → extra Maven repos
 //! permissions = ["android.permission.INTERNET", …]  # → <uses-permission>s merged into the manifest
+//! proguard = ["android/proguard-rules.pro"]  # → R8 keep rules for classes native code reaches by name
 //! ```
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which the app's
 //! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
@@ -47,6 +48,11 @@ pub struct AndroidPieces {
     /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
     #[serde(rename = "dayJavaSrcDir")]
     pub day_java_src_dir: Option<String>,
+    /// The day-android framework's own R8/ProGuard keep rules (bridge classes + native methods),
+    /// resolved from the day-android crate. Applied to every release build so minification never
+    /// renames the JNI-reached bridge (docs/extending.md).
+    #[serde(rename = "dayProguardFile")]
+    pub day_proguard_file: Option<String>,
     /// Absolute Java/Kotlin source dirs to add as Gradle `java.srcDir`s.
     #[serde(rename = "javaSrcDirs")]
     pub java_src_dirs: Vec<String>,
@@ -60,6 +66,12 @@ pub struct AndroidPieces {
     pub repositories: Vec<String>,
     /// Android `<uses-permission>` names to merge into the app manifest.
     pub permissions: Vec<String>,
+    /// Absolute R8/ProGuard rule files contributed by the app and its pieces/parts — every
+    /// component that hands Java classes to native code by name (JNI FindClass, `dcall_static`,
+    /// reflection) ships one and declares it in `[package.metadata.day.android].proguard`. Folded
+    /// into the release build's proguard configuration so those names survive minification.
+    #[serde(rename = "proguardFiles")]
+    pub proguard_files: Vec<String>,
 }
 
 // --- `cargo metadata` JSON (only the fields we need) ---
@@ -106,6 +118,10 @@ struct AndroidMeta {
     gradle_repositories: Vec<String>,
     #[serde(default)]
     permissions: Vec<String>,
+    /// R8/ProGuard rule files (relative to the crate) — one per component that needs its Java
+    /// classes kept by name under release minification.
+    #[serde(default)]
+    proguard: StringOrVec,
 }
 
 /// Accept `java = "android/java"` or `java = ["a", "b"]`.
@@ -252,6 +268,15 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 ));
             }
             pieces.day_java_src_dir = Some(java.to_string_lossy().into_owned());
+            // The framework's own R8 keep rules ride alongside the Java shim (optional — an older
+            // day-android checkout without the file simply contributes none).
+            let rules = Path::new(&pkg.manifest_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("proguard-rules.pro");
+            if rules.is_file() {
+                pieces.day_proguard_file = Some(rules.to_string_lossy().into_owned());
+            }
         }
         let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
             continue;
@@ -294,6 +319,20 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         for perm in android.permissions {
             if !pieces.permissions.contains(&perm) {
                 pieces.permissions.push(perm);
+            }
+        }
+        for rel in &android.proguard.0 {
+            let file = crate_dir.join(rel);
+            if !file.is_file() {
+                eprintln!(
+                    "day: {} proguard file {:?} not found — skipping",
+                    pkg.id, file
+                );
+                continue;
+            }
+            let abs = file.to_string_lossy().into_owned();
+            if !pieces.proguard_files.contains(&abs) {
+                pieces.proguard_files.push(abs);
             }
         }
     }

@@ -1784,6 +1784,7 @@ res = []                                   # dirs → Gradle res srcDirs (piece-
 gradle-dependencies = ["com.airbnb.android:lottie:6.x"]
 gradle-repositories = []                   # extra Maven repos if needed
 permissions = []                           # <uses-permission> entries merged into the manifest
+proguard = []                              # R8 keep rules for classes native code reaches by name
 
 [package.metadata.day.ios]
 swift = ["ios/swift"]                      # Swift shim source dirs
@@ -1802,7 +1803,11 @@ reference generically, exactly once:
 
 - **android**: contributions land in `build/day/android/day-pieces.json`; the app's committed
   `build.gradle.kts` loops over its lists (srcDirs, dependencies, repositories) — no per-piece
-  Gradle edits, ever. Permissions merge through a generated manifest overlay.
+  Gradle edits, ever. Permissions merge through a generated manifest overlay. Release builds minify
+  with R8: since Day reaches Java by name (JNI FindClass, `dcall_static`, reflection), `day build`
+  also folds in keep rules — day-android's own (the whole `dev.daybrite.day.**` namespace) plus each
+  app/piece's declared `proguard` file — so minification never renames a JNI-reached class out from
+  under native code (docs/extending.md).
 - **apple**: the CLI generates a LOCAL SwiftPM package at `build/day/ios/DayPieces` whose
   `Package.swift` lists every piece's `swift-packages` and compiles every piece's staged Swift
   shims; the checked-in `.xcodeproj` depends on that one package — adding an iOS piece is pure
