@@ -6,6 +6,7 @@ pub(crate) mod controls;
 pub(crate) mod dates;
 pub(crate) mod focus;
 pub(crate) mod list;
+pub(crate) mod localization;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod map;
 pub(crate) mod media;
@@ -26,6 +27,7 @@ pub(crate) use controls::controls_page;
 pub(crate) use dates::dates_page;
 pub(crate) use focus::focus_page;
 pub(crate) use list::list_page;
+pub(crate) use localization::localization_page;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) use map::map_page;
 pub(crate) use media::media_page;

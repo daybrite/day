@@ -23,6 +23,9 @@ pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
 // Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
 pub use day_fluent::{compare, compare_in, sort_localized};
+// The current-locale Signal itself, for apps that show or branch on it (`locale().get()` is a
+// tracked read; `set_locale` in the prelude writes it).
+pub use day_fluent::locale;
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};

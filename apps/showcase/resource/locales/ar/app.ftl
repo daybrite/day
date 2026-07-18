@@ -167,18 +167,38 @@ media_play = تشغيل
 media_pause = إيقاف مؤقت
 media_load = تحميل
 
-# — icu4x formatting & collation (docs/localization.md) —
-fmt_title = التنسيق
-fmt_caption = استدعاءات NUMBER()‎ وDATETIME()‎ نفسها في كل ترجمة تُعرض وفق ICU حسب اللغة؛ وقائمة الفواكه تُرتَّب بترتيب لغوي حقيقي.
-fmt_number_label = الرقم
+# — Localization page (docs/localization.md) —
+nav_localization = التوطين
+fmt_caption = مجموعة ترجمات واحدة — عرض مطابق لـ ICU لكل لغة: الأرقام والتواريخ وقواعد الجمع وترتيب الفرز كلها تتبع اللغة.
+loc_locale_section = اللغة الحية
+loc_live_note = اللغة إشارة — تبديلها يعيد عرض كل النصوص فورًا. اتجاه التخطيط يثبت عند الإطلاق (أطلق بالعربية لواجهة معكوسة).
+loc_current_label = الحالية
+loc_reset = إعادة الضبط
+loc_numbers_section = الأرقام
+loc_dates_section = التواريخ والأوقات
+loc_plurals_section = الجموع
+loc_sorting_section = الفرز
+fmt_number_label = مجمّع
+fmt_fraction_label = منزلتان عشريتان
 fmt_percent_label = النسبة المئوية
-fmt_date_label = التاريخ
+fmt_date_label = تاريخ طويل
 fmt_time_label = الوقت
+fmt_datetime_label = التاريخ والوقت
 fmt_sorted_label = مرتّب
 fmt_number = { NUMBER($n) }
+fmt_fraction = { NUMBER($n, minimumFractionDigits: 2) }
 fmt_percent = { NUMBER($p, style: "percent") }
 fmt_date = { DATETIME($d, dateStyle: "long") }
 fmt_time = { DATETIME($t, timeStyle: "short") }
+fmt_datetime = { DATETIME($dt, dateStyle: "medium", timeStyle: "short") }
+plural_items = { $count ->
+    [zero] لا عناصر
+    [one] عنصر واحد
+    [two] عنصران
+    [few] { $count } عناصر
+    [many] { $count } عنصرًا
+   *[other] { $count } عنصر
+}
 
 # Text playground (typography)
 text_caption = الأنماط الدلالية تُطابق أنماط النص الأصلية للمنصة وتكبير نص إمكانية الوصول.

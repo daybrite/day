@@ -94,6 +94,7 @@ export const suites = [
       { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },
       { id: 'tweaks', label: 'Tweaks (native config)', source: 'apps/showcase/src/pages/tweaks.rs' },
       { id: 'text', label: 'Typography & custom fonts', source: 'apps/showcase/src/pages/text.rs' },
+      { id: 'localization', label: 'Localization', source: 'apps/showcase/src/pages/localization.rs' },
       { id: 'about', label: 'About', source: 'apps/showcase/src/pages/about.rs' },
     ],
   },

@@ -64,8 +64,9 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
 
 - **Plain `{ $n }` interpolations localize too** (a bundle-wide formatter, not just the explicit
   calls): `1234567.891` renders `1,234,567.891` in `en`, `1.234.567,891` in `de`,
-  `1 234 567,891` (narrow no-break space) in `fr` — and locales whose CLDR default numbering
-  system isn't Latin get their own digits. Plural/`select` still selects on the numeric value.
+  `1 234 567,891` (narrow no-break space) in `fr` — and locales that resolve to a non-Latin
+  numbering system (e.g. `ar-EG` → Arabic-Indic digits) get their own digits. Plural/`select`
+  still selects on the numeric value.
 - **`NUMBER` options** (ECMA-402 names): `useGrouping`, `minimumIntegerDigits`,
   `minimum`/`maximumFractionDigits` (default max 3 — float noise like `0.30000000000000004`
   never reaches a translation), `minimum`/`maximumSignificantDigits`, `style: "decimal" |

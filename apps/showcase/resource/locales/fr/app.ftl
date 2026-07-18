@@ -164,18 +164,35 @@ media_play = Lecture
 media_pause = Pause
 media_load = Charger
 
-# — icu4x formatting & collation (docs/localization.md) —
-fmt_title = Formatage
-fmt_caption = Les mêmes appels NUMBER() et DATETIME() dans chaque traduction produisent un rendu conforme à ICU selon la locale ; la liste de fruits est triée par vraie collation.
-fmt_number_label = Nombre
+# — Localization page (docs/localization.md) —
+nav_localization = Localisation
+fmt_caption = Un seul jeu de traductions — rendu conforme à ICU pour chaque locale : nombres, dates, grammaire du pluriel et ordre de tri suivent la langue.
+loc_locale_section = Locale en direct
+loc_live_note = La locale est un signal — changer de langue re-rend chaque chaîne instantanément. Le sens de lecture est fixé au lancement (lancez en ar pour l'interface miroir).
+loc_current_label = Actuelle
+loc_reset = Réinitialiser
+loc_numbers_section = Nombres
+loc_dates_section = Dates et heures
+loc_plurals_section = Pluriels
+loc_sorting_section = Tri
+fmt_number_label = Groupé
+fmt_fraction_label = Deux décimales
 fmt_percent_label = Pourcentage
-fmt_date_label = Date
+fmt_date_label = Date longue
 fmt_time_label = Heure
+fmt_datetime_label = Date et heure
 fmt_sorted_label = Trié
 fmt_number = { NUMBER($n) }
+fmt_fraction = { NUMBER($n, minimumFractionDigits: 2) }
 fmt_percent = { NUMBER($p, style: "percent") }
 fmt_date = { DATETIME($d, dateStyle: "long") }
 fmt_time = { DATETIME($t, timeStyle: "short") }
+fmt_datetime = { DATETIME($dt, dateStyle: "medium", timeStyle: "short") }
+plural_items = { $count ->
+    [0] Rien pour l'instant
+    [one] Un élément
+   *[other] { $count } éléments
+}
 
 # Aire de jeu Texte (typographie)
 text_caption = Les styles sémantiques correspondent aux styles natifs et à l'échelle de texte d'accessibilité.

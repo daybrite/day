@@ -164,18 +164,35 @@ media_play = Play
 media_pause = Pause
 media_load = Load
 
-# — icu4x formatting & collation (docs/localization.md "Formatted values"/"Sorting") —
-fmt_title = Formatting
-fmt_caption = The same NUMBER() and DATETIME() calls in every translation render ICU-correct per locale; the fruit list sorts with real collation.
-fmt_number_label = Number
+# — Localization page (docs/localization.md: live locale, NUMBER/DATETIME, plurals, collation) —
+nav_localization = Localization
+fmt_caption = One set of translations — ICU-correct rendering per locale: numbers, dates, plural grammar, and sort order all follow the language.
+loc_locale_section = Live locale
+loc_live_note = The locale is a signal — switching re-renders every string instantly. Layout direction is fixed at launch (launch with ar for the mirrored UI).
+loc_current_label = Current
+loc_reset = Reset
+loc_numbers_section = Numbers
+loc_dates_section = Dates & times
+loc_plurals_section = Plurals
+loc_sorting_section = Sorting
+fmt_number_label = Grouped
+fmt_fraction_label = Two decimals
 fmt_percent_label = Percent
-fmt_date_label = Date
+fmt_date_label = Long date
 fmt_time_label = Time
+fmt_datetime_label = Date & time
 fmt_sorted_label = Sorted
 fmt_number = { NUMBER($n) }
+fmt_fraction = { NUMBER($n, minimumFractionDigits: 2) }
 fmt_percent = { NUMBER($p, style: "percent") }
 fmt_date = { DATETIME($d, dateStyle: "long") }
 fmt_time = { DATETIME($t, timeStyle: "short") }
+fmt_datetime = { DATETIME($dt, dateStyle: "medium", timeStyle: "short") }
+plural_items = { $count ->
+    [0] Nothing yet
+    [one] One item
+   *[other] { $count } items
+}
 
 # Text playground (typography)
 text_caption = Semantic styles map to the platform's native text styles and accessibility text scaling.

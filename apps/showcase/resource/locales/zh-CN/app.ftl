@@ -161,18 +161,34 @@ media_play = 播放
 media_pause = 暂停
 media_load = 加载
 
-# — icu4x formatting & collation (docs/localization.md) —
-fmt_title = 格式化
-fmt_caption = 每种语言的翻译中同样的 NUMBER() 和 DATETIME() 调用都会按该语言以 ICU 规则渲染；水果列表按真正的排序规则排序。
-fmt_number_label = 数字
+# — Localization page (docs/localization.md) —
+nav_localization = 本地化
+fmt_caption = 一套翻译——按每种语言以 ICU 规则渲染：数字、日期、复数语法和排序都跟随语言。
+loc_locale_section = 实时语言
+loc_live_note = 语言是一个信号——切换后所有文本立即重新渲染。布局方向在启动时固定（以 ar 启动可见镜像界面）。
+loc_current_label = 当前
+loc_reset = 重置
+loc_numbers_section = 数字
+loc_dates_section = 日期与时间
+loc_plurals_section = 复数
+loc_sorting_section = 排序
+fmt_number_label = 分组
+fmt_fraction_label = 两位小数
 fmt_percent_label = 百分比
-fmt_date_label = 日期
+fmt_date_label = 长日期
 fmt_time_label = 时间
-fmt_sorted_label = 排序
+fmt_datetime_label = 日期和时间
+fmt_sorted_label = 排序结果
 fmt_number = { NUMBER($n) }
+fmt_fraction = { NUMBER($n, minimumFractionDigits: 2) }
 fmt_percent = { NUMBER($p, style: "percent") }
 fmt_date = { DATETIME($d, dateStyle: "long") }
 fmt_time = { DATETIME($t, timeStyle: "short") }
+fmt_datetime = { DATETIME($dt, dateStyle: "medium", timeStyle: "short") }
+plural_items = { $count ->
+    [0] 暂无条目
+   *[other] { $count } 个条目
+}
 
 # Text playground (typography)
 text_caption = 语义样式映射到平台的原生文本样式和无障碍文字缩放。
