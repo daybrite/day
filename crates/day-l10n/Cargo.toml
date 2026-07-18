@@ -12,3 +12,13 @@ license.workspace = true
 day-reactive = { workspace = true }
 fluent-bundle = "0.16"
 unic-langid = "0.9"
+# icu4x-backed NUMBER()/DATETIME() + collation (src/intl.rs, src/collate.rs — docs/localization.md).
+# Individual components, NOT the `icu` meta-crate: DCE strips whole unused components, and
+# `day build` thins the compiled data per app (ICU4X_DATA_DIR).
+icu_locale_core = { workspace = true }
+icu_decimal = { workspace = true }
+icu_calendar = { workspace = true }
+icu_time = { workspace = true }
+icu_datetime = { workspace = true }
+icu_collator = { workspace = true }
+intl-memoizer = { workspace = true }

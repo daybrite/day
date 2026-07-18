@@ -64,6 +64,8 @@ pub fn build(
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
+            // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
+            crate::intl::apply(&mut cmd, project);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
             // renderer feature, derived from `cargo metadata` — so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).

@@ -415,6 +415,9 @@ fn collect_inline_vars(
         X::Placeable { expression } => collect_expr_vars(expression, out, numeric),
         X::FunctionReference { id, arguments } => {
             // The built-in `NUMBER(...)` forces its positional arg numeric; named options don't.
+            // `DATETIME(...)` deliberately does NOT: its argument is an ISO-8601 string (or an
+            // epoch number the app formats itself), so the generated `res::str` fn keeps the
+            // general `IntoFArg` bound (docs/localization.md "Formatted values").
             let num = id.name.eq_ignore_ascii_case("NUMBER");
             for a in &arguments.positional {
                 collect_inline_vars(a, out, num);
@@ -434,6 +437,95 @@ fn collect_inline_vars(
                 collect_inline_vars(&n.value, out, false);
             }
         }
+        _ => {}
+    }
+}
+
+/// One `FUNC(...)` call in a message value — `day lint` validates function names and option
+/// values across every locale file with this (the shared fluent-syntax parse, like
+/// [`message_keys`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FtlCall {
+    /// The message key the call appears under.
+    pub key: String,
+    /// The function name as written (`NUMBER`, `DATETIME`, …).
+    pub name: String,
+    /// Named options with their literal values (`style: "percent"` → `("style", "percent")`;
+    /// non-literal option values are omitted).
+    pub named: Vec<(String, String)>,
+}
+
+/// Every function call in every message of a Fluent resource (parse errors tolerated — the
+/// partial resource is walked, matching [`message_keys`]).
+pub fn function_calls(src: &str) -> Vec<FtlCall> {
+    use fluent_syntax::ast::Entry;
+    let res = match fluent_syntax::parser::parse(src) {
+        Ok(r) => r,
+        Err((r, _errs)) => r,
+    };
+    let mut out = Vec::new();
+    for entry in &res.body {
+        if let Entry::Message(m) = entry
+            && let Some(value) = &m.value
+        {
+            collect_pattern_calls(value, m.id.name, &mut out);
+        }
+    }
+    out
+}
+
+fn collect_pattern_calls(p: &fluent_syntax::ast::Pattern<&str>, key: &str, out: &mut Vec<FtlCall>) {
+    use fluent_syntax::ast::PatternElement;
+    for el in &p.elements {
+        if let PatternElement::Placeable { expression } = el {
+            collect_expr_calls(expression, key, out);
+        }
+    }
+}
+
+fn collect_expr_calls(e: &fluent_syntax::ast::Expression<&str>, key: &str, out: &mut Vec<FtlCall>) {
+    use fluent_syntax::ast::Expression;
+    match e {
+        Expression::Inline(ie) => collect_inline_calls(ie, key, out),
+        Expression::Select { selector, variants } => {
+            collect_inline_calls(selector, key, out);
+            for v in variants {
+                collect_pattern_calls(&v.value, key, out);
+            }
+        }
+    }
+}
+
+fn collect_inline_calls(
+    ie: &fluent_syntax::ast::InlineExpression<&str>,
+    key: &str,
+    out: &mut Vec<FtlCall>,
+) {
+    use fluent_syntax::ast::InlineExpression as X;
+    match ie {
+        X::FunctionReference { id, arguments } => {
+            let named = arguments
+                .named
+                .iter()
+                .filter_map(|n| {
+                    let value = match &n.value {
+                        X::StringLiteral { value } => value.to_string(),
+                        X::NumberLiteral { value } => value.to_string(),
+                        _ => return None,
+                    };
+                    Some((n.name.name.to_string(), value))
+                })
+                .collect();
+            out.push(FtlCall {
+                key: key.to_string(),
+                name: id.name.to_string(),
+                named,
+            });
+            for a in &arguments.positional {
+                collect_inline_calls(a, key, out);
+            }
+        }
+        X::Placeable { expression } => collect_expr_calls(expression, key, out),
         _ => {}
     }
 }

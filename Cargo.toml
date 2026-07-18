@@ -138,6 +138,17 @@ day-arkui = { path = "toolkits/day-arkui", version = "0.0.11" }
 day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.0.11" }
 slotmap = "1.1"
 linkme = "0.3"
+# icu4x (docs/localization.md "Formatted values"/"Sorting"): one minor version across the runtime
+# crates so day-cli's exact-pinned datagen output (baked data) always matches what day-l10n
+# compiles against. `compiled_data` is the all-locale fallback; `day build` thins it per app via
+# ICU4X_DATA_DIR (crates/day-cli/src/intl.rs).
+icu_locale_core = "2.2"
+icu_decimal = { version = "2.2", features = ["compiled_data", "alloc", "ryu"] }
+icu_calendar = { version = "2.2", features = ["compiled_data"] }
+icu_time = { version = "2.2", features = ["compiled_data"] }
+icu_datetime = { version = "2.2", features = ["compiled_data"] }
+icu_collator = { version = "2.2", features = ["compiled_data"] }
+intl-memoizer = "0.5"
 
 [profile.release]
 lto = "thin"

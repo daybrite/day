@@ -164,6 +164,19 @@ media_play = Lecture
 media_pause = Pause
 media_load = Charger
 
+# — icu4x formatting & collation (docs/localization.md) —
+fmt_title = Formatage
+fmt_caption = Les mêmes appels NUMBER() et DATETIME() dans chaque traduction produisent un rendu conforme à ICU selon la locale ; la liste de fruits est triée par vraie collation.
+fmt_number_label = Nombre
+fmt_percent_label = Pourcentage
+fmt_date_label = Date
+fmt_time_label = Heure
+fmt_sorted_label = Trié
+fmt_number = { NUMBER($n) }
+fmt_percent = { NUMBER($p, style: "percent") }
+fmt_date = { DATETIME($d, dateStyle: "long") }
+fmt_time = { DATETIME($t, timeStyle: "short") }
+
 # Aire de jeu Texte (typographie)
 text_caption = Les styles sémantiques correspondent aux styles natifs et à l'échelle de texte d'accessibilité.
 text_styles_header = Styles

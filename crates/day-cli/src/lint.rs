@@ -9,6 +9,7 @@ use crate::meta::Project;
 use crate::term::{SUCCESS, WARN};
 use anstream::eprintln;
 
+#[derive(Debug)]
 pub struct Finding {
     pub code: &'static str,
     pub message: String,
@@ -259,6 +260,33 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         }
     }
 
+    // --- Fluent formatting functions (docs/localization.md "Formatted values") ---
+    // day-l10n registers exactly NUMBER and DATETIME on every bundle; anything else renders as an
+    // error marker at runtime, and a misspelled option silently falls back to defaults — both are
+    // author mistakes worth catching per locale file here.
+    if let Ok(entries) = std::fs::read_dir(&locales_dir) {
+        for e in entries.flatten() {
+            if !e.path().is_dir() {
+                continue;
+            }
+            let locale = e.file_name().to_string_lossy().to_string();
+            let Ok(files) = std::fs::read_dir(e.path()) else {
+                continue;
+            };
+            for f in files.flatten() {
+                if !f.path().extension().is_some_and(|x| x == "ftl") {
+                    continue;
+                }
+                let Ok(src) = std::fs::read_to_string(f.path()) else {
+                    continue;
+                };
+                for call in day_build::function_calls(&src) {
+                    findings.extend(lint_ftl_call(&locale, &call));
+                }
+            }
+        }
+    }
+
     // --- Unknown routes (docs/navigation.md) ---
     // Literal `navigate("…")` calls and dayscript navigate / assert_route steps must START
     // with a declared item key — `.item("key", …)` for string-keyed apps, `routes! { X =>
@@ -311,7 +339,81 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     for f in &findings {
         eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
     }
-    let n = findings.len();
+    finish(findings.len(), strict)
+}
+
+/// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):
+/// day-l10n provides exactly `NUMBER()` and `DATETIME()`; unknown names render as error markers
+/// at runtime, and a misspelled/invalid option silently falls back to defaults.
+fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
+    let at = format!("resource/locales/{locale}: {}", call.key);
+    let bad = |opt: &str, val: &str, expected: &str| Finding {
+        code: "day::lint::bad-format-option",
+        message: format!("{at}: {}({opt}: {val:?}) — expected {expected}", call.name),
+    };
+    let mut out = Vec::new();
+    match call.name.as_str() {
+        "NUMBER" => {
+            for (opt, val) in &call.named {
+                match opt.as_str() {
+                    "style" => match val.as_str() {
+                        "decimal" | "percent" => {}
+                        "currency" => out.push(Finding {
+                            code: "day::lint::unsupported-format-option",
+                            message: format!(
+                                "{at}: NUMBER(style: \"currency\") is not supported yet — \
+                                 it renders as a plain decimal"
+                            ),
+                        }),
+                        other => out.push(bad("style", other, "\"decimal\" or \"percent\"")),
+                    },
+                    "useGrouping" => {
+                        if !matches!(val.as_str(), "true" | "false") {
+                            out.push(bad("useGrouping", val, "\"true\" or \"false\""));
+                        }
+                    }
+                    // Plural-category selection type — handled by fluent-bundle itself.
+                    "type" => {}
+                    "currency" | "currencyDisplay" => out.push(Finding {
+                        code: "day::lint::unsupported-format-option",
+                        message: format!("{at}: NUMBER {opt} is not supported yet"),
+                    }),
+                    "minimumIntegerDigits"
+                    | "minimumFractionDigits"
+                    | "maximumFractionDigits"
+                    | "minimumSignificantDigits"
+                    | "maximumSignificantDigits" => {
+                        if val.parse::<u32>().is_err() {
+                            out.push(bad(opt, val, "a digit count"));
+                        }
+                    }
+                    other => out.push(bad(other, val, "a NUMBER option (ECMA-402 names)")),
+                }
+            }
+        }
+        "DATETIME" => {
+            for (opt, val) in &call.named {
+                match opt.as_str() {
+                    "dateStyle" | "timeStyle" => {
+                        if !matches!(val.as_str(), "full" | "long" | "medium" | "short" | "none") {
+                            out.push(bad(opt, val, "full|long|medium|short|none"));
+                        }
+                    }
+                    other => out.push(bad(other, val, "dateStyle or timeStyle")),
+                }
+            }
+        }
+        other => out.push(Finding {
+            code: "day::lint::unknown-function",
+            message: format!(
+                "{at}: unknown function {other}() — day provides NUMBER() and DATETIME()"
+            ),
+        }),
+    }
+    out
+}
+
+fn finish(n: usize, strict: bool) -> i32 {
     if n == 0 {
         eprintln!("{SUCCESS}✓{SUCCESS:#} no lint findings");
         0
@@ -324,6 +426,32 @@ pub fn run(project: &Project, strict: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ftl_function_lint() {
+        let calls = day_build::function_calls(
+            r#"
+a = { NUMBER($n, style: "percent", minimumFractionDigits: 2) }
+b = { NUMBER($n, style: "currency", currency: "USD") }
+c = { NUMBER($n, stlye: "percent") }
+d = { DATETIME($d, dateStyle: "extra-long") }
+e = { PLATFORM() }
+"#,
+        );
+        let findings: Vec<Finding> = calls.iter().flat_map(|c| lint_ftl_call("en", c)).collect();
+        let codes: Vec<&str> = findings.iter().map(|f| f.code).collect();
+        assert_eq!(
+            codes,
+            [
+                "day::lint::unsupported-format-option", // b: style currency
+                "day::lint::unsupported-format-option", // b: currency:
+                "day::lint::bad-format-option",         // c: stlye typo
+                "day::lint::bad-format-option",         // d: dateStyle value
+                "day::lint::unknown-function",          // e
+            ],
+            "{findings:?}"
+        );
+    }
 
     #[test]
     fn first_segment_extraction() {

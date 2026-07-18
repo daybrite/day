@@ -6,6 +6,7 @@ mod cli;
 mod doctor;
 mod drive;
 mod interactive;
+mod intl;
 mod lint;
 mod mcp;
 mod meta;
@@ -27,6 +28,8 @@ mod term;
 mod update;
 
 fn main() {
+    // Before any thread spawns (the update check): point icu4x's source cache at ~/.day/icu/src.
+    intl::init_source_cache();
     let code = cli::run();
     std::process::exit(code);
 }

@@ -155,12 +155,55 @@ pub(crate) fn text_page() -> AnyPiece {
     ))
     .title("Links");
 
+    // icu4x-backed formatting + collation (docs/localization.md "Formatted values"/"Sorting"):
+    // the SAME `NUMBER()`/`DATETIME()` calls in every locale file render locale-correctly
+    // (grouping, digit systems, CLDR date patterns), and the fruit list re-sorts with real
+    // collation (zh = pinyin) — all reactive to the run's locale.
+    let formatting = section((
+        label(crate::res::str::fmt_caption()).font(Font::Footnote),
+        labeled(
+            crate::res::str::fmt_number_label(),
+            label(crate::res::str::fmt_number(1234567.891)).id("fmt-number"),
+        ),
+        labeled(
+            crate::res::str::fmt_percent_label(),
+            label(crate::res::str::fmt_percent(0.72)).id("fmt-percent"),
+        ),
+        labeled(
+            crate::res::str::fmt_date_label(),
+            label(crate::res::str::fmt_date("2026-07-18")).id("fmt-date"),
+        ),
+        labeled(
+            crate::res::str::fmt_time_label(),
+            label(crate::res::str::fmt_time("14:45")).id("fmt-time"),
+        ),
+        labeled(
+            crate::res::str::fmt_sorted_label(),
+            label(move || {
+                let mut fruits = vec![
+                    crate::res::str::fruit_banana().format(),
+                    crate::res::str::fruit_cherry().format(),
+                    crate::res::str::fruit_apple().format(),
+                    crate::res::str::fruit_elderberry().format(),
+                    crate::res::str::fruit_date().format(),
+                ];
+                sort_localized(&mut fruits);
+                fruits.join(" · ")
+            })
+            .id("fmt-sorted"),
+        ),
+    ))
+    .title(crate::res::str::fmt_title());
+
     // Bundled fonts lead the page: the most visually distinctive section, and the one the
     // walkthrough screenshot must show above the fold.
     page(
         crate::res::str::nav_text(),
         "text-title",
         Some(crate::res::str::text_caption()),
-        form((fonts, styles, weights, styling, colors, custom, links)).any(),
+        form((
+            fonts, styles, weights, styling, colors, custom, formatting, links,
+        ))
+        .any(),
     )
 }

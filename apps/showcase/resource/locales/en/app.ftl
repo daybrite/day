@@ -164,6 +164,19 @@ media_play = Play
 media_pause = Pause
 media_load = Load
 
+# — icu4x formatting & collation (docs/localization.md "Formatted values"/"Sorting") —
+fmt_title = Formatting
+fmt_caption = The same NUMBER() and DATETIME() calls in every translation render ICU-correct per locale; the fruit list sorts with real collation.
+fmt_number_label = Number
+fmt_percent_label = Percent
+fmt_date_label = Date
+fmt_time_label = Time
+fmt_sorted_label = Sorted
+fmt_number = { NUMBER($n) }
+fmt_percent = { NUMBER($p, style: "percent") }
+fmt_date = { DATETIME($d, dateStyle: "long") }
+fmt_time = { DATETIME($t, timeStyle: "short") }
+
 # Text playground (typography)
 text_caption = Semantic styles map to the platform's native text styles and accessibility text scaling.
 text_styles_header = Styles

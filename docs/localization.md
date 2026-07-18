@@ -50,6 +50,64 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 > and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
 > resolves at runtime.
 
+## Formatted values — `NUMBER()` and `DATETIME()`
+
+Every bundle (app and core, registered automatically by `day-l10n`) provides icu4x-backed
+formatting, so translations render numbers and dates ICU-correctly for their locale with zero app
+setup:
+
+```fluent
+price      = { NUMBER($n, minimumFractionDigits: 2) }
+discount   = { NUMBER($p, style: "percent") }
+last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
+```
+
+- **Plain `{ $n }` interpolations localize too** (a bundle-wide formatter, not just the explicit
+  calls): `1234567.891` renders `1,234,567.891` in `en`, `1.234.567,891` in `de`,
+  `1 234 567,891` (narrow no-break space) in `fr` — and locales whose CLDR default numbering
+  system isn't Latin get their own digits. Plural/`select` still selects on the numeric value.
+- **`NUMBER` options** (ECMA-402 names): `useGrouping`, `minimumIntegerDigits`,
+  `minimum`/`maximumFractionDigits` (default max 3 — float noise like `0.30000000000000004`
+  never reaches a translation), `minimum`/`maximumSignificantDigits`, `style: "decimal" |
+  "percent"`. Percent is a documented v1 approximation (×100 + a localized percent sign);
+  `style: "currency"` is **not implemented yet** — it formats as a plain decimal and `day lint`
+  flags it.
+- **`DATETIME` input** is civil and zoneless, matching `day-piece-datetime`'s conventions:
+  ISO-8601 strings (`"2026-07-18"`, `"14:45[:30]"`, `"2026-07-18T14:45"`) or a number of **epoch
+  seconds rendered as UTC**. Options: `dateStyle` / `timeStyle` ∈ `full|long|medium|short|none`
+  (defaults: medium date, short time, by input shape). Formatting is fixed-Gregorian (the small
+  data path); unparseable input echoes back visibly rather than erroring.
+- `day lint` validates every call across every locale file: unknown functions
+  (`day::lint::unknown-function`), misspelled options or bad values
+  (`day::lint::bad-format-option`), and not-yet-supported options
+  (`day::lint::unsupported-format-option`).
+
+## Sorting — locale-aware collation
+
+`day::compare(a, b)`, `day::compare_in(locale, a, b)`, and `day::sort_localized(&mut items)`
+(prelude: `sort_localized`) compare with icu4x's collator instead of code points: French sorts
+`cote < coté < côte`, and Chinese sorts by **pinyin** (`北京 < 广州 < 上海`) — or by stroke order
+via a locale extension, `compare_in("zh-u-co-stroke", …)`. `compare`/`sort_localized` read the
+locale signal (tracked), so a sort inside a reactive closure re-runs on locale switch:
+
+```rust
+label(move || {
+    let mut fruits = localized_fruit_names();
+    sort_localized(&mut fruits);          // re-sorts when the locale changes
+    fruits.join(" · ")
+})
+```
+
+## Locale data — thinned per app
+
+The icu4x components ship `compiled_data` for every locale (~1.5 MB of a release binary with all
+three formatters linked). `day build` thins that to the locales the app DECLARES — the
+`resource/locales/*` dirs plus the core catalog — by baking a data directory once (cached in
+`~/.day/icu`) and pointing the build at it via `ICU4X_DATA_DIR`; unused components are
+dead-code-eliminated regardless. Bare `cargo` builds simply embed the full data. Baking needs a
+one-time CLDR source fetch (~100 MB, cached); `DAY_NO_ICU_FETCH` / `DAY_ICU_FULL_DATA` opt out.
+See docs/environment.md "Locale data".
+
 ## Two layers: the app catalog and the core catalog
 
 There are two tiers of Fluent bundles:

@@ -64,8 +64,26 @@ the affected script instead of keeping stale results.
 Signing variables are listed exhaustively by `day sign --check`, which reports each platform's
 readiness without printing a secret value.
 
-## Update check
+## Locale data (docs/localization.md "Locale data")
+
+`day build` thins the icu4x locale data bundled into the app down to the locales the app
+declares (`resource/locales/*` ∪ the framework core catalog): it bakes a data directory under
+`~/.day/icu/baked/<key>/` and sets `ICU4X_DATA_DIR` for its cargo invocations. Baking needs the
+CLDR/ICU source archives, fetched ONCE per pinned tag into `~/.day/icu/src` (~100 MB, then fully
+offline). Every failure degrades to the full all-locale compiled data — never a build failure.
 
 | Variable | Meaning |
 |---|---|
-| `DAY_NO_UPDATE_CHECK` | Set to any non-empty value to disable the background "a newer day-cli is on crates.io?" check. This is day's **only** outbound network call, so setting it keeps day fully offline. |
+| `ICU4X_DATA_DIR` | icu4x's own compile-time override consumed by the `icu_*_data` crates. Set per-invocation by `day build`; pre-setting it wins (bring your own baked dir) |
+| `ICU4X_SOURCE_CACHE` | icu4x's datagen source-archive cache. day points it at `~/.day/icu/src` (durable, shared) unless already set |
+| `DAY_ICU_FULL_DATA` | Skip thinning entirely — the app embeds all-locale data (useful when debugging a locale that isn't declared) |
+| `DAY_NO_ICU_FETCH` | Never fetch CLDR sources. Without a populated cache, thinning is skipped (warning) and the app embeds all-locale data |
+
+## Network
+
+Day makes exactly two kinds of outbound call, both disableable:
+
+| Variable | Meaning |
+|---|---|
+| `DAY_NO_UPDATE_CHECK` | Set to any non-empty value to disable the background "a newer day-cli is on crates.io?" check. Also implies `DAY_NO_ICU_FETCH`, so setting just this one keeps day fully offline. |
+| `DAY_NO_ICU_FETCH` | Disable only the one-time CLDR/ICU source fetch (see "Locale data" above). |

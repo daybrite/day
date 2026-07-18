@@ -167,6 +167,19 @@ media_play = تشغيل
 media_pause = إيقاف مؤقت
 media_load = تحميل
 
+# — icu4x formatting & collation (docs/localization.md) —
+fmt_title = التنسيق
+fmt_caption = استدعاءات NUMBER()‎ وDATETIME()‎ نفسها في كل ترجمة تُعرض وفق ICU حسب اللغة؛ وقائمة الفواكه تُرتَّب بترتيب لغوي حقيقي.
+fmt_number_label = الرقم
+fmt_percent_label = النسبة المئوية
+fmt_date_label = التاريخ
+fmt_time_label = الوقت
+fmt_sorted_label = مرتّب
+fmt_number = { NUMBER($n) }
+fmt_percent = { NUMBER($p, style: "percent") }
+fmt_date = { DATETIME($d, dateStyle: "long") }
+fmt_time = { DATETIME($t, timeStyle: "short") }
+
 # Text playground (typography)
 text_caption = الأنماط الدلالية تُطابق أنماط النص الأصلية للمنصة وتكبير نص إمكانية الوصول.
 text_styles_header = الأنماط

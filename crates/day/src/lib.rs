@@ -20,6 +20,9 @@ pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
+// Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a
+// Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
+pub use day_fluent::{compare, compare_in, sort_localized};
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};
@@ -66,7 +69,9 @@ pub const fn toolkit_name() -> &'static str {
 }
 
 pub mod prelude {
-    pub use day_fluent::{LocalizedText, install as install_locales, set_locale, tr};
+    pub use day_fluent::{
+        LocalizedText, install as install_locales, set_locale, sort_localized, tr,
+    };
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     pub use {super::lifecycle_supported, super::on_lifecycle};

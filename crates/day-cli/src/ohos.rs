@@ -421,6 +421,8 @@ pub fn build_ohos(
         );
         status("Building", &format!("{} (cargo cdylib {abi})", target.name));
         let mut cmd = Command::new(&cargo);
+        // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
+        crate::intl::apply(&mut cmd, project);
         cmd.current_dir(&project.root)
             .env(
                 "PATH",

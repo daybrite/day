@@ -39,6 +39,17 @@ sha2 = "0.11"
 # Background "is a newer day-cli on crates.io?" check (update.rs). ureq is a small synchronous HTTP
 # client with bundled roots — no OS cert-store dependency, works on a fresh machine.
 ureq = "3"
+# ICU locale-data thinning (src/intl.rs): icu4x's datagen as a library, so `day build` bakes a
+# per-app data dir covering exactly the declared locales (ICU4X_DATA_DIR). EXACT-pinned: baked
+# output only compiles against the same icu minor the runtime data crates use — day bumps the
+# runtime pins (workspace [dependencies]) and these together. `icu` is markers-only here
+# (datagen feature, no compiled data); provider_source VENDORS its tag manifests and fetches the
+# pinned CLDR archives into ICU4X_SOURCE_CACHE (~/.day/icu/src) on first use.
+icu = { version = "=2.2.0", default-features = false, features = ["datagen"] }
+icu_provider = { version = "=2.2.0", default-features = false }
+icu_provider_export = { version = "=2.2.0", default-features = false, features = ["baked_exporter"] }
+icu_provider_registry = { version = "=2.2.0", default-features = false }
+icu_provider_source = { version = "=2.2.0", default-features = false, features = ["use_wasm", "networking"] }
 # Shared host-toolchain/SDK discovery (docs/environment.md) — same code the build scripts use.
 day-toolchain = { workspace = true }
 # Font name-table parsing + family→ident rules (§18.4) — the SAME leaf crate the runtimes use (via

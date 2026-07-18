@@ -17,6 +17,11 @@ use day_reactive::Signal;
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 
+mod collate;
+mod intl;
+
+pub use collate::{compare, compare_in, sort_localized};
+
 /// The built-in core catalog: standard UI strings the framework needs, per language. Apps override
 /// individual keys by defining them in their own catalog (see [`install`]).
 const CORE_CATALOG: &[(&str, &str)] = &[
@@ -46,6 +51,8 @@ fn build_bundles(locales: &[(&str, &str)]) -> HashMap<String, FluentBundle<Fluen
     for (name, src) in locales {
         let langid: LanguageIdentifier = name.parse().unwrap_or_else(|_| "en".parse().unwrap());
         let mut bundle = FluentBundle::new(vec![langid]);
+        // icu4x-backed NUMBER()/DATETIME() + the bundle-wide number formatter (src/intl.rs).
+        intl::register(&mut bundle);
         // Overriding the same key across resources (app > core when merged) is expected — Fluent
         // errors on duplicate adds, so we keep app and core in SEPARATE bundles and pick at lookup.
         match FluentResource::try_new((*src).to_string()) {
@@ -96,7 +103,16 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         let initial = std::env::var("DAY_LOCALE")
             .ok()
             .map(normalize)
-            .filter(|l| st.app.contains_key(l) || st.core.contains_key(l) || l == "en-XA")
+            .filter(|l| {
+                // Accept anything that RESOLVES — exactly, sans `-u-…` extension, or by language
+                // half (`fr-FR` → `fr`) — mirroring `message_from`'s lookup, so a regional or
+                // extension-carrying launch locale isn't silently dropped to the default.
+                let lang = l.split('-').next().unwrap_or(l);
+                [l.as_str(), base_locale(l), lang]
+                    .iter()
+                    .any(|k| st.app.contains_key(*k) || st.core.contains_key(*k))
+                    || l == "en-XA"
+            })
             .unwrap_or_else(|| default.to_string());
         st.locale.set(initial);
     });
@@ -105,6 +121,13 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
 fn normalize(l: String) -> String {
     // fr_FR / fr-FR → try exact, else the language half.
     l.replace('_', "-")
+}
+
+/// The locale string without any `-u-…` Unicode extension: `"zh-u-co-stroke"` → `"zh"`. Bundle
+/// lookup uses the base (translations don't vary by collation/numbering preferences); the
+/// collator ([`compare_in`]) keeps the full string so extensions still select tailorings.
+fn base_locale(l: &str) -> &str {
+    l.split("-u-").next().unwrap_or(l)
 }
 
 /// The current locale (a tracked read inside bindings).
@@ -200,10 +223,13 @@ fn message_from(
     key: &str,
     args: &FluentArgs,
 ) -> Option<String> {
-    let bundle = map.get(locale_name).or_else(|| {
-        let lang = locale_name.split('-').next().unwrap_or(locale_name);
-        map.get(lang)
-    })?;
+    let bundle = map
+        .get(locale_name)
+        .or_else(|| map.get(base_locale(locale_name)))
+        .or_else(|| {
+            let lang = locale_name.split('-').next().unwrap_or(locale_name);
+            map.get(lang)
+        })?;
     let msg = bundle.get_message(key)?;
     let pattern = msg.value()?;
     let mut errs = Vec::new();

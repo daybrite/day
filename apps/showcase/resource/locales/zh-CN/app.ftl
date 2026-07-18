@@ -161,6 +161,19 @@ media_play = 播放
 media_pause = 暂停
 media_load = 加载
 
+# — icu4x formatting & collation (docs/localization.md) —
+fmt_title = 格式化
+fmt_caption = 每种语言的翻译中同样的 NUMBER() 和 DATETIME() 调用都会按该语言以 ICU 规则渲染；水果列表按真正的排序规则排序。
+fmt_number_label = 数字
+fmt_percent_label = 百分比
+fmt_date_label = 日期
+fmt_time_label = 时间
+fmt_sorted_label = 排序
+fmt_number = { NUMBER($n) }
+fmt_percent = { NUMBER($p, style: "percent") }
+fmt_date = { DATETIME($d, dateStyle: "long") }
+fmt_time = { DATETIME($t, timeStyle: "short") }
+
 # Text playground (typography)
 text_caption = 语义样式映射到平台的原生文本样式和无障碍文字缩放。
 text_styles_header = 样式

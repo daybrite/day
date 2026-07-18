@@ -1510,8 +1510,13 @@ decrement = Decrement
 > **preferred authoring surface is now the generated `res::str::key(args…)` functions**
 > ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
 > keys. Keys are therefore **snake_case** (they must be Rust identifiers), not kebab-case as
-> sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions were **not** wired up;
-> plural/`select` rules work (exercised by every locale in CI), and the `res::str` typing
+> sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions **shipped** (2026-07):
+> `day-l10n` registers them — plus a bundle-wide number formatter, so plain `{ $n }`
+> interpolations localize too — on every bundle via icu4x 2.x (in-tree, not fluent-datetime),
+> with locale-aware collation (`compare`/`sort_localized`) alongside and per-app locale-data
+> thinning in the CLI (`ICU4X_DATA_DIR`; docs/localization.md "Formatted values"/"Sorting"/
+> "Locale data" are normative).
+> Plural/`select` rules work (exercised by every locale in CI), and the `res::str` typing
 > forces numeric arguments where CLDR plural selection needs them. `en-XA` pseudolocalization
 > shipped; `ar-XB` did not (a real `ar` locale covers RTL, [§7.8](#78-rtl-and-bidi)).
 
@@ -1524,10 +1529,11 @@ label(tr("app-title"))                        // dynamic-key escape hatch
 - `tr(key) -> LocalizedText` implements `IntoText`. `.arg(k, v)` accepts values, signals, and
   closures; Fluent handles plurals/genders/selection.
 - **Number/date formatting is NOT free**: fluent-rs registers no default `NUMBER`/`DATETIME`
-  functions and does no locale-aware number rendering. `day-fluent` registers **ICU4X-backed
-  functions** (`icu_decimal`, `icu_datetime` via fluent-datetime) into every bundle; M6 acceptance
-  includes fr/de digit-grouping and plural-rules conformance tests, and `day lint` flags `.ftl`
-  references to unregistered functions.
+  functions and does no locale-aware number rendering. `day-l10n` registers **ICU4X-backed
+  functions** (`icu_decimal`, `icu_datetime` — in-tree, `crates/day-l10n/src/intl.rs`) into every
+  bundle, plus a `set_formatter` hook so plain number interpolations localize; fr/de
+  digit-grouping and plural-rules conformance is pinned by `crates/day-l10n/tests/intl.rs`, and
+  `day lint` flags `.ftl` references to unregistered functions and invalid format options.
 - `IntoText` is a two-level design (a naive flat impl set is uncompilable — two closure blankets
   distinguished only by `Fn::Output` overlap): a sealed `TextValue` (String, `&'static str`, Cow,
   `LocalizedText`) plus exactly one closure blanket `impl<F: Fn() -> T, T: TextValue> IntoText for F`,

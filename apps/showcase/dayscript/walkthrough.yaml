@@ -335,4 +335,14 @@ flow:
   - assert_visible: { id: text-font-pacifico }
   - assert_visible: { id: text-font-bungee }
   - assert_visible: { id: text-font-specialelite }
+  # icu4x formatting (docs/localization.md "Formatted values"): key-based asserts resolve through
+  # the SAME bundle + formatter as the labels, so the expected strings are locale-correct by
+  # construction (ar gets Arabic-Indic digits, fr narrow-NBSP grouping, zh CLDR date patterns).
+  - assert_text: { id: fmt-number, key: fmt_number, args: { n: 1234567.891 } }
+  - assert_text: { id: fmt-percent, key: fmt_percent, args: { p: 0.72 } }
+  - assert_text: { id: fmt-date, key: fmt_date, args: { d: "2026-07-18" } }
+  - assert_text: { id: fmt-time, key: fmt_time, args: { t: "14:45" } }
+  # Collation order is per-locale (zh = pinyin) — pinned in day-l10n's unit tests; here we assert
+  # presence and let the per-locale screenshot grid show the reorder.
+  - assert_visible: { id: fmt-sorted }
   - screenshot: text

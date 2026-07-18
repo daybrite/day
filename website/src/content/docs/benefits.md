@@ -54,7 +54,8 @@ dayscript walkthrough, run per-locale, is simultaneously an end-to-end test, an 
 audit, and a screenshot generator. This composition is the part of Day that's hard to retrofit
 onto other stacks.
 
-1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals and number formats.
+1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals, number and date
+   formatting, and collation-aware sorting — locale data thinned to the locales you ship.
    The current locale is a signal. ([guide](/docs/localization))
 2. **Accessible** — real native widgets give a real native accessibility tree as the baseline;
    Day adds uniform annotations and stable identifiers, and CI can diff the native tree against

@@ -140,6 +140,8 @@ pub fn xcode_backend_build() -> i32 {
     let name = project.manifest.app.name.clone();
     let target_dir = project.root.join("build/day/cargo/ios-uikit").join(profile);
     let mut cmd = Command::new(&cargo);
+    // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
+    crate::intl::apply(&mut cmd, &project);
     // Sanitize Xcode's script-phase env: SDKROOT points at the iphonesimulator SDK (poisoning
     // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
     // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an SDK
@@ -623,6 +625,8 @@ fn build_android_so(
         .join("build/day/cargo/android-widget")
         .join(profile);
     let mut cmd = Command::new(&cargo);
+    // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
+    crate::intl::apply(&mut cmd, project);
     cmd.current_dir(&project.root)
         .env(
             "PATH",
