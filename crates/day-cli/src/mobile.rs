@@ -957,9 +957,18 @@ mod abi_tests {
     #[test]
     fn abi_list_parses_commas_spaces_and_empties() {
         assert_eq!(parse_abi_list("arm64-v8a"), vec!["arm64-v8a"]);
-        assert_eq!(parse_abi_list("arm64-v8a,x86_64"), vec!["arm64-v8a", "x86_64"]);
-        assert_eq!(parse_abi_list("arm64-v8a x86_64"), vec!["arm64-v8a", "x86_64"]);
-        assert_eq!(parse_abi_list(" arm64-v8a , x86_64 "), vec!["arm64-v8a", "x86_64"]);
+        assert_eq!(
+            parse_abi_list("arm64-v8a,x86_64"),
+            vec!["arm64-v8a", "x86_64"]
+        );
+        assert_eq!(
+            parse_abi_list("arm64-v8a x86_64"),
+            vec!["arm64-v8a", "x86_64"]
+        );
+        assert_eq!(
+            parse_abi_list(" arm64-v8a , x86_64 "),
+            vec!["arm64-v8a", "x86_64"]
+        );
         assert!(parse_abi_list("").is_empty());
         assert!(parse_abi_list(" , ").is_empty());
     }
