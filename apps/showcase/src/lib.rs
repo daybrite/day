@@ -85,6 +85,7 @@ day::routes! {
         Canvas => "canvas",
         List => "list",
         Refresh => "refresh",
+        Scrolling => "scrolling",
         Tabs => "tabs",
         Stack => "stack",
         Media => "media",
@@ -181,6 +182,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_refresh(),
             res::images::nav_refresh,
             refresh_page,
+        )
+        .item_icon(
+            Section::Scrolling,
+            crate::res::str::nav_scrolling(),
+            res::images::nav_scrolling,
+            scrolling_page,
         )
         .item_icon(
             Section::Tabs,

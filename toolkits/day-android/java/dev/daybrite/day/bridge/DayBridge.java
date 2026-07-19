@@ -147,7 +147,40 @@ public final class DayBridge {
     }
 
     public static View makeScroll(boolean horizontal) {
-        ViewGroup sv = horizontal ? new HorizontalScrollView(ctx) : new ScrollView(ctx);
+        // The onSizeChanged overrides are the keyboard-avoidance reveal (docs/focus.md): when
+        // this viewport SHRINKS while a descendant holds focus (the IME just rose and Day
+        // relaid out), scroll the focused view back in. Posted so it runs after the layout
+        // pass that delivered the new size; requestRectangleOnScreen is a minimal scroll.
+        ViewGroup sv;
+        if (horizontal) {
+            sv = new HorizontalScrollView(ctx) {
+                @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+                    super.onSizeChanged(w, h, oldW, oldH);
+                    if (w < oldW) post(new Runnable() { public void run() { revealFocus(); } });
+                }
+                private void revealFocus() {
+                    View f = findFocus();
+                    if (f != null && f != this) {
+                        f.requestRectangleOnScreen(new android.graphics.Rect(
+                                0, 0, f.getWidth(), f.getHeight()), false);
+                    }
+                }
+            };
+        } else {
+            sv = new ScrollView(ctx) {
+                @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+                    super.onSizeChanged(w, h, oldW, oldH);
+                    if (h < oldH) post(new Runnable() { public void run() { revealFocus(); } });
+                }
+                private void revealFocus() {
+                    View f = findFocus();
+                    if (f != null && f != this) {
+                        f.requestRectangleOnScreen(new android.graphics.Rect(
+                                0, 0, f.getWidth(), f.getHeight()), false);
+                    }
+                }
+            };
+        }
         if (sv instanceof ScrollView) ((ScrollView) sv).setFillViewport(false);
         else ((HorizontalScrollView) sv).setFillViewport(false);
         sv.addView(new DayFixed(ctx));
@@ -160,6 +193,45 @@ public final class DayBridge {
         }
         return v;
     }
+    /** Minimal scroll so `[x,y,w,h]` (content px) is visible — scrollRectToVisible semantics.
+     *  Serves both scroll axes; the widget clamps to its own scroll range. */
+    public static void scrollToRect(final View v, final int x, final int y,
+                                    final int w, final int h, final boolean animated) {
+        main.post(new Runnable() {
+            private int tries = 0;
+            public void run() {
+                // A freshly built page's widgets have no size until the next layout pass —
+                // defer until the scroll axis has a real viewport (bounded, in case the node
+                // never lays out).
+                boolean vertical = v instanceof android.widget.ScrollView;
+                int viewport = vertical ? v.getHeight() : v.getWidth();
+                if (viewport == 0 && tries++ < 10) {
+                    main.post(this);
+                    return;
+                }
+                if (v instanceof android.widget.ScrollView) {
+                    android.widget.ScrollView sv = (android.widget.ScrollView) v;
+                    int cur = sv.getScrollY();
+                    int view = sv.getHeight();
+                    int target = cur;
+                    if (y + h > cur + view) target = y + h - view;
+                    if (y < target) target = y;
+                    if (animated) sv.smoothScrollTo(0, target);
+                    else sv.scrollTo(0, target);
+                } else if (v instanceof android.widget.HorizontalScrollView) {
+                    android.widget.HorizontalScrollView sv = (android.widget.HorizontalScrollView) v;
+                    int cur = sv.getScrollX();
+                    int view = sv.getWidth();
+                    int target = cur;
+                    if (x + w > cur + view) target = x + w - view;
+                    if (x < target) target = x;
+                    if (animated) sv.smoothScrollTo(target, 0);
+                    else sv.scrollTo(target, 0);
+                }
+            }
+        });
+    }
+
     public static void setScrollContent(View v, int w, int h) {
         View content = contentOf(v);
         if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);
@@ -947,6 +1019,16 @@ public final class DayBridge {
     /** Forward an Activity lifecycle phase to native, once the app has started. */
     public static void lifecycle(int code) {
         if (started) nativeOnEvent(0L, 14, code, "");
+    }
+
+    /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:
+     *  onSizeChanged fires inside the layout pass, and the native relayout it triggers must not
+     *  re-enter it. */
+    public static void resized(final int w, final int h) {
+        if (!started) return;
+        main.post(new Runnable() {
+            public void run() { nativeOnEvent(0L, 18, 0, w + "," + h); }
+        });
     }
 
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */

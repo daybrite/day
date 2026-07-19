@@ -19,7 +19,7 @@ pub use ext::*;
 #[cfg(target_os = "ios")]
 mod imp {
     use std::any::Any;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
     use std::ffi::{c_char, c_int};
     use std::ptr::NonNull;
@@ -77,9 +77,50 @@ mod imp {
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
         static WINDOW: RefCell<Option<Retained<UIWindow>>> = const { RefCell::new(None) };
+        /// The Day content root + its keyboard-less frame (window coords) — keyboard avoidance
+        /// (docs/focus.md) shrinks the root to the keyboard top and restores this on dismiss.
+        static ROOT_VIEW: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+        static ROOT_BASE_FRAME: Cell<CGRect> = const {
+            Cell::new(CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+            })
+        };
+        /// The UITextField that currently owns the keyboard (editBegan/editEnded), so the
+        /// keyboard handler can reveal it inside its enclosing UIScrollView.
+        static FOCUSED_FIELD: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
         #[allow(clippy::type_complexity)]
         static PENDING: RefCell<Option<(Uikit, WindowOptions, Box<dyn FnOnce(Uikit, Handle, Size)>)>> =
             RefCell::new(None);
+    }
+
+    /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
+    /// (keyboard avoidance, docs/focus.md). Runs a turn AFTER the keyboard-driven root resize
+    /// so Day's relayout has settled the frames it converts.
+    fn reveal_focused_field() {
+        // Next main-queue turn: Day's relayout for the resized root has run by then, so the
+        // frames this converts are settled. (Same queue the backend's poster uses.)
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            let Some(field) = FOCUSED_FIELD.with(|f| f.borrow().clone()) else {
+                return;
+            };
+            let mut sup = field.superview();
+            while let Some(v) = sup {
+                sup = v.superview();
+                if let Ok(sv) = v.downcast::<UIScrollView>() {
+                    // Convert into the scroll's coordinate space (== content space for
+                    // UIScrollView, whose bounds origin is the content offset), with a little
+                    // breathing room below the field.
+                    let mut r = field.convertRect_toView(field.bounds(), Some(&sv));
+                    r.size.height += 12.0;
+                    unsafe { sv.scrollRectToVisible_animated(r, true) };
+                    return;
+                }
+            }
+        });
     }
 
     pub fn emit(id: NodeId, ev: Event) {
@@ -132,13 +173,18 @@ mod imp {
 
             /// EditingDidBegin — the keyboard is up and this field owns it (docs/focus.md).
             #[unsafe(method(editBegan:))]
-            fn edit_began(&self, _sender: &UIControl) {
+            fn edit_began(&self, sender: &UIControl) {
+                FOCUSED_FIELD.with(|f| *f.borrow_mut() = Some(Retained::from(sender as &UIView)));
+                // The keyboard may already be up (focus moved between fields): reveal now too,
+                // not only from the keyboard-frame notification.
+                reveal_focused_field();
                 emit(self.ivars().node, Event::FocusChanged(true));
             }
 
             /// EditingDidEnd — the field resigned (keyboard dismissed or focus moved on).
             #[unsafe(method(editEnded:))]
             fn edit_ended(&self, _sender: &UIControl) {
+                FOCUSED_FIELD.with(|f| *f.borrow_mut() = None);
                 emit(self.ivars().node, Event::FocusChanged(false));
             }
 
@@ -2231,6 +2277,20 @@ mod imp {
             }
         }
 
+        fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {
+            if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
+                unsafe {
+                    sv.scrollRectToVisible_animated(
+                        CGRect::new(
+                            CGPoint::new(target.origin.x, target.origin.y),
+                            CGSize::new(target.size.width, target.size.height),
+                        ),
+                        animated,
+                    )
+                };
+            }
+        }
+
         fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
             // Focus IS the keyboard on iOS: becoming first responder raises it, resigning
             // dismisses it. Resign only while this view still owns it, so a stale release
@@ -2989,6 +3049,20 @@ mod imp {
                     ),
                 );
                 unsafe { root_view.setFrame(inner) };
+                ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
+                ROOT_BASE_FRAME.with(|f| f.set(inner));
+                // Keyboard avoidance (docs/focus.md): shrink the root to the keyboard's top and
+                // let the WindowResized rail relayout Day — the same shape as Android's
+                // IME-inset margins. WillChangeFrame covers show, hide, and height changes.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(keyboardWillChange:),
+                            Some(objc2_ui_kit::UIKeyboardWillChangeFrameNotification),
+                            None,
+                        )
+                };
 
                 let (backend, _options, ready) = PENDING
                     .with(|p| p.borrow_mut().take())
@@ -3064,6 +3138,50 @@ mod imp {
                     WINDOW_NODE,
                     Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
                 );
+            }
+        }
+
+        // Inherent (non-protocol) selectors: NSNotificationCenter targets land here — objc2
+        // verifies protocol impl blocks against the protocol, and keyboardWillChange: is ours.
+        impl AppDelegate {
+            /// Keyboard show/hide/height change: clamp the root's bottom to the keyboard top
+            /// (screen coords), tell Day the root resized, then reveal the focused field.
+            #[unsafe(method(keyboardWillChange:))]
+            fn keyboard_will_change(&self, notification: &objc2_foundation::NSNotification) {
+                let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
+                    return;
+                };
+                let Some(info) = (unsafe { notification.userInfo() }) else {
+                    return;
+                };
+                let Some(val) = info
+                    .objectForKey(unsafe { objc2_ui_kit::UIKeyboardFrameEndUserInfoKey })
+                    .and_then(|o| o.downcast::<objc2_foundation::NSValue>().ok())
+                else {
+                    return;
+                };
+                use objc2_ui_kit::NSValueUIGeometryExtensions;
+                let kb = unsafe { val.CGRectValue() };
+                let base = ROOT_BASE_FRAME.with(|f| f.get());
+                // The holder fills the window, so the root's frame is in window == screen
+                // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
+                let base_bottom = base.origin.y + base.size.height;
+                let new_h = if kb.origin.y < base_bottom {
+                    (kb.origin.y - base.origin.y).max(0.0)
+                } else {
+                    base.size.height
+                };
+                let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
+                if unsafe { root.frame() }.size.height != new_h {
+                    unsafe { root.setFrame(f) };
+                    emit(
+                        WINDOW_NODE,
+                        Event::WindowResized(Size::new(f.size.width, f.size.height)),
+                    );
+                }
+                if new_h < base.size.height {
+                    reveal_focused_field();
+                }
             }
         }
     );

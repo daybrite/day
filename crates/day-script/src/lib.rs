@@ -32,6 +32,19 @@ pub enum Step {
         id: String,
     },
     WaitIdle,
+    /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
+    /// `scroll` piece; with neither, `id` names ANY element and its nearest enclosing scroll
+    /// reveals it. Unanimated, so the next step sees the settled position.
+    ScrollTo {
+        id: String,
+        /// `"top"` | `"bottom"` | `"leading"` | `"trailing"`.
+        #[serde(default)]
+        edge: Option<String>,
+        #[serde(default)]
+        x: Option<f64>,
+        #[serde(default)]
+        y: Option<f64>,
+    },
     Tap {
         id: String,
         #[serde(default)]
@@ -392,6 +405,48 @@ fn exec(step: Step) -> Reply {
                         true,
                     ))
                 }
+            }
+            Step::ScrollTo { id, edge, x, y } => {
+                let node = find(&id)?;
+                let target = match (edge.as_deref(), x, y) {
+                    (Some("top"), _, _) => day_core::ScrollTarget::Top,
+                    (Some("bottom"), _, _) => day_core::ScrollTarget::Bottom,
+                    (Some("leading"), _, _) => day_core::ScrollTarget::Leading,
+                    (Some("trailing"), _, _) => day_core::ScrollTarget::Trailing,
+                    (Some(other), _, _) => {
+                        return Err(Reply::fail(
+                            format!(
+                                "scroll_to: unknown edge {other:?} (top|bottom|leading|trailing)"
+                            ),
+                            false,
+                        ));
+                    }
+                    (None, None, None) => {
+                        // Reveal the element in its nearest enclosing scroll.
+                        let ok = with_tree(|t| t.scroll_reveal(node, false));
+                        if !ok {
+                            return Err(Reply::fail(
+                                format!("scroll_to: {id:?} has no enclosing scroll"),
+                                true,
+                            ));
+                        }
+                        day_reactive::flush_sync();
+                        return Ok(Reply::ok());
+                    }
+                    (None, x, y) => day_core::ScrollTarget::Offset(day_spec::Point::new(
+                        x.unwrap_or(0.0),
+                        y.unwrap_or(0.0),
+                    )),
+                };
+                let ok = with_tree(|t| t.scroll_to_target(node, &target, false));
+                if !ok {
+                    return Err(Reply::fail(
+                        format!("scroll_to: {id:?} is not a realized scroll piece"),
+                        true,
+                    ));
+                }
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
             }
             Step::Focus { id, focused } => {
                 let node = find(&id)?;

@@ -84,12 +84,43 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         }
         final String envBlob = blob.toString();
         final DayActivity self = this;
-        // nativeStart needs the root's final size, which is only known once the system-bar insets
-        // above have shrunk it into the safe area — so start native from the inset pass (once),
-        // after posting so the margin-driven relayout has settled and root.getWidth/Height are the
-        // safe-area size. Every edge-to-edge window delivers insets at least once, so this always
-        // fires; the guard keeps a later inset change (e.g. rotation) from re-starting native.
-        final boolean[] launched = { false };
+        // The insets listener does exactly one job: keep the root's margins equal to the
+        // system-bar (+ cutout) insets. Everything downstream is size-driven — no launch or
+        // relayout choreography lives here, so a late or repeated inset pass (second pass on
+        // some devices, rotation, bar changes) is handled the same as the first.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(wrapper,
+                new androidx.core.view.OnApplyWindowInsetsListener() {
+            @Override public androidx.core.view.WindowInsetsCompat onApplyWindowInsets(
+                    android.view.View v, androidx.core.view.WindowInsetsCompat insets) {
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                        | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+                // Keyboard avoidance (docs/focus.md): consume the IME inset too, so a raised
+                // keyboard shrinks the root exactly like a taller navigation bar would — the
+                // resize rail relayouts Day, and the platform ScrollView then scrolls the
+                // focused field back into view (its stock resized-with-focus behavior).
+                androidx.core.graphics.Insets ime = insets.getInsets(
+                        androidx.core.view.WindowInsetsCompat.Type.ime());
+                int bottom = Math.max(bars.bottom, ime.bottom);
+                android.widget.FrameLayout.LayoutParams lp =
+                        (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
+                if (lp.leftMargin != bars.left || lp.topMargin != bars.top
+                        || lp.rightMargin != bars.right || lp.bottomMargin != bottom) {
+                    lp.leftMargin = bars.left;
+                    lp.topMargin = bars.top;
+                    lp.rightMargin = bars.right;
+                    lp.bottomMargin = bottom;
+                    root.setLayoutParams(lp);
+                }
+                return androidx.core.view.WindowInsetsCompat.CONSUMED;
+            }
+        });
+        // Size-driven start + resize: the root's FIRST laid-out size starts native (posted, so
+        // the traversal has finished and getWidth/Height are settled); every later size change —
+        // a second inset pass shrinking the root into the safe area, rotation, bar changes —
+        // flows to native as a window-resize event and Day relayouts. Native never needs to know
+        // where the size came from, which is what makes edge-to-edge handling automatic instead
+        // of a launch-time snapshot.
         final Runnable start = new Runnable() {
             public void run() {
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
@@ -100,30 +131,17 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
             }
         };
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(wrapper,
-                new androidx.core.view.OnApplyWindowInsetsListener() {
-            @Override public androidx.core.view.WindowInsetsCompat onApplyWindowInsets(
-                    android.view.View v, androidx.core.view.WindowInsetsCompat insets) {
-                androidx.core.graphics.Insets bars = insets.getInsets(
-                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
-                        | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
-                android.widget.FrameLayout.LayoutParams lp =
-                        (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
-                if (lp.leftMargin != bars.left || lp.topMargin != bars.top
-                        || lp.rightMargin != bars.right || lp.bottomMargin != bars.bottom) {
-                    lp.leftMargin = bars.left;
-                    lp.topMargin = bars.top;
-                    lp.rightMargin = bars.right;
-                    lp.bottomMargin = bars.bottom;
-                    root.setLayoutParams(lp);
-                }
+        final boolean[] launched = { false };
+        root.sizeListener = new DayFixed.SizeListener() {
+            @Override public void onSize(int w, int h) {
                 if (!launched[0]) {
                     launched[0] = true;
                     root.post(start);
+                } else {
+                    DayBridge.resized(w, h);
                 }
-                return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
-        });
+        };
     }
 
     /** Whether the Activity is currently resumed (foreground + interactive). */

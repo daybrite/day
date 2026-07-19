@@ -411,3 +411,11 @@ http_tier = المكدّس
 http_url_placeholder = https://example.com
 http_check = فحص
 http_checking = يجري الفحص…
+
+# Scrolling page (docs/scroll.md) — programmatic scroll targets.
+nav_scrolling = التمرير
+scrolling_caption = تمرير برمجي: إشارة Signal تنقل منطقة التمرير إلى حافة أو موضع أو عنصر بعينه.
+scroll_to_top = التمرير إلى الأعلى
+scroll_to_bottom = التمرير إلى الأسفل
+scroll_to_item = التمرير إلى العنصر 100
+scrolling_item = العنصر { $n }

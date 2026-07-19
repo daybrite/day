@@ -45,6 +45,7 @@ the architecture-level view and the rationale.
 |---|---|---|
 | navigation — `routes!`, `selector`, `stack`, deep links, predictive back | docs/navigation.md | [§10.5](#105-navigation-and-presentation) |
 | native recycling lists | docs/list.md | [§10](#10-native-list-integration) |
+| scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | docs/scroll.md | [§7.6](#76-scroll) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
@@ -984,7 +985,10 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   ArkUI `Scroll` direction. Content is measured unconstrained on the chosen axis.
 - The native side owns the viewport, physics, indicators, and emits `Event::ScrollChanged(Point)`.
   `Toolkit::scroll_to(handle, target_rect, animated)` and `scroll_offset(handle)` complete the
-  surface (dayscript `scroll_to` and the keyboard focus-reveal ride these).
+  surface. Shipped riders (2026-07, docs/scroll.md): the app-side
+  `scroll(child).scroll_target(signal)` builder (a `Signal<Option<ScrollTarget>>` of
+  Top/Bottom/Leading/Trailing/Offset/Id), `TreeOps::{scroll_to_target, scroll_reveal}` composing
+  reveal-rects in core, and the dayscript `scroll_to` step — one rail, every backend.
 - On content relayout the offset is preserved, clamped to the new extent.
 - **v1 restrictions, linted:** same-axis nested scrolls and `list`-inside-`scroll` are
   unsupported (`day lint` rule); cross-axis gesture arbitration is documented post-MVP work.
@@ -993,7 +997,15 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 
 > [!IMPORTANT]
 > **Status: partially shipped.** Safe-area insets are applied at the window root by the mobile
-> backends (UIKit reads `safeAreaInsets`; Android is edge-to-edge with the root inset), and the
+> backends (UIKit reads `safeAreaInsets`; Android is edge-to-edge with the root held in a
+> margin-inset wrapper, and the root's size changes — late inset passes, rotation, bar changes —
+> flow to Day as `Event::WindowResized`, the same rail AppKit uses, so layout follows the safe
+> area instead of a launch-time snapshot). **Keyboard avoidance shipped (2026-07,
+> docs/focus.md):** each mobile backend consumes the keyboard natively and resizes the Day root
+> through the `WindowResized` rail — Android folds `WindowInsetsCompat.ime()` into the root
+> margins, UIKit observes `UIKeyboardWillChangeFrame` (clamping the root to the keyboard top and
+> revealing the focused field via `scrollRectToVisible`), ArkUI uses `KeyboardAvoidMode.RESIZE`
+> plus the host's `onAreaChange` → `resized()` NAPI. The
 > soft keyboard is raised/dismissed through the focus system (docs/focus.md). The
 > `env::safe_area()` / `env::keyboard_insets()` *signals* and `.ignore_safe_area(edges)` are
 > **not implemented** — no app has needed to read the values directly yet. The policy below
@@ -2866,6 +2878,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
+| `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root (docs/navigation.md) |
 | `nav_back` | — | pop one level, the native back path |
 | `assert_route` | `route` | current path |

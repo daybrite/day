@@ -30,6 +30,9 @@ pub struct MockWidget {
     pub frame: Rect,
     pub a11y: A11yProps,
     pub scroll_content: Size,
+    /// The scroll offset after the last `scroll_to` (docs/scroll.md), computed with the same
+    /// minimal-reveal clamp every real backend applies — probe-visible for tests.
+    pub scroll_offset: Point,
     pub ops: Vec<DrawOp>,
     /// Surface style from a `background`/`corner_radius` decorator (probe-visible for tests).
     pub background: Option<Color>,
@@ -488,6 +491,52 @@ impl Toolkit for MockToolkit {
             w.scroll_content = content;
         }
         s.log(format!("set_scroll_content #{} {}", h.0, fmt_size(content)));
+    }
+
+    fn scroll_to(&mut self, h: &MockHandle, target: Rect, _animated: bool) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            // Minimal scroll that makes `target` (content space) visible, clamped to range.
+            let (vw, vh) = (w.frame.size.width, w.frame.size.height);
+            let (cw, ch) = (w.scroll_content.width, w.scroll_content.height);
+            let clamp = |cur: f64, lo: f64, hi_edge: f64, view: f64, content: f64| -> f64 {
+                let mut o = cur;
+                if hi_edge > o + view {
+                    o = hi_edge - view;
+                }
+                if lo < o {
+                    o = lo;
+                }
+                o.clamp(0.0, (content - view).max(0.0))
+            };
+            let o = w.scroll_offset;
+            w.scroll_offset = Point::new(
+                clamp(
+                    o.x,
+                    target.origin.x,
+                    target.origin.x + target.size.width,
+                    vw,
+                    cw,
+                ),
+                clamp(
+                    o.y,
+                    target.origin.y,
+                    target.origin.y + target.size.height,
+                    vh,
+                    ch,
+                ),
+            );
+        }
+        s.log(format!("scroll_to #{} {}", h.0, fmt_rect(target)));
+    }
+
+    fn scroll_offset(&mut self, h: &MockHandle) -> Point {
+        self.state
+            .borrow()
+            .widgets
+            .get(&h.0)
+            .map(|w| w.scroll_offset)
+            .unwrap_or(Point::ZERO)
     }
 
     fn enable_gesture(&mut self, h: &MockHandle, _node: NodeId, kind: GestureKind) {

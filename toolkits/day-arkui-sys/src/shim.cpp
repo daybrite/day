@@ -92,6 +92,7 @@ struct DayNavContent {
 static std::map<uint64_t, DayNavContent> g_nav_contents;
 extern "C" void day_arkui_nav_popped(uint64_t key);
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
+extern "C" void day_arkui_resized(double w, double h);
 
 // ---- main-thread posting (uv_async on the JS event loop) -------------------
 struct PostItem {
@@ -235,6 +236,37 @@ void day_ark_scroll_direction(void* n, int horizontal) {
     it.value = &nv;
     it.size = 1;
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_SCROLL_DIRECTION, &it);
+}
+// Minimal scroll so [x,y,w,h] (content vp) is visible — scrollRectToVisible semantics.
+// ArkUI positions by absolute offset (NODE_SCROLL_OFFSET, get/set), so read the current
+// offset + the node's own size, compute the reveal, and write the offset back (clamped by
+// the node to its scrollable range).
+void day_ark_scroll_to_rect(void* n, float x, float y, float w, float h, int animated) {
+    if (!g_api || !n) return;
+    float ox = 0.0f, oy = 0.0f;
+    const ArkUI_AttributeItem* cur = g_api->getAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_OFFSET);
+    if (cur && cur->size >= 2) {
+        ox = cur->value[0].f32;
+        oy = cur->value[1].f32;
+    }
+    float pw = 0.0f, ph = 0.0f;
+    const ArkUI_AttributeItem* wa = g_api->getAttribute((ArkUI_NodeHandle)n, NODE_WIDTH);
+    const ArkUI_AttributeItem* ha = g_api->getAttribute((ArkUI_NodeHandle)n, NODE_HEIGHT);
+    if (wa && wa->size >= 1) pw = wa->value[0].f32;
+    if (ha && ha->size >= 1) ph = ha->value[0].f32;
+    float nx = ox, ny = oy;
+    if (x + w > nx + pw) nx = x + w - pw;
+    if (x < nx) nx = x;
+    if (y + h > ny + ph) ny = y + h - ph;
+    if (y < ny) ny = y;
+    ArkUI_NumberValue nv[3];
+    nv[0].f32 = nx;
+    nv[1].f32 = ny;
+    nv[2].i32 = animated ? 300 : 0; // animation duration ms (0 = jump)
+    ArkUI_AttributeItem it{};
+    it.value = nv;
+    it.size = 3;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_OFFSET, &it);
 }
 void day_ark_insert_child(void* p, void* c, int32_t pos) {
     if (g_api) g_api->insertChildAt((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c, pos);
@@ -1228,10 +1260,26 @@ static napi_value SetEnv(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// Root-area change after start (keyboard RESIZE avoidance, rotation): `resized(w, h)` in vp.
+static napi_value DayResized(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double w = 0, h = 0;
+    napi_get_value_double(env, argv[0], &w);
+    napi_get_value_double(env, argv[1], &h);
+    day_arkui_resized(w, h);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_value fn;
     napi_create_function(env, "start", NAPI_AUTO_LENGTH, DayStart, nullptr, &fn);
     napi_set_named_property(env, exports, "start", fn);
+    napi_create_function(env, "resized", NAPI_AUTO_LENGTH, DayResized, nullptr, &fn);
+    napi_set_named_property(env, exports, "resized", fn);
     napi_create_function(env, "setEnv", NAPI_AUTO_LENGTH, SetEnv, nullptr, &fn);
     napi_set_named_property(env, exports, "setEnv", fn);
     napi_create_function(env, "registerFilePicker", NAPI_AUTO_LENGTH, RegisterFilePicker, nullptr,

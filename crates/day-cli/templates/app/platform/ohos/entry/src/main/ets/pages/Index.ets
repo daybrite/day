@@ -199,9 +199,14 @@ struct Index {
       }
       .width('100%')
       .height('100%')
-      // Start once the slot has a real size (Area dimensions are in vp).
+      // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
+      // resize) flow to Day as window resizes. Area dimensions are in vp.
       .onAreaChange((_oldArea: Area, newArea: Area) => {
-        this.startDay(newArea.width as number, newArea.height as number);
+        if (this.started) {
+          nativeEntry.resized(newArea.width as number, newArea.height as number);
+        } else {
+          this.startDay(newArea.width as number, newArea.height as number);
+        }
       })
     }
     .hideTitleBar(true)

@@ -85,9 +85,12 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         self.tree.toolkit.measure(&h, kind, p)
     }
     fn set_scroll_content(&mut self, content: Size) {
-        let Some(n) = self.tree.node(self.current) else {
+        let current = self.current;
+        let Some(n) = self.tree.node_mut(current) else {
             return;
         };
+        // Cache for scroll_to_target (§7.6): edge targets need content-minus-viewport math.
+        n.scroll_content = Some(content);
         let Some(h) = n.handle.clone() else { return };
         self.tree.toolkit.set_scroll_content(&h, content);
     }

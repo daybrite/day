@@ -14,6 +14,15 @@ public class DayFixed extends ViewGroup {
 
     public DayFixed(Context c) { super(c); }
 
+    /** Size-change hook (set by DayActivity): first fire starts native, later fires resize it. */
+    public interface SizeListener { void onSize(int w, int h); }
+    public SizeListener sizeListener;
+
+    @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
+        super.onSizeChanged(w, h, oldW, oldH);
+        if (sizeListener != null) sizeListener.onSize(w, h);
+    }
+
     public void setChildFrame(View v, int x, int y, int w, int h) {
         frames.put(v, new int[]{x, y, w, h});
         v.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),

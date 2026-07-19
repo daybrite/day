@@ -603,6 +603,23 @@ mod imp {
                 Some(phase) => Event::Lifecycle(phase),
                 None => return,
             },
+            // Root size change (px as "w,h" text): the safe-area root grew or shrank — a late
+            // inset pass, the soft keyboard, rotation, or a system-bar change. Routed to the
+            // root as a window resize so Day relayouts; same rail as appkit's windowDidResize.
+            // (18: the first free kind — 15 already carries file-picker answers.)
+            18 => {
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
+                if p.len() < 2 {
+                    return;
+                }
+                let d = DENSITY.with(|x| x.get());
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::WindowResized(Size::new(p[0] / d, p[1] / d)),
+                );
+                return;
+            }
             // Focus pair + IME submit action (docs/focus.md).
             16 => Event::FocusChanged(num != 0.0),
             17 => Event::Submitted,
@@ -1570,6 +1587,22 @@ mod imp {
                     JValue::Object(h.0.as_obj()),
                     JValue::Int((content.width * d).round() as i32),
                     JValue::Int((content.height * d).round() as i32),
+                ],
+            );
+        }
+
+        fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
+            let d = density();
+            call_void(
+                "scrollToRect",
+                "(Landroid/view/View;IIIIZ)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Int((target.origin.x * d).round() as i32),
+                    JValue::Int((target.origin.y * d).round() as i32),
+                    JValue::Int((target.size.width * d).round() as i32),
+                    JValue::Int((target.size.height * d).round() as i32),
+                    JValue::Bool(animated),
                 ],
             );
         }

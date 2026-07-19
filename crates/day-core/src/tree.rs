@@ -69,6 +69,9 @@ pub struct NodeData<H> {
     pub needs_measure: bool,
     pub last_native_frame: Option<Rect>,
     pub is_boundary: bool,
+    /// Scroll-content size reported by `ScrollLayout` (§7.6) — SCROLL nodes only. Cached so
+    /// `scroll_to_target` can compose edge targets (bottom = content minus viewport).
+    pub scroll_content: Option<Size>,
 }
 
 /// An event handler registered on a realized node.
@@ -103,6 +106,7 @@ impl<B: Toolkit> Tree<B> {
             probe: NodeProbe::default(),
             needs_measure: true,
             last_native_frame: None,
+            scroll_content: None,
             is_boundary: true,
         });
         Tree {
@@ -134,6 +138,7 @@ impl<B: Toolkit> Tree<B> {
             probe: NodeProbe::default(),
             needs_measure: true,
             last_native_frame: None,
+            scroll_content: None,
             is_boundary: true,
         })
     }
@@ -343,6 +348,20 @@ impl<B: Toolkit> Tree<B> {
 // Object-safe tree surface for pieces / bindings / handlers
 // ---------------------------------------------------------------------------
 
+/// A programmatic scroll destination (§7.6, docs/scroll.md). Edges are axis extremes
+/// (`Top`/`Bottom` vertical, `Leading`/`Trailing` horizontal — start/end in layout direction);
+/// `Offset` pins the viewport origin to a content-space point (clamped by the platform);
+/// `Id` reveals the element with that dayscript id inside its nearest enclosing scroll.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScrollTarget {
+    Top,
+    Bottom,
+    Leading,
+    Trailing,
+    Offset(Point),
+    Id(String),
+}
+
 pub trait TreeOps {
     // The object-safe seam mirrors NodeData's fields one-to-one; grouping them into a
     // params struct would just move the same list behind a constructor.
@@ -374,6 +393,13 @@ pub trait TreeOps {
     fn set_probe_focused(&mut self, node: RNode, focused: bool);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
+    /// Programmatic scroll (§7.6, docs/scroll.md): resolve `target` against a SCROLL node's
+    /// content/viewport and drive `Toolkit::scroll_to`. Returns false when `node` isn't a
+    /// realized scroll (the caller reports the miss; dayscript retries).
+    fn scroll_to_target(&mut self, node: RNode, target: &ScrollTarget, animated: bool) -> bool;
+    /// Scroll the nearest enclosing SCROLL ancestor so `node`'s frame is visible (minimal
+    /// scroll, `scrollRectToVisible` semantics). False when no scroll ancestor exists.
+    fn scroll_reveal(&mut self, node: RNode, animated: bool) -> bool;
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>);
     fn mark_needs_measure(&mut self, node: RNode);
@@ -512,6 +538,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             probe,
             needs_measure: true,
             last_native_frame: None,
+            scroll_content: None,
             is_boundary,
         });
         if native {
@@ -620,6 +647,72 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(h) = n.handle.clone()
         {
             self.toolkit.set_context_menu(&h, rnode_to_id(node), &items);
+        }
+    }
+
+    fn scroll_to_target(&mut self, node: RNode, target: &ScrollTarget, animated: bool) -> bool {
+        // `Id` routes through reveal — the element names the scroll implicitly.
+        if let ScrollTarget::Id(id) = target {
+            let Some(el) = self.find_by_id(id) else {
+                return false;
+            };
+            return self.scroll_reveal(el, animated);
+        }
+        let Some(n) = self.nodes.get(node) else {
+            return false;
+        };
+        if n.kind != kinds::SCROLL {
+            return false;
+        }
+        let Some(h) = n.handle.clone() else {
+            return false;
+        };
+        let viewport = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
+        let content = n.scroll_content.unwrap_or(viewport);
+        // Compose a content-space rect whose minimal reveal lands on the target
+        // (`Toolkit::scroll_to` is scrollRectToVisible semantics on every backend).
+        let rect = match target {
+            ScrollTarget::Top | ScrollTarget::Leading => Rect::new(0.0, 0.0, 1.0, 1.0),
+            ScrollTarget::Bottom => Rect::new(0.0, (content.height - 1.0).max(0.0), 1.0, 1.0),
+            ScrollTarget::Trailing => Rect::new((content.width - 1.0).max(0.0), 0.0, 1.0, 1.0),
+            // A viewport-sized rect: minimal reveal pins the viewport origin to the point
+            // (exactly, when the point is within the scrollable range).
+            ScrollTarget::Offset(p) => Rect::new(p.x, p.y, viewport.width, viewport.height),
+            ScrollTarget::Id(_) => unreachable!("routed to scroll_reveal above"),
+        };
+        self.toolkit.scroll_to(&h, rect, animated);
+        true
+    }
+
+    fn scroll_reveal(&mut self, node: RNode, animated: bool) -> bool {
+        // The element's frame is relative to its nearest REALIZED native ancestor (§7);
+        // accumulate native origins up to (not including) the enclosing scroll, which puts
+        // the rect in the scroll's content space — what Toolkit::scroll_to expects.
+        let Some(mut rect) = self.nodes.get(node).and_then(|n| n.last_native_frame) else {
+            return false;
+        };
+        let mut anc = match self.nodes.get(node) {
+            Some(n) => n.parent,
+            None => return false,
+        };
+        loop {
+            let Some(a) = self.nodes.get(anc) else {
+                return false; // walked off the root: no scroll ancestor
+            };
+            if a.kind == kinds::SCROLL {
+                let Some(h) = a.handle.clone() else {
+                    return false;
+                };
+                self.toolkit.scroll_to(&h, rect, animated);
+                return true;
+            }
+            if a.handle.is_some()
+                && let Some(f) = a.last_native_frame
+            {
+                rect.origin.x += f.origin.x;
+                rect.origin.y += f.origin.y;
+            }
+            anc = a.parent;
         }
     }
 
@@ -1076,6 +1169,16 @@ fn dispatch_focus_probe(id: NodeId, ev: &Event) {
         let node = id_to_rnode(id);
         with_tree(|t| t.set_probe_focused(node, *f));
     }
+}
+
+/// Imperatively scroll a `scroll` piece (docs/scroll.md): `node` is the SCROLL node for edge
+/// and offset targets (`ScrollTarget::Id` ignores it and reveals the named element in its own
+/// nearest scroll). Animated on-screen; dayscript uses the unanimated variant for determinism.
+/// Call with no tree borrow held.
+pub fn scroll_to(node: RNode, target: ScrollTarget) {
+    with_tree(|t| {
+        t.scroll_to_target(node, &target, true);
+    });
 }
 
 /// Run one already-routed event through its node's handlers (the tail of the pump loop).

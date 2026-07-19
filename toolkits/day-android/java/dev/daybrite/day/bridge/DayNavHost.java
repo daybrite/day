@@ -37,6 +37,7 @@ import com.google.android.material.transition.MaterialSharedAxis;
  * back-stack listener does not re-report them.
  */
 public class DayNavHost extends LinearLayout {
+
     /** v1: nav is app-root only, so a single active host suffices (deep-link routing). */
     static DayNavHost active;
     /** page view → its host, for removePage routing even after the view is detached. */

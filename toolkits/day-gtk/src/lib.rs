@@ -1969,6 +1969,35 @@ impl Toolkit for Gtk {
         }
     }
 
+    fn scroll_to(&mut self, h: &Handle, target: Rect, _animated: bool) {
+        // Minimal scroll so `target` (content space) is visible; the adjustments clamp to
+        // their own range. GTK adjustments animate only via kinetic scroll, so jumps are
+        // immediate — dayscript wants that anyway.
+        let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() else {
+            return;
+        };
+        let reveal = |adj: gtk4::Adjustment, lo: f64, hi: f64| {
+            let mut v = adj.value();
+            if hi > v + adj.page_size() {
+                v = hi - adj.page_size();
+            }
+            if lo < v {
+                v = lo;
+            }
+            adj.set_value(v);
+        };
+        reveal(
+            sw.vadjustment(),
+            target.origin.y,
+            target.origin.y + target.size.height,
+        );
+        reveal(
+            sw.hadjustment(),
+            target.origin.x,
+            target.origin.x + target.size.width,
+        );
+    }
+
     fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
         if focused {
             // grab_focus only lands on a mapped widget; a request racing the first map

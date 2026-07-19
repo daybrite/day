@@ -144,3 +144,26 @@ focusable, and the bindings stay quiet there.
 4. **Headless CI focus** — programmatic `grab_focus`/`setFocus` is window-local on every
    backend (Qt after the app-local activation above), so scripted runs don't depend on the
    window manager granting real OS focus.
+
+## 8. Keyboard avoidance (the keyboard never covers the focused field)
+
+Each mobile backend consumes the soft keyboard natively and resizes the Day root through the
+`WindowResized` rail — the same relayout path a rotation takes — so the whole UI shrinks to the
+visible area and the focused field is scrolled back into view:
+
+- **Android**: the root's wrapper folds `WindowInsetsCompat.Type.ime()` into the bottom margin
+  (alongside the system-bar insets), so a raised keyboard shrinks the root exactly like a taller
+  navigation bar would. The resize flows to Day (`DayFixed.onSizeChanged` → `WindowResized`),
+  Day relayouts, and the platform `ScrollView` then applies its stock resized-with-focus
+  behavior — scrolling the focused descendant back into view.
+- **iOS**: the app delegate observes `UIKeyboardWillChangeFrame`, clamps the root view's bottom
+  to the keyboard's top, emits `WindowResized`, and after Day's relayout reveals the focused
+  `UITextField` via `scrollRectToVisible` on its nearest enclosing `UIScrollView`. Show, hide,
+  and height changes (emoji pane, hardware-keyboard toggles) all ride the one notification.
+- **HarmonyOS**: the window's UIContext is set to `KeyboardAvoidMode.RESIZE`, so ArkUI shrinks
+  the page instead of translating it; the host page's `onAreaChange` forwards the new area
+  through the `resized()` NAPI export, and Day relayouts into it.
+
+Desktop backends have no soft keyboard; nothing engages. There is no per-app opt-in — a Day app
+gets avoidance by existing. The related programmatic primitive is `TreeOps::scroll_reveal`
+(docs/scroll.md), which scrolls any element's nearest scroll ancestor into view.

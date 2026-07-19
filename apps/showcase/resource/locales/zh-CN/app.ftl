@@ -401,3 +401,11 @@ http_tier = 网络栈
 http_url_placeholder = https://example.com
 http_check = 检查
 http_checking = 检查中…
+
+# Scrolling page (docs/scroll.md) — programmatic scroll targets.
+nav_scrolling = 滚动
+scrolling_caption = 编程式滚动：通过 Signal 将滚动区域移到边缘、指定位置或特定条目。
+scroll_to_top = 滚动到顶部
+scroll_to_bottom = 滚动到底部
+scroll_to_item = 滚动到第 100 项
+scrolling_item = 第 { $n } 项

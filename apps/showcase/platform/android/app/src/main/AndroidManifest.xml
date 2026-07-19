@@ -15,6 +15,7 @@
             android:name="dev.daybrite.day.bridge.DayActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
             <meta-data android:name="day.lib" android:value="showcase" />
             <intent-filter>

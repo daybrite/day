@@ -1276,6 +1276,19 @@ impl Toolkit for Qt {
         };
     }
 
+    fn scroll_to(&mut self, h: &QtHandle, target: Rect, _animated: bool) {
+        // Qt scroll bars have no built-in animation; jumps are immediate (dayscript-friendly).
+        unsafe {
+            ffi::day_qt_scroll_to_rect(
+                h.0,
+                target.origin.x.round() as c_int,
+                target.origin.y.round() as c_int,
+                target.size.width.round() as c_int,
+                target.size.height.round() as c_int,
+            )
+        };
+    }
+
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
         use day_spec::present::PresentSpec;
         match spec {

@@ -405,3 +405,11 @@ http_tier = Pile
 http_url_placeholder = https://example.com
 http_check = Vérifier
 http_checking = Vérification…
+
+# Scrolling page (docs/scroll.md) — programmatic scroll targets.
+nav_scrolling = Défilement
+scrolling_caption = Défilement programmatique : un Signal amène la zone de défilement à un bord, une position ou un élément précis.
+scroll_to_top = Aller en haut
+scroll_to_bottom = Aller en bas
+scroll_to_item = Aller à l'élément 100
+scrolling_item = Élément { $n }

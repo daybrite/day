@@ -289,6 +289,27 @@ flow:
   - assert_text: { id: refresh-status, key: refresh_status_idle }
   - assert_visible: { id: "refresh-row:12" }
 
+  # Programmatic scrolling (docs/scroll.md): buttons write ScrollTarget into a Signal that
+  # drives the scroll piece; this script's own scroll_to step rides the same rail (unanimated,
+  # so each following step sees the settled offset).
+  - navigate: { route: scrolling }
+  - assert_route: { route: scrolling }
+  - assert_visible: { id: scroll-demo }
+  - assert_visible: { id: scroll-item-1 }
+  - screenshot: scrolling
+  - tap: { id: scroll-bottom }
+  - wait_idle:
+  - pause: { secs: 0.7 }
+  - screenshot: scrolling-bottom
+  - tap: { id: scroll-item }
+  - tap: { id: scroll-top }
+  # The dayscript step itself: reveal an element, jump edges, pin an offset.
+  - scroll_to: { id: scroll-item-120 }
+  - scroll_to: { id: scroll-demo, edge: bottom }
+  - scroll_to: { id: scroll-demo, edge: trailing }
+  - scroll_to: { id: scroll-demo, x: 0, y: 300 }
+  - scroll_to: { id: scroll-demo, edge: top }
+
   # Native media player (docs/media.md): an EXTERNAL piece wrapping each toolkit's native player
   # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo). The pause lets
   # first frames of the network sample arrive; then pause playback so the captured frame is

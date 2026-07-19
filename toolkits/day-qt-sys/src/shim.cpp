@@ -403,6 +403,26 @@ void day_qt_scroll_set_content_size(void *w, int cw, int ch) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     if (sa && sa->widget()) sa->widget()->resize(cw, ch);
 }
+// Minimal scroll so [x,y,w,h] (content px) is visible — scrollRectToVisible semantics on both
+// axes; the scroll bars clamp to their own range.
+void day_qt_scroll_to_rect(void *w, int x, int y, int rw, int rh) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    if (QScrollBar *sb = sa->verticalScrollBar()) {
+        int v = sb->value();
+        int page = sa->viewport()->height();
+        if (y + rh > v + page) v = y + rh - page;
+        if (y < v) v = y;
+        sb->setValue(v);
+    }
+    if (QScrollBar *sb = sa->horizontalScrollBar()) {
+        int v = sb->value();
+        int page = sa->viewport()->width();
+        if (x + rw > v + page) v = x + rw - page;
+        if (x < v) v = x;
+        sb->setValue(v);
+    }
+}
 // Scroll the (emulated) list/scroll area to its very bottom so the last row is fully visible.
 void day_qt_scroll_to_bottom(void *w) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));

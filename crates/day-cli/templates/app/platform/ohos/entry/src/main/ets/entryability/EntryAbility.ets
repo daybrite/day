@@ -1,5 +1,5 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
-import { window } from '@kit.ArkUI';
+import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
 
@@ -42,6 +42,11 @@ export default class EntryAbility extends UIAbility {
       // registration is UIContext-scoped (the global font.registerFont is deprecated since
       // API 18), and the window's UIContext only exists once the content has loaded.
       this.registerBundledFonts(windowStage);
+      // Keyboard avoidance (docs/focus.md): RESIZE shrinks the page when the soft keyboard
+      // rises (instead of the default translate), so the page's onAreaChange fires and Day
+      // relayouts into the reduced area — the focused field stays visible.
+      windowStage.getMainWindowSync().getUIContext()
+        .setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     });
   }
 

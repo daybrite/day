@@ -1960,3 +1960,55 @@ fn form_aligns_labels_and_sections_carry_the_card_surface() {
         "control left edges align: {control_lefts:?}"
     );
 }
+
+#[test]
+fn scroll_target_signal_drives_offset() {
+    // A 400x600 window; 40 rows of ~20+ tall labels overflow the viewport for sure.
+    let jump: Signal<Option<ScrollTarget>> = Signal::new(None);
+    let jump2 = jump;
+    let probe = boot(move || {
+        scroll(column(PieceVec(
+            (0..100)
+                .map(|i| label(format!("row {i}")).id(format!("mock-row-{i}")).any())
+                .collect(),
+        )))
+        .scroll_target(jump2)
+        .any()
+    });
+    let scrolls = probe.find_by_kind("day.scroll");
+    let content_h = scrolls[0].1.scroll_content.height;
+    let viewport_h = scrolls[0].1.frame.size.height;
+    assert!(content_h > viewport_h, "content overflows: {content_h}");
+
+    jump.set(Some(ScrollTarget::Bottom));
+    flush_sync();
+    let w = &probe.find_by_kind("day.scroll")[0].1;
+    assert_eq!(
+        w.scroll_offset.y,
+        content_h - viewport_h,
+        "Bottom lands at content minus viewport"
+    );
+    assert_eq!(jump.get_untracked(), None, "signal resets after consuming");
+
+    jump.set(Some(ScrollTarget::Top));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.scroll")[0].1.scroll_offset.y,
+        0.0,
+        "Top returns to zero"
+    );
+
+    jump.set(Some(ScrollTarget::Offset(Point::new(0.0, 123.0))));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.scroll")[0].1.scroll_offset.y,
+        123.0,
+        "Offset pins the viewport origin"
+    );
+
+    // Reveal-by-id: a row far below the fold scrolls its enclosing scroll.
+    jump.set(Some(ScrollTarget::Id("mock-row-90".into())));
+    flush_sync();
+    let y = probe.find_by_kind("day.scroll")[0].1.scroll_offset.y;
+    assert!(y > 123.0, "revealing row 90 scrolled further down: {y}");
+}

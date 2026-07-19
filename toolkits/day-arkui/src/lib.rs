@@ -372,6 +372,16 @@ mod imp {
         }
     }
 
+    /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
+    /// rotation, window resize) — routed to Day as a window resize, the shared rail
+    /// (docs/focus.md; same shape as Android's kind-15 event).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_resized(w: f64, h: f64) {
+        if w > 0.0 && h > 0.0 {
+            emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
+        }
+    }
+
     /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
     /// area for `save_file(..)`, since HarmonyOS's OS temp dir isn't writable by the app.
     #[unsafe(no_mangle)]
@@ -883,6 +893,20 @@ mod imp {
                     frame.origin.y,
                     frame.size.width,
                     frame.size.height,
+                )
+            };
+        }
+
+        fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
+            // The shim owns the minimal-reveal math (it can read the node's offset + size).
+            unsafe {
+                ffi::day_ark_scroll_to_rect(
+                    h.0,
+                    target.origin.x as f32,
+                    target.origin.y as f32,
+                    target.size.width as f32,
+                    target.size.height as f32,
+                    animated as c_int,
                 )
             };
         }

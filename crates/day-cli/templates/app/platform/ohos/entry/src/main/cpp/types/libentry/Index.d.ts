@@ -2,6 +2,8 @@
 // NAPI init. `start` mounts the Day tree; the file-picker pair bridges Day's native open/save
 // requests to the ArkTS @kit.CoreFileKit DocumentViewPicker (docs/files.md).
 export const start: (content: Object, widthVp: number, heightVp: number, density: number) => void;
+/** Root-area change after start (keyboard RESIZE avoidance, rotation), in vp. */
+export const resized: (widthVp: number, heightVp: number) => void;
 
 // Set a process environment variable BEFORE `start()`. The launcher (`day launch` → hdc
 // `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive) this

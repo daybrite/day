@@ -405,3 +405,11 @@ http_tier = Stack
 http_url_placeholder = https://example.com
 http_check = Check
 http_checking = Checking…
+
+# Scrolling page (docs/scroll.md) — programmatic scroll targets.
+nav_scrolling = Scrolling
+scrolling_caption = Programmatic scrolling: a Signal drives the scroll piece to an edge, an offset, or a specific item.
+scroll_to_top = Scroll to top
+scroll_to_bottom = Scroll to bottom
+scroll_to_item = Scroll to item 100
+scrolling_item = Item { $n }

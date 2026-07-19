@@ -861,12 +861,14 @@ impl<C: PieceSeq> Piece for Row<C> {
 pub struct Scroll<P: Piece> {
     child: P,
     axis: Axis,
+    target: Option<Signal<Option<day_core::ScrollTarget>>>,
 }
 
 pub fn scroll<P: Piece>(child: P) -> Scroll<P> {
     Scroll {
         child,
         axis: Axis::Vertical,
+        target: None,
     }
 }
 
@@ -880,6 +882,20 @@ impl<P: Piece> Scroll<P> {
     /// Set the scroll axis explicitly.
     pub fn axis(mut self, axis: Axis) -> Self {
         self.axis = axis;
+        self
+    }
+
+    /// Programmatic scrolling (docs/scroll.md): each `Some(target)` written to `sig` scrolls
+    /// there (animated), then the signal resets to `None` — write-and-forget, so the same
+    /// target can be sent twice in a row.
+    ///
+    /// ```ignore
+    /// let jump = Signal::new(None);
+    /// scroll(rows).scroll_target(jump);
+    /// button("Bottom").action(move || jump.set(Some(ScrollTarget::Bottom)));
+    /// ```
+    pub fn scroll_target(mut self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
+        self.target = Some(sig);
         self
     }
 }
@@ -902,6 +918,19 @@ impl<P: Piece> Piece for Scroll<P> {
         cx.under(node, |cx| {
             let _ = self.child.build(cx);
         });
+        if let Some(sig) = self.target {
+            watch(
+                move || sig.get(),
+                move |now, _| {
+                    if let Some(t) = now.clone() {
+                        day_core::with_tree(|tr| {
+                            tr.scroll_to_target(node, &t, true);
+                        });
+                        sig.set(None); // consumed — ready for the next command
+                    }
+                },
+            );
+        }
         node
     }
 }
@@ -2015,8 +2044,8 @@ pub mod prelude {
         spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment, zstack,
     };
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, invalidate_size, open_url,
-        piece_fn,
+        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, ScrollTarget,
+        invalidate_size, open_url, piece_fn,
     };
     pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
     pub use day_reactive::{
