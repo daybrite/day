@@ -85,6 +85,10 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+// The `sym!` transmute target is the concrete `Api` fn-pointer field it's assigned to, so an explicit
+// `transmute::<_, FnPtr>` per call would just restate that field type — allow the annotation lint for
+// this generic GetProcAddress loader.
+#[allow(clippy::missing_transmute_annotations)]
 fn api() -> Option<&'static Api> {
     static API: OnceLock<Option<Api>> = OnceLock::new();
     API.get_or_init(|| unsafe {
@@ -164,13 +168,19 @@ impl Drop for Handle<'_> {
     }
 }
 
+/// `run`'s head callback: sees (status, headers) before the body; returns false to abort. The `'a`
+/// keeps the trait object non-`'static` (a bare `dyn` alias would default to `+ 'static`).
+type OnHead<'a> = dyn FnMut(u16, &[(String, String)]) -> bool + 'a;
+/// `run`'s result: (status, headers, body length).
+type RunResult = (u16, Vec<(String, String)>, u64);
+
 /// Run the request; `on_head` sees status+headers before the body (false = abort), `sink`
 /// receives body chunks (Vec buffer, file, or a caller StreamSink).
 fn run(
     req: &Request,
-    on_head: &mut dyn FnMut(u16, &[(String, String)]) -> bool,
+    on_head: &mut OnHead<'_>,
     sink: &mut dyn FnMut(&[u8]) -> Result<(), HttpError>,
-) -> Result<(u16, Vec<(String, String)>, u64), HttpError> {
+) -> Result<RunResult, HttpError> {
     let api = api().ok_or(HttpError::Unsupported)?;
     let (secure, host, port, path) = split_url(&req.url)?;
     let ms = i32::try_from(req.timeout.as_millis()).unwrap_or(i32::MAX);

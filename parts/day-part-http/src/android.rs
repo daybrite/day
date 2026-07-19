@@ -106,8 +106,11 @@ fn call(req: &Request, dest: Option<&Path>) -> Result<Vec<u8>, HttpError> {
     })
 }
 
+/// The parsed pieces of a response envelope: (status, headers, payload borrowed from the envelope).
+type Unpacked<'a> = (u16, Vec<(String, String)>, &'a [u8]);
+
 /// Split the envelope: (status, headers, payload) — or the sentinel-mapped error.
-fn unpack(envelope: &[u8]) -> Result<(u16, Vec<(String, String)>, &[u8]), HttpError> {
+fn unpack(envelope: &[u8]) -> Result<Unpacked<'_>, HttpError> {
     if envelope.len() < 8 {
         return Err(HttpError::Io("short envelope".into()));
     }
