@@ -49,7 +49,21 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
             getWindow().getDecorView().setLayoutDirection(android.view.View.LAYOUT_DIRECTION_RTL);
             root.setLayoutDirection(android.view.View.LAYOUT_DIRECTION_RTL);
         }
-        setContentView(root);
+        // Safe-area insets (DESIGN §7.7). Edge-to-edge is forced on for apps targeting SDK 35+
+        // (Android 15+): the window draws under the status and navigation bars, and on Android 16
+        // there is no longer a way to opt back out (setDecorFitsSystemWindows(true) no longer
+        // reinstates the fit). Day positions every piece by absolute frame from its root's top-left
+        // and has no safe-area model, so its top row would draw beneath the status bar. Rather than
+        // depend on the platform's version-dependent auto-fit, make Day the sole inset authority:
+        // keep the window edge-to-edge on every version, then consume the system-bar insets
+        // ourselves — hold the root in a wrapper and set the root's margins to the status/navigation
+        // -bar (and display-cutout) insets, keeping all Day content inside the safe area.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        final android.widget.FrameLayout wrapper = new android.widget.FrameLayout(this);
+        wrapper.addView(root, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(wrapper);
         final DisplayMetrics dm = getResources().getDisplayMetrics();
         final String autodrive = getIntent().getStringExtra("day.autodrive");
         final String locale = getIntent().getStringExtra("day.locale");
@@ -70,7 +84,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         }
         final String envBlob = blob.toString();
         final DayActivity self = this;
-        root.post(new Runnable() {
+        // nativeStart needs the root's final size, which is only known once the system-bar insets
+        // above have shrunk it into the safe area — so start native from the inset pass (once),
+        // after posting so the margin-driven relayout has settled and root.getWidth/Height are the
+        // safe-area size. Every edge-to-edge window delivers insets at least once, so this always
+        // fires; the guard keeps a later inset change (e.g. rotation) from re-starting native.
+        final boolean[] launched = { false };
+        final Runnable start = new Runnable() {
             public void run() {
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
                         autodrive, locale, envBlob);
@@ -78,6 +98,30 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 // post, so their events were dropped — synthesize the current active state.
                 DayBridge.started = true;
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
+            }
+        };
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(wrapper,
+                new androidx.core.view.OnApplyWindowInsetsListener() {
+            @Override public androidx.core.view.WindowInsetsCompat onApplyWindowInsets(
+                    android.view.View v, androidx.core.view.WindowInsetsCompat insets) {
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                        | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+                android.widget.FrameLayout.LayoutParams lp =
+                        (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
+                if (lp.leftMargin != bars.left || lp.topMargin != bars.top
+                        || lp.rightMargin != bars.right || lp.bottomMargin != bars.bottom) {
+                    lp.leftMargin = bars.left;
+                    lp.topMargin = bars.top;
+                    lp.rightMargin = bars.right;
+                    lp.bottomMargin = bars.bottom;
+                    root.setLayoutParams(lp);
+                }
+                if (!launched[0]) {
+                    launched[0] = true;
+                    root.post(start);
+                }
+                return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
         });
     }
