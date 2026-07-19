@@ -114,6 +114,28 @@ pub struct RemoteImage {
     placeholder: Color,
 }
 
+/// `remote_image_url(url)` — [`remote_image`] with the fetch built in: the bytes are downloaded
+/// once through the PLATFORM HTTP stack (`day-part-http` — system proxies/VPN/Low-Data aware,
+/// docs/http.md) on a background completion, and pushed into the piece's own signal via a
+/// `Setter` (so a late arrival after the piece is disposed is a harmless no-op). The placeholder
+/// shows until the bytes land; a failed fetch (or non-2xx status) leaves the placeholder.
+///
+/// ```ignore
+/// remote_image_url("https://example.com/logo.png").rounded(8.0).frame(96.0, 96.0)
+/// ```
+pub fn remote_image_url(url: impl Into<String>) -> RemoteImage {
+    let source: Signal<Option<Arc<Vec<u8>>>> = Signal::new(None);
+    let done = source.setter();
+    day_part_http::fetch_async(day_part_http::Request::get(url), move |result| {
+        if let Ok(resp) = result
+            && (200..300).contains(&resp.status)
+        {
+            done.set(Some(Arc::new(resp.body)));
+        }
+    });
+    remote_image(source)
+}
+
 /// `remote_image(source)` — a native image view that decodes and displays the bytes held in
 /// `source`, showing the placeholder color whenever `source` is `None`.
 pub fn remote_image(source: Signal<Option<Arc<Vec<u8>>>>) -> RemoteImage {

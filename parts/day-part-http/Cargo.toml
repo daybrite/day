@@ -1,0 +1,70 @@
+[package]
+name = "day-part-http"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): HTTP(S) requests through each platform's NATIVE
+# networking stack, so apps inherit the system's configuration — proxies + PAC, per-network VPN
+# routing, Low Data Mode, enterprise/MDM certificate stores — and ship ZERO bundled TLS on the
+# native targets. Platform selection is by `#[cfg(target_os)]` (networking is an OS concern, not a
+# widget-toolkit one), so there are no backend features — it "just works" per target:
+#   macOS/iOS — NSURLSession (Foundation; ephemeral sessions; Low Data Mode via
+#               allowsConstrainedNetworkAccess), shared src/apple.rs
+#   Android   — java.net.HttpURLConnection via a Java shim staged through
+#               [package.metadata.day.android] (system ProxySelector, VPN routing, network
+#               security config + user CA store)
+#   Windows   — WinHTTP (winhttp.dll, resolved dynamically; automatic proxy/PAC, schannel +
+#               the system certificate store)
+#   Linux     — Rust fallback: ureq + rustls (the only target that bundles TLS; proxy from
+#               http(s)_proxy env vars)
+#   HarmonyOS — the OSS NDK has no HTTP C API, so the same Rust fallback (rustls compiles for
+#               aarch64-unknown-linux-ohos with the NDK clang)
+# `tier()` reports NativeStack / RustFallback / Unavailable. See docs/http.md.
+
+[dependencies]
+
+# macOS/iOS: NSURLSession through objc2 — the completion handler is a block2 block that sends the
+# mapped result over std::sync::mpsc (sync fetch) or invokes the caller's callback (async fetch).
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSURLSession",
+    "NSURLRequest",
+    "NSURLResponse",
+    "NSURL",
+    "NSData",
+    "NSDictionary",
+    "NSString",
+    "NSError",
+    "NSObject",
+    "NSEnumerator",
+    "NSOperation",
+] }
+
+# Android rides the day runtime's cached JVM (like every part with a Java shim). The Java call is
+# BLOCKING on the calling thread — `with_env` attaches any thread to the JVM.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# The Rust fallback tier (Linux desktop + HarmonyOS): ureq is the tree's blessed minimal
+# synchronous client (day-cli's update check uses it); rustls/webpki enter ONLY these targets.
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
+ureq = "3"
+[target.'cfg(all(target_os = "linux", target_env = "ohos"))'.dependencies]
+ureq = "3"
+
+# --- Android backend contribution (docs/extending.md) ---
+[package.metadata.day.android]
+java = ["android/java"]
+# Normal install-time permission; no runtime prompt.
+permissions = ["android.permission.INTERNET"]
+
+# (No [package.metadata.day.ios]: NSURLSession lives in Foundation, which every app links already.)
+
+[dev-dependencies]

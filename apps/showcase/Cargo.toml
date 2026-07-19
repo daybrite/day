@@ -62,6 +62,7 @@ day-piece-media = { workspace = true }
 day-part-haptics = { workspace = true }
 day-part-prefs = { workspace = true }
 day-part-deviceinfo = { workspace = true }
+day-part-http = { workspace = true }
 day-piece-activity = { workspace = true }
 day-piece-searchfield = { workspace = true }
 day-piece-map = { workspace = true }

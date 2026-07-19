@@ -137,8 +137,11 @@ mod imp {
             args: &[JValue],
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeMethodSignature>()?;
+            // Resolve through dfind, whose app-ClassLoader fallback makes app classes reachable
+            // from Rust-spawned threads (a plain name lookup here would use the system loader).
+            let cls = self.dfind(class)?;
             self.call_static_method(
-                JNIString::from(class),
+                &cls,
                 JNIString::from(name),
                 MethodSignature::from(&sig),
                 args,
@@ -166,14 +169,34 @@ mod imp {
             sig: &str,
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeFieldSignature>()?;
-            self.get_static_field(
-                JNIString::from(class),
-                JNIString::from(name),
-                FieldSignature::from(&sig),
-            )
+            // Same app-ClassLoader routing as dcall_static — see dfind.
+            let cls = self.dfind(class)?;
+            self.get_static_field(&cls, JNIString::from(name), FieldSignature::from(&sig))
         }
         fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>> {
-            self.find_class(JNIString::from(name))
+            match self.find_class(JNIString::from(name)) {
+                Ok(c) => Ok(c),
+                Err(e) => {
+                    // A Rust-spawned thread attaches with only the SYSTEM class loader, which
+                    // cannot see app classes — clear the pending ClassNotFoundException and
+                    // retry through the app loader cached at init.
+                    self.exception_clear();
+                    let Some(loader) = APP_CLASS_LOADER.get() else {
+                        return Err(e);
+                    };
+                    let dotted = name.replace('/', ".");
+                    let jname = self.new_string(&dotted)?;
+                    let obj = self
+                        .dcall(
+                            loader,
+                            "loadClass",
+                            "(Ljava/lang/String;)Ljava/lang/Class;",
+                            &[JValue::Object(&jname)],
+                        )?
+                        .l()?;
+                    self.cast_local::<JClass>(obj)
+                }
+            }
         }
         fn dstr(&self, s: &JString) -> jni::errors::Result<String> {
             Ok(s.mutf8_chars(self)?.to_string())
@@ -235,6 +258,10 @@ mod imp {
     /// GlobalRef to the DayBridge class: FindClass from spawned native threads uses the SYSTEM
     /// class loader and cannot see app classes — cache the class on the main thread at init.
     static BRIDGE_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
+    /// GlobalRef to the app's ClassLoader (taken from the DayBridge class at init), so `dfind`
+    /// can resolve app classes from Rust-spawned threads too: their `FindClass` sees only the
+    /// system loader, and parts like day-part-http call Java from the caller's worker thread.
+    static APP_CLASS_LOADER: OnceLock<Global<JObject<'static>>> = OnceLock::new();
 
     // --- Bundled data resources via the NDK AAssetManager (§18.3) --------------------------------
     // `resource("name")` reads the APK asset `name` with a zero-copy pointer into the (uncompressed)
@@ -432,10 +459,19 @@ mod imp {
         if let Ok(vm) = env.get_java_vm() {
             let _ = JAVA_VM.set(vm);
         }
-        if let Ok(cls) = env.dfind(BRIDGE)
-            && let Ok(global) = env.new_global_ref(cls)
-        {
-            let _ = BRIDGE_CLASS.set(global);
+        if let Ok(cls) = env.dfind(BRIDGE) {
+            // Any app class's getClassLoader() yields the loader that can see ALL app classes;
+            // cache it here on the main thread, where FindClass still resolves app classes.
+            if let Ok(loader) = env
+                .dcall(&cls, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+                .and_then(|v| v.l())
+                && let Ok(g) = env.new_global_ref(loader)
+            {
+                let _ = APP_CLASS_LOADER.set(g);
+            }
+            if let Ok(global) = env.new_global_ref(cls) {
+                let _ = BRIDGE_CLASS.set(global);
+            }
         }
         register_resource_opener(env);
         let d = density_ as f64;

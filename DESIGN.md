@@ -59,7 +59,7 @@ the architecture-level view and the rationale.
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, picker, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/picker.md, docs/searchfield.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
@@ -190,7 +190,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
 | **Toolkit** | A native widget system: UIKit, android.widget, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
@@ -514,7 +514,8 @@ boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 > [!WARNING]
 > **Status: not implemented as designed.** `Resource`/`Load` never shipped. The shipped async
 > story is the smaller [§3.3](#33-threading-model-and-the-turn-state-machine) surface — spawn a thread (or bring your own executor), send results
-> back through a `Setter` or `day_reactive::on_main`; the network parts (docs/network.md) and
+> back through a `Setter` or `day_reactive::on_main`; the network parts (docs/network.md,
+docs/http.md — `fetch_async` documents Setter delivery as its contract) and
 > the real apps (Day Skies' weather fetch, the Matrix client) all use it. The design below is
 > kept as the recorded shape a future `Resource` should take.
 
@@ -666,7 +667,7 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `picker`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
 `remote_image`, `textarea`) and headless services under `parts/` (battery, network, sensors,
-clipboard, prefs, haptics, deviceinfo) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
+clipboard, prefs, haptics, deviceinfo, http) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -1768,8 +1769,8 @@ Two package kinds share the mechanism:
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, picker, rating, activity,
   webview, media, map, lottie, remote-image, textarea.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
-  battery, network, sensors, clipboard, prefs, haptics, deviceinfo. Same registration and
-  metadata machinery, no widget.
+  battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http (requests through the
+  platform HTTP stack, docs/http.md). Same registration and metadata machinery, no widget.
 
 ### §15.2 Package layout and aggregation
 

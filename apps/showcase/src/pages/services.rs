@@ -3,9 +3,10 @@ use day_part_haptics::Haptic;
 
 use crate::widgets::page;
 
-/// Platform services (docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/files.md): the
-/// headless "do something with the OS" parts, one grouped form section each — clipboard
-/// round-trip, persisted preferences, haptic feedback, and the native file pickers.
+/// Platform services (docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/files.md,
+/// docs/http.md): the headless "do something with the OS" parts, one grouped form section each —
+/// clipboard round-trip, persisted preferences, haptic feedback, the native file pickers, and a
+/// loopback HTTP fetch.
 pub(crate) fn services_page() -> AnyPiece {
     page(
         crate::res::str::nav_services(),
@@ -16,6 +17,7 @@ pub(crate) fn services_page() -> AnyPiece {
             prefs_section(),
             haptics_section(),
             files_section(),
+            http_section(),
         ))
         .any(),
     )
@@ -261,4 +263,108 @@ fn files_section() -> impl Piece {
         ),
     ))
     .title(crate::res::str::nav_files())
+}
+
+/// One-shot loopback server answering `200` with body `day-http-ok` — the demo needs no external
+/// network, so it behaves the same in airplane mode, on CI, and behind a proxy.
+fn serve_once() -> std::io::Result<String> {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\nday-http-ok",
+            );
+        }
+    });
+    Ok(format!("http://127.0.0.1:{port}/"))
+}
+
+fn http_section() -> impl Piece {
+    let status = Signal::new(crate::res::str::http_idle().format());
+    // The blessed threading idiom (docs/http.md): fetch_async completes on a BACKGROUND thread;
+    // the captured Setter hops to the UI thread itself and no-ops if the page is gone.
+    let done = status.setter();
+    section((
+        label(crate::res::str::http_caption()).font(Font::Footnote),
+        row((
+            button(crate::res::str::http_fetch())
+                .bordered()
+                .action(move || match serve_once() {
+                    Ok(url) => day_part_http::fetch_async(
+                        day_part_http::Request::get(url)
+                            .timeout(std::time::Duration::from_secs(10)),
+                        move |result| {
+                            // Raw "<status> <body>" on purpose: identical in every locale, so
+                            // the walkthrough can assert it exactly.
+                            let text = match result {
+                                Ok(resp) => format!("{} {}", resp.status, resp.text()),
+                                Err(e) => format!("error: {e}"),
+                            };
+                            done.set(text);
+                        },
+                    ),
+                    Err(e) => status.set(format!("error: {e}")),
+                })
+                .id("http-fetch"),
+            label(move || status.get()).id("http-status"),
+        ))
+        .spacing(8.0),
+        labeled(
+            crate::res::str::http_tier(),
+            label(day_part_http::tier().label()).id("http-tier"),
+        ),
+        url_check_field(),
+    ))
+    .title(crate::res::str::http_title())
+}
+
+/// The second half of the HTTP section: type any http(s) URL, tap Check, and read back the
+/// response headers plus the body size — a live view of what the platform stack returns
+/// (and of platform policy: iOS ATS rejecting a cleartext host shows up here as the error).
+fn url_check_field() -> impl Piece {
+    let url = Signal::new(String::new());
+    let out = Signal::new(String::new());
+    let done = out.setter();
+    column((
+        text_field(url)
+            .placeholder(crate::res::str::http_url_placeholder())
+            .id("http-url"),
+        button(crate::res::str::http_check())
+            .bordered()
+            .action(move || {
+                let target = url.get_untracked();
+                if target.trim().is_empty() {
+                    return;
+                }
+                out.set(crate::res::str::http_checking().format());
+                day_part_http::fetch_async(
+                    day_part_http::Request::get(target.trim())
+                        .timeout(std::time::Duration::from_secs(15)),
+                    move |result| {
+                        // Raw readout on purpose (headers and sizes aren't locale material).
+                        let text = match result {
+                            Ok(resp) => {
+                                let mut s =
+                                    format!("HTTP {} · {} bytes", resp.status, resp.body.len());
+                                for (k, v) in &resp.headers {
+                                    s.push_str(&format!("\n{k}: {v}"));
+                                }
+                                s
+                            }
+                            Err(e) => format!("error: {e}"),
+                        };
+                        done.set(text);
+                    },
+                );
+            })
+            .id("http-check"),
+        label(move || out.get())
+            .font(Font::Footnote)
+            .id("http-headers"),
+    ))
+    .spacing(8.0)
 }

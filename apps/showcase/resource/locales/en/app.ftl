@@ -302,7 +302,7 @@ canvas_caption = Shapes, transforms, gestures, and composition-tier widgets — 
 canvas_gauge = Canvas gauge
 shapes_interact_hint = Drag the slider to rotate, tap the circle to recolor, drag the purple square to move it.
 system_caption = The headless device-state parts: battery, connectivity, motion sensors, and device identity.
-services_caption = The headless "do something with the OS" parts: clipboard, preferences, haptics, and file pickers.
+services_caption = The headless "do something with the OS" parts: clipboard, preferences, haptics, file pickers, and HTTP.
 subscribe_label = Subscribe
 
 # — data strings localized for the walkthrough locales (option lists, specimen rows) —
@@ -394,3 +394,14 @@ focus_probe_caption = Desktop toolkits focus buttons, toggles, and sliders too; 
 focus_probe_toggle = Toggle
 focus_probe_slider = Slider
 focus_probe_button = Button
+
+# HTTP fetch demo (docs/http.md) — the status readout stays raw "<status> <body>" so the
+# walkthrough asserts it byte-for-byte in every locale.
+http_title = HTTP
+http_caption = The day-part-http part fetches through the platform's own HTTP stack — its proxies, VPN, and TLS.
+http_fetch = Fetch from localhost
+http_idle = Nothing fetched yet
+http_tier = Stack
+http_url_placeholder = https://example.com
+http_check = Check
+http_checking = Checking…

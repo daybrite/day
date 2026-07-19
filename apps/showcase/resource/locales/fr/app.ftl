@@ -302,7 +302,7 @@ canvas_caption = Formes, transformations, gestes et widgets composés — tous d
 canvas_gauge = Jauge canevas
 shapes_interact_hint = Glissez le curseur pour pivoter, touchez le cercle pour recolorer, déplacez le carré violet.
 system_caption = Les modules d'état de l'appareil : batterie, connectivité, capteurs et identité.
-services_caption = Les modules « agir avec l'OS » : presse-papiers, préférences, haptique et fichiers.
+services_caption = Les modules « agir avec l'OS » : presse-papiers, préférences, haptique, fichiers et HTTP.
 subscribe_label = S'abonner
 
 # — data strings localized for the walkthrough locales (option lists, specimen rows) —
@@ -394,3 +394,14 @@ focus_probe_caption = Les toolkits de bureau donnent aussi le focus aux boutons,
 focus_probe_toggle = Interrupteur
 focus_probe_slider = Curseur
 focus_probe_button = Bouton
+
+# HTTP fetch demo (docs/http.md) — the status readout stays raw "<status> <body>" so the
+# walkthrough asserts it byte-for-byte in every locale.
+http_title = HTTP
+http_caption = Le module day-part-http passe par la pile HTTP de la plateforme — ses proxys, son VPN et son TLS.
+http_fetch = Récupérer depuis localhost
+http_idle = Rien de récupéré pour l'instant
+http_tier = Pile
+http_url_placeholder = https://example.com
+http_check = Vérifier
+http_checking = Vérification…

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The HTTP showcase section fetches http://127.0.0.1:<port> from a one-shot in-process server
+     (docs/http.md). Android blocks ALL cleartext by default (targetSdk 28+), including loopback,
+     so permit it for 127.0.0.1 only — everything else keeps the platform default (TLS required). -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

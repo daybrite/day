@@ -199,6 +199,16 @@ flow:
   - respond: { path: "day-walkthrough.txt" }
   - assert_text: { id: files-status, text: "opened" }
   - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" } }
+  # HTTP fetch (docs/http.md): a one-shot loopback server + day-part-http fetch_async. The
+  # status label fills in from a background completion, so assert_text's bounded retry (§14.3)
+  # covers the async gap. The body is raw on purpose — identical across locales.
+  - tap: { id: http-fetch }
+  - assert_text: { id: http-status, text: "200 day-http-ok" }
+  - assert_visible: { id: http-tier }
+  # The URL checker (type any http(s) URL → response headers + body size) needs live network,
+  # so the walkthrough only checks its presence.
+  - assert_visible: { id: http-url }
+  - assert_visible: { id: http-check }
 
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.

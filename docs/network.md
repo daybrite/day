@@ -67,6 +67,9 @@ A snapshot is a point-in-time poll; a change-notification rail (`SCNetworkReacha
 Android `NetworkCallback`, `OH_NetConn_RegisterNetConnCallback`, `NotifyNetworkConnectivityHintChange`)
 is a v2 follow-up.
 
+Connectivity says whether traffic *could* flow; to actually move bytes through the platform's HTTP
+stack (proxies, VPN, platform TLS), see its sibling part [`day-part-http`](http.md).
+
 ## What it shows about the extension system
 
 Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing

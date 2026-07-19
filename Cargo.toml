@@ -36,6 +36,7 @@ members = [
     "parts/day-part-haptics",
     "parts/day-part-prefs",
     "parts/day-part-deviceinfo",
+    "parts/day-part-http",
     "pieces/day-piece-activity",
     "pieces/day-piece-searchfield",
     "pieces/day-piece-map",
@@ -112,6 +113,7 @@ day-piece-media = { path = "pieces/day-piece-media", version = "0.0.13" }
 day-part-haptics = { path = "parts/day-part-haptics", version = "0.0.13" }
 day-part-prefs = { path = "parts/day-part-prefs", version = "0.0.13" }
 day-part-deviceinfo = { path = "parts/day-part-deviceinfo", version = "0.0.13" }
+day-part-http = { path = "parts/day-part-http", version = "0.0.13" }
 day-piece-activity = { path = "pieces/day-piece-activity", version = "0.0.13" }
 day-piece-searchfield = { path = "pieces/day-piece-searchfield", version = "0.0.13" }
 day-piece-map = { path = "pieces/day-piece-map", version = "0.0.13" }

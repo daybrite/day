@@ -39,6 +39,9 @@ backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }
+# `remote_image_url` fetches through the platform HTTP stack (docs/http.md) and pushes the bytes
+# into the piece's own signal — the one-liner for "show this image from the network".
+day-part-http = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-reactive = { workspace = true }

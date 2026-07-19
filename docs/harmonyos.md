@@ -49,7 +49,10 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
    ```
 
    The NDK ships the linker wrappers `$OHOS_NDK_HOME/llvm/bin/<target>-clang`; point cargo at them
-   with `CARGO_TARGET_<TARGET>_LINKER`.
+   with `CARGO_TARGET_<TARGET>_LINKER`. (`day build` sets this itself, along with `CC_<target>`/
+   `AR_<target>` pointing at the NDK's clang and llvm-ar so `cc-rs` build scripts — e.g. `ring`
+   under day-part-http's rustls fallback — cross-compile too; the exports only matter if you drive
+   bare cargo.)
 
 ## Check your environment first
 

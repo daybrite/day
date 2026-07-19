@@ -622,6 +622,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-part-http"
+version = "0.0.13"
+dependencies = [
+ "block2",
+ "day-android",
+ "objc2",
+ "objc2-foundation",
+ "ureq",
+]
+
+[[package]]
 name = "day-part-network"
 version = "0.0.13"
 dependencies = [
@@ -865,6 +876,7 @@ dependencies = [
  "day-core",
  "day-gtk",
  "day-mock",
+ "day-part-http",
  "day-pieces",
  "day-qt",
  "day-reactive",
@@ -3470,6 +3482,7 @@ dependencies = [
  "day-part-clipboard",
  "day-part-deviceinfo",
  "day-part-haptics",
+ "day-part-http",
  "day-part-network",
  "day-part-prefs",
  "day-part-sensors",

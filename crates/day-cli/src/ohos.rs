@@ -438,6 +438,17 @@ pub fn build_ohos(
             // variable itself — export the RESOLVED path so auto-detected local installs work even
             // when the parent environment (a GUI-launched editor) never set it.
             .env("OHOS_NDK_HOME", &ndk)
+            // cc-rs (used by build scripts of C-carrying deps, e.g. ring under day-part-http's
+            // fallback TLS) picks the CROSS compiler from these per-target vars; without them it
+            // falls back to the host `cc`, which can't target ohos.
+            .env(
+                format!("CC_{}", triple.replace('-', "_")),
+                format!("{ndk}/llvm/bin/{triple}-clang"),
+            )
+            .env(
+                format!("AR_{}", triple.replace('-', "_")),
+                format!("{ndk}/llvm/bin/llvm-ar"),
+            )
             .args([
                 "rustc",
                 "-p",
