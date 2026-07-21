@@ -1013,9 +1013,12 @@ void* day_winui_nav_new(unsigned long long id,
     nv.IsBackButtonVisible(WUXC::NavigationViewBackButtonVisible::Collapsed); // toggled per depth
     if (stack) {
         // A push/pop stack has no menu: collapse the pane to a thin strip that just carries the
-        // back button + the current page title in the header.
+        // back button + the current page title in the header. IsPaneOpen defaults to TRUE, and in
+        // LeftMinimal mode an open pane is a ~320px OVERLAY that would sit on top of the content
+        // (an empty gray sidebar hiding the page) — force it closed.
         nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
         nv.IsPaneToggleButtonVisible(false);
+        nv.IsPaneOpen(false);
     } else {
         nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left); // always-expanded sidebar
         nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
@@ -1538,12 +1541,19 @@ void day_winui_measure(void* h, double aw, double ah, double* ow, double* oh) {
         auto& e = elem(h);
         e.Measure(WF::Size{ fw, fh });
         auto d = e.DesiredSize();
-        if (d.Width == 0 && d.Height == 0) {
-            // day measures during its synchronous initial layout, before the island's first async
-            // layout pass has applied control templates (so templated controls report 0). Force a
-            // synchronous layout to expand templates, then re-measure. Runs at most once (the first
-            // zero-measure lays out the whole tree; later measures are already non-zero).
+        // day measures during its synchronous initial layout, before the island's first async layout
+        // pass has applied control templates (so a templated control reports 0). A PARTIAL zero counts
+        // too: a Button measured this early reports its template HEIGHT but 0 width (its content isn't
+        // laid out yet), which would leave it invisible on, e.g., a stack's root page (no other page's
+        // fully-zero element triggers the pass). Force a synchronous layout to expand templates, then
+        // re-measure. UpdateLayout can fire SizeChanged → day's nav resize → back into measure, so a
+        // re-entrancy guard keeps the forced layout to one level (the first pass lays out the tree,
+        // after which controls are non-zero).
+        static bool s_forcing_layout = false;
+        if ((d.Width == 0 || d.Height == 0) && !s_forcing_layout) {
+            s_forcing_layout = true;
             if (auto fe = e.try_as<FrameworkElement>()) fe.UpdateLayout();
+            s_forcing_layout = false;
             e.Measure(WF::Size{ fw, fh });
             d = e.DesiredSize();
         }
