@@ -16,8 +16,10 @@
 // Windows-only; compiled by build.rs (like the Qt shim) and linked alongside day-winui-sys.
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h> // IObservableVector Clear/Append on box.Items() — else C3779
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Controls.Primitives.h> // ComboBox's Selector members (SelectedItem / SelectionChanged)
 
 #include <windows.h>
 
