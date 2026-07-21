@@ -7,12 +7,13 @@
 // height with its content (via sizeThatFits) between `min_lines` and `max_lines`, then it scrolls.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
 use day_spec::{NodeId, Proposal, Size};
-use day_uikit::Uikit;
+use crate::Uikit;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -48,7 +49,7 @@ define_class!(
         fn text_view_did_change(&self, text_view: &UITextView) {
             let s = text_view.text().to_string();
             self.ivars().placeholder.setHidden(!s.is_empty());
-            day_uikit::emit(self.ivars().node, Event::TextChanged(s));
+            crate::emit(self.ivars().node, Event::TextChanged(s));
         }
     }
 );
@@ -166,6 +167,30 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     })
 }
 
-day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
-    kind: KIND, props: TextProps, patch: TextPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Uikit,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<TextProps>()
+        .expect("day: textarea props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Uikit, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<TextPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::Uikit,
+    h: &crate::Handle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

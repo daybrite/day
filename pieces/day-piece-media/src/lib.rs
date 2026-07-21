@@ -195,32 +195,11 @@ impl Piece for Media {
 // falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "appkit", target_os = "macos"))]
-#[path = "lib-appkit.rs"]
-mod appkit_impl;
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's
 // own error UI — see Cargo.toml + docs/media.md).
-#[cfg(feature = "gtk")]
-#[path = "lib-gtk.rs"]
-mod gtk_impl;
-
-#[cfg(feature = "qt")]
-#[path = "lib-qt.rs"]
-mod qt_impl;
-
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
-
-#[cfg(all(feature = "widget", target_os = "android"))]
-#[path = "lib-android.rs"]
-mod android_impl;
-
-#[cfg(all(feature = "winui", windows))]
-#[path = "lib-winui.rs"]
-mod winui_impl;
 
 #[cfg(test)]
 mod tests {

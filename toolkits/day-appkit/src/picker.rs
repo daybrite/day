@@ -2,11 +2,12 @@
 // AppKit: NSPopUpButton (menu) / NSSegmentedControl (segmented) / NSButton radio group (inline)
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use day_appkit::AppKit;
+use crate::AppKit;
 use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
@@ -44,7 +45,7 @@ define_class!(
                 -1
             };
             if idx >= 0 {
-                day_appkit::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
             }
         }
     }
@@ -167,6 +168,26 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(22.0))
 }
 
-day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
-    kind: KIND, props: PickerProps, patch: PickerPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut AppKit,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<PickerProps>()
+        .expect("day: picker props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(b: &mut AppKit, h: &crate::Handle, p: day_spec::Proposal) -> day_spec::Size {
+    measure(b, h, p)
+}

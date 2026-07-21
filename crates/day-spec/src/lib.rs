@@ -35,6 +35,12 @@ pub mod kinds {
     pub const TOGGLE: &str = "day.toggle";
     pub const SLIDER: &str = "day.slider";
     pub const TEXT_FIELD: &str = "day.text_field";
+    /// A native multi-line text editor (docs/textarea.md). Built-in since 2026-07 (previously
+    /// the satellite `day-piece-textarea`).
+    pub const TEXT_AREA: &str = "day.text_area";
+    /// A native option picker with menu/segmented/inline stylings (docs/picker.md). Built-in
+    /// since 2026-07 (previously the satellite `day-piece-picker`).
+    pub const PICKER: &str = "day.picker";
     pub const DIVIDER: &str = "day.divider";
     pub const SCROLL: &str = "day.scroll";
     pub const IMAGE: &str = "day.image";
@@ -86,6 +92,108 @@ pub type RawHandle = *mut std::ffi::c_void;
 // ---------------------------------------------------------------------------
 // Events (§8.3)
 // ---------------------------------------------------------------------------
+
+/// The wire table for backends whose native side reaches Rust through ONE numeric-kind
+/// trampoline (Android's JNI `nativeOnEvent`, ArkUI's `day_arkui_on_event`). This enum is the
+/// single source of truth for those kind numbers; the Java and C++ sides carry mirrored
+/// constants that parity tests check against these discriminants (so a collision or drift
+/// fails `cargo test` on the host instead of silently mis-decoding events on a device).
+/// AppKit/UIKit/GTK/Qt emit `Event` values directly and never use these numbers; WinUI uses
+/// per-event callbacks with its own small local codes.
+///
+/// Payload conventions ride `(num: f64, text: String)` per kind — documented on each variant.
+pub mod bridge {
+    /// One numeric event kind. `as i32` is the wire value.
+    #[repr(i32)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum BridgeKind {
+        /// Click/press. No payload.
+        Pressed = 0,
+        /// `text` = the field's full new text.
+        TextChanged = 1,
+        /// `num` != 0 ⇒ on.
+        ToggleChanged = 2,
+        /// `num` = the new value.
+        ValueChanged = 3,
+        /// `num` = the selected index.
+        SelectionChanged = 4,
+        /// `num` == 1 ⇒ the native side already popped (predictive back / up arrow).
+        NavBack = 5,
+        /// Nav/tab page size report; `text` = `"w,h"` in px (Rust divides by density).
+        FrameChanged = 6,
+        /// Warm deep link; `text` = the route.
+        Deeplink = 7,
+        /// Modal answered with a button; `num` = the button index.
+        PresentButton = 8,
+        /// Modal answered with text; `text` = the entry.
+        PresentText = 9,
+        /// Modal dismissed.
+        PresentDismissed = 10,
+        /// Gesture; `num` = phase (0 tap, 1 began, 2 changed, 3 ended), `text` = `"x,y,tx,ty"` px.
+        Gesture = 11,
+        /// Piece-defined open channel (`Event::Custom` with an empty tag): the piece reads the
+        /// raw `num`/`text` payload.
+        Custom = 12,
+        /// Menu selection; the event's node id is the chosen action's dispatch id.
+        MenuAction = 13,
+        /// App lifecycle; `num` = the phase code (`day_spec::Lifecycle` order).
+        Lifecycle = 14,
+        /// File-picker answer; `text` = chosen locators joined by the unit separator.
+        PresentFile = 15,
+        /// `num` != 0 ⇒ gained keyboard focus.
+        FocusChanged = 16,
+        /// IME action / Return.
+        Submitted = 17,
+        /// Root size change; `text` = `"w,h"` in px. Routed to `WINDOW_NODE` as a window
+        /// resize (the rail rotation, late inset passes, and the soft keyboard ride).
+        WindowResized = 18,
+    }
+
+    impl BridgeKind {
+        /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
+        pub const ALL: [BridgeKind; 19] = [
+            BridgeKind::Pressed,
+            BridgeKind::TextChanged,
+            BridgeKind::ToggleChanged,
+            BridgeKind::ValueChanged,
+            BridgeKind::SelectionChanged,
+            BridgeKind::NavBack,
+            BridgeKind::FrameChanged,
+            BridgeKind::Deeplink,
+            BridgeKind::PresentButton,
+            BridgeKind::PresentText,
+            BridgeKind::PresentDismissed,
+            BridgeKind::Gesture,
+            BridgeKind::Custom,
+            BridgeKind::MenuAction,
+            BridgeKind::Lifecycle,
+            BridgeKind::PresentFile,
+            BridgeKind::FocusChanged,
+            BridgeKind::Submitted,
+            BridgeKind::WindowResized,
+        ];
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::BridgeKind;
+
+        /// The kind-15 lesson: two meanings on one number decode silently as the first. Every
+        /// discriminant must be unique, and the table must stay dense enough to spot gaps.
+        #[test]
+        fn discriminants_are_unique() {
+            let mut seen = std::collections::BTreeSet::new();
+            for k in BridgeKind::ALL {
+                assert!(
+                    seen.insert(k as i32),
+                    "duplicate bridge kind number {} ({k:?})",
+                    k as i32
+                );
+            }
+            assert_eq!(seen.len(), BridgeKind::ALL.len());
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -892,6 +1000,61 @@ pub mod props {
         Enabled(bool),
     }
 
+    /// SwiftUI's `pickerStyle` analogue (kinds::PICKER). Each maps to a distinct native
+    /// control per toolkit (docs/picker.md).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum PickerStyle {
+        /// A dropdown/pop-up menu (NSPopUpButton / GtkDropDown / QComboBox / UIButton+UIMenu / Spinner).
+        #[default]
+        Menu,
+        /// A horizontal segmented control (NSSegmentedControl / UISegmentedControl / linked toggles / …).
+        Segmented,
+        /// A vertical radio-button group laid out inline (NSButton radios / GtkCheckButton group / …).
+        Inline,
+    }
+
+    /// Full picker props (realize). `options`/`style` are set once at build; only `selected`
+    /// patches (via [`PickerPatch::Selected`]).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PickerProps {
+        pub options: Vec<String>,
+        pub selected: usize,
+        pub style: PickerStyle,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum PickerPatch {
+        Selected(usize),
+    }
+
+    /// Full text-area props (realize, kinds::TEXT_AREA — docs/textarea.md). `text` seeds the
+    /// editor; `min_lines`/`max_lines` bound the auto-growing height in text lines
+    /// (`max_lines == 0` = unbounded). Only `text` changes after build.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct TextAreaProps {
+        pub text: String,
+        pub placeholder: String,
+        pub min_lines: u32,
+        pub max_lines: u32,
+    }
+
+    impl Default for TextAreaProps {
+        fn default() -> Self {
+            TextAreaProps {
+                text: String::new(),
+                placeholder: String::new(),
+                min_lines: 1,
+                max_lines: 0,
+            }
+        }
+    }
+
+    /// The single imperative text-area update: replace the editor's text (programmatic sync).
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum TextAreaPatch {
+        SetText(String),
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct TextFieldProps {
         pub text: String,
@@ -1465,7 +1628,14 @@ impl<B: Toolkit> Default for Registry<B> {
 
 impl<B: Toolkit> Registry<B> {
     pub fn register(&mut self, r: Renderer<B>) {
-        self.map.insert(r.kind, r);
+        let kind = r.kind;
+        if self.map.insert(kind, r).is_some() {
+            // Two pieces claiming one kind is last-linked-wins in link order — effectively
+            // nondeterministic. Fail loudly in debug; in release, say so once at boot rather
+            // than render the wrong widget silently.
+            debug_assert!(false, "duplicate renderer registered for piece kind {kind:?}");
+            eprintln!("day: duplicate renderer for piece kind {kind:?} — later registration wins");
+        }
     }
     pub fn get(&self, kind: PieceKind) -> Option<&Renderer<B>> {
         self.map.get(kind)

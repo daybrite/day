@@ -3,7 +3,7 @@
 A **piece** is a reusable Day widget. Day ships built-in pieces (`button`, `slider`, `list`, …), but
 anyone can publish a piece as an independent crate that adds both its cross-platform front-end
 (Rust) and its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …),
-with no edits to any core Day crate. `day-piece-picker` is the reference implementation.
+with no edits to any core Day crate. `day-piece-searchfield` is the reference implementation.
 
 **Scaffold a new piece with `day new`.** Don't hand-assemble the crate: `day new piece <name>`
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
@@ -48,7 +48,11 @@ realize payload; a sparse `Patch` enum carries changes.
 ## 2. Per-backend renderers: the `renderer!` macro
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice, the same
-slice the built-ins use, so no Day edit is needed. Write typed `make`/`update` (no `&dyn Any`
+slice the built-ins use, so no Day edit is needed. Declare the per-toolkit glue modules with one
+line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui)` expands to the
+feature-and-target-gated `mod` block binding each `lib-<toolkit>.rs` (list only the toolkits you
+implement; a non-standard gate, like webview's Linux-only GTK, stays a hand-written block beside
+it). Then write typed `make`/`update` (no `&dyn Any`
 downcast) and one macro line; `day_pieces::renderer!` expands to the `linkme` registration + the props/
 patch downcast:
 
@@ -89,7 +93,7 @@ The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-winui-shim.cpp` and c
 shim is self-contained. WinUI handles are a private boxed type owned by `day-winui-sys`, so the piece
 boxes its XAML element through the exported `day_winui_box` / `day_winui_unbox` seam (a stable
 WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` / `day_winui_measure`).
-See `pieces/day-piece-picker/{build.rs,src/lib-qt-shim.cpp,src/lib-winui-shim.cpp}`.
+See `pieces/day-piece-searchfield/{build.rs,src/lib-qt-shim.cpp,src/lib-winui-shim.cpp}`.
 
 ### Android Java + Gradle deps (`[package.metadata.day.android]`)
 
@@ -128,7 +132,7 @@ removes or narrows the app's own.)
 
 **Release minification (R8/ProGuard).** A `day build --profile release` (and `day pack`) minifies with
 R8 — it shrinks unused code and **renames** classes and methods. But Day reaches Java from native
-(Rust) code *by name*: JNI `FindClass("dev/daybrite/day/piece/picker/DayPicker")`, `dcall_static` on a
+(Rust) code *by name*: JNI `FindClass("dev/daybrite/day/piece/searchfield/DaySearch")`, `dcall_static` on a
 method name, WorkManager instantiating a `Worker` from its class-name string, Room looking up a
 `<Database>_Impl`. A renamed class breaks every one of those lookups, so an un-kept release APK
 installs and then crashes at launch (`NoClassDefFound` / `ClassNotFoundException` / `UnsatisfiedLinkError`).
@@ -157,14 +161,14 @@ Two layers keep the right names:
 ```
 
 The app's `platform/android/app/build.gradle.kts` reads `dayProguardFile` + `proguardFiles` from
-`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-picker` (framework
+`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (framework
 side) and App Fair's `android/proguard-rules.pro` (app side) are the references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
 The Rust side calls its own Java class through the re-exported `jni` (`with_env` + `call_static_method`
 + `AHandle`); `day_android::make_view` is a convenience hardcoded to `DayBridge`, so a standalone piece
-uses raw `call_static_method` on its class. See `pieces/day-piece-picker/android/java/dev/daybrite/day/piece/picker/DayPicker.java`.
+uses raw `call_static_method` on its class. See `pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`.
 
 > **Gradle configuration cache.** The scaffold reads `day-pieces.json` at *configuration* time, and
 > `day build` rewrites it every build; the config cache can't track that read, so it would serve stale
@@ -204,6 +208,30 @@ The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mir
 shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust wraps via
 `Retained::from_raw`. See `pieces/day-piece-lottie/{ios/swift/DayLottie.swift,src/lib-uikit.rs}`.
 
+### The Android bridging contract
+
+Guarantees a part or piece can rely on when its Rust calls its Java sidecar (all provided by
+`day-android`, all exercised in production by `day-part-http`):
+
+- **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
+  JVM (and detaches scoped attachments). Blocking Java work runs on the CALLER's thread — keep
+  it off the UI thread, exactly like any other blocking Rust.
+- **App classes resolve from any thread.** `env.dfind`/`dcall_static`/`dfield` fall back to the
+  app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
+  though a bare JNI `FindClass` there only sees system classes.
+- **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
+  capture a `day_reactive::Setter` (docs/focus.md, DESIGN §4.5) rather than touching UI state
+  from a worker.
+- **Bulk payloads cross as ONE `byte[]` envelope** — `[status i32 BE][meta-len i32 BE]
+  ["k\nv\n…" meta][payload]`, negative status = your error sentinel with the message riding the
+  meta block. Build it with `DayEnvelope.pack/error` in Java and parse it with
+  `day_android::envelope::Envelope` in Rust; the two encode identically and Rust unit tests pin
+  the format. One JNI copy each way, no per-field JNI chatter.
+- **Piece-defined events** ride the `K_CUSTOM` kind (`DayBridge.nativeOnEvent(id, DayBridge.K_CUSTOM,
+  num, text)` → `Event::Custom`): the tag can't cross JNI, so the piece reads the raw
+  `num`/`text` payload. The full kind table is `day_spec::bridge::BridgeKind`; parity tests keep
+  the Java constants in step.
+
 ## 4. Cargo wiring
 
 ```toml
@@ -218,6 +246,13 @@ winui = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-w
 
 The app mirrors each: `my-piece/<backend>` in the matching feature. That's it: no changes to `day`,
 the toolkit crates, the CLI, or the Gradle scaffold are needed to add a piece.
+
+**Dependency layering.** The extension graph stays acyclic by rule: **pieces may depend on
+parts** (day-piece-remote-image → day-part-http is the shipped example) **and on core crates;
+parts must not depend on `day-pieces` or any `day-piece-*`; tweaks may depend on `day-pieces`
+(the built-ins they configure) but not on any satellite `day-piece-*` or `day-part-*`.** A
+workspace test (`crates/day-cli/tests/layering.rs`) enforces this over `cargo metadata`, so a
+violating dependency fails `cargo test` rather than knotting the graph quietly.
 
 ## 5. Container pieces (hosting a Day child)
 
@@ -249,30 +284,31 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 
 ## Reference
 
-`pieces/day-piece-picker` implements all of the above: three SwiftUI-style stylings, six backends, its
-own Qt + WinUI C++ shims, and its own Android Java. It's verified on AppKit / GTK / Qt / iOS / Android
-and CI-built on WinUI. Use it as a template. Its layout keeps the shared front-end and each toolkit
-backend in a separate file:
+`pieces/day-piece-searchfield` implements all of the above: a native search input on six backends,
+its own Qt + WinUI C++ shims, and its own Android Java. It's verified on AppKit / GTK / Qt / iOS /
+Android and CI-built on WinUI. Use it as a template. Its layout keeps the shared front-end and each
+toolkit backend in a separate file:
 
 ```
-pieces/day-piece-picker/
+pieces/day-piece-searchfield/
 ├── Cargo.toml               # features + [package.metadata.day.android]
 ├── build.rs                 # compiles lib-qt-shim.cpp / lib-winui-shim.cpp per feature
-├── android/java/…/DayPicker.java   # this piece's own Android backend
+├── android/java/…/DaySearch.java   # this piece's own Android backend
 └── src/
-    ├── lib.rs               # front-end (the `Piece`) + a `#[cfg]/#[path] mod` index of backends
+    ├── lib.rs               # front-end (the `Piece`) + `day_pieces::glue_modules!(…)`
     ├── lib-appkit.rs        # one file per toolkit renderer …
     ├── lib-gtk.rs
     ├── lib-qt.rs            (+ lib-qt-shim.cpp)
     ├── lib-uikit.rs
-    ├── lib-android.rs      (+ android/java DayPicker.java)
+    ├── lib-android.rs      (+ android/java DaySearch.java)
     ├── lib-winui.rs        (+ lib-winui-shim.cpp)
     ├── lib-qt-shim.cpp
     └── lib-winui-shim.cpp
 ```
 
-`lib.rs` declares each backend with `#[cfg(…)] #[path = "lib-<toolkit>.rs"] mod …_impl;`, so every file
-is compiled only for its feature+target and the whole native surface for a toolkit lives in one place.
+`lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget,
+winui)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
+native surface for a toolkit lives in one place.
 
 `pieces/day-piece-webview` (see [webview.md](webview.md)) is a second reference: a heavier native
 backend (an embedded browser) that additionally contributes an Android permission, hand-rolls the iOS

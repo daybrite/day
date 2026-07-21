@@ -7,10 +7,11 @@
 // piece uses raw `call_static_method` on ITS class).
 // ---------------------------------------------------------------------------
 
-use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_spec::Event;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
+use crate::DayEnv;
+use crate::jni::objects::JValue;
+use crate::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
@@ -63,6 +64,23 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
     }
 }
 
-day_pieces::renderer!(day_android::RENDERERS, Android,
-    kind: KIND, props: PickerProps, patch: PickerPatch,
-    make: make, update: update);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Android,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::AHandle {
+    let p = props
+        .downcast_ref::<PickerProps>()
+        .expect("day: picker props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Android, h: &crate::AHandle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+        update(b, h, p);
+    }
+}
+

@@ -107,6 +107,13 @@ jobs:
           cargo clippy --locked --all-targets
           cargo clippy --locked -p day-cli -p day-script --all-targets
           cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
+      # The Toolkit-duty conformance table (docs/duty-matrix.md) is generated; a Toolkit-trait
+      # or backend change that forgets to regenerate it is drift, and drift is a red build.
+      - name: Duty-matrix drift check
+        if: matrix.arch == 'x86_64'
+        run: |
+          scripts/ci/duty-matrix.sh
+          git diff --exit-code docs/duty-matrix.md
       # The Android cross-check lint also gates HERE (the android-widget job is continue-on-error
       # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
       # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls

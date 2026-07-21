@@ -40,6 +40,10 @@ unsafe extern "C" {
     pub fn day_ark_set_button_label(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_input_text(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_placeholder(node: *mut c_void, s: *const c_char);
+    pub fn day_ark_set_textarea_text(node: *mut c_void, s: *const c_char);
+    pub fn day_ark_set_textarea_placeholder(node: *mut c_void, s: *const c_char);
+    pub fn day_ark_set_picker(node: *mut c_void, options_semi: *const c_char, selected: u32);
+    pub fn day_ark_set_picker_selected(node: *mut c_void, selected: u32);
     pub fn day_ark_set_toggle(node: *mut c_void, on: c_int);
     pub fn day_ark_set_slider(node: *mut c_void, v: f64);
 
@@ -151,4 +155,48 @@ unsafe extern "C" {
     /// Release a view previously returned by [`day_ark_res_open`] (munmap or free, then drop the
     /// token). Safe to call with a null handle.
     pub fn day_ark_res_close(handle: *mut c_void);
+}
+
+/// Parity test for the event-kind wire table: shim.cpp's `DAY_K_*` defines must mirror
+/// `day_spec::bridge::BridgeKind`. Host-runnable — pure text against the enum.
+#[cfg(test)]
+mod bridge_kinds_parity {
+    #[test]
+    fn shim_defines_match_the_rust_enum() {
+        use day_spec::bridge::BridgeKind;
+        let shim = include_str!("shim.cpp");
+        let mut found = std::collections::BTreeMap::new();
+        for line in shim.lines() {
+            if let Some(rest) = line.trim().strip_prefix("#define DAY_K_")
+                && let Some((name, value)) = rest.split_once(' ')
+            {
+                let value: i32 = value
+                    .trim()
+                    .parse()
+                    .unwrap_or_else(|_| panic!("unparsable DAY_K_{name} line: {line}"));
+                assert!(
+                    found.insert(format!("DAY_K_{name}"), value).is_none(),
+                    "duplicate define DAY_K_{name}"
+                );
+            }
+        }
+        let expect = [
+            ("DAY_K_PRESSED", BridgeKind::Pressed),
+            ("DAY_K_TEXT_CHANGED", BridgeKind::TextChanged),
+            ("DAY_K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
+            ("DAY_K_VALUE_CHANGED", BridgeKind::ValueChanged),
+            ("DAY_K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
+            ("DAY_K_PRESENT_FILE", BridgeKind::PresentFile),
+            ("DAY_K_FOCUS_CHANGED", BridgeKind::FocusChanged),
+            ("DAY_K_SUBMITTED", BridgeKind::Submitted),
+        ];
+        assert_eq!(found.len(), expect.len(), "define count drifted: {found:?}");
+        for (name, kind) in expect {
+            assert_eq!(
+                found.get(name).copied(),
+                Some(kind as i32),
+                "{name} drifted from BridgeKind::{kind:?}"
+            );
+        }
+    }
 }

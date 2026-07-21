@@ -12,6 +12,11 @@
 pub use imp::*;
 
 #[cfg(target_os = "ios")]
+mod picker;
+#[cfg(target_os = "ios")]
+mod textarea;
+
+#[cfg(target_os = "ios")]
 pub mod ext;
 #[cfg(target_os = "ios")]
 pub use ext::*;
@@ -1772,6 +1777,8 @@ mod imp {
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
+                kinds::PICKER => crate::picker::realize_any(self, props, id),
+                kinds::TEXT_AREA => crate::textarea::realize_any(self, props, id),
                 kinds::TEXT_FIELD => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let target = DayTarget::new(mtm, id);
@@ -2055,6 +2062,8 @@ mod imp {
                         unsafe { pv.setProgress(*val as f32) };
                     }
                 }
+                kinds::PICKER => crate::picker::update_any(self, h, patch),
+                kinds::TEXT_AREA => crate::textarea::update_any(self, h, patch),
                 kinds::TEXT_FIELD => {
                     if let (Some(p), Some(tf)) = (
                         patch.downcast_ref::<TextFieldPatch>(),
@@ -2236,6 +2245,8 @@ mod imp {
                 kinds::SLIDER => {
                     Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(31.0))
                 }
+                kinds::PICKER => crate::picker::measure_any(self, h, p),
+                kinds::TEXT_AREA => crate::textarea::measure_any(self, h, p),
                 kinds::TEXT_FIELD => {
                     Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(34.0))
                 }

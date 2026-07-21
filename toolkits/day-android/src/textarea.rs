@@ -10,10 +10,11 @@
 // when unchanged.
 // ---------------------------------------------------------------------------
 
-use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_spec::Event;
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
+use crate::DayEnv;
+use crate::jni::objects::JValue;
+use crate::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
@@ -79,6 +80,30 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     Size::new(avail_w, (h_dp as f64).max(24.0))
 }
 
-day_pieces::renderer!(day_android::RENDERERS, Android,
-    kind: KIND, props: TextProps, patch: TextPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Android,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::AHandle {
+    let p = props
+        .downcast_ref::<TextProps>()
+        .expect("day: textarea props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Android, h: &crate::AHandle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<TextPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::Android,
+    h: &crate::AHandle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

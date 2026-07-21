@@ -2012,3 +2012,43 @@ fn scroll_target_signal_drives_offset() {
     let y = probe.find_by_kind("day.scroll")[0].1.scroll_offset.y;
     assert!(y > 123.0, "revealing row 90 scrolled further down: {y}");
 }
+
+#[test]
+fn picker_and_text_area_are_built_in() {
+    // Both moved from satellite crates into core (2026-07): they realize as first-class
+    // widgets on the mock backend, with probe-visible selection/text — no registry fallback.
+    let choice = Signal::new(1usize);
+    let draft = Signal::new(String::from("hi"));
+    let choice2 = choice;
+    let draft2 = draft;
+    let probe = boot(move || {
+        column((
+            picker(["A", "B", "C"], choice2).segmented().id("pk"),
+            text_area(draft2).placeholder("write…").id("ta"),
+        ))
+        .any()
+    });
+
+    let pk = probe.find_by_kind("day.picker");
+    assert_eq!(pk.len(), 1, "picker realized as a native built-in");
+    assert_eq!(pk[0].1.value, 1.0, "initial selection reached the widget");
+    let ta = probe.find_by_kind("day.text_area");
+    assert_eq!(ta.len(), 1, "text_area realized as a native built-in");
+    assert_eq!(ta[0].1.text, "hi");
+
+    // App → widget: writing the signals patches through to the mock widget.
+    choice.set(2);
+    draft.set("bye".into());
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.picker")[0].1.value, 2.0);
+    assert_eq!(probe.find_by_kind("day.text_area")[0].1.text, "bye");
+
+    // Widget → app: a native SelectionChanged / TextChanged flows back into the signals.
+    let pk_id = node_id(&probe, "day.picker", 0);
+    probe.emit(pk_id, Event::SelectionChanged(0));
+    let ta_id = node_id(&probe, "day.text_area", 0);
+    probe.emit(ta_id, Event::TextChanged("typed".into()));
+    flush_sync();
+    assert_eq!(choice.get_untracked(), 0);
+    assert_eq!(draft.get_untracked(), "typed");
+}

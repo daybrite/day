@@ -8,11 +8,12 @@
 // content between `min_lines` and `max_lines` (then the scroll view scrolls).
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use day_appkit::AppKit;
+use crate::AppKit;
 use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -52,7 +53,7 @@ define_class!(
             {
                 let s = tv.string().to_string();
                 self.ivars().placeholder.setHidden(!s.is_empty());
-                day_appkit::emit(node, Event::TextChanged(s));
+                crate::emit(node, Event::TextChanged(s));
             }
         }
     }
@@ -199,6 +200,26 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     })
 }
 
-day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
-    kind: KIND, props: TextProps, patch: TextPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut AppKit,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<TextProps>()
+        .expect("day: textarea props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<TextPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(b: &mut AppKit, h: &crate::Handle, p: day_spec::Proposal) -> day_spec::Size {
+    measure(b, h, p)
+}

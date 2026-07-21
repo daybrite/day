@@ -106,24 +106,17 @@ fn call(req: &Request, dest: Option<&Path>) -> Result<Vec<u8>, HttpError> {
     })
 }
 
-/// The parsed pieces of a response envelope: (status, headers, payload borrowed from the envelope).
-type Unpacked<'a> = (u16, Vec<(String, String)>, &'a [u8]);
+/// The parsed pieces of a response envelope: (status, headers, payload).
+type Unpacked = (u16, Vec<(String, String)>, Vec<u8>);
 
-/// Split the envelope: (status, headers, payload) — or the sentinel-mapped error.
-fn unpack(envelope: &[u8]) -> Result<Unpacked<'_>, HttpError> {
-    if envelope.len() < 8 {
-        return Err(HttpError::Io("short envelope".into()));
-    }
-    let status = i32::from_be_bytes(envelope[0..4].try_into().unwrap());
-    let hdr_len = i32::from_be_bytes(envelope[4..8].try_into().unwrap()).max(0) as usize;
-    let rest = &envelope[8..];
-    if rest.len() < hdr_len {
-        return Err(HttpError::Io("truncated envelope".into()));
-    }
-    let (hdr, payload) = rest.split_at(hdr_len);
-    if status < 0 {
-        let msg = String::from_utf8_lossy(hdr).into_owned();
-        return Err(match status {
+/// Split the envelope via the shared bridge convention (day_android::envelope) and map this
+/// part's negative-status sentinels onto [`HttpError`].
+fn unpack(bytes: &[u8]) -> Result<Unpacked, HttpError> {
+    let e = day_android::envelope::Envelope::decode(bytes)
+        .map_err(|m| HttpError::Io(m.into()))?;
+    if e.status < 0 {
+        let msg = e.error_message();
+        return Err(match e.status {
             -1 => HttpError::Timeout,
             -2 => HttpError::Dns,
             -3 => HttpError::Tls(msg),
@@ -132,14 +125,7 @@ fn unpack(envelope: &[u8]) -> Result<Unpacked<'_>, HttpError> {
             _ => HttpError::Io(msg),
         });
     }
-    let mut headers = Vec::new();
-    let mut lines = std::str::from_utf8(hdr).unwrap_or("").split('\n');
-    while let (Some(k), Some(v)) = (lines.next(), lines.next()) {
-        if !k.is_empty() {
-            headers.push((k.to_string(), v.to_string()));
-        }
-    }
-    Ok((status as u16, headers, payload))
+    Ok((e.status as u16, e.meta, e.payload))
 }
 
 /// Streaming: open the connection through the shim, then PULL 64 KiB chunks over JNI until EOF

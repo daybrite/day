@@ -7,14 +7,15 @@
 // locally.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
 use day_spec::{NodeId, Proposal, Size};
-use day_winui::{WinHandle, WinUi};
+use crate::{WinHandle, WinUi};
 
 // Approximate line height (device-independent px) for the min/max-lines clamp — WinUI has no cheap exact
 // per-control line metric here, and this backend is best-effort.
@@ -52,7 +53,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .to_string_lossy()
             .into_owned()
     };
-    day_winui::emit(NodeId(id), Event::TextChanged(s));
+    crate::emit(NodeId(id), Event::TextChanged(s));
 }
 
 fn cstr(s: &str) -> CString {
@@ -97,6 +98,30 @@ fn measure(_backend: &mut WinUi, h: &WinHandle, p: Proposal) -> Size {
     Size::new(avail_w, hgt)
 }
 
-day_pieces::renderer!(day_winui::RENDERERS, WinUi,
-    kind: KIND, props: TextProps, patch: TextPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::WinUi,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::WinHandle {
+    let p = props
+        .downcast_ref::<TextProps>()
+        .expect("day: textarea props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::WinUi, h: &crate::WinHandle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<TextPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::WinUi,
+    h: &crate::WinHandle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

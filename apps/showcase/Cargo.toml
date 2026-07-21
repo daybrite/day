@@ -47,7 +47,6 @@ day-part-sensors = { workspace = true }
 day-part-clipboard = { workspace = true }
 day-part-network = { workspace = true }
 day-piece-combobox = { workspace = true }
-day-piece-picker = { workspace = true }
 # A COMPOSE piece (pure composition — no native code, no cargo features): a plain dep, available on
 # every backend for free. No per-backend feature wiring above, the composition-first payoff.
 day-piece-rating = { workspace = true }

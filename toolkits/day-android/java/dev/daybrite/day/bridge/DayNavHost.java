@@ -136,7 +136,7 @@ public class DayNavHost extends LinearLayout {
                     @Override public void run() {
                         nativePops++;
                         // kind 5 = NavBack; num 1.0 = the native container already popped.
-                        DayBridge.nativeOnEvent(hostNode, 5, 1.0, null);
+                        DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 1.0, null);
                     }
                 });
             }

@@ -54,6 +54,30 @@ public final class DayBridge {
     public static native void nativeStart(View root, float density, int w, int h,
                                           String autodrive, String locale, String envBlob);
     public static native void nativeOnEvent(long id, int kind, double num, String str);
+
+    // --- event kinds -----------------------------------------------------------
+    // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
+    // bridge_kinds_parity test reads THIS block and asserts each value against the Rust enum —
+    // edit both together. Public so piece-owned Java (the K_CUSTOM channel) can use them.
+    public static final int K_PRESSED = 0;
+    public static final int K_TEXT_CHANGED = 1;
+    public static final int K_TOGGLE_CHANGED = 2;
+    public static final int K_VALUE_CHANGED = 3;
+    public static final int K_SELECTION_CHANGED = 4;
+    public static final int K_NAV_BACK = 5;
+    public static final int K_FRAME_CHANGED = 6;
+    public static final int K_DEEPLINK = 7;
+    public static final int K_PRESENT_BUTTON = 8;
+    public static final int K_PRESENT_TEXT = 9;
+    public static final int K_PRESENT_DISMISSED = 10;
+    public static final int K_GESTURE = 11;
+    public static final int K_CUSTOM = 12;
+    public static final int K_MENU_ACTION = 13;
+    public static final int K_LIFECYCLE = 14;
+    public static final int K_PRESENT_FILE = 15;
+    public static final int K_FOCUS_CHANGED = 16;
+    public static final int K_SUBMITTED = 17;
+    public static final int K_WINDOW_RESIZED = 18;
     public static native void nativeRunPosted(long token);
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
@@ -122,7 +146,7 @@ public final class DayBridge {
         if (selectable) {
             lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
-                    nativeOnEvent(hostId, 4, pos, ""); // kind 4 = select
+                    nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, ""); // kind 4 = select
                 }
             });
         }
@@ -315,7 +339,7 @@ public final class DayBridge {
         MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         b.setText(title);
         b.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View x) { nativeOnEvent(id, 0, 0, null); }
+            public void onClick(View x) { nativeOnEvent(id, K_PRESSED, 0, null); }
         });
         return b;
     }
@@ -330,21 +354,21 @@ public final class DayBridge {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         sx = x; sy = y;
-                        if (isDrag) nativeOnEvent(id, 11, 1, x + "," + y + ",0,0");
+                        if (isDrag) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
                         return true;
                     case MotionEvent.ACTION_MOVE:
-                        if (isDrag) nativeOnEvent(id, 11, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (isDrag) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (isDrag) {
-                            nativeOnEvent(id, 11, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                            nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         } else if (Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
-                            nativeOnEvent(id, 11, 0, x + "," + y + ",0,0");
+                            nativeOnEvent(id, K_GESTURE, 0, x + "," + y + ",0,0");
                             view.performClick();
                         }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
-                        if (isDrag) nativeOnEvent(id, 11, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (isDrag) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                 }
                 return false;
@@ -367,7 +391,7 @@ public final class DayBridge {
         e.setText(value);
         e.setSingleLine(true);
         e.addTextChangedListener(new TextWatcher() {
-            public void afterTextChanged(Editable s) { nativeOnEvent(id, 1, 0, s.toString()); }
+            public void afterTextChanged(Editable s) { nativeOnEvent(id, K_TEXT_CHANGED, 0, s.toString()); }
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
         });
@@ -375,7 +399,7 @@ public final class DayBridge {
         // IME action ("done"/enter). Returning false keeps the platform default (dismiss).
         e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             public void onFocusChange(View x, boolean hasFocus) {
-                nativeOnEvent(id, 16, hasFocus ? 1 : 0, null);
+                nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null);
             }
         });
         e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -386,7 +410,7 @@ public final class DayBridge {
                         && actionId != EditorInfo.IME_ACTION_UNSPECIFIED;
                 boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
                         && ev.getAction() == KeyEvent.ACTION_DOWN;
-                if (action || enter) nativeOnEvent(id, 17, 0, null);
+                if (action || enter) nativeOnEvent(id, K_SUBMITTED, 0, null);
                 return false;
             }
         });
@@ -430,7 +454,7 @@ public final class DayBridge {
         s.setChecked(value);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton b, boolean on) {
-                nativeOnEvent(id, 2, on ? 1 : 0, null);
+                nativeOnEvent(id, K_TOGGLE_CHANGED, on ? 1 : 0, null);
             }
         });
         return s;
@@ -447,7 +471,7 @@ public final class DayBridge {
         s.setValue((float) Math.max(min, Math.min(max, value)));
         s.addOnChangeListener(new Slider.OnChangeListener() {
             @Override public void onValueChange(Slider slider, float v, boolean fromUser) {
-                if (fromUser) nativeOnEvent(id, 3, v, null);
+                if (fromUser) nativeOnEvent(id, K_VALUE_CHANGED, v, null);
             }
         });
         return s;
@@ -512,7 +536,7 @@ public final class DayBridge {
         if (selected >= 0 && selected < items.length) tv.setText(items[selected], false);
         tv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
-                nativeOnEvent(id, 4, pos, null);
+                nativeOnEvent(id, K_SELECTION_CHANGED, pos, null);
             }
         });
         box.setTag(items);
@@ -570,7 +594,7 @@ public final class DayBridge {
                 int w = r - l, h = b - t;
                 if (w != or2 - ol || h != ob - ot) {
                     // kind 6 = FrameChanged, "w,h" in px (Rust divides by density).
-                    nativeOnEvent(id, 6, 0.0, w + "," + h);
+                    nativeOnEvent(id, K_FRAME_CHANGED, 0.0, w + "," + h);
                 }
             }
         });
@@ -590,7 +614,7 @@ public final class DayBridge {
                     int ol, int ot, int or2, int ob) {
                 int w = r - l, h = b - t;
                 if (w != or2 - ol || h != ob - ot) {
-                    nativeOnEvent(id, 6, 0.0, w + "," + h); // kind 6 = FrameChanged
+                    nativeOnEvent(id, K_FRAME_CHANGED, 0.0, w + "," + h); // kind 6 = FrameChanged
                 }
             }
         });
@@ -633,7 +657,7 @@ public final class DayBridge {
             }
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    nativeOnEvent(id, 4, index, null); // kind 4 = SelectionChanged
+                    nativeOnEvent(id, K_SELECTION_CHANGED, index, null); // kind 4 = SelectionChanged
                 }
             });
             list.addView(row, new android.widget.LinearLayout.LayoutParams(
@@ -663,7 +687,7 @@ public final class DayBridge {
             b.setItems(labels, new android.content.DialogInterface.OnClickListener() {
                 @Override public void onClick(android.content.DialogInterface d, int which) {
                     presents.remove(req);
-                    nativeOnEvent(req, 8, (double) which, null); // 8 = present button
+                    nativeOnEvent(req, K_PRESENT_BUTTON, (double) which, null); // 8 = present button
                 }
             });
         } else {
@@ -677,7 +701,7 @@ public final class DayBridge {
                     new android.content.DialogInterface.OnClickListener() {
                         @Override public void onClick(android.content.DialogInterface d, int w) {
                             presents.remove(req);
-                            nativeOnEvent(req, 8, (double) idx, null);
+                            nativeOnEvent(req, K_PRESENT_BUTTON, (double) idx, null);
                         }
                     };
                 if (role == 1) b.setNegativeButton(labels[i], cb);          // cancel
@@ -688,7 +712,7 @@ public final class DayBridge {
         b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
             @Override public void onCancel(android.content.DialogInterface d) {
                 presents.remove(req);
-                nativeOnEvent(req, 10, 0.0, null); // 10 = dismissed
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // 10 = dismissed
             }
         });
         android.app.Dialog dlg = b.create();
@@ -719,19 +743,19 @@ public final class DayBridge {
         b.setPositiveButton(ok, new android.content.DialogInterface.OnClickListener() {
             @Override public void onClick(android.content.DialogInterface d, int w) {
                 presents.remove(req);
-                nativeOnEvent(req, 9, 0.0, input.getText().toString()); // 9 = present text
+                nativeOnEvent(req, K_PRESENT_TEXT, 0.0, input.getText().toString()); // 9 = present text
             }
         });
         b.setNegativeButton(cancel, new android.content.DialogInterface.OnClickListener() {
             @Override public void onClick(android.content.DialogInterface d, int w) {
                 presents.remove(req);
-                nativeOnEvent(req, 10, 0.0, null);
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
             }
         });
         b.setOnCancelListener(new android.content.DialogInterface.OnCancelListener() {
             @Override public void onCancel(android.content.DialogInterface d) {
                 presents.remove(req);
-                nativeOnEvent(req, 10, 0.0, null);
+                nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
             }
         });
         android.app.Dialog dlg = b.create();
@@ -823,7 +847,7 @@ public final class DayBridge {
 
     private static void launchFile(long req, android.content.Intent intent, String srcPath) {
         if (!(ctx instanceof android.app.Activity)) {
-            nativeOnEvent(req, 10, 0.0, null); // 10 = dismissed (no Activity to host the picker)
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // 10 = dismissed (no Activity to host the picker)
             return;
         }
         int rc = fileRequestNext++;
@@ -837,7 +861,7 @@ public final class DayBridge {
             fileReqToDay.remove(rc);
             fileDayToReq.remove(req);
             fileSaveSrc.remove(rc);
-            nativeOnEvent(req, 10, 0.0, null);
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
         }
     }
 
@@ -850,7 +874,7 @@ public final class DayBridge {
         String src = fileSaveSrc.remove(requestCode);
         android.net.Uri uri = (resultCode == android.app.Activity.RESULT_OK && data != null) ? data.getData() : null;
         if (uri == null) {
-            nativeOnEvent(req, 10, 0.0, null); // dismissed
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // dismissed
             return;
         }
         try {
@@ -858,18 +882,18 @@ public final class DayBridge {
                 // Save: stream the Day-staged temp file into the chosen document; return its URI.
                 copyStream(new java.io.FileInputStream(src),
                         ctx.getContentResolver().openOutputStream(uri));
-                nativeOnEvent(req, 15, 0.0, uri.toString()); // 15 = files
+                nativeOnEvent(req, K_PRESENT_FILE, 0.0, uri.toString()); // 15 = files
             } else {
                 // Open: copy the picked document into an app cache file, return that readable path.
                 String name = displayName(uri);
                 java.io.File out = new java.io.File(ctx.getCacheDir(), "day-open-" + req + "-" + name);
                 copyStream(ctx.getContentResolver().openInputStream(uri),
                         new java.io.FileOutputStream(out));
-                nativeOnEvent(req, 15, 0.0, out.getAbsolutePath());
+                nativeOnEvent(req, K_PRESENT_FILE, 0.0, out.getAbsolutePath());
             }
         } catch (Exception e) {
             android.util.Log.w("Day", "file open/save transfer failed", e);
-            nativeOnEvent(req, 10, 0.0, null);
+            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
         }
     }
 
@@ -1004,7 +1028,7 @@ public final class DayBridge {
     // The context menu is a PopupMenu shown on long-press (the Android touch convention); the app
     // menu is the app-bar overflow (⋮), built by DayActivity.onCreateOptionsMenu. Both parse the
     // same tab-separated spec (kind\tid\tenabled\tlabel per line) and route item clicks to
-    // nativeOnEvent(id, 13, 0, "") = MenuAction.
+    // nativeOnEvent(id, K_MENU_ACTION, 0, "") = MenuAction.
 
     /** The current app (overflow) menu spec, or null. Set by setAppMenu; read by DayActivity. */
     public static String appMenuSpec = null;
@@ -1018,7 +1042,7 @@ public final class DayBridge {
 
     /** Forward an Activity lifecycle phase to native, once the app has started. */
     public static void lifecycle(int code) {
-        if (started) nativeOnEvent(0L, 14, code, "");
+        if (started) nativeOnEvent(0L, K_LIFECYCLE, code, "");
     }
 
     /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:
@@ -1027,7 +1051,7 @@ public final class DayBridge {
     public static void resized(final int w, final int h) {
         if (!started) return;
         main.post(new Runnable() {
-            public void run() { nativeOnEvent(0L, 18, 0, w + "," + h); }
+            public void run() { nativeOnEvent(0L, K_WINDOW_RESIZED, 0, w + "," + h); }
         });
     }
 
@@ -1092,7 +1116,7 @@ public final class DayBridge {
                 it.setEnabled(enabled);
                 it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
                     public boolean onMenuItemClick(MenuItem mi) {
-                        nativeOnEvent(id, 13, 0.0, "");
+                        nativeOnEvent(id, K_MENU_ACTION, 0.0, "");
                         return true;
                     }
                 });

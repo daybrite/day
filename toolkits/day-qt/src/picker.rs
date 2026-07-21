@@ -3,11 +3,12 @@
 // QRadioButtons, one DayPicker widget per style behind a flat C ABI.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
-use day_qt::{Qt, QtHandle};
+use crate::{Qt, QtHandle};
 use day_spec::{NodeId, Proposal, Size};
 
 unsafe extern "C" {
@@ -24,7 +25,7 @@ unsafe extern "C" {
 }
 
 extern "C" fn on_select(id: u64, idx: c_int) {
-    day_qt::emit(NodeId(id), Event::SelectionChanged(idx as i64));
+    crate::emit(NodeId(id), Event::SelectionChanged(idx as i64));
 }
 
 fn joined(items: &[String]) -> CString {
@@ -65,6 +66,30 @@ fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     Size::new(w.max(60.0), hh.max(22.0))
 }
 
-day_pieces::renderer!(day_qt::RENDERERS, Qt,
-    kind: KIND, props: PickerProps, patch: PickerPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Qt,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<PickerProps>()
+        .expect("day: picker props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Qt, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::Qt,
+    h: &crate::Handle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

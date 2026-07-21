@@ -7,12 +7,13 @@
 // window scrolls.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use day_gtk::Gtk;
+use crate::Gtk;
 use day_spec::{NodeId, Proposal, Size};
 use gtk4::prelude::*;
 
@@ -90,7 +91,7 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
         if sup.get() {
             return;
         }
-        day_gtk::emit(id, Event::TextChanged(text));
+        crate::emit(id, Event::TextChanged(text));
     });
 
     let w: gtk4::Widget = overlay.upcast();
@@ -149,6 +150,30 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     })
 }
 
-day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
-    kind: KIND, props: TextProps, patch: TextPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Gtk,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<TextProps>()
+        .expect("day: textarea props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Gtk, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<TextPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::Gtk,
+    h: &crate::Handle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

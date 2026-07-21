@@ -50,7 +50,7 @@ public class DayTabs extends LinearLayout {
                 showPage(index);
                 if (!syncing) {
                     DayTabs.this.selected = index;
-                    DayBridge.nativeOnEvent(hostNode, 4, (double) index, null); // 4 = SelectionChanged
+                    DayBridge.nativeOnEvent(hostNode, DayBridge.K_SELECTION_CHANGED, (double) index, null); // 4 = SelectionChanged
                 }
                 return true;
             }

@@ -57,6 +57,10 @@ pub struct MockState {
     /// Recycling-list row-pull sources, keyed by LIST host handle (docs/list.md). A test drives
     /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
     pub list_sources: HashMap<u64, ListSource>,
+    /// The app menu as last applied (docs/menus.md) — item titles, probe-visible.
+    pub app_menu: Vec<String>,
+    /// Context menus by widget handle (docs/menus.md) — item titles per handle.
+    pub context_menus: HashMap<u64, Vec<String>>,
 }
 
 impl MockState {
@@ -274,6 +278,14 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<TabsPageProps>() {
             w.text = p.title.clone();
             detail = format!(" title={:?}", p.title);
+        } else if let Some(p) = props.downcast_ref::<PickerProps>() {
+            w.text = p.options.join("|");
+            w.value = p.selected as f64;
+            detail = format!(" options={:?} selected={}", p.options, p.selected);
+        } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
+            w.text = p.text.clone();
+            w.placeholder = p.placeholder.clone();
+            detail = format!(" lines={}..{}", p.min_lines, p.max_lines);
         }
         s.log(format!("realize {kind} #{h}{detail}"));
         s.widgets.insert(h, w);
@@ -360,6 +372,16 @@ impl Toolkit for MockToolkit {
                 w.flag = v.is_none();
                 w.value = v.unwrap_or(0.0);
                 format!("value={v:?}")
+            } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
+                if let Some(w) = s.widgets.get_mut(&h.0) {
+                    w.value = *i as f64;
+                }
+                format!("picker.selected {i}")
+            } else if let Some(TextAreaPatch::SetText(t)) = patch.downcast_ref::<TextAreaPatch>() {
+                if let Some(w) = s.widgets.get_mut(&h.0) {
+                    w.text = t.clone();
+                }
+                format!("textarea.text {t:?}")
             } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                 w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
                 format!("menu selected={sel:?}")
@@ -616,6 +638,75 @@ impl Toolkit for MockToolkit {
     fn open_url(&mut self, url: &str) {
         // No browser to launch; record it so op-log assertions can verify a `link` fired.
         self.state.borrow_mut().log(format!("open_url {url}"));
+    }
+
+    // The remaining duties, implemented observably so mock stays a COMPLETE conformance probe
+    // (a duty a piece exercises must never vanish into a trait default here).
+
+    fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        let mut s = self.state.borrow_mut();
+        s.app_menu = items.iter().map(menu_title).collect();
+        s.log(format!("set_app_menu [{} items]", items.len()));
+    }
+
+    fn set_context_menu(&mut self, h: &MockHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        let mut s = self.state.borrow_mut();
+        if items.is_empty() {
+            s.context_menus.remove(&h.0);
+        } else {
+            s.context_menus
+                .insert(h.0, items.iter().map(menu_title).collect());
+        }
+        s.log(format!("set_context_menu #{} [{} items]", h.0, items.len()));
+    }
+
+    fn supports_lifecycle(&self, _phase: day_spec::Lifecycle) -> bool {
+        // Headless CI stands in for every platform: claim the full lifecycle so tests can
+        // exercise mobile-only phases (day-core synthesizes delivery).
+        true
+    }
+
+    fn read_a11y(&self, h: &MockHandle) -> day_spec::A11ySnapshot {
+        // Echo what set_a11y recorded, so `a11y_audit` diffs cleanly against expectations.
+        let s = self.state.borrow();
+        let Some(w) = s.widgets.get(&h.0) else {
+            return day_spec::A11ySnapshot::default();
+        };
+        day_spec::A11ySnapshot {
+            found: true,
+            role: w.a11y.role.clone(),
+            label: w.a11y.label.clone(),
+            value: w.a11y.value.clone(),
+            identifier: w.a11y.identifier.clone(),
+        }
+    }
+
+    fn ui_idle(&mut self) -> bool {
+        // No native transitions exist; idle is immediate — but log the poll so scripted runs
+        // can assert dayscript's settle path touched it.
+        self.state.borrow_mut().log("ui_idle".into());
+        true
+    }
+
+    fn on_suspend(&mut self) {
+        self.state.borrow_mut().log("on_suspend".into());
+    }
+
+    fn on_resume(&mut self) {
+        self.state.borrow_mut().log("on_resume".into());
+    }
+
+    fn on_memory_warning(&mut self) {
+        self.state.borrow_mut().log("on_memory_warning".into());
+    }
+}
+
+/// A menu item's display title (submenus render as their title; separators as "—").
+fn menu_title(item: &day_spec::MenuItem) -> String {
+    match item {
+        day_spec::MenuItem::Action { label, .. } => label.clone(),
+        day_spec::MenuItem::Submenu { label, .. } => label.clone(),
+        day_spec::MenuItem::Separator => "—".into(),
     }
 }
 

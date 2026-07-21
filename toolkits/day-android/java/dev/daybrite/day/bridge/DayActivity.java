@@ -206,7 +206,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayNavHost nav = DayNavHost.active;
         if (data != null && nav != null) {
             // kind 7 = deep link; the nav host piece handles Custom("deeplink").
-            DayBridge.nativeOnEvent(nav.hostNode, 7, 0.0, uriRoute(data));
+            DayBridge.nativeOnEvent(nav.hostNode, DayBridge.K_DEEPLINK, 0.0, uriRoute(data));
         }
     }
 }

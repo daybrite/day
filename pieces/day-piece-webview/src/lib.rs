@@ -156,9 +156,7 @@ impl Piece for WebView {
 // files grouped next to lib.rs.
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "appkit", target_os = "macos"))]
-#[path = "lib-appkit.rs"]
-mod appkit_impl;
+day_pieces::glue_modules!(appkit, qt, uikit, widget, winui);
 
 // GTK web view is Linux only — WebKitGTK 6 (webkit6) isn't viable on macOS and has no MSYS2 package
 // on Windows, so both fall back to Day's placeholder leaf (see Cargo.toml's webkit6 target gate).
@@ -166,18 +164,3 @@ mod appkit_impl;
 #[path = "lib-gtk.rs"]
 mod gtk_impl;
 
-#[cfg(feature = "qt")]
-#[path = "lib-qt.rs"]
-mod qt_impl;
-
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
-
-#[cfg(all(feature = "widget", target_os = "android"))]
-#[path = "lib-android.rs"]
-mod android_impl;
-
-#[cfg(all(feature = "winui", windows))]
-#[path = "lib-winui.rs"]
-mod winui_impl;

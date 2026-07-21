@@ -495,33 +495,7 @@ impl Piece for TimePicker {
 // each to its feature + target.
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "appkit", target_os = "macos"))]
-#[path = "lib-appkit.rs"]
-mod appkit_impl;
-
-#[cfg(feature = "gtk")]
-#[path = "lib-gtk.rs"]
-mod gtk_impl;
-
-#[cfg(feature = "qt")]
-#[path = "lib-qt.rs"]
-mod qt_impl;
-
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
-
-#[cfg(all(feature = "widget", target_os = "android"))]
-#[path = "lib-android.rs"]
-mod android_impl;
-
-#[cfg(all(feature = "winui", windows))]
-#[path = "lib-winui.rs"]
-mod winui_impl;
-
-#[cfg(all(feature = "arkui", target_env = "ohos"))]
-#[path = "lib-arkui.rs"]
-mod arkui_impl;
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui, arkui);
 
 // ---------------------------------------------------------------------------
 // Unit tests: the calendar math every backend leans on.

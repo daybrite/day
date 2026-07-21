@@ -162,13 +162,7 @@ impl Piece for Map {
 // nothing (the map kind falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "appkit", target_os = "macos"))]
-#[path = "lib-appkit.rs"]
-mod appkit_impl;
-
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
+day_pieces::glue_modules!(appkit, uikit);
 
 #[cfg(test)]
 mod tests {

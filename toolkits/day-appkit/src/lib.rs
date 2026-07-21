@@ -54,6 +54,10 @@ use day_spec::{
 
 pub type Handle = Retained<NSView>;
 
+// Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod picker;
+mod textarea;
+
 pub mod ext;
 pub use ext::*;
 
@@ -1464,6 +1468,8 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
+            kinds::PICKER => return picker::realize_any(self, props, id),
+            kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
             kinds::TEXT_FIELD => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
@@ -1958,6 +1964,8 @@ impl Toolkit for AppKit {
                     });
                 }
             }
+            kinds::PICKER => picker::update_any(self, h, patch),
+            kinds::TEXT_AREA => textarea::update_any(self, h, patch),
             kinds::TEXT_FIELD => {
                 if let (Some(p), Ok(tf)) = (
                     patch.downcast_ref::<TextFieldPatch>(),
@@ -2141,6 +2149,8 @@ impl Toolkit for AppKit {
                 let s = unsafe { h.fittingSize() };
                 Size::new(p.width.unwrap_or(180.0), s.height.max(21.0).ceil())
             }
+            kinds::PICKER => return picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => {
                 let s = unsafe { h.fittingSize() };
                 Size::new(

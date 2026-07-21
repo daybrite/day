@@ -125,10 +125,7 @@ public final class DayHttp {
     }
 
     private static byte[] envelope(int status, String headers, byte[] payload) {
-        byte[] hdr = headers.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buf = ByteBuffer.allocate(8 + hdr.length + payload.length);
-        buf.putInt(status).putInt(hdr.length).put(hdr).put(payload);
-        return buf.array();
+        return dev.daybrite.day.bridge.DayEnvelope.pack(status, headers, payload);
     }
 
     // --- Streaming (fetch_streamed): open → envelope(status/headers/4-byte handle), then the
@@ -225,10 +222,6 @@ public final class DayHttp {
     }
 
     private static byte[] error(int sentinel, Exception e) {
-        String msg = e.toString();
-        byte[] m = msg.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buf = ByteBuffer.allocate(8 + m.length);
-        buf.putInt(sentinel).putInt(m.length).put(m);
-        return buf.array();
+        return dev.daybrite.day.bridge.DayEnvelope.error(sentinel, e.toString());
     }
 }

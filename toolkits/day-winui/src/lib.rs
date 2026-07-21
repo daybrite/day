@@ -26,6 +26,10 @@ use day_spec::{
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WinHandle(pub *mut c_void);
 
+// Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod picker;
+mod textarea;
+
 pub type Handle = WinHandle;
 
 pub mod ext;
@@ -884,6 +888,8 @@ impl Toolkit for WinUi {
                     ffi::day_winui_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
+                kinds::PICKER => return picker::realize_any(self, props, id),
+                kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
                 kinds::TEXT_FIELD => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let h = ffi::day_winui_textbox_new(
@@ -1093,6 +1099,8 @@ impl Toolkit for WinUi {
                         }
                     }
                 }
+                kinds::PICKER => picker::update_any(self, h, patch),
+                kinds::TEXT_AREA => textarea::update_any(self, h, patch),
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -1302,6 +1310,8 @@ impl Toolkit for WinUi {
                 Size::new(nat.width.ceil(), nat.height.ceil())
             }
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(24.0)),
+            kinds::PICKER => return picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), natural(h.0).height.max(28.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             // The list host fills whatever frame layout gives it; cells fill its width.

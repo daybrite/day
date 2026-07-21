@@ -3,12 +3,13 @@
 // CheckButton radios (inline). Echo-guarded so programmatic selection doesn't loop.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use day_gtk::Gtk;
+use crate::Gtk;
 use day_spec::{NodeId, Proposal, Size};
 use gtk4::prelude::*;
 
@@ -37,7 +38,7 @@ fn make_menu(p: &PickerProps, id: NodeId, suppress: Rc<Cell<bool>>) -> gtk4::Dro
         }
         let sel = d.selected();
         if sel != gtk4::INVALID_LIST_POSITION {
-            day_gtk::emit(id, Event::SelectionChanged(sel as i64));
+            crate::emit(id, Event::SelectionChanged(sel as i64));
         }
     });
     dd
@@ -73,7 +74,7 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
                     if suppress.get() || !t.is_active() {
                         return;
                     }
-                    day_gtk::emit(id, Event::SelectionChanged(i as i64));
+                    crate::emit(id, Event::SelectionChanged(i as i64));
                 });
                 bx.append(&t);
                 toggles.push(t);
@@ -107,7 +108,7 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
                     if suppress.get() || !c.is_active() {
                         return;
                     }
-                    day_gtk::emit(id, Event::SelectionChanged(i as i64));
+                    crate::emit(id, Event::SelectionChanged(i as i64));
                 });
                 bx.append(&c);
                 checks.push(c);
@@ -160,6 +161,30 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     Size::new((nat_w as f64).max(60.0), (nat_h as f64).max(22.0))
 }
 
-day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
-    kind: KIND, props: PickerProps, patch: PickerPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::Gtk,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::Handle {
+    let p = props
+        .downcast_ref::<PickerProps>()
+        .expect("day: picker props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::Gtk, h: &crate::Handle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::Gtk,
+    h: &crate::Handle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

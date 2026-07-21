@@ -24,6 +24,9 @@ fn main() {
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
         .file("src/shim.cpp")
+        // Built-in leaf shims moved in from their satellite crates (2026-07).
+        .file("src/shim-picker.cpp")
+        .file("src/shim-textarea.cpp")
         .include(&cppwinrt)
         .flag("/EHsc") // C++/WinRT uses exceptions
         .flag("/bigobj") // the XAML cppwinrt headers blow past the default section limit
@@ -37,5 +40,7 @@ fn main() {
     println!("cargo:rustc-link-lib=gdiplus"); // window snapshot PNG encoding
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/shim-picker.cpp");
+    println!("cargo:rerun-if-changed=src/shim-textarea.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 }

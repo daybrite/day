@@ -56,6 +56,18 @@ static NativeResourceManager* g_res_mgr = nullptr;
 // Implemented in Rust (the day-arkui backend / the app cdylib).
 extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
 extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
+
+// Event kinds — mirror of day_spec::bridge::BridgeKind (the shared wire table; same numbers as
+// the Android bridge). day-arkui-sys's bridge_kinds_parity test reads THIS block and asserts
+// each value against the Rust enum — edit both together.
+#define DAY_K_PRESSED 0
+#define DAY_K_TEXT_CHANGED 1
+#define DAY_K_TOGGLE_CHANGED 2
+#define DAY_K_VALUE_CHANGED 3
+#define DAY_K_SELECTION_CHANGED 4
+#define DAY_K_PRESENT_FILE 15
+#define DAY_K_FOCUS_CHANGED 16
+#define DAY_K_SUBMITTED 17
 extern "C" void day_arkui_set_cache_dir(const char* path);
 // Recycling-list callbacks into Rust (docs/list.md): row count, and build/rebind a row's content
 // into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
@@ -124,38 +136,49 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
     ArkUI_NodeEventType t = OH_ArkUI_NodeEvent_GetEventType(ev);
     switch (t) {
         case NODE_ON_CLICK:
-            day_arkui_on_event(id, 0, 0.0, "");
+            day_arkui_on_event(id, DAY_K_PRESSED, 0.0, "");
             break;
         case NODE_TEXT_INPUT_ON_CHANGE: {
             auto* s = OH_ArkUI_NodeEvent_GetStringAsyncEvent(ev);
-            day_arkui_on_event(id, 1, 0.0, (s && s->pStr) ? s->pStr : "");
+            day_arkui_on_event(id, DAY_K_TEXT_CHANGED, 0.0, (s && s->pStr) ? s->pStr : "");
             break;
         }
         case NODE_TOGGLE_ON_CHANGE: {
             auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
-            day_arkui_on_event(id, 2, c ? (double)c->data[0].i32 : 0.0, "");
+            day_arkui_on_event(id, DAY_K_TOGGLE_CHANGED, c ? (double)c->data[0].i32 : 0.0, "");
             break;
         }
         case NODE_SLIDER_EVENT_ON_CHANGE: {
             auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
-            day_arkui_on_event(id, 3, c ? (double)c->data[0].f32 : 0.0, "");
+            day_arkui_on_event(id, DAY_K_VALUE_CHANGED, c ? (double)c->data[0].f32 : 0.0, "");
             break;
         }
         case NODE_SWIPER_EVENT_ON_CHANGE: {
-            // The active page index (SelectionChanged) — reuse event kind 6.
+            // The active page index (SelectionChanged).
             auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
-            day_arkui_on_event(id, 6, c ? (double)c->data[0].i32 : 0.0, "");
+            day_arkui_on_event(id, DAY_K_SELECTION_CHANGED, c ? (double)c->data[0].i32 : 0.0, "");
+            break;
+        }
+        case NODE_TEXT_AREA_ON_CHANGE: {
+            auto* s = OH_ArkUI_NodeEvent_GetStringAsyncEvent(ev);
+            day_arkui_on_event(id, DAY_K_TEXT_CHANGED, 0.0, (s && s->pStr) ? s->pStr : "");
+            break;
+        }
+        case NODE_TEXT_PICKER_EVENT_ON_CHANGE: {
+            // The selected option index (SelectionChanged).
+            auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
+            day_arkui_on_event(id, DAY_K_SELECTION_CHANGED, c ? (double)c->data[0].f32 : 0.0, "");
             break;
         }
         // Focus pair + text-input submit (docs/focus.md) — kinds match the Android bridge.
         case NODE_ON_FOCUS:
-            day_arkui_on_event(id, 16, 1.0, "");
+            day_arkui_on_event(id, DAY_K_FOCUS_CHANGED, 1.0, "");
             break;
         case NODE_ON_BLUR:
-            day_arkui_on_event(id, 16, 0.0, "");
+            day_arkui_on_event(id, DAY_K_FOCUS_CHANGED, 0.0, "");
             break;
         case NODE_TEXT_INPUT_ON_SUBMIT:
-            day_arkui_on_event(id, 17, 0.0, "");
+            day_arkui_on_event(id, DAY_K_SUBMITTED, 0.0, "");
             break;
         default:
             break;
@@ -181,6 +204,8 @@ static ArkUI_NodeType kind_map(int32_t k) {
         case 13: return ARKUI_NODE_LIST;      // recycling list (NodeAdapter)
         case 14: return ARKUI_NODE_LIST_ITEM; // one recycled list row
         case 15: return ARKUI_NODE_ROW;       // horizontal flow (menu rows: label + chevron)
+        case 16: return ARKUI_NODE_TEXT_AREA;   // multi-line editor (docs/textarea.md)
+        case 17: return ARKUI_NODE_TEXT_PICKER; // native option wheel (docs/picker.md)
         default: return ARKUI_NODE_STACK;
     }
 }
@@ -279,6 +304,23 @@ void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s)
 void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
 void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
 void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }
+
+// Text area (docs/textarea.md): seed/replace text + placeholder.
+void day_ark_set_textarea_text(void* n, const char* s) { set_str(n, NODE_TEXT_AREA_TEXT, s); }
+void day_ark_set_textarea_placeholder(void* n, const char* s) {
+    set_str(n, NODE_TEXT_AREA_PLACEHOLDER, s);
+}
+
+// Picker (docs/picker.md): the option range is a ';'-joined string per the ArkUI C API, and the
+// selected index is a u32 attribute. HarmonyOS has no segmented control, so every day picker
+// style maps to the native TEXT_PICKER wheel.
+void day_ark_set_picker(void* n, const char* options_semi, uint32_t selected) {
+    set_str(n, NODE_TEXT_PICKER_OPTION_RANGE, options_semi);
+    set_u32(n, NODE_TEXT_PICKER_OPTION_SELECTED, selected);
+}
+void day_ark_set_picker_selected(void* n, uint32_t selected) {
+    set_u32(n, NODE_TEXT_PICKER_OPTION_SELECTED, selected);
+}
 // NODE_IMAGE_SRC accepts a "resource://RAWFILE/<path>" URI | file path | network URL | base64.
 void day_ark_set_image_src(void* n, const char* s) { set_str(n, NODE_IMAGE_SRC, s); }
 // Scaling (§18.3): `fit` is an ArkUI_ObjectFit (CONTAIN=0 / COVER=1 / FILL=3).
@@ -412,6 +454,8 @@ void day_ark_register_event(void* n, int32_t kind, uint64_t id) {
         case 2: t = NODE_TOGGLE_ON_CHANGE; break;
         case 3: t = NODE_SLIDER_EVENT_ON_CHANGE; break;
         case 6: t = NODE_SWIPER_EVENT_ON_CHANGE; break;
+        case 7: t = NODE_TEXT_AREA_ON_CHANGE; break;
+        case 8: t = NODE_TEXT_PICKER_EVENT_ON_CHANGE; break;
         default: return;
     }
     g_api->registerNodeEvent((ArkUI_NodeHandle)n, t, 0, (void*)(uintptr_t)id);
@@ -463,7 +507,7 @@ double day_ark_density(void) { return g_density; }
 void day_ark_present_file(uint64_t req, int32_t mode, const char* name, const char* src,
                           const char* filters) {
     if (!g_env || !g_file_picker) {
-        day_arkui_on_event(req, 5, 0.0, ""); // cancel (no picker)
+        day_arkui_on_event(req, DAY_K_PRESENT_FILE, 0.0, ""); // cancel (no picker)
         return;
     }
     napi_handle_scope scope;
@@ -482,7 +526,7 @@ void day_ark_present_file(uint64_t req, int32_t mode, const char* name, const ch
         napi_value ret;
         napi_call_function(g_env, undef, cb, 5, args, &ret);
     } else {
-        day_arkui_on_event(req, 5, 0.0, "");
+        day_arkui_on_event(req, DAY_K_PRESENT_FILE, 0.0, "");
     }
     napi_close_handle_scope(g_env, scope);
 }
@@ -1188,7 +1232,7 @@ static napi_value OnFileResult(napi_env env, napi_callback_info info) {
     double reqd = 0;
     napi_get_value_double(env, argv[0], &reqd);
     std::string path = napi_to_string(env, argv[1]);
-    day_arkui_on_event((uint64_t)reqd, 5, 0.0, path.c_str()); // kind 5 = present files
+    day_arkui_on_event((uint64_t)reqd, DAY_K_PRESENT_FILE, 0.0, path.c_str());
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;

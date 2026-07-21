@@ -522,6 +522,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 probe.value = p.value.unwrap_or(0.0);
             } else if let Some(p) = props.downcast_ref::<TabsProps>() {
                 probe.value = p.selected as f64;
+            } else if let Some(p) = props.downcast_ref::<PickerProps>() {
+                probe.selected = p.selected as i64;
+                probe.value = p.selected as f64;
+            } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
+                probe.text = p.text.clone();
             }
         }
         let node = self.nodes.insert(NodeData {
@@ -739,6 +744,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         SliderPatch::Value(v) => n.probe.value = *v,
                         SliderPatch::Enabled(e) => n.probe.enabled = *e,
                     }
+                } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>()
+                {
+                    n.probe.selected = *i as i64;
+                    n.probe.value = *i as f64;
+                } else if let Some(TextAreaPatch::SetText(t)) =
+                    patch.downcast_ref::<TextAreaPatch>()
+                {
+                    n.probe.text = t.clone();
                 } else if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>()
                 {
                     n.probe.flag = v.is_none();

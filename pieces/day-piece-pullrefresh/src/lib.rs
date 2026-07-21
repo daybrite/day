@@ -276,17 +276,7 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 // feature + target (the webview convention).
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
-
-#[cfg(all(feature = "widget", target_os = "android"))]
-#[path = "lib-android.rs"]
-mod android_impl;
-
-#[cfg(all(feature = "arkui", target_env = "ohos"))]
-#[path = "lib-arkui.rs"]
-mod arkui_impl;
+day_pieces::glue_modules!(uikit, widget, arkui);
 
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 #[path = "glue-appkit.rs"]

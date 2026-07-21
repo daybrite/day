@@ -475,6 +475,7 @@ name = "day-arkui-sys"
 version = "0.0.13"
 dependencies = [
  "cc",
+ "day-spec",
 ]
 
 [[package]]
@@ -804,34 +805,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-piece-picker"
-version = "0.0.13"
-dependencies = [
- "block2",
- "cc",
- "day-android",
- "day-appkit",
- "day-core",
- "day-gtk",
- "day-mock",
- "day-pieces",
- "day-qt",
- "day-reactive",
- "day-spec",
- "day-toolchain",
- "day-uikit",
- "day-winui",
- "day-winui-sys",
- "gtk4",
- "linkme",
- "objc2",
- "objc2-app-kit",
- "objc2-core-foundation",
- "objc2-foundation",
- "objc2-ui-kit",
-]
-
-[[package]]
 name = "day-piece-pullrefresh"
 version = "0.0.13"
 dependencies = [
@@ -896,33 +869,6 @@ dependencies = [
 
 [[package]]
 name = "day-piece-searchfield"
-version = "0.0.13"
-dependencies = [
- "cc",
- "day-android",
- "day-appkit",
- "day-core",
- "day-gtk",
- "day-mock",
- "day-pieces",
- "day-qt",
- "day-reactive",
- "day-spec",
- "day-toolchain",
- "day-uikit",
- "day-winui",
- "day-winui-sys",
- "gtk4",
- "linkme",
- "objc2",
- "objc2-app-kit",
- "objc2-core-foundation",
- "objc2-foundation",
- "objc2-ui-kit",
-]
-
-[[package]]
-name = "day-piece-textarea"
 version = "0.0.13"
 dependencies = [
  "cc",
@@ -3492,7 +3438,6 @@ dependencies = [
  "day-piece-lottie",
  "day-piece-map",
  "day-piece-media",
- "day-piece-picker",
  "day-piece-pullrefresh",
  "day-piece-rating",
  "day-piece-searchfield",

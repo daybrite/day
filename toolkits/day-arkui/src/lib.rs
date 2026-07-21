@@ -72,6 +72,8 @@ mod imp {
         static IS_DARK: Cell<bool> = const { Cell::new(false) };
         /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
         static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+        // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
+        static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
         /// plain NODE_ON_CLICK, so we register it against a fresh synthetic id and translate the
         /// click back into `SelectionChanged(index)` against the MENU host (day-android does the
@@ -202,6 +204,8 @@ mod imp {
     const K_SCROLL: c_int = 6;
     const K_COLUMN: c_int = 7;
     const K_ROW: c_int = 15;
+    const K_TEXT_AREA: c_int = 16;
+    const K_TEXT_PICKER: c_int = 17;
     const K_LOADING: c_int = 8; // indeterminate spinner
     const K_IMAGE: c_int = 9;
     const K_CANVAS: c_int = 10; // custom node + on-draw
@@ -247,7 +251,9 @@ mod imp {
         ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
     }
 
-    /// The native event callback the shim invokes (0=click 1=text 2=toggle 3=slider). `id` is the
+    /// The native event callback the shim invokes. Kind numbers are
+    /// `day_spec::bridge::BridgeKind` — the same wire table as the Android bridge (the shim's
+    /// DAY_K_* defines mirror it; day-arkui-sys's parity test holds them together). `id` is the
     /// day NodeId delivered back as the ArkUI event userData.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkUI event
@@ -268,8 +274,8 @@ mod imp {
         let node = NodeId(id);
         let ev = match kind {
             0 => Event::Pressed,
-            // 6 = SelectionChanged (swiper tab / menu row), carried as the index in `num`.
-            6 => Event::SelectionChanged(num as i64),
+            // SelectionChanged (swiper tab / menu row), carried as the index in `num`.
+            4 => Event::SelectionChanged(num as i64),
             1 => {
                 let s = if text.is_null() {
                     String::new()
@@ -281,7 +287,7 @@ mod imp {
                 Event::TextChanged(s)
             }
             2 => Event::ToggleChanged(num != 0.0),
-            // Focus pair + text-input submit (docs/focus.md); kinds match the Android bridge.
+            // Focus pair + text-input submit (docs/focus.md).
             16 => Event::FocusChanged(num != 0.0),
             17 => Event::Submitted,
             3 => {
@@ -293,7 +299,7 @@ mod imp {
             }
             // File-picker answer (docs/files.md): `id` is the request id, `text` the chosen local
             // path (a cache copy for open, a docs URI for save) — empty means the user cancelled.
-            5 => {
+            15 => {
                 let s = if text.is_null() {
                     String::new()
                 } else {
@@ -531,6 +537,35 @@ mod imp {
                     }
                     n
                 }
+                // Multi-line editor (docs/textarea.md): ARKUI_NODE_TEXT_AREA, TextChanged via
+                // event kind 7. min/max-lines aren't a native attribute here — the node grows
+                // with content and the measure arm bounds it.
+                kinds::TEXT_AREA => {
+                    let p = props.downcast_ref::<TextAreaProps>().unwrap();
+                    let n = new_node(K_TEXT_AREA);
+                    TEXTAREA_LINES
+                        .with(|m| m.borrow_mut().insert(n.0 as usize, (p.min_lines, p.max_lines)));
+                    unsafe {
+                        ffi::day_ark_set_textarea_text(n.0, cstr(&p.text).as_ptr());
+                        ffi::day_ark_set_textarea_placeholder(n.0, cstr(&p.placeholder).as_ptr());
+                        ffi::day_ark_register_event(n.0, 7, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 1);
+                    }
+                    n
+                }
+                // Option picker (docs/picker.md): HarmonyOS has no segmented control, so every
+                // style maps to the native TEXT_PICKER wheel; SelectionChanged via event kind 8.
+                kinds::PICKER => {
+                    let p = props.downcast_ref::<PickerProps>().unwrap();
+                    let n = new_node(K_TEXT_PICKER);
+                    let joined = p.options.join(";");
+                    unsafe {
+                        ffi::day_ark_set_picker(n.0, cstr(&joined).as_ptr(), p.selected as u32);
+                        ffi::day_ark_register_event(n.0, 8, id.0);
+                        ffi::day_ark_enable_focus(n.0, id.0, 0);
+                    }
+                    n
+                }
                 kinds::TOGGLE => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let n = new_node(K_TOGGLE);
@@ -763,6 +798,18 @@ mod imp {
                         }
                     }
                 }
+                kinds::TEXT_AREA => {
+                    if let Some(TextAreaPatch::SetText(text)) =
+                        patch.downcast_ref::<TextAreaPatch>()
+                    {
+                        unsafe { ffi::day_ark_set_textarea_text(h.0, cstr(text).as_ptr()) };
+                    }
+                }
+                kinds::PICKER => {
+                    if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
+                        unsafe { ffi::day_ark_set_picker_selected(h.0, *i as u32) };
+                    }
+                }
                 kinds::PROGRESS => {
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
@@ -790,6 +837,9 @@ mod imp {
                 m.borrow_mut().remove(&key);
             });
             SLIDER_RANGE.with(|m| {
+                m.borrow_mut().remove(&key);
+            });
+            TEXTAREA_LINES.with(|m| {
                 m.borrow_mut().remove(&key);
             });
             TABS_PAGES.with(|s| {
@@ -863,6 +913,26 @@ mod imp {
                     Size::new(w, hh)
                 }
                 kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 40.0),
+                kinds::TEXT_AREA => {
+                    // Grow with content between the min/max line band (line ≈ 24 vp + padding).
+                    let (min_lines, max_lines) = TEXTAREA_LINES
+                        .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        .unwrap_or((1, 0));
+                    let line = 24.0;
+                    let min_h = min_lines as f64 * line + 16.0;
+                    let nat = unsafe {
+                        let (mut w, mut hh) = (0.0f64, 0.0f64);
+                        ffi::day_ark_measure(h.0, p.width.unwrap_or(0.0), 0.0, &mut w, &mut hh);
+                        hh
+                    };
+                    let capped = if max_lines == 0 {
+                        nat.max(min_h)
+                    } else {
+                        nat.clamp(min_h, max_lines as f64 * line + 16.0)
+                    };
+                    Size::new(p.width.unwrap_or(200.0), capped)
+                }
+                kinds::PICKER => Size::new(p.width.unwrap_or(200.0), 200.0),
                 kinds::TOGGLE => Size::new(50.0, 30.0),
                 kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),

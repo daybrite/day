@@ -22,7 +22,13 @@ fn main() {
     let cflags = pkg_config(&["--cflags", "Qt6Widgets"]);
 
     let mut build = cc::Build::new();
-    build.cpp(true).std("c++17").file("src/shim.cpp");
+    build
+        .cpp(true)
+        .std("c++17")
+        .file("src/shim.cpp")
+        // Built-in leaf shims moved in from their satellite crates (2026-07).
+        .file("src/shim-picker.cpp")
+        .file("src/shim-textarea.cpp");
     for tok in cflags.split_whitespace() {
         build.flag(tok);
     }
@@ -61,4 +67,6 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/shim-picker.cpp");
+    println!("cargo:rerun-if-changed=src/shim-textarea.cpp");
 }

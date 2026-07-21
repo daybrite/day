@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use day::prelude::*;
 use day_piece_remote_image::remote_image;
-use day_piece_textarea::text_area;
 use matrix_core::{RoomSummary, SyncStatus, TimelineRow};
 
 // ─────────────────────────────── palette + metrics ──────────────────────────────────────────────

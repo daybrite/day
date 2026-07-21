@@ -109,3 +109,58 @@ macro_rules! __renderer {
         };
     };
 }
+
+/// Declare a satellite piece's per-toolkit glue modules — the `#[cfg]`/`#[path]` block every
+/// piece otherwise hand-writes (docs/extending.md §2). Each named toolkit expands to the
+/// house-convention module gate binding `lib-<toolkit>.rs` next to the invoking lib.rs:
+///
+/// ```ignore
+/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
+/// day_pieces::glue_modules!(uikit, widget, arkui);   // a piece with partial coverage
+/// ```
+///
+/// Adding a toolkit to Day means one new arm HERE instead of an edit in every piece.
+#[macro_export]
+macro_rules! glue_modules {
+    ($($tk:ident),+ $(,)?) => { $($crate::__glue_module!($tk);)+ };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __glue_module {
+    (appkit) => {
+        #[cfg(all(feature = "appkit", target_os = "macos"))]
+        #[path = "lib-appkit.rs"]
+        mod appkit_impl;
+    };
+    (gtk) => {
+        #[cfg(feature = "gtk")]
+        #[path = "lib-gtk.rs"]
+        mod gtk_impl;
+    };
+    (qt) => {
+        #[cfg(feature = "qt")]
+        #[path = "lib-qt.rs"]
+        mod qt_impl;
+    };
+    (uikit) => {
+        #[cfg(all(feature = "uikit", target_os = "ios"))]
+        #[path = "lib-uikit.rs"]
+        mod uikit_impl;
+    };
+    (widget) => {
+        #[cfg(all(feature = "widget", target_os = "android"))]
+        #[path = "lib-android.rs"]
+        mod android_impl;
+    };
+    (winui) => {
+        #[cfg(all(feature = "winui", windows))]
+        #[path = "lib-winui.rs"]
+        mod winui_impl;
+    };
+    (arkui) => {
+        #[cfg(all(feature = "arkui", target_env = "ohos"))]
+        #[path = "lib-arkui.rs"]
+        mod arkui_impl;
+    };
+}

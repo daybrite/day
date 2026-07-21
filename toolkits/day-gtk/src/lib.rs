@@ -23,6 +23,10 @@ use day_spec::{
 
 pub type Handle = gtk4::Widget;
 
+// Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod picker;
+mod textarea;
+
 pub mod ext;
 pub use ext::*;
 
@@ -1393,6 +1397,8 @@ impl Toolkit for Gtk {
                 wire_focus(&scale, id);
                 scale.upcast()
             }
+            kinds::PICKER => return picker::realize_any(self, props, id),
+            kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
             kinds::TEXT_FIELD => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let entry = gtk4::Entry::new();
@@ -1644,6 +1650,8 @@ impl Toolkit for Gtk {
                     bar.set_fraction(*v);
                 }
             }
+            kinds::PICKER => picker::update_any(self, h, patch),
+            kinds::TEXT_AREA => textarea::update_any(self, h, patch),
             kinds::TEXT_FIELD => {
                 if let (Some(p), Some(entry)) = (
                     patch.downcast_ref::<TextFieldPatch>(),
@@ -1907,6 +1915,8 @@ impl Toolkit for Gtk {
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
+            kinds::PICKER => return picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => {
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))

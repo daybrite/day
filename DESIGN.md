@@ -46,6 +46,7 @@ the architecture-level view and the rationale.
 | navigation — `routes!`, `selector`, `stack`, deep links, predictive back | docs/navigation.md | [§10.5](#105-navigation-and-presentation) |
 | native recycling lists | docs/list.md | [§10](#10-native-list-integration) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | docs/scroll.md | [§7.6](#76-scroll) |
+| Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | docs/duty-matrix.md | [§8.1](#81-the-toolkit-trait) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
@@ -61,7 +62,8 @@ the architecture-level view and the rationale.
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (webview, media, map, lottie, picker, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/picker.md, docs/searchfield.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (webview, media, map, lottie, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
 | API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
@@ -625,6 +627,8 @@ button(text).action(f)             // .bordered() / .prominent() / .style(impl B
 toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
+text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (docs/textarea.md)
+picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
 progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
 divider()   spacer()
@@ -666,8 +670,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.modifier(impl Modifier)`, and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
-`search_field`, `picker`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
-`remote_image`, `textarea`) and headless services under `parts/` (battery, network, sensors,
+`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
+`remote_image`) and headless services under `parts/` (battery, network, sensors,
 clipboard, prefs, haptics, deviceinfo, http) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
@@ -1186,6 +1190,11 @@ CI includes a release+LTO ios-uikit build of showcase + day-piece-combobox that 
 dayscript that the externally-registered piece actually rendered ([§20](#20-continuous-integration)).
 
 ### §8.3 Events
+
+> [!NOTE]
+> The numeric event-kind wire table for the trampoline backends (Android JNI, ArkUI C-FFI)
+> lives in `day_spec::bridge::BridgeKind`; the Java/C++ constants mirror it and parity tests
+> hold them together (2026-07 — after a kind collision silently swallowed the resize rail).
 
 ```rust
 pub enum Event {
@@ -1778,7 +1787,7 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 
 Two package kinds share the mechanism:
 
-- **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, picker, rating, activity,
+- **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
   webview, media, map, lottie, remote-image, textarea.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http (requests through the

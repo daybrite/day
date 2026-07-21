@@ -121,10 +121,5 @@ impl Piece for Lottie {
 // backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target.
 // ---------------------------------------------------------------------------
 
-#[cfg(all(feature = "uikit", target_os = "ios"))]
-#[path = "lib-uikit.rs"]
-mod uikit_impl;
+day_pieces::glue_modules!(uikit, widget);
 
-#[cfg(all(feature = "widget", target_os = "android"))]
-#[path = "lib-android.rs"]
-mod android_impl;

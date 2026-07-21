@@ -17,3 +17,7 @@ build = "build.rs"
 
 [build-dependencies]
 cc = "1.2"
+
+[dev-dependencies]
+# The bridge_kinds_parity test checks shim.cpp's DAY_K_* against day_spec::bridge.
+day-spec = { workspace = true }

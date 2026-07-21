@@ -16,13 +16,13 @@ edition.workspace = true
 rust-version.workspace = true
 
 [features]
-appkit = ["day/appkit", "day-piece-remote-image/appkit", "day-piece-textarea/appkit"]
-gtk = ["day/gtk", "day-piece-remote-image/gtk", "day-piece-textarea/gtk"]
-qt = ["day/qt", "day-piece-remote-image/qt", "day-piece-textarea/qt"]
-uikit = ["day/uikit", "day-piece-remote-image/uikit", "day-piece-textarea/uikit"]
-widget = ["day/widget", "day-piece-remote-image/widget", "day-piece-textarea/widget"]
-winui = ["day/winui", "day-piece-remote-image/winui", "day-piece-textarea/winui"]
-mock = ["day/mock", "day-piece-remote-image/mock", "day-piece-textarea/mock"]
+appkit = ["day/appkit", "day-piece-remote-image/appkit"]
+gtk = ["day/gtk", "day-piece-remote-image/gtk"]
+qt = ["day/qt", "day-piece-remote-image/qt"]
+uikit = ["day/uikit", "day-piece-remote-image/uikit"]
+widget = ["day/widget", "day-piece-remote-image/widget"]
+winui = ["day/winui", "day-piece-remote-image/winui"]
+mock = ["day/mock", "day-piece-remote-image/mock"]
 
 [lib]
 crate-type = ["rlib"]
@@ -31,7 +31,6 @@ crate-type = ["rlib"]
 day = { path = "../../crates/day" }
 matrix-core = { path = "matrix-core" }
 day-piece-remote-image = { path = "../../pieces/day-piece-remote-image" }
-day-piece-textarea = { path = "../../pieces/day-piece-textarea" }
 
 [[bin]]
 name = "matrix"

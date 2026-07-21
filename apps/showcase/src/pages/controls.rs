@@ -1,7 +1,6 @@
 use day::prelude::*;
 use day_piece_activity::activity;
 use day_piece_combobox::combo_box;
-use day_piece_picker::picker;
 use day_piece_searchfield::search_field;
 
 use crate::widgets::{history, page};

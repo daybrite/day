@@ -5,12 +5,13 @@
 // Windows-only, built in CI, not verified locally.
 // ---------------------------------------------------------------------------
 
-use super::*;
+use day_spec::Event;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
 use day_spec::{NodeId, Proposal, Size};
-use day_winui::{WinHandle, WinUi};
+use crate::{WinHandle, WinUi};
 
 unsafe extern "C" {
     fn day_picker_winui_new(
@@ -33,7 +34,7 @@ unsafe extern "C" {
 }
 
 extern "C" fn on_select(id: u64, idx: c_int) {
-    day_winui::emit(NodeId(id), Event::SelectionChanged(idx as i64));
+    crate::emit(NodeId(id), Event::SelectionChanged(idx as i64));
 }
 
 fn style_code(s: PickerStyle) -> c_int {
@@ -71,6 +72,30 @@ fn measure(_backend: &mut WinUi, h: &WinHandle, _p: Proposal) -> Size {
     Size::new(w.max(120.0), hh.max(32.0))
 }
 
-day_pieces::renderer!(day_winui::RENDERERS, WinUi,
-    kind: KIND, props: PickerProps, patch: PickerPatch,
-    make: make, update: update, measure: measure);
+
+// Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
+// the satellite-era `renderer!` macro used to generate).
+pub(crate) fn realize_any(
+    b: &mut crate::WinUi,
+    props: &dyn std::any::Any,
+    id: day_spec::NodeId,
+) -> crate::WinHandle {
+    let p = props
+        .downcast_ref::<PickerProps>()
+        .expect("day: picker props type");
+    make(b, p, id)
+}
+
+pub(crate) fn update_any(b: &mut crate::WinUi, h: &crate::WinHandle, patch: &dyn std::any::Any) {
+    if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+        update(b, h, p);
+    }
+}
+
+pub(crate) fn measure_any(
+    b: &mut crate::WinUi,
+    h: &crate::WinHandle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
+    measure(b, h, p)
+}

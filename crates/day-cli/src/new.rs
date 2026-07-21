@@ -1070,13 +1070,19 @@ linkme = "0.3"
         ext_deps = ext_deps,
     );
 
-    // src/lib.rs front-end: the mod declarations for the chosen toolkits.
-    let mut mod_decls = String::new();
-    for t in toolkits {
-        mod_decls.push_str(mod_decl(t));
-        mod_decls.push('\n');
-    }
-    let lib = r.expand(&NATIVE_LIB.replace("__MOD_DECLS__", mod_decls.trim_end()));
+    // src/lib.rs front-end: one glue_modules! call for the chosen toolkits instead of the
+    // hand-written per-toolkit cfg blocks (docs/extending.md §2; "mock" has no glue module).
+    let glue: Vec<String> = toolkits
+        .iter()
+        .filter(|t| t.as_str() != "mock")
+        .cloned()
+        .collect();
+    let mod_decls = if glue.is_empty() {
+        String::new()
+    } else {
+        format!("day_pieces::glue_modules!({});", glue.join(", "))
+    };
+    let lib = r.expand(&NATIVE_LIB.replace("__MOD_DECLS__", &mod_decls));
 
     let mut files = vec![
         ("Cargo.toml".into(), cargo),
@@ -1114,26 +1120,6 @@ linkme = "0.3"
     }
 
     files
-}
-
-fn mod_decl(toolkit: &str) -> &'static str {
-    match toolkit {
-        "appkit" => {
-            "#[cfg(all(feature = \"appkit\", target_os = \"macos\"))]\n#[path = \"lib-appkit.rs\"]\nmod appkit_impl;"
-        }
-        "gtk" => "#[cfg(feature = \"gtk\")]\n#[path = \"lib-gtk.rs\"]\nmod gtk_impl;",
-        "qt" => "#[cfg(feature = \"qt\")]\n#[path = \"lib-qt.rs\"]\nmod qt_impl;",
-        "uikit" => {
-            "#[cfg(all(feature = \"uikit\", target_os = \"ios\"))]\n#[path = \"lib-uikit.rs\"]\nmod uikit_impl;"
-        }
-        "widget" => {
-            "#[cfg(all(feature = \"widget\", target_os = \"android\"))]\n#[path = \"lib-android.rs\"]\nmod android_impl;"
-        }
-        "winui" => {
-            "#[cfg(all(feature = \"winui\", windows))]\n#[path = \"lib-winui.rs\"]\nmod winui_impl;"
-        }
-        _ => "",
-    }
 }
 
 // ---------------------------------------------------------------------------

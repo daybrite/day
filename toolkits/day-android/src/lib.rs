@@ -9,6 +9,197 @@
 #[cfg(target_os = "android")]
 pub use imp::*;
 
+/// Parity test for the event-kind wire table: the Java shim's `K_*` constants block in
+/// DayBridge.java must mirror `day_spec::bridge::BridgeKind` exactly. Host-runnable — pure
+/// text against the enum, no JNI — so a drifted or colliding kind fails `cargo test`
+/// anywhere, not just on a device.
+#[cfg(test)]
+mod bridge_kinds_parity {
+    #[test]
+    fn java_constants_match_the_rust_enum() {
+        use day_spec::bridge::BridgeKind;
+        let java = include_str!("../java/dev/daybrite/day/bridge/DayBridge.java");
+        let mut found = std::collections::BTreeMap::new();
+        for line in java.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("public static final int K_")
+                && let Some((name, value)) = rest.split_once(" = ")
+            {
+                let value: i32 = value
+                    .trim_end_matches(';')
+                    .parse()
+                    .unwrap_or_else(|_| panic!("unparsable K_{name} line: {line}"));
+                assert!(
+                    found.insert(format!("K_{name}"), value).is_none(),
+                    "duplicate Java constant K_{name}"
+                );
+            }
+        }
+        let expect = [
+            ("K_PRESSED", BridgeKind::Pressed),
+            ("K_TEXT_CHANGED", BridgeKind::TextChanged),
+            ("K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
+            ("K_VALUE_CHANGED", BridgeKind::ValueChanged),
+            ("K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
+            ("K_NAV_BACK", BridgeKind::NavBack),
+            ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
+            ("K_DEEPLINK", BridgeKind::Deeplink),
+            ("K_PRESENT_BUTTON", BridgeKind::PresentButton),
+            ("K_PRESENT_TEXT", BridgeKind::PresentText),
+            ("K_PRESENT_DISMISSED", BridgeKind::PresentDismissed),
+            ("K_GESTURE", BridgeKind::Gesture),
+            ("K_CUSTOM", BridgeKind::Custom),
+            ("K_MENU_ACTION", BridgeKind::MenuAction),
+            ("K_LIFECYCLE", BridgeKind::Lifecycle),
+            ("K_PRESENT_FILE", BridgeKind::PresentFile),
+            ("K_FOCUS_CHANGED", BridgeKind::FocusChanged),
+            ("K_SUBMITTED", BridgeKind::Submitted),
+            ("K_WINDOW_RESIZED", BridgeKind::WindowResized),
+        ];
+        assert_eq!(
+            found.len(),
+            expect.len(),
+            "Java K_* count differs from the enum: {found:?}"
+        );
+        for (name, kind) in expect {
+            assert_eq!(
+                found.get(name).copied(),
+                Some(kind as i32),
+                "{name} drifted from BridgeKind::{kind:?}"
+            );
+        }
+    }
+}
+
+/// The part↔Java payload convention (docs/extending.md, "The Android bridging contract"):
+/// ONE `byte[]` crosses JNI per call, laid out as
+/// `[0..4)` status `i32` BE · `[4..8)` meta-block length `i32` BE · meta `"k\nv\n…"` UTF-8 ·
+/// payload bytes. A NEGATIVE status is a transport-error sentinel and the meta block carries
+/// the error message instead of pairs (each part defines its own sentinel values; day-part-http
+/// uses −1 timeout … −6 bad-url). Pure bytes — no JNI — so this compiles and tests on every
+/// host; `DayEnvelope.java` is the Java twin and the two encode identically.
+pub mod envelope {
+    /// A decoded (or to-be-encoded) bridge envelope.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct Envelope {
+        /// Non-negative: the call's status (HTTP status, a handle, …). Negative: an error
+        /// sentinel; `meta` is empty and [`Envelope::error_message`] holds the text.
+        pub status: i32,
+        /// Key/value pairs (response headers, attributes) — empty for error envelopes.
+        pub meta: Vec<(String, String)>,
+        /// The body / result bytes (for errors, the raw message bytes).
+        pub payload: Vec<u8>,
+    }
+
+    impl Envelope {
+        /// Serialize to the wire layout `DayEnvelope.java` produces.
+        pub fn encode(&self) -> Vec<u8> {
+            let mut meta = String::new();
+            for (k, v) in &self.meta {
+                meta.push_str(k);
+                meta.push('\n');
+                meta.push_str(v);
+                meta.push('\n');
+            }
+            let meta = meta.into_bytes();
+            let mut out = Vec::with_capacity(8 + meta.len() + self.payload.len());
+            out.extend_from_slice(&self.status.to_be_bytes());
+            out.extend_from_slice(&(meta.len() as i32).to_be_bytes());
+            out.extend_from_slice(&meta);
+            out.extend_from_slice(&self.payload);
+            out
+        }
+
+        /// Parse the wire layout. `Err` is a MALFORMED envelope (truncated), not a sentinel —
+        /// sentinel statuses parse fine and are the caller's to interpret.
+        pub fn decode(bytes: &[u8]) -> Result<Envelope, &'static str> {
+            if bytes.len() < 8 {
+                return Err("short envelope");
+            }
+            let status = i32::from_be_bytes(bytes[0..4].try_into().map_err(|_| "short")?);
+            let meta_len =
+                i32::from_be_bytes(bytes[4..8].try_into().map_err(|_| "short")?).max(0) as usize;
+            let rest = &bytes[8..];
+            if rest.len() < meta_len {
+                return Err("truncated envelope");
+            }
+            let (meta_bytes, payload) = rest.split_at(meta_len);
+            let mut meta = Vec::new();
+            if status >= 0 {
+                let mut lines = std::str::from_utf8(meta_bytes).unwrap_or("").split('\n');
+                while let (Some(k), Some(v)) = (lines.next(), lines.next()) {
+                    if !k.is_empty() {
+                        meta.push((k.to_string(), v.to_string()));
+                    }
+                }
+            }
+            Ok(Envelope {
+                status,
+                meta,
+                payload: if status < 0 {
+                    meta_bytes.to_vec() // the error message rides the meta block
+                } else {
+                    payload.to_vec()
+                },
+            })
+        }
+
+        /// For a sentinel (negative-status) envelope: the error message text.
+        pub fn error_message(&self) -> String {
+            String::from_utf8_lossy(&self.payload).into_owned()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::Envelope;
+
+        #[test]
+        fn round_trip_with_meta_and_payload() {
+            let e = Envelope {
+                status: 200,
+                meta: vec![
+                    ("Content-Type".into(), "text/plain".into()),
+                    ("X-Two".into(), "b".into()),
+                ],
+                payload: b"hello".to_vec(),
+            };
+            assert_eq!(Envelope::decode(&e.encode()).unwrap(), e);
+        }
+
+        #[test]
+        fn sentinel_carries_the_message() {
+            let raw = Envelope {
+                status: -3,
+                meta: vec![("boom: handshake".into(), "".into())],
+                payload: Vec::new(),
+            };
+            // Encode as Java's error() does: message in the meta block, no payload.
+            let mut bytes = (-3i32).to_be_bytes().to_vec();
+            let msg = b"boom: handshake";
+            bytes.extend_from_slice(&(msg.len() as i32).to_be_bytes());
+            bytes.extend_from_slice(msg);
+            let d = Envelope::decode(&bytes).unwrap();
+            assert_eq!(d.status, -3);
+            assert_eq!(d.error_message(), "boom: handshake");
+            let _ = raw;
+        }
+
+        #[test]
+        fn truncation_is_malformed_not_sentinel() {
+            assert!(Envelope::decode(&[0, 0]).is_err());
+            let mut bytes = 200i32.to_be_bytes().to_vec();
+            bytes.extend_from_slice(&99i32.to_be_bytes()); // claims 99 meta bytes, has none
+            assert!(Envelope::decode(&bytes).is_err());
+        }
+    }
+}
+
+#[cfg(target_os = "android")]
+mod picker;
+#[cfg(target_os = "android")]
+mod textarea;
+
 #[cfg(target_os = "android")]
 pub mod ext;
 #[cfg(target_os = "android")]
@@ -203,6 +394,7 @@ mod imp {
         }
     }
 
+    use day_spec::bridge;
     use day_spec::props::*;
     use day_spec::{
         A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
@@ -497,26 +689,48 @@ mod imp {
         }
     }
 
-    /// The single native trampoline (the app's `nativeOnEvent` forwards here).
-    /// Kinds: 0=press 1=text 2=toggle 3=value 4=select.
+    // The wire table (day_spec::bridge) as const match patterns — the Java side's K_* constants
+    // mirror these, and day-android's parity test holds the two files together.
+    const K_PRESSED: i32 = bridge::BridgeKind::Pressed as i32;
+    const K_TEXT_CHANGED: i32 = bridge::BridgeKind::TextChanged as i32;
+    const K_TOGGLE_CHANGED: i32 = bridge::BridgeKind::ToggleChanged as i32;
+    const K_VALUE_CHANGED: i32 = bridge::BridgeKind::ValueChanged as i32;
+    const K_SELECTION_CHANGED: i32 = bridge::BridgeKind::SelectionChanged as i32;
+    const K_NAV_BACK: i32 = bridge::BridgeKind::NavBack as i32;
+    const K_FRAME_CHANGED: i32 = bridge::BridgeKind::FrameChanged as i32;
+    const K_DEEPLINK: i32 = bridge::BridgeKind::Deeplink as i32;
+    const K_PRESENT_BUTTON: i32 = bridge::BridgeKind::PresentButton as i32;
+    const K_PRESENT_TEXT: i32 = bridge::BridgeKind::PresentText as i32;
+    const K_PRESENT_DISMISSED: i32 = bridge::BridgeKind::PresentDismissed as i32;
+    const K_GESTURE: i32 = bridge::BridgeKind::Gesture as i32;
+    const K_CUSTOM: i32 = bridge::BridgeKind::Custom as i32;
+    const K_MENU_ACTION: i32 = bridge::BridgeKind::MenuAction as i32;
+    const K_LIFECYCLE: i32 = bridge::BridgeKind::Lifecycle as i32;
+    const K_PRESENT_FILE: i32 = bridge::BridgeKind::PresentFile as i32;
+    const K_FOCUS_CHANGED: i32 = bridge::BridgeKind::FocusChanged as i32;
+    const K_SUBMITTED: i32 = bridge::BridgeKind::Submitted as i32;
+    const K_WINDOW_RESIZED: i32 = bridge::BridgeKind::WindowResized as i32;
+
+    /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
+    /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table.
     pub fn dispatch_event(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         let ev = match kind {
-            0 => Event::Pressed,
-            1 => {
+            K_PRESSED => Event::Pressed,
+            K_TEXT_CHANGED => {
                 let text = env.dstr(jstr).ok().unwrap_or_default();
                 Event::TextChanged(text)
             }
-            2 => Event::ToggleChanged(num != 0.0),
-            3 => Event::ValueChanged(num),
-            4 => Event::SelectionChanged(num as i64),
+            K_TOGGLE_CHANGED => Event::ToggleChanged(num != 0.0),
+            K_VALUE_CHANGED => Event::ValueChanged(num),
+            K_SELECTION_CHANGED => Event::SelectionChanged(num as i64),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
             // button, up arrow) — Rust updates the path without re-issuing the pop.
-            5 => Event::NavBack {
+            K_NAV_BACK => Event::NavBack {
                 already_popped: num != 0.0,
             },
             // Nav page size report, "w,h" in px.
-            6 => {
+            K_FRAME_CHANGED => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let Some((w, h)) = text.split_once(',') else {
                     return;
@@ -528,29 +742,29 @@ mod imp {
                 Event::FrameChanged(Size::new(w / d, h / d))
             }
             // Warm deep link: the nav piece handles Custom("deeplink").
-            7 => {
+            K_DEEPLINK => {
                 let route: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::custom("deeplink", route)
             }
             // Presentation answers (docs/dialogs.md): id == request id.
-            8 => Event::PresentResult {
+            K_PRESENT_BUTTON => Event::PresentResult {
                 req: id as u64,
                 result: day_spec::present::PresentResult::Button(num as i64),
             },
-            9 => {
+            K_PRESENT_TEXT => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::Text(text),
                 }
             }
-            10 => Event::PresentResult {
+            K_PRESENT_DISMISSED => Event::PresentResult {
                 req: id as u64,
                 result: day_spec::present::PresentResult::Dismissed,
             },
             // File-picker answer (docs/files.md): string = chosen locators (a cache path for open,
             // a content:// URI for save), joined by the unit separator. Reuse the `decode` tag 3.
-            15 => {
+            K_PRESENT_FILE => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
@@ -559,7 +773,7 @@ mod imp {
             }
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
             // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
-            11 => {
+            K_GESTURE => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
@@ -590,16 +804,16 @@ mod imp {
             // Piece-defined custom event (§8.2's open event channel): a `&'static str` tag can't cross
             // JNI, so the tag is empty and the piece reads the primitive `num`/`text` payload. A piece
             // (e.g. day-piece-webview) calls `DayBridge.nativeOnEvent(id, 12, num, text)`.
-            12 => {
+            K_CUSTOM => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
             // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
-            13 => Event::MenuAction(id as u64),
+            K_MENU_ACTION => Event::MenuAction(id as u64),
             // Activity lifecycle (docs/lifecycle.md): `num` is the phase code (day_spec::Lifecycle
             // order). DayActivity forwards onResume/onPause/onStart/onStop/onTrimMemory/onDestroy.
-            14 => match android_lifecycle(num as i32) {
+            K_LIFECYCLE => match android_lifecycle(num as i32) {
                 Some(phase) => Event::Lifecycle(phase),
                 None => return,
             },
@@ -607,7 +821,7 @@ mod imp {
             // inset pass, the soft keyboard, rotation, or a system-bar change. Routed to the
             // root as a window resize so Day relayouts; same rail as appkit's windowDidResize.
             // (18: the first free kind — 15 already carries file-picker answers.)
-            18 => {
+            K_WINDOW_RESIZED => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 2 {
@@ -621,9 +835,25 @@ mod imp {
                 return;
             }
             // Focus pair + IME submit action (docs/focus.md).
-            16 => Event::FocusChanged(num != 0.0),
-            17 => Event::Submitted,
-            _ => return,
+            K_FOCUS_CHANGED => Event::FocusChanged(num != 0.0),
+            K_SUBMITTED => Event::Submitted,
+            unknown => {
+                // A silently dropped kind is how the kind-15 collision hid for weeks: say so
+                // once per kind in debug builds (release stays quiet — this is a dev signal).
+                #[cfg(debug_assertions)]
+                {
+                    use std::sync::{Mutex, OnceLock};
+                    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<i32>>> = OnceLock::new();
+                    let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
+                    if let Ok(mut g) = seen.lock()
+                        && g.insert(unknown)
+                    {
+                        eprintln!("day-android: dropping unknown event kind {unknown}");
+                    }
+                }
+                let _ = unknown;
+                return;
+            }
         };
         emit(NodeId(id as u64), ev);
     }
@@ -1166,6 +1396,8 @@ mod imp {
                         ))
                     })
                 }
+                kinds::PICKER => crate::picker::realize_any(self, props, id),
+                kinds::TEXT_AREA => crate::textarea::realize_any(self, props, id),
                 kinds::TEXT_FIELD => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     with_env(|env| {
@@ -1397,6 +1629,8 @@ mod imp {
                         );
                     }
                 }
+                kinds::PICKER => crate::picker::update_any(self, h, patch),
+                kinds::TEXT_AREA => crate::textarea::update_any(self, h, patch),
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -1529,6 +1763,8 @@ mod imp {
                     p.width.unwrap_or(180.0),
                     (measure_call(h, "measureHeight") / d).max(24.0),
                 ),
+                // PICKER falls to the native measureWidth/measureHeight default below.
+                kinds::TEXT_AREA => return crate::textarea::measure_any(self, h, p),
                 kinds::TEXT_FIELD => Size::new(
                     p.width.unwrap_or(180.0),
                     (measure_call(h, "measureHeight") / d).max(40.0),
