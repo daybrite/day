@@ -1437,6 +1437,171 @@ fn shape_fill_radial_records_gradient_paint() {
     );
 }
 
+#[test]
+fn line_records_stroke_only_at_unit_points() {
+    let probe = boot(|| {
+        line((0.16, 0.72), (0.84, 0.72))
+            .fill(Color::WHITE) // ignored: a line has no interior
+            .stroke(Color::hex(0xffffff), 2.0)
+            .frame(100.0, 100.0)
+            .any()
+    });
+    let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
+    assert_eq!(ops.len(), 1, "stroke only, no fill: {ops:?}");
+    // No stroke-half inset for open kinds: endpoints resolve exactly at the unit points.
+    assert_eq!(
+        ops[0],
+        DrawOp::Stroke(
+            Shape::Line(Point::new(16.0, 72.0), Point::new(84.0, 72.0)),
+            Color::hex(0xffffff),
+            2.0
+        ),
+        "{ops:?}"
+    );
+}
+
+#[test]
+fn polygon_resolves_unit_points_and_allows_overflow() {
+    let probe = boot(|| {
+        polygon([(0.5, 0.0), (1.0, 1.0), (0.44, 1.02), (0.0, 1.0)])
+            .fill(Color::WHITE)
+            .frame(50.0, 50.0)
+            .any()
+    });
+    let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
+    match &ops[0] {
+        DrawOp::Fill(Shape::Polygon(pts), _) => {
+            assert_eq!(pts[0], Point::new(25.0, 0.0));
+            // Unit points resolve unclamped — 1.02 lands past the frame edge on purpose.
+            assert_eq!(pts[2], Point::new(22.0, 51.0));
+        }
+        other => panic!("expected a polygon fill, got {other:?}"),
+    }
+}
+
+#[test]
+fn shape_at_places_fractional_subrect() {
+    let probe = boot(|| {
+        ellipse()
+            .fill(Color::WHITE)
+            .at(0.25, 0.25, 0.5, 0.5)
+            .frame(100.0, 100.0)
+            .any()
+    });
+    let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
+    assert_eq!(
+        ops[0],
+        DrawOp::Fill(
+            Shape::Ellipse(Rect::new(25.0, 25.0, 50.0, 50.0)),
+            Paint::Solid(Color::WHITE)
+        ),
+        "{ops:?}"
+    );
+}
+
+#[test]
+fn shape_group_flattens_to_one_canvas_leaf() {
+    let probe = boot(|| {
+        shape_group([
+            rectangle().fill(Color::hex(0x111111)),
+            circle().fill(Color::hex(0x222222)),
+            line((0.0, 0.5), (1.0, 0.5)).stroke(Color::hex(0x333333), 1.0),
+        ])
+        .frame(80.0, 80.0)
+        .any()
+    });
+    let canvases = probe.find_by_kind("day.canvas");
+    assert_eq!(canvases.len(), 1, "a group is ONE canvas leaf");
+    let ops = &canvases[0].1.ops;
+    // Ops record in child order.
+    assert!(matches!(ops[0], DrawOp::Fill(Shape::Rect(_), _)), "{ops:?}");
+    assert!(
+        matches!(ops[1], DrawOp::Fill(Shape::Ellipse(_), _)),
+        "{ops:?}"
+    );
+    assert!(
+        matches!(ops[2], DrawOp::Stroke(Shape::Line(_, _), _, _)),
+        "{ops:?}"
+    );
+}
+
+#[test]
+fn shape_group_reactive_fill_rerecords() {
+    let on = Signal::new(false);
+    let probe = boot(move || {
+        shape_group([
+            rectangle().fill(Color::hex(0x000000)),
+            circle().fill(move || {
+                if on.get() {
+                    Color::hex(0xff0000)
+                } else {
+                    Color::hex(0x222222)
+                }
+            }),
+        ])
+        .frame(60.0, 60.0)
+        .any()
+    });
+    let node = probe.find_by_kind("day.canvas")[0].0;
+    let red = |p: &MockProbe| {
+        matches!(p.widget(node).ops.get(1),
+        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.r > 0.5)
+    };
+    assert!(!red(&probe));
+    batch(|| on.set(true));
+    flush_sync();
+    assert!(
+        red(&probe),
+        "a child's reactive fill must re-record the group"
+    );
+}
+
+#[test]
+fn shape_group_fn_derives_children_from_size() {
+    let probe = boot(|| {
+        shape_group_fn(|size| {
+            // A 10pt-wide bar expressed as a fraction of the laid-out width — only correct
+            // if the closure really receives the final size.
+            let f = 10.0 / size.width.max(1.0);
+            vec![rectangle().fill(Color::WHITE).at(0.0, 0.0, f, 1.0)]
+        })
+        .frame(200.0, 20.0)
+        .any()
+    });
+    let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
+    match &ops[0] {
+        DrawOp::Fill(Shape::Rect(r), _) => {
+            assert!(
+                (r.size.width - 10.0).abs() < 1e-9 && (r.size.height - 20.0).abs() < 1e-9,
+                "geometry must derive from the laid-out 200×20 size, got {r:?}"
+            );
+        }
+        other => panic!("expected a rect fill, got {other:?}"),
+    }
+}
+
+#[test]
+fn polygon_tap_is_path_precise() {
+    let taps = std::rc::Rc::new(std::cell::Cell::new(0));
+    let t2 = taps.clone();
+    let probe = boot(move || {
+        polygon([(0.5, 0.0), (1.0, 1.0), (0.0, 1.0)])
+            .fill(Color::WHITE)
+            .on_tap(move || t2.set(t2.get() + 1))
+            .frame(100.0, 100.0)
+            .any()
+    });
+    let node = node_id(&probe, "day.canvas", 0);
+    // Centroid of the triangle → inside.
+    probe.emit(node, Event::Tap(Point::new(50.0, 70.0)));
+    flush_sync();
+    assert_eq!(taps.get(), 1);
+    // The top-left corner is outside the triangle.
+    probe.emit(node, Event::Tap(Point::new(5.0, 5.0)));
+    flush_sync();
+    assert_eq!(taps.get(), 1, "corner tap must miss the triangle");
+}
+
 // ---------------------------------------------------------------------------
 // File open / save (docs/files.md) — the FileUrl type + the picker round-trip.
 // ---------------------------------------------------------------------------

@@ -4,8 +4,11 @@
 > (`day_pieces`), reactive `ShapeKind`/`fill`/`stroke`/`inset`/`rotate`/`scale`/`offset`, canvas
 > CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
 > five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
-> playground. This document is the SwiftUI `Circle`/`Rectangle`/`Path`/`Shape` analogue for Day;
-> conventions follow DESIGN.md.
+> playground. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
+> already-replayed `Shape::Line`/`Shape::Polygon` ops — §3.1), fractional placement with
+> `.at(fx, fy, fw, fh)`, and the `shape_group`/`shape_group_fn` composites that flatten many
+> shapes into one canvas leaf (§3.6). This document is the SwiftUI
+> `Circle`/`Rectangle`/`Path`/`Shape` analogue for Day; conventions follow DESIGN.md.
 
 ## 1. Goal & constraints
 
@@ -92,9 +95,10 @@ pub enum ShapeKind {
     Circle,                              // inscribed centred circle (min(w,h))
     Ellipse,                             // fills the rect
     Capsule,                             // RoundedRectangle with corner = min(w,h)/2
+    Arc { start_deg: f64, sweep_deg: f64 },   // stroked arc of the inscribed ellipse
+    Line { from: UnitPoint, to: UnitPoint },  // stroke-only segment between unit points
+    Polygon { points: Rc<[UnitPoint]> },      // point-list polygon in unit space
     // ── phase 2 (each adds one canvas op + geometry, no new node) ──
-    // Arc { start: f64, sweep: f64, mode: ArcMode },   // Open | Sector | Chord
-    // Polygon { sides: u32, rotation: f64 },           // regular n-gon inscribed
     // Path(PathData),                                  // arbitrary (see §8)
     // Custom(Rc<dyn Fn(Rect) -> PathData>),            // the `Shape` protocol analogue
 }
@@ -110,9 +114,28 @@ impl ShapeKind {
 }
 ```
 
-`resolve` maps each kind to the existing `day_spec::Shape` for v1 kinds, so no `day-spec` change
-is required for Rectangle/RoundedRectangle/Circle/Ellipse/Capsule. Phase-2 kinds (Arc modes,
-Polygon, Path, Custom) introduce a `PathData` primitive + one path-fill/stroke canvas op (§8).
+`resolve` maps each kind to the existing `day_spec::Shape`, so no `day-spec` change is required —
+including `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every backend already
+replays. `line((fx, fy), (fx, fy))` and `polygon([(fx, fy), …])` are the tuple-friendly sugar.
+Line/Polygon semantics, deliberately different from the closed kinds:
+
+- **Unit-point geometry, unclamped.** Points resolve as fractions of the rect (like gradient
+  `UnitPoint`s) and may sit outside 0..1 — a glyph's flourish can poke past its box on purpose.
+- **No stroke-half inset.** Closed kinds inset by `stroke/2` so a centered stroke stays inside the
+  frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
+  points, and a stroked segment touching the frame edge may clip on the clipping backends
+  (Qt/Android/WinUI), exactly as raw canvas does.
+- **Line is stroke-only** (`.fill` records nothing — a segment has no interior), and its rect may
+  be degenerate (a horizontal line in a zero-height sub-rect), so it skips the empty-rect bail.
+- **Polygon hit-testing is path-precise** (even-odd ray cast), keeping the D5 promise.
+
+A regular n-gon (`Polygon { sides, rotation }` in earlier drafts) is future sugar that computes
+inscribed unit points; the point-list form subsumes it.
+
+Placement: **`.at(fx, fy, fw, fh)`** resolves the shape inside that fractional sub-rect of its
+bounds (applied before `.inset`). It exists for composition — hand-drawn glyph code full of
+`Rect::new(ox + fx * s, oy + fy * s, fw * s, fh * s)` translates 1:1 into `.at(fx, fy, fw, fh)`
+children of a group (§3.6) — and works on a standalone shape too.
 
 ### 3.2 Style: `Paint` and `Stroke` (data, growable)
 
@@ -246,6 +269,41 @@ zstack((
 
 The result is a composable, identified, animatable progress ring, the same idiom SwiftUI uses.
 
+### 3.6 Shape groups: many shapes, one canvas leaf
+
+A `ShapePiece` is one native view. That is right for a backdrop or a swatch and wrong for a
+composed glyph: a 10-row forecast whose weather icons average 8–12 shapes each would create ~200
+native views (each with a trigger, an event route, and a per-view replay hop) where the raw-canvas
+version had ~30. The composites close that gap:
+
+```rust
+/// Flatten shape descriptions into ONE canvas leaf, drawn in order.
+pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> AnyPiece;
+/// Size-aware variant: children derive from the laid-out size, re-run on FrameChanged —
+/// for geometry that maps data along the final width/height.
+pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> AnyPiece;
+
+// A storm glyph — five shapes, one native view:
+shape_group([
+    rounded_rectangle(4.0).fill(CLOUD).at(0.08, 0.54, 0.84, 0.36),
+    ellipse().fill(CLOUD).at(0.06, 0.36, 0.42, 0.42),
+    ellipse().fill(CLOUD).at(0.30, 0.20, 0.46, 0.46),
+    line((0.34, 0.78), (0.29, 0.98)).stroke(RAIN, 1.5),
+    polygon([(0.52, 0.66), (0.40, 0.90), /* … */]).fill(BOLT),
+])
+.frame(30.0, 30.0)
+```
+
+Groups reuse the whole shape pipeline: each child is the same `ShapePiece` description
+(fill/stroke/inset/rotate/scale/offset/`.at`, all reactive — a tracked read in any child
+re-records the group), and both composites lower through the same `canvas_leaf` as `canvas()` and
+standalone shapes. Two intentional limits: child `.on_tap`/`.on_drag` are **not** wired inside a
+group (put gestures on the group via `Decorate::on_tap`), and a group has no per-child identity —
+it is one leaf.
+
+Density guidance: **a backdrop is a shape; a glyph is a group; hundreds of shapes is a
+`canvas()`** (the §4 escape hatch, unchanged).
+
 ## 4. Reactivity, identity, accessibility
 
 - **Reactivity**: free (D4). `circle().fill(move || if on.get() { RED } else { GRAY })` re-records
@@ -350,8 +408,11 @@ keep B in the pocket.
   {Rectangle, RoundedRectangle, Circle, Ellipse, Capsule}; `Paint::Solid`; `shape()` + sugar;
   `.fill/.stroke/.inset`; canvas lowering; `.id/.a11y/.frame` via `Decorate`; mock-tested op-lists;
   a `shapes` showcase playground. Works on all six backends immediately.
+- **Phase 1.5 (shipped; still no backend work):** `Arc`; `Line`/`Polygon` unit-point kinds;
+  `.at` fractional placement; `shape_group`/`shape_group_fn` (§3.6). Day Skies' weather glyphs
+  and range bars are the reference consumers.
 - **Phase 2 (canvas-layer growth):** gradients (`Paint` + gradient ops + backend replay, per hop);
-  `PathData` + path ops + `path()`/`shape_fn()`; `Arc` modes, `Polygon`, `.trim`, `.rotation`.
+  `PathData` + path ops + `path()`/`shape_fn()`; arc modes (Sector/Chord), `.trim`.
 - **Phase 3 (pillars):** the §8.4 frame clock + `Animatable`/`Animation` → `.animation`/
   `with_animation`; gesture wiring → `.on_tap` with path-precise hit testing.
 - **Phase 4 (optional):** native `SHAPE` leaf (Proposal B) as a transparent lowering for fidelity.

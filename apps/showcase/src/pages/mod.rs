@@ -5,6 +5,7 @@ pub(crate) mod canvas;
 pub(crate) mod controls;
 pub(crate) mod dates;
 pub(crate) mod focus;
+pub(crate) mod grid;
 pub(crate) mod list;
 pub(crate) mod localization;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -27,6 +28,7 @@ pub(crate) use canvas::canvas_page;
 pub(crate) use controls::controls_page;
 pub(crate) use dates::dates_page;
 pub(crate) use focus::focus_page;
+pub(crate) use grid::grid_page;
 pub(crate) use list::list_page;
 pub(crate) use localization::localization_page;
 #[cfg(any(target_os = "macos", target_os = "ios"))]

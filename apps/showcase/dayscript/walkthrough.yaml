@@ -130,6 +130,12 @@ flow:
   - assert_text: { id: compose-rating-value, text: "4" }
   - screenshot: canvas
 
+  # Grid (docs/grid.md): columns sized by content, spans, and flexible cells. Desktop hosts the
+  # sub-pages as tabs (basics preselected), mobile as a menu of pushed pages — so this stop only
+  # takes the section screenshot; grid behavior itself is pinned by the day-pieces grid tests.
+  - navigate: { route: grid }
+  - screenshot: grid
+
   # Menus & dialogs (docs/menus.md, docs/dialogs.md): the transient native surfaces in one
   # page — the app-menu action readout, the context-menu target, and the imperative dialogs.
   # Screenshot the pristine form first, then open each dialog, answer it, assert the result.

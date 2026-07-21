@@ -161,6 +161,40 @@ fn shapes_section() -> impl Piece {
                 .stroke(Color::hex(0x16A085), 6.0)
                 .frame(56.0, 56.0)
                 .id("shape-arc"),
+            // Line + polygon resolve unit points against the frame (docs/shapes.md §3.1).
+            line((0.1, 0.85), (0.9, 0.15))
+                .stroke(Color::hex(0x2C3E50), 4.0)
+                .frame(56.0, 56.0)
+                .id("shape-line"),
+            polygon([
+                (0.5, 0.03),
+                (0.61, 0.38),
+                (0.98, 0.38),
+                (0.68, 0.6),
+                (0.79, 0.95),
+                (0.5, 0.73),
+                (0.21, 0.95),
+                (0.32, 0.6),
+                (0.02, 0.38),
+                (0.39, 0.38),
+            ])
+            .fill(Color::hex(0xF1C40F))
+            .frame(56.0, 56.0)
+            .id("shape-polygon"),
+            // A shape_group flattens its shapes into ONE canvas leaf (docs/shapes.md §3.6):
+            // a target — ring, disc, and four `.at`-placed tick lines — as a single native view.
+            shape_group([
+                circle().stroke(Color::hex(0xC0392B), 4.0).inset(4.0),
+                circle()
+                    .fill(Color::hex(0xC0392B))
+                    .at(0.38, 0.38, 0.24, 0.24),
+                line((0.5, 0.0), (0.5, 0.14)).stroke(Color::hex(0xC0392B), 3.0),
+                line((0.5, 0.86), (0.5, 1.0)).stroke(Color::hex(0xC0392B), 3.0),
+                line((0.0, 0.5), (0.14, 0.5)).stroke(Color::hex(0xC0392B), 3.0),
+                line((0.86, 0.5), (1.0, 0.5)).stroke(Color::hex(0xC0392B), 3.0),
+            ])
+            .frame(56.0, 56.0)
+            .id("shape-group"),
         ))
         .spacing(12.0),
     ))

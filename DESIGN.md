@@ -51,6 +51,7 @@ the architecture-level view and the rationale.
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
+| grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | docs/grid.md | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | docs/focus.md | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
 | canvas, shapes, gradients, gestures | docs/shapes.md | [§11](#11-canvas) |
 | text & typography | docs/text.md | [§6.4](#64-typography) |
@@ -637,6 +638,8 @@ divider()   spacer()
 column(children).spacing(8.0).align(HAlign::Leading)
 row(children).spacing(8.0).align(VAlign::Center)
 zstack(children)                   // overlay
+grid((grid_row((…)), …)).spacing(8.0)   // SwiftUI-style eager grid (docs/grid.md): columns
+                                   //   infer from cells; .grid_span(n)/.grid_align(a) per cell
 scroll(child)
 form((section((…)).title(t), …))   // grouped platform forms (docs/forms.md)
 labeled(caption, control)
@@ -656,8 +659,11 @@ app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator
 // drawing (§11, docs/shapes.md)
 canvas(draw_fn)
 rectangle()  rounded_rectangle(r)  circle()  capsule()  ellipse()  arc(start, sweep)
+line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Polygon ops
     .fill(color) / .fill_linear(g) / .fill_radial(g) / .stroke(color, w)
     .rotate(deg) / .inset(v) / .offset(x, y)      // reactive: any of these takes a closure
+    .at(fx, fy, fw, fh)            // fractional sub-rect placement (glyph composition)
+shape_group(shapes)  shape_group_fn(size_fn)      // many shapes, ONE canvas leaf (§3.6 there)
 
 // ambient environment
 with_environment(value, build_fn)   environment::<T>()
@@ -665,9 +671,10 @@ with_environment(value, build_fn)   environment::<T>()
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.id_keyed()`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
-`.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.a11y()`, `.on_tap()` / `.on_drag()`,
-`.focused()`, `.context_menu()`, `.tweak()` / `.native_ref()` (docs/tweaks.md),
-`.modifier(impl Modifier)`, and `.any()`.
+`.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
+(docs/grid.md; inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()`, `.focused()`,
+`.context_menu()`, `.tweak()` / `.native_ref()` (docs/tweaks.md), `.modifier(impl Modifier)`,
+and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
@@ -912,6 +919,10 @@ pub trait Layout: 'static {
   decorator wrappers and leaves and forwarded through wrappers unless overridden (hop's
   `greedyAlong` precedent). (An earlier draft put `priority(child)` on the `Layout` trait itself;
   that is dead API — the parent's impl has no way to know a child's `layout_priority` wrapper.)
+  *Shipped form:* the facts surface is the `Flex` struct (`grow_w`/`grow_h`/`is_spacer`/
+  `is_group`), read via `LayoutOps::flex_of`; it grew a `grid: GridFacts` field (row marker,
+  span, cell alignment) for `GridLayout` — the grid's cell metadata rides the same channel
+  (docs/grid.md). Numeric `priority()` remains unimplemented.
 - **The `Layout` trait is public and open** — a custom container (flow layout, masonry) is a piece
   whose node carries a user `Layout` impl. Built-ins use the same trait (no private privileges).
   This satisfies "flexible and extensible" without adopting Taffy; the web-flexbox model fights
@@ -1458,7 +1469,11 @@ made native nav containers possible without a scaffold migration.
 > elliptically to non-square bounds) — replayed as native gradient primitives on every backend
 > (NSGradient / CGGradient / cairo / QGradient / android Shader / XAML brushes / ArkUI shader
 > effects). Live transforms (`.rotate`/`.inset`/`.offset` taking closures) re-record just the
-> node.
+> node. Later additions, still with zero backend work: `line(a, b)` / `polygon(points)` shape
+> kinds (unit-point geometry over the already-replayed `Shape::Line`/`Shape::Polygon` ops),
+> fractional placement via `.at(fx, fy, fw, fh)`, and `shape_group` / `shape_group_fn` — many
+> shape descriptions flattened into ONE canvas leaf (docs/shapes.md §3.6; Day Skies' weather
+> glyphs and range bars are the reference consumers).
 
 ```rust
 pub fn gauge(value: Signal<f64>) -> AnyPiece {

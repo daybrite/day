@@ -14,7 +14,7 @@ use day_reactive::{Scope, Signal, bind, bind_seeded, watch};
 use day_spec::props::*;
 use day_spec::{
     A11yProps, Color, DrawOp, Event, Font, Insets, LinearGradient, Paint, Point, RadialGradient,
-    Rect, Role, Shape, Size, kinds,
+    Rect, Role, Shape, Size, UnitPoint, kinds,
 };
 
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
@@ -851,6 +851,121 @@ impl<C: PieceSeq> Piece for Row<C> {
                 align: self.align,
             }),
             Flex::default(),
+            Boundary::No,
+        );
+        cx.under(node, |cx| self.children.build_each(cx));
+        node
+    }
+}
+
+pub struct Grid<C: PieceSeq> {
+    children: C,
+    row_spacing: f64,
+    column_spacing: f64,
+    align: Alignment,
+}
+
+/// A SwiftUI-style eager grid (docs/grid.md): columns are inferred from [`grid_row`] children —
+/// a column is as wide as its widest cell, a `grow_w` cell makes its column share the leftover
+/// width evenly, and a non-row child becomes a full-width cell spanning every column. `spacer()`
+/// inside a row is an inert empty cell that still occupies its column (a grid has explicit
+/// gutters, so stack-style push-apart spacers don't apply). Cells opt into spans and per-cell
+/// alignment with [`Decorate::grid_span`] / [`Decorate::grid_align`].
+pub fn grid<C: PieceSeq>(children: C) -> Grid<C> {
+    Grid {
+        children,
+        row_spacing: 0.0,
+        column_spacing: 0.0,
+        align: Alignment::Center,
+    }
+}
+
+impl<C: PieceSeq> Grid<C> {
+    /// Set both the row and column gutters.
+    pub fn spacing(mut self, s: f64) -> Self {
+        self.row_spacing = s;
+        self.column_spacing = s;
+        self
+    }
+    pub fn row_spacing(mut self, s: f64) -> Self {
+        self.row_spacing = s;
+        self
+    }
+    pub fn column_spacing(mut self, s: f64) -> Self {
+        self.column_spacing = s;
+        self
+    }
+    /// Default alignment of every cell within its cell rect (cell/row overrides win).
+    pub fn align(mut self, a: Alignment) -> Self {
+        self.align = a;
+        self
+    }
+}
+
+impl<C: PieceSeq> Piece for Grid<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let node = cx.native(
+            kinds::CONTAINER,
+            &ContainerProps::default(),
+            Rc::new(GridLayout {
+                row_spacing: self.row_spacing,
+                column_spacing: self.column_spacing,
+                align: self.align,
+            }),
+            Flex::default(),
+            Boundary::No,
+        );
+        cx.under(node, |cx| self.children.build_each(cx));
+        node
+    }
+}
+
+pub struct GridRow<C: PieceSeq> {
+    children: C,
+    valign: Option<CrossAlign>,
+}
+
+/// One row of a [`grid`]: each child is a cell, assigned to columns left to right. Outside a
+/// grid a row degrades gracefully to a plain [`row`]. Rows are transparent carriers — the grid
+/// places their cells directly — so decorating a `grid_row` itself is unsupported (decorate the
+/// cells, or the grid).
+pub fn grid_row<C: PieceSeq>(children: C) -> GridRow<C> {
+    GridRow {
+        children,
+        valign: None,
+    }
+}
+
+impl<C: PieceSeq> GridRow<C> {
+    /// Vertical alignment override for this row's cells (the grid's alignment applies otherwise).
+    pub fn align(mut self, a: VAlign) -> Self {
+        self.valign = Some(match a {
+            VAlign::Top => CrossAlign::Leading,
+            VAlign::Center => CrossAlign::Center,
+            VAlign::Bottom => CrossAlign::Trailing,
+        });
+        self
+    }
+}
+
+impl<C: PieceSeq> Piece for GridRow<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        // A layout-only node whose StackLayout only runs when the row is NOT inside a grid
+        // (the graceful-degrade path) — a grid introspects the cells and places them itself.
+        let node = cx.layout_only(
+            Rc::new(StackLayout {
+                axis: Axis::Horizontal,
+                spacing: 0.0,
+                align: self.valign.unwrap_or_default(),
+            }),
+            Flex {
+                grid: GridFacts {
+                    is_row: true,
+                    row_valign: self.valign,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             Boundary::No,
         );
         cx.under(node, |cx| self.children.build_each(cx));
@@ -1981,6 +2096,43 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
+    /// facts on the node the grid sees: apply them LAST (outermost), like `.grow_w()` — an
+    /// outer wrapper would hide the facts from the grid.
+    fn grid_span(self, n: usize) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = self.build(cx);
+            with_tree(|t| {
+                t.set_grid_facts(
+                    node,
+                    GridFacts {
+                        col_span: n.clamp(1, u16::MAX as usize) as u16,
+                        ..Default::default()
+                    },
+                )
+            });
+            node
+        })
+    }
+
+    /// Override this cell's alignment within its cell rect of the enclosing [`grid`]
+    /// (docs/grid.md). Apply LAST (outermost), like [`Self::grid_span`].
+    fn grid_align(self, a: Alignment) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = self.build(cx);
+            with_tree(|t| {
+                t.set_grid_facts(
+                    node,
+                    GridFacts {
+                        align: Some(a),
+                        ..Default::default()
+                    },
+                )
+            });
+            node
+        })
+    }
+
     fn any(self) -> AnyPiece {
         AnyPiece::new(self)
     }
@@ -2218,16 +2370,16 @@ pub mod prelude {
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
-        FilledButtonStyle, FormSection, HAlign, IntoFocusBinding, IntoFraction, IntoReactive,
-        IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, OpenFile, Prompt, Reactive,
-        Route, RoutePath, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece, SignalRw,
-        Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule, circle, column,
-        confirm, current_route, divider, each, ellipse, environment, form, image, label, labeled,
-        link, list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to,
-        navigate, navigate_to, open_file, picker, progress, prompt, rectangle, rounded_rectangle,
-        route, route_param, route_params, row, save_file, scroll, section, selector, shape, slider,
-        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment,
-        zstack,
+        FilledButtonStyle, FormSection, Grid, GridRow, HAlign, IntoFocusBinding, IntoFraction,
+        IntoReactive, IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, OpenFile,
+        Prompt, Reactive, Route, RoutePath, SaveFile, Selector, SelectorStyle, ShapeKind,
+        ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule,
+        circle, column, confirm, current_route, divider, each, ellipse, environment, form, grid,
+        grid_row, image, label, labeled, line, link, list, menu_item, menu_role, menu_separator,
+        nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker, polygon,
+        progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params, row,
+        save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider, spacer,
+        spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment, zstack,
     };
     pub use crate::{Picker, TextArea};
     pub use day_core::{
@@ -2407,7 +2559,7 @@ use day_geometry::Proposal;
 pub use day_spec::{DragPhase, GestureKind};
 
 /// A shape's geometry, resolved against the rect layout assigns it (frame-relative, SwiftUI-style).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
     Rectangle,
     RoundedRectangle {
@@ -2420,6 +2572,17 @@ pub enum ShapeKind {
     Arc {
         start_deg: f64,
         sweep_deg: f64,
+    },
+    /// A stroked segment between two unit points of the resolved rect (stroke-only; fills are
+    /// ignored). Unit points resolve unclamped, like every unit-space resolve.
+    Line {
+        from: UnitPoint,
+        to: UnitPoint,
+    },
+    /// A filled/stroked polygon of unit points resolved against the rect (unclamped — points may
+    /// deliberately sit outside 0..1).
+    Polygon {
+        points: Rc<[UnitPoint]>,
     },
 }
 
@@ -2468,6 +2631,10 @@ impl ShapeKind {
                 start_deg,
                 sweep_deg,
             },
+            ShapeKind::Line { from, to } => Shape::Line(from.resolve(rect), to.resolve(rect)),
+            ShapeKind::Polygon { points } => {
+                Shape::Polygon(points.iter().map(|p| p.resolve(rect)).collect())
+            }
         }
     }
     /// Point-in-shape test (in the shape's own, untransformed coordinates).
@@ -2484,10 +2651,30 @@ impl ShapeKind {
             let dy = (p.y - c.y) / (r.size.height / 2.0);
             dx * dx + dy * dy <= 1.0
         }
+        /// Even-odd ray cast: count edge crossings of the +x ray from `p`.
+        fn in_polygon(pts: &[Point], p: Point) -> bool {
+            if pts.len() < 3 {
+                return false;
+            }
+            let mut inside = false;
+            let mut j = pts.len() - 1;
+            for i in 0..pts.len() {
+                let (a, b) = (pts[i], pts[j]);
+                if (a.y > p.y) != (b.y > p.y) {
+                    let x = a.x + (p.y - a.y) / (b.y - a.y) * (b.x - a.x);
+                    if p.x < x {
+                        inside = !inside;
+                    }
+                }
+                j = i;
+            }
+            inside
+        }
         match self.geometry(rect) {
             Shape::Ellipse(r) => in_ellipse(r, p),
             Shape::Rect(r) | Shape::RoundedRect(r, _) => in_rect(r, p),
-            _ => in_rect(rect, p), // arc / line / polygon: bounding-box fallback
+            Shape::Polygon(pts) => in_polygon(&pts, p),
+            _ => in_rect(rect, p), // arc / line: bounding-box fallback
         }
     }
 }
@@ -2500,8 +2687,10 @@ pub struct Drag {
     pub translation: Point,
 }
 
-/// A shape piece — one data-oriented piece parameterised by `ShapeKind`, rendered atop the canvas.
-pub struct ShapePiece {
+/// The drawable description of a shape — everything but gestures. Cloneable so [`shape_group`]
+/// can collect many descriptions into one canvas closure (docs/shapes.md §3.6).
+#[derive(Clone)]
+struct ShapeSpec {
     kind: Reactive<ShapeKind>,
     fill: Option<Reactive<Color>>,
     fill_linear: Option<Reactive<LinearGradient>>,
@@ -2511,6 +2700,13 @@ pub struct ShapePiece {
     rotate: Reactive<f64>,
     scale: Reactive<f64>,
     offset: (Reactive<f64>, Reactive<f64>),
+    /// Unit-space sub-rect of the bounds this shape resolves in (`.at`).
+    at: Option<Rect>,
+}
+
+/// A shape piece — one data-oriented piece parameterised by `ShapeKind`, rendered atop the canvas.
+pub struct ShapePiece {
+    spec: ShapeSpec,
     on_tap: Option<Rc<dyn Fn()>>,
     on_drag: Option<Rc<dyn Fn(Drag)>>,
 }
@@ -2518,15 +2714,18 @@ pub struct ShapePiece {
 /// The unified constructor: `shape(ShapeKind::RoundedRectangle { corner: 12.0.into() })`.
 pub fn shape<M>(kind: impl IntoReactive<ShapeKind, M>) -> ShapePiece {
     ShapePiece {
-        kind: kind.into_reactive(),
-        fill: None,
-        fill_linear: None,
-        fill_radial: None,
-        stroke: None,
-        inset: Reactive::Const(0.0),
-        rotate: Reactive::Const(0.0),
-        scale: Reactive::Const(1.0),
-        offset: (Reactive::Const(0.0), Reactive::Const(0.0)),
+        spec: ShapeSpec {
+            kind: kind.into_reactive(),
+            fill: None,
+            fill_linear: None,
+            fill_radial: None,
+            stroke: None,
+            inset: Reactive::Const(0.0),
+            rotate: Reactive::Const(0.0),
+            scale: Reactive::Const(1.0),
+            offset: (Reactive::Const(0.0), Reactive::Const(0.0)),
+            at: None,
+        },
         on_tap: None,
         on_drag: None,
     }
@@ -2555,23 +2754,39 @@ pub fn arc(start_deg: f64, sweep_deg: f64) -> ShapePiece {
         sweep_deg,
     })
 }
+/// A stroked segment between two unit points of the frame: `line((0.16, 0.5), (0.84, 0.5))`.
+pub fn line(from: (f64, f64), to: (f64, f64)) -> ShapePiece {
+    shape(ShapeKind::Line {
+        from: UnitPoint::new(from.0, from.1),
+        to: UnitPoint::new(to.0, to.1),
+    })
+}
+/// A polygon of unit points of the frame: `polygon([(0.5, 0.0), (1.0, 1.0), (0.0, 1.0)])`.
+pub fn polygon(points: impl IntoIterator<Item = (f64, f64)>) -> ShapePiece {
+    shape(ShapeKind::Polygon {
+        points: points
+            .into_iter()
+            .map(|(x, y)| UnitPoint::new(x, y))
+            .collect(),
+    })
+}
 
 impl ShapePiece {
     pub fn fill<M>(mut self, p: impl IntoReactive<Color, M>) -> Self {
-        self.fill = Some(p.into_reactive());
+        self.spec.fill = Some(p.into_reactive());
         self
     }
     /// Fill with a [`LinearGradient`] (unit points resolve against the shape's bounds). Takes
     /// precedence over [`Self::fill`] when both are set; reactive like every other property:
     /// `rectangle().fill_linear(move || sky_gradient(state.get()))`.
     pub fn fill_linear<M>(mut self, g: impl IntoReactive<LinearGradient, M>) -> Self {
-        self.fill_linear = Some(g.into_reactive());
+        self.spec.fill_linear = Some(g.into_reactive());
         self
     }
     /// Fill with a [`RadialGradient`] (center + radius in the unit space of the shape's bounds,
     /// stretching elliptically in non-square bounds). Precedence: radial over linear over solid.
     pub fn fill_radial<M>(mut self, g: impl IntoReactive<RadialGradient, M>) -> Self {
-        self.fill_radial = Some(g.into_reactive());
+        self.spec.fill_radial = Some(g.into_reactive());
         self
     }
     pub fn stroke<M1, M2>(
@@ -2579,22 +2794,22 @@ impl ShapePiece {
         color: impl IntoReactive<Color, M1>,
         width: impl IntoReactive<f64, M2>,
     ) -> Self {
-        self.stroke = Some((color.into_reactive(), width.into_reactive()));
+        self.spec.stroke = Some((color.into_reactive(), width.into_reactive()));
         self
     }
     /// Uniform inset applied before resolving geometry (keeps strokes inside the frame).
     pub fn inset<M>(mut self, v: impl IntoReactive<f64, M>) -> Self {
-        self.inset = v.into_reactive();
+        self.spec.inset = v.into_reactive();
         self
     }
     /// Rotate the drawn shape about its centre, in degrees.
     pub fn rotate<M>(mut self, deg: impl IntoReactive<f64, M>) -> Self {
-        self.rotate = deg.into_reactive();
+        self.spec.rotate = deg.into_reactive();
         self
     }
     /// Scale the drawn shape about its centre (uniform).
     pub fn scale<M>(mut self, s: impl IntoReactive<f64, M>) -> Self {
-        self.scale = s.into_reactive();
+        self.spec.scale = s.into_reactive();
         self
     }
     /// Translate the drawn shape within its frame.
@@ -2603,7 +2818,14 @@ impl ShapePiece {
         x: impl IntoReactive<f64, M1>,
         y: impl IntoReactive<f64, M2>,
     ) -> Self {
-        self.offset = (x.into_reactive(), y.into_reactive());
+        self.spec.offset = (x.into_reactive(), y.into_reactive());
+        self
+    }
+    /// Resolve this shape inside the fractional sub-rect `(fx, fy, fw, fh)` of its bounds —
+    /// unit-space, applied before [`Self::inset`]. The workhorse for composing glyphs in a
+    /// [`shape_group`], mirroring hand-drawn `Rect::new(ox + fx * s, oy + fy * s, …)` canvas code.
+    pub fn at(mut self, fx: f64, fy: f64, fw: f64, fh: f64) -> Self {
+        self.spec.at = Some(Rect::new(fx, fy, fw, fh));
         self
     }
     /// Fire when the shape is tapped (path-precise — the tap is tested against the resolved path).
@@ -2628,92 +2850,142 @@ fn shape_transform(rect: Rect, rot_deg: f64, scale: f64, ox: f64, oy: f64) -> Af
         .then(Affine::translate(ox, oy))
 }
 
+/// Map an `.at` unit-space sub-rect into `bounds` (identity when unset).
+fn resolve_at(at: Option<Rect>, bounds: Rect) -> Rect {
+    match at {
+        Some(u) => Rect::new(
+            bounds.origin.x + u.origin.x * bounds.size.width,
+            bounds.origin.y + u.origin.y * bounds.size.height,
+            u.size.width * bounds.size.width,
+            u.size.height * bounds.size.height,
+        ),
+        None => bounds,
+    }
+}
+
+/// Record one shape description into `d`, resolved within `bounds` — shared by
+/// [`ShapePiece`]'s own canvas leaf and by [`shape_group`] / [`shape_group_fn`].
+fn record_shape(spec: &ShapeSpec, d: &mut Draw, bounds: Rect) {
+    let bounds = resolve_at(spec.at, bounds);
+    let kind = spec.kind.get();
+    // A centered stroke overflows the geometry by half its width; inset closed shapes by w/2 so
+    // the whole stroke stays inside the view bounds — backends that clip a canvas to its bounds
+    // (Qt/Android/WinUI) would otherwise cut the stroke's outer edge. (SwiftUI `strokeBorder`
+    // behavior.) Fill-only shapes are unaffected (stroke_half = 0). Line/Polygon are exempt:
+    // they resolve exactly at their authored unit points, and a line's rect is legitimately
+    // degenerate (zero-height for a horizontal segment), so they skip the empty-rect bail too.
+    let open = matches!(kind, ShapeKind::Line { .. } | ShapeKind::Polygon { .. });
+    let stroke_half = if open {
+        0.0
+    } else {
+        spec.stroke
+            .as_ref()
+            .map(|(_, w)| w.get() / 2.0)
+            .unwrap_or(0.0)
+    };
+    let rect = bounds.inset(spec.inset.get() + stroke_half);
+    if !open && (rect.size.width <= 0.0 || rect.size.height <= 0.0) {
+        return;
+    }
+    let geom = kind.geometry(rect);
+    let m = shape_transform(
+        rect,
+        spec.rotate.get(),
+        spec.scale.get(),
+        spec.offset.0.get(),
+        spec.offset.1.get(),
+    );
+    let transformed = !m.is_identity();
+    if transformed {
+        d.save();
+        d.concat(m);
+    }
+    if !matches!(geom, Shape::Line(..)) {
+        if let Some(g) = &spec.fill_radial {
+            d.fill(geom.clone(), g.get());
+        } else if let Some(g) = &spec.fill_linear {
+            d.fill(geom.clone(), g.get());
+        } else if let Some(fill) = &spec.fill {
+            d.fill(geom.clone(), fill.get());
+        }
+    }
+    if let Some((c, w)) = &spec.stroke {
+        d.stroke(geom, c.get(), w.get());
+    }
+    if transformed {
+        d.restore();
+    }
+}
+
+/// A shape greedily fills its proposed size (SwiftUI semantics).
+fn shape_flex() -> Flex {
+    Flex {
+        grow_w: true,
+        grow_h: true,
+        ..Default::default()
+    }
+}
+
+/// Flatten many shape descriptions into ONE canvas leaf — one native view no matter how many
+/// shapes (docs/shapes.md §3.6). Shapes draw in order; reactive properties re-record the group.
+/// Child gestures are not wired inside a group — put `.on_tap` on the group via [`Decorate`].
+pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> AnyPiece {
+    let specs: Vec<ShapeSpec> = shapes.into_iter().map(|s| s.spec).collect();
+    piece_fn(move |cx| {
+        canvas_leaf(cx, shape_flex(), move |d, size| {
+            let bounds = Rect::from_size(size);
+            for spec in &specs {
+                record_shape(spec, d, bounds);
+            }
+        })
+    })
+}
+
+/// Size-aware [`shape_group`]: the closure derives the shapes from the laid-out size and re-runs
+/// on `FrameChanged`, exactly like [`canvas`] — for geometry that depends on the final size
+/// (e.g. data mapped along the width).
+pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> AnyPiece {
+    piece_fn(move |cx| {
+        canvas_leaf(cx, shape_flex(), move |d, size| {
+            let bounds = Rect::from_size(size);
+            for piece in shapes(size) {
+                record_shape(&piece.spec, d, bounds);
+            }
+        })
+    })
+}
+
 impl Piece for ShapePiece {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let ShapePiece {
-            kind,
-            fill,
-            fill_linear,
-            fill_radial,
-            stroke,
-            inset,
-            rotate,
-            scale,
-            offset,
+            spec,
             on_tap,
             on_drag,
         } = self;
 
-        // A shape greedily fills its proposed size (SwiftUI semantics).
-        let grow = Flex {
-            grow_w: true,
-            grow_h: true,
-            ..Default::default()
-        };
-        let (dk, di, dr, ds, dox, doy) = (
-            kind.clone(),
-            inset.clone(),
-            rotate.clone(),
-            scale.clone(),
-            offset.0.clone(),
-            offset.1.clone(),
-        );
-        let node = canvas_leaf(cx, grow, move |d, size| {
-            // A centered stroke overflows the geometry by half its width; inset the shape by w/2 so
-            // the whole stroke stays inside the view bounds — backends that clip a canvas to its
-            // bounds (Qt/Android/WinUI) would otherwise cut the stroke's outer edge. (SwiftUI
-            // `strokeBorder` behavior.) Fill-only shapes are unaffected (stroke_half = 0).
-            let stroke_half = stroke.as_ref().map(|(_, w)| w.get() / 2.0).unwrap_or(0.0);
-            let rect = Rect::from_size(size).inset(di.get() + stroke_half);
-            if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
-                return;
-            }
-            let geom = dk.get().geometry(rect);
-            let m = shape_transform(rect, dr.get(), ds.get(), dox.get(), doy.get());
-            let transformed = !m.is_identity();
-            if transformed {
-                d.save();
-                d.concat(m);
-            }
-            if let Some(g) = &fill_radial {
-                d.fill(geom.clone(), g.get());
-            } else if let Some(g) = &fill_linear {
-                d.fill(geom.clone(), g.get());
-            } else if let Some(fill) = &fill {
-                d.fill(geom.clone(), fill.get());
-            }
-            if let Some((c, w)) = &stroke {
-                d.stroke(geom, c.get(), w.get());
-            }
-            if transformed {
-                d.restore();
-            }
+        let draw_spec = spec.clone();
+        let node = canvas_leaf(cx, shape_flex(), move |d, size| {
+            record_shape(&draw_spec, d, Rect::from_size(size));
         });
 
         // Path-precise tap: inverse-transform the point, then test against the resolved geometry.
         if let Some(on_tap) = on_tap {
             with_tree(|t| t.enable_gesture(node, GestureKind::Tap));
-            let (kind, inset, rotate, scale, offset) = (
-                kind,
-                inset,
-                rotate,
-                scale,
-                (offset.0.clone(), offset.1.clone()),
-            );
             cx.on(node, move |ev| {
                 if let Event::Tap(p) = ev
                     && let Some(f) = with_tree(|t| t.node_frame(node))
                 {
-                    let rect = Rect::from_size(f.size).inset(inset.get_untracked());
+                    let bounds = resolve_at(spec.at, Rect::from_size(f.size));
+                    let rect = bounds.inset(spec.inset.get_untracked());
                     let m = shape_transform(
                         rect,
-                        rotate.get_untracked(),
-                        scale.get_untracked(),
-                        offset.0.get_untracked(),
-                        offset.1.get_untracked(),
+                        spec.rotate.get_untracked(),
+                        spec.scale.get_untracked(),
+                        spec.offset.0.get_untracked(),
+                        spec.offset.1.get_untracked(),
                     );
                     let local = m.invert_apply(*p).unwrap_or(*p);
-                    if kind.get_untracked().contains(rect, local) {
+                    if spec.kind.get_untracked().contains(rect, local) {
                         on_tap();
                     }
                 }

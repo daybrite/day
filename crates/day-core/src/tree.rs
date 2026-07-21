@@ -12,7 +12,7 @@ use day_reactive::Scope;
 use day_spec::*;
 use slotmap::{Key, KeyData, SlotMap, new_key_type};
 
-use crate::layout::{Layout, PassThrough};
+use crate::layout::{Alignment, CrossAlign, Layout, PassThrough};
 
 new_key_type! {
     /// Realized-node key. `NodeId` (the spec-boundary id) is its FFI encoding.
@@ -36,6 +36,23 @@ pub struct Flex {
     pub is_spacer: bool,
     /// Layout-transparent group (`when`/`each` anchors): stacks lay out its children inline.
     pub is_group: bool,
+    /// Grid facts (docs/grid.md): consulted only by `GridLayout`; inert everywhere else.
+    pub grid: GridFacts,
+}
+
+/// Per-node grid facts (docs/grid.md), carried on [`Flex`] — the shipped form of the §7.2
+/// ChildRef facts surface. Set at build time by `grid_row` and the `.grid_span`/`.grid_align`
+/// modifiers; only `GridLayout` reads them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GridFacts {
+    /// The node is a `grid_row` carrier: its children are that row's cells.
+    pub is_row: bool,
+    /// Row-only: vertical alignment override for the row's cells.
+    pub row_valign: Option<CrossAlign>,
+    /// Cell-only: columns spanned (0 = unset = 1).
+    pub col_span: u16,
+    /// Cell-only: alignment override within the cell rect.
+    pub align: Option<Alignment>,
 }
 
 /// Cached last-applied props for the dayscript element index (§14.2).
@@ -383,6 +400,9 @@ pub trait TreeOps {
     fn on_event(&mut self, node: RNode, h: EventHandler);
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
+    /// Merge non-default grid cell facts onto a node's [`Flex`] — the `.grid_span`/`.grid_align`
+    /// seam (docs/grid.md). Called at build time, before the first layout.
+    fn set_grid_facts(&mut self, node: RNode, facts: GridFacts);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
     /// Attach a native gesture recognizer to `node` (docs/shapes.md): the backend then emits
     /// `Event::Tap/LongPress/Drag` for it. The node must have a native handle.
@@ -606,6 +626,24 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             });
             if let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &n.a11y);
+            }
+        }
+    }
+
+    fn set_grid_facts(&mut self, node: RNode, facts: GridFacts) {
+        if let Some(n) = self.nodes.get_mut(node) {
+            let g = &mut n.flex.grid;
+            if facts.is_row {
+                g.is_row = true;
+            }
+            if facts.row_valign.is_some() {
+                g.row_valign = facts.row_valign;
+            }
+            if facts.col_span != 0 {
+                g.col_span = facts.col_span;
+            }
+            if facts.align.is_some() {
+                g.align = facts.align;
             }
         }
     }
