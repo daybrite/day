@@ -1,5 +1,5 @@
 //! Standalone-piece backend discovery (docs/extending.md). External piece crates (e.g.
-//! `day-piece-picker`) declare their per-toolkit backend contributions in `Cargo.toml` under
+//! `day-piece-searchfield`) declare their per-toolkit backend contributions in `Cargo.toml` under
 //! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them
 //! into the native build — so a piece carries BOTH its front-end (Rust) and its backend (Java /
 //! Gradle deps / …) without touching the core Day crates.

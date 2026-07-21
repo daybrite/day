@@ -1633,7 +1633,10 @@ impl<B: Toolkit> Registry<B> {
             // Two pieces claiming one kind is last-linked-wins in link order — effectively
             // nondeterministic. Fail loudly in debug; in release, say so once at boot rather
             // than render the wrong widget silently.
-            debug_assert!(false, "duplicate renderer registered for piece kind {kind:?}");
+            debug_assert!(
+                false,
+                "duplicate renderer registered for piece kind {kind:?}"
+            );
             eprintln!("day: duplicate renderer for piece kind {kind:?} — later registration wins");
         }
     }

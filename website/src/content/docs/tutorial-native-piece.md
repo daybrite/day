@@ -574,7 +574,7 @@ You now have the full picture: one crate, a shared Rust front-end over a typed `
 protocol, a native backend per toolkit registered link-time with no core changes, and a build that
 derives its own features. The reference crate to read end-to-end is
 [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield);
-[`day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker) shows three
-native stylings of one piece, and [`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media)
+[`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield) shows the
+six-backend native realization of one piece, and [`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media)
 shows framework linking. The mechanism is documented in full in
 [`docs/extending.md`](https://github.com/daybrite/day/blob/main/docs/extending.md).

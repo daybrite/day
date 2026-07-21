@@ -1764,7 +1764,7 @@ mod imp {
                     (measure_call(h, "measureHeight") / d).max(24.0),
                 ),
                 // PICKER falls to the native measureWidth/measureHeight default below.
-                kinds::TEXT_AREA => return crate::textarea::measure_any(self, h, p),
+                kinds::TEXT_AREA => crate::textarea::measure_any(self, h, p),
                 kinds::TEXT_FIELD => Size::new(
                     p.width.unwrap_or(180.0),
                     (measure_call(h, "measureHeight") / d).max(40.0),

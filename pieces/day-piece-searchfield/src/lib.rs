@@ -111,4 +111,3 @@ impl Piece for SearchField {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
-

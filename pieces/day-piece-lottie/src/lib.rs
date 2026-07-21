@@ -122,4 +122,3 @@ impl Piece for Lottie {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(uikit, widget);
-

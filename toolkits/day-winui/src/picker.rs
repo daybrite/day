@@ -10,8 +10,8 @@ use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
-use day_spec::{NodeId, Proposal, Size};
 use crate::{WinHandle, WinUi};
+use day_spec::{NodeId, Proposal, Size};
 
 unsafe extern "C" {
     fn day_picker_winui_new(
@@ -71,7 +71,6 @@ fn measure(_backend: &mut WinUi, h: &WinHandle, _p: Proposal) -> Size {
     unsafe { day_winui_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
     Size::new(w.max(120.0), hh.max(32.0))
 }
-
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).

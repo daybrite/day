@@ -161,7 +161,6 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     Size::new((nat_w as f64).max(60.0), (nat_h as f64).max(22.0))
 }
 
-
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).
 pub(crate) fn realize_any(

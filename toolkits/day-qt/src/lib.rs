@@ -835,8 +835,8 @@ impl Toolkit for Qt {
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                kinds::PICKER => return picker::realize_any(self, props, id),
-                kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
+                kinds::PICKER => picker::realize_any(self, props, id),
+                kinds::TEXT_AREA => textarea::realize_any(self, props, id),
                 kinds::TEXT_FIELD => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let w = ffi::day_qt_lineedit_new(
@@ -1226,8 +1226,8 @@ impl Toolkit for Qt {
             // and stretch the button across the full content span.
             kinds::BUTTON => Size::new(w.ceil(), hh.ceil()),
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), hh.max(20.0)),
-            kinds::PICKER => return picker::measure_any(self, h, p),
-            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
+            kinds::PICKER => picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), hh.max(24.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 2.0),
             kinds::PROGRESS => Size::new(p.width.unwrap_or(180.0), hh.max(16.0)),

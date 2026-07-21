@@ -1,6 +1,6 @@
 # Web view (external piece)
 
-> **Status: implemented** as `day-piece-webview`, an external Day Piece (like `day-piece-picker`)
+> **Status: implemented** as `day-piece-webview`, an external Day Piece (like `day-piece-combobox`)
 > registered link-time into each backend's renderer slice without touching day. It wraps each
 > toolkit's native web view and fills the space it's offered. It is a reference for pieces whose native
 > backend is heavier than a control: a whole embedded browser, with commands in and URL events out.

@@ -10,11 +10,10 @@
 // when unchanged.
 // ---------------------------------------------------------------------------
 
-use day_spec::Event;
-use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use crate::DayEnv;
 use crate::jni::objects::JValue;
 use crate::{AHandle, Android, with_env};
+use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use day_spec::{NodeId, Proposal, Size};
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
@@ -79,7 +78,6 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     });
     Size::new(avail_w, (h_dp as f64).max(24.0))
 }
-
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).

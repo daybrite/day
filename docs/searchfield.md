@@ -1,6 +1,6 @@
 # Search field (external piece)
 
-> **Status: implemented** as `day-piece-searchfield`, an external Day Piece (like `day-piece-picker`)
+> **Status: implemented** as `day-piece-searchfield`, an external Day Piece (like `day-piece-combobox`)
 > registered link-time into each backend's renderer slice without touching day. One API: a native
 > search input, bound two-way to a `Signal<String>`, realized as each toolkit's dedicated search control.
 

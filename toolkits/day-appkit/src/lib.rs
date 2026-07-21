@@ -1468,8 +1468,8 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
-            kinds::PICKER => return picker::realize_any(self, props, id),
-            kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
+            kinds::PICKER => picker::realize_any(self, props, id),
+            kinds::TEXT_AREA => textarea::realize_any(self, props, id),
             kinds::TEXT_FIELD => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
@@ -2149,8 +2149,8 @@ impl Toolkit for AppKit {
                 let s = unsafe { h.fittingSize() };
                 Size::new(p.width.unwrap_or(180.0), s.height.max(21.0).ceil())
             }
-            kinds::PICKER => return picker::measure_any(self, h, p),
-            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
+            kinds::PICKER => picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => {
                 let s = unsafe { h.fittingSize() };
                 Size::new(

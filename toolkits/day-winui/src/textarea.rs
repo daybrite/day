@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
-use day_spec::{NodeId, Proposal, Size};
 use crate::{WinHandle, WinUi};
+use day_spec::{NodeId, Proposal, Size};
 
 // Approximate line height (device-independent px) for the min/max-lines clamp — WinUI has no cheap exact
 // per-control line metric here, and this backend is best-effort.
@@ -97,7 +97,6 @@ fn measure(_backend: &mut WinUi, h: &WinHandle, p: Proposal) -> Size {
     let hgt = hh.clamp(min_h, max_h);
     Size::new(avail_w, hgt)
 }
-
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).

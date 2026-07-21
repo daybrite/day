@@ -31,7 +31,7 @@ Contrast that with a **piece**, which is a reusable UI widget (a `combo_box`, a 
 corollary. The rule of thumb:
 
 - Building a **visible control** backed by a native widget? Write a **piece**; see
-  [the piece tutorial](/docs/internal/extending) and [`pieces/day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker).
+  [the piece tutorial](/docs/internal/extending) and [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield).
 - Exposing a **device service** with no UI of its own? Write a **part**.
 
 A part reuses the same build-contribution channel pieces use (the `[package.metadata.day.*]` keys
@@ -479,7 +479,7 @@ one checked-in `.xcodeproj` depends on that package. So an iOS framework depende
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
-This is the same contribution channel [`pieces/day-piece-picker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-picker) (Android Java + Gradle deps) and
+This is the same contribution channel [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield) (Android Java + Gradle deps) and
 [`pieces/day-piece-webview`](https://github.com/daybrite/day/tree/main/pieces/day-piece-webview) (a framework + a permission) use. A part is just a piece that skips the
 renderer.
 

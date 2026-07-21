@@ -744,8 +744,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         SliderPatch::Value(v) => n.probe.value = *v,
                         SliderPatch::Enabled(e) => n.probe.enabled = *e,
                     }
-                } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>()
-                {
+                } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
                     n.probe.selected = *i as i64;
                     n.probe.value = *i as f64;
                 } else if let Some(TextAreaPatch::SetText(t)) =

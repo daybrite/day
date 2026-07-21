@@ -112,8 +112,7 @@ type Unpacked = (u16, Vec<(String, String)>, Vec<u8>);
 /// Split the envelope via the shared bridge convention (day_android::envelope) and map this
 /// part's negative-status sentinels onto [`HttpError`].
 fn unpack(bytes: &[u8]) -> Result<Unpacked, HttpError> {
-    let e = day_android::envelope::Envelope::decode(bytes)
-        .map_err(|m| HttpError::Io(m.into()))?;
+    let e = day_android::envelope::Envelope::decode(bytes).map_err(|m| HttpError::Io(m.into()))?;
     if e.status < 0 {
         let msg = e.error_message();
         return Err(match e.status {

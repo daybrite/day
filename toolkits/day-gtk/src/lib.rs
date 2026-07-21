@@ -1397,8 +1397,8 @@ impl Toolkit for Gtk {
                 wire_focus(&scale, id);
                 scale.upcast()
             }
-            kinds::PICKER => return picker::realize_any(self, props, id),
-            kinds::TEXT_AREA => return textarea::realize_any(self, props, id),
+            kinds::PICKER => picker::realize_any(self, props, id),
+            kinds::TEXT_AREA => textarea::realize_any(self, props, id),
             kinds::TEXT_FIELD => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let entry = gtk4::Entry::new();
@@ -1915,8 +1915,8 @@ impl Toolkit for Gtk {
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
-            kinds::PICKER => return picker::measure_any(self, h, p),
-            kinds::TEXT_AREA => return textarea::measure_any(self, h, p),
+            kinds::PICKER => picker::measure_any(self, h, p),
+            kinds::TEXT_AREA => textarea::measure_any(self, h, p),
             kinds::TEXT_FIELD => {
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))

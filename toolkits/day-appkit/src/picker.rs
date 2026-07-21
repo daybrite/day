@@ -168,7 +168,6 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(22.0))
 }
 
-
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).
 pub(crate) fn realize_any(
@@ -188,6 +187,10 @@ pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any
     }
 }
 
-pub(crate) fn measure_any(b: &mut AppKit, h: &crate::Handle, p: day_spec::Proposal) -> day_spec::Size {
+pub(crate) fn measure_any(
+    b: &mut AppKit,
+    h: &crate::Handle,
+    p: day_spec::Proposal,
+) -> day_spec::Size {
     measure(b, h, p)
 }

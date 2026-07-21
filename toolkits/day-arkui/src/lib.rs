@@ -543,8 +543,10 @@ mod imp {
                 kinds::TEXT_AREA => {
                     let p = props.downcast_ref::<TextAreaProps>().unwrap();
                     let n = new_node(K_TEXT_AREA);
-                    TEXTAREA_LINES
-                        .with(|m| m.borrow_mut().insert(n.0 as usize, (p.min_lines, p.max_lines)));
+                    TEXTAREA_LINES.with(|m| {
+                        m.borrow_mut()
+                            .insert(n.0 as usize, (p.min_lines, p.max_lines))
+                    });
                     unsafe {
                         ffi::day_ark_set_textarea_text(n.0, cstr(&p.text).as_ptr());
                         ffi::day_ark_set_textarea_placeholder(n.0, cstr(&p.placeholder).as_ptr());

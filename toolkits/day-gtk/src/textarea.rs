@@ -150,7 +150,6 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     })
 }
 
-
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).
 pub(crate) fn realize_any(

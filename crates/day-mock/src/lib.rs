@@ -674,7 +674,7 @@ impl Toolkit for MockToolkit {
         };
         day_spec::A11ySnapshot {
             found: true,
-            role: w.a11y.role.clone(),
+            role: w.a11y.role,
             label: w.a11y.label.clone(),
             value: w.a11y.value.clone(),
             identifier: w.a11y.identifier.clone(),

@@ -8,9 +8,9 @@ use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::Uikit;
 use block2::RcBlock;
 use day_spec::{NodeId, Proposal, Size};
-use crate::Uikit;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -231,7 +231,6 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
     };
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(28.0))
 }
-
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).

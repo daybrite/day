@@ -12,8 +12,8 @@ use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use day_spec::{NodeId, Proposal, Size};
 use crate::Uikit;
+use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -166,7 +166,6 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
         Size::new(avail_w, hgt.ceil())
     })
 }
-
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).

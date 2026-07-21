@@ -85,7 +85,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     Size::new(w.max(120.0), hh.max(24.0))
 }
 
-
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).
 pub(crate) fn realize_any(

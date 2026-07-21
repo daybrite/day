@@ -2224,13 +2224,12 @@ pub mod prelude {
         Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule, circle, column,
         confirm, current_route, divider, each, ellipse, environment, form, image, label, labeled,
         link, list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to,
-        navigate, navigate_to, open_file, progress, prompt, rectangle, rounded_rectangle, route,
-        picker, route_param, route_params, row, save_file, scroll, section, selector, shape,
-        slider, text_area,
-        spacer, spinner, stack, sub_menu, text_field, toggle, when, with_environment, zstack,
+        navigate, navigate_to, open_file, picker, progress, prompt, rectangle, rounded_rectangle,
+        route, route_param, route_params, row, save_file, scroll, section, selector, shape, slider,
+        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment,
+        zstack,
     };
     pub use crate::{Picker, TextArea};
-    pub use day_spec::props::PickerStyle;
     pub use day_core::{
         Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, ScrollTarget,
         invalidate_size, open_url, piece_fn,
@@ -2239,6 +2238,7 @@ pub mod prelude {
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
+    pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, GestureKind};

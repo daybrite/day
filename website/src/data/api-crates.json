@@ -29,10 +29,8 @@
       "name": "Pieces",
       "blurb": "Optional native widgets you add to an app à la carte.",
       "crates": [
-        { "pkg": "day-piece-picker", "blurb": "A SwiftUI-style Picker — menu, segmented, or inline styles, each a distinct native control." },
         { "pkg": "day-piece-combobox", "blurb": "An editable combo box: free text with a native dropdown of suggestions." },
         { "pkg": "day-piece-searchfield", "blurb": "A native search input with a search glyph and a clear button." },
-        { "pkg": "day-piece-textarea", "blurb": "A native, scrollable multi-line text editor." },
         { "pkg": "day-piece-rating", "blurb": "A tappable star-rating control, composed from primitive pieces." },
         { "pkg": "day-piece-webview", "blurb": "An embedded native web view — WKWebView, WebView2, WebKitGTK, or Android WebView." },
         { "pkg": "day-piece-media", "blurb": "Each platform's native media/video player, behind one Rust API." },

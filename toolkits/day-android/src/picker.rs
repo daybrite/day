@@ -7,12 +7,11 @@
 // piece uses raw `call_static_method` on ITS class).
 // ---------------------------------------------------------------------------
 
-use day_spec::Event;
-use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 use crate::DayEnv;
 use crate::jni::objects::JValue;
 use crate::{AHandle, Android, with_env};
 use day_spec::NodeId;
+use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
 const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
@@ -64,7 +63,6 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
     }
 }
 
-
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
 // the satellite-era `renderer!` macro used to generate).
 pub(crate) fn realize_any(
@@ -83,4 +81,3 @@ pub(crate) fn update_any(b: &mut crate::Android, h: &crate::AHandle, patch: &dyn
         update(b, h, p);
     }
 }
-
