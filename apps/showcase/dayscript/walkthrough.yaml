@@ -21,9 +21,22 @@ flow:
   - assert_value: { id: subscribe-toggle, value: true }
   - tap: { id: increment-button, repeat: 3 }
   - assert_text: { id: counter-label, key: counter_value, args: { count: 3 } }
+  # Combo box (day-piece-combobox, docs/combobox.md): a REAL combo — menu-driven selection AND
+  # free-form entry — whose text signal is the value. `select` is the menu path (an index mapped
+  # through the items); the options are localized, so assert by key.
   - select: { id: flavor-combo, index: 2 }
-  # Flavor options are localized — assert by key so the check resolves in the run's locale.
   - assert_text: { id: flavor-value, key: pistachio }
+  # `input` is the free-form path: text that is in NO list (a literal — user input is not
+  # localized).
+  - input: { id: flavor-combo, text: "Stracciatella" }
+  - assert_text: { id: flavor-value, text: "Stracciatella" }
+  # Add pushes the typed text into the reactive item list; index 3 exists only after the add, so
+  # selecting it round-trips the grown list.
+  - tap: { id: flavor-add }
+  - select: { id: flavor-combo, index: 0 }
+  - assert_text: { id: flavor-value, key: vanilla }
+  - select: { id: flavor-combo, index: 3 }
+  - assert_text: { id: flavor-value, text: "Stracciatella" }
   # Pickers section: three native stylings bound two-way to a Signal<usize> — the selection
   # round-trips the signal into each value label.
   # The three picker stylings share ONE selection signal: selecting via any styling must move

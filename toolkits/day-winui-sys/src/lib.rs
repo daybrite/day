@@ -137,15 +137,6 @@ unsafe extern "C" {
     pub fn day_winui_divider_new() -> *mut c_void;
     pub fn day_winui_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
 
-    pub fn day_winui_combo_new(
-        items_joined: *const c_char,
-        selected: c_int,
-        id: u64,
-        cb: extern "C" fn(u64, c_int),
-    ) -> *mut c_void;
-    pub fn day_winui_combo_set_items(w: *mut c_void, items_joined: *const c_char);
-    pub fn day_winui_combo_set_selected(w: *mut c_void, idx: c_int);
-
     // External-piece / tweaks handle seam (docs/tweaks.md): box a WinRT ABI pointer into a day
     // handle, and borrow the ABI pointer back out. `day_winui_unbox` returns winrt::get_abi —
     // a BORROWED IUIElement*, valid while the handle's Node holds its reference; callers that

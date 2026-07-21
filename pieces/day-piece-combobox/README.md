@@ -1,12 +1,17 @@
 # day-piece-combobox
 
-An editable combo box for Day apps: type a value or pick one from the list.
+An editable combo box for Day apps: type a value or pick one from the dropdown.
 
-One Rust API, and a real native control on every platform — `NSComboBox` on macOS, a
-Material dropdown on Android, `GtkComboBoxText` on Linux, `QComboBox` on Qt, and so on.
+One Rust API, and a real native combo control on every platform that has one —
+`NSComboBox` on macOS, `AutoCompleteTextView` on Android, `GtkComboBoxText` with an
+entry on Linux, an editable `QComboBox` on Qt, an editable `ComboBox` on WinUI. The
+value is the text: a `Signal<String>` bound two-way, with a reactive list of
+suggestions. iOS has no native combo-box control, so this piece carries no iOS
+renderer; use `picker` or `text_field` there.
 
-This crate doubles as the reference example of a piece with per-toolkit Rust renderers:
-if you want to build a native component of your own, its source is the place to start.
+This crate also shows what a piece with its own native baggage looks like: it carries
+its per-platform renderers, two C++ shims (Qt, WinUI), and an Android Java factory —
+all inside one crate, with no edits to Day itself.
 
 Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
 front, a real native control per platform behind it. Enable the backends you build for

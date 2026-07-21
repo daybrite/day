@@ -40,11 +40,11 @@ The front end defines the piece's identity and its props/patch protocol, and cre
 ```rust
 const KIND: &str = "combo-box";
 
-pub fn combo_box(items: Signal<Vec<String>>, selected: Signal<Option<usize>>) -> AnyPiece {
+pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> AnyPiece {
     piece_fn(move |cx| {
         let node = cx.leaf(KIND, &ComboProps { … }, Flex::default());
         bind_seeded(…, move |items| tree.patch(node, ComboPatch::Items(items), true));
-        cx.on(node, move |ev| if let Event::SelectionChanged(i) = ev { … });
+        cx.on(node, move |ev| if let Event::TextChanged(t) = ev { … });
         node
     })
 }
@@ -54,7 +54,7 @@ Each backend contributes `make` (create the native widget) and `update` (apply a
 registered at link time:
 
 ```rust
-// inside #[cfg(feature = "appkit")] — creates an NSPopUpButton
+// inside #[cfg(feature = "appkit")] — creates an NSComboBox
 day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update);

@@ -62,7 +62,7 @@ the architecture-level view and the rationale.
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (webview, media, map, lottie, searchfield, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
@@ -1186,7 +1186,7 @@ startup-time completeness check is impossible if the registry itself is the only
 3. The `linkme` distributed slice remains for zero-setup unit tests and pure-cargo development
    (pane's proven mechanism, kept as the ergonomic layer).
 
-CI includes a release+LTO ios-uikit build of showcase + day-piece-combobox that asserts via
+CI includes a release+LTO ios-uikit build of showcase + day-piece-searchfield that asserts via
 dayscript that the externally-registered piece actually rendered ([§20](#20-continuous-integration)).
 
 ### §8.3 Events
@@ -1788,7 +1788,7 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 Two package kinds share the mechanism:
 
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  webview, media, map, lottie, remote-image, textarea.
+  datetime, pull-refresh, webview, media, map, lottie, remote-image.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http (requests through the
   platform HTTP stack, docs/http.md). Same registration and metadata machinery, no widget.
@@ -2776,19 +2776,23 @@ $ day launch -p macos-appkit --variant dark --env DAY_THEME=dark --script dayscr
 ### B.1 ComboBox (tier 1 — Rust renderers, the pane-combobox pattern)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-combobox`, on every toolkit. The `ForeignPiece` prop-bag
-> sketch became **typed props + the `renderer!` macro**:
+> **Shipped** as `pieces/day-piece-combobox`. The `ForeignPiece` prop-bag sketch became
+> **typed props + the `renderer!` macro**. Reworked 2026-07 (docs/combobox.md) from a
+> selection-only dropdown into a real combo box — free-form text plus a dropdown, the text
+> being the value — on every toolkit that has such a control (iOS and ArkUI do not; the piece
+> carries no renderer there and day renders its placeholder leaf).
 
 ```rust
 // pieces/day-piece-combobox/src/lib.rs (as shipped)
-pub fn combo_box(items: Signal<Vec<String>>, selected: Signal<Option<usize>>) -> AnyPiece { … }
+pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox { … }
 
 // per-backend module, e.g. cfg(feature = "appkit"):
 day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);
-// gtk → GtkDropDown; qt → QComboBox (C++ shim); uikit → UIButton+UIMenu;
-// android → MaterialAutoCompleteTextView; winui → ComboBox; arkui → select node.
+// appkit → NSComboBox; gtk → GtkComboBoxText with entry; qt → editable QComboBox (own C++
+// shim); android → AutoCompleteTextView (own Java factory); winui → editable ComboBox (own
+// C++/WinRT shim).
 ```
 
 App usage: add the crate with the matching toolkit features. No edits to day.

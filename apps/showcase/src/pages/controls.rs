@@ -31,12 +31,6 @@ fn basics_section(count: Signal<i64>) -> impl Piece {
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
-    let flavors = Signal::new(vec![
-        crate::res::str::vanilla().format(),
-        crate::res::str::chocolate().format(),
-        crate::res::str::pistachio().format(),
-    ]);
-    let flavor = Signal::new(Some(0usize));
     section((
         // — state: counter —
         row((
@@ -83,23 +77,53 @@ fn basics_section(count: Signal<i64>) -> impl Piece {
                 .a11y(|a| a.label("Subscribe to updates")), // a11y strings localize at M6.5
         ),
         // — an EXTERNAL Day Piece, registered like any built-in (§8.2, DP-21) —
-        labeled(
-            crate::res::str::flavor_label(),
-            row((
-                combo_box(flavors, flavor).id("flavor-combo"),
-                label(move || {
-                    let names = flavors.get();
-                    flavor
-                        .get()
-                        .and_then(|i| names.get(i).cloned())
-                        .unwrap_or_default()
-                })
-                .id("flavor-value"),
-            ))
-            .spacing(8.0),
-        ),
+        flavor_block(),
     ))
     .title(crate::res::str::controls_basics())
+}
+
+/// The combo box demo (day-piece-combobox, docs/combobox.md): a REAL combo — free-form text
+/// entry PLUS a native dropdown — bound two-way to a `Signal<String>` (the text is the value),
+/// with a reactive item list. Type a flavor or pick one; Add pushes the typed text into the
+/// dropdown, so the next open lists it. The readout mirrors the bound signal.
+fn flavor_block() -> AnyPiece {
+    let flavors = Signal::new(vec![
+        crate::res::str::vanilla().format(),
+        crate::res::str::chocolate().format(),
+        crate::res::str::pistachio().format(),
+    ]);
+    let flavor = Signal::new(String::new());
+    let block = labeled(
+        crate::res::str::flavor_label(),
+        row((
+            combo_box(flavors, flavor)
+                .placeholder(crate::res::str::flavor_placeholder())
+                .id("flavor-combo"),
+            button(crate::res::str::flavor_add())
+                .bordered()
+                .action(move || {
+                    let typed = flavor.get_untracked();
+                    if !typed.is_empty() && !flavors.get_untracked().contains(&typed) {
+                        flavors.update(|v| v.push(typed));
+                    }
+                })
+                .id("flavor-add"),
+            label(move || flavor.get()).id("flavor-value"),
+        ))
+        .spacing(8.0),
+    )
+    .any();
+    // iOS has no native combo-box control and the piece carries no uikit renderer
+    // (docs/combobox.md) — day renders its placeholder leaf above, and this note says why.
+    // The synthetic walkthrough steps still drive the bound signal there.
+    #[cfg(target_os = "ios")]
+    let block = column((
+        block,
+        label(crate::res::str::flavor_ios_note()).font(Font::Footnote),
+    ))
+    .spacing(4.0)
+    .any();
+    block
 }
 
 fn history_section(count: Signal<i64>) -> impl Piece {

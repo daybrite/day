@@ -174,8 +174,8 @@ styles and scale with the OS accessibility text size.
 ```rust
 use day_piece_combobox::combo_box;
 let items = Signal::new(vec!["a".into(), "b".into()]);
-let sel = Signal::new(Some(0usize));
-combo_box(items, sel).id("combo")
+let text = Signal::new(String::new());
+combo_box(items, text).id("combo")
 ```
 
 ## API quick reference
@@ -187,7 +187,7 @@ combo_box(items, sel).id("combo")
 | text input | `text_field(sig)` · secure: `secure_field(sig)` |
 | number input | `slider(sig).range(a..=b)` · `stepper(sig)` |
 | boolean | `toggle(sig)` |
-| choice | `picker(opts, sig)` · external `combo_box(opts, sig)` |
+| choice | `picker(opts, sig)` · editable: external `combo_box(opts, text_sig)` |
 | vertical / horizontal / z-stack | `column((…))` / `row((…))` / `stack_z((…))` |
 | scroll · spacer · divider | `scroll(child)` · `spacer()` · `divider()` |
 | conditional · list | `when(cond, view)` · `each(items, key, row)` |

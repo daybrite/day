@@ -1487,43 +1487,6 @@ void* day_winui_image_new(const char* uri, int mode) {
     return boxh(img);
 }
 
-// ---- combo box ----
-
-static void combo_fill(WUXC::ComboBox const& cb, const char* items_joined, int selected) {
-    cb.Items().Clear();
-    std::string all = items_joined ? items_joined : "";
-    size_t start = 0;
-    while (start <= all.size()) {
-        size_t nl = all.find('\n', start);
-        std::string item = all.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-        if (!(item.empty() && all.empty())) {
-            WUXC::ComboBoxItem it;
-            it.Content(winrt::box_value(hs(item.c_str())));
-            cb.Items().Append(it);
-        }
-        if (nl == std::string::npos) break;
-        start = nl + 1;
-    }
-    cb.SelectedIndex(selected);
-}
-
-void* day_winui_combo_new(const char* items_joined, int selected, unsigned long long id,
-                          void (*cb)(unsigned long long, int)) {
-    WUXC::ComboBox box;
-    combo_fill(box, items_joined, selected);
-    box.SelectionChanged([id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
-        cb(id, s.as<WUXC::ComboBox>().SelectedIndex());
-    });
-    return boxh(box);
-}
-void day_winui_combo_set_items(void* h, const char* items_joined) {
-    if (auto box = elem(h).try_as<WUXC::ComboBox>()) combo_fill(box, items_joined, box.SelectedIndex());
-}
-void day_winui_combo_set_selected(void* h, int idx) {
-    if (auto box = elem(h).try_as<WUXC::ComboBox>())
-        if (box.SelectedIndex() != idx) box.SelectedIndex(idx);
-}
-
 // ---- tree / geometry / props ----
 
 void day_winui_add_child(void* parent, void* child) {
