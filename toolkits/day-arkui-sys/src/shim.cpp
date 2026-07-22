@@ -1184,8 +1184,9 @@ static napi_value RegisterOpenUrl(napi_env env, napi_callback_info info) {
 }
 
 // Open `url` in the system's default handler via the ArkTS opener. JS thread only. No-op when the
-// app hasn't registered one.
-void day_ark_open_url(const char* url) {
+// app hasn't registered one. `extern "C"` because this sits outside the extern "C" block above and
+// Rust imports it unmangled — without it the symbol name-mangles and libentry.so fails to load.
+extern "C" void day_ark_open_url(const char* url) {
     if (!g_env || !g_open_url) return;
     napi_handle_scope scope;
     napi_open_handle_scope(g_env, &scope);
