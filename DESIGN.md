@@ -59,6 +59,7 @@ the architecture-level view and the rationale.
 | resources — images, data assets, custom fonts, typed constants | docs/resources.md | [§18](#18-resources-icons-and-theming) |
 | accessibility & the a11y audit | docs/accessibility.md | [§13](#13-accessibility) |
 | app lifecycle | docs/lifecycle.md | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
+| async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | docs/async.md | [§4.5](#45-async) |
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
@@ -515,32 +516,39 @@ boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 
 ### §4.5 Async
 
-> [!WARNING]
-> **Status: not implemented as designed.** `Resource`/`Load` never shipped. The shipped async
-> story is the smaller [§3.3](#33-threading-model-and-the-turn-state-machine) surface — spawn a thread (or bring your own executor), send results
-> back through a `Setter` or `day_reactive::on_main`; the network parts (docs/network.md,
-docs/http.md — `fetch_async` documents Setter delivery as its contract) and
-> the real apps (Day Skies' weather fetch, the Matrix client) all use it. The design below is
-> kept as the recorded shape a future `Resource` should take.
+> [!NOTE]
+> **Status: shipped 2026-07** (docs/async.md is the normative reference) with three divergences
+> from the recorded design below. (1) The executor is day-core's existing main-loop `day::task`
+> (§3.3's `present().await` executor, now with `TaskHandle`/abort), reached from day-reactive
+> through an installed `install_spawner` hook returning an abort closure — not a generic
+> `spawn(F: Future + MaybeSend)`; the `MaybeSend` cfg-alias collapsed because the futures run
+> on the UI thread, where `S` needs only `Clone + PartialEq` and the fetcher may touch signals
+> after its awaits. (2) Results are therefore plain signal writes guarded by the generation
+> check — no `Setter` in the delivery path. (3) The fetcher's output is
+> `Result<T, E: Error + Send + Sync>` (`Infallible` for infallible fetchers). Superseded and
+> disposed fetches ARE aborted — dropping the task's future cancels any
+> `day_part_http::FetchFuture` inside (the cancel matrix in docs/http.md). The pre-`Resource`
+> idiom (thread + `Setter`) remains valid for callback-style parts; docs/async.md carries the
+> full policy, including the app-private tokio-quarantine rule the Matrix client models.
 
 ```rust
-// two-closure shape (leptos-style): `source` is TRACKED on the main thread; its value moves
-// into the future, so no !Send Signal ever crosses a thread boundary *by construction*.
+// two-closure shape (leptos-style), as shipped in day-reactive (`day::reactive::Resource` —
+// namespaced: the prelude's `Resource` is the asset handle, §18.3):
 let stations = Resource::new(
-    move || region.get(),                       // S: Send + Clone + PartialEq — refetch on change
+    move || region.get(),                       // S: Clone + PartialEq — tracked; refetch on change
     |region| async move { fetch_stations(region).await },
 );
-// stations: Signal<Load<Vec<Station>>>; Load: Clone
+// stations.signal(): Signal<Load<Vec<Station>>>; Load: Clone
 // Load::Loading | Load::Ready(T) | Load::Failed(Arc<dyn Error + Send + Sync>)
 when(move || stations.ready(), move || station_list(stations));
 stations.refetch(); stations.loading();
 ```
 
-Results return through a `Setter` stamped with a fetch generation — **latest wins**; superseded
-futures are aborted where the executor supports it. The executor seam is
-`spawn(F: Future + MaybeSend)` with a cfg-alias (`Send` bound on native targets, unbounded on
-wasm). `Resource` ships in `day-reactive`; honest budget ~300 lines (not a "50-line convenience"),
-and it is the only async primitive the MVP needs.
+Latest wins by fetch generation: a source change (or `refetch()`) supersedes the in-flight
+fetch — its task is aborted, and a completion that slips through writes nothing; scope disposal
+aborts the same way. The source's value moves into the future, so no `!Send` `Signal` ever
+crosses a thread boundary *by construction* — exactly as designed, just with the thread
+boundary gone.
 
 ---
 
@@ -1732,7 +1740,9 @@ Every retryable step has an implicit bounded wait (5 s default) — element not 
 pending assertions poll rather than fail instantly. `wait_idle` flushes the reactive drain;
 `screenshot` additionally waits on `Toolkit::ui_idle` (native transitions settled), which is
 what keeps captures from showing half-dismissed dialogs. (The designed richer idle definition —
-in-flight `Resource`s, `busy_scope()` — fell away with `Resource`, [§4.5](#45-async).) No sleeps in
+in-flight `Resource`s, `busy_scope()` — remains unbuilt even now that `Resource` shipped
+([§4.5](#45-async)): the bounded-retry asserts absorb async gaps, as the showcase's Resource
+walkthrough steps show.) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
 isolation marks ([§12.2](#122-api)).
 

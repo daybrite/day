@@ -404,6 +404,9 @@ http_tier = 网络栈
 http_url_placeholder = https://example.com
 http_check = 检查
 http_checking = 检查中…
+http_patch = PATCH
+http_res_label = 资源
+http_res_refetch = 重新获取
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
 nav_scrolling = 滚动

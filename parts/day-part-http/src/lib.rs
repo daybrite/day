@@ -33,7 +33,9 @@
 //! errors.
 
 use std::borrow::Cow;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// An HTTP request method.
@@ -98,8 +100,6 @@ impl Request {
     pub fn delete(url: impl Into<String>) -> Request {
         Self::new(Method::Delete, url)
     }
-    /// PATCH is rejected by Android's `HttpURLConnection` (a long-standing Java limitation) —
-    /// it surfaces there as [`HttpError::Io`]; every other platform supports it (docs/http.md).
     pub fn patch(url: impl Into<String>, body: Vec<u8>) -> Request {
         Self::new(Method::Patch, url).body(body)
     }
@@ -196,6 +196,8 @@ pub enum HttpError {
     Tls(String),
     /// Everything else the platform reported (message passed through).
     Io(String),
+    /// The request was cancelled — its [`FetchFuture`] dropped, or a platform-side cancel.
+    Cancelled,
     /// No HTTP capability on this platform ([`Tier::Unavailable`]).
     Unsupported,
 }
@@ -209,6 +211,7 @@ impl std::fmt::Display for HttpError {
             HttpError::Connect => write!(f, "connection failed"),
             HttpError::Tls(m) => write!(f, "TLS failure: {m}"),
             HttpError::Io(m) => write!(f, "{m}"),
+            HttpError::Cancelled => write!(f, "request cancelled"),
             HttpError::Unsupported => write!(f, "no HTTP capability on this platform"),
         }
     }
@@ -278,6 +281,149 @@ pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> 
         let _ = std::fs::remove_file(dest);
     }
     out
+}
+
+/// Start the request immediately and await the result. The future is the cancellation grip:
+/// **dropping it cancels the request** where the platform supports it (docs/http.md's cancel
+/// matrix) — Apple `NSURLSessionTask.cancel`, Android OkHttp `Call.cancel`; Windows and the
+/// Rust fallback run the request to completion on their worker thread and discard the result.
+/// A cancelled request that still completes resolves nothing; a platform-side cancel that beats
+/// the drop surfaces as [`HttpError::Cancelled`].
+///
+/// Await it inside `day::task` (or any executor — the future is `Send`-agnostic plumbing over
+/// [`fetch_async`]'s completion): `day::task(async move { let r = fetch_future(req).await; … })`.
+pub fn fetch_future(req: Request) -> FetchFuture {
+    let shared = Arc::new(Mutex::new(FutureState {
+        result: None,
+        waker: None,
+        cancelled: false,
+    }));
+    let cancel = start_future(req, shared.clone());
+    FetchFuture {
+        shared,
+        cancel,
+        done: false,
+    }
+}
+
+/// Shared state between a [`FetchFuture`] and its completion callback.
+///
+/// Locking protocol (the mutex is a LEAF lock — no platform or user code runs under it):
+/// - `poll` checks `result` and stores the waker under ONE lock acquisition, closing the
+///   lost-wakeup race (a completion between a check and a separate store would be missed).
+/// - the completion stores `result`, takes the waker, UNLOCKS, then wakes — an inline waker
+///   (tests) re-polls synchronously, which re-takes the lock.
+/// - `Drop` sets `cancelled`, clears the waker, UNLOCKS, then runs the platform cancel —
+///   Apple's `task.cancel()` can schedule the completion synchronously on the delegate queue,
+///   which takes this lock. Nobody wakes on cancel: Drop is terminal (the future can never be
+///   polled again); a late completion finds no waker and its stored result is never read.
+struct FutureState {
+    result: Option<Result<Response, HttpError>>,
+    waker: Option<std::task::Waker>,
+    cancelled: bool,
+}
+
+/// An in-flight [`fetch_future`] request; dropping it cancels (see the cancel matrix).
+pub struct FetchFuture {
+    shared: Arc<Mutex<FutureState>>,
+    cancel: Option<Box<dyn FnOnce() + Send>>,
+    done: bool,
+}
+
+/// Lock, riding out poisoning: a panic while holding the lock leaves plain data (no broken
+/// invariants), so the poisoned value is still the truth.
+fn lock(m: &Mutex<FutureState>) -> std::sync::MutexGuard<'_, FutureState> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+impl Future for FetchFuture {
+    type Output = Result<Response, HttpError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let mut st = lock(&self.shared);
+        if let Some(r) = st.result.take() {
+            drop(st);
+            self.done = true;
+            return std::task::Poll::Ready(r);
+        }
+        st.waker = Some(cx.waker().clone());
+        std::task::Poll::Pending
+    }
+}
+
+impl Drop for FetchFuture {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        {
+            let mut st = lock(&self.shared);
+            st.cancelled = true;
+            st.waker = None;
+        }
+        if let Some(cancel) = self.cancel.take() {
+            cancel();
+        }
+    }
+}
+
+/// Store a completion result and wake the future (see [`FutureState`]'s locking protocol).
+fn deliver_future(shared: &Arc<Mutex<FutureState>>, result: Result<Response, HttpError>) {
+    let waker = {
+        let mut st = lock(shared);
+        st.result = Some(result);
+        st.waker.take()
+    };
+    if let Some(w) = waker {
+        w.wake();
+    }
+}
+
+/// Start the platform request for [`fetch_future`]; returns the platform cancel closure
+/// (`None` on the discard tiers — Windows, the Rust fallback, and Android until its
+/// cancel-token rail below).
+fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn FnOnce() + Send>> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        imp::fetch_async_cancellable(req, Box::new(move |result| deliver_future(&shared, result)))
+    }
+    #[cfg(target_os = "android")]
+    {
+        // The blocking Java call runs on a worker thread, registered under an OkHttp cancel
+        // token; the cancel closure fires `Call.cancel()` from whichever thread drops the
+        // future (the call then returns the `-7` sentinel). A drop that beats the worker's
+        // registration degrades to a discard — the cancelled-flag check below catches the
+        // drop-before-start case for free (docs/http.md's cancel matrix).
+        let token = imp::next_token();
+        std::thread::spawn(move || {
+            if lock(&shared).cancelled {
+                return;
+            }
+            let result = imp::fetch_with_token(&req, token);
+            deliver_future(&shared, result);
+        });
+        Some(Box::new(move || imp::cancel(token)))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+    {
+        // Windows / fallback / unavailable: blocking half on a worker thread; a drop before
+        // the request started is a free discard, a drop mid-flight lets the request run out
+        // and discards the result (no platform cancel on these tiers — docs/http.md).
+        std::thread::spawn(move || {
+            if lock(&shared).cancelled {
+                return;
+            }
+            let result = imp::fetch(&req);
+            deliver_future(&shared, result);
+        });
+        None
+    }
 }
 
 /// [`fetch_to_file`] without blocking; `on_done` runs on an unspecified background thread.

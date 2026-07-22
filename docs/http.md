@@ -2,7 +2,8 @@
 
 > **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no
 > UI Piece: request/response HTTP (plus streaming downloads) through each platform's own networking
-> stack — NSURLSession on macOS/iOS, `HttpURLConnection` on Android, WinHTTP on Windows — with a
+> stack — NSURLSession on macOS/iOS, OkHttp on Android (the platform's own frozen engine,
+> current — see the engine note below), WinHTTP on Windows — with a
 > bundled ureq + rustls fallback on Linux and HarmonyOS. Verified end-to-end with a local-server
 > test suite on the real Apple half (macOS) and the real fallback half (Linux), and live on
 > macOS/iOS-sim/Android-emulator via the showcase walkthrough and Day Skies' Open-Meteo fetch.
@@ -100,7 +101,7 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | OS | API | dependency |
 |---|---|---|
 | macOS + iOS | `NSURLSession` (shared ephemeral session; per-request delegate session for streaming) | objc2-foundation, shared `apple.rs` |
-| Android | `HttpURLConnection` via the part-owned `DayHttp.java` shim; one `byte[]` envelope per call | `day-android` + `[package.metadata.day.android]` |
+| Android | OkHttp 4.12 via the part-owned `DayHttp.java` shim; one `byte[]` envelope per call | `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
 | Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) | raw FFI (runtime lookup) |
 | Linux | ureq 3 + rustls (the only tier that bundles TLS) | ureq, `fallback.rs` |
 | HarmonyOS | ureq 3 + rustls — the OSS 5.1 NDK has no HTTP C API (`HMS_Rcp_*` is HarmonyOS-NEXT-SDK-only) | ureq, same `fallback.rs` |
@@ -123,7 +124,8 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | `Dns` | −1003, −1006 | `UnknownHostException` | 12007 | `HostNotFound` |
 | `Connect` | −1004, −1009 | `ConnectException` | 12029, 12030 | `ConnectionFailed` |
 | `Tls(msg)` | −1200…−1206 | `SSLException` | secure-failure set (12157, 12175, …) | `Tls` |
-| `BadUrl` | −1000, −1002 | `MalformedURLException` | 12005, 12006 | `BadUri` |
+| `BadUrl` | −1000, −1002 | `IllegalArgumentException` (URL rejected) | 12005, 12006 | `BadUri` |
+| `Cancelled` | −999 | `Call.isCanceled()` (sentinel −7) | — (discard tier) | — (discard tier) |
 | `Io(msg)` | anything else | anything else | anything else | anything else |
 
 ## Option honesty
@@ -132,7 +134,7 @@ Options that only some platforms can realize are documented, not silently droppe
 
 | option | Apple | Android | Windows | fallback |
 |---|---|---|---|---|
-| `.timeout` | `timeoutInterval` (idle timer) | connect + per-read timeouts | per-operation `WinHttpSetTimeouts` | resolve/connect/send/response-head timeouts (body phase uncapped) |
+| `.timeout` | `timeoutInterval` (idle timer) | OkHttp connect/read/write per-phase bounds (no callTimeout) | per-operation `WinHttpSetTimeouts` | resolve/connect/send/response-head timeouts (body phase uncapped) |
 | `.allow_expensive` / `.allow_constrained` | native (`allowsExpensiveNetworkAccess` / `allowsConstrainedNetworkAccess`, Low Data Mode) | advisory only | advisory only | advisory only |
 | redirects | followed (no opt-out in v1) | followed | followed | followed |
 
@@ -161,13 +163,56 @@ reason `tier()` exists.
 on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
 fire-and-forget wrappers that deliver on a background thread — see the Setter idiom above.
 
+## Async and cancellation
+
+```rust
+// Await-style (docs/async.md): starts immediately; resumes on the UI thread under day::task,
+// so the readout is a plain signal write — no Setter.
+day::task(async move {
+    match day_part_http::fetch_future(req).await {
+        Ok(resp) => status.set(format!("{} · {} bytes", resp.status, resp.body.len())),
+        Err(e) => status.set(format!("error: {e}")),
+    }
+});
+```
+
+`fetch_future(req)` is oneshot plumbing over `fetch_async`'s completion: any executor can await
+it (`day::task`, or a test's ~25-line `block_on` — tests/http.rs). **The future is the cancel
+grip — dropping it cancels the request** where the platform can:
+
+| tier | drop-cancel |
+|---|---|
+| Apple | native — `NSURLSessionTask.cancel()`; a completion that beats the observer maps `NSURLErrorCancelled` → `HttpError::Cancelled` |
+| Android | native — OkHttp `Call.cancel()` via a cancel-token registry in `DayHttp.java` (sentinel −7 → `Cancelled`). One microsecond-scale race is accepted: a drop that lands between the worker starting and the Java-side registration degrades to discard-only (the token registry stays leak-free by pairing every put with a finally-remove — no tombstones) |
+| Windows / fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
+
+Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
+fetch) drops the future and rides the same rail. The showcase's URL checker aborts its previous
+in-flight check on re-tap — a live demo of drop-cancel.
+
+## The Android engine (OkHttp)
+
+The Android half moved from `java.net.HttpURLConnection` to OkHttp 4.12 (2026-07). AOSP's own
+`HttpURLConnection` has been a frozen OkHttp fork since Android 4.4, so this upgrades the same
+lineage to a current engine rather than changing philosophy: the system `ProxySelector`, VPN
+routing, network security config (OkHttp checks `NetworkSecurityPolicy` for cleartext), and the
+platform `TrustManager`/user CA store all still apply. What the engine adds: HTTP/2 (over TLS via
+ALPN), PATCH (the classic `HttpURLConnection` gap — `Request::patch` now works on every
+platform), and thread-safe per-call cancellation. Costs and behavior deltas, stated honestly:
+the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly 1.5–2.5 MB pre-R8 (well under
+1 MB after shrinking; OkHttp ships its own proguard rules); cross-protocol redirects
+(https→http) are now followed, matching the other platforms; response headers now arrive in
+arrival order with duplicates preserved (better fidelity than the old `Map`-shaped API). The
+coordinate rides the part's own `[package.metadata.day.android] gradle-dependencies`, the
+day-piece-lottie mechanism.
+
 ## v2 notes (deliberately out of scope)
 
 Cookies, multipart, upload streaming, websockets, `no_redirect` (needs an Apple session delegate
-to honor honestly), a `CancelHandle` for in-flight aborts (today: `timeout` bounds, `Setter`
-absorbs abandonment, `StreamSink` cancels mid-body), a `Future` adapter / §4.5 `Resource`
-integration, and a native HarmonyOS half via a framework-owned ArkTS `registerHttp` bridge (the
-`registerOpenUrl` pattern) if the Remote Communication Kit's C API reaches the OSS SDK.
+to honor honestly), cancellation for `fetch_to_file`/`fetch_streamed` futures (today `StreamSink`
+cancels mid-body and covers the download cases), and a native HarmonyOS half via a
+framework-owned ArkTS `registerHttp` bridge (the `registerOpenUrl` pattern) if the Remote
+Communication Kit's C API reaches the OSS SDK.
 
 ## What it shows about the extension system
 

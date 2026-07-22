@@ -414,6 +414,9 @@ http_tier = المكدّس
 http_url_placeholder = https://example.com
 http_check = فحص
 http_checking = يجري الفحص…
+http_patch = PATCH
+http_res_label = المورد
+http_res_refetch = إعادة الجلب
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
 nav_scrolling = التمرير

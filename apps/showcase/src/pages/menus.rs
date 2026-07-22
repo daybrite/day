@@ -148,7 +148,7 @@ fn dialogs_section() -> impl Piece {
                             .present()
                             .await;
                         last.set("alert-ok".into());
-                    })
+                    });
                 })
                 .id("btn-alert"),
             button(crate::res::str::modal_confirm())
@@ -159,7 +159,7 @@ fn dialogs_section() -> impl Piece {
                             .message(crate::res::str::confirm_body())
                             .await;
                         last.set(if ok { "confirm-yes" } else { "confirm-no" }.into());
-                    })
+                    });
                 })
                 .id("btn-confirm"),
             button(crate::res::str::modal_delete())
@@ -172,7 +172,7 @@ fn dialogs_section() -> impl Piece {
                             .destructive()
                             .await;
                         last.set(if ok { "delete-yes" } else { "delete-no" }.into());
-                    })
+                    });
                 })
                 .id("btn-delete"),
         ))
@@ -193,7 +193,7 @@ fn dialogs_section() -> impl Piece {
                             Some(i) => format!("sheet-{i}"),
                             None => "sheet-cancel".into(),
                         });
-                    })
+                    });
                 })
                 .id("btn-sheet"),
             button(crate::res::str::modal_prompt())
@@ -205,7 +205,7 @@ fn dialogs_section() -> impl Piece {
                             Some(t) => format!("prompt-{t}"),
                             None => "prompt-none".into(),
                         });
-                    })
+                    });
                 })
                 .id("btn-prompt"),
         ))

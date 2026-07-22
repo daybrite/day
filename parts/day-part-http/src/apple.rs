@@ -69,10 +69,12 @@ fn map_error(err: &NSError) -> HttpError {
     const NOT_CONNECTED: isize = -1009;
     const BAD_URL: isize = -1000;
     const UNSUPPORTED_URL: isize = -1002;
+    const CANCELLED: isize = -999;
     match err.code() {
         TIMED_OUT => HttpError::Timeout,
         CANNOT_FIND_HOST | DNS_FAILED => HttpError::Dns,
         CANNOT_CONNECT | NOT_CONNECTED => HttpError::Connect,
+        CANCELLED => HttpError::Cancelled,
         c @ -1206..=-1200 => HttpError::Tls(format!("{} ({c})", err.localizedDescription())),
         BAD_URL | UNSUPPORTED_URL => HttpError::BadUrl(err.localizedDescription().to_string()),
         _ => HttpError::Io(err.localizedDescription().to_string()),
@@ -104,12 +106,18 @@ fn obj_to_string(obj: &AnyObject) -> String {
 type FetchResult = Result<Response, HttpError>;
 
 /// Start a data task whose completion maps the native result and hands it to `deliver`.
-fn start_data_task(req: &Request, deliver: impl Fn(FetchResult) + Send + 'static) {
+/// Returns the task handle for cancellation; `None` = the request never started (`BadUrl`
+/// already delivered). Dropping the returned `Retained` does NOT cancel — the session retains
+/// its tasks (which is why the pre-cancellation callers could drop it for years).
+fn start_data_task(
+    req: &Request,
+    deliver: impl Fn(FetchResult) + Send + 'static,
+) -> Option<Retained<NSURLSessionDataTask>> {
     let native = match build_request(req) {
         Ok(n) => n,
         Err(e) => {
             deliver(Err(e));
-            return;
+            return None;
         }
     };
     let handler = RcBlock::new(
@@ -136,11 +144,12 @@ fn start_data_task(req: &Request, deliver: impl Fn(FetchResult) + Send + 'static
     // SAFETY: the block is sendable (captures only Send values, required by the signature).
     let task = unsafe { session().dataTaskWithRequest_completionHandler(&native, &handler) };
     task.resume();
+    Some(task)
 }
 
 pub fn fetch(req: &Request) -> Result<Response, HttpError> {
     let (tx, rx) = mpsc::channel::<FetchResult>();
-    start_data_task(req, move |result| {
+    let _ = start_data_task(req, move |result| {
         let _ = tx.send(result);
     });
     // URLSession enforces the request timeout itself (timeoutInterval is an IDLE timer, so a
@@ -154,13 +163,31 @@ pub fn fetch(req: &Request) -> Result<Response, HttpError> {
 
 /// Natively async: the completion (and `on_done`) runs on the session's delegate queue.
 pub fn fetch_async(req: Request, on_done: Box<dyn FnOnce(FetchResult) + Send>) {
+    let _ = fetch_async_cancellable(req, on_done);
+}
+
+/// A cancel grip on an in-flight data task, callable from whichever thread drops a FetchFuture.
+struct SendTask(Retained<NSURLSessionDataTask>);
+// SAFETY: NSURLSessionTask is documented thread-safe — the SharedSession rationale above; the
+// Retained is used only to call `cancel()` (and to release the reference afterwards).
+unsafe impl Send for SendTask {}
+
+/// [`fetch_async`] plus a cancel closure: invoking it cancels the in-flight task, and the
+/// completion then arrives exactly once with `NSURLErrorCancelled` → [`HttpError::Cancelled`].
+/// `None` = the request never started (`BadUrl` was already delivered to `on_done`).
+pub fn fetch_async_cancellable(
+    req: Request,
+    on_done: Box<dyn FnOnce(FetchResult) + Send>,
+) -> Option<Box<dyn FnOnce() + Send>> {
     // FnOnce → Fn bridge: URLSession calls a completion handler exactly once.
     let once = std::sync::Mutex::new(Some(on_done));
-    start_data_task(&req, move |result| {
+    let task = start_data_task(&req, move |result| {
         if let Some(f) = once.lock().ok().and_then(|mut g| g.take()) {
             f(result);
         }
-    });
+    })?;
+    let grip = SendTask(task);
+    Some(Box::new(move || grip.0.cancel()))
 }
 
 pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> {

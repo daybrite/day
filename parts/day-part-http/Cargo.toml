@@ -15,9 +15,9 @@ license.workspace = true
 # widget-toolkit one), so there are no backend features — it "just works" per target:
 #   macOS/iOS — NSURLSession (Foundation; ephemeral sessions; Low Data Mode via
 #               allowsConstrainedNetworkAccess), shared src/apple.rs
-#   Android   — java.net.HttpURLConnection via a Java shim staged through
-#               [package.metadata.day.android] (system ProxySelector, VPN routing, network
-#               security config + user CA store)
+#   Android   — OkHttp via a Java shim staged through [package.metadata.day.android]
+#               (system ProxySelector, VPN routing, network security config + user CA store
+#               still apply; HTTP/2, PATCH, and per-call cancel come from the engine)
 #   Windows   — WinHTTP (winhttp.dll, resolved dynamically; automatic proxy/PAC, schannel +
 #               the system certificate store)
 #   Linux     — Rust fallback: ureq + rustls (the only target that bundles TLS; proxy from
@@ -64,6 +64,9 @@ ureq = "3"
 java = ["android/java"]
 # Normal install-time permission; no runtime prompt.
 permissions = ["android.permission.INTERNET"]
+# The HTTP engine (docs/http.md): OkHttp on the platform trust/proxy/policy rails. Resolved
+# from mavenCentral (a default repo) into the app's Gradle build by the day CLI.
+gradle-dependencies = ["com.squareup.okhttp3:okhttp:4.12.0"]
 
 # (No [package.metadata.day.ios]: NSURLSession lives in Foundation, which every app links already.)
 

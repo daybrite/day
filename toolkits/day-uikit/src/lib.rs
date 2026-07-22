@@ -495,6 +495,13 @@ mod imp {
         /// native back gets swallowed, `selection` never resets, and re-selecting the SAME item does
         /// nothing (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
+        /// The native VC count at the LAST `didShow` — the pop detector's baseline. Comparing
+        /// against the `vcs` mirror instead is wrong: a previous transition's pop-`didShow` can
+        /// arrive arbitrarily late, after the next push has already appended to the mirror but
+        /// before its `remove()` cleaned the popped entry — the fresh push's own `didShow` then
+        /// reads `native < vcs.len()` and a phantom NavBack tears down the just-pushed page.
+        /// Only an actual DECREASE in the observed native count is a pop.
+        last_native: std::cell::Cell<usize>,
         _delegate: Retained<DayNavDelegate>,
     }
 
@@ -576,8 +583,14 @@ mod imp {
                 _vc: &UIViewController,
                 _animated: bool,
             ) {
-                // Fewer native VCs than our mirror = a pop completed. Day-initiated pops
-                // set expect_pop; anything else is the user's back button / swipe.
+                // A user pop must satisfy BOTH baselines (each alone has a false positive):
+                // the observed native count DECREASED since the last didShow (else a late
+                // pop-didShow arriving after the next push's mirror append reads native <
+                // mirror and phantom-pops the fresh page), AND the mirror still holds more
+                // than native (else a day-initiated reset — setViewControllers shrinking the
+                // stack with the mirror already cleaned — reads as a user pop). Day-initiated
+                // pops set expect_pop; what passes both tests without it is the user's back
+                // button / swipe.
                 let host = self.ivars().host.get();
                 let (emit_back, node) = NAV_STATE.with(|m| {
                     let mut m = m.borrow_mut();
@@ -585,7 +598,8 @@ mod imp {
                         return (false, NodeId(0));
                     };
                     let native = unsafe { nav.viewControllers() }.count();
-                    if native < state.vcs.len() {
+                    let prev = state.last_native.replace(native);
+                    if native < prev && native < state.vcs.len() {
                         if state.expect_pop.replace(false) {
                             (false, NodeId(0))
                         } else {
@@ -1556,6 +1570,7 @@ mod imp {
                                 vcs: Vec::new(),
                                 expect_pop: std::cell::Cell::new(false),
                                 native_pops: std::cell::Cell::new(0),
+                                last_native: std::cell::Cell::new(0),
                                 _delegate: delegate,
                             },
                         )

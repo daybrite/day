@@ -57,7 +57,7 @@ pub fn root() -> day::AnyPiece {
                             },
                             None => status.set("open-cancel".into()),
                         }
-                    })
+                    });
                 })
                 .id("open-file"),
             button("Save File")
@@ -70,7 +70,7 @@ pub fn root() -> day::AnyPiece {
                             }
                             None => status.set("save-cancel".into()),
                         }
-                    })
+                    });
                 })
                 .id("save-file"),
         ))

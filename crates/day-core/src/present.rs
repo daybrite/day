@@ -45,9 +45,40 @@ struct PendingShared {
 // Executor
 // ---------------------------------------------------------------------------
 
+/// A handle to a spawned [`task`]. `Copy` and `!Send` (the executor is thread-local).
+///
+/// Task ids are monotonic and never reused, so a stale handle is always a harmless miss:
+/// [`TaskHandle::abort`] after completion is a no-op and [`TaskHandle::is_finished`] stays true.
+#[derive(Clone, Copy)]
+pub struct TaskHandle {
+    id: u64,
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl TaskHandle {
+    /// Remove and drop the task's future. An in-flight `.await` cancels via `Drop` (e.g. a
+    /// `FetchFuture` inside cancels its platform request). No-op if the task already finished.
+    pub fn abort(self) {
+        // Take the future OUT of the map and drop it after the RefCell borrow ends: a future
+        // whose Drop re-enters the executor (spawns a task, aborts another handle) would
+        // otherwise hit a live borrow. If the task is mid-poll its slot was taken (`None`) —
+        // removing the entry then makes `poll_task`'s Pending put-back find nothing, and the
+        // future drops there instead.
+        let fut = TASKS.with(|t| t.borrow_mut().remove(&self.id));
+        drop(fut);
+    }
+
+    /// Whether the task no longer runs — completed or aborted.
+    pub fn is_finished(self) -> bool {
+        !TASKS.with(|t| t.borrow().contains_key(&self.id))
+    }
+}
+
 /// Spawn an async flow onto Day's main-loop executor. This is the opt-in seam for actions
 /// that open modals or pickers: `button.action(|| day::task(async move { … .await … }))`.
-pub fn task(fut: impl Future<Output = ()> + 'static) {
+/// The future is polled once before this returns; the returned handle can [`TaskHandle::abort`]
+/// it and is freely discardable.
+pub fn task(fut: impl Future<Output = ()> + 'static) -> TaskHandle {
     let id = NEXT_TASK.with(|c| {
         let v = c.get();
         c.set(v + 1);
@@ -55,6 +86,10 @@ pub fn task(fut: impl Future<Output = ()> + 'static) {
     });
     TASKS.with(|t| t.borrow_mut().insert(id, Some(Box::pin(fut))));
     poll_task(id);
+    TaskHandle {
+        id,
+        _not_send: std::marker::PhantomData,
+    }
 }
 
 fn poll_task(id: u64) {
@@ -192,4 +227,126 @@ pub fn pending_presentation() -> Option<(u64, PresentSpec)> {
             .max_by_key(|(req, _)| **req)
             .map(|(req, entry)| (*req, entry.spec.clone()))
     })
+}
+
+// ---------------------------------------------------------------------------
+// Executor tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod task_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::task::Waker;
+
+    /// Every executor test is single-threaded, so an INLINE poster (run the closure now) is
+    /// correct. `install_main_poster` is first-install-wins, so repeated `init` calls are fine;
+    /// `TASKS` is thread-local, so tests don't see each other's tasks.
+    fn init() {
+        day_reactive::install_main_poster(|f| f());
+    }
+
+    /// Sets its flag when dropped — observes whether an aborted future was actually destroyed.
+    struct DropFlag(Rc<Cell<bool>>);
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+
+    fn pending_forever(flag: Rc<Cell<bool>>) -> impl Future<Output = ()> {
+        let guard = DropFlag(flag);
+        std::future::poll_fn(move |_| {
+            let _ = &guard;
+            Poll::Pending
+        })
+    }
+
+    #[test]
+    fn task_runs_to_completion() {
+        init();
+        let ran = Rc::new(Cell::new(false));
+        let r = ran.clone();
+        let h = task(async move { r.set(true) });
+        assert!(ran.get());
+        assert!(h.is_finished());
+    }
+
+    #[test]
+    fn abort_drops_pending_future() {
+        init();
+        let dropped = Rc::new(Cell::new(false));
+        let h = task(pending_forever(dropped.clone()));
+        assert!(!h.is_finished());
+        assert!(!dropped.get());
+        h.abort();
+        assert!(dropped.get());
+        assert!(h.is_finished());
+    }
+
+    #[test]
+    fn abort_after_completion_is_noop() {
+        init();
+        let h = task(async {});
+        assert!(h.is_finished());
+        h.abort();
+        assert!(h.is_finished());
+    }
+
+    /// A task that aborts ITSELF from inside `poll`: the slot is already taken (`None`), abort
+    /// removes the map entry, and the `Pending` put-back finds nothing — the future must drop
+    /// exactly once, after the poll returns, with no `RefCell` re-borrow.
+    #[test]
+    fn abort_self_while_polling() {
+        init();
+        let handle: Rc<Cell<Option<TaskHandle>>> = Rc::new(Cell::new(None));
+        let dropped = Rc::new(Cell::new(false));
+        let waker_slot: Rc<RefCell<Option<Waker>>> = Rc::new(RefCell::new(None));
+
+        let h_cell = handle.clone();
+        let w_slot = waker_slot.clone();
+        let guard = DropFlag(dropped.clone());
+        let h = task(std::future::poll_fn(move |cx| {
+            let _ = &guard;
+            match h_cell.get() {
+                None => {
+                    *w_slot.borrow_mut() = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+                Some(h) => {
+                    h.abort();
+                    Poll::Pending
+                }
+            }
+        }));
+        handle.set(Some(h));
+        assert!(!dropped.get());
+        let waker = waker_slot
+            .borrow_mut()
+            .take()
+            .expect("waker from first poll");
+        waker.wake(); // inline poster: re-polls now; the second poll self-aborts
+        assert!(dropped.get());
+        assert!(h.is_finished());
+    }
+
+    /// Aborting a future whose Drop re-enters the executor (spawns a new task) must not panic:
+    /// `abort` releases the `TASKS` borrow before the future is destroyed.
+    #[test]
+    fn abort_reentrancy_from_drop() {
+        init();
+        struct SpawnOnDrop;
+        impl Drop for SpawnOnDrop {
+            fn drop(&mut self) {
+                task(async {});
+            }
+        }
+        let guard = SpawnOnDrop;
+        let h = task(std::future::poll_fn(move |_| {
+            let _ = &guard;
+            Poll::<()>::Pending
+        }));
+        h.abort();
+        assert!(h.is_finished());
+    }
 }

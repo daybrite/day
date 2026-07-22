@@ -408,6 +408,9 @@ http_tier = Stack
 http_url_placeholder = https://example.com
 http_check = Check
 http_checking = Checking…
+http_patch = PATCH
+http_res_label = Resource
+http_res_refetch = Refetch
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
 nav_scrolling = Scrolling

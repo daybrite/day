@@ -279,3 +279,127 @@ fn streamed_head_abort() {
     .expect_err("aborted");
     assert_eq!(err, HttpError::Io("aborted".into()));
 }
+
+// ---------------------------------------------------------------------------
+// fetch_future: completion, error mapping, and drop-cancellation. These run with no executor —
+// `block_on` parks the test thread and the completion's wake (from the delegate queue / worker
+// thread) unparks it, which is exactly the cross-thread waker path production uses.
+// `HttpError::Cancelled` itself has no host-observable path (it is produced only after the
+// observing future is gone, or by Android's cancel tokens) — the showcase emulator run covers it.
+// ---------------------------------------------------------------------------
+
+/// Minimal single-future executor: poll; on Pending park until the waker unparks us.
+fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct ThreadWaker(std::thread::Thread);
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = std::pin::pin!(fut);
+    loop {
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(v) => return v,
+            Poll::Pending => std::thread::park_timeout(Duration::from_secs(30)),
+        }
+    }
+}
+
+#[test]
+fn fetch_future_resolves() {
+    let port = serve(1, "HTTP/1.1 200 OK", b"future-ok".to_vec());
+    let resp = block_on(day_part_http::fetch_future(Request::get(format!(
+        "http://127.0.0.1:{port}/"
+    ))))
+    .expect("response");
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"future-ok");
+    assert_eq!(resp.header("x-day-test"), Some("yes"));
+}
+
+#[test]
+fn fetch_future_maps_bad_url() {
+    let err =
+        block_on(day_part_http::fetch_future(Request::get("not a url"))).expect_err("bad url");
+    assert!(matches!(err, HttpError::BadUrl(_)), "{err:?}");
+}
+
+#[test]
+fn fetch_future_timeout() {
+    // A listener that accepts but never responds (the timeout_is_reported pattern).
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let _held = listener.accept();
+        std::thread::sleep(Duration::from_secs(20));
+    });
+    let err = block_on(day_part_http::fetch_future(
+        Request::get(format!("http://127.0.0.1:{port}/")).timeout(Duration::from_millis(500)),
+    ))
+    .expect_err("must time out");
+    assert_eq!(err, HttpError::Timeout);
+}
+
+#[test]
+fn fetch_future_two_concurrent() {
+    // Both requests are IN FLIGHT before either is awaited — fetch_future starts eagerly.
+    let port = serve(2, "HTTP/1.1 200 OK", b"pair".to_vec());
+    let a = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/a")));
+    let b = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/b")));
+    assert_eq!(block_on(a).expect("a").status, 200);
+    assert_eq!(block_on(b).expect("b").status, 200);
+}
+
+/// Apple half only: dropping the future must CANCEL the in-flight task — observed as the
+/// server's connection dying long before the request's 30 s default timeout.
+#[cfg(target_os = "macos")]
+#[test]
+fn drop_cancels_inflight() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let saw_disconnect = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().ok()?;
+        // Read the request head, then keep reading: a cancelled client tears the connection
+        // down and the read returns 0/Err. A 10 s read timeout bounds the failure mode.
+        let _ = read_request(&mut stream);
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .ok()?;
+        let mut byte = [0u8; 1];
+        let start = std::time::Instant::now();
+        loop {
+            match stream.read(&mut byte) {
+                Ok(0) | Err(_) => return Some(start.elapsed()),
+                Ok(_) => {}
+            }
+        }
+    });
+    let fut = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/")));
+    // Give the task time to actually connect + send, then cancel by dropping.
+    std::thread::sleep(Duration::from_millis(300));
+    drop(fut);
+    let elapsed = saw_disconnect
+        .join()
+        .expect("server thread")
+        .expect("server saw the connection");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "connection should die promptly on cancel, took {elapsed:?}"
+    );
+}
+
+/// Fallback half: dropping is a quiet discard — the request runs out on its worker thread and
+/// the result goes nowhere. Nothing to assert beyond "no hang, no panic".
+#[cfg(target_os = "linux")]
+#[test]
+fn drop_is_quiet_on_fallback() {
+    let port = serve(1, "HTTP/1.1 200 OK", b"discarded".to_vec());
+    let fut = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/")));
+    drop(fut);
+    std::thread::sleep(Duration::from_millis(300));
+}

@@ -119,6 +119,13 @@ pub fn launch_with<P: Platform>(
             contain_posted_panic(Box::new(day_reactive::flush_sync));
         }))
     });
+    // The async-spawn door (docs/async.md): day-reactive's `Resource` runs its fetch futures on
+    // this executor; the returned closure aborts (a no-op once the task completed — the contract
+    // Resource's eager-poll ordering relies on).
+    day_reactive::install_spawner(|fut| {
+        let handle = present::task(fut);
+        Box::new(move || handle.abort())
+    });
 
     // WillLaunch: before the window/UI exists (docs/lifecycle.md). Fired uniformly by day-core so
     // it is reliable on every backend; handlers must not touch the tree (there isn't one yet).

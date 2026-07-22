@@ -223,6 +223,15 @@ flow:
   # covers the async gap. The body is raw on purpose — identical across locales.
   - tap: { id: http-fetch }
   - assert_text: { id: http-status, text: "200 day-http-ok" }
+  # PATCH, await-style (docs/async.md): the loopback server echoes the method into the body,
+  # proving the verb crossed the platform engine (the old Android HttpURLConnection gap).
+  - tap: { id: http-patch }
+  - assert_text: { id: http-patch-status, text: "200 day-http-ok:PATCH" }
+  # Resource (day::reactive, docs/async.md): the first fetch runs at build; Refetch re-runs it
+  # (the attempt counter proves it — a fresh fetch, not a cached readout).
+  - assert_text: { id: http-res-status, text: "ok 1: 200 day-http-ok" }
+  - tap: { id: http-res-refetch }
+  - assert_text: { id: http-res-status, text: "ok 2: 200 day-http-ok" }
   - assert_visible: { id: http-tier }
   # The URL checker (type any http(s) URL → response headers + body size) needs live network,
   # so the walkthrough only checks its presence.

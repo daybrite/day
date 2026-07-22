@@ -922,7 +922,7 @@ fn confirm_true_when_confirm_button_chosen() {
                 day_core::task(async move {
                     let ok = confirm("Quit?").await;
                     *o2.borrow_mut() = Some(ok);
-                })
+                });
             })
             .id("ask")
             .any()
@@ -954,7 +954,7 @@ fn confirm_false_on_dismiss() {
                 let o2 = o2.clone();
                 day_core::task(async move {
                     *o2.borrow_mut() = Some(confirm("Q").await);
-                })
+                });
             })
             .id("ask")
             .any()
@@ -980,7 +980,7 @@ fn prompt_returns_text_or_none() {
                 let o2 = o2.clone();
                 day_core::task(async move {
                     *o2.borrow_mut() = Some(prompt("Name").await);
-                })
+                });
             })
             .id("ask")
             .any()
@@ -1020,7 +1020,7 @@ fn alert_returns_typed_payload_and_sequences() {
                     } else {
                         o2.borrow_mut().push(format!("chose {c:?}"));
                     }
-                })
+                });
             })
             .id("go")
             .any()
@@ -1811,7 +1811,7 @@ fn open_file_reads_the_chosen_path() {
                     if let Some(file) = open_file().filter("Text", &["txt"]).await {
                         *o2.borrow_mut() = file.read_to_string().ok();
                     }
-                })
+                });
             })
             .id("open")
             .any()
@@ -2007,7 +2007,7 @@ fn save_file_writes_data_to_the_chosen_path() {
                         .suggested_name("out.txt")
                         .await;
                     *s2.borrow_mut() = dest.and_then(|d| d.file_name());
-                })
+                });
             })
             .id("save")
             .any()

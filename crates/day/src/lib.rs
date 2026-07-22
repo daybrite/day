@@ -14,8 +14,14 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, task};
+pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, task};
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
+/// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
+/// loading — namespaced because the prelude's `Resource` is the ASSET handle above, a different
+/// type that predates the async one.
+pub mod reactive {
+    pub use day_reactive::*;
+}
 // Localization text source + arg trait (§12) at the crate root so generated `res::str::<key>(…)`
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};
