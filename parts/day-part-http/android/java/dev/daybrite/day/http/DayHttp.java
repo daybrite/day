@@ -38,6 +38,10 @@ public final class DayHttp {
     private static byte[] run(String method, String url, String[] kv, byte[] body,
                               int timeoutMs, String dest) {
         HttpURLConnection conn = null;
+        // Whether the connection may return to HttpURLConnection's keep-alive pool. Set true once
+        // the response body has been fully read and closed; left false on the error path, where the
+        // connection state is unknown and it must be torn down.
+        boolean reuse = false;
         try {
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setRequestMethod(method); // PATCH throws ProtocolException (classic Java gap) → io sentinel
@@ -79,6 +83,8 @@ public final class DayHttp {
                 long written = copyToFile(in, dest);
                 payload = ByteBuffer.allocate(8).putLong(written).array();
             }
+            // Body fully read + stream closed (readAll/copyToFile): the socket can be reused.
+            reuse = true;
             return envelope(status, headers.toString(), payload);
         } catch (MalformedURLException e) {
             return error(-6, e);
@@ -93,7 +99,11 @@ public final class DayHttp {
         } catch (Exception e) {
             return error(-5, e);
         } finally {
-            if (conn != null) conn.disconnect();
+            // Reuse the pooled connection on success; only disconnect() on the error path.
+            // disconnect() evicts the socket and defeats keep-alive, forcing a fresh DNS lookup +
+            // TCP + TLS on every request — which floods the platform resolver under concurrent
+            // loads (a page of image icons) and surfaces as "too many resolution errors".
+            if (conn != null && !reuse) conn.disconnect();
         }
     }
 

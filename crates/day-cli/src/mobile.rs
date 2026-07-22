@@ -578,21 +578,27 @@ pub(crate) fn android_devices() -> Vec<AndroidDevice> {
         .collect()
 }
 
-/// The set of ABIs to build for: the distinct ABIs of the connected devices, or — with nothing
-/// connected (e.g. `day pack` on CI, or `day build` before the emulator boots) — the
-/// `DAY_ANDROID_ABI` override or the arm64-v8a default, so packaging still succeeds.
-/// `DAY_ANDROID_ABI` accepts a comma/space-separated LIST (`arm64-v8a,x86_64`), so a distribution
-/// pack carries `lib/<abi>/` for every listed ABI in one apk/aab (each ABI needs its rustup
-/// target, e.g. `rustup target add x86_64-linux-android`).
+/// The set of ABIs to build for. `DAY_ANDROID_ABI`, when set to a non-empty list, is
+/// **authoritative**: exactly those ABIs are built, regardless of any connected device — so a
+/// distribution `day pack` carries `lib/<abi>/` for every listed ABI (`arm64-v8a,x86_64`) even
+/// while an emulator is attached (each ABI needs its rustup target, e.g.
+/// `rustup target add x86_64-linux-android`). Otherwise the ABIs are the distinct ABIs of the
+/// connected devices, or — with nothing connected (e.g. `day build` before the emulator boots) —
+/// the `arm64-v8a` default, so packaging still succeeds.
 fn android_build_abis() -> Vec<String> {
+    // An explicit `DAY_ANDROID_ABI` wins over device detection: setting it produces exactly that
+    // ABI set (e.g. a dual-ABI pack) even when an emulator/device of a different ABI is connected.
+    if let Ok(v) = std::env::var("DAY_ANDROID_ABI") {
+        let mut abis = parse_abi_list(&v);
+        abis.sort();
+        abis.dedup();
+        if !abis.is_empty() {
+            return abis;
+        }
+    }
     let mut abis: Vec<String> = android_devices().into_iter().map(|d| d.abi).collect();
     abis.sort();
     abis.dedup();
-    if abis.is_empty() {
-        abis = std::env::var("DAY_ANDROID_ABI")
-            .map(|v| parse_abi_list(&v))
-            .unwrap_or_default();
-    }
     if abis.is_empty() {
         abis.push("arm64-v8a".into());
     }
@@ -973,7 +979,11 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
 
 #[cfg(test)]
 mod abi_tests {
-    use super::parse_abi_list;
+    use super::{android_build_abis, parse_abi_list};
+    use std::sync::Mutex;
+
+    /// Serialize `DAY_ANDROID_ABI` mutation (`set_var` is unsafe under concurrency in edition 2024).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn abi_list_parses_commas_spaces_and_empties() {
@@ -992,5 +1002,18 @@ mod abi_tests {
         );
         assert!(parse_abi_list("").is_empty());
         assert!(parse_abi_list(" , ").is_empty());
+    }
+
+    #[test]
+    fn day_android_abi_overrides_connected_devices() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // When set, the override is authoritative and short-circuits device detection (so this
+        // test never touches adb): exactly the listed ABIs are built, deduped and sorted.
+        // SAFETY: env access is serialized by ENV_LOCK and the var is restored before returning.
+        unsafe { std::env::set_var("DAY_ANDROID_ABI", "x86_64,arm64-v8a,x86_64") };
+        assert_eq!(android_build_abis(), vec!["arm64-v8a", "x86_64"]);
+        unsafe { std::env::set_var("DAY_ANDROID_ABI", "x86_64") };
+        assert_eq!(android_build_abis(), vec!["x86_64"]);
+        unsafe { std::env::remove_var("DAY_ANDROID_ABI") };
     }
 }
