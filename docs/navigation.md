@@ -191,7 +191,19 @@ selector(section).style(SelectorStyle::Sidebar)
 ```
 
 The sidebar selection drives which section shows; the selected section is itself a `stack` that
-drills down. Each owns its signal; Day reconciles each native container independently.
+drills down. Each surface owns its signal.
+
+**Nested stacks share one native container on mobile.** When the enclosing host presents as a
+push stack (mobile, where `Cap::NavSplit` is unsupported and a `Sidebar` collapses to a
+list-that-pushes), a `stack` built inside one of its pages does **not** mint a second native
+navigation controller — it pushes its own pages onto the enclosing host, so the whole chain
+(list → section → drill-down) is one native stack with a single back button. The inner `stack`
+keeps its own path signal and route registration (so `current_route()`, deep links, and
+`nav_back()` fall-through are unchanged); only the native container is shared. On desktop the
+enclosing host presents as split panes (`split == true`), so a nested `stack` is *not* merged —
+it renders in the detail pane with its own back-header, which is the right desktop shape. A
+resident container (`selector(Tabs)`) is a merge barrier: a `stack` inside a tab keeps its own
+host.
 
 ## Backend notes
 
@@ -222,7 +234,11 @@ drills down. Each owns its signal; Day reconciles each native container independ
   predictive-back animation behind Developer options → "Predictive back animations"
   (`adb shell settings put global enable_back_animation 1`), and gesture navigation must be
   active; Android 15+ enables it by default.
-- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `stack`.
+- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `stack`. A
+  `stack` nested inside such a host's page merges into it (one `UINavigationController` /
+  `DayNavHost`, one back button) rather than nesting a second controller — see Composition. No
+  backend change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
+  surface and the inner stack identically to a single-surface stack.
 
 ## Testing
 

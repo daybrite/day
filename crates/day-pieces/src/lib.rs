@@ -3319,6 +3319,51 @@ pub fn nav_link_to<M>(label: impl IntoText<M>, path: RoutePath) -> Button {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Nested-nav merge (docs/navigation.md): a `stack()` built inside a page of an enclosing NAV
+// host that presents as a push stack (mobile, `split == false`) pushes its pages onto THAT host
+// instead of minting a second native container — one native nav chain, one back button. The
+// enclosing host is threaded to nested pieces at build time via a thread-local context stack;
+// `owners` is the per-host ordered stack of "what a back on the topmost page does".
+// ---------------------------------------------------------------------------
+
+/// Performs the topmost page's back action. Arg = the toolkit already popped natively (iOS/Android
+/// system back), so the owner must not re-issue a pop.
+type PopOwner = Rc<dyn Fn(bool)>;
+
+#[derive(Clone)]
+struct NavHostCx {
+    host: RNode,
+    sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>>,
+    /// One entry per page pushed above the root, in native order; the host's single `NavBack`
+    /// handler invokes the last.
+    owners: Rc<RefCell<Vec<PopOwner>>>,
+    /// The enclosing host presents as split panes (desktop). A nested stack does NOT merge into a
+    /// split host — it keeps its own detail-pane stack.
+    split: bool,
+}
+
+thread_local! {
+    /// Build-time stack of enclosing nav hosts. `None` is a barrier (a resident container such as
+    /// tabs) that a nested stack must not merge through.
+    static NAV_HOST_CX: RefCell<Vec<Option<NavHostCx>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Run `f` with `cx` as the innermost nav-host context (a barrier when `None`), restoring after.
+fn with_nav_host<R>(cx: Option<NavHostCx>, f: impl FnOnce() -> R) -> R {
+    NAV_HOST_CX.with(|s| s.borrow_mut().push(cx));
+    let r = f();
+    NAV_HOST_CX.with(|s| {
+        s.borrow_mut().pop();
+    });
+    r
+}
+
+/// The innermost mergeable nav host, if any (a barrier or an empty stack yields `None`).
+fn current_nav_host() -> Option<NavHostCx> {
+    NAV_HOST_CX.with(|s| s.borrow().last().cloned().flatten())
+}
+
 /// Create a NAV_PAGE under `host` and wire its FrameChanged size reports into `sizes`
 /// (the native container owns each page's frame; Day lays content out at the reported size).
 fn nav_page(
@@ -3568,8 +3613,12 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
             &sizes,
         );
         let content = (it.build)();
-        let mut pcx = BuildCx::new(page);
-        let _ = content.build(&mut pcx);
+        // Barrier: tabs are resident, not a push stack, so a stack inside a tab must not merge
+        // through this container into an outer nav host — it keeps its own (docs/navigation.md).
+        with_nav_host(None, || {
+            let mut pcx = BuildCx::new(page);
+            let _ = content.build(&mut pcx);
+        });
     }
 
     // Two-way: signal → native selection (skip the echo of a native tap).
@@ -3685,6 +3734,17 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         Boundary::Yes,
     );
 
+    // The per-host back-owner stack (docs/navigation.md): the detail page pushes its "deselect"
+    // owner, and a nested stack that merges into this host pushes its page owners on top. The
+    // context is threaded to nested pieces built under our pages.
+    let owners: Rc<RefCell<Vec<PopOwner>>> = Rc::default();
+    let host_cx = NavHostCx {
+        host,
+        sizes: sizes.clone(),
+        owners: owners.clone(),
+        split,
+    };
+
     // Sidebar / root page: optional header + native item list.
     let root_page = nav_page(
         host,
@@ -3739,8 +3799,10 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 .align(HAlign::Leading)
                 .any(),
         };
-        let mut pcx = BuildCx::new(root_page);
-        let _ = content.build(&mut pcx);
+        with_nav_host(Some(host_cx.clone()), || {
+            let mut pcx = BuildCx::new(root_page);
+            let _ = content.build(&mut pcx);
+        });
     }
 
     let sync_menu = {
@@ -3756,20 +3818,28 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let current: Rc<RefCell<Option<(String, Scope, RNode)>>> = Rc::default();
     let nav_scope = Scope::current();
     let show = {
-        let (builders, current, sizes, keys, sync_menu) = (
+        let (builders, current, sizes, keys, sync_menu, owners, host_cx, selection) = (
             builders.clone(),
             current.clone(),
             sizes.clone(),
             keys.clone(),
             sync_menu.clone(),
+            owners.clone(),
+            host_cx.clone(),
+            selection.clone(),
         );
         move |key: &str| {
             if current.borrow().as_ref().map(|(k, _, _)| k.as_str()) == Some(key) {
                 return;
             }
             if let Some((_, scope, page)) = current.borrow_mut().take() {
-                with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                // Dispose the detail scope FIRST: a merged inner stack's cleanup pops its pages
+                // (which sit on top natively) before we pop the detail itself, so the native pop
+                // order stays top-down (iOS pops the topmost VC; Android's INCLUSIVE pop unwinds
+                // everything above an entry).
                 scope.dispose();
+                with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                owners.borrow_mut().pop();
                 sizes.borrow_mut().remove(&page);
                 with_tree(|t| {
                     t.remove_subtree(page);
@@ -3793,11 +3863,24 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 },
                 &sizes,
             );
+            // The detail page's back action = deselect (return to the list). Pushed BEFORE the
+            // content builds, so a merged inner stack's page owners stack on top of it.
+            let owner: PopOwner = {
+                let s = selection.clone();
+                Rc::new(move |_already_popped| {
+                    if let Some(root) = K::from_key("") {
+                        s.set_rw(root);
+                    }
+                })
+            };
+            owners.borrow_mut().push(owner);
             let scope = nav_scope.enter(Scope::child);
             let content = build();
             scope.enter(|| {
-                let mut c = BuildCx::new(page);
-                let _ = content.build(&mut c);
+                with_nav_host(Some(host_cx.clone()), || {
+                    let mut c = BuildCx::new(page);
+                    let _ = content.build(&mut c);
+                });
             });
             with_tree(|t| {
                 t.patch(
@@ -3827,15 +3910,18 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         bind(move || s.get_rw().key(), move |key: &String| show(key));
     }
 
-    // Native back (mobile up-arrow / system back) returns to the list; warm deep links.
-    // A typed key deselects via its "" decoding (`Option<Section>` → `None`); a key type
-    // with no empty state (a bare enum) has no list-only state, so back is ignored.
+    // Native back (mobile up-arrow / system back) → the topmost page's owner. With only this
+    // sidebar on the host, that's always the detail's deselect owner (returns to the list); when
+    // a nested stack has merged its pages on top, its owners run first (docs/navigation.md). A
+    // typed key deselects via its "" decoding (`Option<Section>` → `None`); a bare enum has no
+    // list-only state so its owner's deselect is a no-op — back is effectively ignored.
     {
-        let s = selection.clone();
+        let owners = owners.clone();
         cx.on(host, move |ev| match ev {
-            Event::NavBack { .. } => {
-                if let Some(root) = K::from_key("") {
-                    s.set_rw(root);
+            Event::NavBack { already_popped } => {
+                let top = owners.borrow().last().cloned();
+                if let Some(f) = top {
+                    f(*already_popped);
                 }
             }
             Event::Custom {
@@ -3958,53 +4044,113 @@ impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
 impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{NavPageProps, NavPatch, NavProps};
-        let path = self.path;
-        let title_s = self.title.initial();
-        let dest = self.destination;
+        let Stack {
+            path,
+            title,
+            root,
+            destination: dest,
+        } = self;
+        let title_s = title.initial();
 
-        let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
-        let host = cx.native(
-            kinds::NAV,
-            &NavProps {
-                title: title_s.clone(),
-                split: false, // a stack is a stack (no sidebar)
-            },
-            Rc::new(NavLayout {
-                sizes: sizes.clone(),
-                split: false,
-            }),
-            Flex {
-                grow_w: true,
-                grow_h: true,
-                ..Default::default()
-            },
-            Boundary::Yes,
-        );
-        let root_page = nav_page(
-            host,
-            &NavPageProps {
-                title: title_s,
-                sidebar: false,
-            },
-            &sizes,
-        );
-        {
-            let mut pcx = BuildCx::new(root_page);
-            let _ = self.root.build(&mut pcx);
-        }
+        // If we're built inside a page of an enclosing NAV host that presents as a push stack
+        // (mobile, `split == false`), MERGE: push our pages onto that host instead of minting a
+        // second native container — one native nav chain, one back button (docs/navigation.md).
+        // A split host (desktop) is not merged into; a stack keeps its own detail-pane stack.
+        let merge = current_nav_host().filter(|c| !c.split);
 
         let entries: Rc<RefCell<Vec<StackEntry<K>>>> = Rc::default();
         let native_popped: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+
+        let host: RNode;
+        let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>>;
+        let owners: Rc<RefCell<Vec<PopOwner>>>;
+        let host_cx: NavHostCx;
+        let ret_node: RNode;
+        let merged: bool;
+        if let Some(ctx) = merge {
+            // MERGED: reuse the enclosing host; our root renders inline in the current page (which
+            // is already a NAV_PAGE), and only our pushed destinations become new pages.
+            host = ctx.host;
+            sizes = ctx.sizes.clone();
+            owners = ctx.owners.clone();
+            host_cx = ctx;
+            let hc = host_cx.clone();
+            ret_node = with_nav_host(Some(hc), || root.build(cx));
+            merged = true;
+        } else {
+            // STANDALONE: create the native host + root page (an app-root stack, or a nested stack
+            // under a split/desktop host).
+            sizes = Rc::default();
+            host = cx.native(
+                kinds::NAV,
+                &NavProps {
+                    title: title_s.clone(),
+                    split: false, // a stack is a stack (no sidebar)
+                },
+                Rc::new(NavLayout {
+                    sizes: sizes.clone(),
+                    split: false,
+                }),
+                Flex {
+                    grow_w: true,
+                    grow_h: true,
+                    ..Default::default()
+                },
+                Boundary::Yes,
+            );
+            owners = Rc::default();
+            host_cx = NavHostCx {
+                host,
+                sizes: sizes.clone(),
+                owners: owners.clone(),
+                split: false,
+            };
+            let root_page = nav_page(
+                host,
+                &NavPageProps {
+                    title: title_s,
+                    sidebar: false,
+                },
+                &sizes,
+            );
+            let hc = host_cx.clone();
+            with_nav_host(Some(hc), || {
+                let mut pcx = BuildCx::new(root_page);
+                let _ = root.build(&mut pcx);
+            });
+            ret_node = host;
+            merged = false;
+        }
+
         let nav_scope = Scope::current();
 
+        // This stack's back owner (one Rc shared by all its pages): bump the native-pop absorb
+        // counter when the toolkit already popped, then pop the path.
+        let stack_owner: PopOwner = {
+            let (p, native_popped) = (path.clone(), native_popped.clone());
+            Rc::new(move |already_popped: bool| {
+                if already_popped {
+                    native_popped.set(native_popped.get() + 1);
+                }
+                let mut v = p.get_untracked_rw();
+                if v.pop().is_some() {
+                    p.set_rw(v);
+                }
+            })
+        };
+
         // Reconcile the native stack to `want`: keep the common prefix, pop the rest, push
-        // the new suffix. A pop the native already performed (iOS back) is not re-issued.
+        // the new suffix. A pop the native already performed (iOS back) is not re-issued. Pages
+        // and owners land on `host` (our own, or the enclosing one when merged).
         let reconcile = {
-            let (entries, sizes, dest, native_popped) = (
+            let (entries, sizes, dest, native_popped, owners, host_cx, stack_owner) = (
                 entries.clone(),
                 sizes.clone(),
                 dest.clone(),
                 native_popped.clone(),
+                owners.clone(),
+                host_cx.clone(),
+                stack_owner.clone(),
             );
             move |want: &Vec<K>| {
                 let common = {
@@ -4025,6 +4171,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     e.scope.dispose();
                     sizes.borrow_mut().remove(&e.page);
                     with_tree(|t| t.remove_subtree(e.page));
+                    owners.borrow_mut().pop();
                 }
                 for key in want.iter().skip(common) {
                     let title = key.title();
@@ -4038,11 +4185,15 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     );
                     let scope = nav_scope.enter(Scope::child);
                     let content = (dest)(key);
+                    let hc = host_cx.clone();
                     scope.enter(|| {
-                        let mut c = BuildCx::new(page);
-                        let _ = content.build(&mut c);
+                        with_nav_host(Some(hc), || {
+                            let mut c = BuildCx::new(page);
+                            let _ = content.build(&mut c);
+                        });
                     });
                     with_tree(|t| t.patch(host, Box::new(NavPatch::Pushed { title }), false));
+                    owners.borrow_mut().push(stack_owner.clone());
                     entries.borrow_mut().push(StackEntry {
                         key: key.clone(),
                         scope,
@@ -4060,17 +4211,15 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             bind(move || p.get_rw(), move |want: &Vec<K>| reconcile(want));
         }
 
-        // Native back → pop the path (origin-tagged so reconcile doesn't re-issue it).
-        {
-            let (p, native_popped) = (path.clone(), native_popped.clone());
+        // Standalone: own the host's single NavBack dispatcher (→ topmost page's owner) and the
+        // deeplink handler. Merged: the enclosing host's creator already owns both.
+        if !merged {
+            let owners_h = owners.clone();
             cx.on(host, move |ev| match ev {
                 Event::NavBack { already_popped } => {
-                    if *already_popped {
-                        native_popped.set(native_popped.get() + 1);
-                    }
-                    let mut v = p.get_untracked_rw();
-                    if v.pop().is_some() {
-                        p.set_rw(v);
+                    let top = owners_h.borrow().last().cloned();
+                    if let Some(f) = top {
+                        f(*already_popped);
                     }
                 }
                 Event::Custom {
@@ -4081,6 +4230,41 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     let _ = day_core::navigate(route);
                 }
                 _ => {}
+            });
+        }
+
+        // Merged: our pages live on the enclosing host, so the enclosing detail's
+        // `remove_subtree` won't reach them — pop every remaining page (top-down) off that host
+        // when our scope disposes (e.g. the section switches). Guarded for app teardown.
+        if merged {
+            let (entries_c, sizes_c, owners_c, native_popped_c) = (
+                entries.clone(),
+                sizes.clone(),
+                owners.clone(),
+                native_popped.clone(),
+            );
+            nav_scope.on_cleanup(move || {
+                let alive = with_tree(|t| t.node_kind(host).is_some());
+                loop {
+                    let e = entries_c.borrow_mut().pop();
+                    let Some(e) = e else { break };
+                    if alive {
+                        if native_popped_c.get() > 0 {
+                            native_popped_c.set(native_popped_c.get() - 1);
+                        } else {
+                            with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                        }
+                        sizes_c.borrow_mut().remove(&e.page);
+                        with_tree(|t| t.remove_subtree(e.page));
+                        owners_c.borrow_mut().pop();
+                    }
+                }
+                if alive {
+                    with_tree(|t| {
+                        t.mark_layout_dirty();
+                        t.layout_if_needed();
+                    });
+                }
             });
         }
 
@@ -4136,7 +4320,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             },
             move || p_seg.get_untracked_rw().iter().map(|k| k.key()).collect(),
         );
-        host
+        ret_node
     }
 }
 

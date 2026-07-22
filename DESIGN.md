@@ -1440,7 +1440,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   `Cap::NavSplit`/`Cap::NavHeader` let pages adapt to what the toolkit provides.
 > - **`stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
->   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping.
+>   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping. A
+>   `stack` nested inside a page of an enclosing push-stack host (mobile) **merges** into that
+>   host — pushing its pages onto the one native container for a single back button — instead of
+>   nesting a second controller; on desktop split panes it renders in the detail pane. This is a
+>   shared-Rust presentation detail (the inner surface keeps its own signal and route
+>   registration); backends are unchanged (docs/navigation.md, Composition).
 > - **Presentation** shipped as the `present`/`dismiss` duties (`PresentSpec` →
 >   `PresentResult`): alert/confirm/prompt/sheets and the open/save file pickers, all native,
 >   all scriptable (`assert_presented` / `respond`).

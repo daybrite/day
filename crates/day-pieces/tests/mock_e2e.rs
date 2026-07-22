@@ -736,6 +736,172 @@ fn absolute_route_resets_inner_surfaces_of_the_anchor() {
     assert!(labels.iter().all(|(_, w)| w.text != "drill:deep"));
 }
 
+/// The sidebar-over-stack fixture: mock reports `NavSplit=Unsupported`, so the sidebar collapses
+/// to a push stack and a stack in its detail runs the merged path (docs/navigation.md).
+fn merge_fixture(section: Signal<String>, path: Signal<Vec<String>>) -> AnyPiece {
+    selector(section)
+        .item("plain", "Plain", || label("plain-content"))
+        .item("drill", "Drill", move || {
+            stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+        })
+        .any()
+}
+
+#[test]
+fn nested_stack_merges_into_one_host() {
+    let section = Signal::new(String::new());
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || merge_fixture(section, path));
+
+    assert!(navigate("drill"));
+    flush_sync();
+    // ONE native nav host, not two — the whole point of the merge (would be 2 before the fix).
+    assert_eq!(
+        probe.find_by_kind("day.nav").len(),
+        1,
+        "nested stack merges into the enclosing host"
+    );
+    // The stack's root renders inline in the detail page: root list + detail, no extra root page.
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill-root")
+    );
+
+    // A push lands as a page on that same host.
+    batch(|| path.set(vec!["deep".into()]));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/deep"));
+    assert_eq!(probe.find_by_kind("day.nav").len(), 1);
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill:deep")
+    );
+}
+
+#[test]
+fn merged_stack_back_pops_inner_then_outer() {
+    let section = Signal::new(String::new());
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || merge_fixture(section, path));
+
+    assert!(navigate("drill"));
+    batch(|| path.set(vec!["deep".into()]));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/deep"));
+    let host = node_id(&probe, "day.nav", 0);
+
+    // First native back on the shared host → the topmost owner is the stack page → pop the path.
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: true,
+        },
+    );
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill"));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill-root")
+    );
+
+    // Second back → now the topmost owner is the sidebar detail → deselect to the list.
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: true,
+        },
+    );
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+}
+
+#[test]
+fn merged_stack_cleanup_on_section_switch() {
+    let section = Signal::new(String::new());
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || merge_fixture(section, path));
+
+    assert!(navigate("drill"));
+    batch(|| path.set(vec!["deep".into()]));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill:deep")
+    );
+
+    // Switch section via a sibling key: it falls through to the sidebar, which disposes the
+    // detail — the merged stack's cleanup pops its pages off the shared host.
+    assert!(navigate("plain"));
+    flush_sync();
+    assert_eq!(section.get_untracked(), "plain");
+    assert_eq!(probe.find_by_kind("day.nav").len(), 1);
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "only the root list + the new detail remain"
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .all(|(_, w)| w.text != "drill:deep" && w.text != "drill-root")
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "plain-content")
+    );
+}
+
+#[test]
+fn grandchild_stack_merges() {
+    // A stack inside a stack's destination merges into the same enclosing host.
+    let section = Signal::new(String::new());
+    let outer = Signal::new(Vec::<String>::new());
+    let inner = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        selector(section)
+            .item("drill", "Drill", move || {
+                stack(outer, label("outer-root")).destination(move |_k| {
+                    stack(inner, label("inner-root")).destination(|k2| label(format!("g:{k2}")))
+                })
+            })
+            .any()
+    });
+
+    assert!(navigate("drill"));
+    batch(|| outer.set(vec!["mid".into()]));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.nav").len(),
+        1,
+        "the destination stack merged too"
+    );
+    // Drive the grandchild stack.
+    batch(|| inner.set(vec!["leaf".into()]));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav").len(), 1, "still one host");
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "g:leaf")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Imperative presentation (docs/dialogs.md)
 // ---------------------------------------------------------------------------

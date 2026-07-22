@@ -984,7 +984,9 @@ pub use day_spec::NAV_SIDEBAR_WIDTH;
 
 impl Layout for NavLayout {
     fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
-        // Greedy: the host owns the window (v1: nav is app-root only).
+        // Greedy: the host owns the window. A nested stack merges into the enclosing host's page
+        // list rather than nesting a second host (docs/navigation.md), so one NAV host still
+        // spans the window.
         Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
