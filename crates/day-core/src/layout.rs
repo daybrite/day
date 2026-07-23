@@ -156,7 +156,8 @@ pub(crate) fn place_node<B: Toolkit>(
             if changed {
                 let h = tree.node(node).and_then(|n| n.handle.clone());
                 if let Some(h) = h {
-                    tree.toolkit.set_frame(&h, abs, None);
+                    let anim = tree.resolve_anim(node);
+                    tree.toolkit.set_frame(&h, abs, anim.as_ref());
                 }
                 if tree
                     .node(node)

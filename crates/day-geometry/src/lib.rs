@@ -347,6 +347,139 @@ pub enum LayoutDirection {
     Rtl,
 }
 
+/// A cheap per-node visual transform (§8.4 animation): translation, uniform/non-uniform scale, and
+/// rotation about a unit anchor (`0.0..1.0` within the node's bounds; default center). Distinct
+/// from the layout frame — animating a `Transform` never triggers relayout, so it is the vehicle
+/// for movement/scaling animation. Each backend composes it onto the node's laid-out frame via its
+/// native transform channel (CALayer/GskTransform/RenderTransform/NODE_TRANSFORM/…).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Transform {
+    pub tx: f64,
+    pub ty: f64,
+    pub sx: f64,
+    pub sy: f64,
+    pub rotate_deg: f64,
+    /// Anchor for scale/rotation as a unit fraction of the node's bounds (`0.5,0.5` = center).
+    pub anchor_x: f64,
+    pub anchor_y: f64,
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Transform::IDENTITY
+    }
+}
+
+impl Transform {
+    pub const IDENTITY: Transform = Transform {
+        tx: 0.0,
+        ty: 0.0,
+        sx: 1.0,
+        sy: 1.0,
+        rotate_deg: 0.0,
+        anchor_x: 0.5,
+        anchor_y: 0.5,
+    };
+
+    #[inline]
+    pub const fn translate(tx: f64, ty: f64) -> Transform {
+        Transform {
+            tx,
+            ty,
+            ..Transform::IDENTITY
+        }
+    }
+    #[inline]
+    pub const fn scale(sx: f64, sy: f64) -> Transform {
+        Transform {
+            sx,
+            sy,
+            ..Transform::IDENTITY
+        }
+    }
+    #[inline]
+    pub const fn rotate(deg: f64) -> Transform {
+        Transform {
+            rotate_deg: deg,
+            ..Transform::IDENTITY
+        }
+    }
+    /// Whether this transform has no visual effect — backends skip applying it.
+    #[inline]
+    pub fn is_identity(&self) -> bool {
+        *self == Transform::IDENTITY
+    }
+}
+
+/// Linear interpolation of animatable values (`t` in `0.0..1.0`). This drives the **canvas /
+/// self-driven** animation path (docs/shapes.md §5) and Qt's sampled spring; native-widget
+/// animation does NOT use it — the toolkit interpolates on its own compositor.
+pub trait Animatable: Copy {
+    fn lerp(self, to: Self, t: f64) -> Self;
+}
+
+#[inline]
+fn flerp(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
+}
+
+impl Animatable for f64 {
+    #[inline]
+    fn lerp(self, to: f64, t: f64) -> f64 {
+        flerp(self, to, t)
+    }
+}
+impl Animatable for Point {
+    #[inline]
+    fn lerp(self, to: Point, t: f64) -> Point {
+        Point::new(flerp(self.x, to.x, t), flerp(self.y, to.y, t))
+    }
+}
+impl Animatable for Size {
+    #[inline]
+    fn lerp(self, to: Size, t: f64) -> Size {
+        Size::new(
+            flerp(self.width, to.width, t),
+            flerp(self.height, to.height, t),
+        )
+    }
+}
+impl Animatable for Rect {
+    #[inline]
+    fn lerp(self, to: Rect, t: f64) -> Rect {
+        Rect {
+            origin: self.origin.lerp(to.origin, t),
+            size: self.size.lerp(to.size, t),
+        }
+    }
+}
+impl Animatable for Color {
+    #[inline]
+    fn lerp(self, to: Color, t: f64) -> Color {
+        Color::rgba(
+            flerp(self.r, to.r, t),
+            flerp(self.g, to.g, t),
+            flerp(self.b, to.b, t),
+            flerp(self.a, to.a, t),
+        )
+    }
+}
+impl Animatable for Transform {
+    #[inline]
+    fn lerp(self, to: Transform, t: f64) -> Transform {
+        // Anchor snaps to the destination's (it's a coordinate frame, not a visual value).
+        Transform {
+            tx: flerp(self.tx, to.tx, t),
+            ty: flerp(self.ty, to.ty, t),
+            sx: flerp(self.sx, to.sx, t),
+            sy: flerp(self.sy, to.sy, t),
+            rotate_deg: flerp(self.rotate_deg, to.rotate_deg, t),
+            anchor_x: to.anchor_x,
+            anchor_y: to.anchor_y,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

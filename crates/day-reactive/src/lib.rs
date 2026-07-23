@@ -99,7 +99,7 @@ struct Runtime {
     schedule_posted: bool,
     /// The async-spawn door ([`install_spawner`]): runs a boxed future on the app's main-loop
     /// executor, returning an abort closure.
-    spawner: Option<Rc<dyn Fn(LocalBoxFuture) -> Box<dyn FnOnce()>>>,
+    spawner: Option<Spawner>,
     turn_end: Vec<Rc<dyn Fn()>>,
     warned_writes: HashSet<*const Location<'static>>,
 }
@@ -494,6 +494,9 @@ pub fn install_scheduler(post: impl Fn() + 'static) {
 
 /// A boxed, `!Send` future for the [`install_spawner`] executor door.
 pub type LocalBoxFuture = Pin<Box<dyn Future<Output = ()> + 'static>>;
+
+/// The installed spawner: runs a future on the main-loop executor, returns its abort closure.
+type Spawner = Rc<dyn Fn(LocalBoxFuture) -> Box<dyn FnOnce()>>;
 
 /// Install the async-spawn door: `spawn` runs a future on the app's main-loop executor and
 /// returns an ABORT closure (remove + drop the future). The abort MUST be a no-op once the

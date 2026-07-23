@@ -2,6 +2,7 @@
 //! (DESIGN.md §5, §7). Build-once: pieces are constructed exactly once; all dynamism flows
 //! through reactive bindings (day-reactive) writing to the thread-local tree.
 
+mod anim;
 mod build;
 mod layout;
 pub mod lifecycle;
@@ -11,6 +12,7 @@ mod nav;
 mod present;
 mod tree;
 
+pub use anim::{current_anim, with_animation};
 pub use build::*;
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};

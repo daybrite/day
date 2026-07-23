@@ -378,7 +378,11 @@ fn http_resource_row() -> impl Piece {
                     day_part_http::Request::get(url).timeout(std::time::Duration::from_secs(10)),
                 )
                 .await?;
-                Ok::<_, day_part_http::HttpError>(format!("ok {n}: {} {}", resp.status, resp.text()))
+                Ok::<_, day_part_http::HttpError>(format!(
+                    "ok {n}: {} {}",
+                    resp.status,
+                    resp.text()
+                ))
             }
         },
     );

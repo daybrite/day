@@ -13,8 +13,8 @@ use day_core::*;
 use day_reactive::{Scope, Signal, bind, bind_seeded, watch};
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, Color, DrawOp, Event, Font, Insets, LinearGradient, Paint, Point, RadialGradient,
-    Rect, Role, Shape, Size, UnitPoint, kinds,
+    A11yProps, AnimSpec, Color, DrawOp, Event, Font, Insets, LinearGradient, Paint, Point,
+    RadialGradient, Rect, Role, Shape, Size, Transform, UnitPoint, kinds,
 };
 
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
@@ -1746,6 +1746,24 @@ impl NativeRef {
     }
 }
 
+/// A transparent native layer node (`CONTAINER`, no fill/clip/corner) used by the animatable
+/// modifiers (`.opacity`/`.transform`/`.animation`) to carry a per-node opacity, transform, or
+/// implicit animation. Layout-transparent (`PassThrough`), so it never affects sizing.
+fn layer_node(cx: &mut BuildCx) -> RNode {
+    cx.native(
+        kinds::CONTAINER,
+        &ContainerProps {
+            background: None,
+            corner_radius: 0.0,
+            clips: false,
+            role: None,
+        },
+        Rc::new(PassThrough),
+        Flex::default(),
+        Boundary::No,
+    )
+}
+
 pub trait Decorate: Piece + Sized {
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
     fn id(self, id: impl Into<String>) -> AnyPiece {
@@ -2017,6 +2035,80 @@ pub trait Decorate: Piece + Sized {
                 Flex::default(),
                 Boundary::No,
             );
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            node
+        })
+    }
+
+    /// Animate/set the piece's opacity (`0.0` transparent … `1.0` opaque). Wrapped in a native
+    /// layer so it composes with `.background`; the change animates when made inside
+    /// [`with_animation`] or under a `.animation` ancestor (§8.4).
+    fn opacity<M>(self, opacity: impl IntoReactive<f64, M>) -> AnyPiece {
+        let op = opacity.into_reactive();
+        piece_fn(move |cx| {
+            let node = layer_node(cx);
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            bind(
+                move || op.get(),
+                move |v: &f64| with_tree(|t| t.set_node_opacity(node, *v)),
+            );
+            node
+        })
+    }
+
+    /// Apply an animatable [`Transform`] (translate/scale/rotate about the center) — the cheap
+    /// movement/scaling channel that never triggers relayout (§8.4). Prefer this over `.offset`
+    /// for animated motion.
+    fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> AnyPiece {
+        let t = t.into_reactive();
+        piece_fn(move |cx| {
+            let node = layer_node(cx);
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            bind(
+                move || t.get(),
+                move |v: &Transform| with_tree(|tr| tr.set_node_transform(node, *v)),
+            );
+            node
+        })
+    }
+
+    /// Uniformly scale the piece by `factor` about its center (animatable). Convenience over
+    /// [`Self::transform`].
+    fn scale<M>(self, factor: impl IntoReactive<f64, M>) -> AnyPiece {
+        let f = factor.into_reactive();
+        self.transform(move || Transform::scale(f.get(), f.get()))
+    }
+
+    /// Rotate the piece by `degrees` clockwise about its center (animatable).
+    fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> AnyPiece {
+        let d = degrees.into_reactive();
+        self.transform(move || Transform::rotate(d.get()))
+    }
+
+    /// Translate the piece by (`x`, `y`) points WITHOUT relayout (animatable) — the
+    /// animation-friendly sibling of `.offset`.
+    fn translation<Mx, My>(
+        self,
+        x: impl IntoReactive<f64, Mx>,
+        y: impl IntoReactive<f64, My>,
+    ) -> AnyPiece {
+        let (x, y) = (x.into_reactive(), y.into_reactive());
+        self.transform(move || Transform::translate(x.get(), y.get()))
+    }
+
+    /// Attach an implicit animation (§8.4): changes to this piece's — and its descendants' —
+    /// animatable properties animate with `anim` even outside a [`with_animation`]. SwiftUI's
+    /// `.animation`. The ambient `with_animation` takes precedence when both apply.
+    fn animation(self, anim: AnimSpec) -> AnyPiece {
+        piece_fn(move |cx| {
+            let node = layer_node(cx);
+            with_tree(|t| t.set_implicit_anim(node, Some(anim)));
             cx.under(node, |cx| {
                 let _ = self.build(cx);
             });
@@ -2384,14 +2476,15 @@ pub mod prelude {
     pub use crate::{Picker, TextArea};
     pub use day_core::{
         Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, ScrollTarget,
-        invalidate_size, open_url, piece_fn,
+        invalidate_size, open_url, piece_fn, with_animation,
     };
-    pub use day_geometry::{Affine, Color, Insets, Point, Rect, Size};
+    pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
+    pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, GestureKind};
     pub use day_spec::{

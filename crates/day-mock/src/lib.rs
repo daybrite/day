@@ -44,6 +44,13 @@ pub struct MockWidget {
     pub font: Option<day_spec::FontSpec>,
     /// Last focus state driven through the `focus` duty (docs/focus.md) — probe-visible.
     pub focused: bool,
+    /// Last opacity applied via `set_opacity` (§8.4) — `None` until touched (probe-visible).
+    pub opacity: Option<f64>,
+    /// Last transform applied via `set_transform` (§8.4) — probe-visible.
+    pub transform: Option<day_spec::Transform>,
+    /// The most recent animation intent seen on ANY seam for this widget (`update`/`set_frame`/
+    /// `set_opacity`/`set_transform`). Lets tests assert `with_animation` threaded the intent.
+    pub last_anim: Option<AnimSpec>,
 }
 
 #[derive(Default)]
@@ -211,6 +218,8 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // The mock "runs" backend-executed animation by recording the intent (probe-visible).
+            Cap::Animation => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -297,12 +306,15 @@ impl Toolkit for MockToolkit {
         h: &MockHandle,
         kind: PieceKind,
         patch: &dyn Any,
-        _anim: Option<&AnimSpec>,
+        anim: Option<&AnimSpec>,
     ) {
         let mut s = self.state.borrow_mut();
         let detail;
         {
             let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
+            if anim.is_some() {
+                w.last_anim = anim.copied();
+            }
             detail = if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                 match p {
                     LabelPatch::Text(t) => {
@@ -499,12 +511,43 @@ impl Toolkit for MockToolkit {
         size
     }
 
-    fn set_frame(&mut self, h: &MockHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+    fn set_frame(&mut self, h: &MockHandle, frame: Rect, anim: Option<&AnimSpec>) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {
             w.frame = frame;
+            if anim.is_some() {
+                w.last_anim = anim.copied();
+            }
         }
-        s.log(format!("set_frame #{} {}", h.0, fmt_rect(frame)));
+        let a = if anim.is_some() { " animated" } else { "" };
+        s.log(format!("set_frame #{} {}{}", h.0, fmt_rect(frame), a));
+    }
+
+    fn set_opacity(&mut self, h: &MockHandle, opacity: f64, anim: Option<&AnimSpec>) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.opacity = Some(opacity);
+            if anim.is_some() {
+                w.last_anim = anim.copied();
+            }
+        }
+        let a = if anim.is_some() { " animated" } else { "" };
+        s.log(format!("set_opacity #{} {:.3}{}", h.0, opacity, a));
+    }
+
+    fn set_transform(&mut self, h: &MockHandle, t: day_spec::Transform, anim: Option<&AnimSpec>) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.transform = Some(t);
+            if anim.is_some() {
+                w.last_anim = anim.copied();
+            }
+        }
+        let a = if anim.is_some() { " animated" } else { "" };
+        s.log(format!(
+            "set_transform #{} tx={:.1},ty={:.1},sx={:.2},sy={:.2},rot={:.1}{}",
+            h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, a
+        ));
     }
 
     fn set_scroll_content(&mut self, h: &MockHandle, content: Size) {

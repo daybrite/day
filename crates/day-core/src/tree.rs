@@ -89,6 +89,10 @@ pub struct NodeData<H> {
     /// Scroll-content size reported by `ScrollLayout` (§7.6) — SCROLL nodes only. Cached so
     /// `scroll_to_target` can compose edge targets (bottom = content minus viewport).
     pub scroll_content: Option<Size>,
+    /// Node-scoped implicit animation (`.animation(anim)`, §8.4): when set, this node's property
+    /// patches and frame changes animate even outside a `with_animation`. The ambient animation
+    /// (`with_animation`) takes precedence when both are present.
+    pub implicit_anim: Option<day_spec::AnimSpec>,
 }
 
 /// An event handler registered on a realized node.
@@ -104,6 +108,9 @@ pub struct Tree<B: Toolkit> {
     release_queue: Vec<B::Handle>,
     /// Recycling-list state keyed by LIST node (docs/list.md, §10).
     lists: HashMap<RNode, crate::list::ListState>,
+    /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
+    /// walk: zero ⇒ non-`with_animation` patches skip it entirely (the common, O(1) path).
+    implicit_anim_count: usize,
 }
 
 impl<B: Toolkit> Tree<B> {
@@ -124,6 +131,7 @@ impl<B: Toolkit> Tree<B> {
             needs_measure: true,
             last_native_frame: None,
             scroll_content: None,
+            implicit_anim: None,
             is_boundary: true,
         });
         Tree {
@@ -135,6 +143,7 @@ impl<B: Toolkit> Tree<B> {
             handlers: HashMap::new(),
             release_queue: Vec::new(),
             lists: HashMap::new(),
+            implicit_anim_count: 0,
         }
     }
 
@@ -156,6 +165,7 @@ impl<B: Toolkit> Tree<B> {
             needs_measure: true,
             last_native_frame: None,
             scroll_content: None,
+            implicit_anim: None,
             is_boundary: true,
         })
     }
@@ -169,6 +179,30 @@ impl<B: Toolkit> Tree<B> {
     }
     pub(crate) fn node_mut(&mut self, n: RNode) -> Option<&mut NodeData<B::Handle>> {
         self.nodes.get_mut(n)
+    }
+
+    /// The animation intent for a change to `node` (§8.4): the ambient `with_animation` if one is
+    /// in scope, else the nearest `.animation` on `node` or an ancestor (SwiftUI-style
+    /// propagation). `None` ⇒ the change applies instantly. The ancestor walk is skipped entirely
+    /// when no implicit animations exist anywhere (`implicit_anim_count == 0`).
+    pub(crate) fn resolve_anim(&self, node: RNode) -> Option<day_spec::AnimSpec> {
+        if let Some(a) = crate::anim::current_anim() {
+            return Some(a);
+        }
+        if self.implicit_anim_count == 0 {
+            return None;
+        }
+        let mut cur = node;
+        loop {
+            let n = self.nodes.get(cur)?;
+            if n.implicit_anim.is_some() {
+                return n.implicit_anim;
+            }
+            if n.parent == cur {
+                return None;
+            }
+            cur = n.parent;
+        }
     }
 
     /// Nearest ancestor (or self) with a native handle.
@@ -323,6 +357,9 @@ impl<B: Toolkit> Tree<B> {
                 continue;
             };
             self.handlers.remove(&n);
+            if data.implicit_anim.is_some() {
+                self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
+            }
             if let Some(h) = data.handle {
                 self.release_queue.push(h);
             }
@@ -422,6 +459,16 @@ pub trait TreeOps {
     fn scroll_reveal(&mut self, node: RNode, animated: bool) -> bool;
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>);
+    /// Set (or clear) a node's implicit `.animation` (§8.4): subsequent property patches and frame
+    /// changes on this node (or its descendants) animate with `anim` even outside a
+    /// `with_animation`.
+    fn set_implicit_anim(&mut self, node: RNode, anim: Option<day_spec::AnimSpec>);
+    /// Apply an animatable opacity (0..1) to `node`'s native handle (§8.4), animating if an
+    /// animation is in scope. No-op if the node has no handle.
+    fn set_node_opacity(&mut self, node: RNode, opacity: f64);
+    /// Apply an animatable [`Transform`] to `node`'s native handle (§8.4) — the cheap movement/
+    /// scaling channel that never relayouts. No-op if the node has no handle.
+    fn set_node_transform(&mut self, node: RNode, t: day_spec::Transform);
     fn mark_needs_measure(&mut self, node: RNode);
     fn mark_layout_dirty(&mut self);
     fn layout_if_needed(&mut self);
@@ -564,6 +611,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             needs_measure: true,
             last_native_frame: None,
             scroll_content: None,
+            implicit_anim: None,
             is_boundary,
         });
         if native {
@@ -813,11 +861,46 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         };
         let kind = n.kind;
         if let Some(h) = n.handle.clone() {
-            self.toolkit.update(&h, kind, patch.as_ref(), None);
+            let anim = self.resolve_anim(node);
+            self.toolkit.update(&h, kind, patch.as_ref(), anim.as_ref());
         }
         if affects_size {
             self.mark_needs_measure_impl(node);
         }
+    }
+
+    fn set_implicit_anim(&mut self, node: RNode, anim: Option<day_spec::AnimSpec>) {
+        let had = self
+            .nodes
+            .get(node)
+            .map(|n| n.implicit_anim.is_some())
+            .unwrap_or(false);
+        if let Some(n) = self.nodes.get_mut(node) {
+            n.implicit_anim = anim;
+        } else {
+            return;
+        }
+        match (had, anim.is_some()) {
+            (false, true) => self.implicit_anim_count += 1,
+            (true, false) => self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    fn set_node_opacity(&mut self, node: RNode, opacity: f64) {
+        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        let anim = self.resolve_anim(node);
+        self.toolkit.set_opacity(&h, opacity, anim.as_ref());
+    }
+
+    fn set_node_transform(&mut self, node: RNode, t: day_spec::Transform) {
+        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        let anim = self.resolve_anim(node);
+        self.toolkit.set_transform(&h, t, anim.as_ref());
     }
 
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>) {

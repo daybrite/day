@@ -503,6 +503,10 @@ pub enum Cap {
     Dialogs,
     /// The toolkit can present native open/save file pickers (docs/files.md).
     FileDialogs,
+    /// The toolkit runs backend-executed animation for `AnimSpec` intents on
+    /// `update`/`set_frame`/`set_opacity`/`set_transform` (§8.4). `Unsupported` ⇒ animated calls
+    /// apply instantly (still correct, just not animated).
+    Animation,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -512,10 +516,177 @@ pub enum Support {
     Unsupported,
 }
 
-/// Reserved animation intent (§8.4) — MVP backends ignore it.
+/// The timing curve of an animation (§8.4). Native backends map each variant onto their own
+/// easing (`CAMediaTimingFunction`, `QEasingCurve`, ArkUI `ARKUI_CURVE_*`, spring animators); the
+/// canvas/self-driven path samples it via [`Curve::fraction`]. `Spring` matches SwiftUI's
+/// `.spring(response:dampingFraction:)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Curve {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    /// `response` = approximate settling period (seconds); `damping` = damping ratio (1.0 =
+    /// critically damped, `<1` = bouncy overshoot).
+    Spring {
+        response: f64,
+        damping: f64,
+    },
+}
+
+impl Curve {
+    /// Fraction of the transition complete at `elapsed` seconds (0 at start, reaching — or, for an
+    /// under-damped spring, overshooting — 1). Easing curves clamp to `duration`; springs evaluate
+    /// their analytic unit-step response and use `duration` only as a settle cap. Drives the
+    /// self-driven/canvas path; native backends interpolate on their own compositor instead.
+    pub fn fraction(self, elapsed: f64, duration: f64) -> f64 {
+        match self {
+            Curve::Spring { response, damping } => spring_step(response, damping, elapsed),
+            _ => {
+                let t = if duration <= 0.0 {
+                    1.0
+                } else {
+                    (elapsed / duration).clamp(0.0, 1.0)
+                };
+                self.ease(t)
+            }
+        }
+    }
+
+    /// Eased progress for normalized `t` in `0.0..=1.0` (springs pass through — use [`fraction`]).
+    #[inline]
+    pub fn ease(self, t: f64) -> f64 {
+        match self {
+            Curve::Linear | Curve::Spring { .. } => t,
+            Curve::EaseIn => t * t,
+            Curve::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
+            Curve::EaseInOut => t * t * (3.0 - 2.0 * t), // smoothstep
+        }
+    }
+
+    /// Whether the transition has settled, so the canvas frame clock can stop ticking it.
+    pub fn is_settled(self, elapsed: f64, duration: f64) -> bool {
+        match self {
+            Curve::Spring { response, damping } => {
+                let cap = response.max(0.0) * 4.0 + 0.2;
+                if elapsed >= cap {
+                    return true;
+                }
+                (spring_step(response, damping, elapsed) - 1.0).abs() < 0.001
+                    && elapsed > response * 0.5
+            }
+            _ => elapsed >= duration.max(0.0),
+        }
+    }
+}
+
+/// Unit-step response of a second-order spring (`response` = period seconds, `damping` = ratio),
+/// evaluated at `t` seconds. Under-damped rings and overshoots; critically/over-damped eases in.
+fn spring_step(response: f64, damping: f64, t: f64) -> f64 {
+    if response <= 0.0 || t <= 0.0 {
+        return if t <= 0.0 { 0.0 } else { 1.0 };
+    }
+    let omega0 = std::f64::consts::TAU / response;
+    let zeta = damping.max(0.0);
+    if zeta < 1.0 {
+        let omega_d = omega0 * (1.0 - zeta * zeta).sqrt();
+        let e = (-zeta * omega0 * t).exp();
+        1.0 - e * ((omega_d * t).cos() + (zeta * omega0 / omega_d) * (omega_d * t).sin())
+    } else {
+        let e = (-omega0 * t).exp();
+        1.0 - e * (1.0 + omega0 * t)
+    }
+}
+
+/// Animation intent (§8.4). Native-widget backends map it onto their own animator (Core Animation,
+/// `ViewPropertyAnimator`, WinUI Composition, `OH_ArkUI_AnimateTo`, …); the canvas/self-driven path
+/// samples `curve` via [`Curve::fraction`]. Threaded through `Toolkit::update`/`set_frame`/
+/// `set_opacity`/`set_transform`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimSpec {
     pub duration_ms: u32,
+    pub delay_ms: u32,
+    pub curve: Curve,
+    /// Repeat count beyond the first play (`0` = play once); `u32::MAX` = repeat forever.
+    pub repeat: u32,
+    pub autoreverse: bool,
+}
+
+impl Default for AnimSpec {
+    /// The default feel: a smooth spring (SwiftUI's modern default).
+    fn default() -> Self {
+        AnimSpec {
+            duration_ms: 350,
+            delay_ms: 0,
+            curve: Curve::Spring {
+                response: 0.4,
+                damping: 0.8,
+            },
+            repeat: 0,
+            autoreverse: false,
+        }
+    }
+}
+
+impl AnimSpec {
+    /// A smooth spring: `response` = settling period (s), `damping` = ratio (1.0 = no bounce, `<1`
+    /// bouncy). `duration_ms` is a nominal cap for backends that need a duration; spring backends
+    /// use `response`/`damping` directly.
+    pub fn spring(response: f64, damping: f64) -> Self {
+        AnimSpec {
+            duration_ms: ((response * 3.0).max(0.05) * 1000.0) as u32,
+            delay_ms: 0,
+            curve: Curve::Spring { response, damping },
+            repeat: 0,
+            autoreverse: false,
+        }
+    }
+    pub fn linear(duration_ms: u32) -> Self {
+        Self::timed(duration_ms, Curve::Linear)
+    }
+    pub fn ease_in(duration_ms: u32) -> Self {
+        Self::timed(duration_ms, Curve::EaseIn)
+    }
+    pub fn ease_out(duration_ms: u32) -> Self {
+        Self::timed(duration_ms, Curve::EaseOut)
+    }
+    pub fn ease_in_out(duration_ms: u32) -> Self {
+        Self::timed(duration_ms, Curve::EaseInOut)
+    }
+    fn timed(duration_ms: u32, curve: Curve) -> Self {
+        AnimSpec {
+            duration_ms,
+            delay_ms: 0,
+            curve,
+            repeat: 0,
+            autoreverse: false,
+        }
+    }
+    /// Delay before the animation starts (builder).
+    pub fn delay(mut self, ms: u32) -> Self {
+        self.delay_ms = ms;
+        self
+    }
+    /// Repeat `count` extra times (builder); `autoreverse` ping-pongs each cycle.
+    pub fn repeat(mut self, count: u32, autoreverse: bool) -> Self {
+        self.repeat = count;
+        self.autoreverse = autoreverse;
+        self
+    }
+    /// Repeat forever (builder) — e.g. a pulsing indicator.
+    pub fn repeat_forever(mut self, autoreverse: bool) -> Self {
+        self.repeat = u32::MAX;
+        self.autoreverse = autoreverse;
+        self
+    }
+    #[inline]
+    pub fn duration_secs(&self) -> f64 {
+        self.duration_ms as f64 / 1000.0
+    }
+    #[inline]
+    pub fn delay_secs(&self) -> f64 {
+        self.delay_ms as f64 / 1000.0
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -1464,6 +1635,12 @@ pub trait Toolkit: Sized + 'static {
     fn measure(&mut self, h: &Self::Handle, kind: PieceKind, p: Proposal) -> Size;
     fn set_frame(&mut self, h: &Self::Handle, frame: Rect, anim: Option<&AnimSpec>);
 
+    // animatable visual channels (§8.4): cheap per-node opacity + transform that DON'T relayout.
+    // Defaulted no-ops so backends adopt them incrementally; `anim = Some` ⇒ animate to the value
+    // on the toolkit's own compositor, `None` ⇒ set instantly.
+    fn set_opacity(&mut self, _h: &Self::Handle, _opacity: f64, _anim: Option<&AnimSpec>) {}
+    fn set_transform(&mut self, _h: &Self::Handle, _t: Transform, _anim: Option<&AnimSpec>) {}
+
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}
@@ -1591,6 +1768,14 @@ pub trait Platform: Toolkit {
     /// Post a closure onto the native main loop. Callable from ANY thread; this is the
     /// single door the reactive scheduler and `Setter` deliveries ride (§3.3).
     fn post(f: Box<dyn FnOnce() + Send>);
+
+    /// Request a single main-thread callback aligned to the next display refresh (vsync), carrying
+    /// the frame timestamp in seconds. The day-core animation driver re-arms it each tick while
+    /// animations / game frame-clocks are live and stops requesting when none remain (no idle
+    /// wakeups → battery). Main-thread only. A backend without a display link may approximate with a
+    /// ~16 ms timer. Defaulted no-op: the canvas/self-driven animation path is inert until a backend
+    /// provides it (native-widget animation via `AnimSpec` is unaffected). (§8.4)
+    fn request_frame(_cb: Box<dyn FnOnce(f64) + 'static>) {}
 
     /// Ordered OS locale preference list (BCP-47), for fluent-langneg (§12.2).
     fn locale_hints(&self) -> Vec<String> {

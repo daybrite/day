@@ -3,7 +3,7 @@
 Fetch like the platform, not around it.
 
 This crate does HTTP through each platform's own networking stack — NSURLSession on macOS and
-iOS, `HttpURLConnection` on Android, WinHTTP on Windows — so requests pick up everything the OS
+iOS, OkHttp on Android, WinHTTP on Windows — so requests pick up everything the OS
 already knows: system proxies and PAC scripts, VPN routing, Low Data Mode, enterprise certificate
 stores. On Linux and HarmonyOS, where no OS-level HTTP API exists, a bundled ureq + rustls
 fallback keeps the same API working; `tier()` tells you which world you're in.

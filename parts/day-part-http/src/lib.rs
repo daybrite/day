@@ -10,9 +10,10 @@
 //! Why native stacks instead of a Rust HTTP crate: the request inherits the SYSTEM configuration —
 //! proxies + PAC, per-network VPN routing, Low Data Mode ([`Request::allow_constrained`]),
 //! enterprise/MDM certificate stores — and the binary carries no bundled TLS on the native
-//! targets. macOS/iOS use `NSURLSession`, Android `java.net.HttpURLConnection` (via this crate's
-//! Java shim), Windows `WinHTTP`; Linux and HarmonyOS (whose OSS NDK has no HTTP C API) use a
-//! cfg-gated Rust fallback (`ureq` + rustls). [`tier`] reports which one an app got.
+//! targets. macOS/iOS use `NSURLSession`, Android OkHttp (via this crate's Java shim, on the
+//! platform trust/proxy/policy rails), Windows `WinHTTP`; Linux and HarmonyOS (whose OSS NDK
+//! has no HTTP C API) use a cfg-gated Rust fallback (`ureq` + rustls). [`tier`] reports which
+//! one an app got.
 //!
 //! **Threading.** [`fetch`] BLOCKS the calling thread — run it on your own thread, never the UI
 //! thread. [`fetch_async`]'s completion runs on an unspecified BACKGROUND thread (NSURLSession's
@@ -26,6 +27,10 @@
 //!     if let Ok(resp) = result { done.set(Some(Arc::new(resp.body))); }
 //! });
 //! ```
+//!
+//! Or await it: [`fetch_future`] wraps the same completion as a `Future` whose DROP cancels the
+//! request where the platform can (docs/http.md's cancel matrix) — under `day::task` the
+//! continuation runs on the UI thread, so results are plain signal writes (docs/async.md).
 //!
 //! Every field and option is **best-effort per platform** (docs/http.md has the honest matrix):
 //! `allow_expensive`/`allow_constrained` are native on Apple and advisory elsewhere; redirects
