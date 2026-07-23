@@ -941,7 +941,9 @@ impl Toolkit for Qt {
                         patch.downcast_ref::<ContainerPatch>()
                     {
                         let bg = c.unwrap_or(day_spec::Color::CLEAR);
-                        ffi::day_qt_widget_set_surface(h.0, bg.r, bg.g, bg.b, bg.a, 0.0, 0);
+                        // Preserve the corner radius set at realize — a reactive `.background`
+                        // must not square off a rounded surface.
+                        ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a);
                     }
                 }
                 kinds::NAV_MENU => {

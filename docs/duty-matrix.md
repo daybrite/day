@@ -19,8 +19,8 @@ implement them, and this table proves it.
 | `move_child` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `measure` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `set_opacity` | · | · | · | · | · | · | · | · | ✓ |
-| `set_transform` | · | · | · | · | · | · | · | · | ✓ |
+| `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
+| `set_transform` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
 | `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `scroll_to` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `scroll_offset` | · | · | · | · | · | ✓ | · | · | ✓ |

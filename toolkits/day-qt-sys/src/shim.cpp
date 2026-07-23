@@ -15,6 +15,7 @@
 #include <QGraphicsEffect>
 #include <QHBoxLayout>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPropertyAnimation>
 #include <QVariantAnimation>
 #include <functional>
@@ -194,6 +195,64 @@ void day_qt_open_url(const char *url) {
 // no grouped-card palette role, and the concrete roles (alternate-base) vary wildly per style.
 // The unique object-name selector scopes the rule to THIS widget — a bare `background-color` on
 // a parent QWidget cascades into every descendant and replaces their native drawing (flat buttons).
+// A QWidget has neither an opacity of its own nor a 2-D transform, so both ride a single custom
+// QGraphicsEffect (§8.4). The effect grabs the widget (and its children) as a pixmap and re-draws
+// it through a transformed painter — rotate/scale/translate about the centre — with a padded
+// bounding rect so the result can spill OUTSIDE the widget's own 112px frame (into the parent, like
+// a drop shadow) instead of clipping to the widget rect. A rounded clip (matching the surface's
+// corner radius) is re-applied here because the grabbed pixmap has square corners. No Q_OBJECT/moc:
+// the overrides are plain virtuals and the tweens are QVariantAnimations driving a lambda.
+class DayEffect : public QGraphicsEffect {
+public:
+    double opacity = 1.0;
+    double tx = 0, ty = 0, sx = 1, sy = 1, rot = 0;
+    double radius = 0.0;
+    explicit DayEffect(QObject *parent) : QGraphicsEffect(parent) {}
+    QRectF boundingRectFor(const QRectF &r) const override {
+        return r.adjusted(-400, -400, 400, 400);
+    }
+    void draw(QPainter *painter) override {
+        // Capture the widget (and children) in logical coords; `offset` is where to blit it, and
+        // its device-independent size gives the pivot. Qt sets the pixmap's devicePixelRatio, so
+        // drawPixmap(point, pm) blits at the right logical size on any display.
+        QPoint offset;
+        QPixmap pm = sourcePixmap(Qt::LogicalCoordinates, &offset);
+        if (pm.isNull()) {
+            return;
+        }
+        double w = pm.width() / pm.devicePixelRatio();
+        double h = pm.height() / pm.devicePixelRatio();
+        QPointF c(offset.x() + w / 2.0, offset.y() + h / 2.0);
+        painter->save();
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setOpacity(painter->opacity() * opacity);
+        painter->translate(c.x() + tx, c.y() + ty);
+        painter->rotate(rot);
+        painter->scale(sx, sy);
+        painter->translate(-c.x(), -c.y());
+        if (radius > 0.0) {
+            // Re-round the corners: the grabbed pixmap is square, so clip to the surface radius.
+            QPainterPath rounded;
+            rounded.addRoundedRect(QRectF(offset.x(), offset.y(), w, h), radius, radius);
+            painter->setClipPath(rounded);
+        }
+        painter->drawPixmap(offset, pm);
+        painter->restore();
+    }
+};
+
+static DayEffect *day_qt_effect(QWidget *w) {
+    DayEffect *eff = dynamic_cast<DayEffect *>(w->graphicsEffect());
+    if (!eff) {
+        eff = new DayEffect(w);
+        w->setGraphicsEffect(eff);
+    }
+    // Keep the rounded clip in sync with the widget's surface radius (set by set_surface).
+    eff->radius = w->property("dayRadius").toDouble();
+    return eff;
+}
+
 void day_qt_widget_set_section_card(void *w, double radius) {
     auto *widget = static_cast<QWidget *>(w);
     static unsigned long counter = 0;
@@ -214,6 +273,10 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
     if (widget->objectName().isEmpty())
         widget->setObjectName(QString("daySurface%1").arg(counter++));
     widget->setAttribute(Qt::WA_StyledBackground, true);
+    // Remember the radius/clips so a later background-only update (day_qt_widget_set_bg — e.g. a
+    // reactive `.background`) can rebuild the stylesheet without dropping the rounded corners.
+    widget->setProperty("dayRadius", radius);
+    widget->setProperty("dayClips", clips);
     QString body;
     if (a > 0.0) {
         body += QString("background-color: rgba(%1,%2,%3,%4);")
@@ -226,6 +289,20 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
         body += QString("border-radius: %1px;").arg(radius);
     (void)clips; // stylesheet border-radius rounds the background; child clipping is best-effort.
     widget->setStyleSheet(QString("#%1 { %2 }").arg(widget->objectName()).arg(body));
+    // If a transform/opacity effect is already mounted, keep its rounded clip in sync.
+    if (DayEffect *eff = dynamic_cast<DayEffect *>(widget->graphicsEffect())) {
+        eff->radius = radius;
+        eff->update();
+    }
+}
+
+// Update only the background colour, preserving the radius/clips captured by the last
+// day_qt_widget_set_surface (so a reactive `.background` doesn't square off a rounded surface).
+void day_qt_widget_set_bg(void *w, double r, double g, double b, double a) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    double radius = widget->property("dayRadius").toDouble();
+    int clips = widget->property("dayClips").toInt();
+    day_qt_widget_set_surface(w, r, g, b, a, radius, clips);
 }
 
 // --- label ---
@@ -560,8 +637,7 @@ void day_qt_set_visible(void *w, int visible) {
     static_cast<QWidget *>(w)->setVisible(visible != 0);
 }
 
-// Day curve code (§8.4) → QEasingCurve. Spring approximates as OutBack (overshoot). QWidgets
-// can't carry a 2-D transform, so `set_transform` has no Qt equivalent.
+// Day curve code (§8.4) → QEasingCurve. Spring approximates as OutBack (overshoot).
 static QEasingCurve day_qt_easing(int curve) {
     switch (curve) {
     case 0:
@@ -575,53 +651,6 @@ static QEasingCurve day_qt_easing(int curve) {
     default:
         return QEasingCurve(QEasingCurve::InOutQuad);
     }
-}
-
-// A QWidget has neither an opacity of its own nor a 2-D transform, so both ride a single custom
-// QGraphicsEffect (§8.4). The effect grabs the widget (and its children) as a pixmap and re-draws
-// it through a transformed painter — rotate/scale/translate about the centre — with a padded
-// bounding rect so the result can spill OUTSIDE the widget's own 112px frame (into the parent, like
-// a drop shadow) instead of clipping to the widget rect. No Q_OBJECT/moc: the overrides are plain
-// virtuals and the tweens are QVariantAnimations driving a lambda.
-class DayEffect : public QGraphicsEffect {
-public:
-    double opacity = 1.0;
-    double tx = 0, ty = 0, sx = 1, sy = 1, rot = 0;
-    explicit DayEffect(QObject *parent) : QGraphicsEffect(parent) {}
-    QRectF boundingRectFor(const QRectF &r) const override {
-        return r.adjusted(-400, -400, 400, 400);
-    }
-    void draw(QPainter *painter) override {
-        // Capture the widget (and children) in logical coords; `offset` is where to blit it, and
-        // its device-independent size gives the pivot. Qt sets the pixmap's devicePixelRatio, so
-        // drawPixmap(point, pm) blits at the right logical size on any display.
-        QPoint offset;
-        QPixmap pm = sourcePixmap(Qt::LogicalCoordinates, &offset);
-        if (pm.isNull()) {
-            return;
-        }
-        double w = pm.width() / pm.devicePixelRatio();
-        double h = pm.height() / pm.devicePixelRatio();
-        QPointF c(offset.x() + w / 2.0, offset.y() + h / 2.0);
-        painter->save();
-        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-        painter->setOpacity(painter->opacity() * opacity);
-        painter->translate(c.x() + tx, c.y() + ty);
-        painter->rotate(rot);
-        painter->scale(sx, sy);
-        painter->translate(-c.x(), -c.y());
-        painter->drawPixmap(offset, pm);
-        painter->restore();
-    }
-};
-
-static DayEffect *day_qt_effect(QWidget *w) {
-    DayEffect *eff = dynamic_cast<DayEffect *>(w->graphicsEffect());
-    if (!eff) {
-        eff = new DayEffect(w);
-        w->setGraphicsEffect(eff);
-    }
-    return eff;
 }
 
 // Drive one field-group of the effect (tagged, so an opacity retrigger and a transform retrigger

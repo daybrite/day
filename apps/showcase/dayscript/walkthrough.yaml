@@ -136,6 +136,19 @@ flow:
   - navigate: { route: grid }
   - screenshot: grid
 
+  # Declarative animation (§8.4, docs/animation.md): queue DETERMINISTIC targets (fixed values,
+  # not Randomize! — screenshots must reproduce), commit them inside one with_animation via
+  # Animate!, and let the backend interpolation settle before capturing.
+  - navigate: { route: animation }
+  - assert_route: { route: animation }
+  - assert_visible: { id: animation-title }
+  - set_value: { id: anim-scale, value: 1.25 }
+  - set_value: { id: anim-rotation, value: 30 }
+  - set_value: { id: anim-hue, value: 200 }
+  - tap: { id: anim-go }
+  - pause: { secs: 1.0 }
+  - screenshot: animation
+
   # Menus & dialogs (docs/menus.md, docs/dialogs.md): the transient native surfaces in one
   # page — the app-menu action readout, the context-menu target, and the imperative dialogs.
   # Screenshot the pristine form first, then open each dialog, answer it, assert the result.

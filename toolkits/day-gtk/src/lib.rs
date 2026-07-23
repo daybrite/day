@@ -508,12 +508,25 @@ struct GtkAnim {
 
 thread_local! {
     static GTK_ANIMS: RefCell<HashMap<usize, GtkAnim>> = RefCell::new(HashMap::new());
+    // Day's laid-out top-left origin per GtkFixed child. GTK positions a Fixed child *via* its
+    // child transform, which is the same slot the animation transform uses — so the two must be
+    // composed (see apply_gtk_transform) rather than overwrite each other.
+    static NODE_ORIGIN: RefCell<HashMap<usize, (f32, f32)>> = RefCell::new(HashMap::new());
 }
 
-/// Apply `t` to `widget` via its `GtkFixed` parent's child transform, about the widget's center.
+/// Apply Day's layout origin AND the animation transform `t` to `widget` as its `GtkFixed` child
+/// transform, about the widget's centre. GTK positions a Fixed child *through* its child transform,
+/// so the laid-out origin and the animation transform share one slot and MUST be composed here —
+/// otherwise setting the transform would strand the widget at the fixed's (0,0) corner.
 fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform, size: Size) {
+    let (ox, oy) = NODE_ORIGIN
+        .with(|m| m.borrow().get(&widget_key(widget)).copied())
+        .unwrap_or((0.0, 0.0));
     if t.is_identity() {
-        fixed.set_child_transform(widget, None);
+        // Just the laid-out position — but as an explicit translation (not `None`), so it can't be
+        // left at (0,0) by racing a later set_child_transform.
+        let translate = gtk4::gsk::Transform::new().translate(&gtk4::graphene::Point::new(ox, oy));
+        fixed.set_child_transform(widget, Some(&translate));
         return;
     }
     // The laid-out size (from Day) is reliable; `widget.width()` can be 0 before allocation, which
@@ -531,11 +544,12 @@ fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform,
     let cx = w * t.anchor_x as f32;
     let cy = hgt * t.anchor_y as f32;
     // GSK applies the FIRST-chained op first to a point, so to rotate/scale about the centre and
-    // then translate: move to the pivot, scale, rotate, move back + translate.
+    // then translate: move to origin + pivot, scale, rotate, move back. Folding the laid-out
+    // origin (ox, oy) into the outer translation places the transformed box at its layout position.
     let transform = gtk4::gsk::Transform::new()
         .translate(&gtk4::graphene::Point::new(
-            cx + t.tx as f32,
-            cy + t.ty as f32,
+            ox + cx + t.tx as f32,
+            oy + cy + t.ty as f32,
         ))
         .rotate(t.rotate_deg as f32)
         .scale(t.sx as f32, t.sy as f32)
@@ -1781,6 +1795,12 @@ impl Toolkit for Gtk {
 
     fn release(&mut self, h: Handle) {
         let key = widget_key(&h);
+        GTK_ANIMS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        NODE_ORIGIN.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         LABEL_STYLE.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -2102,7 +2122,21 @@ impl Toolkit for Gtk {
         if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
+            NODE_ORIGIN.with(|m| {
+                m.borrow_mut()
+                    .insert(key, (frame.origin.x as f32, frame.origin.y as f32))
+            });
             fixed.move_(h, frame.origin.x, frame.origin.y);
+            // `move_` rewrote the child transform to a plain translation, dropping any active
+            // animation transform. Re-apply it over the new origin so a relayout (window resize,
+            // deep-link mount) doesn't reset a transformed widget's scale/rotation/offset — or
+            // strand it at the corner.
+            let cur = GTK_ANIMS.with(|m| m.borrow().get(&key).map(|s| s.cur_transform));
+            if let Some(t) = cur
+                && !t.is_identity()
+            {
+                apply_gtk_transform(fixed, h, t, frame.size);
+            }
         }
         h.set_size_request(
             frame.size.width.round() as i32,
