@@ -108,10 +108,12 @@ pub(crate) fn text_page() -> AnyPiece {
     // Custom sizes — Font::System(pt), still scaled by the platform accessibility text size.
     let custom = section((
         label(crate::res::str::text_custom_note()).font(Font::Footnote),
-        label("13 pt").font(Font::System(13.0)),
-        label("20 pt").font(Font::System(20.0)),
-        label("28 pt").font(Font::System(28.0)).id("text-custom-28"),
-        label("40 pt")
+        label(crate::res::str::text_size_pt(13)).font(Font::System(13.0)),
+        label(crate::res::str::text_size_pt(20)).font(Font::System(20.0)),
+        label(crate::res::str::text_size_pt(28))
+            .font(Font::System(28.0))
+            .id("text-custom-28"),
+        label(crate::res::str::text_size_pt(40))
             .font(Font::System(40.0))
             .weight(FontWeight::Bold),
     ))
@@ -121,16 +123,18 @@ pub(crate) fn text_page() -> AnyPiece {
     // and `day build` + the backend make that name resolve on every platform.
     let fonts = section((
         label(crate::res::str::text_fonts_note()).font(Font::Footnote),
-        label("Pacifico — flowing script")
+        // The family NAMES stay Latin (proper nouns, and the sample must exercise the font);
+        // the descriptions localize — non-Latin glyphs fall back to the system font mid-line.
+        label(crate::res::str::text_font_pacifico())
             .font(Font::custom(crate::res::fonts::pacifico, 24.0))
             .id("text-font-pacifico"),
-        label("BUNGEE — chromatic display")
+        label(crate::res::str::text_font_bungee())
             .font(Font::custom(crate::res::fonts::bungee, 20.0))
             .id("text-font-bungee"),
-        label("Special Elite — typewriter keys")
+        label(crate::res::str::text_font_specialelite())
             .font(Font::custom(crate::res::fonts::special_elite, 20.0))
             .id("text-font-specialelite"),
-        label("Pacifico at 36 points")
+        label(crate::res::str::text_font_pacifico_lg())
             .font(Font::custom(crate::res::fonts::pacifico, 36.0))
             .color(Color::hex(0x2F6FDE))
             .id("text-font-pacifico-lg"),
@@ -141,19 +145,23 @@ pub(crate) fn text_page() -> AnyPiece {
     // (or the mail client for `mailto:`) via the backend's `open_url`. `.color()` overrides the
     // default tint; `.font()` and `.bold()` style the run like a label.
     let links = section((
-        label("Tap a link to open it in the system browser.").font(Font::Footnote),
+        label(crate::res::str::text_links_caption()).font(Font::Footnote),
+        // "daybrite.dev" is the URL itself (a value), so it stays raw.
         link("daybrite.dev", "https://daybrite.dev").id("text-link-web"),
         link(
-            "Material Symbols on Google Fonts",
+            crate::res::str::text_link_icons_label().format(),
             "https://fonts.google.com/icons",
         )
         .font(Font::Footnote)
         .id("text-link-icons"),
-        link("Email the team", "mailto:hello@daybrite.dev")
-            .color(Color::hex(0x27AE60))
-            .id("text-link-mail"),
+        link(
+            crate::res::str::text_link_mail_label().format(),
+            "mailto:hello@daybrite.dev",
+        )
+        .color(Color::hex(0x27AE60))
+        .id("text-link-mail"),
     ))
-    .title("Links");
+    .title(crate::res::str::text_links_section());
 
     // Bundled fonts lead the page: the most visually distinctive section, and the one the
     // walkthrough screenshot must show above the fold.

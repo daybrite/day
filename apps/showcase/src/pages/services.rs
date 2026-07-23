@@ -205,7 +205,7 @@ fn haptics_section() -> impl Piece {
 
 fn files_section() -> impl Piece {
     // The editor text: what "Save" writes and what "Open" loads into.
-    let content = Signal::new(String::from("Hello from Day!\nEdit me, then Save."));
+    let content = Signal::new(crate::res::str::files_initial_content().format());
     let status = Signal::new(String::new());
     let opened = Signal::new(String::new());
     section((

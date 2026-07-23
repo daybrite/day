@@ -444,4 +444,57 @@ grid_stress_add = 增加 50 行
 grid_stress_bump = 递增首个单元格
 
 nav_animation = 动画
-anim_caption = 排入缩放、旋转、不透明度、偏移和色相，然后点按 Animate! 以所选曲线和时长一起播放。
+anim_caption = 排入缩放、旋转、不透明度、偏移和色相，然后点按“动画！”以所选曲线和时长一起播放。
+
+# 动画页面
+anim_scale = 缩放
+anim_rotation = 旋转
+anim_opacity = 不透明度
+anim_offset_x = 偏移 X
+anim_offset_y = 偏移 Y
+anim_hue = 色相
+anim_curve = 曲线
+anim_duration = 时长
+anim_randomize = 随机！
+anim_go_label = 动画！
+anim_reset_label = 重置
+anim_curve_spring = 弹簧
+anim_curve_ease_in_out = 缓入缓出
+anim_curve_ease_out = 缓出
+anim_curve_linear = 线性
+anim_duration_ms = { $ms } 毫秒
+
+# 菜单栏与上下文菜单
+menu_file = 文件
+menu_new = 新建
+menu_open = 打开…
+menu_open_recent = 最近打开
+menu_clear_menu = 清除菜单
+menu_save = 保存
+menu_save_as = 另存为…
+menu_edit = 编辑
+menu_view = 视图
+menu_reload = 重新加载
+menu_actual_size = 实际大小
+menu_context = 上下文
+menu_rename = 重命名
+menu_duplicate = 创建副本
+menu_move_to = 移动到
+menu_inbox = 收件箱
+menu_archive = 归档
+
+# 文字页面：字号、内置字体说明、链接
+text_size_pt = { $pt } 磅
+text_font_pacifico = Pacifico — 流畅手写体
+text_font_bungee = BUNGEE — 彩色展示体
+text_font_specialelite = Special Elite — 打字机字体
+text_font_pacifico_lg = 36 磅 Pacifico
+text_links_section = 链接
+text_links_caption = 点按链接即可在系统浏览器中打开。
+text_link_icons_label = Google Fonts 上的 Material Symbols
+text_link_mail_label = 给团队发邮件
+
+# 文件区：编辑器的初始文本
+files_initial_content =
+    来自 Day 的问候！
+    编辑我，然后保存。

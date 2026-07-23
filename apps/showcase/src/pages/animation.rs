@@ -101,19 +101,19 @@ pub(crate) fn animation_page() -> AnyPiece {
     let actions = row((
         action_button(
             "anim-randomize",
-            "Randomize!",
+            crate::res::str::anim_randomize().format(),
             Color::hsl(280.0, 0.55, 0.52),
             move || s.randomize(),
         ),
         action_button(
             "anim-go",
-            "Animate!",
+            crate::res::str::anim_go_label().format(),
             Color::hsl(145.0, 0.55, 0.42),
             move || s.commit(),
         ),
         action_button(
             "anim-reset",
-            "Reset",
+            crate::res::str::anim_reset_label().format(),
             Color::hsl(0.0, 0.0, 0.42),
             move || s.reset(),
         ),
@@ -124,31 +124,45 @@ pub(crate) fn animation_page() -> AnyPiece {
         actions,
         stage(s),
         form((section((
-            labeled("Scale", slider(s.p_scale).range(0.5..=1.5).id("anim-scale")),
             labeled(
-                "Rotation",
+                crate::res::str::anim_scale(),
+                slider(s.p_scale).range(0.5..=1.5).id("anim-scale"),
+            ),
+            labeled(
+                crate::res::str::anim_rotation(),
                 slider(s.p_rot).range(0.0..=360.0).id("anim-rotation"),
             ),
             labeled(
-                "Opacity",
+                crate::res::str::anim_opacity(),
                 slider(s.p_op).range(0.15..=1.0).id("anim-opacity"),
             ),
             labeled(
-                "Offset X",
+                crate::res::str::anim_offset_x(),
                 slider(s.p_offx).range(-72.0..=72.0).id("anim-offx"),
             ),
             labeled(
-                "Offset Y",
+                crate::res::str::anim_offset_y(),
                 slider(s.p_offy).range(-60.0..=60.0).id("anim-offy"),
             ),
-            labeled("Hue", slider(s.p_hue).range(0.0..=360.0).id("anim-hue")),
             labeled(
-                "Curve",
-                picker(["Spring", "Ease-in-out", "Ease-out", "Linear"], s.curve)
-                    .segmented()
-                    .id("anim-curve"),
+                crate::res::str::anim_hue(),
+                slider(s.p_hue).range(0.0..=360.0).id("anim-hue"),
             ),
-            labeled("Duration", duration_stepper(s.dur)),
+            labeled(
+                crate::res::str::anim_curve(),
+                picker(
+                    [
+                        crate::res::str::anim_curve_spring().format(),
+                        crate::res::str::anim_curve_ease_in_out().format(),
+                        crate::res::str::anim_curve_ease_out().format(),
+                        crate::res::str::anim_curve_linear().format(),
+                    ],
+                    s.curve,
+                )
+                .segmented()
+                .id("anim-curve"),
+            ),
+            labeled(crate::res::str::anim_duration(), duration_stepper(s.dur)),
         )),)),
     ))
     .spacing(16.0);
@@ -193,7 +207,7 @@ fn stage(s: Anim) -> AnyPiece {
 /// row). Coloured directly so each reads distinctly.
 fn action_button(
     id: &'static str,
-    text: &'static str,
+    text: String,
     color: Color,
     on_tap: impl Fn() + 'static,
 ) -> AnyPiece {
@@ -225,7 +239,7 @@ fn duration_stepper(dur: Signal<i64>) -> impl Piece {
             .bordered()
             .action(move || dur.update(|d| *d = (*d - 100).max(100)))
             .id("anim-dur-dec"),
-        label(move || format!("{} ms", dur.get())).id("anim-dur-value"),
+        label(crate::res::str::anim_duration_ms(dur)).id("anim-dur-value"),
         button("+")
             .bordered()
             .action(move || dur.update(|d| *d = (*d + 100).min(3000)))

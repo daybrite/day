@@ -448,4 +448,57 @@ grid_stress_add = Ajouter 50 lignes
 grid_stress_bump = IncrÃ©menter la premiÃ¨re cellule
 
 nav_animation = Animation
-anim_caption = Mettez en file d’attente échelle, rotation, opacité, décalage et teinte, puis touchez Animate! pour tout animer ensemble avec la courbe et la durée choisies.
+anim_caption = Mettez en file d’attente échelle, rotation, opacité, décalage et teinte, puis touchez « Animer ! » pour tout animer ensemble avec la courbe et la durée choisies.
+
+# Page Animation
+anim_scale = Échelle
+anim_rotation = Rotation
+anim_opacity = Opacité
+anim_offset_x = Décalage X
+anim_offset_y = Décalage Y
+anim_hue = Teinte
+anim_curve = Courbe
+anim_duration = Durée
+anim_randomize = Aléatoire !
+anim_go_label = Animer !
+anim_reset_label = Réinitialiser
+anim_curve_spring = Ressort
+anim_curve_ease_in_out = Progressif
+anim_curve_ease_out = Décéléré
+anim_curve_linear = Linéaire
+anim_duration_ms = { $ms } ms
+
+# Barre de menus + menu contextuel
+menu_file = Fichier
+menu_new = Nouveau
+menu_open = Ouvrir…
+menu_open_recent = Ouvrir récent
+menu_clear_menu = Effacer le menu
+menu_save = Enregistrer
+menu_save_as = Enregistrer sous…
+menu_edit = Édition
+menu_view = Affichage
+menu_reload = Recharger
+menu_actual_size = Taille réelle
+menu_context = Contexte
+menu_rename = Renommer
+menu_duplicate = Dupliquer
+menu_move_to = Déplacer vers
+menu_inbox = Boîte de réception
+menu_archive = Archiver
+
+# Page Texte : tailles, polices embarquées, liens
+text_size_pt = { $pt } pt
+text_font_pacifico = Pacifico — script fluide
+text_font_bungee = BUNGEE — display chromatique
+text_font_specialelite = Special Elite — touches de machine à écrire
+text_font_pacifico_lg = Pacifico en 36 points
+text_links_section = Liens
+text_links_caption = Touchez un lien pour l'ouvrir dans le navigateur du système.
+text_link_icons_label = Material Symbols sur Google Fonts
+text_link_mail_label = Écrire à l'équipe
+
+# Section Fichiers : texte initial de l'éditeur
+files_initial_content =
+    Bonjour de Day !
+    Modifiez-moi, puis Enregistrer.

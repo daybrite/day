@@ -454,4 +454,57 @@ grid_stress_add = أضف 50 صفًا
 grid_stress_bump = زد الخلية الأولى
 
 nav_animation = الرسوم المتحركة
-anim_caption = اضبط المقياس والدوران والشفافية والإزاحة والتدرّج، ثم اضغط Animate! لتشغيلها معًا بالمنحنى والمدة المختارَين.
+anim_caption = اضبط المقياس والدوران والعتامة والإزاحة وتدرّج اللون، ثم اضغط «حرِّك!» لتشغيلها معًا بالمنحنى والمدة المختارَين.
+
+# صفحة الحركة
+anim_scale = المقياس
+anim_rotation = الدوران
+anim_opacity = العتامة
+anim_offset_x = الإزاحة س
+anim_offset_y = الإزاحة ص
+anim_hue = تدرّج اللون
+anim_curve = المنحنى
+anim_duration = المدة
+anim_randomize = عشوائي!
+anim_go_label = حرِّك!
+anim_reset_label = إعادة تعيين
+anim_curve_spring = نابض
+anim_curve_ease_in_out = متدرّج
+anim_curve_ease_out = تباطؤ
+anim_curve_linear = خطّي
+anim_duration_ms = { $ms } مللي ثانية
+
+# شريط القوائم وقائمة السياق
+menu_file = ملف
+menu_new = جديد
+menu_open = فتح…
+menu_open_recent = فتح الأخيرة
+menu_clear_menu = مسح القائمة
+menu_save = حفظ
+menu_save_as = حفظ باسم…
+menu_edit = تحرير
+menu_view = عرض
+menu_reload = إعادة تحميل
+menu_actual_size = الحجم الفعلي
+menu_context = السياق
+menu_rename = إعادة تسمية
+menu_duplicate = تكرار
+menu_move_to = نقل إلى
+menu_inbox = الوارد
+menu_archive = الأرشيف
+
+# صفحة النص: الأحجام والخطوط المرفقة والروابط
+text_size_pt = { $pt } نقطة
+text_font_pacifico = Pacifico — خط انسيابي
+text_font_bungee = BUNGEE — خط عرض ملوّن
+text_font_specialelite = Special Elite — مفاتيح آلة كاتبة
+text_font_pacifico_lg = Pacifico بحجم 36 نقطة
+text_links_section = روابط
+text_links_caption = انقر رابطًا لفتحه في متصفح النظام.
+text_link_icons_label = رموز Material على Google Fonts
+text_link_mail_label = راسل الفريق
+
+# قسم الملفات: النص الأولي للمحرر
+files_initial_content =
+    مرحبًا من Day!
+    حرِّرني ثم احفظ.

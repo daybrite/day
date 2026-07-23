@@ -17,28 +17,48 @@ fn menu_log() -> Signal<String> {
 /// UIMenuBuilder on iPadOS). Custom items carry keyboard shortcuts and update the shared `menu_log`;
 /// the Edit menu uses standard roles so Cut/Copy/Paste target the focused control natively.
 pub(crate) fn install_app_menu() {
-    let log = |what: &'static str| move || menu_log().set(what.into());
+    let log = |what: String| move || menu_log().set(what.clone());
+    // Localized menu names, resolved once at install (the locale is fixed for the run). The
+    // MENU_LOG readout composes from the SAME strings so it always matches the visible menus;
+    // `menu_role` items are localized by the OS itself. `report.pdf`/`budget.xlsx` are fixture
+    // FILENAMES (data, not prose) and stay raw.
+    let file = crate::res::str::menu_file().format();
+    let new_item = crate::res::str::menu_new().format();
+    let open = crate::res::str::menu_open().format();
+    let recent = crate::res::str::menu_open_recent().format();
+    let clear = crate::res::str::menu_clear_menu().format();
+    let save = crate::res::str::menu_save().format();
+    let save_as = crate::res::str::menu_save_as().format();
+    let view = crate::res::str::menu_view().format();
+    let reload = crate::res::str::menu_reload().format();
+    let actual_size = crate::res::str::menu_actual_size().format();
     app_menu(vec![
         sub_menu(
-            "File",
+            file.clone(),
             vec![
-                menu_item("New").key("n").action(log("File ▸ New")),
-                menu_item("Open…").key("o").action(log("File ▸ Open")),
+                menu_item(new_item.clone())
+                    .key("n")
+                    .action(log(format!("{file} ▸ {new_item}"))),
+                menu_item(open.clone())
+                    .key("o")
+                    .action(log(format!("{file} ▸ {open}"))),
                 // A nested submenu with keyboard shortcuts.
                 sub_menu(
-                    "Open Recent",
+                    recent.clone(),
                     vec![
-                        menu_item("report.pdf").action(log("Recent ▸ report.pdf")),
-                        menu_item("budget.xlsx").action(log("Recent ▸ budget.xlsx")),
+                        menu_item("report.pdf").action(log(format!("{recent} ▸ report.pdf"))),
+                        menu_item("budget.xlsx").action(log(format!("{recent} ▸ budget.xlsx"))),
                         menu_separator(),
-                        menu_item("Clear Menu").action(log("Recent ▸ Clear")),
+                        menu_item(clear.clone()).action(log(format!("{recent} ▸ {clear}"))),
                     ],
                 ),
                 menu_separator(),
-                menu_item("Save").key("s").action(log("File ▸ Save")),
-                menu_item("Save As…")
+                menu_item(save.clone())
+                    .key("s")
+                    .action(log(format!("{file} ▸ {save}"))),
+                menu_item(save_as.clone())
                     .shortcut(Shortcut::new("s").shift())
-                    .action(log("File ▸ Save As")),
+                    .action(log(format!("{file} ▸ {save_as}"))),
                 menu_separator(),
                 menu_role(MenuRole::CloseWindow),
                 // Quit is a standard role: ⌘Q / Ctrl+Q, it exits the app and fires the
@@ -49,7 +69,7 @@ pub(crate) fn install_app_menu() {
         ),
         // Standard edit commands — native items that target the focused control (default shortcuts).
         sub_menu(
-            "Edit",
+            crate::res::str::menu_edit().format(),
             vec![
                 menu_role(MenuRole::Undo),
                 menu_role(MenuRole::Redo),
@@ -61,12 +81,14 @@ pub(crate) fn install_app_menu() {
             ],
         ),
         sub_menu(
-            "View",
+            view.clone(),
             vec![
-                menu_item("Reload").key("r").action(log("View ▸ Reload")),
-                menu_item("Actual Size")
+                menu_item(reload.clone())
+                    .key("r")
+                    .action(log(format!("{view} ▸ {reload}"))),
+                menu_item(actual_size.clone())
                     .key("0")
-                    .action(log("View ▸ Actual Size")),
+                    .action(log(format!("{view} ▸ {actual_size}"))),
                 menu_separator(),
                 menu_role(MenuRole::Fullscreen),
             ],
@@ -102,29 +124,38 @@ fn app_menu_section() -> impl Piece {
 /// The context-menu section: a visually delineated target the user secondary-clicks
 /// (long-presses on mobile) — nested submenu, separator, and a standard role.
 fn context_section() -> impl Piece {
+    // Localized like the app menu above; the log readout composes from the same strings.
+    let log = |what: String| move || menu_log().set(what.clone());
+    let context = crate::res::str::menu_context().format();
+    let rename = crate::res::str::menu_rename().format();
+    let duplicate = crate::res::str::menu_duplicate().format();
+    let move_to = crate::res::str::menu_move_to().format();
+    let inbox = crate::res::str::menu_inbox().format();
+    let archive = crate::res::str::menu_archive().format();
+    let delete = crate::res::str::delete().format();
     section((label(crate::res::str::menus_target())
         .padding(Insets::symmetric(24.0, 24.0))
         .id("menus-context-target")
         .context_menu(vec![
-            menu_item("Rename").action(move || menu_log().set("Context ▸ Rename".into())),
-            menu_item("Duplicate")
+            menu_item(rename.clone()).action(log(format!("{context} ▸ {rename}"))),
+            menu_item(duplicate.clone())
                 .key("d")
-                .action(move || menu_log().set("Context ▸ Duplicate".into())),
+                .action(log(format!("{context} ▸ {duplicate}"))),
             menu_separator(),
             sub_menu(
-                "Move To",
+                move_to.clone(),
                 vec![
-                    menu_item("Inbox")
-                        .action(move || menu_log().set("Context ▸ Move ▸ Inbox".into())),
-                    menu_item("Archive")
-                        .action(move || menu_log().set("Context ▸ Move ▸ Archive".into())),
+                    menu_item(inbox.clone())
+                        .action(log(format!("{context} ▸ {move_to} ▸ {inbox}"))),
+                    menu_item(archive.clone())
+                        .action(log(format!("{context} ▸ {move_to} ▸ {archive}"))),
                 ],
             ),
             menu_separator(),
             menu_role(MenuRole::Copy),
-            menu_item("Delete")
+            menu_item(delete.clone())
                 .shortcut(Shortcut::plain("Delete"))
-                .action(move || menu_log().set("Context ▸ Delete".into())),
+                .action(log(format!("{context} ▸ {delete}"))),
         ])
         .background(Color::rgba(0.5, 0.5, 0.55, 0.16))
         .corner_radius(10.0),))

@@ -449,3 +449,56 @@ grid_stress_bump = Bump the first cell
 
 nav_animation = Animation
 anim_caption = Queue scale, rotation, opacity, offset, and hue, then tap Animate! to run them all together with the chosen curve and duration.
+
+# Animation page (localized labels; the ! is part of the button voice)
+anim_scale = Scale
+anim_rotation = Rotation
+anim_opacity = Opacity
+anim_offset_x = Offset X
+anim_offset_y = Offset Y
+anim_hue = Hue
+anim_curve = Curve
+anim_duration = Duration
+anim_randomize = Randomize!
+anim_go_label = Animate!
+anim_reset_label = Reset
+anim_curve_spring = Spring
+anim_curve_ease_in_out = Ease-in-out
+anim_curve_ease_out = Ease-out
+anim_curve_linear = Linear
+anim_duration_ms = { $ms } ms
+
+# Menu bar + context menu items (menus page)
+menu_file = File
+menu_new = New
+menu_open = Open…
+menu_open_recent = Open Recent
+menu_clear_menu = Clear Menu
+menu_save = Save
+menu_save_as = Save As…
+menu_edit = Edit
+menu_view = View
+menu_reload = Reload
+menu_actual_size = Actual Size
+menu_context = Context
+menu_rename = Rename
+menu_duplicate = Duplicate
+menu_move_to = Move To
+menu_inbox = Inbox
+menu_archive = Archive
+
+# Text page: sizes, bundled-font descriptions (family names stay Latin), links
+text_size_pt = { $pt } pt
+text_font_pacifico = Pacifico — flowing script
+text_font_bungee = BUNGEE — chromatic display
+text_font_specialelite = Special Elite — typewriter keys
+text_font_pacifico_lg = Pacifico at 36 points
+text_links_section = Links
+text_links_caption = Tap a link to open it in the system browser.
+text_link_icons_label = Material Symbols on Google Fonts
+text_link_mail_label = Email the team
+
+# Files section: the editor's seed text
+files_initial_content =
+    Hello from Day!
+    Edit me, then Save.

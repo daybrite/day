@@ -212,17 +212,18 @@ public:
         return r.adjusted(-400, -400, 400, 400);
     }
     void draw(QPainter *painter) override {
-        // Capture the widget (and children) in logical coords; `offset` is where to blit it, and
-        // its device-independent size gives the pivot. Qt sets the pixmap's devicePixelRatio, so
-        // drawPixmap(point, pm) blits at the right logical size on any display.
+        // Capture the widget (and children) in logical coords; `offset` is where to blit it. Qt sets
+        // the pixmap's devicePixelRatio, so drawPixmap(offset, pm) blits at the right logical size.
         QPoint offset;
         QPixmap pm = sourcePixmap(Qt::LogicalCoordinates, &offset);
         if (pm.isNull()) {
             return;
         }
-        double w = pm.width() / pm.devicePixelRatio();
-        double h = pm.height() / pm.devicePixelRatio();
-        QPointF c(offset.x() + w / 2.0, offset.y() + h / 2.0);
+        // The pixmap is padded to boundingRectFor (so a transform can spill beyond the frame), so it
+        // is NOT the widget's size. sourceBoundingRect() is the widget's real rect — use it for the
+        // pivot and the rounded clip; the widget content sits centred within the padded pixmap.
+        QRectF src = sourceBoundingRect();
+        QPointF c = src.center();
         painter->save();
         painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
         painter->setRenderHint(QPainter::Antialiasing, true);
@@ -232,9 +233,10 @@ public:
         painter->scale(sx, sy);
         painter->translate(-c.x(), -c.y());
         if (radius > 0.0) {
-            // Re-round the corners: the grabbed pixmap is square, so clip to the surface radius.
+            // Re-round the corners: a QWidget doesn't clip children to its CSS border-radius, and
+            // the grabbed pixmap is square, so clip to the surface radius over the real rect.
             QPainterPath rounded;
-            rounded.addRoundedRect(QRectF(offset.x(), offset.y(), w, h), radius, radius);
+            rounded.addRoundedRect(src, radius, radius);
             painter->setClipPath(rounded);
         }
         painter->drawPixmap(offset, pm);
@@ -287,10 +289,16 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
     }
     if (radius > 0.0)
         body += QString("border-radius: %1px;").arg(radius);
-    (void)clips; // stylesheet border-radius rounds the background; child clipping is best-effort.
     widget->setStyleSheet(QString("#%1 { %2 }").arg(widget->objectName()).arg(body));
-    // If a transform/opacity effect is already mounted, keep its rounded clip in sync.
-    if (DayEffect *eff = dynamic_cast<DayEffect *>(widget->graphicsEffect())) {
+    // A QWidget's CSS border-radius rounds only its OWN background, not its children — so a clipped
+    // rounded surface (`clips`, e.g. `.corner_radius`) would still show square child fills at the
+    // corners. Route such a surface's subtree through the rounded-clip DayEffect (the same effect
+    // used for transform/opacity), giving antialiased corners that match the other toolkits. A
+    // non-clipping rounded fill stays on the stylesheet alone (cheaper; keeps native child drawing).
+    if (radius > 0.0 && clips) {
+        day_qt_effect(widget); // creates if absent; reads dayRadius (set above) into eff->radius
+        widget->graphicsEffect()->update();
+    } else if (DayEffect *eff = dynamic_cast<DayEffect *>(widget->graphicsEffect())) {
         eff->radius = radius;
         eff->update();
     }
