@@ -1,6 +1,7 @@
 //! One module per navigation destination in the showcase (wired up in `crate::root`).
 
 pub(crate) mod about;
+pub(crate) mod animation;
 pub(crate) mod canvas;
 pub(crate) mod controls;
 pub(crate) mod dates;
@@ -24,6 +25,7 @@ pub(crate) mod tweaks;
 pub(crate) mod webview;
 
 pub(crate) use about::about_page;
+pub(crate) use animation::animation_page;
 pub(crate) use canvas::canvas_page;
 pub(crate) use controls::controls_page;
 pub(crate) use dates::dates_page;

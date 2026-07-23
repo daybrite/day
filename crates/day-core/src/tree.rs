@@ -896,11 +896,17 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_node_transform(&mut self, node: RNode, t: day_spec::Transform) {
-        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+        let Some(n) = self.nodes.get(node) else {
             return;
         };
+        let Some(h) = n.handle.clone() else {
+            return;
+        };
+        // The node's laid-out size — passed so backends resolve the transform's anchor to a pixel
+        // pivot without querying the (possibly not-yet-allocated) native widget (§8.4).
+        let size = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
         let anim = self.resolve_anim(node);
-        self.toolkit.set_transform(&h, t, anim.as_ref());
+        self.toolkit.set_transform(&h, t, size, anim.as_ref());
     }
 
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>) {

@@ -10,8 +10,14 @@
 #include <QFileDialog>
 #include <QFont>
 #include <QFontDatabase>
+#include <QEasingCurve>
 #include <QFrame>
+#include <QGraphicsEffect>
 #include <QHBoxLayout>
+#include <QPainter>
+#include <QPropertyAnimation>
+#include <QVariantAnimation>
+#include <functional>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -552,6 +558,121 @@ void day_qt_widget_size(void *w, double *out_w, double *out_h) {
 }
 void day_qt_set_visible(void *w, int visible) {
     static_cast<QWidget *>(w)->setVisible(visible != 0);
+}
+
+// Day curve code (§8.4) → QEasingCurve. Spring approximates as OutBack (overshoot). QWidgets
+// can't carry a 2-D transform, so `set_transform` has no Qt equivalent.
+static QEasingCurve day_qt_easing(int curve) {
+    switch (curve) {
+    case 0:
+        return QEasingCurve(QEasingCurve::Linear);
+    case 1:
+        return QEasingCurve(QEasingCurve::InQuad);
+    case 2:
+        return QEasingCurve(QEasingCurve::OutQuad);
+    case 4:
+        return QEasingCurve(QEasingCurve::OutBack);
+    default:
+        return QEasingCurve(QEasingCurve::InOutQuad);
+    }
+}
+
+// A QWidget has neither an opacity of its own nor a 2-D transform, so both ride a single custom
+// QGraphicsEffect (§8.4). The effect grabs the widget (and its children) as a pixmap and re-draws
+// it through a transformed painter — rotate/scale/translate about the centre — with a padded
+// bounding rect so the result can spill OUTSIDE the widget's own 112px frame (into the parent, like
+// a drop shadow) instead of clipping to the widget rect. No Q_OBJECT/moc: the overrides are plain
+// virtuals and the tweens are QVariantAnimations driving a lambda.
+class DayEffect : public QGraphicsEffect {
+public:
+    double opacity = 1.0;
+    double tx = 0, ty = 0, sx = 1, sy = 1, rot = 0;
+    explicit DayEffect(QObject *parent) : QGraphicsEffect(parent) {}
+    QRectF boundingRectFor(const QRectF &r) const override {
+        return r.adjusted(-400, -400, 400, 400);
+    }
+    void draw(QPainter *painter) override {
+        // Capture the widget (and children) in logical coords; `offset` is where to blit it, and
+        // its device-independent size gives the pivot. Qt sets the pixmap's devicePixelRatio, so
+        // drawPixmap(point, pm) blits at the right logical size on any display.
+        QPoint offset;
+        QPixmap pm = sourcePixmap(Qt::LogicalCoordinates, &offset);
+        if (pm.isNull()) {
+            return;
+        }
+        double w = pm.width() / pm.devicePixelRatio();
+        double h = pm.height() / pm.devicePixelRatio();
+        QPointF c(offset.x() + w / 2.0, offset.y() + h / 2.0);
+        painter->save();
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter->setOpacity(painter->opacity() * opacity);
+        painter->translate(c.x() + tx, c.y() + ty);
+        painter->rotate(rot);
+        painter->scale(sx, sy);
+        painter->translate(-c.x(), -c.y());
+        painter->drawPixmap(offset, pm);
+        painter->restore();
+    }
+};
+
+static DayEffect *day_qt_effect(QWidget *w) {
+    DayEffect *eff = dynamic_cast<DayEffect *>(w->graphicsEffect());
+    if (!eff) {
+        eff = new DayEffect(w);
+        w->setGraphicsEffect(eff);
+    }
+    return eff;
+}
+
+// Drive one field-group of the effect (tagged, so an opacity retrigger and a transform retrigger
+// don't stop each other). `set(t)` writes the interpolated fields for progress `t` in 0..1, then
+// requests a repaint. The final value is applied immediately so it holds even when the animation
+// never ticks (headless / unmapped); the tween then runs over it. (Not a template — this lives in
+// `extern "C"`, which forbids templates.)
+static void day_qt_animate(DayEffect *eff, const char *tag, int durMs, int curve,
+                           std::function<void(double)> set) {
+    for (QVariantAnimation *old : eff->findChildren<QVariantAnimation *>()) {
+        if (old->objectName() == QLatin1String(tag)) {
+            old->stop();
+        }
+    }
+    set(1.0);
+    eff->update();
+    if (durMs <= 0) {
+        return;
+    }
+    QVariantAnimation *anim = new QVariantAnimation(eff);
+    anim->setObjectName(QLatin1String(tag));
+    anim->setDuration(durMs);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setEasingCurve(day_qt_easing(curve));
+    QObject::connect(anim, &QVariantAnimation::valueChanged, eff,
+                     [eff, set](const QVariant &v) {
+                         set(v.toDouble());
+                         eff->update();
+                     });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void day_qt_set_opacity(void *w, double opacity, int durMs, int curve) {
+    DayEffect *eff = day_qt_effect(static_cast<QWidget *>(w));
+    double from = eff->opacity;
+    day_qt_animate(eff, "op", durMs, curve,
+                   [eff, from, opacity](double t) { eff->opacity = from + (opacity - from) * t; });
+}
+
+void day_qt_set_transform(void *w, double tx, double ty, double sx, double sy, double rot,
+                          int durMs, int curve) {
+    DayEffect *eff = day_qt_effect(static_cast<QWidget *>(w));
+    double fx = eff->tx, fy = eff->ty, fsx = eff->sx, fsy = eff->sy, fr = eff->rot;
+    day_qt_animate(eff, "tf", durMs, curve, [=](double t) {
+        eff->tx = fx + (tx - fx) * t;
+        eff->ty = fy + (ty - fy) * t;
+        eff->sx = fsx + (sx - fsx) * t;
+        eff->sy = fsy + (sy - fsy) * t;
+        eff->rot = fr + (rot - fr) * t;
+    });
 }
 
 // --- navigation menu (docs/navigation.md): QListWidget with a sidebar treatment ---

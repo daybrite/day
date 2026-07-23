@@ -535,7 +535,13 @@ impl Toolkit for MockToolkit {
         s.log(format!("set_opacity #{} {:.3}{}", h.0, opacity, a));
     }
 
-    fn set_transform(&mut self, h: &MockHandle, t: day_spec::Transform, anim: Option<&AnimSpec>) {
+    fn set_transform(
+        &mut self,
+        h: &MockHandle,
+        t: day_spec::Transform,
+        _size: day_spec::Size,
+        anim: Option<&AnimSpec>,
+    ) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {
             w.transform = Some(t);

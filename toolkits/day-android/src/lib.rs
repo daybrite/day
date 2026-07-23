@@ -397,9 +397,9 @@ mod imp {
     use day_spec::bridge;
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-        Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
-        WindowOptions, kinds,
+        A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
+        PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
+        Toolkit, Transform, WindowOptions, kinds,
     };
 
     thread_local! {
@@ -612,6 +612,25 @@ mod imp {
         with_env(|env| {
             let _ = env.dcall_static(BRIDGE, method, sig, args);
         });
+    }
+
+    /// Lower an `AnimSpec` to `(duration_ms, curve_code)` for `DayBridge` (§8.4). `None` ⇒ `(0, 0)`,
+    /// which `DayBridge` applies instantly. Curve codes: 0 linear, 1 easeIn, 2 easeOut, 3 easeInOut,
+    /// 4 spring (Android runs it via `ViewPropertyAnimator` with a matching interpolator).
+    fn anim_args(anim: Option<&AnimSpec>) -> (i32, i32) {
+        match anim {
+            None => (0, 0),
+            Some(a) => (
+                a.duration_ms as i32,
+                match a.curve {
+                    Curve::Linear => 0,
+                    Curve::EaseIn => 1,
+                    Curve::EaseOut => 2,
+                    Curve::EaseInOut => 3,
+                    Curve::Spring { .. } => 4,
+                },
+            ),
+        }
     }
 
     /// Apply a `background`/`corner_radius` surface: a rounded `GradientDrawable` background +
@@ -1063,7 +1082,7 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs | Cap::Animation => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1800,6 +1819,9 @@ mod imp {
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+            // Frame (DayFixed absolute placement) applies instantly; animated motion/scale uses the
+            // transform channel below (translationX/Y + scale/rotation), which composes on top of
+            // the laid-out position without relayout (§8.4).
             let d = density();
             call_void(
                 "setFrame",
@@ -1810,6 +1832,45 @@ mod imp {
                     JValue::Int((frame.origin.y * d).round() as i32),
                     JValue::Int((frame.size.width * d).round() as i32),
                     JValue::Int((frame.size.height * d).round() as i32),
+                ],
+            );
+        }
+
+        fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
+            let (dur, curve) = anim_args(anim);
+            call_void(
+                "setOpacity",
+                "(Landroid/view/View;FII)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Float(opacity as f32),
+                    JValue::Int(dur),
+                    JValue::Int(curve),
+                ],
+            );
+        }
+
+        fn set_transform(
+            &mut self,
+            h: &AHandle,
+            t: Transform,
+            _size: Size,
+            anim: Option<&AnimSpec>,
+        ) {
+            let d = density();
+            let (dur, curve) = anim_args(anim);
+            call_void(
+                "setTransform",
+                "(Landroid/view/View;FFFFFII)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Float((t.tx * d) as f32),
+                    JValue::Float((t.ty * d) as f32),
+                    JValue::Float(t.sx as f32),
+                    JValue::Float(t.sy as f32),
+                    JValue::Float(t.rotate_deg as f32),
+                    JValue::Int(dur),
+                    JValue::Int(curve),
                 ],
             );
         }

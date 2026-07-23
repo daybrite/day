@@ -477,6 +477,18 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
     r
 }
 
+/// Force a synchronous fixpoint drain **now**, even inside an open [`batch`]. Event dispatch wraps
+/// handlers in a batch (day-core), so a handler that needs its writes to drain immediately — namely
+/// `with_animation`, whose ambient animation must be live *while* the resulting patches apply —
+/// cannot rely on the batch's own close (that runs later, after the scope ends). This temporarily
+/// drops the batch depth so [`flush_sync`] runs, then restores it. No-op if a drain is already in
+/// progress (the writes fold into it); harmless if nothing is pending.
+pub fn flush_now() {
+    let saved = with_rt(|rt| std::mem::replace(&mut rt.batch_depth, 0));
+    flush_sync();
+    with_rt(|rt| rt.batch_depth = saved);
+}
+
 /// Run `f` without tracking reads.
 pub fn untrack<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.observers.push(None));

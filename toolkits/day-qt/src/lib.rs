@@ -13,12 +13,31 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+    A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
+    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform, WindowOptions, kinds,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QtHandle(pub *mut c_void);
+
+/// Lower an `AnimSpec` to `(duration_ms, curve_code)` for the Qt shim (§8.4). `None` ⇒ `(0, 0)`
+/// (instant). Curve codes match the shim's `day_qt_easing`: 0 linear, 1 easeIn, 2 easeOut,
+/// 3 easeInOut, 4 spring (OutBack overshoot).
+fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
+    match anim {
+        None => (0, 0),
+        Some(a) => (
+            a.duration_ms as c_int,
+            match a.curve {
+                Curve::Linear => 0,
+                Curve::EaseIn => 1,
+                Curve::EaseOut => 2,
+                Curve::EaseInOut => 3,
+                Curve::Spring { .. } => 4,
+            },
+        ),
+    }
+}
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
@@ -1240,6 +1259,19 @@ impl Toolkit for Qt {
                 }
             }
         }
+    }
+
+    fn set_opacity(&mut self, h: &QtHandle, opacity: f64, anim: Option<&AnimSpec>) {
+        // Opacity + transform share one custom QGraphicsEffect per widget (see the shim).
+        let (dur, curve) = qt_anim_args(anim);
+        unsafe { ffi::day_qt_set_opacity(h.0, opacity, dur, curve) };
+    }
+
+    fn set_transform(&mut self, h: &QtHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
+        // The effect re-draws the widget through a painter transformed about its centre, spilling
+        // beyond the widget's own frame (§8.4) so a moved/scaled/rotated box isn't clipped.
+        let (dur, curve) = qt_anim_args(anim);
+        unsafe { ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve) };
     }
 
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {

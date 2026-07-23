@@ -446,3 +446,6 @@ grid_day_n = Day { $n }
 grid_stress_cells = { $n } rows of 8 cells, all laid out eagerly. Updating one cell re-measures only that cell.
 grid_stress_add = Add 50 rows
 grid_stress_bump = Bump the first cell
+
+nav_animation = Animation
+anim_caption = Queue scale, rotation, opacity, offset, and hue, then tap Animate! to run them all together with the chosen curve and duration.

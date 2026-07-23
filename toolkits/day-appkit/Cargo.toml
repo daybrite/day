@@ -20,6 +20,8 @@ linkme = { workspace = true }
 objc2 = "0.6"
 block2 = "0.6"
 dispatch2 = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
 objc2-foundation = { version = "0.3", features = [
     "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
@@ -35,4 +37,5 @@ objc2-app-kit = { version = "0.3", features = [
     "NSBezierPath", "NSGradient", "NSColorSpace", "NSImage", "NSImageView", "NSStringDrawing", "NSAttributedString",
     "NSProgressIndicator", "NSTabView", "NSTabViewItem",
     "NSSavePanel", "NSOpenPanel", "NSPanel", "NSWorkspace",
+    "NSAnimationContext",
 ] }

@@ -442,3 +442,6 @@ grid_day_n = 第 { $n } 天
 grid_stress_cells = { $n } 行、每行 8 个单元格，全部即时布局。更新一个单元格只会重新测量它自己。
 grid_stress_add = 增加 50 行
 grid_stress_bump = 递增首个单元格
+
+nav_animation = 动画
+anim_caption = 排入缩放、旋转、不透明度、偏移和色相，然后点按 Animate! 以所选曲线和时长一起播放。

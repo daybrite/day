@@ -83,6 +83,7 @@ day::routes! {
         Text => "text",
         Localization => "localization",
         Canvas => "canvas",
+        Animation => "animation",
         Grid => "grid",
         List => "list",
         Refresh => "refresh",
@@ -171,6 +172,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_canvas(),
             res::images::nav_canvas,
             canvas_page,
+        )
+        .item_icon(
+            Section::Animation,
+            crate::res::str::nav_animation(),
+            res::images::nav_animation,
+            animation_page,
         )
         .item_icon(
             Section::Grid,

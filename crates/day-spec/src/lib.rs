@@ -634,7 +634,10 @@ impl AnimSpec {
     /// use `response`/`damping` directly.
     pub fn spring(response: f64, damping: f64) -> Self {
         AnimSpec {
-            duration_ms: ((response * 3.0).max(0.05) * 1000.0) as u32,
+            // `response` is the animation's duration: every backend maps a spring to a
+            // fixed-duration overshoot curve over exactly `duration_ms`, so timing is identical
+            // across toolkits (a physics spring's settle time would vary per platform).
+            duration_ms: (response * 1000.0).max(50.0) as u32,
             delay_ms: 0,
             curve: Curve::Spring { response, damping },
             repeat: 0,
@@ -1639,7 +1642,14 @@ pub trait Toolkit: Sized + 'static {
     // Defaulted no-ops so backends adopt them incrementally; `anim = Some` ⇒ animate to the value
     // on the toolkit's own compositor, `None` ⇒ set instantly.
     fn set_opacity(&mut self, _h: &Self::Handle, _opacity: f64, _anim: Option<&AnimSpec>) {}
-    fn set_transform(&mut self, _h: &Self::Handle, _t: Transform, _anim: Option<&AnimSpec>) {}
+    fn set_transform(
+        &mut self,
+        _h: &Self::Handle,
+        _t: Transform,
+        _size: Size,
+        _anim: Option<&AnimSpec>,
+    ) {
+    }
 
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}

@@ -122,6 +122,41 @@ public final class DayBridge {
         if (clips || radiusPx > 0f) v.setClipToOutline(true);
     }
 
+    /** Animatable opacity (§8.4). durMs&lt;=0 sets instantly; otherwise ViewPropertyAnimator
+     *  runs it on the render thread with a curve-matched interpolator. */
+    public static void setOpacity(View v, float alpha, int durMs, int curve) {
+        if (durMs <= 0) { v.animate().cancel(); v.setAlpha(alpha); return; }
+        v.animate().alpha(alpha).setDuration(durMs).setInterpolator(interp(curve)).start();
+    }
+
+    /** Animatable transform (§8.4): translation (px, additive over the laid-out position),
+     *  scale, and rotation (degrees) about the view's center pivot — no relayout. A repeated
+     *  animate() call retargets the running animator. */
+    public static void setTransform(View v, float tx, float ty, float sx, float sy, float rot,
+                                    int durMs, int curve) {
+        if (durMs <= 0) {
+            v.animate().cancel();
+            v.setTranslationX(tx); v.setTranslationY(ty);
+            v.setScaleX(sx); v.setScaleY(sy);
+            v.setRotation(rot);
+            return;
+        }
+        v.animate().translationX(tx).translationY(ty).scaleX(sx).scaleY(sy).rotation(rot)
+            .setDuration(durMs).setInterpolator(interp(curve)).start();
+    }
+
+    /** Day curve code (§8.4) → Android interpolator. Spring approximates as fast-out/slow-in
+     *  (a true spring would pull in androidx.dynamicanimation). */
+    private static android.view.animation.Interpolator interp(int curve) {
+        switch (curve) {
+            case 0: return new android.view.animation.LinearInterpolator();
+            case 1: return new android.view.animation.AccelerateInterpolator();
+            case 2: return new android.view.animation.DecelerateInterpolator();
+            case 4: return new android.view.animation.OvershootInterpolator(); // spring
+            default: return new android.view.animation.AccelerateDecelerateInterpolator();
+        }
+    }
+
     /** A native recycling list (docs/list.md): a framework ListView whose BaseAdapter reuses
      *  DayFixed cell views (convertView) and lets day fill each via nativeListBind. */
     public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable) {

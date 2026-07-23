@@ -17,8 +17,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-    Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit, kinds,
+    A11yProps, AnimSpec, Animatable, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
+    NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
+    Toolkit, Transform, kinds,
 };
 
 pub type Handle = gtk4::Widget;
@@ -493,6 +494,85 @@ thread_local! {
 
 fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
+}
+
+/// Per-widget live animations (§8.4). Held so libadwaita's frame-clock-driven animations aren't
+/// dropped mid-flight; a new animation for the same channel replaces (cancels) the previous one.
+/// `cur_transform` is the last transform target, so the next transform tween lerps from it.
+#[derive(Default)]
+struct GtkAnim {
+    opacity: Option<adw::Animation>,
+    transform: Option<adw::Animation>,
+    cur_transform: Transform,
+}
+
+thread_local! {
+    static GTK_ANIMS: RefCell<HashMap<usize, GtkAnim>> = RefCell::new(HashMap::new());
+}
+
+/// Apply `t` to `widget` via its `GtkFixed` parent's child transform, about the widget's center.
+fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform, size: Size) {
+    if t.is_identity() {
+        fixed.set_child_transform(widget, None);
+        return;
+    }
+    // The laid-out size (from Day) is reliable; `widget.width()` can be 0 before allocation, which
+    // would pivot scale/rotation on the top-left corner instead of the centre.
+    let w = if size.width > 0.0 {
+        size.width as f32
+    } else {
+        widget.width() as f32
+    };
+    let hgt = if size.height > 0.0 {
+        size.height as f32
+    } else {
+        widget.height() as f32
+    };
+    let cx = w * t.anchor_x as f32;
+    let cy = hgt * t.anchor_y as f32;
+    // GSK applies the FIRST-chained op first to a point, so to rotate/scale about the centre and
+    // then translate: move to the pivot, scale, rotate, move back + translate.
+    let transform = gtk4::gsk::Transform::new()
+        .translate(&gtk4::graphene::Point::new(
+            cx + t.tx as f32,
+            cy + t.ty as f32,
+        ))
+        .rotate(t.rotate_deg as f32)
+        .scale(t.sx as f32, t.sy as f32)
+        .translate(&gtk4::graphene::Point::new(-cx, -cy));
+    fixed.set_child_transform(widget, Some(&transform));
+}
+
+/// Build a libadwaita animation from `from`→`to` matching the `AnimSpec` curve — a spring
+/// (`SpringParams` from response/damping) or a timed easing.
+fn gtk_animation(
+    widget: &gtk4::Widget,
+    from: f64,
+    to: f64,
+    a: &AnimSpec,
+    target: adw::CallbackAnimationTarget,
+) -> adw::Animation {
+    use adw::prelude::*;
+    match a.curve {
+        Curve::Spring { .. } => {
+            // A fixed-duration overshoot (EaseOutBack) over exactly `duration_ms`, so the timing
+            // matches the other toolkits (a physics AdwSpringAnimation would settle on its own
+            // schedule, not the requested duration).
+            let anim = adw::TimedAnimation::new(widget, from, to, a.duration_ms, target);
+            anim.set_easing(adw::Easing::EaseOutBack);
+            anim.upcast()
+        }
+        curve => {
+            let anim = adw::TimedAnimation::new(widget, from, to, a.duration_ms, target);
+            anim.set_easing(match curve {
+                Curve::Linear => adw::Easing::Linear,
+                Curve::EaseIn => adw::Easing::EaseInCubic,
+                Curve::EaseOut => adw::Easing::EaseOutCubic,
+                _ => adw::Easing::EaseInOutCubic,
+            });
+            anim.upcast()
+        }
+    }
 }
 
 /// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
@@ -1939,6 +2019,74 @@ impl Toolkit for Gtk {
                 let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 Size::new(nat_w as f64, nat_h as f64)
+            }
+        }
+    }
+
+    fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
+        let key = widget_key(h);
+        match anim {
+            None => {
+                GTK_ANIMS.with(|m| m.borrow_mut().entry(key).or_default().opacity = None);
+                h.set_opacity(opacity);
+            }
+            Some(a) => {
+                // Apply the final value first (so it lands even if the frame clock never ticks —
+                // e.g. an unmapped/headless window), then tween over it from the current value via
+                // libadwaita's frame-clock animation. The callback's v=0 frame re-establishes the
+                // start, so there's no visible jump when it does run.
+                let from = h.opacity();
+                h.set_opacity(opacity);
+                let widget = h.clone();
+                let target = adw::CallbackAnimationTarget::new(move |v| widget.set_opacity(v));
+                let animation = gtk_animation(h, from, opacity, a, target);
+                animation.play();
+                GTK_ANIMS
+                    .with(|m| m.borrow_mut().entry(key).or_default().opacity = Some(animation));
+            }
+        }
+    }
+
+    fn set_transform(&mut self, h: &Handle, t: Transform, size: Size, anim: Option<&AnimSpec>) {
+        // A child's transform lives on its GtkFixed parent (GskTransform), applied about the
+        // widget's center so scale/rotation match the other backends.
+        let Some(parent) = h.parent() else {
+            return;
+        };
+        let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() else {
+            return;
+        };
+        let key = widget_key(h);
+        let from = GTK_ANIMS
+            .with(|m| m.borrow().get(&key).map(|s| s.cur_transform))
+            .unwrap_or_default();
+        match anim {
+            None => {
+                apply_gtk_transform(fixed, h, t, size);
+                GTK_ANIMS.with(|m| {
+                    let mut b = m.borrow_mut();
+                    let s = b.entry(key).or_default();
+                    s.transform = None;
+                    s.cur_transform = t;
+                });
+            }
+            Some(a) => {
+                // Apply the final transform first (robust if the frame clock never ticks), then
+                // interpolate the whole transform (progress 0→1) over it on the Adw frame clock.
+                apply_gtk_transform(fixed, h, t, size);
+                let fixed = fixed.clone();
+                let widget = h.clone();
+                let target = adw::CallbackAnimationTarget::new(move |v| {
+                    apply_gtk_transform(&fixed, &widget, from.lerp(t, v), size);
+                });
+                let animation = gtk_animation(h, 0.0, 1.0, a, target);
+                animation.play();
+                GTK_ANIMS.with(|m| {
+                    let mut b = m.borrow_mut();
+                    let s = b.entry(key).or_default();
+                    s.transform = Some(animation);
+                    s.cur_transform = t;
+                });
             }
         }
     }

@@ -302,6 +302,102 @@ impl Color {
             (v & 0xff) as f64 / 255.0,
         )
     }
+
+    /// From HSL — `h` in degrees (wraps mod 360), `s`/`l` in `0.0..=1.0`. `Color` is the one color
+    /// type every parameter accepts, so this makes HSL usable everywhere a color is.
+    pub fn hsl(h: f64, s: f64, l: f64) -> Self {
+        Color::hsla(h, s, l, 1.0)
+    }
+    pub fn hsla(h: f64, s: f64, l: f64, a: f64) -> Self {
+        let (s, l) = (s.clamp(0.0, 1.0), l.clamp(0.0, 1.0));
+        if s == 0.0 {
+            return Color::rgba(l, l, l, a);
+        }
+        let hk = h.rem_euclid(360.0) / 360.0;
+        let q = if l < 0.5 {
+            l * (1.0 + s)
+        } else {
+            l + s - l * s
+        };
+        let p = 2.0 * l - q;
+        Color::rgba(
+            hue2rgb(p, q, hk + 1.0 / 3.0),
+            hue2rgb(p, q, hk),
+            hue2rgb(p, q, hk - 1.0 / 3.0),
+            a,
+        )
+    }
+
+    /// From HSV/HSB — `h` degrees (wraps), `s`/`v` in `0.0..=1.0`.
+    pub fn hsv(h: f64, s: f64, v: f64) -> Self {
+        Color::hsva(h, s, v, 1.0)
+    }
+    pub fn hsva(h: f64, s: f64, v: f64, a: f64) -> Self {
+        let (s, v) = (s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        let hh = h.rem_euclid(360.0) / 60.0;
+        let c = v * s;
+        let x = c * (1.0 - (hh % 2.0 - 1.0).abs());
+        let m = v - c;
+        let (r, g, b) = match hh as i32 {
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+        Color::rgba(r + m, g + m, b + m, a)
+    }
+
+    /// Decompose to `(hue°, saturation, lightness)` (HSL). Hue is `0.0` for greys.
+    pub fn to_hsl(&self) -> (f64, f64, f64) {
+        let (r, g, b) = (self.r, self.g, self.b);
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let l = (max + min) / 2.0;
+        let d = max - min;
+        if d.abs() < 1e-9 {
+            return (0.0, 0.0, l);
+        }
+        let s = d / (1.0 - (2.0 * l - 1.0).abs());
+        let h = if max == r {
+            60.0 * (((g - b) / d).rem_euclid(6.0))
+        } else if max == g {
+            60.0 * ((b - r) / d + 2.0)
+        } else {
+            60.0 * ((r - g) / d + 4.0)
+        };
+        (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l)
+    }
+
+    /// Interpolate toward `to` in HSL space, taking the shortest hue arc (`t` in `0.0..=1.0`). A
+    /// hue-space blend (red→green sweeps through yellow) rather than the muddy RGB straight line —
+    /// used by the canvas / self-driven animation path (native widget color animation interpolates
+    /// in the toolkit's own space).
+    pub fn lerp_hsl(self, to: Color, t: f64) -> Color {
+        let (h0, s0, l0) = self.to_hsl();
+        let (h1, s1, l1) = to.to_hsl();
+        let mut dh = (h1 - h0).rem_euclid(360.0);
+        if dh > 180.0 {
+            dh -= 360.0;
+        }
+        let lerp = |a: f64, b: f64| a + (b - a) * t;
+        Color::hsla(h0 + dh * t, lerp(s0, s1), lerp(l0, l1), lerp(self.a, to.a))
+    }
+}
+
+/// HSL hue channel → RGB component (helper for [`Color::hsla`]).
+fn hue2rgb(p: f64, q: f64, t: f64) -> f64 {
+    let t = t.rem_euclid(1.0);
+    if t < 1.0 / 6.0 {
+        p + (q - p) * 6.0 * t
+    } else if t < 1.0 / 2.0 {
+        q
+    } else if t < 2.0 / 3.0 {
+        p + (q - p) * (2.0 / 3.0 - t) * 6.0
+    } else {
+        p
+    }
 }
 
 /// The layout proposal: `None` = unconstrained on that axis (§7.2).
@@ -488,6 +584,31 @@ mod tests {
     fn rect_insets() {
         let r = Rect::new(10.0, 10.0, 100.0, 50.0).inset_by(Insets::symmetric(4.0, 2.0));
         assert_eq!(r, Rect::new(14.0, 12.0, 92.0, 46.0));
+    }
+
+    #[test]
+    fn hsl_primaries_and_roundtrip() {
+        let approx = |a: Color, b: Color| {
+            (a.r - b.r).abs() < 1e-6 && (a.g - b.g).abs() < 1e-6 && (a.b - b.b).abs() < 1e-6
+        };
+        assert!(approx(Color::hsl(0.0, 1.0, 0.5), Color::rgb(1.0, 0.0, 0.0))); // red
+        assert!(approx(
+            Color::hsl(120.0, 1.0, 0.5),
+            Color::rgb(0.0, 1.0, 0.0)
+        )); // green
+        assert!(approx(
+            Color::hsl(240.0, 1.0, 0.5),
+            Color::rgb(0.0, 0.0, 1.0)
+        )); // blue
+        assert!(approx(Color::hsl(0.0, 0.0, 0.5), Color::rgb(0.5, 0.5, 0.5))); // grey
+        assert!(approx(Color::hsv(0.0, 1.0, 1.0), Color::rgb(1.0, 0.0, 0.0))); // hsv red
+        // Hue wraps, and to_hsl inverts hsl.
+        let (h, s, l) = Color::hsl(370.0, 0.6, 0.4).to_hsl();
+        assert!((h - 10.0).abs() < 1e-3 && (s - 0.6).abs() < 1e-3 && (l - 0.4).abs() < 1e-3);
+        // Shortest-arc hue lerp red→(hue 300, magenta) goes the short way (down through 330), not
+        // through green; midpoint hue ≈ 330.
+        let mid = Color::hsl(0.0, 1.0, 0.5).lerp_hsl(Color::hsl(300.0, 1.0, 0.5), 0.5);
+        assert!((mid.to_hsl().0 - 330.0).abs() < 1.0);
     }
 
     #[test]

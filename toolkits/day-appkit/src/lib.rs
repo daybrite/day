@@ -26,11 +26,11 @@ use objc2_app_kit::{
     NSGestureRecognizerState, NSPanGestureRecognizer,
 };
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType, NSBox,
-    NSBoxType, NSButton, NSColor, NSControl, NSControlTextEditingDelegate, NSFont,
-    NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSTabView,
-    NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
+    NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
+    NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
+    NSControlTextEditingDelegate, NSFont, NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem,
+    NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch,
+    NSTabView, NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
     NSTextMovementUserInfoKey, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
@@ -39,17 +39,22 @@ use objc2_app_kit::{
 };
 use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
+use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
     NSAffineTransform, NSAffineTransformStruct, NSDictionary, NSNotification, NSNumber, NSObject,
     NSPoint, NSRect, NSSize, NSString,
+};
+use objc2_quartz_core::{
+    CAMediaTimingFunction, kCAMediaTimingFunctionEaseIn, kCAMediaTimingFunctionEaseInEaseOut,
+    kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionLinear,
 };
 
 use day_spec::present;
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
+    A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
     Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
-    WINDOW_NODE, WindowOptions, kinds,
+    Transform, WINDOW_NODE, WindowOptions, kinds,
 };
 
 pub type Handle = Retained<NSView>;
@@ -1345,6 +1350,55 @@ fn content_of(parent: &Handle) -> Retained<NSView> {
     parent.clone()
 }
 
+/// Run `body` (which sets animatable properties on a layer-backed view) inside an
+/// `NSAnimationContext` group so AppKit interpolates the change on the render server with the
+/// curve's timing function, or immediately when `anim` is `None` (§8.4). `allowsImplicitAnimation`
+/// makes direct property changes on layer-backed views animate. A spring maps to an overshooting
+/// cubic-bezier timing function (a visible bounce without an explicit `CASpringAnimation`).
+fn with_appkit_anim(anim: Option<&AnimSpec>, body: impl FnOnce()) {
+    let Some(a) = anim else {
+        body();
+        return;
+    };
+    let (dur, timing) = appkit_timing(a);
+    unsafe {
+        NSAnimationContext::beginGrouping();
+        let ctx = NSAnimationContext::currentContext();
+        ctx.setDuration(dur);
+        ctx.setTimingFunction(Some(&timing));
+        ctx.setAllowsImplicitAnimation(true);
+        body();
+        NSAnimationContext::endGrouping();
+    }
+}
+
+/// The `(duration_secs, timing function)` for a curve. Springs render as an overshooting bezier
+/// (control point y > 1) whose overshoot grows as damping falls, over a response-derived duration.
+fn appkit_timing(a: &AnimSpec) -> (f64, Retained<CAMediaTimingFunction>) {
+    unsafe {
+        let named = |n| {
+            (
+                a.duration_secs().max(0.01),
+                CAMediaTimingFunction::functionWithName(n),
+            )
+        };
+        match a.curve {
+            Curve::Linear => named(kCAMediaTimingFunctionLinear),
+            Curve::EaseIn => named(kCAMediaTimingFunctionEaseIn),
+            Curve::EaseOut => named(kCAMediaTimingFunctionEaseOut),
+            Curve::EaseInOut => named(kCAMediaTimingFunctionEaseInEaseOut),
+            Curve::Spring { damping, .. } => {
+                // Overshoot bezier over exactly the specified duration (authoritative timing).
+                let overshoot = 1.0 + (1.0 - damping.clamp(0.0, 1.0)) as f32 * 0.55;
+                (
+                    a.duration_secs().max(0.05),
+                    CAMediaTimingFunction::functionWithControlPoints(0.34, overshoot, 0.5, 1.0),
+                )
+            }
+        }
+    }
+}
+
 /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
 /// a visible placeholder. A missing renderer usually means the piece's `appkit` feature wasn't enabled
 /// (Tier A.2 derives it automatically under `day build`; a bare `cargo` build may miss it). Deduped
@@ -1373,7 +1427,8 @@ impl Toolkit for AppKit {
             | Cap::NativeSymbols
             | Cap::NavSplit
             | Cap::Dialogs
-            | Cap::FileDialogs => Support::Native,
+            | Cap::FileDialogs
+            | Cap::Animation => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -2195,6 +2250,37 @@ impl Toolkit for AppKit {
                 }
             }
         }
+    }
+
+    fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
+        unsafe {
+            h.setWantsLayer(true);
+        }
+        let v = h.clone();
+        with_appkit_anim(anim, move || unsafe { v.setAlphaValue(opacity) });
+    }
+
+    fn set_transform(&mut self, h: &Handle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
+        // Scale → rotate → translate about the layer's center anchor (matches UIKit); Day's
+        // containers are flipped (y-down), so the sense matches the mobile backends.
+        let th = t.rotate_deg.to_radians();
+        let (s, c) = th.sin_cos();
+        let cg = CGAffineTransform {
+            a: t.sx * c,
+            b: t.sx * s,
+            c: -t.sy * s,
+            d: t.sy * c,
+            tx: t.tx,
+            ty: t.ty,
+        };
+        let v = h.clone();
+        with_appkit_anim(anim, move || unsafe {
+            v.setWantsLayer(true);
+            let layer: *mut objc2::runtime::AnyObject = msg_send![&*v, layer];
+            if !layer.is_null() {
+                let _: () = msg_send![layer, setAffineTransform: cg];
+            }
+        });
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {

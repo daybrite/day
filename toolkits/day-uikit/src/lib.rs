@@ -51,8 +51,8 @@ mod imp {
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
         UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIProgressView, UIScreen,
-        UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView, UIViewController,
-        UIWindow,
+        UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView,
+        UIViewAnimationOptions, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
@@ -68,9 +68,9 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-        Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
-        WINDOW_NODE, WindowOptions, kinds,
+        A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
+        PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
+        Transform, WINDOW_NODE, WindowOptions, kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -1315,6 +1315,73 @@ mod imp {
         MainThreadMarker::new().expect("day-uikit: not on the main thread")
     }
 
+    /// Run `body` (which mutates one or more animatable view properties) inside a UIKit animation
+    /// matching `anim`, or immediately when `anim` is `None`. Backend-executed animation (§8.4):
+    /// UIKit diffs the changes made in the block and animates them on the render server (off the
+    /// main thread), so Day never ticks frames for native widgets.
+    fn with_uikit_anim(anim: Option<&AnimSpec>, body: impl Fn() + 'static) {
+        let Some(a) = anim else {
+            body();
+            return;
+        };
+        let animations = block2::RcBlock::new(body);
+        let delay = a.delay_secs().max(0.0);
+        unsafe {
+            match a.curve {
+                Curve::Spring { damping, .. } => {
+                    // The specified duration is authoritative; `damping` still shapes the bounce.
+                    UIView::animateWithDuration_delay_usingSpringWithDamping_initialSpringVelocity_options_animations_completion(
+                        a.duration_secs().max(0.05),
+                        delay,
+                        damping.clamp(0.05, 1.0),
+                        0.0,
+                        UIViewAnimationOptions(0),
+                        &animations,
+                        None,
+                        mtm(),
+                    );
+                }
+                curve => {
+                    UIView::animateWithDuration_delay_options_animations_completion(
+                        a.duration_secs().max(0.01),
+                        delay,
+                        uiview_anim_options(curve),
+                        &animations,
+                        None,
+                        mtm(),
+                    );
+                }
+            }
+        }
+    }
+
+    fn uiview_anim_options(curve: Curve) -> UIViewAnimationOptions {
+        match curve {
+            Curve::EaseIn => UIViewAnimationOptions::CurveEaseIn,
+            Curve::EaseOut => UIViewAnimationOptions::CurveEaseOut,
+            Curve::Linear => UIViewAnimationOptions::CurveLinear,
+            // EaseInOut is the 0 default; springs never reach here.
+            Curve::EaseInOut | Curve::Spring { .. } => UIViewAnimationOptions::CurveEaseInOut,
+        }
+    }
+
+    /// Build UIKit's `CGAffineTransform` for a Day [`Transform`], composed scale → rotate →
+    /// translate about the view's layer anchor (default center, matching `Transform`'s default
+    /// anchor). Non-center anchors approximate: translation is exact, scale/rotation stay about
+    /// center (§8.4 — arbitrary-anchor transforms need a layer anchorPoint change, a later refinement).
+    fn cgaffine(t: Transform) -> CGAffineTransform {
+        let th = t.rotate_deg.to_radians();
+        let (s, c) = th.sin_cos();
+        CGAffineTransform {
+            a: t.sx * c,
+            b: t.sx * s,
+            c: -t.sy * s,
+            d: t.sy * c,
+            tx: t.tx,
+            ty: t.ty,
+        }
+    }
+
     /// Day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
     /// native controls self-describe, §13). UIKit has no toggle/meter trait, so those are `None`.
     fn ui_traits(role: day_spec::Role) -> Option<objc2_ui_kit::UIAccessibilityTraits> {
@@ -1518,7 +1585,7 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs | Cap::Animation => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1916,19 +1983,21 @@ mod imp {
             h: &Handle,
             kind: PieceKind,
             patch: &dyn Any,
-            _anim: Option<&AnimSpec>,
+            anim: Option<&AnimSpec>,
         ) {
             match kind {
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(c)) =
                         patch.downcast_ref::<ContainerPatch>()
                     {
-                        unsafe {
+                        let v = h.clone();
+                        let c = *c;
+                        with_uikit_anim(anim, move || unsafe {
                             match c {
-                                Some(c) => h.setBackgroundColor(Some(&uicolor(*c))),
-                                None => h.setBackgroundColor(None),
+                                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
+                                None => v.setBackgroundColor(None),
                             }
-                        }
+                        });
                     }
                 }
                 kinds::TABS => {
@@ -2285,7 +2354,7 @@ mod imp {
             }
         }
 
-        fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+        fn set_frame(&mut self, h: &Handle, frame: Rect, anim: Option<&AnimSpec>) {
             // Nav page content: the page view pins it to the safe area (native-owned).
             if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
                 return;
@@ -2294,7 +2363,25 @@ mod imp {
                 CGPoint::new(frame.origin.x, frame.origin.y),
                 CGSize::new(frame.size.width, frame.size.height),
             );
-            unsafe { h.setFrame(f) };
+            let v = h.clone();
+            with_uikit_anim(anim, move || unsafe { v.setFrame(f) });
+        }
+
+        fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
+            let v = h.clone();
+            with_uikit_anim(anim, move || unsafe { v.setAlpha(opacity as CGFloat) });
+        }
+
+        fn set_transform(
+            &mut self,
+            h: &Handle,
+            t: Transform,
+            _size: Size,
+            anim: Option<&AnimSpec>,
+        ) {
+            let v = h.clone();
+            let tf = cgaffine(t);
+            with_uikit_anim(anim, move || unsafe { v.setTransform(tf) });
         }
 
         fn set_scroll_content(&mut self, h: &Handle, content: Size) {

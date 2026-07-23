@@ -6,7 +6,7 @@ use day_core::AnyPiece;
 use day_mock::{MockHandle, MockProbe, MockToolkit};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
-use day_spec::{Size, WindowOptions};
+use day_spec::{Event, NodeId, Size, WindowOptions};
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -130,6 +130,37 @@ fn transform_channel_records_scale_and_rotation() {
     let w = probe.widget(h);
     assert_eq!(w.transform.map(|t| t.sx), Some(1.5));
     assert!(w.last_anim.is_some(), "animated scale carries intent");
+}
+
+#[test]
+fn with_animation_from_a_button_action_threads_intent() {
+    // Reproduces the showcase Animation page exactly: a control's `.action` calls `with_animation`.
+    // The press is delivered through the real event pump, so this catches a drain-reentrancy bug
+    // that a direct `with_animation` call would miss.
+    let op = Signal::new(1.0f64);
+    let probe = boot(move || {
+        column((
+            label("box").opacity(op),
+            button("go").action(move || {
+                with_animation(Animation::ease_in_out(250), move || op.set(0.2));
+            }),
+        ))
+        .any()
+    });
+    flush_sync();
+
+    let (h, w) = layer(&probe, |w| w.opacity == Some(1.0));
+    assert!(w.last_anim.is_none());
+
+    let btn = NodeId(probe.find_by_kind("day.button")[0].1.node);
+    probe.emit(btn, Event::Pressed);
+
+    let w = probe.widget(h);
+    assert_eq!(w.opacity, Some(0.2), "the value committed");
+    assert!(
+        w.last_anim.is_some(),
+        "a button-dispatched with_animation must carry the AnimSpec to the seam (not snap)"
+    );
 }
 
 #[test]

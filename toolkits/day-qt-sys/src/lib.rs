@@ -16,6 +16,17 @@ unsafe extern "C" {
     /// Apply a `background`/`corner_radius` surface via a scoped stylesheet (`#objName { ... }`
     /// so children don't inherit the fill) + `WA_StyledBackground`. `r,g,b` are 0..1, `a` is the
     /// alpha 0..1; `radius` in px; `clips != 0` requests rounded-child clipping (best-effort).
+    pub fn day_qt_set_opacity(w: *mut c_void, opacity: f64, dur_ms: c_int, curve: c_int);
+    pub fn day_qt_set_transform(
+        w: *mut c_void,
+        tx: f64,
+        ty: f64,
+        sx: f64,
+        sy: f64,
+        rot: f64,
+        dur_ms: c_int,
+        curve: c_int,
+    );
     pub fn day_qt_widget_set_section_card(w: *mut c_void, radius: f64);
     pub fn day_qt_widget_set_surface(
         w: *mut c_void,
