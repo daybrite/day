@@ -12,7 +12,7 @@ targets = [
   "macos-qt",
   "windows-winui",
   "ios-uikit",
-  "android-widget",
+  "android-mdc",
   "ohos-arkui",
 ]
 

@@ -115,8 +115,8 @@ macro_rules! __renderer {
 /// house-convention module gate binding `lib-<toolkit>.rs` next to the invoking lib.rs:
 ///
 /// ```ignore
-/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
-/// day_pieces::glue_modules!(uikit, widget, arkui);   // a piece with partial coverage
+/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
+/// day_pieces::glue_modules!(uikit, mdc, arkui);   // a piece with partial coverage
 /// ```
 ///
 /// Adding a toolkit to Day means one new arm HERE instead of an edit in every piece.
@@ -148,8 +148,8 @@ macro_rules! __glue_module {
         #[path = "lib-uikit.rs"]
         mod uikit_impl;
     };
-    (widget) => {
-        #[cfg(all(feature = "widget", target_os = "android"))]
+    (mdc) => {
+        #[cfg(all(feature = "mdc", target_os = "android"))]
         #[path = "lib-android.rs"]
         mod android_impl;
     };

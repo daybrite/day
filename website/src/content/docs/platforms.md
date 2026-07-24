@@ -17,7 +17,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `linux-gtk` | ✓ | ✓ (headless X) | `.flatpak` | |
 | `linux-qt` | ✓ | ✓ (offscreen) | `.flatpak` | Strongest Linux accessibility bridge |
 | `ios-uikit` | ✓ | ✓ (Simulator) | `.ipa` / sim-app | Development is Simulator-first; device builds go through `day pack` with signing |
-| `android-widget` | ✓ | ✓ (emulator) | `.apk` + `.aab` | Emulator leg tolerates flakes; the build itself gates hard |
+| `android-mdc` | ✓ | ✓ (emulator) | `.apk` + `.aab` | Emulator leg tolerates flakes; the build itself gates hard |
 | `macos-gtk` | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |
 | `macos-qt` | ✓ | ✓ | — (dev only) | Development combo |
 | `windows-winui` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
@@ -31,7 +31,7 @@ target on every push, with the captures feeding the [gallery](/gallery).
 
 Beyond CI, the strongest evidence for the first five rows is a real application: a Matrix chat
 client (login, encrypted rooms, live timeline, media) built on Day runs its full checklist on
-`macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator), and `android-widget`.
+`macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator), and `android-mdc`.
 
 The GTK/Qt-on-macOS/Windows combos deserve a plain statement: they exist because having five
 desktop toolkits runnable on one development machine is enormously useful, and because some teams
@@ -54,7 +54,7 @@ Rust static library — so Xcode, `day launch`, and CI all build the same way. D
 development targets the Simulator; App Store `.ipa` export exists in `day pack` and needs your
 Apple credentials. Physical-device debugging workflows are still young compared to Simulator use.
 
-### Android (`android-widget`)
+### Android (`android-mdc`)
 Material Components widgets over JNI, with a checked-in Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
 with the right ABI. Known rough edges: accessibility annotations are partial

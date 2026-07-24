@@ -22,14 +22,14 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-widget = ["dep:day-android"]        # + [package.metadata.day.android]
+mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 winui = ["dep:day-winui", "dep:day-winui-sys"]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/datetime-arkui.cpp
 
 # Backends this piece carries a native renderer for — ALL seven (the first external piece to close
 # the arkui gap). `day build` unions `<pkg>/<backend>` into an app build (Tier A.2).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "arkui"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "arkui"]
 
 [dependencies]
 day-spec = { workspace = true }

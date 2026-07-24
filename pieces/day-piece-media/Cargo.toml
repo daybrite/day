@@ -25,7 +25,7 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, l
 # objc2-av-kit 0.3 binds AVPlayerView for macOS only, so UIKit hand-rolls AVPlayerViewController
 # via extern_class!/msg_send! (the WKWebView-on-iOS situation) — see [package.metadata.day.ios].
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation"]
-widget = ["dep:day-android"]        # + [package.metadata.day.android]
+mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 # WinUI: build.rs compiles src/lib-winui-shim.cpp (a MediaPlayerElement boxed via day-winui-sys's
 # day_winui_box seam, like the picker/webview winui pieces). mock has no renderer — its feature
 # exists so apps can enable `day-piece-media/mock` uniformly; the media kind then falls back to
@@ -37,7 +37,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

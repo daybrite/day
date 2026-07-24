@@ -195,7 +195,7 @@ impl Piece for Media {
 // falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's

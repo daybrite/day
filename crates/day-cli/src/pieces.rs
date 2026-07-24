@@ -149,7 +149,7 @@ impl<'de> Deserialize<'de> for StringOrVec {
 /// contribute nothing.
 #[derive(Deserialize, Default)]
 struct PieceMeta {
-    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `widget`, `winui`, `mock`) this piece
+    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `mdc`, `winui`, `mock`) this piece
     /// declares a `[features]` entry for. Only these get `<pkg>/<backend>` unioned in.
     #[serde(default)]
     backends: Vec<String>,
@@ -240,7 +240,7 @@ fn piece_meta<T: serde::de::DeserializeOwned>(pkg: &Package, toolkit: &str) -> O
 
 /// Resolve every piece in the app's Android dependency closure and collect its contributions.
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
-/// by that feature set contribute) — currently `["widget"]`, no default features.
+/// by that feature set contribute) — currently `["mdc"]`, no default features.
 pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
     let meta = cargo_metadata(project, features)?;
 
@@ -369,7 +369,7 @@ fn closure(meta: &Metadata) -> HashSet<String> {
 /// when pieces contribute Android permissions, a `day-pieces-manifest.xml` overlay the scaffold
 /// merges). Always writes (an empty manifest when there are no pieces) so a stale file never lingers.
 pub fn write_android_manifest(project: &Project) -> Result<(), String> {
-    let pieces = resolve_android(project, &["widget"]).unwrap_or_else(|e| {
+    let pieces = resolve_android(project, &["mdc"]).unwrap_or_else(|e| {
         eprintln!("day: piece discovery failed ({e}); building with framework pieces only");
         AndroidPieces::default()
     });

@@ -10,7 +10,7 @@ rust-version.workspace = true
 [features]
 default = ["mock"]
 uikit = ["day/uikit"]
-widget = ["day/widget"]
+mdc = ["day/mdc"]
 arkui = ["day/arkui"]
 mock = ["day/mock"]
 

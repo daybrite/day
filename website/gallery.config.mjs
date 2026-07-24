@@ -28,7 +28,7 @@ export const platforms = /** @type {Platform[]} */ ([
   { id: 'macos-gtk', label: 'GTK 4', os: 'macOS', toolkit: 'GTK 4 · libadwaita' },
   { id: 'macos-qt', label: 'Qt 6', os: 'macOS', toolkit: 'Qt 6 Widgets' },
   { id: 'ios-uikit', label: 'UIKit', os: 'iOS', toolkit: 'UIKit' },
-  { id: 'android-widget', label: 'android.widget', os: 'Android', toolkit: 'android.widget' },
+  { id: 'android-mdc', label: 'android.widget', os: 'Android', toolkit: 'android.widget' },
   { id: 'linux-gtk', label: 'GTK 4', os: 'Linux', toolkit: 'GTK 4 · libadwaita' },
   { id: 'linux-qt', label: 'Qt 6', os: 'Linux', toolkit: 'Qt 6 Widgets' },
   { id: 'windows-winui', label: 'WinUI 3', os: 'Windows', toolkit: 'WinUI 3' },
@@ -72,7 +72,7 @@ export const suites = [
     // upload artifacts; they're just not shown here.
     platforms: [
       'ios-uikit',
-      'android-widget',
+      'android-mdc',
       'ohos-arkui',
       'macos-appkit',
       'windows-winui',

@@ -71,7 +71,7 @@ jobs:
         run: |
           scripts/ci/duty-matrix.sh
           git diff --exit-code docs/duty-matrix.md
-      # The Android cross-check lint gates HERE (the android-widget job is continue-on-error
+      # The Android cross-check lint gates HERE (the android-mdc job is continue-on-error
       # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
       # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls
       # compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
@@ -79,7 +79,7 @@ jobs:
         run: |
           rustup target add aarch64-linux-android
           cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
-            --no-default-features --features widget
+            --no-default-features --features mdc
           cargo clippy --locked -p day-part-battery --all-targets
           cargo clippy --locked --target aarch64-linux-android -p day-part-battery
 
@@ -202,7 +202,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui]
+    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-mdc, ohos-arkui, windows-winui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -733,8 +733,8 @@ jobs:
   # Real emulator via KVM (reactivecircus). The Linux emulator is x86_64-only, so
   # the .so cross-builds for x86_64 via DAY_ANDROID_ABI. continue-on-error while
   # the known postMain flake (intermittent "main thread did not respond") is chased.
-  android-widget:
-    name: android-widget
+  android-mdc:
+    name: android-mdc
     runs-on: ubuntu-24.04
     needs: [linux-day]
     # Best-effort on branch/PR runs while the postMain emulator flake is chased; on tag
@@ -797,7 +797,7 @@ jobs:
       # Scaffold a widget piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
-      - name: Scaffold smoke-test (android-widget)
+      - name: Scaffold smoke-test (android-mdc)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           rustup target add aarch64-linux-android
@@ -805,10 +805,10 @@ jobs:
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
           "$DAY" new piece smoke-piece --toolkits widget --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit android-widget --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features widget --target aarch64-linux-android )
+          "$DAY" new app   smoke-app   --toolkit android-mdc --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features mdc --target aarch64-linux-android )
           ( cd smoke-part  && cargo build --target aarch64-linux-android )
-          ( cd smoke-app   && cargo build --lib --features widget --target aarch64-linux-android )
+          ( cd smoke-app   && cargo build --lib --features mdc --target aarch64-linux-android )
       # Release-signing material, tag pushes only: the Play upload keystore on disk. Without
       # the secret this no-ops and pack generates a dev keystore (§20).
       - name: Materialize the upload keystore
@@ -826,18 +826,18 @@ jobs:
       # is a CI-generated dev key — installable, marked dev-signed, never distributable (§20).
       # apksigner verify runs inside pack. Runs BEFORE the emulator walkthrough so the dist
       # artifacts survive an emulator flake.
-      - name: Pack (android-widget → apk + aab)
+      - name: Pack (android-mdc → apk + aab)
         working-directory: apps/showcase
         env:
           DAY_ANDROID_ABI: arm64-v8a,x86_64
-        run: $DAY_BIN pack -p android-widget --no-version-in-name --format json
+        run: $DAY_BIN pack -p android-mdc --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: showcase-dist-android-widget
+          name: showcase-dist-android-mdc
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
-      - name: Emulator walkthrough (android-widget)
+      - name: Emulator walkthrough (android-mdc)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -853,13 +853,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-widget --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-widget --script dayscript/clipboard-roundtrip.yaml
+          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-android-widget
-          path: apps/showcase/build/day/screenshots/android-widget
+          name: screenshots-android-mdc
+          path: apps/showcase/build/day/screenshots/android-mdc
           if-no-files-found: warn
 
   # --- HarmonyOS Next / OpenHarmony ArkUI emulator -------------------------
@@ -1365,7 +1365,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website:
     name: website (build)
-    needs: [macos, ios-uikit, linux, android-widget, ohos-arkui, windows-winui, windows-msys2, api-docs]
+    needs: [macos, ios-uikit, linux, android-mdc, ohos-arkui, windows-winui, windows-msys2, api-docs]
     # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
     # the release pipeline instead).
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}

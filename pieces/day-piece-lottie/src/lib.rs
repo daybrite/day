@@ -121,4 +121,4 @@ impl Piece for Lottie {
 // backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target.
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(uikit, widget);
+day_pieces::glue_modules!(uikit, mdc);

@@ -4,7 +4,7 @@
 //! LOUDLY (never silently) when release signing material is absent (§20).
 //!
 //! Per-target default formats:
-//!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-widget → apk+aab
+//!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
 //!   linux-gtk/linux-qt → flatpak · windows-winui → msix+nsis · ohos-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
@@ -87,7 +87,7 @@ fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
     Ok(match target.name {
         "macos-appkit" => vec!["dmg"],
         "ios-uikit" => vec!["ipa"], // falls back to sim-app without ASC signing config
-        "android-widget" => vec!["apk", "aab"],
+        "android-mdc" => vec!["apk", "aab"],
         "linux-gtk" | "linux-qt" => vec!["flatpak"],
         "windows-winui" => vec!["msix", "nsis"],
         "ohos-arkui" => vec!["hap"],
@@ -137,7 +137,7 @@ pub fn run(
         "ios-uikit" => {
             artifacts.push(ios::pack(project, target, opts, &dist)?);
         }
-        "android-widget" => {
+        "android-mdc" => {
             artifacts.extend(android::pack(project, target, opts, &dist, &formats)?);
         }
         "linux-gtk" | "linux-qt" => {

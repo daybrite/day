@@ -29,7 +29,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # On Android the SQLite/crypto store must live in the app sandbox (there is no usable $HOME). We reach
 # the app's files dir through day-android's JNI bridge (DayBridge.filesDirPath → Context.getFilesDir).
 # Only linked for the Android target; day-android is an empty crate elsewhere. matrix already pulls
-# day-android in transitively (the remote-image/textarea pieces' `widget` feature), so this is no new
+# day-android in transitively (the remote-image/textarea pieces' `mdc` feature), so this is no new
 # code on the Android build — just a direct handle to `with_env`.
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { path = "../../../toolkits/day-android" }

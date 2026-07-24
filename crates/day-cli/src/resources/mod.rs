@@ -272,7 +272,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         // (during build_ios), fonts as its `.copy("fonts")` bundle dir + the app's UIAppFonts;
         // data rides the existing bundle copy phase + default file opener.
         "uikit" => Ok(()),
-        "widget" => android::stage(project, &set, &fonts),
+        "mdc" => android::stage(project, &set, &fonts),
         "arkui" => arkui::stage(project, &set, &fonts),
         // Desktop toolkits load fonts as loose files: DAY_FONT_ROOT under `day launch`, a
         // `fonts/` dir next to the binary / in Resources when packed (§18.4).

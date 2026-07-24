@@ -16,7 +16,7 @@ day build  -p {{first_target}}   # build only
 
 Targets live in `Day.toml`. To use plain cargo, pass the backend feature yourself, e.g.
 `cargo build --features appkit` (macOS) / `--features gtk` / `--features uikit` /
-`--features widget` (Android).
+`--features mdc` (Android).
 
 ## What's inside
 

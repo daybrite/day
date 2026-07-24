@@ -452,7 +452,7 @@ permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission
 only `java = ["android/java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
-When you run `day build -p android-widget`, the CLI runs `cargo metadata`, walks the app's entire
+When you run `day build -p android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks into
 `build/day/android/day-pieces.json`, plus a generated overlay manifest for the permissions. The app's
 checked-in Gradle scaffold reads that file generically (a loop over the JSON, with no per-part

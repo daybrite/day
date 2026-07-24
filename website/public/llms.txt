@@ -14,7 +14,7 @@ AI agents (dense, rule-based, canonical); start there if you are generating Day 
 - Language: Rust. Import everything with `use day::prelude::*;`.
 - Naming: **Day** = the framework (capitalized). `day` = the CLI binary and the crate (lowercase).
 - A UI node is a **Piece**; state is a `Copy` reactive **Signal<T>**; a **target** is an `(OS, toolkit)`
-  pair (e.g. `macos-appkit`, `ios-uikit`, `android-widget`, `linux-gtk`, `windows-winui`).
+  pair (e.g. `macos-appkit`, `ios-uikit`, `android-mdc`, `linux-gtk`, `windows-winui`).
 - Reactivity: static content passes a value (`label("Hi")`); dynamic content passes a closure that
   reads a Signal (`label(move || n.get().to_string())`). Only bindings that read a changed Signal re-run.
 - One toolkit backend is compiled per binary (selected by the target); enabling two is a `compile_error!`.

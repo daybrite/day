@@ -38,7 +38,7 @@ button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
 })
 ```
 
-`.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
+`.gtk(|mdc, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
 follow the same shape with each platform's own types. Qt, WinUI, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe — honest tiers, spelled out in the [tweaks reference](/docs/internal/tweaks).

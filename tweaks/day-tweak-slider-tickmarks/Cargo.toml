@@ -27,7 +27,7 @@ cc = "1"
 [features]
 appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
-widget = ["dep:day-android"]
+mdc = ["dep:day-android"]
 qt = ["dep:day-qt"]
 winui = ["dep:day-winui"]
 arkui = ["dep:day-arkui"]
@@ -37,4 +37,4 @@ arkui = ["dep:day-arkui"]
 # Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "widget", "qt", "winui", "arkui"]
+backends = ["appkit", "gtk", "mdc", "qt", "winui", "arkui"]

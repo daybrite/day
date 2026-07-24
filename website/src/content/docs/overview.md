@@ -65,7 +65,7 @@ layer to pay for.
 |---|---|---|
 | `macos-appkit` | macOS | AppKit |
 | `ios-uikit` | iOS | UIKit |
-| `android-widget` | Android | Material Components / android.view |
+| `android-mdc` | Android | Material Components / android.view |
 | `linux-gtk` | Linux | GTK 4 · libadwaita |
 | `linux-qt` | Linux | Qt 6 Widgets |
 | `windows-winui` | Windows | WinUI (XAML Islands) |

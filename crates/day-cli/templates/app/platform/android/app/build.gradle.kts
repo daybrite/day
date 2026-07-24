@@ -137,7 +137,7 @@ if (dayPieces["dayJavaSrcDir"] == null) {
         if (name == "preBuild") doFirst {
             throw GradleException(
                 "The day-android Java shim was not staged — build through the day CLI " +
-                "(`day launch -p android-widget` / `day build -p android-widget`), which writes " +
+                "(`day launch -p android-mdc` / `day build -p android-mdc`), which writes " +
                 "build/day/android/day-pieces.json. A bare Gradle build cannot produce a working APK."
             )
         }

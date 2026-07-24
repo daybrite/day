@@ -13,7 +13,7 @@ network, and sensor services.
 runs miniapps (see §12). Everything it does goes through the public embedding API, so other
 superapps can ship different piece/part/tweak sets and different permission policies (§10).
 
-Initial platform support is the three mobile targets (ios-uikit, android-widget, ohos-arkui);
+Initial platform support is the three mobile targets (ios-uikit, android-mdc, ohos-arkui);
 the design has no mobile-specific dependencies, so desktop toolkits can follow later.
 
 ## 1. Architecture

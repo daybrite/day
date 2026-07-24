@@ -13,7 +13,7 @@ lints, and scripts projects. It's built for humans, CI, IDEs, and AI agents alik
 ```bash
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively
-day app add-toolkit android-widget   # add a target to an existing app
+day app add-toolkit android-mdc   # add a target to an existing app
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
@@ -33,7 +33,7 @@ day mcp-server               # serve Day tools to AI agents (Model Context Proto
 |---|---|
 | `macos-appkit` | `.dmg` (codesign → notarize → staple) |
 | `ios-uikit` | `.ipa` (App Store export; Simulator `.app.zip` without signing config) |
-| `android-widget` | `.apk` + `.aab` (release-signed) |
+| `android-mdc` | `.apk` + `.aab` (release-signed) |
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle |
 | `windows-winui` | `.msix` + NSIS `-setup.exe` |
 | `ohos-arkui` | `.hap` |
@@ -109,7 +109,7 @@ targets = [
   "macos-gtk",
   "macos-qt",
   "ios-uikit",
-  "android-widget",
+  "android-mdc",
 ]
 
 [window]

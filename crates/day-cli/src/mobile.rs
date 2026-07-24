@@ -1,6 +1,6 @@
 //! Mobile pipelines (DESIGN.md §16.5, §17.4): ios-uikit via xcodebuild + simctl (the Xcode
 //! project's script phase calls back into `day xcode-backend build` for the Rust staticlib);
-//! android-widget via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
+//! android-mdc via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -482,7 +482,7 @@ fn stream_logs_labeled(
 }
 
 // ---------------------------------------------------------------------------
-// android-widget (gradle + adb) — scaffold lands next; see gradle_backend_build
+// android-mdc (gradle + adb) — scaffold lands next; see gradle_backend_build
 // ---------------------------------------------------------------------------
 
 pub fn gradle_backend_build() -> i32 {
@@ -628,7 +628,7 @@ fn build_android_so(
     let ndk_home = find_ndk()?;
     let target_dir = project
         .root
-        .join("build/day/cargo/android-widget")
+        .join("build/day/cargo/android-mdc")
         .join(profile);
     let mut cmd = Command::new(&cargo);
     // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
@@ -653,7 +653,7 @@ fn build_android_so(
         .arg(out)
         // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
-        // `--features` = `widget` + every standalone piece's `<pkg>/widget` renderer feature (Tier
+        // `--features` = `mdc` + every standalone piece's `<pkg>/mdc` renderer feature (Tier
         // A.2), so the app needn't re-list per-piece features in its own Cargo.toml.
         .arg("rustc")
         .args([
@@ -664,7 +664,7 @@ fn build_android_so(
             "cdylib",
             "--no-default-features",
             "--features",
-            &crate::ops::feature_selection(project, "widget"),
+            &crate::ops::feature_selection(project, "mdc"),
         ]);
     if profile == "release" {
         cmd.arg("--release");
@@ -885,11 +885,11 @@ pub fn launch_android(
         }
         status(
             "Launching",
-            &format!("android-widget ({app_id}) on {} ({})", dev.serial, dev.abi),
+            &format!("android-mdc ({app_id}) on {} ({})", dev.serial, dev.abi),
         );
         run_logged(&mut cmd, &format!("am start ({})", dev.serial))?;
         if spec.attached {
-            // One-device runs keep the bare `[android-widget]` prefix; multi-device runs append
+            // One-device runs keep the bare `[android-mdc]` prefix; multi-device runs append
             // the serial so the interleaved log streams read apart.
             let label = if devices.len() > 1 {
                 format!("{}:{}", outcome.target, dev.serial)

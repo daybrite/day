@@ -39,7 +39,7 @@ const PRIMARY_PLATFORMS = [
   'windows-winui',
   'linux-gtk',
   'linux-qt',
-  'android-widget',
+  'android-mdc',
   'ios-uikit',
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.

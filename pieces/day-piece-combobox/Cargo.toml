@@ -20,7 +20,7 @@ build = "build.rs"
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (editable QComboBox), Qt libs linked by day-qt-sys
-widget = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayCombo Java factory
+mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayCombo Java factory
 # WinUI: build.rs compiles src/lib-winui-shim.cpp (an editable ComboBox boxed via day-winui-sys's
 # day_winui_box seam, like the searchfield winui piece). Windows-only, built in CI, not verified
 # locally. mock has no renderer — its feature exists so apps can enable `day-piece-combobox/mock`
@@ -33,7 +33,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "widget", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "mdc", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

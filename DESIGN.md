@@ -142,7 +142,7 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 |---|---|---|---|
 | `macos-appkit` | macOS | AppKit | shipped; walkthrough + pack (`.dmg`) in CI |
 | `ios-uikit` | iOS | UIKit | shipped; Simulator walkthrough + pack (`.ipa`) in CI |
-| `android-widget` | Android | Material Components (M3 Expressive) / android.view | shipped; emulator walkthrough + pack (`.apk`/`.aab`) in CI |
+| `android-mdc` | Android | Material Components (M3 Expressive) / android.view | shipped; emulator walkthrough + pack (`.apk`/`.aab`) in CI |
 | `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak) in CI |
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak) in CI |
 | `windows-winui` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
@@ -157,7 +157,7 @@ Because GTK and Qt are themselves portable, the **non-default combinations** `ma
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
 (OS, toolkit) pair whose toolkit supports that OS. Day's own development loop runs six targets
 on a single macOS host: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator),
-`android-widget` (emulator), and `ohos-arkui` (cross-compile; emulator via `day ohos`).
+`android-mdc` (emulator), and `ohos-arkui` (cross-compile; emulator via `day ohos`).
 
 A `day` command-line tool — deliberately modeled on the architecture of `flutter_tools`
 (`flutter/packages/flutter_tools`) — creates, builds, signs, launches, packs, lints, scripts,
@@ -219,7 +219,7 @@ git dependencies (`day new --git`), with `--registry` ready for the day they are
 
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --platform`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
-also exists alone (`uikit`, `widget`, `appkit`, `gtk`, `qt`, `winui`, `arkui`, `mock`) for cases
+also exists alone (`uikit`, `mdc`, `appkit`, `gtk`, `qt`, `winui`, `arkui`, `mock`) for cases
 where OS doesn't matter (styling varies by toolkit far more often than by OS).
 
 ---
@@ -1975,7 +1975,7 @@ per-target entries and the process exit code is the highest-severity per-target 
 
 ```json
 {"event":"hello","proto":1,"day":"0.1.0","pid":48231}
-{"event":"task.start","id":"t3","target":"android-widget","label":"gradle :app:assembleDebug","parent":"t1"}
+{"event":"task.start","id":"t3","target":"android-mdc","label":"gradle :app:assembleDebug","parent":"t1"}
 {"event":"log","task":"t3","stream":"stdout","line":"> Task :app:compileDebugKotlin"}
 {"event":"task.progress","id":"t3","detail":"compileDebugKotlin","fraction":0.61}
 {"event":"task.done","id":"t3","ok":true,"seconds":24.1}
@@ -2005,7 +2005,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
   with shared pre-flight (project discovery, Day.toml parse, doctor-lite checks relevant to the
   command).
 - **Workflows/doctor:** per-target `Workflow` objects (`applicable? functional? missing?`) power
-  both `day doctor` and actionable failures ("`android-widget` needs: ANDROID_HOME, JDK 17/21 —
+  both `day doctor` and actionable failures ("`android-mdc` needs: ANDROID_HOME, JDK 17/21 —
   found JDK 26 (known-broken with AGP; see day doctor)"). This bakes in the toolchain knowledge
   this workspace accumulated (JDK-26/Robolectric-class problems, rustup-vs-homebrew Rust for cross-std,
   cargo-ndk, `aarch64-apple-ios-sim` on Apple Silicon).
@@ -2209,7 +2209,7 @@ schema = 1                          # manifest schema version
 id = "dev.example.fieldnotes"       # bundle id / application id / app id
 title = "app-title"                 # Fluent key → localized display name (falls back to name)
 build = 42                          # CFBundleVersion / versionCode (int, monotonic)
-targets = ["macos-appkit", "macos-gtk", "macos-qt", "ios-uikit", "android-widget"]
+targets = ["macos-appkit", "macos-gtk", "macos-qt", "ios-uikit", "android-mdc"]
 
 [app.ios]                           # per-platform/toolkit/target overrides of any [app] property
 title = "Fieldnotes Mobile"
@@ -2552,11 +2552,11 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 ### §21.1 MVP acceptance (verbatim goal)
 
 On the current macOS host: `day launch -p macos-appkit -p macos-gtk -p macos-qt -p ios-uikit -p
-android-widget` builds and launches the **showcase** app on all five targets; `day launch -p
+android-mdc` builds and launches the **showcase** app on all five targets; `day launch -p
 ios-uikit --locale fr-FR --script scripts/walkthrough.yaml` runs the localized walkthrough,
 passes its assertions, and produces screenshots; `day new` scaffolds a working project;
 `day lint` reports fluent/a11y findings; `day pack -p macos-appkit` emits a `.dmg` and
-`-p android-widget` an `.apk`; canvas renders the gauge demo natively on all five; **the showcase
+`-p android-mdc` an `.apk`; canvas renders the gauge demo natively on all five; **the showcase
 includes an externally-registered tier-1 piece (`day-piece-combobox`) on all five targets**
 (pillar 4 is demonstrated, not deferred — DP-21). Showcase pieces: `column`, `row`, `label`,
 `button`, `toggle`, `text_field`, `slider`, `canvas`, `when`, `each`, `scroll`, `spacer`,
@@ -2825,9 +2825,9 @@ macOS (AppKit/GTK/Qt), iOS, and Android, and is the acceptance gate for backend 
 ### Run it
 
 ```
-$ day launch -p macos-appkit -p macos-gtk -p macos-qt -p ios-uikit -p android-widget
+$ day launch -p macos-appkit -p macos-gtk -p macos-qt -p ios-uikit -p android-mdc
 $ day launch -p ios-uikit --locale fr --script dayscript/walkthrough.yaml
-$ day launch -p android-widget --locale ar --script dayscript/walkthrough.yaml   # RTL pass
+$ day launch -p android-mdc --locale ar --script dayscript/walkthrough.yaml   # RTL pass
 $ day launch -p macos-appkit --variant dark --env DAY_THEME=dark --script dayscript/walkthrough.yaml
 ```
 
@@ -2987,17 +2987,17 @@ implemented** — scripts scroll explicitly and the walkthrough is written accor
 
 ```
 $ day doctor
-day 0.0.9 · project fieldnotes · targets: macos-appkit, ios-uikit, android-widget
+day 0.0.9 · project fieldnotes · targets: macos-appkit, ios-uikit, android-mdc
 ✓ rust        1.89 (rustup) + targets aarch64-apple-ios-sim, aarch64-linux-android
 ✓ xcode       16.3 · simulators: iPhone 16 (booted)
 ✗ android     JDK 26 found — AGP requires ≤21    → brew install openjdk@21
 ✓ gtk4        4.16 (homebrew) · pkg-config OK
 ! qt6         not found — target macos-qt disabled  → brew install qt@6
 
-$ day launch -p macos-appkit -p ios-uikit -p android-widget
+$ day launch -p macos-appkit -p ios-uikit -p android-mdc
   macos-appkit    cargo build … ✓ · launched
   ios-uikit       xcodebuild … ✓ · installed → launched on iPhone 16
-  android-widget  gradle :app:assembleDebug … ✓ · adb install → launched on emulator-5554
+  android-mdc  gradle :app:assembleDebug … ✓ · adb install → launched on emulator-5554
 
 $ day launch -p ios-uikit --locale fr --script dayscript/walkthrough.yaml
   … ✓ 208/208 steps · 20 screenshots → build/day/screenshots/ios-uikit/fr/

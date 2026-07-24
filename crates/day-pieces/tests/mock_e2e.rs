@@ -2467,8 +2467,11 @@ fn cover_presents_lays_out_and_dismisses() {
 // ── the daylite lifecycle: siblings must survive a cover cycle, and a second present must
 //    work — including with adversarial "cover-hidden" orderings (double emit, late emit).
 
+/// (rev, taps, open) — the signals `cover_cycle_root` publishes for the test body.
+type CycleSignals = (Signal<f64>, Signal<f64>, Signal<Option<String>>);
+
 thread_local! {
-    static CYCLE: std::cell::RefCell<Option<(Signal<f64>, Signal<f64>, Signal<Option<String>>)>> =
+    static CYCLE: std::cell::RefCell<Option<CycleSignals>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -2532,7 +2535,7 @@ fn tap_button(probe: &MockProbe, text: &str) {
 fn cover_cycle_keeps_siblings_alive_and_represents() {
     let probe = boot(cover_cycle_root);
     flush_sync();
-    let (rev, _taps, open) = CYCLE.with(|c| c.borrow().clone()).expect("cycle state");
+    let (rev, _taps, open) = CYCLE.with(|c| *c.borrow()).expect("cycle state");
 
     // Rebuild the rows once BEFORE any cover (the daylite install-confirm shape).
     rev.set(1.0);

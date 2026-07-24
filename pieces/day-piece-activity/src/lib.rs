@@ -106,7 +106,7 @@ impl Piece for Activity {
 // back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
 
 #[cfg(test)]
 mod tests {

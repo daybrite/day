@@ -1,4 +1,4 @@
-//! android-widget → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
+//! android-mdc → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
 //! generated properties file (§17.5); the release signingConfig reads a second generated file —
 //! resolved from `signing.android` `${ENV}` refs, or a CI/dev keystore generated with keytool when
 //! unconfigured (dev tier, loud). Gradle signs both formats (apksigner cannot sign an .aab — §16.5).
@@ -17,11 +17,11 @@ const DEV_KEYSTORE_PASS: &str = "day-dev-only"; // dev keystore: local installs 
 /// Day.toml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName,
 /// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
 /// stale (§17.5). Identity is RESOLVED for the android target, so `[app.android]` /
-/// `[app.android-widget]` overrides in Day.toml flow into the APK.
+/// `[app.android-mdc]` overrides in Day.toml flow into the APK.
 pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let resolved = project.manifest.resolve("android-widget");
+    let resolved = project.manifest.resolve("android-mdc");
     let content = format!(
         "applicationId={}\nversionCode={}\nversionName={}\ntitle={}\n",
         resolved.id,
@@ -80,7 +80,7 @@ pub fn pack(
     }
 
     if formats.iter().any(|f| f == "aab") && opts.profile == "release" {
-        status("Building", "android-widget (gradle bundleRelease)");
+        status("Building", "android-mdc (gradle bundleRelease)");
         let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
         let mut cmd = Command::new("gradle");
         cmd.current_dir(project.root.join("platform/android"))

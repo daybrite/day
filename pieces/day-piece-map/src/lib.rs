@@ -158,7 +158,7 @@ impl Piece for Map {
 
 // ---------------------------------------------------------------------------
 // Per-toolkit native renderers — Apple only. Each registers a `Renderer` link-time into its backend's
-// `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/widget/winui/mock register
+// `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/mdc/winui/mock register
 // nothing (the map kind falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 

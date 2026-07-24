@@ -109,7 +109,7 @@ The Cargo shape mirrors piece crates: per-backend `[features]` gating optional d
 
 ```toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "widget", "qt", "winui", "arkui"]
+backends = ["appkit", "gtk", "mdc", "qt", "winui", "arkui"]
 ```
 
 so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2 —

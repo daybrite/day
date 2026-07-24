@@ -38,7 +38,7 @@
             "type": "string",
             "examples": [
               "macos-appkit", "macos-gtk", "macos-qt",
-              "ios-uikit", "android-widget",
+              "ios-uikit", "android-mdc",
               "linux-gtk", "linux-qt",
               "windows-winui", "windows-qt", "windows-gtk",
               "ohos-arkui"

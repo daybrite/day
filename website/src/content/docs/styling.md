@@ -94,7 +94,7 @@ on mobile. Today you branch on the compiled toolkit, which is a process constant
 nothing at runtime:
 
 ```rust
-let pad = if cfg!(feature = "uikit") || cfg!(feature = "widget") { 16.0 } else { 10.0 };
+let pad = if cfg!(feature = "uikit") || cfg!(feature = "mdc") { 16.0 } else { 10.0 };
 content.padding(pad)
 ```
 

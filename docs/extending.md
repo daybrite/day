@@ -8,7 +8,7 @@ with no edits to any core Day crate. `day-piece-searchfield` is the reference im
 **Scaffold a new piece with `day new`.** Don't hand-assemble the crate: `day new piece <name>`
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
 checkout). With no `--toolkits` it emits a **composite** piece (front-end only); with
-`--toolkits appkit,gtk,qt,uikit,widget,winui` (any subset) it emits a **native** piece with a renderer
+`--toolkits appkit,gtk,qt,uikit,mdc,winui` (any subset) it emits a **native** piece with a renderer
 per backend plus the C++/Java/Swift glue each one needs. The companion `day new part <name>` scaffolds
 a headless part. For full walkthroughs see the tutorials:
 [composite piece](https://daybrite.dev/docs/tutorial-composite-piece/),
@@ -49,7 +49,7 @@ realize payload; a sparse `Patch` enum carries changes.
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice, the same
 slice the built-ins use, so no Day edit is needed. Declare the per-toolkit glue modules with one
-line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui)` expands to the
+line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui)` expands to the
 feature-and-target-gated `mod` block binding each `lib-<toolkit>.rs` (list only the toolkits you
 implement; a non-standard gate, like webview's Linux-only GTK, stays a hand-written block beside
 it). Then write typed `make`/`update` (no `&dyn Any`
@@ -109,7 +109,7 @@ permissions = ["android.permission.INTERNET"]                 # → <uses-permis
 proguard = ["android/proguard-rules.pro"]                     # → R8 keep rules (see below)
 ```
 
-`day build` (for `android-widget`) runs `cargo metadata`, walks the app's dependency closure, collects
+`day build` (for `android-mdc`) runs `cargo metadata`, walks the app's dependency closure, collects
 every piece's contributions, and writes `build/day/android/day-pieces.json`. The app's checked-in
 `platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file generically (a loop, so
 per-piece edits are never needed) and add the Java dirs, res dirs, dependencies, and repos.
@@ -240,7 +240,7 @@ appkit = ["dep:day-appkit", …]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + a build.rs that compiles src/lib-qt-shim.cpp
 uikit = ["dep:day-uikit", …]
-widget = ["dep:day-android"]        # + [package.metadata.day.android]
+mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 winui = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-winui-shim.cpp
 ```
 
@@ -306,7 +306,7 @@ pieces/day-piece-searchfield/
     └── lib-winui-shim.cpp
 ```
 
-`lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget,
+`lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc,
 winui)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
 native surface for a toolkit lives in one place.
 

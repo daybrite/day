@@ -23,7 +23,7 @@ Day has two kinds of pieces:
 |---|---|---|
 | What it wraps | a *new* native control (`NSComboBox`, `WKWebView`, …) | *existing* Day pieces |
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
-| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `widget` / `winui` | none |
+| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
 | Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
 
@@ -258,7 +258,7 @@ fn review_form() -> AnyPiece {
 }
 ```
 
-Run `day launch -p macos-appkit`, then `-p android-widget`, then `-p linux-gtk`. The same rating
+Run `day launch -p macos-appkit`, then `-p android-mdc`, then `-p linux-gtk`. The same rating
 renders natively on each, drawn by that platform's own 2D API. You wrote zero platform code.
 
 ## 6. Going further

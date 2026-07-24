@@ -124,13 +124,13 @@ xcrun simctl install booted … && simctl launch          (day launch)
 The callback design means opening `platform/ios` in Xcode and pressing Run also works: Xcode calls
 back into `day` for the Rust half, exactly as `day` calls into `xcodebuild` for the native half.
 
-### Android: `android-widget`
+### Android: `android-mdc`
 
 Android inverts iOS: `day` runs Cargo first, then hands Gradle a project whose source sets already
 point at everything Day staged:
 
 ```text
-day build -p android-widget
+day build -p android-mdc
 │
 ├── cargo-ndk (arm64-v8a) ────────► build/day/jniLibs/arm64-v8a/libmy_app.so
 │

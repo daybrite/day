@@ -22,7 +22,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QWidget + QPixmap), Qt libs linked by day-qt-sys
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-widget = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayRemoteImage Java factory
+mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayRemoteImage Java factory
 # WinUI: build.rs compiles src/lib-winui-shim.cpp (an Image/Ellipse boxed via day-winui-sys's
 # day_winui_box seam, like the picker/media winui pieces). Windows-only, built in CI, NOT verified
 # locally (see the caveat at the top of lib-winui-shim.cpp). mock has no renderer — its feature
@@ -35,7 +35,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

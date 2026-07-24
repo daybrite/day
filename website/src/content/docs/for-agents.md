@@ -46,7 +46,7 @@ bind straight to native attributes.
 ## Setup (canonical)
 
 ```bash
-day new app my-app --toolkit macos-appkit,ios-uikit,android-widget
+day new app my-app --toolkit macos-appkit,ios-uikit,android-mdc
 cd my-app
 day launch -p macos-appkit                 # build + run
 day launch -p macos-appkit --script dayscript/walkthrough.yaml   # build + run + assert
@@ -60,7 +60,7 @@ schema = 1
 [app]
 id = "dev.example.my-app"
 title = "My App"
-targets = ["macos-appkit", "ios-uikit", "android-widget"]
+targets = ["macos-appkit", "ios-uikit", "android-mdc"]
 
 [window]
 width = 480
@@ -78,7 +78,7 @@ height = 640
 - **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-widget`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`, `windows-qt`.
+  `android-mdc`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`, `windows-qt`.
 
 ## Canonical patterns (copy these)
 

@@ -8,7 +8,7 @@ WebView and no build step (TypeScript is stripped at load).
 ## Run it
 
 ```sh
-day launch -p ios-uikit          # or android-widget / ohos-arkui
+day launch -p ios-uikit          # or android-mdc / ohos-arkui
 ```
 
 The three bundled samples (Weather, Todos, Tic-Tac-Toe) appear in the catalog and install

@@ -3,7 +3,7 @@
 A full-featured Matrix chat client built on the `day` native-UI framework, using
 [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk) for all protocol + E2E encryption.
 Targets every Day backend: macOS (AppKit), Linux (GTK, Qt), Windows (WinUI), iOS (UIKit),
-Android (widget/JNI), HarmonyOS (ArkUI).
+Android (mdc/JNI), HarmonyOS (ArkUI).
 
 This file is the source of truth for the plan and survives context compaction. Update the
 **Progress log** at the bottom as work lands.
@@ -104,7 +104,7 @@ Candidates a chat client needs that Day may lack — confirm against the invento
 | macos-appkit | ✓ | ✓ (primary dev) | none (host) |
 | macos-gtk / macos-qt | ✓ | ✓ | none (host) |
 | ios-uikit | via xcodebuild | ✓ (simulator) | **rustls/sqlite for aarch64-apple-ios-sim** |
-| android-widget | via gradle | ✓ (emulator) | **rustls/sqlite for aarch64-linux-android (NDK)** |
+| android-mdc | via gradle | ✓ (emulator) | **rustls/sqlite for aarch64-linux-android (NDK)** |
 | ohos-arkui | env-gated | ✗ (needs DevEco/Huawei) | **ohos target** |
 | windows-winui | ✗ on Mac | ✗ | — |
 
@@ -189,7 +189,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   states, dark-mode colors. The polished draft lives in `src/ui.rs` (needs API reconciliation:
   `.frame_width` doesn't exist → use `.frame`/grow; verify `Insets::symmetric`).
 - CROSS-PLATFORM: gtk, qt (desktop — should mirror appkit), then ios-uikit (sim; homeserver
-  `http://localhost:6167` reachable) + android-widget (emulator; homeserver `http://10.0.2.2:6167` +
+  `http://localhost:6167` reachable) + android-mdc (emulator; homeserver `http://10.0.2.2:6167` +
   store_dir must use the app sandbox, NOT $HOME — fix `store_dir()` for ios/android). ohos/winui
   build-check only.
 
@@ -224,7 +224,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
     name-derived script id. (Keying the list by id+name to force a rebuild was tried and REVERTED: the
     native iOS list left a stale duplicate row on key change.) The colon-less `!hash` room ids this
     Conduit uses are handled by `name_fallback`.
-- **android-widget: 13/13 ✓** (emulator) — same flow, real room names → open → timeline → send
+- **android-mdc: 13/13 ✓** (emulator) — same flow, real room names → open → timeline → send
   (confirmed server-side, fresh timestamp). Mobile bring-up fixes on top of the shared ones above:
   - **Store dir (sandbox)**: there is no usable `$HOME` on Android. `matrix-core` reaches the app's
     files dir (`/data/data/dev.daybrite.matrix/files/daybrite-matrix`) via day-android's JNI bridge —

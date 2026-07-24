@@ -23,7 +23,7 @@ appkit = ["day/appkit", "day-tweak-button-bezel/appkit", "day-tweak-label-select
 gtk = ["day/gtk", "day-tweak-label-selectable/gtk", "day-tweak-slider-tickmarks/gtk"]
 qt = ["day/qt", "day-tweak-slider-tickmarks/qt"]
 uikit = ["day/uikit"]
-widget = ["day/widget", "day-tweak-label-selectable/widget", "day-tweak-slider-tickmarks/widget"]
+mdc = ["day/mdc", "day-tweak-label-selectable/mdc", "day-tweak-slider-tickmarks/mdc"]
 winui = ["day/winui", "day-tweak-slider-tickmarks/winui"]
 arkui = ["day/arkui", "day-tweak-slider-tickmarks/arkui"]
 mock = ["day/mock"]
@@ -66,7 +66,7 @@ day-piece-activity = { workspace = true }
 day-piece-searchfield = { workspace = true }
 day-piece-map = { workspace = true }
 # day-piece-lottie is iOS/Android only; the front-end compiles everywhere but the `lottie` page is
-# `#[cfg]`-gated to those targets. Its backend features are enabled only in `uikit`/`widget`.
+# `#[cfg]`-gated to those targets. Its backend features are enabled only in `uikit`/`mdc`.
 day-piece-lottie = { workspace = true }
 
 [[bin]]

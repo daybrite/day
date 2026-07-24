@@ -54,7 +54,7 @@ pub enum RefreshPatch {
 pub fn support() -> day_spec::Support {
     #[cfg(any(
         all(feature = "uikit", target_os = "ios"),
-        all(feature = "widget", target_os = "android"),
+        all(feature = "mdc", target_os = "android"),
         all(feature = "arkui", target_env = "ohos"),
     ))]
     {
@@ -62,7 +62,7 @@ pub fn support() -> day_spec::Support {
     }
     #[cfg(not(any(
         all(feature = "uikit", target_os = "ios"),
-        all(feature = "widget", target_os = "android"),
+        all(feature = "mdc", target_os = "android"),
         all(feature = "arkui", target_env = "ohos"),
     )))]
     {
@@ -122,7 +122,7 @@ impl<P: Piece> Piece for PullRefresh<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         #[cfg(any(
             all(feature = "uikit", target_os = "ios"),
-            all(feature = "widget", target_os = "android"),
+            all(feature = "mdc", target_os = "android"),
             all(feature = "arkui", target_env = "ohos"),
         ))]
         {
@@ -130,7 +130,7 @@ impl<P: Piece> Piece for PullRefresh<P> {
         }
         #[cfg(not(any(
             all(feature = "uikit", target_os = "ios"),
-            all(feature = "widget", target_os = "android"),
+            all(feature = "mdc", target_os = "android"),
             all(feature = "arkui", target_env = "ohos"),
         )))]
         {
@@ -148,7 +148,7 @@ impl<P: Piece> Piece for PullRefresh<P> {
 
 #[cfg(any(
     all(feature = "uikit", target_os = "ios"),
-    all(feature = "widget", target_os = "android"),
+    all(feature = "mdc", target_os = "android"),
     all(feature = "arkui", target_env = "ohos"),
 ))]
 fn build_native<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
@@ -203,7 +203,7 @@ fn build_native<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 
 #[cfg(not(any(
     all(feature = "uikit", target_os = "ios"),
-    all(feature = "widget", target_os = "android"),
+    all(feature = "mdc", target_os = "android"),
     all(feature = "arkui", target_env = "ohos"),
 )))]
 fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
@@ -276,7 +276,7 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 // feature + target (the webview convention).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(uikit, widget, arkui);
+day_pieces::glue_modules!(uikit, mdc, arkui);
 
 #[cfg(all(feature = "appkit", target_os = "macos"))]
 #[path = "glue-appkit.rs"]

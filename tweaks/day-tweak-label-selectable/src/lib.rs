@@ -38,7 +38,7 @@ fn apply(node: RNode) {
             }
         });
     }
-    #[cfg(all(feature = "widget", target_os = "android"))]
+    #[cfg(all(feature = "mdc", target_os = "android"))]
     {
         // Day labels are android.widget.TextView (`class`); JNI through the ext's attached env.
         use day_android::DayEnv;
@@ -50,7 +50,7 @@ fn apply(node: RNode) {
     #[cfg(not(any(
         feature = "appkit",
         feature = "gtk",
-        all(feature = "widget", target_os = "android")
+        all(feature = "mdc", target_os = "android")
     )))]
     let _ = node; // documented no-op on toolkits this tweak doesn't cover
 }

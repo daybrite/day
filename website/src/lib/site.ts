@@ -68,7 +68,7 @@ export const site = {
   targets: [
     'macOS · AppKit',
     'iOS · UIKit',
-    'Android · widget',
+    'Android · Material Design Components',
     'Linux · GTK 4',
     'Linux · Qt 6',
     'Windows · WinUI 3',

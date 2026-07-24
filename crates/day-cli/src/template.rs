@@ -121,7 +121,7 @@ fn read_tree(root: &Path) -> Result<Vec<TemplateFile>, String> {
 }
 
 /// The platform (OS) a `platform/<os>/…` template path belongs to, or None for a
-/// target-agnostic file. Matches the target naming convention: `android-widget`'s platform is
+/// target-agnostic file. Matches the target naming convention: `android-mdc`'s platform is
 /// `android`, so it owns `platform/android/`.
 fn file_platform(path: &str) -> Option<&str> {
     path.strip_prefix("platform/")?.split('/').next()
@@ -263,7 +263,7 @@ mod tests {
         assert!(!desktop.iter().any(|f| f.path.starts_with("platform/")));
 
         // add-toolkit's view: only the new target's subtree, nothing agnostic.
-        let add = platform_files_for_targets(files, &["android-widget".to_string()]);
+        let add = platform_files_for_targets(files, &["android-mdc".to_string()]);
         assert!(!add.is_empty());
         assert!(add.iter().all(|f| f.path.starts_with("platform/android/")));
     }

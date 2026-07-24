@@ -59,7 +59,7 @@ pub const fn toolkit_name() -> &'static str {
     {
         return "UIKit";
     }
-    #[cfg(feature = "widget")]
+    #[cfg(feature = "mdc")]
     {
         return "Android";
     }
@@ -124,7 +124,7 @@ pub mod lifecycle {
         {
             return day_uikit::lifecycle_supported(phase);
         }
-        #[cfg(all(feature = "widget", target_os = "android"))]
+        #[cfg(all(feature = "mdc", target_os = "android"))]
         {
             return day_android::lifecycle_supported(phase);
         }
@@ -335,7 +335,7 @@ macro_rules! android_main {
 }
 
 /// Android glue (§17.4): the app cdylib's JNI exports forward here.
-#[cfg(all(feature = "widget", target_os = "android"))]
+#[cfg(all(feature = "mdc", target_os = "android"))]
 pub mod android {
     pub use day_android::jni;
     pub use day_android::{

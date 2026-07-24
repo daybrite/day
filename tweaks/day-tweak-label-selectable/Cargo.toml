@@ -20,9 +20,9 @@ day-android = { workspace = true, optional = true }
 [features]
 appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
-widget = ["dep:day-android"]
+mdc = ["dep:day-android"]
 
 # Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "widget"]
+backends = ["appkit", "gtk", "mdc"]

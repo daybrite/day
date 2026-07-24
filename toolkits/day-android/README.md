@@ -5,7 +5,7 @@ Day's Android backend: real Android views over JNI, with a small Java bridge.
 Pieces become Material 3 widgets — text views, buttons, switches, sliders, recycling lists
 — created and updated through `DayBridge`, a compact Java class that plays the role Day's
 C++ shims play on other platforms. Day owns layout; Android owns rendering, the keyboard,
-and accessibility. This is the backend behind the `android-widget` target.
+and accessibility. This is the backend behind the `android-mdc` target.
 
 You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
 [`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the

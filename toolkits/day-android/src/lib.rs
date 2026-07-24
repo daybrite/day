@@ -1,4 +1,4 @@
-//! day-android — the android-widget backend (DESIGN.md §9). jni + the DayBridge Java shim
+//! day-android — the android-mdc backend (DESIGN.md §9). jni + the DayBridge Java shim
 //! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; controls are Material 3
 //! components from com.google.android.material, M3 Expressive themed). `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales
 //! by density to px and `measure` scales back. The JVM owns the main loop: `Platform::run`
@@ -1060,7 +1060,7 @@ mod imp {
     }
 
     /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
-    /// back to a visible placeholder. A missing renderer usually means the piece's `widget` feature
+    /// back to a visible placeholder. A missing renderer usually means the piece's `mdc` feature
     /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to both
     /// stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at ERROR, so
     /// it surfaces even before the redirect installs. Deduped per kind so it doesn't spam the log.
@@ -2083,7 +2083,7 @@ mod imp {
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
-            Err("use `adb exec-out screencap -p` (device-level capture) on android-widget".into())
+            Err("use `adb exec-out screencap -p` (device-level capture) on android-mdc".into())
         }
 
         /// The system color mode, DAY_THEME override first (themed capture runs).
@@ -2118,8 +2118,8 @@ mod imp {
     }
 
     impl Platform for Android {
-        const TARGET: &'static str = "android-widget";
-        const TOOLKIT: &'static str = "widget";
+        const TARGET: &'static str = "android-mdc";
+        const TOOLKIT: &'static str = "mdc";
 
         fn run(self, _options: WindowOptions, ready: Box<dyn FnOnce(Self, AHandle, Size)>) {
             // The ActivityThread owns the loop; init() already registered the root.

@@ -74,7 +74,7 @@ part, so building from Xcode/Android Studio and building from the CLI produce id
 and neither goes stale.
 
 ```text
- day build -p ios-uikit                    day build -p android-widget
+ day build -p ios-uikit                    day build -p android-mdc
 ──────────────────────────                ─────────────────────────────
  day CLI                                   day CLI
    │  generates DayPieces SwiftPM pkg        │  cargo-ndk → libapp.so per ABI

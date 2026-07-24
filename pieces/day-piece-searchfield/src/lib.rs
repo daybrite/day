@@ -110,4 +110,4 @@ impl Piece for SearchField {
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-picker layout).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, widget, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);

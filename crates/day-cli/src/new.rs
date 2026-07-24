@@ -25,7 +25,7 @@ use crate::targets;
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
 /// The toolkits a NATIVE piece can carry a backend renderer for.
-const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "widget", "winui"];
+const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "winui"];
 /// The platforms a PART can carry a native impl for.
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
@@ -316,7 +316,7 @@ fn toolkit_label(tk: &str) -> String {
         "gtk" => "GTK — Linux / macOS / Windows",
         "qt" => "Qt — Linux / macOS / Windows",
         "uikit" => "UIKit — iOS",
-        "widget" => "Android — Views / Compose",
+        "mdc" => "Android — Material Design Components",
         "winui" => "WinUI — Windows",
         _ => tk,
     };
@@ -699,7 +699,7 @@ pub fn add_toolkit(
     }
     if wanted.is_empty() {
         eprintln!(
-            "error: no target given\n       usage: day app add-toolkit <target>… (e.g. android-widget)"
+            "error: no target given\n       usage: day app add-toolkit <target>… (e.g. android-mdc)"
         );
         return 2;
     }
@@ -808,7 +808,7 @@ pub fn add_toolkit(
     // `day doctor` groups by its own toolkit ids, which differ from the backend feature names
     // for the two mobile toolkits.
     let toolkit = match targets::find(first).map(|t| t.toolkit).unwrap_or_default() {
-        "widget" => "android",
+        "mdc" => "android",
         "arkui" => "harmonyos",
         other => other,
     };
@@ -938,7 +938,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
             "uikit" => {
                 "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
             }
-            "widget" => "widget = [\"dep:day-android\"]",
+            "mdc" => "mdc = [\"dep:day-android\"]",
             "winui" => "winui = [\"dep:day-winui\", \"dep:day-winui-sys\"]",
             _ => continue,
         };
@@ -971,7 +971,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
     if has("uikit") {
         push_dep(deps.dep("day-uikit", ", optional = true"));
     }
-    if has("widget") {
+    if has("mdc") {
         push_dep(deps.dep("day-android", ", optional = true"));
     }
     if has("winui") {
@@ -998,7 +998,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
 
     // Android / iOS backend-contribution metadata.
     let mut meta = String::new();
-    if has("widget") {
+    if has("mdc") {
         meta.push_str(
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
              # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
@@ -1104,7 +1104,7 @@ linkme = "0.3"
     if has("uikit") {
         files.push(("src/lib-uikit.rs".into(), r.expand(UIKIT_IMPL)));
     }
-    if has("widget") {
+    if has("mdc") {
         files.push(("src/lib-android.rs".into(), r.expand(ANDROID_IMPL)));
         files.push((
             format!("android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
@@ -2163,12 +2163,12 @@ fn view() -> AnyPiece {
 ## Build a single backend
 
 ```sh
-cargo build --features appkit    # or gtk / qt / uikit / widget / winui
+cargo build --features appkit    # or gtk / qt / uikit / mdc / winui
 ```
 
 - `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
 - `qt` / `winui` compile a small C++ shim (`build.rs`).
-- `widget` carries its own Java factory under `android/java` (staged into the app's Gradle build).
+- `mdc` carries its own Java factory under `android/java` (staged into the app's Gradle build).
 
 ## Next steps
 
@@ -2316,8 +2316,8 @@ mod tests {
     #[test]
     fn day_toml_append_preserves_comments_and_formatting() {
         let input = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\"]\n\n[window]\nwidth = 960\n";
-        let out = add_targets_to_day_toml(input, &["android-widget"]).unwrap();
-        let expected = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\", \"android-widget\"]\n\n[window]\nwidth = 960\n";
+        let out = add_targets_to_day_toml(input, &["android-mdc"]).unwrap();
+        let expected = "# my app\nschema = 1\n\n[app]\nid = \"dev.example.foo\"   # bundle id\n# the platforms we ship on\ntargets = [\"ios-uikit\", \"macos-appkit\", \"android-mdc\"]\n\n[window]\nwidth = 960\n";
         assert_eq!(out, expected);
     }
 

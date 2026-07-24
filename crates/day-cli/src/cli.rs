@@ -205,7 +205,7 @@ enum NewKind {
     Piece {
         /// Crate name (prompted if omitted in an interactive terminal).
         name: Option<String>,
-        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,widget,winui).
+        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,mdc,winui).
         /// Omit for a COMPOSITE piece (pure composition; works on every backend with no per-backend code).
         #[arg(long)]
         toolkits: Option<String>,
@@ -308,7 +308,7 @@ pub enum AppCmd {
     /// from the SAME template `day new app` used.
     #[command(name = "add-toolkit")]
     AddToolkit {
-        /// Target(s) to add, e.g. `android-widget` (repeatable / comma-separated)
+        /// Target(s) to add, e.g. `android-mdc` (repeatable / comma-separated)
         targets: Vec<String>,
         /// The template the app was scaffolded from, when not the built-in one (dir or git URL)
         #[arg(long)]

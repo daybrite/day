@@ -56,7 +56,7 @@ over (DESIGN.md §2: native-at-home beats identical-everywhere).
 |---|---|---|---|---|
 | macos-appkit | **Native** | `NSDatePicker` textFieldAndStepper | `NSDatePicker` clockAndCalendar | same control, hour/minute[/second] elements |
 | ios-uikit | **Native** | `UIDatePicker` .compact (popover) | `.inline` calendar | `.compact` keypad; Inline = `.wheels` (iOS has no inline clock) |
-| android-widget | **Native** | value button → `MaterialDatePicker` dialog (via `DayActivity`'s FragmentManager) | framework `DatePicker` calendar | button → `MaterialTimePicker` clock dialog; Inline = framework `TimePicker` |
+| android-mdc | **Native** | value button → `MaterialDatePicker` dialog (via `DayActivity`'s FragmentManager) | framework `DatePicker` calendar | button → `MaterialTimePicker` clock dialog; Inline = framework `TimePicker` |
 | qt | **Native** | `QDateEdit` + calendar popup | `QCalendarWidget` | `QTimeEdit` (both styles; seconds via display format) |
 | winui | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles — WinUI has no inline clock) |
 | ohos-arkui | **Native** | `ARKUI_NODE_CALENDAR_PICKER` (entry → calendar popup) | `ARKUI_NODE_DATE_PICKER` wheels (native START/END) | `ARKUI_NODE_TIME_PICKER` wheels |

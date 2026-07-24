@@ -65,7 +65,7 @@ sets the signal to `""` to prove the reverse binding patches the native field. T
 to `search`, types `"ch"` into `#search-input`, asserts `#search-result` reads `Cherry` (the two-way
 binding round-tripping the signal), taps `#search-clear`, and screenshots. Rust is clippy-clean
 (`-D warnings`) and `cargo fmt`-clean for every backend feature; host-verified for AppKit/GTK/Qt/mock,
-cross-compiled for iOS-sim (`uikit`) and Android (`widget`).
+cross-compiled for iOS-sim (`uikit`) and Android (`mdc`).
 
 ## Follow-ups
 

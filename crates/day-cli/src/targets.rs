@@ -37,8 +37,8 @@ pub const TARGETS: &[Target] = &[
         experimental: false,
     },
     Target {
-        name: "android-widget",
-        toolkit: "widget",
+        name: "android-mdc",
+        toolkit: "mdc",
         kind: TargetKind::Android,
         host: "any",
         label: "Android",

@@ -42,7 +42,7 @@ jobs:
           - { combo: ios-uikit,      os: macos-latest,   toolkit: uikit }
           - { combo: linux-gtk,      os: ubuntu-latest,  toolkit: gtk }
           - { combo: linux-qt,       os: ubuntu-latest,  toolkit: qt }
-          - { combo: android-widget, os: ubuntu-latest,  toolkit: android }
+          - { combo: android-mdc, os: ubuntu-latest,  toolkit: android }
           - { combo: ohos-arkui,     os: ubuntu-latest,  toolkit: harmonyos }
           - { combo: windows-winui,  os: windows-latest, toolkit: winui }
           - { combo: windows-qt,     os: windows-latest, toolkit: qt }
@@ -83,19 +83,19 @@ jobs:
         run: rustup target add aarch64-apple-ios-sim
 
       - name: Android JDK
-        if: ${{ matrix.combo == 'android-widget' }}
+        if: ${{ matrix.combo == 'android-mdc' }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
       - name: Android cross targets + NDK env
-        if: ${{ matrix.combo == 'android-widget' }}
+        if: ${{ matrix.combo == 'android-mdc' }}
         run: |
           rustup target add aarch64-linux-android
           # The runner preinstalls the Android SDK + a recent NDK.
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
       - name: Android cargo-ndk
-        if: ${{ matrix.combo == 'android-widget' }}
+        if: ${{ matrix.combo == 'android-mdc' }}
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk

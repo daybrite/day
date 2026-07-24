@@ -112,7 +112,7 @@ fn apply(node: RNode, t: Tickmarks) {
         });
         // snap: GtkScale has no native snap-to-marks — documented, not emulated.
     }
-    #[cfg(all(feature = "widget", target_os = "android"))]
+    #[cfg(all(feature = "mdc", target_os = "android"))]
     {
         // Material Slider: a step size yields visible ticks AND snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
@@ -225,7 +225,7 @@ fn apply(node: RNode, t: Tickmarks) {
     #[cfg(not(any(
         feature = "appkit",
         feature = "gtk",
-        all(feature = "widget", target_os = "android"),
+        all(feature = "mdc", target_os = "android"),
         feature = "qt",
         all(feature = "winui", windows),
         all(feature = "arkui", target_env = "ohos")

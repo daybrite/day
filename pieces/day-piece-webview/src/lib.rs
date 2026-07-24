@@ -156,7 +156,7 @@ impl Piece for WebView {
 // files grouped next to lib.rs.
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, qt, uikit, widget, winui);
+day_pieces::glue_modules!(appkit, qt, uikit, mdc, winui);
 
 // GTK web view is Linux only — WebKitGTK 6 (webkit6) isn't viable on macOS and has no MSYS2 package
 // on Windows, so both fall back to Day's placeholder leaf (see Cargo.toml's webkit6 target gate).

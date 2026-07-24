@@ -20,7 +20,7 @@ appkit = ["day/appkit", "day-piece-remote-image/appkit"]
 gtk = ["day/gtk", "day-piece-remote-image/gtk"]
 qt = ["day/qt", "day-piece-remote-image/qt"]
 uikit = ["day/uikit", "day-piece-remote-image/uikit"]
-widget = ["day/widget", "day-piece-remote-image/widget"]
+mdc = ["day/mdc", "day-piece-remote-image/mdc"]
 winui = ["day/winui", "day-piece-remote-image/winui"]
 mock = ["day/mock", "day-piece-remote-image/mock"]
 

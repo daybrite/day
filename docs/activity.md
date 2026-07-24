@@ -40,7 +40,7 @@ There is deliberately no determinate mode here; that is day's built-in `progress
 | | AppKit | UIKit | GTK | Qt | Android | WinUI |
 |---|---|---|---|---|---|---|
 | control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` |
-| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core widget) | `src/lib-qt-shim.cpp` | `android/java/…/DayActivity.java` | `src/lib-winui-shim.cpp` |
+| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `android/java/…/DayActivity.java` | `src/lib-winui-shim.cpp` |
 | run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` |
 | `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 |
 | stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` |

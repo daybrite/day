@@ -53,14 +53,14 @@ Start with the scaffolder. `day new piece --toolkits <list>` generates every fil
 the front-end `src/lib.rs` (builder + `KIND` + `Props`/`Patch` + `#[cfg]`/`#[path]` backend index),
 one `src/lib-<backend>.rs` renderer per toolkit, and the `[features]` table. Where a backend needs
 native glue, it also emits the C++ shim + `build.rs` (Qt/WinUI), the Java shim +
-`[package.metadata.day.android]` (Android/`widget`), and the `[package.metadata.day.ios]` block
+`[package.metadata.day.android]` (Android/`mdc`), and the `[package.metadata.day.ios]` block
 (iOS/`uikit`):
 
 ```bash
-day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,widget,winui
+day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,winui
 ```
 
-Pick any subset of `appkit,gtk,qt,uikit,widget,winui`; passing `--toolkits` at all makes it a
+Pick any subset of `appkit,gtk,qt,uikit,mdc,winui`; passing `--toolkits` at all makes it a
 native piece rather than a composite one. The crate builds against a remote Day release out of
 the box (add `--local <path>` for a local Day checkout). Everything from here down describes what the
 scaffolder produces and how the halves fit together.
@@ -251,7 +251,7 @@ one place:
 #[cfg(feature = "gtk")]                               #[path = "lib-gtk.rs"]    mod gtk_impl;
 #[cfg(feature = "qt")]                                #[path = "lib-qt.rs"]     mod qt_impl;
 #[cfg(all(feature = "uikit", target_os = "ios"))]     #[path = "lib-uikit.rs"]  mod uikit_impl;
-#[cfg(all(feature = "widget", target_os = "android"))]#[path = "lib-android.rs"]mod android_impl;
+#[cfg(all(feature = "mdc", target_os = "android"))]#[path = "lib-android.rs"]mod android_impl;
 #[cfg(all(feature = "winui", windows))]               #[path = "lib-winui.rs"]  mod winui_impl;
 ```
 
@@ -484,7 +484,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk    = ["dep:day-gtk", "dep:gtk4"]
 qt     = ["dep:day-qt"]              # + build.rs compiles src/lib-qt-shim.cpp
 uikit  = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-widget = ["dep:day-android"]         # + [package.metadata.day.android] carries the DaySearch Java
+mdc = ["dep:day-android"]         # + [package.metadata.day.android] carries the DaySearch Java
 winui  = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-winui-shim.cpp
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
@@ -496,7 +496,7 @@ renderer feature for:
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
 ```
 
 …and `day build` reads that from `cargo metadata`, walks the app's dependency closure, and derives

@@ -26,14 +26,14 @@ gtk = ["dep:day-gtk", "dep:gtk4", "dep:webkit6"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6WebEngineWidgets when present (else a URL-label fallback)
 # objc2-web-kit 0.3 binds WKWebView for macOS only, so UIKit hand-rolls it via extern_class!/msg_send!.
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
-widget = ["dep:day-android"]        # + [package.metadata.day.android]
+mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 winui = ["dep:day-winui", "dep:day-winui-sys"]     # + build.rs compiles src/lib-winui-shim.cpp
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "widget", "winui"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui"]
 
 [dependencies]
 day-spec = { workspace = true }
