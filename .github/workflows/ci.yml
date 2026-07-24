@@ -729,7 +729,7 @@ jobs:
           path: apps/showcase/build/day/screenshots/${{ matrix.combo }}
           if-no-files-found: warn
 
-  # --- Android emulator: widget ---------------------------------------------
+  # --- Android emulator: mdc ------------------------------------------------
   # Real emulator via KVM (reactivecircus). The Linux emulator is x86_64-only, so
   # the .so cross-builds for x86_64 via DAY_ANDROID_ABI. continue-on-error while
   # the known postMain flake (intermittent "main thread did not respond") is chased.
@@ -794,7 +794,7 @@ jobs:
       - name: Doctor (android)
         shell: bash
         run: $DAY_BIN doctor --toolkit android
-      # Scaffold a widget piece + a part + a full app (deps redirected to this checkout) and
+      # Scaffold an mdc piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
       - name: Scaffold smoke-test (android-mdc)
@@ -803,7 +803,7 @@ jobs:
           rustup target add aarch64-linux-android
           DAY=$DAY_BIN
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits widget --local "$GITHUB_WORKSPACE"
+          "$DAY" new piece smoke-piece --toolkits mdc --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
           "$DAY" new app   smoke-app   --toolkit android-mdc --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
           ( cd smoke-piece && cargo build --features mdc --target aarch64-linux-android )
