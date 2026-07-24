@@ -9,7 +9,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use day_reactive::{Scope, Signal};
+use day_reactive::Signal;
 use day_spec::Edges;
 
 use crate::tree::{has_tree, with_tree};
@@ -27,7 +27,7 @@ fn changed_signal() -> Signal<u64> {
     CHANGED.with(|c| match c.get() {
         Some(s) => s,
         None => {
-            let s = Signal::new_in(Scope::root(), 0);
+            let s = Signal::global(0);
             c.set(Some(s));
             s
         }

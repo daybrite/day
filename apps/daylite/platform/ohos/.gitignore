@@ -1,0 +1,13 @@
+# Build outputs (the native module is cross-compiled by build.sh; the .hap by hvigor/DevEco).
+entry/libs/
+entry/.preview/
+**/build/
+.hvigor/
+.cxx/
+oh_modules/
+local.properties
+*.p7b
+
+
+# Resources staged per-build by the day CLI (§18.3) — regenerated from images/ + assets/.
+entry/src/main/resources/rawfile/day/

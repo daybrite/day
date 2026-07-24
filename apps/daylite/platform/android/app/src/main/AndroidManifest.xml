@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required even for the localhost dayscript engine socket (§14.5). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- enableOnBackInvokedCallback: predictive back (docs/navigation.md) — DayActivity
+         registers an OnBackInvokedCallback while (and only while) the nav stack can pop. -->
+    <application
+        android:label="${dayTitle}"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true">
+        <activity
+            android:name="dev.daybrite.day.bridge.DayActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
+            <meta-data android:name="day.lib" android:value="daylite" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Deep links (docs/navigation.md): daylite://<route> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="daylite" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

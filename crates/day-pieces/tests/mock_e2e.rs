@@ -2463,3 +2463,160 @@ fn cover_presents_lays_out_and_dismisses() {
         "content disposed after the hide finished"
     );
 }
+
+// ── the daylite lifecycle: siblings must survive a cover cycle, and a second present must
+//    work — including with adversarial "cover-hidden" orderings (double emit, late emit).
+
+thread_local! {
+    static CYCLE: std::cell::RefCell<Option<(Signal<f64>, Signal<f64>, Signal<Option<String>>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn cover_cycle_root() -> AnyPiece {
+    // rev drives an `each` of "rows" (the daylite catalog shape); taps counts row-button
+    // presses; open drives the cover.
+    let rev = Signal::new(0.0f64);
+    let taps = Signal::new(0.0f64);
+    let open = Signal::new(None::<String>);
+    CYCLE.with(|c| *c.borrow_mut() = Some((rev, taps, open)));
+    zstack((
+        column((
+            label(move || format!("taps {}", taps.get())),
+            each(
+                move || {
+                    let generation = rev.get() as i64;
+                    vec![format!("row-a:{generation}"), format!("row-b:{generation}")]
+                },
+                |item: &String| item.clone(),
+                move |slot| {
+                    let name = slot.get();
+                    button(name.clone())
+                        .action(move || taps.set(taps.get_untracked() + 1.0))
+                        .id(name)
+                },
+            ),
+        ))
+        .any(),
+        cover(open, |k: &String| {
+            // FIRST-touch a lazily-allocated process-global signal from INSIDE the
+            // presentation scope — the day-lite regression: the global must be allocated
+            // in the root scope, not inherit this cover's, or it dies on dismissal and
+            // every later read panics (day-l10n's locale signal was the observed case).
+            let locale = day_l10n::locale().get_untracked();
+            label(format!("game-{k}@{locale}")).any()
+        }),
+    ))
+    .any()
+}
+
+fn tap_count(probe: &MockProbe) -> String {
+    probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .map(|(_, w)| w.text)
+        .find(|t| t.starts_with("taps "))
+        .unwrap_or_default()
+}
+
+fn tap_button(probe: &MockProbe, text: &str) {
+    let found = probe
+        .find_by_kind("day.button")
+        .into_iter()
+        .find(|(_, w)| w.text == text)
+        .unwrap_or_else(|| panic!("button {text} not found"));
+    probe.emit(NodeId(found.1.node), Event::Pressed);
+    flush_sync();
+}
+
+#[test]
+fn cover_cycle_keeps_siblings_alive_and_represents() {
+    let probe = boot(cover_cycle_root);
+    flush_sync();
+    let (rev, _taps, open) = CYCLE.with(|c| c.borrow().clone()).expect("cycle state");
+
+    // Rebuild the rows once BEFORE any cover (the daylite install-confirm shape).
+    rev.set(1.0);
+    flush_sync();
+    tap_button(&probe, "row-a:1");
+    assert_eq!(tap_count(&probe), "taps 1", "pre-cover rows respond");
+
+    // Present, size, dismiss, and finish the hide transition.
+    open.set(Some("ttt".into()));
+    flush_sync();
+    let cover_id = node_id(&probe, "day.cover", 0);
+    probe.emit(cover_id, Event::FrameChanged(Size::new(400.0, 600.0)));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text.starts_with("game-ttt")),
+        "cover content built"
+    );
+    open.set(None);
+    flush_sync();
+    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    flush_sync();
+
+    // 1) Siblings built BEFORE the cycle still respond.
+    tap_button(&probe, "row-a:1");
+    assert_eq!(
+        tap_count(&probe),
+        "taps 2",
+        "pre-cycle sibling handler still fires after the cover cycle"
+    );
+
+    // 2) Rows rebuilt AFTER the cycle respond.
+    rev.set(2.0);
+    flush_sync();
+    tap_button(&probe, "row-b:2");
+    assert_eq!(
+        tap_count(&probe),
+        "taps 3",
+        "post-cycle rebuilt rows respond"
+    );
+
+    // 3) A second present builds fresh content.
+    open.set(Some("todo".into()));
+    flush_sync();
+    probe.emit(cover_id, Event::FrameChanged(Size::new(400.0, 600.0)));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text.starts_with("game-todo")),
+        "second present builds content"
+    );
+
+    // 4) Adversarial orderings: a DOUBLE cover-hidden after dismissal must be harmless…
+    open.set(None);
+    flush_sync();
+    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    flush_sync();
+    tap_button(&probe, "row-b:2");
+    assert_eq!(
+        tap_count(&probe),
+        "taps 4",
+        "double cover-hidden is harmless"
+    );
+
+    // …and a LATE cover-hidden from the previous dismissal, arriving after the next
+    // present, must not dispose the new content.
+    open.set(Some("wx".into()));
+    flush_sync();
+    open.set(None);
+    flush_sync();
+    open.set(Some("wx2".into()));
+    flush_sync();
+    probe.emit(cover_id, Event::custom("cover-hidden", "")); // belated, for the wx dismissal
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text.starts_with("game-wx2")),
+        "late cover-hidden does not kill the re-presented content"
+    );
+}

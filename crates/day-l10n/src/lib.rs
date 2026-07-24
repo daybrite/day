@@ -84,7 +84,12 @@ fn ensure_state() {
             app: HashMap::new(),
             core: build_bundles(CORE_CATALOG),
             default: "en".to_string(),
-            locale: Signal::new(initial),
+            // ROOT-scoped: this is a process-global signal, but `ensure_state` runs on the
+            // FIRST touch of any l10n API, which can be inside a transient scope (a cover's
+            // presented content calling `t()` was the first observed case — the signal then
+            // died with that cover and every later read panicked). Globals must never
+            // inherit a caller's scope.
+            locale: Signal::global(initial),
         });
     });
 }

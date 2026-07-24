@@ -35,11 +35,12 @@ implement them, and this table proves it.
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ui_idle` | · | · | ✓ | ✓ | · | · | · | ✓ | ✓ |
+| `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | ✓ |
+| `dark_mode` | · | · | ✓ | · | · | · | ✓ | ✓ | · |
 | `on_suspend` | · | · | · | · | · | · | · | · | ✓ |
 | `on_resume` | · | · | · | · | · | · | · | · | ✓ |
 | `on_memory_warning` | · | · | · | · | · | · | · | · | ✓ |

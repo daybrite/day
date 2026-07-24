@@ -789,13 +789,36 @@ mod imp {
                 return;
             };
             modal_begin_transition();
-            let completion = block2::RcBlock::new(move || {
-                emit(node, Event::custom("cover-hidden", ""));
-                modal_end_transition();
-            });
+            // The completion is the normal "cover-hidden" source — but UIKit can drop a
+            // transition completion outright (same failure the modal watchdog exists for),
+            // and the piece would then never dispose the hidden content. The fallback
+            // watchdog emits once the VC has actually left the hierarchy; the piece's
+            // closing gate makes a duplicate report harmless.
+            let fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let completion = {
+                let fired = fired.clone();
+                block2::RcBlock::new(move || {
+                    fired.store(true, std::sync::atomic::Ordering::Relaxed);
+                    emit(node, Event::custom("cover-hidden", ""));
+                    modal_end_transition();
+                })
+            };
             unsafe {
                 presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
             }
+            let mtm = objc2::MainThreadMarker::new().expect("cover ops run on main");
+            let vc_probe = dispatch2::MainThreadBound::new(vc.clone(), mtm);
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(1500))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                let mtm = objc2::MainThreadMarker::new().expect("dispatched to main");
+                if !fired.load(std::sync::atomic::Ordering::Relaxed)
+                    && vc_probe.get(mtm).presentingViewController().is_none()
+                {
+                    eprintln!("day: cover dismissal completion lost — reporting cover-hidden");
+                    emit(node, Event::custom("cover-hidden", ""));
+                }
+            });
         })));
     }
 
@@ -2982,6 +3005,20 @@ mod imp {
             for vc in covers {
                 unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
             }
+        }
+
+        fn dark_mode(&mut self) -> bool {
+            // A DAY_THEME launch override wins (themed capture runs); else the current
+            // trait collection's interface style.
+            match std::env::var("DAY_THEME").ok().as_deref() {
+                Some("dark") => return true,
+                Some("light") => return false,
+                _ => {}
+            }
+            let style = unsafe {
+                objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
+            };
+            style == objc2_ui_kit::UIUserInterfaceStyle::Dark
         }
 
         fn ui_idle(&mut self) -> bool {

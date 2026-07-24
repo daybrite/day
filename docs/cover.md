@@ -34,6 +34,22 @@ zstack((
   (`Event::custom("cover-hidden", "")` on the cover node), so the surface never blanks
   mid-animation. Scope cleanups — the natural save-on-exit hook — run at that moment.
 
+### The `cover-hidden` delivery contract
+
+App teardown hangs off this one event, so its delivery is a hard guarantee, not a
+best-effort animation callback:
+
+- **Backends MUST deliver it after every dismissal**, even when the platform loses the
+  animation completion (UIKit drops transition completions under scripted bursts; Android
+  cancels `withEndAction` when an animator is superseded). Both backends pair the normal
+  completion with a delayed backstop that reports once the surface has verifiably left the
+  screen.
+- **The piece treats it as idempotent and orderable**: duplicates are no-ops, and a belated
+  report from a PREVIOUS dismissal cannot dispose content presented since (the closing
+  gate). Backends may therefore over-report freely rather than risk under-reporting.
+- The mock-toolkit e2e (`cover_cycle_keeps_siblings_alive_and_represents`) pins present →
+  dismiss → re-present across double and late reports.
+
 ## The shield modifiers
 
 Two `Decorate` modifiers protect a fullscreen interaction (a game, a drawing canvas) from

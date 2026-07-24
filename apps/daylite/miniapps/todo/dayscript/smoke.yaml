@@ -1,0 +1,13 @@
+# Drives this miniapp inside the daylite host (docs/lite.md §11).
+description: Todos — install, add an item through the real field, screenshot
+flow:
+  - tap: { id: "dl-install:dev.daybrite.lite.todo" }
+  - tap: { id: dl-confirm }
+  - wait_idle:
+  - tap: { id: "dl-open:dev.daybrite.lite.todo" }
+  - wait_idle:
+  - assert_visible: { id: todo-root }
+  - input: { id: todo-new, text: "Try day-lite" }
+  - tap: { id: todo-add }
+  - assert_text: { id: todo-item-1, text: "Try day-lite" }
+  - screenshot: todo

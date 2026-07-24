@@ -306,3 +306,10 @@ mod posted_panic_tests {
         assert_eq!(s.get_untracked(), 2);
     }
 }
+
+/// Whether the platform is rendering in dark appearance (see `Toolkit::dark_mode`): the
+/// branch apps take when painting custom OPAQUE surfaces so fills track the theme that the
+/// default text colors already follow.
+pub fn dark_mode() -> bool {
+    tree::with_tree(|t| t.dark_mode())
+}

@@ -1,0 +1,42 @@
+description: Daylite smoke — install a bundled miniapp with disclosure, play it, try another
+flow:
+  - assert_visible: { id: dl-root }
+  - screenshot: home
+
+  # Install tic-tac-toe from the catalog: the disclosure sheet must gate the install.
+  - tap: { id: "dl-install:dev.daybrite.lite.tictactoe" }
+  - assert_visible: { id: dl-disclosure }
+  - screenshot: disclosure
+  - tap: { id: dl-confirm }
+  - wait_idle:
+
+  # Open it from My apps and win a game as X (top row, with O interleaved).
+  - tap: { id: "dl-open:dev.daybrite.lite.tictactoe" }
+  - wait_idle:
+  - assert_visible: { id: ttt-root }
+  - assert_text: { id: ttt-status, text: "X to play" }
+  - tap: { id: ttt-cell-0 }
+  - tap: { id: ttt-cell-3 }
+  - tap: { id: ttt-cell-1 }
+  - tap: { id: ttt-cell-4 }
+  - tap: { id: ttt-cell-2 }
+  - assert_text: { id: ttt-status, text: "X wins!" }
+  - screenshot: tictactoe
+  - tap: { id: dl-close }
+  - wait_idle:
+
+  # Install + open the todo app; add an item through the real text field.
+  - tap: { id: "dl-install:dev.daybrite.lite.todo" }
+  - assert_visible: { id: dl-disclosure }
+  - tap: { id: dl-confirm }
+  - wait_idle:
+  - tap: { id: "dl-open:dev.daybrite.lite.todo" }
+  - wait_idle:
+  - assert_visible: { id: todo-root }
+  - input: { id: todo-new, text: "Try day-lite" }
+  - tap: { id: todo-add }
+  - assert_text: { id: todo-item-1, text: "Try day-lite" }
+  - screenshot: todo
+  - tap: { id: dl-close }
+  - wait_idle:
+  - screenshot: back-home

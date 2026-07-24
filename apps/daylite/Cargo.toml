@@ -1,0 +1,27 @@
+[package]
+name = "daylite"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# Exactly one backend per binary (day/DESIGN.md §3.2); `default = mock` keeps bare cargo and
+# rust-analyzer building — real builds go through `day build`, which selects the backend.
+[features]
+default = ["mock"]
+uikit = ["day/uikit"]
+widget = ["day/widget"]
+arkui = ["day/arkui"]
+mock = ["day/mock"]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+day = { workspace = true }
+# The miniapp host (docs/lite.md): QuickJS runtime, package store, permission gating.
+day-lite = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# `Context.getFilesDir()` for the persistent store root (see `store_root`).
+day-android = { workspace = true }

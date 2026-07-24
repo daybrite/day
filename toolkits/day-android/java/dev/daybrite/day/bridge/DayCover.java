@@ -16,11 +16,23 @@ public class DayCover extends FrameLayout {
     final DayFixed content;
     final long node;
     boolean dismissDisabled;
+    /** While true the shell belongs to the activity content root; day-tree re-parenting
+     *  (z-order re-syncs) must leave it alone (see DayBridge.addChild/removeChild). */
+    boolean presented;
     private androidx.activity.OnBackPressedCallback backCb;
 
     public DayCover(android.content.Context ctx, final long node) {
         super(ctx);
         this.node = node;
+        // An OPAQUE surface by default (the theme's window background): the shell overlays
+        // the whole UI, and a transparent shell composites the presented app over the page
+        // beneath it. An app-specified color (CoverPatch::Present) overrides this.
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)) {
+            setBackgroundColor(tv.data);
+        } else {
+            setBackgroundColor(0xFFFFFFFF);
+        }
         content = new DayFixed(ctx);
         addView(content, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -64,19 +76,18 @@ public class DayCover extends FrameLayout {
         this.dismissDisabled = dismissDisabled;
         ViewGroup root = ((android.app.Activity) DayBridge.ctx)
                 .findViewById(android.R.id.content);
-        if (getParent() == root) {
-            return;
+        if (getParent() != root) {
+            if (getParent() instanceof ViewGroup) {
+                ((ViewGroup) getParent()).removeView(this);
+            }
+            root.addView(this, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        if (getParent() instanceof ViewGroup) {
-            ((ViewGroup) getParent()).removeView(this);
-        }
-        root.addView(this, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        presented = true;
+        setVisibility(View.VISIBLE);
         requestApplyInsets();
         int h = root.getHeight() > 0 ? root.getHeight() : 2000;
-        setTranslationY(h);
-        animate().translationY(0f).setDuration(300)
-                .setInterpolator(new DecelerateInterpolator()).start();
+        slide(h, 0f, null);
         if (backCb == null) {
             backCb = new androidx.activity.OnBackPressedCallback(!dismissDisabled) {
                 @Override public void handleOnBackPressed() {
@@ -95,21 +106,67 @@ public class DayCover extends FrameLayout {
         if (backCb != null) backCb.setEnabled(!d);
     }
 
-    /** Slide out, detach, and report "cover-hidden" so Rust can dispose the content. */
+    /** Slide out, hide, and report "cover-hidden" so Rust can dispose the content.
+     *
+     *  The shell is HIDDEN (View.GONE), never detached: the next present()'s content can
+     *  include fragment hosts (a miniapp's nav stack), and a fragment commit resolves its
+     *  container id against the ATTACHED hierarchy — a detached shell made every
+     *  re-present throw "No view found for id" from FragmentStateManager. A GONE view
+     *  neither lays out nor draws, so hiding costs nothing. */
     void dismissCover() {
         if (backCb != null) {
             backCb.remove();
             backCb = null;
         }
-        final ViewGroup p = (ViewGroup) getParent();
+        ViewGroup p = (ViewGroup) getParent();
         float h = p != null ? p.getHeight() : Math.max(getHeight(), 2000);
         final DayCover self = this;
-        animate().translationY(h).setDuration(250).withEndAction(new Runnable() {
+        slide(getTranslationY(), h, new Runnable() {
             @Override public void run() {
-                if (p != null) p.removeView(self);
+                self.presented = false;
+                self.setVisibility(View.GONE);
                 self.setTranslationY(0f);
                 DayBridge.nativeOnEvent(node, DayBridge.K_CUSTOM, 0.0, "cover-hidden");
             }
-        }).start();
+        });
+    }
+
+    /** The one slide driver. A dedicated ValueAnimator (never the view's shared
+     *  ViewPropertyAnimator, which any other animate() user can cancel) with the end
+     *  callback in onAnimationEnd — invoked on BOTH natural end and cancellation, so the
+     *  terminal state (hidden + "cover-hidden", or settled at 0) can never be lost. */
+    private android.animation.ValueAnimator slideAnim;
+    /** Cover slides in flight, all shells — dayscript's ui_idle gate (DayBridge.uiIdle). */
+    static int slidesInFlight;
+
+    private void slide(float from, float to, final Runnable done) {
+        if (slideAnim != null) {
+            slideAnim.removeAllListeners();
+            slideAnim.cancel();
+            slideAnim = null;
+            slidesInFlight = Math.max(0, slidesInFlight - 1);
+        }
+        setTranslationY(from);
+        final android.animation.ValueAnimator a =
+                android.animation.ValueAnimator.ofFloat(from, to);
+        a.setDuration(250);
+        a.setInterpolator(new DecelerateInterpolator());
+        a.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener() {
+            @Override public void onAnimationUpdate(android.animation.ValueAnimator v) {
+                setTranslationY((Float) v.getAnimatedValue());
+            }
+        });
+        final float end = to;
+        a.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator anim) {
+                slidesInFlight = Math.max(0, slidesInFlight - 1);
+                setTranslationY(end);
+                if (slideAnim == a) slideAnim = null;
+                if (done != null) done.run();
+            }
+        });
+        slideAnim = a;
+        slidesInFlight++;
+        a.start();
     }
 }

@@ -1238,6 +1238,12 @@ mod imp {
             Err("use `hdc shell snapshot_display` on ohos-arkui".into())
         }
 
+        /// The color mode resolved at startup (DAY_THEME override, else the host-reported
+        /// system mode) — the same flag every neutral day-arkui paint branches on.
+        fn dark_mode(&mut self) -> bool {
+            IS_DARK.with(|d| d.get())
+        }
+
         /// Whether nav transitions have settled: dayscript screenshots poll this, so a shot
         /// taken right after a section switch waits for the pushed destination's first area
         /// report (content laid out) and for Day-initiated pops to be acknowledged.

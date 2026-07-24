@@ -19,5 +19,11 @@ day-l10n = { workspace = true }
 # without depending on linkme (or day-spec's Renderer) directly.
 linkme = { workspace = true }
 
+[features]
+# The dynamic piece registry (docs/lite.md §4): name-keyed constructors + modifiers with
+# loosely-typed args, the surface day-lite's JS layer drives. Off by default — compiled
+# apps pay nothing for it.
+dyn-registry = []
+
 [dev-dependencies]
 day-mock = { workspace = true }

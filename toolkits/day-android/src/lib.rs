@@ -2085,6 +2085,36 @@ mod imp {
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             Err("use `adb exec-out screencap -p` (device-level capture) on android-widget".into())
         }
+
+        /// The system color mode, DAY_THEME override first (themed capture runs).
+        fn dark_mode(&mut self) -> bool {
+            match std::env::var("DAY_THEME").ok().as_deref() {
+                Some("dark") => return true,
+                Some("light") => return false,
+                _ => {}
+            }
+            with_env(|env| {
+                env.dcall_static(
+                    "dev/daybrite/day/bridge/DayBridge",
+                    "isDarkMode",
+                    "()Z",
+                    &[],
+                )
+                .and_then(|v| v.z())
+                .unwrap_or(false)
+            })
+        }
+
+        /// Whether native transitions have settled (dayscript screenshots wait on this):
+        /// currently the cover slide — a capture mid-present/mid-dismiss shows a half-slid
+        /// surface (DayBridge.uiIdle / DayCover.slidesInFlight).
+        fn ui_idle(&mut self) -> bool {
+            with_env(|env| {
+                env.dcall_static("dev/daybrite/day/bridge/DayBridge", "uiIdle", "()Z", &[])
+                    .and_then(|v| v.z())
+                    .unwrap_or(true)
+            })
+        }
     }
 
     impl Platform for Android {

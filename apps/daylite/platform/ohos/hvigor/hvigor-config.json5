@@ -1,0 +1,15 @@
+{
+  // hvigor build config. The command-line-tools bundle hvigor + the @ohos/hvigor-ohos-plugin, so
+  // `dependencies` is empty (the plugin resolves from the toolchain). modelVersion 5.0.0 = the
+  // API 12+ project model.
+  "modelVersion": "5.0.0",
+  "dependencies": {},
+  "execution": {},
+  "logging": {
+    "level": "info"
+  },
+  "debugging": {
+    "stacktrace": false
+  },
+  "nodeOptions": {}
+}

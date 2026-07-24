@@ -747,6 +747,17 @@ impl<T: 'static> Signal<T> {
         Self::new_in(Scope::current(), value)
     }
 
+    /// A process-global signal: allocated in the ROOT scope regardless of where the call
+    /// runs, so it never dies with a transient caller. **Every lazily-initialized global
+    /// registry must use this, not [`Signal::new`]** — a lazy global first touched inside a
+    /// presented cover / pushed page / `when` arm otherwise inherits that scope and is
+    /// disposed with it, and every later read panics (the day-l10n locale signal was the
+    /// observed case).
+    #[track_caller]
+    pub fn global(value: T) -> Self {
+        Self::new_in(Scope::root(), value)
+    }
+
     #[track_caller]
     pub fn new_in(scope: Scope, value: T) -> Self {
         let created_at = Location::caller();

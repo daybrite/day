@@ -1803,6 +1803,16 @@ pub trait Toolkit: Sized + 'static {
     /// non-empty. The default no-ops (desktop has no system edge gestures).
     fn defer_system_gestures(&mut self, _edges: Edges) {}
 
+    /// Whether the platform is rendering in DARK appearance right now. Apps painting
+    /// custom surfaces (opaque overlay panels, scrims) branch on this so their fills track
+    /// the theme the DEFAULT text colors already follow — hardcoding either theme's
+    /// surface produces dark-on-dark or light-on-light text on the other. Queried at
+    /// build time (a piece rebuilt after a theme change re-queries). The default honors a
+    /// `DAY_THEME` launch override and otherwise answers light.
+    fn dark_mode(&mut self) -> bool {
+        std::env::var("DAY_THEME").ok().as_deref() == Some("dark")
+    }
+
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}
     fn on_resume(&mut self) {}

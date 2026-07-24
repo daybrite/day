@@ -148,6 +148,8 @@ public final class DayBridge {
      *  animate() call retargets the running animator. */
     public static void setTransform(View v, float tx, float ty, float sx, float sy, float rot,
                                     int durMs, int curve) {
+        // See addChild: a presented cover shell is positioned/animated natively.
+        if (v instanceof DayCover && ((DayCover) v).presented) return;
         if (durMs <= 0) {
             v.animate().cancel();
             v.setTranslationX(tx); v.setTranslationY(ty);
@@ -612,6 +614,10 @@ public final class DayBridge {
     }
 
     public static void addChild(View parent, View child) {
+        // A PRESENTED cover shell lives under the activity content root; a day-tree
+        // re-insert (z-order re-sync among its siblings) must not re-parent it — doing so
+        // froze its slide mid-flight and stranded its posted callbacks (docs/cover.md).
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
         if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
         if (parent instanceof DayTabs) {
             String[] meta = (String[]) child.getTag();
@@ -622,6 +628,8 @@ public final class DayBridge {
         if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
     }
     public static void removeChild(View child) {
+        // See addChild: a presented cover shell is native-owned.
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
         // Nav pages route through their host (looked up by view — the FragmentManager may
         // have the page detached mid-transition, so the parent chain can't be relied on).
         DayNavHost navHost = DayNavHost.pageHosts.get(child);
@@ -633,6 +641,8 @@ public final class DayBridge {
         if (p != null) p.removeView(child);
     }
     public static void setFrame(View v, int x, int y, int w, int h) {
+        // See addChild: a presented cover shell is positioned natively (fullscreen).
+        if (v instanceof DayCover && ((DayCover) v).presented) return;
         ViewGroup p = (ViewGroup) v.getParent();
         // Nav / tab pages fill the host's page frame — their frames are native-owned.
         if (p != null && p.getParent() instanceof DayNavHost) return;
@@ -672,6 +682,17 @@ public final class DayBridge {
         ((DayCover) cover).setDismissDisabled(d);
     }
     public static void coverDismiss(View cover) { ((DayCover) cover).dismissCover(); }
+
+    /** Whether native transitions have settled (Toolkit::ui_idle): dayscript screenshots
+     *  wait on this so captures never show a cover mid-slide. */
+    public static boolean uiIdle() { return DayCover.slidesInFlight == 0; }
+
+    /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
+    public static boolean isDarkMode() {
+        int night = ((android.content.Context) ctx).getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+        return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
 
     /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
      *  is mounted, enter swipe-to-reveal immersive mode — the platform's "first swipe shows

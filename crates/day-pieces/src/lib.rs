@@ -20,6 +20,11 @@ use day_spec::{
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
 // re-exports the macro expands to (so a piece needs only a `day-pieces` dependency, not linkme).
 pub mod render;
+
+// The dynamic piece registry (docs/lite.md §4): drive pieces by name with loosely-typed
+// values — the surface interpreted languages (day-lite) build real UIs through.
+#[cfg(feature = "dyn-registry")]
+pub mod dynreg;
 pub use day_spec::Renderer;
 pub use linkme;
 pub use render::fill_measure;
@@ -4671,6 +4676,8 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
                     }
                 }
                 // The hide transition finished — now the content can go.
+                // Idempotent + orderable (docs/cover.md): duplicates and belated reports
+                // from a previous dismissal are no-ops via the closing gate.
                 Event::Custom { tag, text, .. }
                     if (*tag == "cover-hidden" || text.as_str() == "cover-hidden")
                         && closing.get() =>

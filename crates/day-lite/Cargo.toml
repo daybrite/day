@@ -1,0 +1,43 @@
+[package]
+name = "day-lite"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+day-reactive = { workspace = true }
+day-core = { workspace = true }
+day-spec = { workspace = true }
+day-pieces = { workspace = true, features = ["dyn-registry"] }
+day-part-http = { workspace = true }
+day-part-prefs = { workspace = true }
+
+# The JS engine: QuickJS. `bindgen` because rquickjs ships no prebuilt bindings for the
+# mobile cross-targets (docs/lite.md §13); the day CLI supplies the sysroot/ar env the
+# build scripts need per target.
+rquickjs = { version = "0.12", features = ["bindgen", "loader"] }
+
+# TypeScript type-stripping at module load (docs/lite.md §1).
+oxc_allocator = "0.141"
+oxc_parser = "0.141"
+oxc_semantic = "0.141"
+oxc_transformer = "0.141"
+oxc_codegen = "0.141"
+oxc_span = "0.141"
+
+# Built-in persistence (docs/lite.md §7): bundled so every mobile target has the same sqlite.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Per-miniapp Fluent bundles (docs/lite.md §7) — same crate/version day-l10n builds on.
+fluent-bundle = "0.16"
+day-l10n = { workspace = true }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }

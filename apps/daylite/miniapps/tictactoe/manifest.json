@@ -1,0 +1,38 @@
+{
+  "app_id": "dev.daybrite.lite.tictactoe",
+  "name": "Tic-Tac-Toe",
+  "description": "The classic, with a running score",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any"
+    }
+  ],
+  "version": {
+    "code": 1,
+    "name": "1.0.0"
+  },
+  "platform_version": {
+    "min_code": 1
+  },
+  "pages": [
+    "home"
+  ],
+  "req_permissions": [
+    {
+      "name": "day.permission.PREFS",
+      "reason": "Remembers the score between games"
+    }
+  ],
+  "day": {
+    "entry": "app.ts",
+    "files": [
+      "app.ts",
+      "icon.svg",
+      "i18n/en.ftl",
+      "i18n/fr.ftl",
+      "i18n/ar.ftl",
+      "i18n/zh-CN.ftl"
+    ]
+  }
+}

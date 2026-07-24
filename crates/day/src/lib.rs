@@ -14,7 +14,7 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, task};
+pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, task};
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
 /// loading — namespaced because the prelude's `Resource` is the ASSET handle above, a different

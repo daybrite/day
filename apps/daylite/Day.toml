@@ -1,0 +1,12 @@
+# Daylite — the day-lite reference superapp (docs/lite.md §12).
+schema = 1
+
+[app]
+id = "dev.daybrite.daylite"
+title = "Daylite"
+build = 1
+targets = ["ios-uikit", "android-widget", "ohos-arkui"]
+
+[window]
+width = 420
+height = 760

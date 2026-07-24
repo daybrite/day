@@ -1,0 +1,114 @@
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { window, KeyboardAvoidMode } from '@kit.ArkUI';
+import { util } from '@kit.ArkTS';
+import nativeEntry from 'libentry.so';
+
+// One entry of the rawfile `day/fonts.json` manifest `day build` stages from the project's
+// `fonts/` directory (§18.4).
+interface DayFontEntry {
+  family: string;
+  file: string;
+}
+
+export default class EntryAbility extends UIAbility {
+  onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
+    // Deliver launcher-provided environment (the dayscript engine port + token, plus locale /
+    // autodrive) into the native process BEFORE the UI — and thus `day_script::init()` inside
+    // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
+    // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
+    EntryAbility.applyLaunchEnv(want);
+    // Report the ACTIVE color mode so day-arkui themes its neutral paints (DAY_THEME, when
+    // present, wins on the Rust side): the C-API nodes don't re-theme hardcoded colors.
+    nativeEntry.setEnv(
+      'DAY_ARKUI_DARK',
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK ? '1' : '0'
+    );
+    // DAY_THEME=light|dark (a `day launch --env` passthrough, delivered as a `--ps` want
+    // parameter) forces the app's color mode — themed screenshot runs and local theme checks;
+    // unset ⇒ follow the system.
+    const theme: Object | undefined = want.parameters?.['day.env.DAY_THEME'];
+    if (theme === 'dark') {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    } else if (theme === 'light') {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+    }
+  }
+
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    windowStage.loadContent('pages/Index', () => {
+      // Bundled custom fonts (§18.4): registered as soon as the content is loaded — before
+      // the Day tree mounts (it starts on the page's first onAreaChange, after layout) — so the
+      // NODE_FONT_FAMILY attribute day-arkui sets can resolve the family names. Font
+      // registration is UIContext-scoped (the global font.registerFont is deprecated since
+      // API 18), and the window's UIContext only exists once the content has loaded.
+      this.registerBundledFonts(windowStage);
+      // Keyboard avoidance (docs/focus.md): RESIZE shrinks the page when the soft keyboard
+      // rises (instead of the default translate), so the page's onAreaChange fires and Day
+      // relayouts into the reduced area — the focused field stays visible.
+      windowStage.getMainWindowSync().getUIContext()
+        .setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    });
+  }
+
+  // Register every font `day build` staged into rawfile `day/fonts/` (manifest: `day/fonts.json`).
+  // `$rawfile()` only accepts compile-time literals, so build the equivalent rawfile Resource
+  // object (type 30000) for each dynamic path — the documented pattern for runtime rawfile refs.
+  private registerBundledFonts(windowStage: window.WindowStage): void {
+    let manifest: DayFontEntry[];
+    try {
+      const bytes: Uint8Array = this.context.resourceManager.getRawFileContentSync('day/fonts.json');
+      const decoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+      manifest = JSON.parse(decoder.decodeToString(bytes)) as DayFontEntry[];
+    } catch (_e) {
+      return; // No day/fonts.json staged — the app bundles no custom fonts.
+    }
+    const uiFont = windowStage.getMainWindowSync().getUIContext().getFont();
+    for (const entry of manifest) {
+      // A STRING rawfile URI — a hand-built Resource object (id -1 / type 30000) does not
+      // resolve through registerFont, and the family silently falls back to the system
+      // font. The resource://RAWFILE form is the same contract day's bundled images use.
+      uiFont.registerFont({
+        familyName: entry.family,
+        familySrc: `resource://RAWFILE/day/fonts/${entry.file}`,
+      });
+    }
+  }
+
+  // `day launch` passes each value as a distinct `aa start --ps` string parameter (all shell-safe
+  // single tokens — no blob to quote): the dayscript engine port + token and the locale / autodrive.
+  private static applyLaunchEnv(want: Want): void {
+    const params: Record<string, Object> | undefined = want.parameters;
+    if (!params) {
+      return;
+    }
+    const set = (paramKey: string, envKey: string): void => {
+      const value: Object | undefined = params[paramKey];
+      if (typeof value === 'string' && value.length > 0) {
+        nativeEntry.setEnv(envKey, value);
+      }
+    };
+    set('day.dayscript.port', 'DAYSCRIPT_PORT');
+    set('day.dayscript.token', 'DAYSCRIPT_TOKEN');
+    set('day.locale', 'DAY_LOCALE');
+    set('day.autodrive', 'DAY_AUTODRIVE');
+    // A dayscript engine drives this session (docs/agent.md): the Index page reads this to
+    // push/pop WITHOUT transition animation — scripted bursts outrun an in-flight transition,
+    // and ArkUI Navigation drops operations issued across one (the stack wedges on a stale
+    // destination). Human sessions keep the native transitions.
+    AppStorage.setOrCreate('dayDriven', typeof params['day.dayscript.port'] === 'string');
+    // Generic `day launch --env KEY=VALUE` passthrough: `day.env.KEY` → process env `KEY`.
+    for (const key of Object.keys(params)) {
+      if (key.startsWith('day.env.')) {
+        const value: Object | undefined = params[key];
+        if (typeof value === 'string' && value.length > 0) {
+          nativeEntry.setEnv(key.slice('day.env.'.length), value);
+        }
+      }
+    }
+  }
+
+  onWindowStageDestroy(): void {}
+  onForeground(): void {}
+  onBackground(): void {}
+  onDestroy(): void {}
+}

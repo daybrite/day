@@ -8,6 +8,7 @@ mod drive;
 mod interactive;
 mod intl;
 mod lint;
+mod lite;
 mod mcp;
 mod meta;
 mod metadata;

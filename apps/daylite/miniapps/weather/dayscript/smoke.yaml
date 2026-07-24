@@ -1,0 +1,12 @@
+# Drives this miniapp inside the daylite host (docs/lite.md §11). UI-only: the live
+# open-meteo fetch is not asserted (emulator networks vary).
+description: Weather — install, open, localized prompt renders
+flow:
+  - tap: { id: "dl-install:dev.daybrite.lite.weather" }
+  - tap: { id: dl-confirm }
+  - wait_idle:
+  - tap: { id: "dl-open:dev.daybrite.lite.weather" }
+  - wait_idle:
+  - assert_visible: { id: wx-root }
+  - assert_visible: { id: wx-city }
+  - screenshot: weather

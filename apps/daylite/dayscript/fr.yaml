@@ -1,0 +1,11 @@
+# Localized visual check: run with `--locale fr --variant fr` — the miniapp UI renders
+# from its shipped i18n/fr.ftl.
+description: French-locale visual check of a localized miniapp
+flow:
+  - tap: { id: "dl-install:dev.daybrite.lite.tictactoe" }
+  - tap: { id: dl-confirm }
+  - wait_idle:
+  - tap: { id: "dl-open:dev.daybrite.lite.tictactoe" }
+  - wait_idle:
+  - assert_text: { id: ttt-status, text: "À X de jouer" }
+  - screenshot: tictactoe-fr

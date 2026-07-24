@@ -434,6 +434,10 @@ pub trait TreeOps {
     fn attach_at(&mut self, parent: RNode, child: RNode, index: usize);
     fn reorder_children(&mut self, parent: RNode, order: Vec<RNode>);
     fn remove_subtree(&mut self, node: RNode);
+    /// Whether `node` still exists (diagnostics: stale-id probes).
+    fn node_exists(&self, node: RNode) -> bool;
+    /// Whether the platform renders in dark appearance (see `Toolkit::dark_mode`).
+    fn dark_mode(&mut self) -> bool;
     fn on_event(&mut self, node: RNode, h: EventHandler);
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
@@ -669,6 +673,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler> {
         self.handlers.get(&node).cloned().unwrap_or_default()
+    }
+    fn node_exists(&self, node: RNode) -> bool {
+        self.nodes.contains_key(node)
+    }
+    fn dark_mode(&mut self) -> bool {
+        self.toolkit.dark_mode()
     }
 
     fn set_id(&mut self, node: RNode, id: String) {
@@ -1351,6 +1361,15 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
     };
     let handlers = with_tree(|t| t.handlers_for(node));
     if handlers.is_empty() {
+        // A press routed to a node that no longer exists is a staleness bug somewhere
+        // upstream (an element index, a native view outliving its node) — surface it in
+        // debug builds instead of dropping silently; alive-but-handlerless is normal.
+        if cfg!(debug_assertions)
+            && matches!(ev, Event::Pressed | Event::Tap(_))
+            && !with_tree(|t| t.node_exists(node))
+        {
+            eprintln!("day: {ev:?} dropped — node {id:?} no longer exists (stale reference)");
+        }
         return;
     }
     day_reactive::batch(|| {

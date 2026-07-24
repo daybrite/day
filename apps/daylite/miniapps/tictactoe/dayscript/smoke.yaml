@@ -1,0 +1,19 @@
+# Drives this miniapp inside the daylite host (docs/lite.md §11):
+#   cd apps/daylite && day launch -p ios-uikit --env DAYLITE_RESET=1 \
+#     --script miniapps/tictactoe/dayscript/smoke.yaml
+description: Tic-tac-toe — install, win a game as X, screenshot
+flow:
+  - tap: { id: "dl-install:dev.daybrite.lite.tictactoe" }
+  - tap: { id: dl-confirm }
+  - wait_idle:
+  - tap: { id: "dl-open:dev.daybrite.lite.tictactoe" }
+  - wait_idle:
+  - assert_visible: { id: ttt-root }
+  - assert_text: { id: ttt-status, text: "X to play" }
+  - tap: { id: ttt-cell-0 }
+  - tap: { id: ttt-cell-3 }
+  - tap: { id: ttt-cell-1 }
+  - tap: { id: ttt-cell-4 }
+  - tap: { id: ttt-cell-2 }
+  - assert_text: { id: ttt-status, text: "X wins!" }
+  - screenshot: tictactoe

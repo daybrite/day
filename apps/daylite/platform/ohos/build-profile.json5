@@ -1,0 +1,38 @@
+{
+  "app": {
+    // No `signingConfig` here → hvigor builds an UNSIGNED .hap; `day build -p ohos-arkui` then patches
+    // it (compileSdkType → OpenHarmony, so the emulator skips code-sign verification) and signs it with
+    // the OpenHarmony public release material via platform/ohos/sign-hap.mjs. In DevEco Studio, use
+    // File ▸ Project Structure ▸ Signing Configs ▸ auto-sign for on-device runs instead.
+    // compatibleSdkVersion matches the command-line-tools' bundled SDK (HarmonyOS 5.1.0 / API 18).
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        // OpenHarmony products take the integer API level (18), not the "5.1.0(18)" HarmonyOS form,
+        // and require compileSdkVersion alongside compatibleSdkVersion.
+        "compileSdkVersion": 18,
+        "compatibleSdkVersion": 18,
+        // OpenHarmony (not "HarmonyOS"): the target is the Oniro OpenHarmony emulator, and sign-hap.mjs
+        // already patches compileSdkType → OpenHarmony. This also selects hvigor's OpenHarmony resource
+        // path, which needs no HMS `libimage_transcoder_shared` library — that lib ships only with
+        // Huawei's DevEco Studio, not the public SDK, so the HarmonyOS path can't build on the
+        // login-free local/CI toolchain (macOS or Linux).
+        "runtimeOS": "OpenHarmony"
+      }
+    ],
+    "buildModeSet": [
+      { "name": "debug" },
+      { "name": "release" }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        { "name": "default", "applyToProducts": ["default"] }
+      ]
+    }
+  ]
+}
