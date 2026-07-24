@@ -2498,7 +2498,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 `ci.yml`, in order:
 
-1. **Fast checks** — rustfmt, MSRV build.
+1. **Fast checks** — rustfmt, MSRV build, and the toolkit-independent clippy (host-portable
+   crates + CLI/dayscript + mock-backend showcase, all `--all-targets`; the android
+   cross-*check* lint; the duty-matrix drift check). Clippy is a required status but NOT in
+   the combos' `needs:`, so a lint error blocks merge without suppressing the platform
+   matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
+   failure killed the CLI artifact and with it every Linux-descended combo).
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane).
 3. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui; plus a

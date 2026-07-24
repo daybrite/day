@@ -42,15 +42,57 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  # ---------------------------------------------------------------------------
+  # clippy: every lint that needs NO toolkit libraries, as a first-pass check
+  # parallel with fmt/msrv. Deliberately NOT in the combos' `needs:` — a lint
+  # error must not suppress the platform matrix's build/test signal (it once
+  # rode linux-day (x86_64), where a pure lint failure killed the CLI artifact
+  # and with it every Linux-descended combo). It is a required status check, so
+  # a red lint still blocks merge. The per-combo backend lints stay in their
+  # platform jobs: feature unification forbids a workspace-wide clippy (§3),
+  # and each backend needs its platform SDK.
+  # ---------------------------------------------------------------------------
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (host-portable crates, CLI, mock backend)
+        run: |
+          cargo clippy --locked --all-targets
+          cargo clippy --locked -p day-cli -p day-script --all-targets
+          cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
+      # The Toolkit-duty conformance table (docs/duty-matrix.md) is generated; a Toolkit-trait
+      # or backend change that forgets to regenerate it is drift, and drift is a red build.
+      - name: Duty-matrix drift check
+        run: |
+          scripts/ci/duty-matrix.sh
+          git diff --exit-code docs/duty-matrix.md
+      # The Android cross-check lint gates HERE (the android-widget job is continue-on-error
+      # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
+      # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls
+      # compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
+      - name: Clippy (android cross-check + day-part-battery)
+        run: |
+          rustup target add aarch64-linux-android
+          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
+            --no-default-features --features widget
+          cargo clippy --locked -p day-part-battery --all-targets
+          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
+
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
   # Each: installs the toolkit's deps, tests the host-portable crates, builds and
   # launches the showcase for the combo, drives the dayscript walkthrough, and
   # uploads that combo's screenshots (screenshots-<combo>). Gated on the fast
-  # checks (fmt/msrv). Clippy runs inside the build jobs: each combo lints its own
-  # backend feature (a `--workspace` clippy cannot compile — feature unification
-  # would enable several `day` backends at once and trip the one-backend-per-binary
-  # compile_error! guard, §3), and linux-day carries the host-portable lints.
+  # checks (fmt/msrv). Per-combo clippy runs inside the build jobs: each combo
+  # lints its own backend feature (a `--workspace` clippy cannot compile — feature
+  # unification would enable several `day` backends at once and trip the
+  # one-backend-per-binary compile_error! guard, §3); the toolkit-independent
+  # lints run in the first-pass `clippy` job.
   # ===========================================================================
 
   # --- day CLI: cross-compiled release builds, shared as artifacts ----------
@@ -97,35 +139,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          components: clippy
       - uses: Swatinem/rust-cache@v2
-      # The Linux lints that need no toolkit libraries ride this job (x86_64 leg only — they are
-      # arch-independent): the host-portable crates, the CLI + dayscript, and the mock backend.
-      - name: Clippy (host-portable crates, CLI, mock backend)
-        if: matrix.arch == 'x86_64'
-        run: |
-          cargo clippy --locked --all-targets
-          cargo clippy --locked -p day-cli -p day-script --all-targets
-          cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
-      # The Toolkit-duty conformance table (docs/duty-matrix.md) is generated; a Toolkit-trait
-      # or backend change that forgets to regenerate it is drift, and drift is a red build.
-      - name: Duty-matrix drift check
-        if: matrix.arch == 'x86_64'
-        run: |
-          scripts/ci/duty-matrix.sh
-          git diff --exit-code docs/duty-matrix.md
-      # The Android cross-check lint also gates HERE (the android-widget job is continue-on-error
-      # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
-      # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls
-      # compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
-      - name: Clippy (android cross-check + day-part-battery)
-        if: matrix.arch == 'x86_64'
-        run: |
-          rustup target add aarch64-linux-android
-          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
-            --no-default-features --features widget
-          cargo clippy --locked -p day-part-battery --all-targets
-          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
       # Cross to aarch64 needs a cross-linker (+ C cross-compiler for any build-script C) AND the
       # aarch64 libc dev files — gcc-aarch64-linux-gnu ships the compiler/linker but NOT the target
       # CRT startup objects (Scrt1.o/crti.o/crtn.o) + libc that the final link needs; those live in
@@ -1298,9 +1312,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # deny: dependency advisories + duplicate-version bans (§20.5). Runs as its own
-  # check; the build combos gate on [fmt, clippy, msrv], not deny — a newly
-  # published RUSTSEC advisory against an existing dependency shouldn't block
-  # unrelated builds. Add deny back to each combo's `needs:` to make it a hard gate.
+  # check; the build combos gate on [fmt, msrv] only — clippy and deny are
+  # independent required checks, so a lint error or a newly published RUSTSEC
+  # advisory shouldn't suppress the platform matrix's build/test signal. Add
+  # either to each combo's `needs:` to make it a hard gate.
   # ---------------------------------------------------------------------------
   deny:
     runs-on: ubuntu-24.04

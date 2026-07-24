@@ -291,6 +291,13 @@ fn autodrive(spec: &str) {
     }
 }
 
+/// Whether the platform is rendering in dark appearance (see `Toolkit::dark_mode`): the
+/// branch apps take when painting custom OPAQUE surfaces so fills track the theme that the
+/// default text colors already follow.
+pub fn dark_mode() -> bool {
+    tree::with_tree(|t| t.dark_mode())
+}
+
 #[cfg(test)]
 mod posted_panic_tests {
     /// A panic inside a posted main-thread task must be CONTAINED (logged + runtime reset), never
@@ -305,11 +312,4 @@ mod posted_panic_tests {
         s.set(2);
         assert_eq!(s.get_untracked(), 2);
     }
-}
-
-/// Whether the platform is rendering in dark appearance (see `Toolkit::dark_mode`): the
-/// branch apps take when painting custom OPAQUE surfaces so fills track the theme that the
-/// default text colors already follow.
-pub fn dark_mode() -> bool {
-    tree::with_tree(|t| t.dark_mode())
 }
