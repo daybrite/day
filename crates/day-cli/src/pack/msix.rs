@@ -120,7 +120,7 @@ pub fn pack(
     .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- makeappx pack ---------------------------------------------------------
-    let msix = dist.join(format!("{name}-{version}.msix"));
+    let msix = dist.join(format!("{name}{}.msix", opts.version_tag(version)));
     let _ = std::fs::remove_file(&msix);
     status("Packing", "makeappx pack");
     run_tool(

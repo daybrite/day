@@ -21,7 +21,7 @@ implement them, and this table proves it.
 | `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
 | `set_transform` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
-| `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `scroll_to` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `scroll_offset` | · | · | · | · | · | ✓ | · | · | ✓ |
 | `set_event_sink` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -35,7 +35,7 @@ implement them, and this table proves it.
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ui_idle` | · | · | ✓ | ✓ | · | · | · | · | ✓ |
+| `ui_idle` | · | · | ✓ | ✓ | · | · | · | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

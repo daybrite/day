@@ -85,7 +85,7 @@ pub fn pack(
             let _ = std::os::unix::fs::symlink("/Applications", &link);
         }
     }
-    let dmg = dist.join(format!("{title}-{version}.dmg"));
+    let dmg = dist.join(format!("{title}{}.dmg", opts.version_tag(version)));
     let _ = std::fs::remove_file(&dmg);
     status("Packing", "hdiutil create (UDZO)");
     run_tool(

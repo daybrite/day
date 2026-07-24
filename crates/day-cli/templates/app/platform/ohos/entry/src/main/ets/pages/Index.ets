@@ -28,6 +28,14 @@ struct Index {
   @State navTitles: Map<number, string> = new Map();
   private navKeys: number[] = [];
 
+  // Scripted sessions (dayscript, docs/agent.md) push/pop WITHOUT transition animation: a
+  // pop issued while a push transition is in flight is DROPPED by ArkUI Navigation and the
+  // stack wedges on a stale destination — the same transactional hazard the UIKit backend
+  // queues around for modals (docs/dialogs.md). Human sessions keep the native transition.
+  private animated(): boolean {
+    return AppStorage.get<boolean>('dayDriven') !== true;
+  }
+
   private startDay(widthVp: number, heightVp: number): void {
     if (this.started || widthVp <= 0 || heightVp <= 0) {
       return;
@@ -42,11 +50,16 @@ struct Index {
         this.navContents.set(key, pageContent);
         this.navTitles.set(key, title);
         this.navKeys.push(key);
-        this.pathStack.pushPathByName('day-page', key);
+        // The name is UNIQUE per page: ArkUI Navigation diffs the old and new stacks by
+        // destination name, so a same-turn pop+push of two 'day-page' entries would collapse
+        // into "page is not change — don't transition", leaving the OLD (already-detached,
+        // empty) destination on screen forever. The generic `.navDestination` builder
+        // dispatches every name, so the suffix costs nothing.
+        this.pathStack.pushPathByName('day-page-' + key, key, this.animated());
         return pageContent;
       },
       (): void => {
-        this.pathStack.pop();
+        this.pathStack.pop(this.animated());
       },
       (title: string): void => {
         const top: number | undefined = this.navKeys[this.navKeys.length - 1];

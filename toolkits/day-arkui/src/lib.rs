@@ -109,6 +109,19 @@ mod imp {
         /// The window root Stack + its size, KEPT for the app's lifetime (unlike [`ROOT`],
         /// which `run` consumes) — covers re-home onto it while presented.
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
+        /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
+        /// it): pushed page keys awaiting their destination's first area report, and the
+        /// count of Day-initiated pops awaiting their `navPopped` acknowledgement.
+        static NAV_PENDING_PUSH: RefCell<std::collections::HashSet<u64>> =
+            RefCell::new(std::collections::HashSet::new());
+        static NAV_PENDING_POP: Cell<u32> = const { Cell::new(0) };
+        /// Each `scroll()`'s shim-owned content Stack (scroll ptr → stack ptr), sized by
+        /// `set_scroll_content`. Day's content nodes are layout-only (no native child of
+        /// their own), and an ArkUI Scroll whose children are absolutely-placed leaves
+        /// measures a content extent of 0 — offsets clamp to nothing and neither touch nor
+        /// programmatic scrolling moves. `insert`/`remove` re-route the scroll's day
+        /// children into the container so the Scroll measures the real extent.
+        static SCROLL_CONTENT: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Monotonic base for frame-clock timestamps (§8.4).
         static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
     }
@@ -410,6 +423,10 @@ mod imp {
             NAV_POPPED_KEYS.with(|s| s.borrow_mut().insert(key));
         }
         NAV_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        // A destination that never landed can no longer be waited on.
+        NAV_PENDING_PUSH.with(|s| {
+            s.borrow_mut().remove(&key);
+        });
         let expected = NAV_EXPECT_POP.with(|e| {
             let v = e.get();
             if v > 0 {
@@ -419,6 +436,10 @@ mod imp {
                 false
             }
         });
+        if expected {
+            // The acknowledgement of a Day-initiated pop (`ui_idle`'s pending-pop signal).
+            NAV_PENDING_POP.with(|p| p.set(p.get().saturating_sub(1)));
+        }
         if !expected && let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
             emit(
                 NodeId(host_id),
@@ -429,10 +450,14 @@ mod imp {
         }
     }
 
-    /// A destination's content area changed (vp): relayout that page in its real bounds.
+    /// A destination's content area changed (vp): relayout that page in its real bounds. The
+    /// FIRST report for a key is also the push-landed signal `ui_idle` waits on.
     #[unsafe(no_mangle)]
     pub extern "C" fn day_arkui_nav_area(key: u64, w: f64, h: f64) {
         if w > 0.0 && h > 0.0 {
+            NAV_PENDING_PUSH.with(|s| {
+                s.borrow_mut().remove(&key);
+            });
             emit(NodeId(key), Event::FrameChanged(Size::new(w, h)));
         }
     }
@@ -543,6 +568,12 @@ mod imp {
                         .map(|p| p.horizontal)
                         .unwrap_or(false);
                     unsafe { ffi::day_ark_scroll_direction(n.0, horizontal as c_int) };
+                    // The one real child ArkUI's Scroll measures its extent from (see
+                    // [`SCROLL_CONTENT`]); day children land inside it via `insert`.
+                    let content = new_node(K_STACK);
+                    unsafe { ffi::day_ark_insert_child(n.0, content.0, 0) };
+                    SCROLL_CONTENT
+                        .with(|m| m.borrow_mut().insert(n.0 as usize, content.0 as usize));
                     n
                 }
                 kinds::IMAGE => {
@@ -690,6 +721,8 @@ mod imp {
                     NAV_POPPED_KEYS.with(|s| s.borrow_mut().clear());
                     NAV_EXPECT_POP.with(|e| e.set(0));
                     NAV_DEPTH.with(|d| d.set(0));
+                    NAV_PENDING_PUSH.with(|s| s.borrow_mut().clear());
+                    NAV_PENDING_POP.with(|p| p.set(0));
                     n
                 }
                 kinds::NAV_PAGE => {
@@ -794,6 +827,7 @@ mod imp {
                                     if rc == 0 {
                                         NAV_PUSHED.with(|m| m.borrow_mut().insert(page, key));
                                         NAV_DEPTH.with(|d| d.set(d.get() + 1));
+                                        NAV_PENDING_PUSH.with(|s| s.borrow_mut().insert(key));
                                     } else {
                                         // No ArkTS bridge (old host page): fall back to the
                                         // stacked-children presentation.
@@ -810,6 +844,7 @@ mod imp {
                                     NAV_DEPTH.with(|d| d.get()) > NAV_EXPECT_POP.with(|e| e.get());
                                 if outstanding {
                                     NAV_EXPECT_POP.with(|e| e.set(e.get() + 1));
+                                    NAV_PENDING_POP.with(|p| p.set(p.get() + 1));
                                     unsafe { ffi::day_ark_nav_pop() };
                                 }
                             }
@@ -982,6 +1017,10 @@ mod imp {
                     m.borrow_mut().remove(&nid);
                 });
             }
+            // A scroll owns its content container (realize) — dispose it with the scroll.
+            if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
+                unsafe { ffi::day_ark_node_dispose(stack as *mut _) };
+            }
             unsafe { ffi::day_ark_node_dispose(h.0) };
         }
 
@@ -996,11 +1035,15 @@ mod imp {
             {
                 NAV_ATTACHED.with(|v| v.borrow_mut().push((child.0 as usize, id)));
             }
+            // A scroll's day children live in its content container (see [`SCROLL_CONTENT`]).
+            let native_parent = SCROLL_CONTENT
+                .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
+                .unwrap_or(parent.0 as usize);
             // A cover's CURRENT parent starts as its tree slot (Present re-homes it).
             if COVER_NODES.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
-                COVER_PARENTS.with(|m| m.borrow_mut().insert(child.0 as usize, parent.0 as usize));
+                COVER_PARENTS.with(|m| m.borrow_mut().insert(child.0 as usize, native_parent));
             }
-            unsafe { ffi::day_ark_insert_child(parent.0, child.0, index as c_int) };
+            unsafe { ffi::day_ark_insert_child(native_parent as *mut _, child.0, index as c_int) };
         }
 
         fn remove(&mut self, parent: &AHandle, child: &AHandle) {
@@ -1025,7 +1068,11 @@ mod imp {
                 }
                 return;
             }
-            unsafe { ffi::day_ark_remove_child(parent.0, child.0) };
+            // Mirror `insert`'s re-routing for scroll children (see [`SCROLL_CONTENT`]).
+            let native_parent = SCROLL_CONTENT
+                .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
+                .unwrap_or(parent.0 as usize);
+            unsafe { ffi::day_ark_remove_child(native_parent as *mut _, child.0) };
         }
 
         fn move_child(&mut self, parent: &AHandle, child: &AHandle, to: usize) {
@@ -1107,6 +1154,16 @@ mod imp {
             };
         }
 
+        fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
+            // Size the shim-owned container (see [`SCROLL_CONTENT`]) so ArkUI's Scroll
+            // measures the real extent — that extent is what makes touch and programmatic
+            // offsets take effect. Size WITHOUT position: `NODE_POSITION` removes a child
+            // from layout flow, and the Scroll's measure ignores positioned children.
+            if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
+                unsafe { ffi::day_ark_set_size(stack as *mut _, content.width, content.height) };
+            }
+        }
+
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
             // The shim owns the minimal-reveal math (it can read the node's offset + size).
             unsafe {
@@ -1179,6 +1236,14 @@ mod imp {
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             Err("use `hdc shell snapshot_display` on ohos-arkui".into())
+        }
+
+        /// Whether nav transitions have settled: dayscript screenshots poll this, so a shot
+        /// taken right after a section switch waits for the pushed destination's first area
+        /// report (content laid out) and for Day-initiated pops to be acknowledged.
+        fn ui_idle(&mut self) -> bool {
+            NAV_PENDING_PUSH.with(|s| s.borrow().is_empty())
+                && NAV_PENDING_POP.with(|p| p.get()) == 0
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).

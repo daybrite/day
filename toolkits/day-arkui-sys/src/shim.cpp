@@ -298,7 +298,12 @@ void day_ark_scroll_to_rect(void* n, float x, float y, float w, float h, int ani
     ArkUI_AttributeItem it{};
     it.value = nv;
     it.size = 3;
-    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_OFFSET, &it);
+    int rc = g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCROLL_OFFSET, &it);
+    OH_LOG_Print(LOG_APP, LOG_WARN, 0xDA11, "day",
+                 "scroll_to_rect target=(%{public}.1f,%{public}.1f %{public}.1fx%{public}.1f) "
+                 "cur=(%{public}.1f,%{public}.1f) view=%{public}.1fx%{public}.1f -> "
+                 "(%{public}.1f,%{public}.1f) rc=%{public}d",
+                 x, y, w, h, ox, oy, pw, ph, nx, ny, rc);
 }
 void day_ark_insert_child(void* p, void* c, int32_t pos) {
     if (g_api) g_api->insertChildAt((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c, pos);

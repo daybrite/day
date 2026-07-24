@@ -45,6 +45,44 @@ fn scan_res_str(dir: &Path, out: &mut Vec<String>) {
     }
 }
 
+/// Every Rust source root the lint scans: the project package's `src/` plus each WORKSPACE
+/// MEMBER crate's `src/` inside the project directory (a multi-crate app keeps its
+/// `tr("key")` / `.id("…")` literals in member crates too — Day-Games' games live in
+/// `games/<name>/src`). A member is any `src/` directory beside a `Cargo.toml`, found by a
+/// shallow walk that skips build products and the native host projects.
+fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    fn walk(dir: &Path, depth: usize, roots: &mut Vec<std::path::PathBuf>) {
+        if depth > 3 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if !p.is_dir() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if matches!(
+                name.as_str(),
+                "target" | "build" | "platform" | "resource" | "dayscript" | ".git"
+            ) {
+                continue;
+            }
+            if name == "src" && dir.join("Cargo.toml").exists() {
+                roots.push(p);
+                continue;
+            }
+            walk(&p, depth + 1, roots);
+        }
+    }
+    walk(root, 0, &mut roots);
+    roots.sort();
+    roots
+}
+
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -215,11 +253,14 @@ pub fn run(project: &Project, strict: bool) -> i32 {
             }
         }
     }
+    let roots = source_roots(&project.root);
     let mut used_keys = Vec::new();
-    scan_sources(&project.root.join("src"), "tr(\"", &mut used_keys);
-    // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) — the
-    // symbol IS the key (snake_case), so they count as used just like a `tr("key")` literal.
-    scan_res_str(&project.root.join("src"), &mut used_keys);
+    for r in &roots {
+        scan_sources(r, "tr(\"", &mut used_keys);
+        // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) —
+        // the symbol IS the key (snake_case), so they count as used like a `tr("key")` literal.
+        scan_res_str(r, &mut used_keys);
+    }
     let used: BTreeSet<String> = used_keys.into_iter().collect();
 
     // Default = "en" if present, else first.
@@ -294,13 +335,17 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     // compile-checked; this covers the scripts and raw strings). Skipped when the app
     // declares no keys either way (a pure-stack app's routes are open-ended).
     let mut declared_keys = Vec::new();
-    scan_sources(&project.root.join("src"), ".item(\"", &mut declared_keys);
-    scan_routes_macro_keys(&project.root.join("src"), &mut declared_keys);
+    for r in &roots {
+        scan_sources(r, ".item(\"", &mut declared_keys);
+        scan_routes_macro_keys(r, &mut declared_keys);
+    }
     if !declared_keys.is_empty() {
         let declared: BTreeSet<String> = declared_keys.into_iter().collect();
         let mut used_routes: Vec<(String, String)> = Vec::new();
         let mut nav_calls = Vec::new();
-        scan_sources(&project.root.join("src"), "navigate(\"", &mut nav_calls);
+        for r in &roots {
+            scan_sources(r, "navigate(\"", &mut nav_calls);
+        }
         used_routes.extend(nav_calls.into_iter().map(|r| ("navigate".to_string(), r)));
         let mut script_routes = Vec::new();
         scan_script_routes(&project.root.join("dayscript"), &mut script_routes);
@@ -325,7 +370,9 @@ pub fn run(project: &Project, strict: bool) -> i32 {
 
     // --- Duplicate ids ---
     let mut ids = Vec::new();
-    scan_sources(&project.root.join("src"), ".id(\"", &mut ids);
+    for r in &roots {
+        scan_sources(r, ".id(\"", &mut ids);
+    }
     let mut seen = BTreeSet::new();
     for id in &ids {
         if !seen.insert(id.clone()) {

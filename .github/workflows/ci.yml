@@ -426,7 +426,7 @@ jobs:
         if: matrix.toolkit == 'appkit'
         working-directory: apps/showcase
         run: |
-          $DAY_BIN pack -p ${{ matrix.combo }} --format json | tee "$RUNNER_TEMP/pack.json"
+          $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json | tee "$RUNNER_TEMP/pack.json"
           codesign -vvv --deep --strict build/day/pack/macos-appkit/*.app
           hdiutil verify build/day/dist/*.dmg
       - name: Upload packages
@@ -566,7 +566,7 @@ jobs:
       # Simulator .app — a device .ipa lights up when the ASC secrets are configured (§20).
       - name: Pack (ios-uikit)
         working-directory: apps/showcase
-        run: $DAY_BIN pack -p ios-uikit --format json
+        run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
@@ -695,7 +695,7 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       - name: Pack (${{ matrix.combo }} → flatpak)
         working-directory: apps/showcase
-        run: $DAY_BIN pack -p ${{ matrix.combo }} --format json
+        run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       - name: Install + inspect the bundle
         working-directory: apps/showcase
         run: |
@@ -816,7 +816,7 @@ jobs:
         working-directory: apps/showcase
         env:
           DAY_ANDROID_ABI: arm64-v8a,x86_64
-        run: $DAY_BIN pack -p android-widget --format json
+        run: $DAY_BIN pack -p android-widget --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
@@ -1062,7 +1062,7 @@ jobs:
         working-directory: apps/showcase
         env:
           DAY_OHOS_ARCH: arm64
-        run: $DAY_BIN pack -p ohos-arkui --format json
+        run: $DAY_BIN pack -p ohos-arkui --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
@@ -1163,7 +1163,7 @@ jobs:
         run: choco install nsis -y --no-progress
       - name: Pack (windows-winui → msix + setup.exe)
         working-directory: apps/showcase
-        run: $DAY_BIN pack -p windows-winui --format json
+        run: $DAY_BIN pack -p windows-winui --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:

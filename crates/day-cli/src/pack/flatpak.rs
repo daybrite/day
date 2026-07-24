@@ -168,7 +168,10 @@ pub fn pack(
     // The toolkit is part of the name: linux-gtk and linux-qt both pack this format, and
     // release CI merges every target's dist/ into one directory — identical names collide.
     let toolkit = target.toolkit;
-    let bundle = dist.join(format!("{name}-{version}-{toolkit}-{arch}.flatpak"));
+    let bundle = dist.join(format!(
+        "{name}{}-{toolkit}-{arch}.flatpak",
+        opts.version_tag(version)
+    ));
     let _ = std::fs::remove_file(&bundle);
     status("Packing", "flatpak build-bundle");
     run_tool(

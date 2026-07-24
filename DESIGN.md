@@ -2073,6 +2073,10 @@ policy sizes), **`.msix` + an NSIS `setup.exe`** (windows), **`.hap`** (ohos via
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and
 the designed LGPL/licences-stage guard rails remain future work.
 
+Artifacts are named `<name>-<version>.<ext>` by default; `--no-version-in-name` drops the
+version (`<name>.<ext>`) so a `releases/latest/download/<name>` URL stays stable across releases.
+daybrite/actions' release job packs with that flag ([§20](#20-continuous-integration)).
+
 #### `day lint`
 
 Built-in rules only, source-level and fast: fluent coverage (missing/unused/unknown keys across

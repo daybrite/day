@@ -164,6 +164,9 @@ NodeAPI nodes, verified on the Oniro emulator:
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
 - **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). Long-press is not wired.
+- **Scrolling** (§7.6) — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
+  shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
+  extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
 - **Frame clock** (§8.4) — `Platform::request_frame` rides a ~16 ms one-shot `uv_timer` on the
   JS loop (the NodeAPI has no re-armable vsync callback), so `frame_clock` game loops and
   self-driven animations run; Day-Games' breakout/sirtet/2048 play on the emulator.
@@ -213,7 +216,7 @@ must be a **host-platform** SDK — hvigor spawns its native tools (`syscap_tool
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.
 
-Four hard-won facts the scripted channel depends on (each was a silent total failure):
+Six facts the scripted channel depends on (each was a silent total failure until diagnosed):
 
 - **The default hdc forward port 55555 is often already occupied** — GitHub's macOS runners hold
   it, and so do some local services — and QEMU then dies instantly ("Could not set up host
@@ -229,6 +232,18 @@ Four hard-won facts the scripted channel depends on (each was a silent total fai
   before every start so each run's engine params take effect.
 - **The keyguard returns whenever the display sleeps** and `aa start` is refused while it shows;
   `day launch` wakes + swipe-unlocks (uitest + uinput) around every launch retry.
+- **ArkUI Navigation diffs the old and new stacks by destination name** — a same-turn pop+push
+  of two destinations with the same generic name collapses into "page is not change — don't
+  transition", leaving the OLD (already-detached, empty) destination on screen for good. The
+  host page pushes each Day page under a unique `day-page-<key>` name, and dayscript-driven
+  sessions push/pop **without** transition animation (ArkUI drops an operation issued across an
+  in-flight transition; scripted bursts outrun one).
+- **`uitest screenCap` trails the UI tree** — the TCG guest's RenderService composites a pushed
+  page seconds after it has laid out, so a shot taken right after a navigation shows the
+  previous page. The runner waits for `ui_idle` (the pushed destination's first area report),
+  sleeps `DAY_OHOS_SHOT_SETTLE_MS` (default 4000) before capturing, and re-captures when a shot
+  comes out byte-identical to the run's previous one (the first push after app start can lag
+  past the settle while the render tree warms up).
 
 ## Follow-ups
 

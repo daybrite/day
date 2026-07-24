@@ -13,6 +13,10 @@ pub struct PackOptions {
     pub no_notarize: bool,
     /// Submit for notarization but do not wait for the verdict.
     pub no_wait: bool,
+    /// Embed the app version in artifact filenames (`app-1.0.0.aab`). When false, names are
+    /// version-less (`app.aab`), so a `releases/latest/download/<name>` URL stays stable across
+    /// releases. Defaults to true; `day pack --no-version-in-name` (and CI) turns it off.
+    pub version_in_name: bool,
 }
 
 impl Default for PackOptions {
@@ -23,6 +27,19 @@ impl Default for PackOptions {
             no_sign: false,
             no_notarize: false,
             no_wait: false,
+            version_in_name: true,
+        }
+    }
+}
+
+impl PackOptions {
+    /// The `-{version}` filename infix to embed in a packaged artifact name, or an empty string
+    /// when `--no-version-in-name` disabled it. Keeps every format's naming rule in one place.
+    pub fn version_tag(&self, version: &str) -> String {
+        if self.version_in_name {
+            format!("-{version}")
+        } else {
+            String::new()
         }
     }
 }
@@ -106,6 +123,18 @@ pub fn resolve_degradable(raw: &str, what: &str) -> Result<Option<String>, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_tag_toggles_with_the_flag() {
+        // Default (include): filenames carry a `-<version>` infix.
+        assert_eq!(PackOptions::default().version_tag("1.0.0"), "-1.0.0");
+        // --no-version-in-name: no infix, so `format!("{name}{}.aab", tag)` = `name.aab`.
+        let bare = PackOptions {
+            version_in_name: false,
+            ..PackOptions::default()
+        };
+        assert_eq!(bare.version_tag("1.0.0"), "");
+    }
 
     #[test]
     fn interpolate_passthrough_and_vars() {

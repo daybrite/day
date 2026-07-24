@@ -36,7 +36,7 @@ pub fn pack(
 
     let work = project.root.join("build/day/pack/windows-nsis");
     std::fs::create_dir_all(&work).map_err(|e| PackError::Other(e.to_string()))?;
-    let setup = dist.join(format!("{name}-{version}-setup.exe"));
+    let setup = dist.join(format!("{name}{}-setup.exe", opts.version_tag(version)));
     let _ = std::fs::remove_file(&setup);
 
     let nsi = work.join("installer.nsi");

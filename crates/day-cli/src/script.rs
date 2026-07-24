@@ -106,7 +106,9 @@ fn shot_dir(
 }
 
 /// Device-level capture fallback for targets whose in-process snapshot is unsupported.
-fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
+/// `prev` is the run's previous capture, when there is one: on HarmonyOS a shot that comes out
+/// byte-identical to it is treated as a stale frame and re-captured (see the arm's comment).
+fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Result<(), String> {
     match target.kind {
         TargetKind::IosSim => {
             // The scripted run drives one simulator (the first booted); pin it so multiple booted
@@ -165,41 +167,60 @@ fn device_screenshot(target: &Target, path: &Path) -> Result<(), String> {
             let _ = crate::ohos::hdc()
                 .args(["shell", "power-shell", "wakeup"])
                 .status();
-            // The TCG guest's compositor lags the UI thread: `ui_idle` returns when DAY's tree
-            // settled, but screenCap still serves the PREVIOUS frame for a while (every shot
-            // trails one page without this). Give composition a moment to catch up.
-            std::thread::sleep(Duration::from_millis(
-                std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(1500),
-            ));
+            // The TCG guest's compositor lags the UI thread: `ui_idle` returns once the pushed
+            // page has reported its first area (laid out), but screenCap serves the PREVIOUS
+            // frame until RenderService composites the new one — measured at 2-3s on the
+            // cross-arch emulator (every shot trails one page without this settle). The first
+            // push after app start can lag longer still (>6s: first render-tree build), so a
+            // capture that comes out byte-identical to the run's previous screenshot is treated
+            // as that stale frame and retried; the last attempt is accepted either way, which
+            // keeps scripts with genuinely identical consecutive shots slow-but-correct.
+            let settle = std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4000);
             let dev = "/data/local/tmp/day-shot.png";
-            let cap = crate::ohos::hdc()
-                .args(["shell", "uitest", "screenCap", "-p", dev])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-                || crate::ohos::hdc()
-                    .args(["shell", "snapshot_display", "-f", dev])
+            for attempt in 0..4u32 {
+                std::thread::sleep(Duration::from_millis(if attempt == 0 {
+                    settle
+                } else {
+                    3000
+                }));
+                let cap = crate::ohos::hdc()
+                    .args(["shell", "uitest", "screenCap", "-p", dev])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+                    || crate::ohos::hdc()
+                        .args(["shell", "snapshot_display", "-f", dev])
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+                if !cap {
+                    return Err(
+                        "hdc screenshot failed (uitest screenCap / snapshot_display)".into(),
+                    );
+                }
+                let ok = crate::ohos::hdc()
+                    .args(["file", "recv", dev])
+                    .arg(path)
                     .status()
                     .map(|s| s.success())
                     .unwrap_or(false);
-            if !cap {
-                return Err("hdc screenshot failed (uitest screenCap / snapshot_display)".into());
+                if !ok {
+                    return Err("hdc file recv failed".into());
+                }
+                let stale = prev.is_some_and(|p| {
+                    std::fs::read(p)
+                        .ok()
+                        .zip(std::fs::read(path).ok())
+                        .is_some_and(|(a, b)| a == b)
+                });
+                if !stale {
+                    break;
+                }
             }
-            crate::ohos::hdc()
-                .args(["file", "recv", dev])
-                .arg(path)
-                .status()
-                .map_err(|e| e.to_string())
-                .and_then(|s| {
-                    if s.success() {
-                        Ok(())
-                    } else {
-                        Err("hdc file recv failed".into())
-                    }
-                })
+            Ok(())
         }
     }
 }
@@ -214,7 +235,7 @@ pub(crate) fn b64encode_public(bytes: &[u8]) -> String {
     day_script_b64::b64encode(bytes)
 }
 pub(crate) fn device_screenshot_public(target: &Target, path: &Path) -> Result<(), String> {
-    device_screenshot(target, path)
+    device_screenshot(target, path, None)
 }
 
 pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
@@ -349,7 +370,8 @@ pub fn run_scripts(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false)
                 {
-                    match device_screenshot(target, &path) {
+                    let prev = run.screenshots.last().cloned();
+                    match device_screenshot(target, &path, prev.as_deref()) {
                         Ok(()) => run.screenshots.push(path),
                         Err(e) => eprintln!("    (device screenshot failed: {e})"),
                     }

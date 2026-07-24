@@ -91,6 +91,11 @@ export default class EntryAbility extends UIAbility {
     set('day.dayscript.token', 'DAYSCRIPT_TOKEN');
     set('day.locale', 'DAY_LOCALE');
     set('day.autodrive', 'DAY_AUTODRIVE');
+    // A dayscript engine drives this session (docs/agent.md): the Index page reads this to
+    // push/pop WITHOUT transition animation — scripted bursts outrun an in-flight transition,
+    // and ArkUI Navigation drops operations issued across one (the stack wedges on a stale
+    // destination). Human sessions keep the native transitions.
+    AppStorage.setOrCreate('dayDriven', typeof params['day.dayscript.port'] === 'string');
     // Generic `day launch --env KEY=VALUE` passthrough: `day.env.KEY` → process env `KEY`.
     for (const key of Object.keys(params)) {
       if (key.startsWith('day.env.')) {

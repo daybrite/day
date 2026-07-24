@@ -69,7 +69,7 @@ pub fn pack(
     if formats.iter().any(|f| f == "apk") {
         let apk = find_output(&outcome.artifact, project, &opts.profile, "apk")?;
         verify_apk(project, &apk);
-        let out = dist.join(format!("{name}-{version}.apk"));
+        let out = dist.join(format!("{name}{}.apk", opts.version_tag(version)));
         std::fs::copy(&apk, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
             path: out,
@@ -103,7 +103,7 @@ pub fn pack(
                 aab.display()
             )));
         }
-        let out = dist.join(format!("{name}-{version}.aab"));
+        let out = dist.join(format!("{name}{}.aab", opts.version_tag(version)));
         std::fs::copy(&aab, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
             path: out,

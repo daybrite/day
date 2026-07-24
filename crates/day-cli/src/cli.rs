@@ -89,6 +89,10 @@ enum Cmd {
         /// Submit for notarization without waiting (check later: day sign --notarize-status <id>)
         #[arg(long)]
         no_wait: bool,
+        /// Omit the app version from artifact filenames (app.aab, not app-1.0.0.aab) so a
+        /// `releases/latest/download/<name>` URL stays stable across releases
+        #[arg(long)]
+        no_version_in_name: bool,
     },
     /// Signing utilities: --check validates Day.toml signing config (never prints secrets)
     Sign {
@@ -350,6 +354,7 @@ pub fn run() -> i32 {
             no_sign,
             no_notarize,
             no_wait,
+            no_version_in_name,
         } => with_project(cli.project.as_deref(), |project| {
             let opts = crate::pack::PackOptions {
                 profile,
@@ -359,6 +364,7 @@ pub fn run() -> i32 {
                 no_sign,
                 no_notarize,
                 no_wait,
+                version_in_name: !no_version_in_name,
             };
             let mut outcomes = Vec::new();
             for p in &platforms {

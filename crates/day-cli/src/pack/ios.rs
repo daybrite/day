@@ -154,7 +154,7 @@ pub fn pack(
         .ok_or_else(|| {
             PackError::Other(format!("no .ipa exported under {}", export_dir.display()))
         })?;
-    let out = dist.join(format!("{name}-{version}.ipa"));
+    let out = dist.join(format!("{name}{}.ipa", opts.version_tag(version)));
     std::fs::copy(&ipa, &out).map_err(|e| PackError::Other(e.to_string()))?;
     Ok(Artifact {
         path: out,
@@ -263,7 +263,7 @@ fn sim_zip(
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
     let name = &project.manifest.app.name;
     let version = &project.manifest.app.version;
-    let out = dist.join(format!("{name}-{version}-sim.app.zip"));
+    let out = dist.join(format!("{name}{}-sim.app.zip", opts.version_tag(version)));
     let _ = std::fs::remove_file(&out);
     run_tool(
         Command::new("ditto")

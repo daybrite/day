@@ -23,7 +23,7 @@ pub fn pack(
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
     let name = &project.manifest.app.name;
     let version = &project.manifest.app.version;
-    let out = dist.join(format!("{name}-{version}.hap"));
+    let out = dist.join(format!("{name}{}.hap", opts.version_tag(version)));
     let _ = std::fs::remove_file(&out);
 
     let ohos = project
