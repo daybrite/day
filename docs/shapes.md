@@ -4,7 +4,8 @@
 > (`day_pieces`), reactive `ShapeKind`/`fill`/`stroke`/`inset`/`rotate`/`scale`/`offset`, canvas
 > CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
 > five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
-> playground. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
+> playground. ArkUI also delivers `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan
+> recognizer on the shared kind-11 gesture wire) — long-press is still unwired there. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
 > already-replayed `Shape::Line`/`Shape::Polygon` ops — §3.1), fractional placement with
 > `.at(fx, fy, fw, fh)`, and the `shape_group`/`shape_group_fn` composites that flatten many
 > shapes into one canvas leaf (§3.6). This document is the SwiftUI

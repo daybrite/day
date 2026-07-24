@@ -50,6 +50,7 @@ the architecture-level view and the rationale.
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
+| fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | docs/cover.md | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | docs/grid.md | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | docs/focus.md | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -657,9 +658,10 @@ when(cond_fn, build_fn)            // reactive conditional subtree
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
 
-// navigation & presentation (docs/navigation.md, docs/dialogs.md, docs/menus.md, docs/files.md)
+// navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
 stack(path, root)                  // push/pop navigation bound to a Vec<Route> signal
+cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
 app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator()
@@ -681,7 +683,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 (docs/grid.md; inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()`, `.focused()`,
-`.context_menu()`, `.tweak()` / `.native_ref()` (docs/tweaks.md), `.modifier(impl Modifier)`,
+`.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
+(docs/cover.md), `.tweak()` / `.native_ref()` (docs/tweaks.md), `.modifier(impl Modifier)`,
 and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
@@ -1101,7 +1104,7 @@ pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
-    // NativeSymbols, Snapshot, NavSplit, NavHeader, Dialogs, FileDialogs)
+    // NativeSymbols, Snapshot, NavSplit, NavHeader, Dialogs, FileDialogs, Animation, Cover)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1141,6 +1144,7 @@ pub trait Toolkit: Sized + 'static {
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
     fn dismiss(&mut self, req: u64) {}
     fn open_url(&mut self, url: &str) {}   // system browser/handler for the `link` piece (§5.3)
+    fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
 
     // pillars
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13
@@ -1457,6 +1461,13 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 > - **Presentation** shipped as the `present`/`dismiss` duties (`PresentSpec` →
 >   `PresentResult`): alert/confirm/prompt/sheets and the open/save file pickers, all native,
 >   all scriptable (`assert_presented` / `respond`).
+> - **`cover(open, build)`** *(2026-07)* — a fullscreen modal Day subtree bound to a
+>   `Signal<Option<Route>>` (the SwiftUI `fullScreenCover(item:)` shape): `kinds::COVER` +
+>   `CoverPatch`, native modal VC on iOS, window overlay on Android, topmost root child on
+>   ArkUI; registers a route adapter so `navigate`/`nav_back` present and dismiss it. Ships
+>   with the system-gesture shield modifiers `defers_system_gestures(edges)` (the
+>   `defer_system_gestures` duty + `Edges`) and `interactive_dismiss_disabled()`.
+>   docs/cover.md is normative.
 >
 > The paragraphs below are the design-era rationale, kept because the trade-offs still explain
 > the shape.

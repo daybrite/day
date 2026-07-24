@@ -2225,6 +2225,32 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// While this subtree is mounted, ask the OS to require a second swipe for its edge
+    /// gestures on `edges` (docs/cover.md) — the SwiftUI `defersSystemGestures(on:)`
+    /// analogue. Put it on a game or drawing surface whose touches run to the screen edge,
+    /// so a swipe up from the bottom doesn't leave the app. iOS defers the chosen edges'
+    /// system gestures; Android enters swipe-to-reveal immersive mode while any subtree
+    /// requests deferral; desktop backends no-op.
+    fn defers_system_gestures(self, edges: day_spec::Edges) -> AnyPiece {
+        piece_fn(move |cx| {
+            let token = day_core::shield::push_gesture_deferral(edges);
+            Scope::current().on_cleanup(move || day_core::shield::pop_gesture_deferral(token));
+            self.build(cx)
+        })
+    }
+
+    /// While this subtree is mounted, the enclosing [`cover`] (or other modal surface) must
+    /// not be dismissed interactively — the SwiftUI `interactiveDismissDisabled()` analogue
+    /// (docs/cover.md). System back / sheet gestures are ignored; only programmatic writes
+    /// (an explicit close control) dismiss it.
+    fn interactive_dismiss_disabled(self) -> AnyPiece {
+        piece_fn(move |cx| {
+            let token = day_core::shield::push_dismiss_disabled();
+            Scope::current().on_cleanup(move || day_core::shield::pop_dismiss_disabled(token));
+            self.build(cx)
+        })
+    }
+
     fn any(self) -> AnyPiece {
         AnyPiece::new(self)
     }
@@ -2461,17 +2487,18 @@ pub mod prelude {
     pub use crate::TextStyle;
     pub use crate::routes;
     pub use crate::{
-        A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Decorate, Drag, Draw, FileUrl,
+        A11yBuilder, Alert, ButtonStyle, Confirm, Corner, Cover, Decorate, Drag, Draw, FileUrl,
         FilledButtonStyle, FormSection, Grid, GridRow, HAlign, IntoFocusBinding, IntoFraction,
         IntoReactive, IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, OpenFile,
         Prompt, Reactive, Route, RoutePath, SaveFile, Selector, SelectorStyle, ShapeKind,
         ShapePiece, SignalRw, Stack, VAlign, ZStack, alert, app_menu, arc, button, canvas, capsule,
-        circle, column, confirm, current_route, divider, each, ellipse, environment, form, grid,
-        grid_row, image, label, labeled, line, link, list, menu_item, menu_role, menu_separator,
-        nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker, polygon,
-        progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params, row,
-        save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider, spacer,
-        spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment, zstack,
+        circle, column, confirm, cover, current_route, divider, each, ellipse, environment, form,
+        frame_clock, grid, grid_row, image, label, labeled, line, link, list, menu_item, menu_role,
+        menu_separator, nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker,
+        polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
+        row, save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider,
+        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment,
+        zstack,
     };
     pub use crate::{Picker, TextArea};
     pub use day_core::{
@@ -2486,12 +2513,13 @@ pub mod prelude {
     pub use day_spec::props::RowHeight;
     pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
-    pub use day_spec::{DragPhase, GestureKind};
+    pub use day_spec::{DragPhase, Edges, GestureKind};
     pub use day_spec::{
         DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
     };
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     pub use day_spec::{MenuItem, MenuRole, Shortcut};
+    pub use std::time::Duration;
 }
 
 // ---------------------------------------------------------------------------
@@ -2588,6 +2616,35 @@ pub(crate) fn canvas_leaf(
 /// (via FrameChanged); replay is equality-gated by DrawOp's PartialEq (§4.2).
 pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> AnyPiece {
     piece_fn(move |cx| canvas_leaf(cx, Flex::default(), draw))
+}
+
+/// A frame clock (§8.4): an invisible, zero-size piece that calls `tick` every animation frame with
+/// the wall-clock delta since the previous frame, for as long as it is mounted. Drop it into the
+/// tree (e.g. behind a `canvas` in a `zstack`) to drive a game loop or self-driven animation: the
+/// tick mutates state `Signal`s, and a `canvas` reading them re-records that frame.
+///
+/// Backend-executed vsync: Day re-arms the platform's display link only while a `frame_clock` (or
+/// other consumer) is live and stops when the last one unmounts — no idle wakeups. The delta is
+/// clamped (≤100 ms) so a backgrounded window can't deliver a huge jump.
+///
+/// ```ignore
+/// zstack((
+///     canvas(move |d, sz| draw(d, sz, state)).grow(),
+///     frame_clock(move |dt| step(dt, state)),
+/// ))
+/// ```
+pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> AnyPiece {
+    type TickSlot = Rc<RefCell<Option<Box<dyn FnMut(std::time::Duration)>>>>;
+    // Registered on first build (in the mounting scope) and removed when that scope is disposed.
+    let slot: TickSlot = Rc::new(RefCell::new(Some(Box::new(tick))));
+    piece_fn(move |cx| {
+        if let Some(cb) = slot.borrow_mut().take() {
+            let id = day_core::add_frame_consumer(cb);
+            Scope::current().on_cleanup(move || day_core::remove_frame_consumer(id));
+        }
+        label("").frame(0.0, 0.0).build(cx)
+    })
+    .any()
 }
 
 // ---------------------------------------------------------------------------
@@ -4414,6 +4471,258 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             move || p_seg.get_untracked_rw().iter().map(|k| k.key()).collect(),
         );
         ret_node
+    }
+}
+
+// ===========================================================================
+// Cover — a fullscreen modal surface bound to a Signal<Option<Route>> (docs/cover.md).
+// ===========================================================================
+
+/// A fullscreen cover: the modal counterpart of [`stack`], bound to a `Signal<Option<R>>`.
+/// `Some(r)` presents the built content over the whole window (edge-to-edge, slide-up where
+/// the platform animates modals); `None` dismisses it. The SwiftUI analogue is
+/// `fullScreenCover(item:)`. Build one with [`cover`].
+///
+/// The open value is app state, exactly like a stack's path: set it and the cover presents;
+/// a native dismissal (Android system back) writes `None` back — unless an
+/// [`interactive_dismiss_disabled`](Decorate::interactive_dismiss_disabled) subtree is
+/// mounted inside the content, in which case only programmatic writes close it.
+/// A cover's per-route surface color (see [`Cover::background`]).
+type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
+
+pub struct Cover<S, R: Route> {
+    open: S,
+    build: Rc<dyn Fn(&R) -> AnyPiece>,
+    background: Option<CoverBackground<R>>,
+    _marker: std::marker::PhantomData<R>,
+}
+
+/// A fullscreen cover over `open`: `Some(r)` presents `build(&r)`, `None` dismisses
+/// (docs/cover.md). Registers a string-route adapter, so `navigate("<key>")` opens it and
+/// `nav_back()` closes it, and `current_route()` reports the presented key.
+pub fn cover<R: Route, S: SignalRw<Option<R>>>(
+    open: S,
+    build: impl Fn(&R) -> AnyPiece + 'static,
+) -> Cover<S, R> {
+    Cover {
+        open,
+        build: Rc::new(build),
+        background: None,
+        _marker: std::marker::PhantomData,
+    }
+}
+
+impl<S: SignalRw<Option<R>>, R: Route> Cover<S, R> {
+    /// The surface color painted edge-to-edge behind the content (under the status bar and
+    /// home indicator) while `r` is presented. Without it the platform's default surface
+    /// color shows in the unsafe areas.
+    pub fn background(mut self, f: impl Fn(&R) -> day_spec::Color + 'static) -> Self {
+        self.background = Some(Rc::new(f));
+        self
+    }
+}
+
+impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        use day_spec::props::{CoverPatch, CoverProps};
+        let Cover {
+            open,
+            build,
+            background,
+            ..
+        } = self;
+
+        let size: Rc<RefCell<Option<Size>>> = Rc::default();
+        let node = cx.native(
+            kinds::COVER,
+            &CoverProps::default(),
+            Rc::new(day_core::CoverLayout { size: size.clone() }),
+            Flex::default(),
+            Boundary::Yes,
+        );
+
+        // The presented content's scope, and whether a dismiss transition is in flight
+        // (content stays mounted until the backend reports "cover-hidden", so the surface
+        // isn't blank while it slides out).
+        struct Presented<R> {
+            key: R,
+            scope: Scope,
+        }
+        let current: Rc<RefCell<Option<Presented<R>>>> = Rc::default();
+        let closing: Rc<Cell<bool>> = Rc::default();
+        let owner_scope = Scope::current();
+
+        let dispose_content = {
+            let current = current.clone();
+            move || {
+                if let Some(p) = current.borrow_mut().take() {
+                    p.scope.dispose();
+                }
+                while with_tree(|t| t.child_count(node)) > 0 {
+                    match with_tree(|t| t.first_child(node)) {
+                        Some(c) => with_tree(|t| t.remove_subtree(c)),
+                        None => break,
+                    }
+                }
+            }
+        };
+
+        // Reconcile the presented surface to the signal.
+        let reconcile = {
+            let (current, closing, dispose_content) =
+                (current.clone(), closing.clone(), dispose_content.clone());
+            move |want: &Option<R>| match want {
+                Some(r) => {
+                    let already =
+                        !closing.get() && current.borrow().as_ref().is_some_and(|p| p.key == *r);
+                    if already {
+                        return;
+                    }
+                    dispose_content();
+                    closing.set(false);
+                    let scope = owner_scope.enter(Scope::child);
+                    // Run the app's builder INSIDE the presentation scope: side effects it
+                    // performs eagerly (state restore, autosave/cleanup registration, signals)
+                    // must belong to the presented content's lifetime, not the cover's.
+                    scope.enter(|| {
+                        let content = (build)(r);
+                        let mut c = BuildCx::new(node);
+                        let _ = content.build(&mut c);
+                    });
+                    *current.borrow_mut() = Some(Presented {
+                        key: r.clone(),
+                        scope,
+                    });
+                    // Content is mounted, so any `interactive_dismiss_disabled` inside it has
+                    // registered — the present patch carries the resolved flag.
+                    let bg = background.as_ref().map(|f| f(r));
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(CoverPatch::Present {
+                                background: bg,
+                                dismiss_disabled: day_core::shield::dismiss_disabled(),
+                            }),
+                            false,
+                        );
+                        t.mark_needs_measure(node);
+                        t.mark_layout_dirty();
+                        t.layout_if_needed();
+                    });
+                }
+                None => {
+                    if current.borrow().is_some() && !closing.get() {
+                        closing.set(true);
+                        with_tree(|t| t.patch(node, Box::new(CoverPatch::Dismiss), false));
+                    }
+                }
+            }
+        };
+        {
+            let o = open.clone();
+            bind(move || o.get_rw(), move |want: &Option<R>| reconcile(want));
+        }
+
+        // While presented, keep the backend's dismiss-disabled flag in sync with the
+        // mounted `interactive_dismiss_disabled` modifiers (the shield's change counter
+        // makes this binding re-run as they mount/unmount).
+        {
+            let current = current.clone();
+            bind(
+                day_core::shield::dismiss_disabled,
+                move |disabled: &bool| {
+                    if current.borrow().is_some() {
+                        with_tree(|t| {
+                            t.patch(
+                                node,
+                                Box::new(CoverPatch::DismissDisabled(*disabled)),
+                                false,
+                            )
+                        });
+                    }
+                },
+            );
+        }
+
+        {
+            let (o, size, closing, dispose_content) = (
+                open.clone(),
+                size.clone(),
+                closing.clone(),
+                dispose_content.clone(),
+            );
+            cx.on(node, move |ev| match ev {
+                // The backend sized the presented content container (safe-area bounds).
+                Event::FrameChanged(sz) => {
+                    if *size.borrow() != Some(*sz) {
+                        *size.borrow_mut() = Some(*sz);
+                        with_tree(|t| {
+                            t.mark_needs_measure(node);
+                            t.mark_layout_dirty();
+                            t.layout_if_needed();
+                        });
+                    }
+                }
+                // Native dismissal request (Android system back). Honored unless an
+                // `interactive_dismiss_disabled` subtree is mounted.
+                Event::NavBack { .. } => {
+                    if !day_core::shield::dismiss_disabled() && o.get_untracked_rw().is_some() {
+                        o.set_rw(None);
+                    }
+                }
+                // The hide transition finished — now the content can go.
+                Event::Custom { tag, text, .. }
+                    if (*tag == "cover-hidden" || text.as_str() == "cover-hidden")
+                        && closing.get() =>
+                {
+                    closing.set(false);
+                    dispose_content();
+                }
+                _ => {}
+            });
+        }
+
+        // String-route adapter (docs/navigation.md): `navigate("<key>")` presents, `nav_back()`
+        // dismisses, and the presented key is this surface's `current_route()` contribution.
+        let o_push = open.clone();
+        let o_pop = open.clone();
+        let o_cur = open.clone();
+        let o_enter = open.clone();
+        let o_seg = open;
+        let push = move |k: &str, sig: &S| match R::from_key(k) {
+            Some(r) => {
+                sig.set_rw(Some(r));
+                true
+            }
+            None => false,
+        };
+        let push2 = push;
+        register_route_surface(
+            move |k| push(k, &o_push),
+            move |_| {
+                if o_pop.get_untracked_rw().is_some() {
+                    o_pop.set_rw(None);
+                    true
+                } else {
+                    false
+                }
+            },
+            move || {
+                o_cur
+                    .get_untracked_rw()
+                    .map(|r| r.key())
+                    .unwrap_or_default()
+            },
+            move |k| push2(k, &o_enter),
+            move || {
+                o_seg
+                    .get_untracked_rw()
+                    .map(|r| vec![r.key()])
+                    .unwrap_or_default()
+            },
+        );
+
+        node
     }
 }
 

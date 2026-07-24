@@ -220,6 +220,9 @@ impl Toolkit for MockToolkit {
             Cap::Snapshot => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
             Cap::Animation => Support::Native,
+            // Covers "present" by recording the patch (probe-visible); tests emit the
+            // FrameChanged size report themselves, as the native surface would.
+            Cap::Cover => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -410,6 +413,26 @@ impl Toolkit for MockToolkit {
                     NavPatch::Title(t) => {
                         w.text = t.clone();
                         format!("nav title={t:?}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                // `flag` records presented-ness (probe-visible). Tests emit the FrameChanged
+                // size report and the "cover-hidden" custom event, as the native surface would.
+                match p {
+                    CoverPatch::Present {
+                        background,
+                        dismiss_disabled,
+                    } => {
+                        w.flag = true;
+                        w.background = *background;
+                        format!(
+                            "cover present bg={background:?} dismiss_disabled={dismiss_disabled}"
+                        )
+                    }
+                    CoverPatch::DismissDisabled(d) => format!("cover dismiss_disabled={d}"),
+                    CoverPatch::Dismiss => {
+                        w.flag = false;
+                        "cover dismiss".into()
                     }
                 }
             } else if let Some(ContainerPatch::Background(c)) =
@@ -687,6 +710,13 @@ impl Toolkit for MockToolkit {
     fn open_url(&mut self, url: &str) {
         // No browser to launch; record it so op-log assertions can verify a `link` fired.
         self.state.borrow_mut().log(format!("open_url {url}"));
+    }
+
+    fn defer_system_gestures(&mut self, edges: day_spec::Edges) {
+        // No system gestures to defer; record the union (docs/cover.md) for op-log asserts.
+        self.state
+            .borrow_mut()
+            .log(format!("defer_system_gestures edges={:#06b}", edges.0));
     }
 
     // The remaining duties, implemented observably so mock stays a COMPLETE conformance probe

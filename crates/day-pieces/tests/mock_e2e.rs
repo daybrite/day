@@ -2383,3 +2383,83 @@ fn picker_and_text_area_are_built_in() {
     assert_eq!(choice.get_untracked(), 0);
     assert_eq!(draft.get_untracked(), "typed");
 }
+
+/// Cover (docs/cover.md): Some(route) presents + builds content, the native FrameChanged
+/// report lays the content out at the reported size, nav_back dismisses, and the content is
+/// disposed only after the backend reports the hide finished ("cover-hidden").
+#[test]
+fn cover_presents_lays_out_and_dismisses() {
+    let probe = boot(|| {
+        let open = Signal::new(None::<String>);
+        zstack((
+            label("home"),
+            cover(open, |k: &String| label(format!("game-{k}")).any()),
+        ))
+        .any()
+    });
+    flush_sync();
+    assert!(probe.find_by_kind("day.cover").len() == 1, "cover realized");
+
+    // Present via the string-route adapter the cover registers.
+    assert!(day_core::navigate("breakout"));
+    flush_sync();
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .any(|l| l.contains("cover present")),
+        "present patch reached the backend: {:?}",
+        probe.mutations()
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "game-breakout"),
+        "content built under the cover"
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some("breakout"));
+
+    // The native surface reports its content size; the content lays out inside it.
+    let cover_id = node_id(&probe, "day.cover", 0);
+    probe.emit(cover_id, Event::FrameChanged(Size::new(400.0, 600.0)));
+    flush_sync();
+    let game = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "game-breakout")
+        .expect("game label");
+    assert!(
+        game.1.frame.size.width > 0.0,
+        "content laid out after the size report (frame {:?})",
+        game.1.frame
+    );
+
+    // nav_back writes None; the backend gets the dismiss patch; content survives the hide
+    // transition and is disposed on the hidden report.
+    assert!(day_core::nav_back());
+    flush_sync();
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .any(|l| l.contains("cover dismiss")),
+        "dismiss patch reached the backend"
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "game-breakout"),
+        "content stays mounted while the hide transition runs"
+    );
+    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    flush_sync();
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "game-breakout"),
+        "content disposed after the hide finished"
+    );
+}

@@ -1012,6 +1012,28 @@ impl Layout for NavLayout {
     }
 }
 
+/// Fullscreen cover (docs/cover.md): the COVER node occupies no space where it sits in the
+/// tree (its native surface is presented over the window, outside the parent's bounds), and
+/// its content is laid out at the size the backend reported via `Event::FrameChanged` — the
+/// same native-owned-frame contract as [`NavLayout`] pages.
+pub struct CoverLayout {
+    pub size: std::rc::Rc<std::cell::RefCell<Option<Size>>>,
+}
+
+impl Layout for CoverLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], _p: Proposal) -> Size {
+        Size::new(0.0, 0.0)
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], _bounds: Rect) {
+        let Some(sz) = *self.size.borrow() else {
+            return; // not presented yet — content lays out on the first FrameChanged
+        };
+        for &child in children {
+            cx.place_child_native(child, Rect::from_size(sz));
+        }
+    }
+}
+
 /// Helper for constructing shared layout Rcs.
 pub fn rc_layout<L: Layout>(l: L) -> Rc<dyn Layout> {
     Rc::new(l)

@@ -100,6 +100,17 @@ mod imp {
         /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
         /// matching TAP_NODES entry (else a recycling list would grow the set unbounded).
         static TAP_HANDLES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Fullscreen covers (docs/cover.md): handle ptr → day NodeId. A cover's frame is
+        /// native-owned (full window while presented), so `set_frame` skips these.
+        static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// A cover's CURRENT native parent (the tree slot it was parked in, or the window
+        /// root while presented) — presenting re-homes it, so removals must target this.
+        static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+        /// The window root Stack + its size, KEPT for the app's lifetime (unlike [`ROOT`],
+        /// which `run` consumes) — covers re-home onto it while presented.
+        static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
+        /// Monotonic base for frame-clock timestamps (§8.4).
+        static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
     }
 
     /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — leading-aligned
@@ -154,6 +165,18 @@ mod imp {
         if let Some(sink) = sink {
             sink(id, ev);
         }
+    }
+
+    /// Emit `ev` on the next loop turn — for events produced INSIDE a toolkit duty (which runs
+    /// under the tree borrow, so a synchronous emit would re-enter it).
+    fn post_emit(id: NodeId, ev: Event) {
+        struct Payload(NodeId, Event);
+        extern "C" fn deliver(data: *mut c_void) {
+            let p = unsafe { Box::from_raw(data as *mut Payload) };
+            emit(p.0, p.1);
+        }
+        let data = Box::into_raw(Box::new(Payload(id, ev))) as *mut c_void;
+        unsafe { ffi::day_ark_post(deliver, data) };
     }
 
     fn cstr(s: &str) -> CString {
@@ -249,6 +272,7 @@ mod imp {
             ffi::day_ark_content_add(content, root.0);
         }
         ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
+        ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
     }
 
     /// The native event callback the shim invokes. Kind numbers are
@@ -290,6 +314,41 @@ mod imp {
             // Focus pair + text-input submit (docs/focus.md).
             16 => Event::FocusChanged(num != 0.0),
             17 => Event::Submitted,
+            // Pan/drag gesture (docs/shapes.md): `num` = phase (1 began, 2 changed, 3 ended),
+            // `text` = "x,y,tx,ty" in px — converted to vp like the Android bridge.
+            11 => {
+                let text = if text.is_null() {
+                    String::new()
+                } else {
+                    unsafe { CStr::from_ptr(text) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
+                if p.len() < 4 {
+                    return;
+                }
+                let d = DENSITY.with(|x| x.get());
+                let at = Point::new(p[0] / d, p[1] / d);
+                let tr = Point::new(p[2] / d, p[3] / d);
+                match num as i32 {
+                    1 => Event::Drag {
+                        phase: day_spec::DragPhase::Began,
+                        location: at,
+                        translation: Point::ZERO,
+                    },
+                    3 => Event::Drag {
+                        phase: day_spec::DragPhase::Ended,
+                        location: at,
+                        translation: tr,
+                    },
+                    _ => Event::Drag {
+                        phase: day_spec::DragPhase::Changed,
+                        location: at,
+                        translation: tr,
+                    },
+                }
+            }
             3 => {
                 // ArkUI slider reports 0..100; map back to the node's day range.
                 let (min, max) = SLIDER_RANGE
@@ -384,6 +443,11 @@ mod imp {
     #[unsafe(no_mangle)]
     pub extern "C" fn day_arkui_resized(w: f64, h: f64) {
         if w > 0.0 && h > 0.0 {
+            ROOT_KEEP.with(|r| {
+                if let Some((ptr, _, _)) = r.get() {
+                    r.set(Some((ptr, w, h)));
+                }
+            });
             emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
         }
     }
@@ -636,6 +700,14 @@ mod imp {
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }
+                // Fullscreen cover (docs/cover.md): a Stack that CoverPatch::Present re-homes
+                // onto the window root at full bounds (day owns layout, so the "modal" is a
+                // topmost full-window child; no transition on this backend).
+                kinds::COVER => {
+                    let n = new_node(K_STACK);
+                    COVER_NODES.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    n
+                }
                 // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
                 // against this menu host (via a synthetic click id, see day_arkui_on_event).
                 kinds::NAV_MENU => {
@@ -754,6 +826,53 @@ mod imp {
                         unsafe { ffi::day_ark_set_bg_color(h.0, argb(*c)) };
                     }
                 }
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        let node = COVER_NODES
+                            .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                            .map(NodeId);
+                        let Some(node) = node else { return };
+                        match p {
+                            CoverPatch::Present { background, .. } => {
+                                let bg = background
+                                    .map(argb)
+                                    .unwrap_or_else(|| theme_color(0xFFFF_FFFF, 0xFF1A_1A1C));
+                                let Some((root, w, hgt)) = ROOT_KEEP.with(|r| r.get()) else {
+                                    return;
+                                };
+                                let key = h.0 as usize;
+                                let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
+                                if prev == Some(root) {
+                                    return; // already presented
+                                }
+                                unsafe {
+                                    ffi::day_ark_set_bg_color(h.0, bg);
+                                    // Detach from the tree slot it was parked in, then top the
+                                    // window root at full bounds.
+                                    if let Some(p) = prev {
+                                        ffi::day_ark_remove_child(p as *mut _, h.0);
+                                    }
+                                    ffi::day_ark_add_child(root as *mut _, h.0);
+                                    ffi::day_ark_set_frame(h.0, 0.0, 0.0, w, hgt);
+                                }
+                                COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
+                                // Report the content size OUTSIDE this tree borrow.
+                                post_emit(node, Event::FrameChanged(Size::new(w, hgt)));
+                            }
+                            // No interactive dismissal on this backend — nothing to disable.
+                            CoverPatch::DismissDisabled(_) => {}
+                            CoverPatch::Dismiss => {
+                                let key = h.0 as usize;
+                                let cur = COVER_PARENTS.with(|m| m.borrow_mut().remove(&key));
+                                if let Some(p) = cur {
+                                    unsafe { ffi::day_ark_remove_child(p as *mut _, h.0) };
+                                }
+                                // No hide transition: the content can go immediately.
+                                post_emit(node, Event::custom("cover-hidden", ""));
+                            }
+                        }
+                    }
+                }
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
@@ -838,6 +957,12 @@ mod imp {
             NAV_PAGE_IDS.with(|m| {
                 m.borrow_mut().remove(&key);
             });
+            COVER_NODES.with(|m| {
+                m.borrow_mut().remove(&key);
+            });
+            COVER_PARENTS.with(|m| {
+                m.borrow_mut().remove(&key);
+            });
             SLIDER_RANGE.with(|m| {
                 m.borrow_mut().remove(&key);
             });
@@ -871,12 +996,21 @@ mod imp {
             {
                 NAV_ATTACHED.with(|v| v.borrow_mut().push((child.0 as usize, id)));
             }
+            // A cover's CURRENT parent starts as its tree slot (Present re-homes it).
+            if COVER_NODES.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
+                COVER_PARENTS.with(|m| m.borrow_mut().insert(child.0 as usize, parent.0 as usize));
+            }
             unsafe { ffi::day_ark_insert_child(parent.0, child.0, index as c_int) };
         }
 
         fn remove(&mut self, parent: &AHandle, child: &AHandle) {
             let cp = child.0 as usize;
             NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != cp));
+            // A presented cover lives under the window root, not its tree parent.
+            if let Some(cur) = COVER_PARENTS.with(|m| m.borrow_mut().remove(&cp)) {
+                unsafe { ffi::day_ark_remove_child(cur as *mut _, child.0) };
+                return;
+            }
             if let Some(key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&cp)) {
                 // The page lives in an ArkTS NodeContent (NavDestination), not under the host.
                 // Detach it ONLY while that destination is still alive (a Day-initiated pop:
@@ -958,6 +1092,10 @@ mod imp {
                 unsafe { ffi::day_ark_set_size(h.0, frame.size.width, frame.size.height) };
                 return;
             }
+            // A cover's frame is native-owned: full window while presented, parked otherwise.
+            if COVER_NODES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+                return;
+            }
             unsafe {
                 ffi::day_ark_set_frame(
                     h.0,
@@ -1002,12 +1140,17 @@ mod imp {
 
         fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: GestureKind) {
             // Tap is a NODE_ON_CLICK that emits `Event::Tap` (tracked in TAP_NODES so the shared
-            // click receiver knows to send Tap, not Pressed). Long-press / drag aren't wired on
-            // ArkUI yet — a piece that needs them degrades to no gesture.
-            if matches!(kind, GestureKind::Tap) {
-                TAP_NODES.with(|s| s.borrow_mut().insert(node.0));
-                TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node.0));
-                unsafe { ffi::day_ark_register_event(h.0, 0, node.0) };
+            // click receiver knows to send Tap, not Pressed). Drag is a native pan recognizer
+            // (docs/shapes.md) whose phases arrive on the shared kind-11 gesture wire.
+            // Long-press isn't wired on ArkUI yet — a piece that needs it degrades to no gesture.
+            match kind {
+                GestureKind::Tap => {
+                    TAP_NODES.with(|s| s.borrow_mut().insert(node.0));
+                    TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node.0));
+                    unsafe { ffi::day_ark_register_event(h.0, 0, node.0) };
+                }
+                GestureKind::Drag => unsafe { ffi::day_ark_enable_pan(h.0, node.0) },
+                _ => {}
             }
         }
 
@@ -1077,6 +1220,8 @@ mod imp {
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::FileDialogs => Support::Native,
+                // Emulated: a topmost full-window child of the root, not a system modal.
+                Cap::Cover => Support::Emulated,
                 _ => Support::Unsupported,
             }
         }
@@ -1097,6 +1242,28 @@ mod imp {
         fn post(f: Box<dyn FnOnce() + Send>) {
             let data = Box::into_raw(Box::new(f)) as *mut c_void;
             unsafe { ffi::day_ark_post(run_posted, data) };
+        }
+
+        /// Frame clock (§8.4): ArkUI's NDK has no per-vsync callback the NodeAPI can re-arm,
+        /// so a ~16 ms one-shot uv_timer on the JS loop stands in (day-core re-arms while a
+        /// frame consumer is live). Timestamps come from a monotonic epoch captured at first
+        /// use.
+        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+            extern "C" fn fire(data: *mut c_void) {
+                let cb = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce(f64)>) };
+                let ts = FRAME_EPOCH.with(|e| {
+                    e.borrow_mut()
+                        .get_or_insert_with(std::time::Instant::now)
+                        .elapsed()
+                        .as_secs_f64()
+                });
+                cb(ts);
+            }
+            FRAME_EPOCH.with(|e| {
+                e.borrow_mut().get_or_insert_with(std::time::Instant::now);
+            });
+            let data = Box::into_raw(Box::new(cb)) as *mut c_void;
+            unsafe { ffi::day_ark_post_delayed(fire, data, 16) };
         }
     }
 

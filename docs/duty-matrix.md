@@ -39,6 +39,7 @@ implement them, and this table proves it.
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | ✓ |
 | `on_suspend` | · | · | · | · | · | · | · | · | ✓ |
 | `on_resume` | · | · | · | · | · | · | · | · | ✓ |
 | `on_memory_warning` | · | · | · | · | · | · | · | · | ✓ |

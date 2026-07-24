@@ -37,6 +37,7 @@ mod imp {
     use objc2_core_foundation::{CGAffineTransform, CGFloat, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::CGContext;
     use objc2_foundation::{NSObject, NSString};
+    use objc2_quartz_core::CADisplayLink;
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
     use objc2_ui_kit::NSIndexPathUIKitAdditions as _;
@@ -50,9 +51,9 @@ mod imp {
     };
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
-        UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIProgressView, UIScreen,
-        UIScrollView, UISlider, UISwitch, UITextBorderStyle, UITextField, UIView,
-        UIViewAnimationOptions, UIViewController, UIWindow,
+        UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIModalPresentationStyle,
+        UIProgressView, UIRectEdge, UIScreen, UIScrollView, UISlider, UISwitch, UITextBorderStyle,
+        UITextField, UIView, UIViewAnimationOptions, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
@@ -68,7 +69,7 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
+        A11yProps, AnimSpec, Cap, Curve, DrawOp, Edges, Event, EventSink, Font, ListSource, NodeId,
         PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
         Transform, WINDOW_NODE, WindowOptions, kinds,
     };
@@ -100,6 +101,12 @@ mod imp {
         #[allow(clippy::type_complexity)]
         static PENDING: RefCell<Option<(Uikit, WindowOptions, Box<dyn FnOnce(Uikit, Handle, Size)>)>> =
             RefCell::new(None);
+        /// The frame clock (§8.4): a single persistent CADisplayLink, paused when idle, plus the
+        /// one pending vsync callback day-core asked for. `request_frame` stores the cb + un-pauses;
+        /// `step:` takes the cb, calls it with the frame timestamp, and re-pauses if none was queued.
+        #[allow(clippy::type_complexity)]
+        static FRAME: RefCell<(Option<Retained<CADisplayLink>>, Option<Box<dyn FnOnce(f64)>>)> =
+            RefCell::new((None, None));
     }
 
     /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
@@ -206,6 +213,44 @@ mod imp {
     impl DayTarget {
         fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DayFrameTarget — the CADisplayLink target for the frame clock (§8.4)
+    // -----------------------------------------------------------------------
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitFrameTarget"]
+        #[ivars = ()]
+        struct DayFrameTarget;
+
+        unsafe impl NSObjectProtocol for DayFrameTarget {}
+
+        impl DayFrameTarget {
+            /// One vsync tick. Deliver the pending callback (day-core re-arms it if it wants more),
+            /// then pause the link if nothing was re-queued so an idle app stops waking the display.
+            #[unsafe(method(step:))]
+            fn step(&self, link: &CADisplayLink) {
+                let ts = unsafe { link.timestamp() };
+                let cb = FRAME.with(|f| f.borrow_mut().1.take());
+                if let Some(cb) = cb {
+                    cb(ts);
+                }
+                let idle = FRAME.with(|f| f.borrow().1.is_none());
+                if idle {
+                    unsafe { link.setPaused(true) };
+                }
+            }
+        }
+    );
+
+    impl DayFrameTarget {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -633,6 +678,125 @@ mod imp {
             });
             unsafe { msg_send![super(this), init] }
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Cover (docs/cover.md): a fullscreen modal DayCoverVC whose view is a
+    // DayNavPageView (safe-area pinning + FrameChanged reports), presented and
+    // dismissed through the modal FIFO like every other VC transition.
+    // -------------------------------------------------------------------
+
+    struct CoverState {
+        vc: Retained<DayCoverVC>,
+        node: NodeId,
+    }
+
+    thread_local! {
+        /// Cover content view ptr → its presentation state.
+        static COVER_STATE: RefCell<HashMap<usize, CoverState>> = RefCell::new(HashMap::new());
+        /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
+        /// and cover VCs' `preferredScreenEdgesDeferringSystemGestures` overrides.
+        static DEFER_EDGES: Cell<u8> = const { Cell::new(0) };
+    }
+
+    /// Day `Edges` bits → `UIRectEdge` (leading/trailing map to left/right).
+    fn rect_edges() -> UIRectEdge {
+        let bits = DEFER_EDGES.with(|e| e.get());
+        let mut edge = UIRectEdge::empty();
+        if bits & Edges::TOP.0 != 0 {
+            edge |= UIRectEdge::Top;
+        }
+        if bits & Edges::BOTTOM.0 != 0 {
+            edge |= UIRectEdge::Bottom;
+        }
+        if bits & Edges::LEADING.0 != 0 {
+            edge |= UIRectEdge::Left;
+        }
+        if bits & Edges::TRAILING.0 != 0 {
+            edge |= UIRectEdge::Right;
+        }
+        edge
+    }
+
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayCoverVC"]
+        #[ivars = ()]
+        struct DayCoverVC;
+
+        /// The presented cover is the VC UIKit consults for system-gesture deferral, so the
+        /// `defers_system_gestures` union applies while a game/cover is up.
+        impl DayCoverVC {
+            #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
+            fn preferred_edges(&self) -> UIRectEdge {
+                rect_edges()
+            }
+        }
+    );
+
+    impl DayCoverVC {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayRootVC"]
+        #[ivars = ()]
+        struct DayRootVC;
+
+        /// Same override on the window root, so the modifier also works outside a cover.
+        impl DayRootVC {
+            #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
+            fn preferred_edges(&self) -> UIRectEdge {
+                rect_edges()
+            }
+        }
+    );
+
+    impl DayRootVC {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Queue the cover's presentation behind any in-flight modal transition (§dialogs FIFO).
+    fn cover_present(vc: Retained<DayCoverVC>) {
+        modal_enqueue(ModalOp::Run(Box::new(move || {
+            if vc.presentingViewController().is_some() {
+                return; // already up (a re-present while closing was cancelled)
+            }
+            let Some(top) = topmost_vc() else { return };
+            modal_begin_transition();
+            let completion = block2::RcBlock::new(modal_end_transition);
+            unsafe {
+                top.presentViewController_animated_completion(&vc, true, Some(&completion));
+            }
+        })));
+    }
+
+    /// Queue the cover's dismissal; the completion reports "cover-hidden" so the piece can
+    /// dispose the content only after it left the screen.
+    fn cover_dismiss(vc: Retained<DayCoverVC>, node: NodeId) {
+        modal_enqueue(ModalOp::Run(Box::new(move || {
+            let Some(presenting) = vc.presentingViewController() else {
+                emit(node, Event::custom("cover-hidden", ""));
+                return;
+            };
+            modal_begin_transition();
+            let completion = block2::RcBlock::new(move || {
+                emit(node, Event::custom("cover-hidden", ""));
+                modal_end_transition();
+            });
+            unsafe {
+                presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
+            }
+        })));
     }
 
     // -------------------------------------------------------------------
@@ -1585,7 +1749,7 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs | Cap::Animation => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs | Cap::Animation | Cap::Cover => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1656,6 +1820,27 @@ mod imp {
                     }
                     let handle = view_of(content);
                     PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
+                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    handle
+                }
+                // Fullscreen cover (docs/cover.md): a DayCoverVC over a DayNavPageView (safe-
+                // area pinning + FrameChanged reports, like a nav page), created detached;
+                // CoverPatch::Present shows it modally over the whole window.
+                kinds::COVER => {
+                    let outer = DayNavPageView::new(mtm, id);
+                    let content = unsafe { UIView::new(mtm) };
+                    unsafe { outer.addSubview(&content) };
+                    let vc = DayCoverVC::new(mtm);
+                    unsafe {
+                        vc.setView(Some(&outer));
+                        vc.setModalPresentationStyle(UIModalPresentationStyle::FullScreen);
+                    }
+                    let handle = view_of(content);
+                    COVER_STATE.with(|m| {
+                        m.borrow_mut()
+                            .insert(ptr_of(&handle), CoverState { vc, node: id })
+                    });
+                    // The content view's frame is native-owned (the cover VC lays it out).
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     handle
                 }
@@ -2012,6 +2197,31 @@ mod imp {
                         }
                     }
                 }
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        let state = COVER_STATE
+                            .with(|m| m.borrow().get(&ptr_of(h)).map(|s| (s.vc.clone(), s.node)));
+                        let Some((vc, node)) = state else { return };
+                        match p {
+                            CoverPatch::Present {
+                                background,
+                                dismiss_disabled,
+                            } => {
+                                if let (Some(c), Some(view)) = (background, vc.view()) {
+                                    unsafe { view.setBackgroundColor(Some(&uicolor(*c))) };
+                                }
+                                // Inert under .fullScreen, but honored if the presentation
+                                // style ever becomes a sheet.
+                                unsafe { vc.setModalInPresentation(*dismiss_disabled) };
+                                cover_present(vc);
+                            }
+                            CoverPatch::DismissDisabled(d) => unsafe {
+                                vc.setModalInPresentation(*d);
+                            },
+                            CoverPatch::Dismiss => cover_dismiss(vc, node),
+                        }
+                    }
+                }
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
@@ -2233,6 +2443,9 @@ mod imp {
             PAGE_VCS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            COVER_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
             NAV_MENUS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -2282,7 +2495,15 @@ mod imp {
                     unsafe { nav.setViewControllers(&arr) };
                 }
                 Some(None) => {}
-                None => unsafe { parent.addSubview(child) },
+                None => {
+                    // A cover's content view already lives inside its DayCoverVC's view —
+                    // reparenting it into the tree slot (addSubview MOVES a view) would
+                    // strand the presented cover empty (docs/cover.md).
+                    if COVER_STATE.with(|m| m.borrow().contains_key(&ptr_of(child))) {
+                        return;
+                    }
+                    unsafe { parent.addSubview(child) }
+                }
             }
         }
 
@@ -2746,6 +2967,23 @@ mod imp {
             }
         }
 
+        fn defer_system_gestures(&mut self, edges: Edges) {
+            DEFER_EDGES.with(|e| e.set(edges.0));
+            // Re-query the override on the root VC and every cover VC (UIKit consults the
+            // topmost presented VC, which is the cover while one is up).
+            let root_vc = WINDOW
+                .with(|w| w.borrow().clone())
+                .and_then(|w| w.rootViewController());
+            if let Some(vc) = root_vc {
+                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+            }
+            let covers: Vec<Retained<DayCoverVC>> =
+                COVER_STATE.with(|m| m.borrow().values().map(|s| s.vc.clone()).collect());
+            for vc in covers {
+                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+            }
+        }
+
         fn ui_idle(&mut self) -> bool {
             let active = MODAL_BUSY.get()
                 || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
@@ -3116,7 +3354,9 @@ mod imp {
                 let mtm = MainThreadMarker::new().unwrap();
                 let bounds = UIScreen::mainScreen(mtm).bounds();
                 let window = unsafe { UIWindow::initWithFrame(UIWindow::alloc(mtm), bounds) };
-                let vc = unsafe { UIViewController::new(mtm) };
+                // A DayRootVC (not a plain UIViewController) so `defers_system_gestures`
+                // reaches the window root's screen-edge override (docs/cover.md).
+                let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
                 let holder = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
                 let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
                 // RTL locales (docs/localization): force the semantic content attribute on
@@ -3374,6 +3614,34 @@ mod imp {
 
         fn post(f: Box<dyn FnOnce() + Send>) {
             dispatch2::DispatchQueue::main().exec_async(f);
+        }
+
+        /// Frame clock (§8.4): store the pending callback and un-pause the shared CADisplayLink,
+        /// creating it (paused) on first use and attaching it to the main run loop in common modes
+        /// so it keeps firing during scroll/tracking. `DayFrameTarget::step` delivers it.
+        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+            let mtm = mtm();
+            FRAME.with(|f| {
+                let mut f = f.borrow_mut();
+                f.1 = Some(cb);
+                if f.0.is_none() {
+                    let target = DayFrameTarget::new(mtm);
+                    let link = unsafe {
+                        CADisplayLink::displayLinkWithTarget_selector(&target, sel!(step:))
+                    };
+                    unsafe {
+                        let run_loop = objc2_foundation::NSRunLoop::mainRunLoop();
+                        link.addToRunLoop_forMode(
+                            &run_loop,
+                            objc2_foundation::NSRunLoopCommonModes,
+                        );
+                    }
+                    f.0 = Some(link);
+                }
+                if let Some(link) = f.0.as_ref() {
+                    unsafe { link.setPaused(false) };
+                }
+            });
         }
     }
 }

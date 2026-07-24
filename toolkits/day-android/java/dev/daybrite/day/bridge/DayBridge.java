@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.TypedValue;
+import android.view.Choreographer;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -79,6 +80,8 @@ public final class DayBridge {
     public static final int K_SUBMITTED = 17;
     public static final int K_WINDOW_RESIZED = 18;
     public static native void nativeRunPosted(long token);
+    /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
+    public static native void nativeDoFrame(long token, long frameTimeNanos);
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);
@@ -87,6 +90,17 @@ public final class DayBridge {
     public static void postMain(final long token) {
         main.post(new Runnable() {
             public void run() { nativeRunPosted(token); }
+        });
+    }
+
+    /**
+     * Frame clock (§8.4): schedule one Choreographer frame callback (called on the UI thread, so
+     * getInstance() yields the UI thread's Choreographer). One-shot — day-core re-arms while a
+     * frame consumer is live.
+     */
+    public static void requestFrame(final long token) {
+        Choreographer.getInstance().postFrameCallback(new Choreographer.FrameCallback() {
+            public void doFrame(long frameTimeNanos) { nativeDoFrame(token, frameTimeNanos); }
         });
     }
 
@@ -250,6 +264,7 @@ public final class DayBridge {
                 && ((ViewGroup) v).getChildCount() > 0) {
             return ((ViewGroup) v).getChildAt(0);
         }
+        if (v instanceof DayCover) return ((DayCover) v).content;
         return v;
     }
     /** Minimal scroll so `[x,y,w,h]` (content px) is visible — scrollRectToVisible semantics.
@@ -381,7 +396,16 @@ public final class DayBridge {
 
     /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
      *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
+    /** Per-view enabled gestures `{wantsTap, wantsDrag}` — a view can carry both (tap + drag), so
+     *  the single OnTouchListener must emit whichever the node asked for. UIKit's recognizers
+     *  coexist; a bare setOnTouchListener does not, so we accumulate here rather than overwrite. */
+    static final java.util.WeakHashMap<View, boolean[]> gestureFlags = new java.util.WeakHashMap<>();
+
     public static void enableGesture(View v, final long id, final boolean isDrag) {
+        boolean[] flags = gestureFlags.get(v);
+        if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }
+        if (isDrag) flags[1] = true; else flags[0] = true;
+        final boolean[] f = flags; // {wantsTap, wantsDrag}
         v.setOnTouchListener(new View.OnTouchListener() {
             float sx, sy;
             public boolean onTouch(View view, MotionEvent ev) {
@@ -389,21 +413,20 @@ public final class DayBridge {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         sx = x; sy = y;
-                        if (isDrag) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
                         return true;
                     case MotionEvent.ACTION_MOVE:
-                        if (isDrag) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                     case MotionEvent.ACTION_UP:
-                        if (isDrag) {
-                            nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
-                        } else if (Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[0] && Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
                             nativeOnEvent(id, K_GESTURE, 0, x + "," + y + ",0,0");
                             view.performClick();
                         }
                         return true;
                     case MotionEvent.ACTION_CANCEL:
-                        if (isDrag) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
+                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
                         return true;
                 }
                 return false;
@@ -637,6 +660,38 @@ public final class DayBridge {
     }
     public static void navPush(View host, String title) { ((DayNavHost) host).push(title); }
     public static void navPop(View host) { ((DayNavHost) host).pop(); }
+
+    // --- fullscreen cover (docs/cover.md) ---
+    public static View makeCover(long node) { return new DayCover(ctx, node); }
+    public static void coverPresent(View cover, int bg, boolean hasBg, boolean dismissDisabled) {
+        DayCover c = (DayCover) cover;
+        if (hasBg) c.setBackgroundColor(bg);
+        c.present(dismissDisabled);
+    }
+    public static void coverSetDismissDisabled(View cover, boolean d) {
+        ((DayCover) cover).setDismissDisabled(d);
+    }
+    public static void coverDismiss(View cover) { ((DayCover) cover).dismissCover(); }
+
+    /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
+     *  is mounted, enter swipe-to-reveal immersive mode — the platform's "first swipe shows
+     *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
+     *  deferral. Restores normal bars when the last request unmounts. */
+    public static void setDeferSystemGestures(boolean on) {
+        android.app.Activity act = (android.app.Activity) ctx;
+        androidx.core.view.WindowInsetsControllerCompat c =
+                androidx.core.view.WindowCompat.getInsetsController(
+                        act.getWindow(), act.getWindow().getDecorView());
+        if (on) {
+            c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
+                    .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+        } else {
+            c.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
+                    .BEHAVIOR_DEFAULT);
+        }
+    }
 
     // Tabs (docs/tabs.md): a DayTabs strip; each page is a DayFixed carrying its title as a tag.
     public static View makeTabs(long id, int initial) { return new DayTabs(ctx, id, initial); }

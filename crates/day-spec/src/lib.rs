@@ -64,6 +64,11 @@ pub mod kinds {
     pub const LIST: &str = "day.list";
     /// A recycled row's content anchor inside a `LIST`; Day adopts the native cell as its handle.
     pub const LIST_CELL: &str = "day.list_cell";
+    /// A fullscreen cover (docs/cover.md): a modal surface presented over the whole window,
+    /// edge-to-edge, driven by `CoverPatch::{Present,Dismiss}`. The handle is the cover's
+    /// CONTENT container; its frame is native-owned while presented (the backend sizes it to
+    /// the safe area and reports it via `Event::FrameChanged`).
+    pub const COVER: &str = "day.cover";
 }
 
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
@@ -507,6 +512,9 @@ pub enum Cap {
     /// `update`/`set_frame`/`set_opacity`/`set_transform` (§8.4). `Unsupported` ⇒ animated calls
     /// apply instantly (still correct, just not animated).
     Animation,
+    /// The toolkit presents a `kinds::COVER` node as a native fullscreen modal surface
+    /// (docs/cover.md). `Unsupported` ⇒ the `cover` piece's content never shows.
+    Cover,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -514,6 +522,39 @@ pub enum Support {
     Native,
     Emulated,
     Unsupported,
+}
+
+/// A set of screen edges, for the `defers_system_gestures` modifier (docs/cover.md). Mirrors
+/// SwiftUI's `Edge.Set`: on iOS these map to `UIRectEdge` for
+/// `preferredScreenEdgesDeferringSystemGestures`; on Android any non-empty set enters
+/// swipe-to-reveal immersive mode (the closest platform analogue).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Edges(pub u8);
+
+impl Edges {
+    pub const NONE: Edges = Edges(0);
+    pub const TOP: Edges = Edges(1);
+    pub const BOTTOM: Edges = Edges(2);
+    pub const LEADING: Edges = Edges(4);
+    pub const TRAILING: Edges = Edges(8);
+    pub const ALL: Edges = Edges(15);
+
+    pub fn contains(self, other: Edges) -> bool {
+        self.0 & other.0 == other.0
+    }
+    pub fn union(self, other: Edges) -> Edges {
+        Edges(self.0 | other.0)
+    }
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl std::ops::BitOr for Edges {
+    type Output = Edges;
+    fn bitor(self, rhs: Edges) -> Edges {
+        self.union(rhs)
+    }
 }
 
 /// The timing curve of an animation (§8.4). Native backends map each variant onto their own
@@ -1316,6 +1357,32 @@ pub mod props {
         pub sidebar: bool,
     }
 
+    /// A fullscreen cover's content container (docs/cover.md). Realized detached and hidden;
+    /// `CoverPatch::Present` shows it over the whole window.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CoverProps {}
+
+    /// Applied to a `kinds::COVER` node as its bound signal opens and closes it.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum CoverPatch {
+        /// Present the cover fullscreen (slide up where the platform animates modals).
+        /// `background` paints the whole surface edge-to-edge (under the status bar / home
+        /// indicator); the content container is inset to the safe area within it.
+        /// `dismiss_disabled` = the user must not be able to dismiss it interactively
+        /// (system back / sheet gestures); programmatic dismissal still works.
+        Present {
+            background: Option<Color>,
+            dismiss_disabled: bool,
+        },
+        /// The `interactive_dismiss_disabled` state changed while presented.
+        DismissDisabled(bool),
+        /// Dismiss the cover. When the hide transition finishes the backend emits
+        /// `Event::custom("cover-hidden", "")` on the node (trampoline backends send
+        /// `BridgeKind::Custom` with `text == "cover-hidden"`), letting the piece dispose
+        /// the content only after it left the screen.
+        Dismiss,
+    }
+
     /// Native navigation item list. `items` are display titles in route order;
     /// `selected` highlights the active route (split presentation; None on mobile roots).
     /// `icons` (parallel to `items`, `None` = no icon) are BUNDLED IMAGE NAMES resolved by each
@@ -1728,6 +1795,13 @@ pub trait Toolkit: Sized + 'static {
     /// forget: there is no result, and an unopenable URL is ignored. The default no-ops so a
     /// backend that hasn't wired it up still compiles.
     fn open_url(&mut self, _url: &str) {}
+
+    /// Ask the OS to require a second swipe for its edge gestures on `edges` (docs/cover.md) —
+    /// the union requested by every mounted `defers_system_gestures` modifier, re-sent whenever
+    /// that set changes (`Edges::NONE` when the last one unmounts). iOS defers the home
+    /// indicator / notification edges; Android enters swipe-to-reveal immersive mode while
+    /// non-empty. The default no-ops (desktop has no system edge gestures).
+    fn defer_system_gestures(&mut self, _edges: Edges) {}
 
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}

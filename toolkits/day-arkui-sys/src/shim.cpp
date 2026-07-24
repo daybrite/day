@@ -6,6 +6,7 @@
 // The ArkUI headers assume C++ (bool, forward-declared types), so this is compiled as C++.
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -16,11 +17,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <arkui/native_gesture.h>
 #include <arkui/native_interface.h>
 #include <arkui/native_interface_focus.h>
 #include <arkui/native_node.h>
 #include <arkui/native_node_napi.h>
 #include <arkui/native_type.h>
+#include <arkui/ui_input_event.h>
 #include <hilog/log.h>
 #include <napi/native_api.h>
 #include <rawfile/raw_file.h>
@@ -30,6 +33,7 @@
 // OH_Drawing (native 2-D) for the canvas custom node's on-draw callback (§11).
 #include <native_drawing/drawing_brush.h>
 #include <native_drawing/drawing_canvas.h>
+#include <native_drawing/drawing_error_code.h>
 #include <native_drawing/drawing_font.h>
 #include <native_drawing/drawing_matrix.h>
 #include <native_drawing/drawing_path.h>
@@ -65,6 +69,7 @@ extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const 
 #define DAY_K_TOGGLE_CHANGED 2
 #define DAY_K_VALUE_CHANGED 3
 #define DAY_K_SELECTION_CHANGED 4
+#define DAY_K_GESTURE 11
 #define DAY_K_PRESENT_FILE 15
 #define DAY_K_FOCUS_CHANGED 16
 #define DAY_K_SUBMITTED 17
@@ -115,6 +120,8 @@ static uv_async_t g_async;
 static std::mutex g_mtx;
 static std::deque<PostItem> g_queue;
 static bool g_async_ready = false;
+// The JS event loop (captured at start) — day_ark_post_delayed's uv_timer needs it.
+static uv_loop_t* g_loop = nullptr;
 
 static void drain_async(uv_async_t*) {
     for (;;) {
@@ -500,6 +507,78 @@ void day_ark_post(void (*cb)(void*), void* data) {
     if (g_async_ready) uv_async_send(&g_async);
 }
 
+// Delayed main-thread post (the frame clock's tick source, §8.4): run `cb(data)` after `ms`
+// on the JS loop via a one-shot uv_timer. JS thread only (uv_timer_init is not thread-safe).
+struct DayTimer {
+    uv_timer_t timer; // first member: the uv_handle_t* IS the DayTimer*
+    void (*cb)(void*);
+    void* data;
+};
+static void day_timer_closed(uv_handle_t* h) { free(h); }
+static void day_timer_fire(uv_timer_t* t) {
+    DayTimer* dt = (DayTimer*)t;
+    void (*cb)(void*) = dt->cb;
+    void* data = dt->data;
+    uv_timer_stop(t);
+    uv_close((uv_handle_t*)t, day_timer_closed);
+    cb(data);
+}
+void day_ark_post_delayed(void (*cb)(void*), void* data, uint32_t ms) {
+    if (!g_loop) {
+        day_ark_post(cb, data);
+        return;
+    }
+    DayTimer* dt = (DayTimer*)malloc(sizeof(DayTimer));
+    if (!dt) return;
+    dt->cb = cb;
+    dt->data = data;
+    uv_timer_init(g_loop, &dt->timer);
+    uv_timer_start(&dt->timer, day_timer_fire, ms, 0);
+}
+
+// Pan/drag gesture (docs/shapes.md): a native pan recognizer whose events reach Rust as the
+// shared kind-11 gesture wire ("x,y,tx,ty" in px; phase 1=began 2=changed 3=ended). Location
+// is component-relative from the raw pointer event.
+static ArkUI_NativeGestureAPI_1* g_gesture = nullptr;
+static void pan_receiver(ArkUI_GestureEvent* ev, void* extra) {
+    uint64_t id = (uint64_t)(uintptr_t)extra;
+    ArkUI_GestureEventActionType action = OH_ArkUI_GestureEvent_GetActionType(ev);
+    double phase;
+    switch (action) {
+        case GESTURE_EVENT_ACTION_ACCEPT: phase = 1.0; break;
+        case GESTURE_EVENT_ACTION_UPDATE: phase = 2.0; break;
+        default: phase = 3.0; break; // END or CANCEL
+    }
+    float tx = OH_ArkUI_PanGesture_GetOffsetX(ev);
+    float ty = OH_ArkUI_PanGesture_GetOffsetY(ev);
+    float x = 0.0f, y = 0.0f;
+    const ArkUI_UIInputEvent* in = OH_ArkUI_GestureEvent_GetRawInputEvent(ev);
+    if (in) {
+        x = OH_ArkUI_PointerEvent_GetX(in);
+        y = OH_ArkUI_PointerEvent_GetY(in);
+    }
+    char buf[96];
+    snprintf(buf, sizeof buf, "%.2f,%.2f,%.2f,%.2f", x, y, tx, ty);
+    day_arkui_on_event(id, DAY_K_GESTURE, phase, buf);
+}
+void day_ark_enable_pan(void* node, uint64_t id) {
+    if (!g_gesture) {
+        OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_GESTURE, ArkUI_NativeGestureAPI_1, g_gesture);
+    }
+    if (!g_gesture || !node) return;
+    ArkUI_GestureRecognizer* pan =
+        g_gesture->createPanGesture(1, GESTURE_DIRECTION_ALL, 3.0);
+    if (!pan) return;
+    g_gesture->setGestureEventTarget(
+        pan,
+        (ArkUI_GestureEventActionTypeMask)(GESTURE_EVENT_ACTION_ACCEPT |
+                                           GESTURE_EVENT_ACTION_UPDATE |
+                                           GESTURE_EVENT_ACTION_END |
+                                           GESTURE_EVENT_ACTION_CANCEL),
+        (void*)(uintptr_t)id, pan_receiver);
+    g_gesture->addGestureToNode((ArkUI_NodeHandle)node, pan, NORMAL, NORMAL_GESTURE_MASK);
+}
+
 double day_ark_density(void) { return g_density; }
 
 // Ask the ArkTS-registered picker to open/save a file. Runs on the JS thread, so a plain
@@ -858,9 +937,25 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 OH_Drawing_FontSetTextSize(font, e);
                 OH_Drawing_TextBlob* blob = OH_Drawing_TextBlobCreateFromString(
                     s.c_str(), font, TEXT_ENCODING_UTF8);
-                float x = a;
-                if (f == 1.0f) x = a - (float)s.size() * e * 0.28f; // rough centering
-                OH_Drawing_CanvasDrawTextBlob(cv, blob, x, b);
+                float x = a, y = b;
+                if (f == 1.0f) {
+                    // Centered on (a,b): measured width, and the baseline placed from the
+                    // font metrics (Skia-style: ascent negative, descent positive) — the
+                    // same formula as the Android canvas backend, so glyphs land dead
+                    // center on every platform (the 2048 tile digits are the acid test).
+                    float w = 0.0f;
+                    if (OH_Drawing_FontMeasureText(font, s.c_str(), s.size(),
+                                                   TEXT_ENCODING_UTF8, nullptr,
+                                                   &w) == OH_DRAWING_SUCCESS) {
+                        x = a - w / 2.0f;
+                    } else {
+                        x = a - (float)s.size() * e * 0.28f; // fallback guess
+                    }
+                    OH_Drawing_Font_Metrics m;
+                    OH_Drawing_FontGetMetrics(font, &m);
+                    y = b - (m.ascent + m.descent) / 2.0f;
+                }
+                OH_Drawing_CanvasDrawTextBlob(cv, blob, x, y);
                 OH_Drawing_TextBlobDestroy(blob);
                 OH_Drawing_FontDestroy(font);
                 break;
@@ -1130,6 +1225,7 @@ static napi_value DayStart(napi_env env, napi_callback_info info) {
         uv_async_init(loop, &g_async, drain_async);
         g_async_ready = true;
     }
+    g_loop = loop;
 
     ArkUI_NodeContentHandle content = nullptr;
     OH_ArkUI_GetNodeContentFromNapiValue(env, argv[0], &content);

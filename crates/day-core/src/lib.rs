@@ -4,16 +4,22 @@
 
 mod anim;
 mod build;
+pub mod frame;
 mod layout;
 pub mod lifecycle;
 pub mod list;
 pub mod menu;
 mod nav;
 mod present;
+pub mod shield;
 mod tree;
 
 pub use anim::{current_anim, with_animation};
 pub use build::*;
+pub use frame::{
+    FrameConsumer, add_frame_consumer, frame_consumer_count, install_frame_requester,
+    remove_frame_consumer,
+};
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{BuiltRow, ListDriver, install_list, list_reload, list_scroll_to_end};
@@ -128,6 +134,9 @@ pub fn launch_with<P: Platform>(
         let handle = present::task(fut);
         Box::new(move || handle.abort())
     });
+    // The frame clock (§8.4): the animation driver re-arms the platform's vsync callback while any
+    // frame consumer (game loop / self-driven animation) is live.
+    frame::install_frame_requester(|cb| P::request_frame(cb));
 
     // WillLaunch: before the window/UI exists (docs/lifecycle.md). Fired uniformly by day-core so
     // it is reliable on every backend; handlers must not touch the tree (there isn't one yet).

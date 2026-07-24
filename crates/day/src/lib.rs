@@ -296,6 +296,17 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeDoFrame(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            token: $crate::android::jni::sys::jlong,
+            frame_nanos: $crate::android::jni::sys::jlong,
+        ) {
+            $crate::android::run_frame(token, frame_nanos);
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListLen(
             _env: $crate::android::jni::EnvUnowned,
             _class: $crate::android::jni::objects::JClass,
@@ -327,7 +338,9 @@ macro_rules! android_main {
 #[cfg(all(feature = "widget", target_os = "android"))]
 pub mod android {
     pub use day_android::jni;
-    pub use day_android::{dispatch_event, list_bind, list_len, read_jstring, run_posted};
+    pub use day_android::{
+        dispatch_event, list_bind, list_len, read_jstring, run_frame, run_posted,
+    };
 
     #[allow(clippy::too_many_arguments)]
     pub fn start(

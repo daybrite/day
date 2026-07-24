@@ -162,6 +162,13 @@ NodeAPI nodes, verified on the Oniro emulator:
 - **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
   500-row list only builds the visible cells.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
+- **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
+  NDK gesture API, reported on the shared kind-11 wire in px). Long-press is not wired.
+- **Frame clock** (§8.4) — `Platform::request_frame` rides a ~16 ms one-shot `uv_timer` on the
+  JS loop (the NodeAPI has no re-armable vsync callback), so `frame_clock` game loops and
+  self-driven animations run; Day-Games' breakout/sirtet/2048 play on the emulator.
+- **Fullscreen cover** (docs/cover.md) — `Cap::Cover` answers `Emulated`: the cover node is
+  re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 
 Images/webview/lottie/map pieces are not yet wired (they render as placeholders). Packaging + signing
 run headlessly via the command-line-tools (see Build & run) with no Huawei developer account: hvigor

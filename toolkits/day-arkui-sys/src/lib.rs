@@ -119,6 +119,14 @@ unsafe extern "C" {
     /// Post a closure to the main (JS) thread via libuv.
     pub fn day_ark_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
+    /// Post a closure to the main (JS) thread after `ms` milliseconds (a one-shot uv_timer) —
+    /// the frame clock's tick source (§8.4). JS thread only.
+    pub fn day_ark_post_delayed(cb: extern "C" fn(*mut c_void), data: *mut c_void, ms: u32);
+
+    /// Attach a native pan recognizer to `node` (docs/shapes.md): drag phases reach Rust as
+    /// kind-11 gesture events against `id` ("x,y,tx,ty" px; 1=began 2=changed 3=ended).
+    pub fn day_ark_enable_pan(node: *mut c_void, id: u64);
+
     /// Display density (px per vp), captured from the ArkTS host at start.
     pub fn day_ark_density() -> f64;
 
@@ -186,6 +194,7 @@ mod bridge_kinds_parity {
             ("DAY_K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
             ("DAY_K_VALUE_CHANGED", BridgeKind::ValueChanged),
             ("DAY_K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
+            ("DAY_K_GESTURE", BridgeKind::Gesture),
             ("DAY_K_PRESENT_FILE", BridgeKind::PresentFile),
             ("DAY_K_FOCUS_CHANGED", BridgeKind::FocusChanged),
             ("DAY_K_SUBMITTED", BridgeKind::Submitted),

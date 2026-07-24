@@ -884,6 +884,14 @@ mod imp {
         f();
     }
 
+    /// Frame-callback trampoline (the app's `nativeDoFrame` forwards here). `frame_nanos` is
+    /// `Choreographer`'s frame time in nanoseconds; day-core wants seconds. Runs on the UI thread.
+    pub fn run_frame(token: i64, frame_nanos: i64) {
+        let f: Box<Box<dyn FnOnce(f64)>> =
+            unsafe { Box::from_raw(token as *mut Box<dyn FnOnce(f64)>) };
+        f(frame_nanos as f64 / 1_000_000_000.0);
+    }
+
     #[distributed_slice]
     pub static RENDERERS: [fn() -> Renderer<Android>];
 
@@ -1082,9 +1090,18 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs | Cap::Animation => Support::Native,
+                Cap::Dialogs | Cap::FileDialogs | Cap::Animation | Cap::Cover => Support::Native,
                 _ => Support::Unsupported,
             }
+        }
+
+        fn defer_system_gestures(&mut self, edges: day_spec::Edges) {
+            // Any non-empty request enters swipe-to-reveal immersive mode (docs/cover.md).
+            call_void(
+                "setDeferSystemGestures",
+                "(Z)V",
+                &[JValue::Bool(!edges.is_empty())],
+            );
         }
 
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -1280,6 +1297,16 @@ mod imp {
                     AHandle(make_view(
                         env,
                         "makeNavPage",
+                        "(J)Landroid/view/View;",
+                        &[JValue::Long(idj)],
+                    ))
+                }),
+                // Fullscreen cover (docs/cover.md): a DayCover shell whose content pane is the
+                // Day mount point; CoverPatch::Present re-homes it over the activity content.
+                kinds::COVER => with_env(|env| {
+                    AHandle(make_view(
+                        env,
+                        "makeCover",
                         "(J)Landroid/view/View;",
                         &[JValue::Long(idj)],
                     ))
@@ -1530,6 +1557,35 @@ mod imp {
                                 &[JValue::Object(h.0.as_obj())],
                             ),
                             NavPatch::Title(_) => {}
+                        }
+                    }
+                }
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        match p {
+                            CoverPatch::Present {
+                                background,
+                                dismiss_disabled,
+                            } => call_void(
+                                "coverPresent",
+                                "(Landroid/view/View;IZZ)V",
+                                &[
+                                    JValue::Object(h.0.as_obj()),
+                                    JValue::Int(background.map(argb_i32).unwrap_or(0)),
+                                    JValue::Bool(background.is_some()),
+                                    JValue::Bool(*dismiss_disabled),
+                                ],
+                            ),
+                            CoverPatch::DismissDisabled(d) => call_void(
+                                "coverSetDismissDisabled",
+                                "(Landroid/view/View;Z)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*d)],
+                            ),
+                            CoverPatch::Dismiss => call_void(
+                                "coverDismiss",
+                                "(Landroid/view/View;)V",
+                                &[JValue::Object(h.0.as_obj())],
+                            ),
                         }
                     }
                 }
@@ -2063,6 +2119,14 @@ mod imp {
                     env.exception_clear();
                 }
             });
+        }
+
+        /// Frame clock (§8.4): hand the pending callback to `Choreographer.postFrameCallback` (a
+        /// one-shot; day-core re-arms while a frame consumer is live). `DayBridge.nativeDoFrame`
+        /// trampolines back to `run_frame` on the UI thread with the frame time.
+        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+            let token = Box::into_raw(Box::new(cb)) as i64;
+            call_void("requestFrame", "(J)V", &[JValue::Long(token)]);
         }
     }
 }

@@ -506,6 +506,8 @@ pub trait TreeOps {
     fn dismiss(&mut self, req: u64);
     /// Open `url` in the platform's default handler (the `link` piece's seam).
     fn open_url(&mut self, url: &str);
+    /// Re-send the union of every mounted `defers_system_gestures` request (docs/cover.md).
+    fn defer_system_gestures(&mut self, edges: day_spec::Edges);
 
     // Recycling list seam (docs/list.md, §10). Called by day-core's own `ListSource` closures
     // (via `with_tree`) when the native list pulls rows; never nested inside another borrow.
@@ -553,6 +555,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn open_url(&mut self, url: &str) {
         self.toolkit.open_url(url);
+    }
+
+    fn defer_system_gestures(&mut self, edges: day_spec::Edges) {
+        self.toolkit.defer_system_gestures(edges);
     }
 
     fn create_node(
@@ -708,11 +714,27 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind) {
-        if let Some(n) = self.nodes.get(node)
-            && let Some(h) = n.handle.clone()
-        {
-            self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
+        // `.on_tap`/`.on_drag` often land on a LAYOUT-ONLY wrapper (`.frame()`, `.padding()`,
+        // `.grow()` produce one) that has no native view to carry a recognizer. Descend
+        // through single-child layout-only nodes to the nearest native descendant and attach
+        // there — but deliver events against the ORIGINAL node, where the modifier registered
+        // its handler.
+        let mut cur = node;
+        for _ in 0..16 {
+            let Some(n) = self.nodes.get(cur) else { return };
+            if let Some(h) = n.handle.clone() {
+                self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
+                return;
+            }
+            match n.children.as_slice() {
+                [only] => cur = *only,
+                _ => break,
+            }
         }
+        eprintln!(
+            "day: enable_gesture({kind:?}) found no native view under the target node — \
+             the gesture will not fire natively (attach it to a piece with a native handle)"
+        );
     }
 
     fn focus_node(&mut self, node: RNode, focused: bool) {
