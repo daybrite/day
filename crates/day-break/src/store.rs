@@ -36,6 +36,9 @@ pub fn store_dir(app_id: &str, override_dir: Option<&Path>) -> PathBuf {
 
     #[cfg(all(target_os = "linux", target_env = "ohos"))]
     {
+        // The OHOS sandbox is already per-app, so this path doesn't namespace by app id (the
+        // desktop block below, which does, is unreachable here).
+        let _ = app_id;
         for var in ["OHOS_APP_FILES_DIR", "HOME", "TMPDIR"] {
             if let Some(v) = std::env::var_os(var)
                 && !v.is_empty()
