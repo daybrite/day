@@ -28,7 +28,6 @@ pub fn store_dir(app_id: &str, override_dir: Option<&Path>) -> PathBuf {
     if let Some(d) = override_dir {
         return d.to_path_buf();
     }
-    let slug = slug(app_id);
 
     #[cfg(target_os = "android")]
     if let Some(base) = crate::java_android::files_dir() {
@@ -38,27 +37,32 @@ pub fn store_dir(app_id: &str, override_dir: Option<&Path>) -> PathBuf {
     #[cfg(all(target_os = "linux", target_env = "ohos"))]
     {
         for var in ["OHOS_APP_FILES_DIR", "HOME", "TMPDIR"] {
-            if let Some(v) = std::env::var_os(var) {
-                if !v.is_empty() {
-                    return PathBuf::from(v).join("day-break");
-                }
+            if let Some(v) = std::env::var_os(var)
+                && !v.is_empty()
+            {
+                return PathBuf::from(v).join("day-break");
             }
         }
         return PathBuf::from("/data/storage/el2/base/haps/entry/files/day-break");
     }
 
+    // Desktop (and iOS/macOS): namespace under the app id. Computed here, AFTER the mobile
+    // early-returns, so it isn't a dead binding on the sandboxed targets (ohos returns above).
     #[allow(unreachable_code)]
-    if let Some(home) = std::env::var_os("HOME") {
-        let base = PathBuf::from(home);
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        return base
-            .join("Library/Application Support")
-            .join(&slug)
-            .join("day-break");
-        #[allow(unreachable_code)]
-        base.join(format!(".{slug}")).join("day-break")
-    } else {
-        std::env::temp_dir().join(slug).join("day-break")
+    {
+        let slug = slug(app_id);
+        if let Some(home) = std::env::var_os("HOME") {
+            let base = PathBuf::from(home);
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
+            return base
+                .join("Library/Application Support")
+                .join(&slug)
+                .join("day-break");
+            #[allow(unreachable_code)]
+            base.join(format!(".{slug}")).join("day-break")
+        } else {
+            std::env::temp_dir().join(slug).join("day-break")
+        }
     }
 }
 
