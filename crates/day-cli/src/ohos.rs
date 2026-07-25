@@ -449,6 +449,17 @@ pub fn build_ohos(
                 format!("AR_{}", triple.replace('-', "_")),
                 format!("{ndk}/llvm/bin/llvm-ar"),
             )
+            // bindgen (rquickjs-sys under day-lite, docs/lite.md §13) runs the HOST libclang,
+            // which inherits neither the CC_* wrapper nor its sysroot — feed it the same flags
+            // the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from the
+            // clang -target, per the wrapper).
+            .env(
+                format!("BINDGEN_EXTRA_CLANG_ARGS_{}", triple.replace('-', "_")),
+                format!(
+                    "--target={} --sysroot={ndk}/sysroot -D__MUSL__",
+                    triple.replace("-unknown", "")
+                ),
+            )
             .args([
                 "rustc",
                 "-p",
@@ -689,8 +700,10 @@ fn install_and_start(
     spec: &LaunchSpec,
 ) -> Result<(), String> {
     // Keep the screen awake + in never-doze power mode so it doesn't re-lock mid-run (best-effort).
-    // The timeout extension matters for screenshots: a walkthrough on the TCG emulator runs for
-    // minutes, and `uitest screenCap` captures a black frame once the display sleeps.
+    // The timeout override is i32::MAX (~24 days), not a session-sized number: once the display
+    // sleeps the keyguard returns, `uitest screenCap` captures black frames, and — worse — a
+    // long-idle guest refuses the unlock swipe outright ("developer mode … cannot be unlocked
+    // automatically"), stranding every later `aa start` until the emulator is rebooted.
     let _ = hdc_for(key)
         .args(["shell", "power-shell", "wakeup"])
         .status();
@@ -698,7 +711,7 @@ fn install_and_start(
         .args(["shell", "power-shell", "setmode", "602"])
         .status();
     let _ = hdc_for(key)
-        .args(["shell", "power-shell", "timeout", "-o", "600000"])
+        .args(["shell", "power-shell", "timeout", "-o", "2147483647"])
         .status();
     unlock_keyguard(key);
 

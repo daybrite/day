@@ -300,6 +300,12 @@ automatically scriptable (§4). The daylite superapp is this builder plus catalo
 
 ## 11. Testing: `day lite test`
 
+> [!NOTE]
+> The `day lite test` CLI subcommand is **not currently built into the published `day` binary**:
+> day-cli must not depend on `day-lite` while `day-lite` stays unpublished (`publish = false`) on
+> crates.io. The runner itself lives in the `day-lite` crate — call `day_lite::run_tests(dir)`
+> directly, or re-add the `Lite` subcommand to day-cli once `day-lite` is publishable.
+
 Headless unit tests ship inside the miniapp (`tests/*.test.ts`):
 
 ```ts

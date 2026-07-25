@@ -611,7 +611,6 @@ dependencies = [
  "clap",
  "day-build",
  "day-fonts",
- "day-lite",
  "day-toolchain",
  "handlebars",
  "icu",

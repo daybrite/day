@@ -61,8 +61,6 @@ day-fonts = { workspace = true }
 # the string baked into the constant. `sanitize_ident` re-exported from here.
 day-build = { workspace = true }
 
-# `day lite test` (docs/lite.md §11): the miniapp test-runner core.
-day-lite = { workspace = true }
 
 # Ctrl-C child cleanup uses POSIX signals only (Windows relies on console propagation).
 [target.'cfg(unix)'.dependencies]

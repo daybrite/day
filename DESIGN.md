@@ -68,7 +68,7 @@ the architecture-level view and the rationale.
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
-| day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, `day lite test` | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
 | API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
@@ -303,7 +303,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
-| `day-lite` | dynamic miniapps (docs/lite.md): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the `day lite test` runner core | day-core, day-pieces (`dyn-registry`), day-part-http |
+| `day-lite` | dynamic miniapps (docs/lite.md): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-arkui` (+`day-arkui-sys`) | backend crates | day-spec (NOT day-core) |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
@@ -1928,7 +1928,7 @@ registration macros (so a superapp's custom pieces are scriptable automatically)
 are day-reactive `Signal`s (one reactive system across both languages), parts are exposed as
 permission-gated bridge modules, and sqlite + a sandboxed filesystem are built in. The
 `apps/daylite` superapp (catalog, install/update, permission disclosure) is the reference
-embedding; `day lite test` runs a miniapp's own headless tests against day-mock.
+embedding; day-lite's runner runs a miniapp's own headless tests against day-mock.
 
 ### §16.1 Design goals
 
@@ -2042,8 +2042,13 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day ohos` | HarmonyOS helpers (emulator management, …; docs/harmonyos.md) |
-| `day lite test [<dir>]` | run a miniapp's headless `tests/*.test.ts` against the `day.*` API (docs/lite.md §11); exit 5 on failure |
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) |
+
+> [!NOTE]
+> `day lite test` (docs/lite.md §11) is **not** built into the published `day` CLI yet: day-cli must
+> not depend on `day-lite`, which stays `publish = false` until it ships on crates.io. The runner core
+> lives in `day-lite` (`day_lite::run_tests`); re-add the `Lite` subcommand + the `day-lite` dependency
+> to expose it once day-lite is publishable.
 
 #### `day new`
 

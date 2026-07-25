@@ -171,11 +171,6 @@ enum Cmd {
         #[command(subcommand)]
         cmd: OhosCmd,
     },
-    /// day-lite miniapp tools (docs/lite.md)
-    Lite {
-        #[command(subcommand)]
-        cmd: LiteCmd,
-    },
     /// PLUMBING: invoked by the Xcode script phase (reads Xcode's env)
     #[command(name = "xcode-backend", hide = true)]
     XcodeBackend {
@@ -332,16 +327,6 @@ pub enum EmulatorCmd {
         /// No window (hdc-only) — for CI / headless hosts.
         #[arg(long)]
         headless: bool,
-    },
-}
-
-#[derive(clap::Subcommand)]
-pub enum LiteCmd {
-    /// Run a miniapp's headless tests (tests/*.test.ts against the day.* API; docs/lite.md §11)
-    Test {
-        /// The miniapp directory (holds manifest.json); defaults to the current directory
-        #[arg(default_value = ".")]
-        path: String,
     },
 }
 
@@ -542,9 +527,6 @@ pub fn run() -> i32 {
                 5
             }
         },
-        Cmd::Lite {
-            cmd: LiteCmd::Test { path },
-        } => crate::lite::test(&path),
         Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
         Cmd::New { what } => match what {
