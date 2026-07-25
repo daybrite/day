@@ -41,6 +41,10 @@ day-build = { workspace = true }
 
 [dependencies]
 day = { workspace = true }
+# Consent-first crash reporting (docs/break.md) — the Crash Reporting page arms it and shows the
+# previous run's report. Optional in general; here it demonstrates the whole flow. Its consent UI
+# (`ui` feature, on by default) is built from ordinary pieces, so no per-backend wiring is needed.
+day-break = { workspace = true }
 # A HEADLESS capability crate (no UI Piece): app Rust code calls day_part_battery::status() directly.
 day-part-battery = { workspace = true }
 day-part-sensors = { workspace = true }

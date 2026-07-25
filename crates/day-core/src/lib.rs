@@ -87,6 +87,47 @@ thread_local! {
 
 use day_spec::{Platform, WindowOptions};
 
+// ---- crash observation (§8.5) --------------------------------------------------------------
+
+/// Observer called AFTER day-core contains a panic at one of its trampoline boundaries
+/// (`contain_posted_panic` here, `tree::pump_events`) — on the panicking thread, after the
+/// reactive-runtime reset. A crash reporter (day-break, docs/break.md) registers one to
+/// downgrade the report its panic hook just wrote: the panic was caught, the process is not
+/// dying. A plain `fn` (no closure) so the containment path allocates nothing.
+static CONTAINED_PANIC_OBSERVER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Register the contained-panic observer. First registration wins; later calls are no-ops
+/// (there is one crash reporter per process).
+pub fn set_contained_panic_observer(f: fn()) {
+    let _ = CONTAINED_PANIC_OBSERVER.set(f);
+}
+
+pub(crate) fn notify_contained_panic() {
+    if let Some(f) = CONTAINED_PANIC_OBSERVER.get() {
+        f();
+    }
+}
+
+/// The compile-time target key of the running backend (`"macos-appkit"`, `"ios-uikit"`, …,
+/// the `Platform::TARGET` string), recorded by [`launch_with`]. `None` before launch.
+pub fn backend_name() -> Option<&'static str> {
+    BACKEND_NAME.get().copied()
+}
+
+static BACKEND_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Write a framework diagnostic line to stderr, IGNORING I/O errors. `eprintln!`/`println!` PANIC
+/// when the write fails — most commonly a broken/closed stderr pipe, which happens routinely when
+/// the parent `day launch` tears the app down or the controlling terminal goes away. Such a panic
+/// raised from inside a native trampoline (the event sink, a lifecycle callback, a GCD/glib block)
+/// unwinds into non-Rust frames and ABORTS the process (`panic_cannot_unwind`) — turning a clean
+/// exit into a spurious crash. Framework logging on those paths must never panic, so it goes
+/// through here rather than the `*println!` macros.
+pub(crate) fn diag(args: std::fmt::Arguments<'_>) {
+    use std::io::Write as _;
+    let _ = writeln!(std::io::stderr(), "{args}");
+}
+
 /// Run a posted main-thread task, CONTAINING any panic (the `pump_events` twin for the poster /
 /// scheduler doors): log the cause and reset the reactive runtime so the app keeps running
 /// (degraded) instead of aborting across the native trampoline's non-unwind boundary.
@@ -97,11 +138,12 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
             .map(|s| (*s).to_string())
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "unknown panic".to_string());
-        eprintln!(
+        diag(format_args!(
             "day: a posted main-thread task panicked and was contained — the app continues, but \
              reactive/UI state may be inconsistent until the next interaction. Cause: {msg}"
-        );
+        ));
         day_reactive::recover_from_panic();
+        notify_contained_panic();
     }
 }
 
@@ -114,6 +156,8 @@ pub fn launch_with<P: Platform>(
     options: WindowOptions,
     root_piece: impl FnOnce() -> AnyPiece + 'static,
 ) {
+    // Record the backend identity for runtime introspection (crash reports, diagnostics).
+    let _ = BACKEND_NAME.set(P::TARGET);
     // Reactive plumbing rides the platform's main-loop poster. Both doors CONTAIN panics (the
     // `pump_events` rationale, tree.rs): posted closures run inside native main-loop trampolines
     // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a

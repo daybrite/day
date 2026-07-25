@@ -97,12 +97,24 @@ day::routes! {
         Services => "services",
         Resources => "resources",
         Tweaks => "tweaks",
+        CrashReporting => "crash",
         Map => "map",
         About => "about",
     }
 }
 
+/// Arm crash reporting (docs/break.md) — the Crash Reporting page demonstrates it. Idempotent
+/// (day-break's `init` is single-shot); safe to call from every entry point.
+pub fn install_crash_reporting() {
+    let _ = day_break::Config::new()
+        // "Send report" opens a prefilled email to the developer (no server needed).
+        .reporter(day_break::EmailReporter::new("crashdemo@daybrite.dev"))
+        .init();
+}
+
 pub fn root() -> AnyPiece {
+    // Arm crash capture before the UI mounts so the Crash Reporting page's crashes are recorded.
+    install_crash_reporting();
     install_locales(
         "en",
         &[
@@ -256,6 +268,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_tweaks(),
             res::images::nav_tweaks,
             tweaks_page,
+        )
+        .item_icon(
+            Section::CrashReporting,
+            crate::res::str::nav_crash(),
+            res::images::nav_crash,
+            crash_page,
         );
     // A native MapKit map — Apple platforms only (docs/map.md).
     #[cfg(any(target_os = "macos", target_os = "ios"))]

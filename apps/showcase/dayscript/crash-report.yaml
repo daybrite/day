@@ -1,0 +1,13 @@
+name: crash-report
+description: >
+  Run on the launch AFTER crash.yaml: day-break reconciled the previous session into a report, so
+  the Crash Reporting page shows it in the viewer and the consent banner offers to send it. Screenshot
+  it, then clear it so subsequent runs start clean.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: crash }
+  - assert_route: { route: crash }
+  - assert_visible: { id: crash-report }
+  - screenshot: crash-report
+  - tap: { id: crash-clear }
+  - assert_visible: { id: crash-empty }

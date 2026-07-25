@@ -321,6 +321,16 @@ pub fn run_scripts(
     };
     for script in scripts {
         let steps = parse_flow(script)?;
+        // `expect_exit` tolerates the app dying, so it must be terminal — a step after it could
+        // never run (the connection is gone). Reject a misplaced one before driving anything.
+        if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
+            && pos != steps.len() - 1
+        {
+            return Err(format!(
+                "{}: expect_exit must be the last step",
+                script.display()
+            ));
+        }
         eprintln!(
             "{BOLD}     Script{BOLD:#} {} on {} ({} steps)",
             script.display(),
@@ -334,6 +344,45 @@ pub fn run_scripts(
                 let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
                 std::thread::sleep(Duration::from_secs_f64(secs));
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
+                continue;
+            }
+            // `expect_exit` is runner-side: a prior step triggered an intentional exit/crash, so
+            // here we WANT the connection to drop. Probe until it does (success) or the window
+            // elapses (the app survived — failure). Never sent to the engine.
+            if op == "expect_exit" {
+                let within = step.get("within").and_then(|v| v.as_f64()).unwrap_or(15.0);
+                let deadline = std::time::Instant::now() + Duration::from_secs_f64(within);
+                let probe = serde_json::json!({"token": token, "step": {"op": "wait_idle"}});
+                let mut probe_line = serde_json::to_string(&probe).unwrap();
+                probe_line.push('\n');
+                let mut exited = false;
+                while std::time::Instant::now() < deadline {
+                    // Direct write+read with NO reconnect: a dropped connection is the goal.
+                    if stream.write_all(probe_line.as_bytes()).is_err() {
+                        exited = true;
+                        break;
+                    }
+                    let mut reply = String::new();
+                    match reader.read_line(&mut reply) {
+                        Ok(0) => {
+                            exited = true;
+                            break;
+                        }
+                        Ok(_) => std::thread::sleep(Duration::from_millis(250)),
+                        Err(_) => {
+                            exited = true;
+                            break;
+                        }
+                    }
+                }
+                if exited {
+                    eprintln!("  {SUCCESS}✓{SUCCESS:#} expect_exit (app terminated as expected)");
+                } else {
+                    run.steps_failed += 1;
+                    eprintln!(
+                        "  {ERROR}✗{ERROR:#} expect_exit — app still running after {within}s"
+                    );
+                }
                 continue;
             }
             let req = serde_json::json!({"token": token, "step": step});

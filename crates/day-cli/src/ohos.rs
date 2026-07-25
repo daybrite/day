@@ -423,6 +423,7 @@ pub fn build_ohos(
         let mut cmd = Command::new(&cargo);
         // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
         crate::intl::apply(&mut cmd, project);
+        crate::ops::apply_app_identity(&mut cmd, project);
         cmd.current_dir(&project.root)
             .env(
                 "PATH",

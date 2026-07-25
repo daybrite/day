@@ -507,3 +507,18 @@ text_link_mail_label = راسل الفريق
 files_initial_content =
     مرحبًا من Day!
     حرِّرني ثم احفظ.
+
+# صفحة الإبلاغ عن الأعطال (day-break, docs/break.md)
+nav_crash = الإبلاغ عن الأعطال
+crash_caption = سجِّل معالِجات الأعطال، وراجِع التقرير عند التشغيل التالي، واختر ما إذا كنت تريد إرساله.
+crash_trigger_section = إحداث عطل
+crash_report_section = آخر تقرير عطل
+crash_abort = تعطيل (إنهاء)
+crash_abort_label = إنهاء أصلي ← SIGABRT
+crash_segv = تعطيل (خطأ تجزئة)
+crash_segv_label = مرجع فارغ ← SIGSEGV
+crash_contained = ذعر (محتوى)
+crash_contained_label = يلتقطه day، ويبقى التطبيق
+crash_send = إرسال التقرير
+crash_clear = مسح التقارير
+crash_empty = لا يوجد تقرير عطل بعد. أحدِث عطلاً ثم أعِد التشغيل لرؤيته هنا.

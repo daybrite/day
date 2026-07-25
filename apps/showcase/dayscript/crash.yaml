@@ -1,0 +1,13 @@
+name: crash
+description: >
+  Intentionally crash the showcase to exercise day-break's capture (docs/break.md). Tapping
+  crash-abort schedules a native abort ~150 ms out — enough for this step to reply before the
+  process dies — and expect_exit then tolerates the app terminating. Pair with crash-report.yaml
+  on the NEXT launch to see the saved report.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: crash }
+  - assert_route: { route: crash }
+  - assert_visible: { id: crash-abort }
+  - tap: { id: crash-abort }
+  - expect_exit: { within: 20 }

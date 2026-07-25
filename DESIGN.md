@@ -69,6 +69,7 @@ the architecture-level view and the rationale.
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | docs/break.md | [§8.5](#85-panics-and-crashes) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
 | API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
@@ -304,6 +305,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day-lite` | dynamic miniapps (docs/lite.md): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http |
+| `day-break` | OPTIONAL consent-first crash reporting (docs/break.md, [§8.5](#85-panics-and-crashes)): chained panic hook + POSIX signal handlers + Android UEH, session sentinel, next-launch reconcile into a schema-versioned JSON report, pluggable `Reporter` upload (never automatic) | day-core, day-pieces (`ui`), day-part-http, day-part-deviceinfo |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-arkui` (+`day-arkui-sys`) | backend crates | day-spec (NOT day-core) |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
@@ -1269,9 +1271,16 @@ and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-M
 
 > [!IMPORTANT]
 > **Status: partially shipped.** The event pump runs handler dispatch under `catch_unwind`
-> (day-core), which covers the main native-callback surface. The wider policy below — per-entry
-> guards on every trampoline, the debug error surface, the release panic hook and
-> `day::on_crash` — is **not implemented** and remains the design of record.
+> (day-core), which covers the main native-callback surface. The release panic hook, native
+> signal handlers, and the crash-reporter hook now ship in the **optional** `day-break` crate
+> (docs/break.md) — the hook is `day_break::on_crash` (the `day` umbrella crate can't depend on an
+> optional reporter), and day-core notifies it of contained panics via
+> `set_contained_panic_observer`. day-core now contains panics at three backend-agnostic
+> trampoline boundaries — the event pump, posted main-thread tasks, and lifecycle dispatch (a
+> panicking lifecycle handler, e.g. an `eprintln!` on a stderr pipe the parent has closed during
+> teardown, no longer aborts the process); framework diagnostics on those paths use a
+> non-panicking stderr writer. Still not implemented: per-entry guards on the remaining
+> backend-specific trampolines and the in-app debug error surface — those remain the design of record.
 
 A panic unwinding out of an `extern "C"` / ObjC / JNI frame aborts the process with no useful
 report, so this policy was specified up front:
@@ -1720,7 +1729,9 @@ screenshot generator with zero per-locale script maintenance.
 The shipped step catalog — waiting (`wait_for`, `wait_idle`, `pause`), acting (`tap`, `input`,
 `set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `nav_back`, `assert_route`),
 asserting (`assert_visible`, `assert_text`, `assert_value`, `assert_focused`), dialogs
-(`assert_presented`, `respond`), and evidence (`screenshot`, `a11y_audit`) — is specified in
+(`assert_presented`, `respond`), evidence (`screenshot`, `a11y_audit`), and termination
+(`expect_exit` — the one step that tolerates the app dying, for crash-reporting flows,
+docs/break.md) — is specified in
 [Appendix C](#appendix-c--dayscript-reference-v1), with `day drive` exposing the same vocabulary to agents (docs/agent.md).
 
 ### §14.2 The embedded engine
@@ -2975,6 +2986,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `screenshot` | name | waits for `ui_idle` (native transitions settled) |
 | `pause` | `secs` | demos only |
+| `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests (docs/break.md) |
 
 Acting steps synthesize Day events (`tap` = the action path, `input` = the controlled-text
 path) on the main thread between flushes — deterministic and toolkit-uniform, per DP-13. The

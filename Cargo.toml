@@ -51,6 +51,7 @@ members = [
     "crates/day-build",
     "crates/day-cli",
     "crates/day-lite",
+    "crates/day-break",
 ]
 # apps/matrix is its OWN workspace (it pulls the heavy matrix-rust-sdk tree — ~400 crates — which must
 # NOT bloat this workspace's lockfile or per-backend CI). It depends on day crates + the general pieces
@@ -127,6 +128,7 @@ day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", versi
 day-toolchain = { path = "crates/day-toolchain", version = "0.0.14" }
 day-build = { path = "crates/day-build", version = "0.0.14" }
 day-lite = { path = "crates/day-lite", version = "0.0.14" }
+day-break = { path = "crates/day-break", version = "0.0.14" }
 day-appkit = { path = "toolkits/day-appkit", version = "0.0.14" }
 day-gtk = { path = "toolkits/day-gtk", version = "0.0.14" }
 day-qt = { path = "toolkits/day-qt", version = "0.0.14" }

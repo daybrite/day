@@ -48,11 +48,31 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
     if handlers.is_empty() {
         return;
     }
+    let mut any_panicked = false;
     day_reactive::batch(|| {
         for f in &handlers {
-            f();
+            // Lifecycle callbacks run inside native trampolines (applicationWillTerminate,
+            // GApplication::shutdown, the Android onDestroy JNI frame, …) that ABORT the process on
+            // unwind. Contain each handler like the event pump does (DESIGN.md §8.5): a panic here —
+            // classically an `eprintln!` hitting a closed stderr pipe during teardown — would
+            // otherwise turn a clean exit into a spurious crash. `notify_contained_panic` runs
+            // per-panic so a crash reporter (day-break) downgrades that handler's report to
+            // contained, not fatal.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f())).is_err() {
+                any_panicked = true;
+                crate::diag(format_args!(
+                    "day: an on_lifecycle({}) handler panicked and was contained — the app continues.",
+                    phase.name()
+                ));
+                crate::notify_contained_panic();
+            }
         }
     });
+    // Reset the reactive runtime AFTER the batch closes — `recover_from_panic` rewrites the batch
+    // depth, so calling it mid-batch underflows the close.
+    if any_panicked {
+        day_reactive::recover_from_panic();
+    }
 }
 
 /// Does the running backend deliver `phase`? Use this to guard registration at runtime:
@@ -73,12 +93,12 @@ fn warn_if_unsupported(phase: Lifecycle) {
     }
     let first = WARNED.with(|w| w.borrow_mut().insert(phase));
     if first {
-        eprintln!(
+        crate::diag(format_args!(
             "day: an `on_lifecycle({})` handler was registered, but this backend never delivers \
              that phase, so it will not run. Guard it with `day::lifecycle_supported(..)` or a \
              `day::require_lifecycle!(..)` compile-time check (docs/lifecycle.md).",
             phase.name()
-        );
+        ));
     }
 }
 
@@ -115,5 +135,28 @@ mod tests {
 
         // A phase with no handlers is a silent no-op.
         dispatch_lifecycle(Lifecycle::DidReceiveMemoryWarning);
+    }
+
+    #[test]
+    fn panicking_handler_is_contained_and_siblings_still_run() {
+        thread_local! {
+            static RAN: Cell<u32> = const { Cell::new(0) };
+        }
+        // A handler that panics (e.g. an `eprintln!` on a broken stderr pipe during teardown) must
+        // NOT propagate — dispatch runs inside a native trampoline that would abort on unwind.
+        on_lifecycle(Lifecycle::WillResignActive, || {
+            panic!("boom in a lifecycle handler")
+        });
+        on_lifecycle(Lifecycle::WillResignActive, || {
+            RAN.with(|c| c.set(c.get() + 1))
+        });
+
+        // Returns normally (containment) rather than unwinding, and the sibling still ran.
+        dispatch_lifecycle(Lifecycle::WillResignActive);
+        assert_eq!(
+            RAN.with(Cell::get),
+            1,
+            "the non-panicking sibling handler still ran"
+        );
     }
 }

@@ -145,6 +145,15 @@ pub enum Step {
         #[serde(default)]
         focused: Option<bool>,
     },
+    /// Expect the app to TERMINATE — the only step that tolerates the app dying (docs/break.md's
+    /// crash-reporting flow, docs/agent.md). MUST be the last step: a preceding step triggered an
+    /// intentional exit/crash, and `expect_exit` treats the connection dropping within `within`
+    /// seconds (default 15) as success; the app surviving the window is the failure. Handled
+    /// runner-side (`day-cli`), so the in-app engine never executes it — this arm is defensive.
+    ExpectExit {
+        #[serde(default)]
+        within: Option<f64>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -489,6 +498,12 @@ fn exec(step: Step) -> Reply {
             Step::Pause { secs } => {
                 // Pausing the MAIN thread would freeze the UI; the runner sleeps instead.
                 let _ = secs;
+                Ok(Reply::ok())
+            }
+            Step::ExpectExit { within } => {
+                // Runner-side (day-cli watches for the connection to drop); the engine only reaches
+                // this arm if the step was somehow delivered — treat it as a no-op success.
+                let _ = within;
                 Ok(Reply::ok())
             }
             Step::Navigate { route } => {

@@ -501,3 +501,18 @@ text_link_mail_label = Email the team
 files_initial_content =
     Hello from Day!
     Edit me, then Save.
+
+# Crash Reporting page (day-break, docs/break.md)
+nav_crash = Crash Reporting
+crash_caption = Register crash handlers, review the report on next launch, and choose whether to send it.
+crash_trigger_section = Trigger a crash
+crash_report_section = Last crash report
+crash_abort = Crash (abort)
+crash_abort_label = Native abort → SIGABRT
+crash_segv = Crash (segfault)
+crash_segv_label = Null dereference → SIGSEGV
+crash_contained = Panic (contained)
+crash_contained_label = Caught by day, app survives
+crash_send = Send report
+crash_clear = Clear reports
+crash_empty = No crash report yet. Trigger a crash, then relaunch to see it here.

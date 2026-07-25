@@ -497,3 +497,18 @@ text_link_mail_label = 给团队发邮件
 files_initial_content =
     来自 Day 的问候！
     编辑我，然后保存。
+
+# 崩溃报告页面（day-break，docs/break.md）
+nav_crash = 崩溃报告
+crash_caption = 注册崩溃处理程序，在下次启动时查看报告，并选择是否发送。
+crash_trigger_section = 触发崩溃
+crash_report_section = 最近的崩溃报告
+crash_abort = 崩溃（中止）
+crash_abort_label = 原生中止 → SIGABRT
+crash_segv = 崩溃（段错误）
+crash_segv_label = 空指针解引用 → SIGSEGV
+crash_contained = 崩溃（已捕获）
+crash_contained_label = 被 day 捕获，应用继续运行
+crash_send = 发送报告
+crash_clear = 清除报告
+crash_empty = 暂无崩溃报告。触发一次崩溃，然后重新启动即可在此查看。

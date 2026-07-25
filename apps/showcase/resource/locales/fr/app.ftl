@@ -501,3 +501,18 @@ text_link_mail_label = Écrire à l'équipe
 files_initial_content =
     Bonjour de Day !
     Modifiez-moi, puis Enregistrer.
+
+# Page Rapports de plantage (day-break, docs/break.md)
+nav_crash = Rapports de plantage
+crash_caption = Installez les gestionnaires de plantage, consultez le rapport au prochain lancement et choisissez de l'envoyer.
+crash_trigger_section = Déclencher un plantage
+crash_report_section = Dernier rapport de plantage
+crash_abort = Planter (abandon)
+crash_abort_label = Abandon natif → SIGABRT
+crash_segv = Planter (erreur de segmentation)
+crash_segv_label = Déréférencement nul → SIGSEGV
+crash_contained = Panique (contenue)
+crash_contained_label = Interceptée par day, l'application survit
+crash_send = Envoyer le rapport
+crash_clear = Effacer les rapports
+crash_empty = Aucun rapport pour l'instant. Déclenchez un plantage, puis relancez pour le voir ici.

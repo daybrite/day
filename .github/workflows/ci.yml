@@ -78,8 +78,12 @@ jobs:
       - name: Clippy (android cross-check + day-part-battery)
         run: |
           rustup target add aarch64-linux-android
+          # `-A missing_const_for_thread_local`: clippy 1.97 false-positives this lint on the
+          # bionic/musl cross-targets, flagging `thread_local!`s that ALREADY use `const { … }`
+          # (host and apple targets are clean). Suppress it on the cross-check; the host clippy
+          # step above still enforces the lint accurately.
           cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
-            --no-default-features --features mdc
+            --no-default-features --features mdc -- -A clippy::missing_const_for_thread_local
           cargo clippy --locked -p day-part-battery --all-targets
           cargo clippy --locked --target aarch64-linux-android -p day-part-battery
 
@@ -417,6 +421,18 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/clipboard-roundtrip.yaml
+      # Crash reporting (day-break, docs/break.md): crash the app intentionally, then confirm the
+      # report shows on the NEXT launch. Two invocations against the SAME app-data dir — the crash
+      # run exits cleanly via `expect_exit`, the report run reads the persisted report and clears
+      # it. macOS is the representative desktop leg (the signal handlers are exercised here; the
+      # showcase page's on-device paths — Android UEH, iOS/OHOS signals — run in those legs' manual
+      # smoke). Runs AFTER the walkthrough so the empty-state `crash` screenshot stays deterministic.
+      - name: Crash reporting round-trip (${{ matrix.combo }})
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        working-directory: apps/showcase
+        run: |
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash.yaml
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash-report.yaml
       # Release-signing material, tag pushes only: Developer ID cert into the keychain + the
       # notary API key on disk. Without the secrets these no-op and pack dev-signs (§20).
       - name: Import the Developer ID certificate
@@ -971,7 +987,9 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
         # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
-        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings
+        # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
+        # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
+        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v7
         with:

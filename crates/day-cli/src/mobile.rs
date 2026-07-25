@@ -164,7 +164,9 @@ pub fn xcode_backend_build() -> i32 {
                 bin.display()
             ),
         )
-        .env("CARGO_TARGET_DIR", &target_dir)
+        .env("CARGO_TARGET_DIR", &target_dir);
+    crate::ops::apply_app_identity(&mut cmd, &project);
+    cmd
         // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this expects.
         // `--features` = `uikit` + every standalone piece's `<pkg>/uikit` renderer feature (Tier
@@ -644,8 +646,9 @@ fn build_android_so(
             ),
         )
         .env("CARGO_TARGET_DIR", &target_dir)
-        .env("ANDROID_NDK_HOME", &ndk_home)
-        .arg("ndk");
+        .env("ANDROID_NDK_HOME", &ndk_home);
+    crate::ops::apply_app_identity(&mut cmd, project);
+    cmd.arg("ndk");
     for abi in abis {
         cmd.args(["-t", abi]);
     }

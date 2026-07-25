@@ -1,0 +1,64 @@
+[package]
+name = "day-break"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# day-break — consent-first crash reporting for Day apps (docs/break.md, DESIGN.md §8.5). An
+# OPTIONAL crate: an app opts in by depending on it and calling `day_break::init(...)` once at
+# startup. It registers standard crash handlers (a chained panic hook + POSIX signal handlers +,
+# on Android, an uncaught-exception handler), persists a report on abnormal exit, and on the next
+# launch offers the reports for the user to review and — only with an explicit action — upload
+# through a pluggable `Reporter`. Nothing is ever uploaded automatically.
+
+[features]
+# `ui` ships the ready-made consent surface (`consent_banner`), pulling in day-pieces + Fluent.
+# On by default; a headless embedder (a server-side reporter, a custom UI) turns it off.
+default = ["ui"]
+ui = ["dep:day-pieces", "dep:day-l10n", "dep:day-fluent", "dep:fluent-bundle"]
+
+[dependencies]
+day-core = { workspace = true }
+day-reactive = { workspace = true }
+# `Lifecycle` (the WillLaunch/WillTerminate phases the sentinel hooks); a leaf crate day-core
+# already pulls in, so naming it directly adds no compiled crate.
+day-spec = { workspace = true }
+# Device model + OS name/version for the report (headless, tiny).
+day-part-deviceinfo = { workspace = true }
+# The default upload transport (`RestReporter`) POSTs through the native HTTP stack.
+day-part-http = { workspace = true }
+
+# Consent UI (feature `ui`).
+day-pieces = { workspace = true, optional = true }
+day-l10n = { workspace = true, optional = true }
+day-fluent = { workspace = true, optional = true }
+# The consent surface's own embedded Fluent catalogs (en/fr/ar/zh-CN) — the day-lite i18n pattern.
+fluent-bundle = { version = "0.16", optional = true }
+
+# POSIX signal handlers (SIGSEGV/SIGABRT/…): sigaction + sigaltstack + async-signal-safe writes.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# The subprocess crash harness asserts on child exit signals (SIGABRT/SIGSEGV numbers vary by OS).
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
+# The consent-banner mock e2e mounts the piece under the mock backend and drives it.
+[dev-dependencies]
+day-mock = { workspace = true }
+day-pieces = { workspace = true }
+day-spec = { workspace = true }
+
+# Android uncaught-exception handler: a Java shim (staged below) installed via day-android's JNI.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# Stages this crate's Java (the `Thread.setDefaultUncaughtExceptionHandler` shim) into the app's
+# Gradle build. Registers NO renderer — same headless-part mechanism day-part-battery uses.
+[package.metadata.day.android]
+java = ["android/java"]

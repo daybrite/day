@@ -291,6 +291,15 @@ flow:
   - assert_text: { id: stack-param, key: stack_param_hint, args: { hint: "linked" } }
   - nav_back:
   - assert_route: { route: stack }
+  # Crash Reporting (day-break, docs/break.md): the walkthrough only VISITS the page (empty state);
+  # the actual crash + next-launch report are driven by crash.yaml / crash-report.yaml so the
+  # walkthrough itself never dies mid-run.
+  - navigate: { route: crash }
+  - assert_route: { route: crash }
+  - assert_visible: { id: crash-title }
+  - assert_visible: { id: crash-abort }
+  - screenshot: crash
+
   # Leaving via a route the stack doesn't own falls through to the enclosing selector.
   - navigate: { route: about }
   - assert_route: { route: about }

@@ -28,6 +28,16 @@ pub fn status(prefix: &str, msg: &str) {
     anstream::eprintln!("{HEADER}{prefix:>12}{HEADER:#} {msg}");
 }
 
+/// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-break's
+/// `build.rs` bakes these into the binary so crash reports carry id/version/build without
+/// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
+/// runtime fallback for dev flows whose binary predates the vars.
+pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
+    cmd.env("DAY_APP_ID", &project.manifest.app.id)
+        .env("DAY_APP_VERSION", &project.manifest.app.version)
+        .env("DAY_APP_BUILD", project.manifest.app.build.to_string());
+}
+
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the
 /// unioned `<pkg>/<backend>` renderer feature of every standalone piece in the app's dependency
 /// closure (Tier A.2 — apps no longer fan out per-piece features in their own Cargo.toml).
@@ -64,6 +74,7 @@ pub fn build(
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
+            apply_app_identity(&mut cmd, project);
             // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
             crate::intl::apply(&mut cmd, project);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
@@ -176,6 +187,7 @@ pub fn launch(
                 // Bundled fonts (§18.4): the desktop backends register every file in this
                 // directory with the platform font system at startup.
                 .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));
+            apply_app_identity(&mut cmd, project);
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
             } else {

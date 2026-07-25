@@ -595,6 +595,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-break"
+version = "0.0.14"
+dependencies = [
+ "day-android",
+ "day-core",
+ "day-fluent",
+ "day-l10n",
+ "day-mock",
+ "day-part-deviceinfo",
+ "day-part-http",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+ "fluent-bundle",
+ "libc",
+]
+
+[[package]]
 name = "day-build"
 version = "0.0.14"
 dependencies = [
@@ -4270,6 +4288,7 @@ name = "showcase"
 version = "0.0.14"
 dependencies = [
  "day",
+ "day-break",
  "day-build",
  "day-part-battery",
  "day-part-clipboard",
