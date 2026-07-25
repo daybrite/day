@@ -58,7 +58,6 @@ dates_date_section = 日期
 dates_time_section = 时间
 dates_composed_section = 组合
 date_compact = 紧凑
-date_inline = 日历
 time_compact = 紧凑
 time_seconds = 含秒
 dates_composed = 日期和时间

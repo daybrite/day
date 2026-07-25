@@ -61,7 +61,6 @@ dates_date_section = Date
 dates_time_section = Time
 dates_composed_section = Composed
 date_compact = Compact
-date_inline = Calendar
 time_compact = Compact
 time_seconds = With seconds
 dates_composed = Date & time

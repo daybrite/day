@@ -64,7 +64,6 @@ dates_date_section = التاريخ
 dates_time_section = الوقت
 dates_composed_section = مركّب
 date_compact = مضغوط
-date_inline = التقويم
 time_compact = مضغوط
 time_seconds = بالثواني
 dates_composed = التاريخ والوقت

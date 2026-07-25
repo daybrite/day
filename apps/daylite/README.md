@@ -40,10 +40,10 @@ installed apps and their data persist across launches.
 
 ## Known issues
 
-- **ohos-arkui**: builds (the whole rquickjs/oxc/rusqlite stack cross-compiles — see
-  docs/lite.md §13); an on-emulator run is still pending local-emulator time.
+None open. Daylite runs the full smoke script on all three targets (ios-uikit,
+android-mdc, ohos-arkui — the Oniro emulator included).
 
-Two earlier issues in this list are FIXED in day itself (see docs/cover.md's delivery
+Earlier issues in this list are FIXED in day itself (see docs/cover.md's delivery
 contract): re-opening a miniapp after closing one no longer breaks — the process-global
 locale signal no longer dies with the first cover's scope (`Signal::global`), and Android's
 cover shell is no longer re-parented/clobbered by day-tree layout while presented.

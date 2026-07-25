@@ -4,28 +4,39 @@ use day_piece_datetime::{DayDate, DayTime, date_picker, time_picker};
 use crate::widgets::page;
 
 /// Native date & time pickers (day-piece-datetime, an EXTERNAL standalone piece — the first with
-/// renderers on all seven toolkits; docs/datepicker.md), grouped as a form with stable ids for
-/// the walkthrough (§14): the date stylings (compact chooser, embedded calendar, bounded), the
+/// renderers on all seven toolkits; docs/datepicker.md), with stable ids for the walkthrough
+/// (§14): a full-width embedded calendar above a form of the compact/bounded date stylings, the
 /// time stylings (compact + seconds), and combined date+time as composition.
 pub(crate) fn dates_page() -> AnyPiece {
+    // ONE civil date signal behind the compact field, the ISO readout, AND the full-width
+    // calendar (docs/datepicker.md): each is a two-way projection of the same state, so driving
+    // `date-inline` moves the same `date-value` readout (the walkthrough asserts this). Kept at
+    // page scope so the calendar can live outside the form.
+    let date = Signal::new(seed_date());
     page(
         crate::res::str::nav_dates(),
         "dates-title",
         Some(crate::res::str::dates_caption()),
-        form((date_section(), time_section(), composed_section())).any(),
+        column((
+            // The embedded calendar, full-width and unlabeled: the native month grid needs the
+            // whole content width. Inside a labeled form row the control column was too narrow and
+            // clipped the grid's trailing edge on iOS/Android, so it lives outside the form.
+            date_picker(date).inline().id("date-inline"),
+            form((date_section(date), time_section(), composed_section())),
+        ))
+        .spacing(16.0)
+        .align(HAlign::Leading)
+        .any(),
     )
 }
 
-/// ONE civil date signal behind every date picker on the page (docs/datepicker.md): each native
-/// control is a two-way projection of the same state — pick in the calendar and the compact field
-/// follows, and vice versa. Seeded deterministically so the per-locale screenshot grid is
+/// The seed civil date. Seeded deterministically so the per-locale screenshot grid is
 /// reproducible (the walkthrough drives changes via `input:` with ISO values).
 fn seed_date() -> DayDate {
     DayDate::new(2026, 7, 18).expect("valid seed date")
 }
 
-fn date_section() -> impl Piece {
-    let date = Signal::new(seed_date());
+fn date_section(date: Signal<DayDate>) -> impl Piece {
     // A separately-bounded picker: picks outside 2026 clamp (natively where the control supports
     // min/max, and always in the piece).
     let bounded = Signal::new(seed_date());
@@ -34,11 +45,6 @@ fn date_section() -> impl Piece {
         labeled(
             crate::res::str::date_compact(),
             date_picker(date).id("date-compact"),
-        ),
-        // Inline — the embedded calendar (wheels on toolkits without a calendar grid).
-        labeled(
-            crate::res::str::date_inline(),
-            date_picker(date).inline().id("date-inline"),
         ),
         // Bounded: min/max clamp every pick into 2026 (readout beside it, the volume pattern).
         labeled(

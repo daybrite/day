@@ -377,26 +377,33 @@ fn home(ui: Rc<Ui>) -> AnyPiece {
                     let update_ui = u2.clone();
                     let remove_ui = u3.clone();
                     let (id_o, id_u, id_r) = (id.clone(), id.clone(), id.clone());
+                    // Name/version above, actions below: three buttons beside a `grow_w()`
+                    // name column squeeze it to per-character wrapping on a 360dp screen
+                    // (the Oniro emulator) — stacking never fights over the row width.
                     card(
-                        row((
+                        column((
                             column((
                                 label(name).font(Font::Headline),
                                 label(version).font(Font::Caption),
                             ))
                             .align(HAlign::Leading)
-                            .any()
-                            .grow_w(),
-                            button("Open")
-                                .action(move || open_app(&open_ui, &id_o))
-                                .id_keyed("dl-open", &id),
-                            button("Update").action(move || update_app(&update_ui, id_u.clone())),
-                            button("Remove").action(move || {
-                                let _ = host().store().remove(&id_r);
-                                remove_ui.bump();
-                            }),
+                            .any(),
+                            row((
+                                button("Open")
+                                    .action(move || open_app(&open_ui, &id_o))
+                                    .id_keyed("dl-open", &id),
+                                button("Update")
+                                    .action(move || update_app(&update_ui, id_u.clone())),
+                                button("Remove").action(move || {
+                                    let _ = host().store().remove(&id_r);
+                                    remove_ui.bump();
+                                }),
+                            ))
+                            .spacing(8.0)
+                            .any(),
                         ))
+                        .align(HAlign::Leading)
                         .spacing(8.0)
-                        .align(VAlign::Center)
                         .any(),
                     )
                 },
@@ -642,8 +649,11 @@ fn run_cover(ui: Rc<Ui>) -> AnyPiece {
             .id("dl-close")
             .padding(14.0);
         let _ = app_id;
-        body.grow()
-            .overlay_aligned(Alignment::TopLeading, close)
+        // The close lives in its OWN chrome row above the miniapp, not as a TopLeading
+        // overlay: an overlay collides with any miniapp whose content starts at the top
+        // left (tic-tac-toe's title did).
+        column((close.any(), body.grow()))
+            .align(HAlign::Leading)
             .any()
     })
     .any()
