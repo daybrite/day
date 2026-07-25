@@ -24,6 +24,9 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_textarea_set_text(w: *mut c_void, text: *const c_char);
+    fn day_textarea_set_attrs(w: *mut c_void, editable: i32, selectable: i32);
+    fn day_textarea_set_read_only(w: *mut c_void, read_only: i32);
+    fn day_textarea_set_selectable(w: *mut c_void, selectable: i32);
     fn day_textarea_measure(
         w: *mut c_void,
         avail_w: f64,
@@ -63,6 +66,8 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
             on_text,
         )
     };
+    // Qt has no spell-check; editable + selectable are applied together (they interact).
+    unsafe { day_textarea_set_attrs(ptr, p.editable as i32, p.selectable as i32) };
     DIMS.with(|m| {
         m.borrow_mut()
             .insert(ptr as usize, (p.min_lines, p.max_lines))
@@ -71,8 +76,15 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
-    unsafe { day_textarea_set_text(h.0, cstr(t).as_ptr()) };
+    unsafe {
+        match patch {
+            TextPatch::SetText(t) => day_textarea_set_text(h.0, cstr(t).as_ptr()),
+            TextPatch::SetEditable(v) => day_textarea_set_read_only(h.0, (!*v) as i32),
+            TextPatch::SetSelectable(v) => day_textarea_set_selectable(h.0, *v as i32),
+            // Qt ships no built-in spell-check (Cap::TextSpellCheck = Unsupported).
+            TextPatch::SetSpellCheck(_) => {}
+        }
+    }
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {

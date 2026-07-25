@@ -1428,7 +1428,11 @@ impl Toolkit for AppKit {
             | Cap::NavSplit
             | Cap::Dialogs
             | Cap::FileDialogs
-            | Cap::Animation => Support::Native,
+            | Cap::Animation
+            // NSTextView natively honors all three text-area attributes.
+            | Cap::TextEditable
+            | Cap::TextSelectable
+            | Cap::TextSpellCheck => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1498,6 +1502,7 @@ impl Toolkit for AppKit {
                 let sw = unsafe { NSSwitch::new(mtm) };
                 unsafe {
                     sw.setState(if p.on { 1 } else { 0 });
+                    sw.setEnabled(p.enabled);
                     sw.setTarget(Some(&*target));
                     sw.setAction(Some(sel!(action:)));
                 }

@@ -89,6 +89,18 @@ fn key(v: &Retained<NSView>) -> usize {
     Retained::as_ptr(v) as usize
 }
 
+/// Apply the editable / selectable / spell-check attributes to the NSTextView. Spell-check drives
+/// all three of continuous spelling, autocorrect, and grammar so the squiggles fully disappear.
+fn apply_attrs(tv: &NSTextView, editable: bool, selectable: bool, spell: bool) {
+    tv.setEditable(editable);
+    tv.setSelectable(selectable);
+    unsafe {
+        let _: () = msg_send![tv, setContinuousSpellCheckingEnabled: spell];
+        let _: () = msg_send![tv, setAutomaticSpellingCorrectionEnabled: spell];
+        let _: () = msg_send![tv, setGrammarCheckingEnabled: spell];
+    }
+}
+
 fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     let mtm = backend.mtm();
     let font = NSFont::systemFontOfSize(FONT_SIZE);
@@ -101,7 +113,7 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     let tv = NSTextView::new(mtm);
     tv.setFont(Some(&font));
     tv.setRichText(false);
-    tv.setEditable(true);
+    apply_attrs(&tv, p.editable, p.selectable, p.spellcheck);
     tv.setUsesFontPanel(false);
     tv.setTextContainerInset(NSSize::new(INSET, INSET));
     tv.setVerticallyResizable(true);
@@ -153,15 +165,25 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
 }
 
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
     STATE.with(|m| {
         let m = m.borrow();
         let Some(st) = m.get(&key(h)) else {
             return;
         };
-        if st.tv.string().to_string() != *t {
-            st.tv.setString(&NSString::from_str(t));
-            st.placeholder.setHidden(!t.is_empty());
+        match patch {
+            TextPatch::SetText(t) => {
+                if st.tv.string().to_string() != *t {
+                    st.tv.setString(&NSString::from_str(t));
+                    st.placeholder.setHidden(!t.is_empty());
+                }
+            }
+            TextPatch::SetEditable(v) => st.tv.setEditable(*v),
+            TextPatch::SetSelectable(v) => st.tv.setSelectable(*v),
+            TextPatch::SetSpellCheck(v) => unsafe {
+                let _: () = msg_send![&st.tv, setContinuousSpellCheckingEnabled: *v];
+                let _: () = msg_send![&st.tv, setAutomaticSpellingCorrectionEnabled: *v];
+                let _: () = msg_send![&st.tv, setGrammarCheckingEnabled: *v];
+            },
         }
     });
 }

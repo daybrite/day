@@ -2623,3 +2623,82 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
         "late cover-hidden does not kill the re-presented content"
     );
 }
+
+// ── text_area attributes (editable / selectable / spell-check) + Toggle::enabled ─────────────
+
+/// (editable, selectable, spellcheck) signals `text_area_attr_root` publishes for the test body.
+type TaAttrs = (Signal<bool>, Signal<bool>, Signal<bool>);
+
+thread_local! {
+    static TA_ATTRS: std::cell::RefCell<Option<TaAttrs>> = const { std::cell::RefCell::new(None) };
+}
+
+fn text_area_attr_root() -> AnyPiece {
+    let content = Signal::new("hello".to_string());
+    let editable = Signal::new(true);
+    let selectable = Signal::new(true);
+    let spellcheck = Signal::new(true);
+    TA_ATTRS.with(|c| *c.borrow_mut() = Some((editable, selectable, spellcheck)));
+    text_area(content)
+        .editable(editable)
+        .selectable(selectable)
+        .spellcheck(spellcheck)
+        .id("ta")
+        .any()
+}
+
+fn textarea(probe: &MockProbe) -> day_mock::MockWidget {
+    probe
+        .find_by_kind("day.text_area")
+        .into_iter()
+        .next()
+        .expect("a text_area")
+        .1
+}
+
+#[test]
+fn text_area_attributes_realize_and_patch_reactively() {
+    let probe = boot(text_area_attr_root);
+    flush_sync();
+    // Defaults: all three attributes are on.
+    let w = textarea(&probe);
+    assert!(
+        w.editable && w.selectable && w.spellcheck,
+        "defaults all true"
+    );
+
+    let (editable, selectable, spellcheck) = TA_ATTRS.with(|c| *c.borrow()).expect("attr signals");
+
+    // Flipping each reactive attribute patches the widget (one live update per change).
+    editable.set(false);
+    flush_sync();
+    assert!(!textarea(&probe).editable, "editable patched off");
+
+    selectable.set(false);
+    flush_sync();
+    assert!(!textarea(&probe).selectable, "selectable patched off");
+
+    spellcheck.set(false);
+    flush_sync();
+    let w = textarea(&probe);
+    assert!(
+        !w.spellcheck && !w.editable && !w.selectable,
+        "all off after toggling"
+    );
+}
+
+#[test]
+fn toggle_enabled_false_renders_disabled() {
+    let probe = boot(|| toggle(Signal::new(false)).enabled(false).id("t").any());
+    flush_sync();
+    let t = probe
+        .find_by_kind("day.toggle")
+        .into_iter()
+        .next()
+        .expect("a toggle")
+        .1;
+    assert!(
+        !t.enabled,
+        "Toggle::enabled(false) disables the native control"
+    );
+}

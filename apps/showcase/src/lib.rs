@@ -81,6 +81,7 @@ day::routes! {
         Dates => "dates",
         Focus => "focus",
         Text => "text",
+        TextAreas => "textareas",
         Localization => "localization",
         Canvas => "canvas",
         Animation => "animation",
@@ -172,6 +173,12 @@ pub fn root() -> AnyPiece {
             crate::res::str::nav_text(),
             res::images::nav_text,
             text_page,
+        )
+        .item_icon(
+            Section::TextAreas,
+            crate::res::str::nav_textareas(),
+            res::images::nav_textareas,
+            text_areas_page,
         )
         .item_icon(
             Section::Localization,

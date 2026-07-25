@@ -47,6 +47,9 @@ fn buffer_text(b: &gtk4::TextBuffer) -> String {
 fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
     let textview = gtk4::TextView::new();
     textview.set_wrap_mode(gtk4::WrapMode::WordChar);
+    // GtkTextView honors editability; it's always selectable and has no built-in spell-check
+    // (Cap::TextSelectable / Cap::TextSpellCheck are Unsupported here), so those props are no-ops.
+    textview.set_editable(p.editable);
     textview.set_top_margin(MARGIN_V);
     textview.set_bottom_margin(MARGIN_V);
     textview.set_left_margin(MARGIN_H);
@@ -112,16 +115,22 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
 }
 
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
     STATE.with(|m| {
         let m = m.borrow();
         let Some(st) = m.get(&key(h)) else {
             return;
         };
-        if buffer_text(&st.buffer) != *t {
-            st.suppress.set(true);
-            st.buffer.set_text(t); // fires "changed" → placeholder visibility updates; emit suppressed
-            st.suppress.set(false);
+        match patch {
+            TextPatch::SetText(t) => {
+                if buffer_text(&st.buffer) != *t {
+                    st.suppress.set(true);
+                    st.buffer.set_text(t); // fires "changed" → placeholder updates; emit suppressed
+                    st.suppress.set(false);
+                }
+            }
+            TextPatch::SetEditable(v) => st.textview.set_editable(*v),
+            // GtkTextView has no selectable/spell-check toggle (see the make() note).
+            TextPatch::SetSelectable(_) | TextPatch::SetSpellCheck(_) => {}
         }
     });
 }

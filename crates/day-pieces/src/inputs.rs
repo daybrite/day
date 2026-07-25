@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Signal, bind_seeded};
+use day_reactive::{Signal, bind, bind_seeded};
 use day_spec::{Event, kinds};
 
 use crate::*;
@@ -94,12 +94,18 @@ impl Piece for Picker {
 // ---------------------------------------------------------------------------
 
 /// A native multi-line text editor bound two-way to `text`. Configure a prompt with
-/// `.placeholder(_)` and the auto-growing height band with `.min_lines(_)` / `.max_lines(_)`.
+/// `.placeholder(_)`, the auto-growing height band with `.min_lines(_)` / `.max_lines(_)`, and the
+/// native editor attributes with `.editable(_)` / `.selectable(_)` / `.spellcheck(_)` (each accepts
+/// a constant or a reactive `bool`, and updates live). A backend that can't honor an attribute
+/// answers the matching `Cap::Text{Editable,Selectable,SpellCheck}` with `Support::Unsupported`.
 pub struct TextArea {
     text: Signal<String>,
     placeholder: Option<TextSource>,
     min_lines: u32,
     max_lines: u32,
+    editable: Reactive<bool>,
+    selectable: Reactive<bool>,
+    spellcheck: Reactive<bool>,
 }
 
 /// `text_area(text)` — a native multi-line editor whose contents mirror `text` in both directions.
@@ -109,6 +115,9 @@ pub fn text_area(text: Signal<String>) -> TextArea {
         placeholder: None,
         min_lines: 1,
         max_lines: 0,
+        editable: true.into_reactive(),
+        selectable: true.into_reactive(),
+        spellcheck: true.into_reactive(),
     }
 }
 
@@ -132,6 +141,26 @@ impl TextArea {
         self.max_lines = lines;
         self
     }
+
+    /// Whether the user can edit the text (default `true`; `false` = read-only). Reactive.
+    pub fn editable<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.editable = v.into_reactive();
+        self
+    }
+
+    /// Whether the text can be selected and copied (default `true`). Reactive. `Unsupported` on
+    /// backends where selection is always on (GTK).
+    pub fn selectable<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.selectable = v.into_reactive();
+        self
+    }
+
+    /// Whether spell-check / autocorrect highlighting is on (default `true`). Reactive.
+    /// `Unsupported` on backends with no built-in spell-check (GTK, Qt).
+    pub fn spellcheck<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.spellcheck = v.into_reactive();
+        self
+    }
 }
 
 impl Piece for TextArea {
@@ -141,6 +170,9 @@ impl Piece for TextArea {
             placeholder,
             min_lines,
             max_lines,
+            editable,
+            selectable,
+            spellcheck,
         } = self;
         let initial = text.get_untracked();
         let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
@@ -157,6 +189,9 @@ impl Piece for TextArea {
                 } else {
                     max_lines.max(min_lines)
                 },
+                editable: editable.get_untracked(),
+                selectable: selectable.get_untracked(),
+                spellcheck: spellcheck.get_untracked(),
             },
             // A composer fills the available width; height is content-driven (the backend's
             // measure grows it between min/max lines), so it is NOT a height-growing leaf.
@@ -165,6 +200,50 @@ impl Piece for TextArea {
                 ..Default::default()
             },
         );
+        // Live attributes: only a reactive source needs a binding (a constant is applied once at
+        // realize). Each patches the backend when its value changes.
+        if let Reactive::Dyn(_) = &editable {
+            bind(
+                move || editable.get(),
+                move |v: &bool| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::TextAreaPatch::SetEditable(*v)),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
+        if let Reactive::Dyn(_) = &selectable {
+            bind(
+                move || selectable.get(),
+                move |v: &bool| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::TextAreaPatch::SetSelectable(*v)),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
+        if let Reactive::Dyn(_) = &spellcheck {
+            bind(
+                move || spellcheck.get(),
+                move |v: &bool| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::TextAreaPatch::SetSpellCheck(*v)),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
         // Controlled input with origin tracking (§4.4): the echo guard remembers the last value
         // that arrived FROM the native widget so bind_seeded does not patch it straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));

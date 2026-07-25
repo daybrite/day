@@ -512,3 +512,16 @@ crash_contained_label = 被 day 捕获，应用继续运行
 crash_send = 发送报告
 crash_clear = 清除报告
 crash_empty = 暂无崩溃报告。触发一次崩溃，然后重新启动即可在此查看。
+
+# 文本区域页面
+nav_textareas = 文本区域
+textareas_caption = 原生多行编辑器，具有可实时切换的可编辑、可选择和拼写检查属性（取决于工具包支持）。
+textareas_editor_section = 编辑器
+textareas_seed_section = 填充为
+textareas_attrs_section = 属性
+textareas_seed_short = 短文本
+textareas_seed_long = 长文本
+textareas_seed_markdown = Markdown
+textareas_editable = 可编辑
+textareas_selectable = 可选择
+textareas_spellcheck = 拼写检查

@@ -695,7 +695,14 @@ impl Toolkit for Qt {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
+            // Cap::TextSpellCheck stays Unsupported (the default arm).
+            Cap::Snapshot
+            | Cap::NavSplit
+            | Cap::Dialogs
+            | Cap::FileDialogs
+            | Cap::TextEditable
+            | Cap::TextSelectable => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -839,6 +846,7 @@ impl Toolkit for Qt {
                 kinds::TOGGLE => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let w = ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle);
+                    ffi::day_qt_set_enabled(w, p.enabled as c_int);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }

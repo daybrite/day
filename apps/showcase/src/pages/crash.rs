@@ -56,7 +56,11 @@ pub(crate) fn crash_page() -> AnyPiece {
         when(
             move || !report.get().is_empty(),
             move || {
+                // Read-only, no spell-correction squiggles; still selectable so the report is
+                // copyable.
                 text_area(report)
+                    .editable(false)
+                    .spellcheck(false)
                     .min_lines(8)
                     .max_lines(20)
                     .id("crash-report")

@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::bind_seeded;
+use day_reactive::{bind, bind_seeded};
 use day_spec::props::*;
 use day_spec::{Event, Font, Insets, Role, kinds};
 
@@ -262,10 +262,24 @@ impl Piece for Button {
 
 pub struct Toggle<S: SignalRw<bool>> {
     value: S,
+    enabled: Reactive<bool>,
 }
 
 pub fn toggle<S: SignalRw<bool>>(value: S) -> Toggle<S> {
-    Toggle { value }
+    Toggle {
+        value,
+        enabled: true.into_reactive(),
+    }
+}
+
+impl<S: SignalRw<bool>> Toggle<S> {
+    /// Whether the toggle is interactive (default `true`; `false` = disabled/greyed). Reactive —
+    /// e.g. `.enabled(capability(Cap::TextSpellCheck) == Support::Native)` to gray it out where a
+    /// backend can't honor the thing it controls.
+    pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = v.into_reactive();
+        self
+    }
 }
 
 impl<S: SignalRw<bool>> Piece for Toggle<S> {
@@ -275,7 +289,7 @@ impl<S: SignalRw<bool>> Piece for Toggle<S> {
             kinds::TOGGLE,
             &ToggleProps {
                 on: initial,
-                enabled: true,
+                enabled: self.enabled.get_untracked(),
             },
             Flex::default(),
         );
@@ -287,6 +301,16 @@ impl<S: SignalRw<bool>> Piece for Toggle<S> {
                 with_tree(|t| t.patch(node, Box::new(TogglePatch::On(*on)), false));
             },
         );
+        // A reactive `enabled` patches on change; a constant is applied once at realize.
+        let enabled = self.enabled;
+        if let Reactive::Dyn(_) = &enabled {
+            bind(
+                move || enabled.get(),
+                move |e: &bool| {
+                    with_tree(|t| t.patch(node, Box::new(TogglePatch::Enabled(*e)), false));
+                },
+            );
+        }
         let v = self.value;
         cx.on(node, move |ev| {
             if let Event::ToggleChanged(on) = ev {

@@ -516,3 +516,16 @@ crash_contained_label = Caught by day, app survives
 crash_send = Send report
 crash_clear = Clear reports
 crash_empty = No crash report yet. Trigger a crash, then relaunch to see it here.
+
+# Text Areas page
+nav_textareas = Text areas
+textareas_caption = A native multi-line editor with live editable, selectable, and spell-check attributes (toolkit-permitting).
+textareas_editor_section = Editor
+textareas_seed_section = Seed with
+textareas_attrs_section = Attributes
+textareas_seed_short = Short
+textareas_seed_long = Long
+textareas_seed_markdown = Markdown
+textareas_editable = Editable
+textareas_selectable = Selectable
+textareas_spellcheck = Spell-check

@@ -22,6 +22,7 @@ pub(crate) mod stack;
 pub(crate) mod system;
 pub(crate) mod tabs;
 pub(crate) mod text;
+pub(crate) mod text_areas;
 pub(crate) mod tweaks;
 pub(crate) mod webview;
 
@@ -47,5 +48,6 @@ pub(crate) use stack::stack_page;
 pub(crate) use system::system_page;
 pub(crate) use tabs::tabs_page;
 pub(crate) use text::text_page;
+pub(crate) use text_areas::text_areas_page;
 pub(crate) use tweaks::tweaks_page;
 pub(crate) use webview::webview_page;

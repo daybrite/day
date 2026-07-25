@@ -1228,7 +1228,11 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
+            // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
+            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs | Cap::TextEditable => {
+                Support::Native
+            }
             _ => Support::Unsupported,
         }
     }
@@ -1476,6 +1480,7 @@ impl Toolkit for Gtk {
                 let p = props.downcast_ref::<ToggleProps>().unwrap();
                 let sw = gtk4::Switch::new();
                 sw.set_active(p.on);
+                sw.set_sensitive(p.enabled);
                 sw.connect_active_notify(move |s| emit(id, Event::ToggleChanged(s.is_active())));
                 wire_focus(&sw, id);
                 sw.upcast()

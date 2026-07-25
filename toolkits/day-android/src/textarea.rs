@@ -27,13 +27,16 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
             .dcall_static(
                 TA_CLASS,
                 "makeTextArea",
-                "(JLjava/lang/String;Ljava/lang/String;II)Landroid/view/View;",
+                "(JLjava/lang/String;Ljava/lang/String;IIZZZ)Landroid/view/View;",
                 &[
                     JValue::Long(id.0 as i64),
                     JValue::Object(&ph),
                     JValue::Object(&init),
                     JValue::Int(p.min_lines as i32),
                     JValue::Int(p.max_lines as i32),
+                    JValue::Bool(p.editable),
+                    JValue::Bool(p.selectable),
+                    JValue::Bool(p.spellcheck),
                 ],
             )
             .expect("DayTextArea.makeTextArea")
@@ -46,16 +49,33 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
-    with_env(|env| {
-        let s = env.new_string(t).expect("text");
-        let _ = env.dcall_static(
-            TA_CLASS,
-            "setTextAreaText",
-            "(Landroid/view/View;Ljava/lang/String;)V",
-            &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-        );
-    });
+    // The three attribute patches all call `<method>(View, boolean)` on the Java shim.
+    let bool_attr = |method: &str, value: bool| {
+        with_env(|env| {
+            let _ = env.dcall_static(
+                TA_CLASS,
+                method,
+                "(Landroid/view/View;Z)V",
+                &[JValue::Object(h.0.as_obj()), JValue::Bool(value)],
+            );
+        });
+    };
+    match patch {
+        TextPatch::SetText(t) => {
+            with_env(|env| {
+                let s = env.new_string(t).expect("text");
+                let _ = env.dcall_static(
+                    TA_CLASS,
+                    "setTextAreaText",
+                    "(Landroid/view/View;Ljava/lang/String;)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
+                );
+            });
+        }
+        TextPatch::SetEditable(v) => bool_attr("setTextAreaEditable", *v),
+        TextPatch::SetSelectable(v) => bool_attr("setTextAreaSelectable", *v),
+        TextPatch::SetSpellCheck(v) => bool_attr("setTextAreaSpellCheck", *v),
+    }
 }
 
 fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {

@@ -77,8 +77,14 @@ fn make(_backend: &mut WinUi, p: &TextProps, id: NodeId) -> WinHandle {
 }
 
 fn update(_backend: &mut WinUi, h: &WinHandle, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
-    unsafe { day_textarea_winui_set_text(h.0, cstr(t).as_ptr()) };
+    match patch {
+        TextPatch::SetText(t) => unsafe { day_textarea_winui_set_text(h.0, cstr(t).as_ptr()) },
+        // TextBox natively supports IsReadOnly / IsTextSelectionEnabled / IsSpellCheckEnabled, but
+        // the WinUI shim doesn't expose setters for them yet — these three attributes are a
+        // documented follow-up (docs/textarea.md), so Cap::Text* stay Unsupported and the patches
+        // are no-ops here.
+        TextPatch::SetEditable(_) | TextPatch::SetSelectable(_) | TextPatch::SetSpellCheck(_) => {}
+    }
 }
 
 fn measure(_backend: &mut WinUi, h: &WinHandle, p: Proposal) -> Size {

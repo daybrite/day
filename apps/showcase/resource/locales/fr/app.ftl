@@ -516,3 +516,16 @@ crash_contained_label = Interceptée par day, l'application survit
 crash_send = Envoyer le rapport
 crash_clear = Effacer les rapports
 crash_empty = Aucun rapport pour l'instant. Déclenchez un plantage, puis relancez pour le voir ici.
+
+# Page Zones de texte
+nav_textareas = Zones de texte
+textareas_caption = Un éditeur multiligne natif avec des attributs modifiable, sélectionnable et correction orthographique en direct (selon la boîte à outils).
+textareas_editor_section = Éditeur
+textareas_seed_section = Remplir avec
+textareas_attrs_section = Attributs
+textareas_seed_short = Court
+textareas_seed_long = Long
+textareas_seed_markdown = Markdown
+textareas_editable = Modifiable
+textareas_selectable = Sélectionnable
+textareas_spellcheck = Correction orthographique

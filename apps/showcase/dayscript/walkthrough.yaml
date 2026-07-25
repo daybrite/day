@@ -418,6 +418,16 @@ flow:
   - assert_visible: { id: text-font-specialelite }
   - screenshot: text
 
+  # Text areas (docs/textarea.md): the native multi-line editor with editable/selectable/spell-check
+  # attributes and per-toolkit capability-gated toggles. Seed the markdown sample for a stable shot.
+  - navigate: { route: textareas }
+  - assert_route: { route: textareas }
+  - assert_visible: { id: textareas-title }
+  - assert_visible: { id: textareas-editor }
+  - tap: { id: ta-seed-markdown }
+  - wait_idle:
+  - screenshot: textareas
+
   # Localization (docs/localization.md): live locale switching, icu4x NUMBER/DATETIME rendering,
   # CLDR plural categories, and collation-aware sorting. Key-based asserts resolve through the
   # SAME bundle + formatter as the labels, so the expected strings are locale-correct by

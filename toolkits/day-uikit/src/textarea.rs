@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use crate::Uikit;
 use day_spec::{NodeId, Proposal, Size};
 use objc2::rc::Retained;
-use objc2::runtime::{NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_foundation::NSString;
 use objc2_ui_kit::{
@@ -79,13 +79,39 @@ fn key(v: &Retained<UIView>) -> usize {
     Retained::as_ptr(v) as usize
 }
 
+/// Set a `UITextInputTraits` `NSInteger` property (`spellCheckingType` / `autocorrectionType`) on a
+/// `UITextView`. On `UITextView` these are resolved dynamically rather than as concrete methods, so
+/// objc2's debug-only send verification (`class_getInstanceMethod`) reports them missing and a
+/// checked `msg_send!` panics with "method not found" — even though the send succeeds at runtime.
+/// Dispatching through the raw runtime entry point skips that static check and resolves the setter
+/// exactly as UIKit itself does.
+fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
+    let recv = (tv as *const UITextView).cast::<AnyObject>().cast_mut();
+    // SAFETY: `recv` is a live main-thread `UITextView`; `sel` names a `UITextInputTraits` setter
+    // that takes a single `NSInteger` and returns `void`, matching this `(id, SEL, NSInteger) -> ()`
+    // retyping of `objc_msgSend` (which is `extern "C-unwind"`).
+    let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, isize) =
+        unsafe { core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn()) };
+    unsafe { send(recv, sel, value) };
+}
+
+/// Apply editable / selectable / spell-check to the UITextView. Spell-check drives both the spell
+/// checker and autocorrect (0 = Default/on, 1 = No/off — `UITextSpellCheckingType`/`…AutocorrectionType`).
+fn apply_attrs(tv: &UITextView, editable: bool, selectable: bool, spell: bool) {
+    tv.setEditable(editable);
+    tv.setSelectable(selectable);
+    let v: isize = if spell { 0 } else { 1 };
+    set_text_input_trait(tv, sel!(setSpellCheckingType:), v);
+    set_text_input_trait(tv, sel!(setAutocorrectionType:), v);
+}
+
 fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
     let mtm = MainThreadMarker::new().unwrap();
     let font = UIFont::systemFontOfSize(FONT_SIZE);
 
     let tv = UITextView::new(mtm);
     tv.setFont(Some(&font));
-    tv.setEditable(true);
+    apply_attrs(&tv, p.editable, p.selectable, p.spellcheck);
     tv.setTextContainerInset(UIEdgeInsets {
         top: INSET_TOP,
         left: 0.0,
@@ -134,15 +160,25 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
 }
 
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TextPatch) {
-    let TextPatch::SetText(t) = patch;
     STATE.with(|m| {
         let m = m.borrow();
         let Some(st) = m.get(&key(h)) else {
             return;
         };
-        if st.tv.text().to_string() != *t {
-            st.tv.setText(Some(&NSString::from_str(t)));
-            st.placeholder.setHidden(!t.is_empty());
+        match patch {
+            TextPatch::SetText(t) => {
+                if st.tv.text().to_string() != *t {
+                    st.tv.setText(Some(&NSString::from_str(t)));
+                    st.placeholder.setHidden(!t.is_empty());
+                }
+            }
+            TextPatch::SetEditable(v) => st.tv.setEditable(*v),
+            TextPatch::SetSelectable(v) => st.tv.setSelectable(*v),
+            TextPatch::SetSpellCheck(v) => {
+                let n: isize = if *v { 0 } else { 1 };
+                set_text_input_trait(&st.tv, sel!(setSpellCheckingType:), n);
+                set_text_input_trait(&st.tv, sel!(setAutocorrectionType:), n);
+            }
         }
     });
 }

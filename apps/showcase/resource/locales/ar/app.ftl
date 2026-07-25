@@ -522,3 +522,16 @@ crash_contained_label = يلتقطه day، ويبقى التطبيق
 crash_send = إرسال التقرير
 crash_clear = مسح التقارير
 crash_empty = لا يوجد تقرير عطل بعد. أحدِث عطلاً ثم أعِد التشغيل لرؤيته هنا.
+
+# صفحة مناطق النص
+nav_textareas = مناطق النص
+textareas_caption = محرّر متعدّد الأسطر أصلي بسمات قابلة للتحرير والتحديد والتدقيق الإملائي مباشرةً (حسب دعم مجموعة الأدوات).
+textareas_editor_section = المحرّر
+textareas_seed_section = تعبئة بـ
+textareas_attrs_section = السمات
+textareas_seed_short = قصير
+textareas_seed_long = طويل
+textareas_seed_markdown = ماركداون
+textareas_editable = قابل للتحرير
+textareas_selectable = قابل للتحديد
+textareas_spellcheck = التدقيق الإملائي

@@ -1090,7 +1090,14 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs | Cap::Animation | Cap::Cover => Support::Native,
+                // EditText honors editable / selectable / spell-check (DayTextArea shim).
+                Cap::Dialogs
+                | Cap::FileDialogs
+                | Cap::Animation
+                | Cap::Cover
+                | Cap::TextEditable
+                | Cap::TextSelectable
+                | Cap::TextSpellCheck => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1421,8 +1428,12 @@ mod imp {
                         AHandle(make_view(
                             env,
                             "makeToggle",
-                            "(JZ)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Bool(p.on)],
+                            "(JZZ)Landroid/view/View;",
+                            &[
+                                JValue::Long(idj),
+                                JValue::Bool(p.on),
+                                JValue::Bool(p.enabled),
+                            ],
                         ))
                     })
                 }

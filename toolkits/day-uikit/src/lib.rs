@@ -1772,7 +1772,14 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
-                Cap::Dialogs | Cap::FileDialogs | Cap::Animation | Cap::Cover => Support::Native,
+                // UITextView natively honors editable / selectable / spell-check.
+                Cap::Dialogs
+                | Cap::FileDialogs
+                | Cap::Animation
+                | Cap::Cover
+                | Cap::TextEditable
+                | Cap::TextSelectable
+                | Cap::TextSpellCheck => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -2037,6 +2044,7 @@ mod imp {
                     let sw = unsafe { UISwitch::new(mtm) };
                     unsafe {
                         sw.setOn(p.on);
+                        sw.setEnabled(p.enabled);
                         let tobj: &AnyObject = target.as_ref();
                         sw.addTarget_action_forControlEvents(
                             Some(tobj),

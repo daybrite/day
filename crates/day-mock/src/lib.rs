@@ -26,6 +26,10 @@ pub struct MockWidget {
     pub value: f64,
     pub flag: bool,
     pub enabled: bool,
+    /// `text_area` attributes (probe-visible for tests): editable/read-only, selectable, spell-check.
+    pub editable: bool,
+    pub selectable: bool,
+    pub spellcheck: bool,
     pub children: Vec<u64>,
     pub frame: Rect,
     pub a11y: A11yProps,
@@ -218,6 +222,8 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // The mock records the text-area attributes (probe-visible), so it "supports" all three.
+            Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
             Cap::Animation => Support::Native,
             // Covers "present" by recording the patch (probe-visible); tests emit the
@@ -248,6 +254,7 @@ impl Toolkit for MockToolkit {
             detail = format!(" title={:?}", p.title);
         } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
             w.flag = p.on;
+            w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<SliderProps>() {
             w.value = p.value;
         } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
@@ -297,7 +304,13 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
             w.text = p.text.clone();
             w.placeholder = p.placeholder.clone();
-            detail = format!(" lines={}..{}", p.min_lines, p.max_lines);
+            w.editable = p.editable;
+            w.selectable = p.selectable;
+            w.spellcheck = p.spellcheck;
+            detail = format!(
+                " lines={}..{} editable={} selectable={} spellcheck={}",
+                p.min_lines, p.max_lines, p.editable, p.selectable, p.spellcheck
+            );
         }
         s.log(format!("realize {kind} #{h}{detail}"));
         s.widgets.insert(h, w);
@@ -392,11 +405,16 @@ impl Toolkit for MockToolkit {
                     w.value = *i as f64;
                 }
                 format!("picker.selected {i}")
-            } else if let Some(TextAreaPatch::SetText(t)) = patch.downcast_ref::<TextAreaPatch>() {
+            } else if let Some(tp) = patch.downcast_ref::<TextAreaPatch>() {
                 if let Some(w) = s.widgets.get_mut(&h.0) {
-                    w.text = t.clone();
+                    match tp {
+                        TextAreaPatch::SetText(t) => w.text = t.clone(),
+                        TextAreaPatch::SetEditable(v) => w.editable = *v,
+                        TextAreaPatch::SetSelectable(v) => w.selectable = *v,
+                        TextAreaPatch::SetSpellCheck(v) => w.spellcheck = *v,
+                    }
                 }
-                format!("textarea.text {t:?}")
+                format!("textarea.patch {tp:?}")
             } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
                 w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
                 format!("menu selected={sel:?}")

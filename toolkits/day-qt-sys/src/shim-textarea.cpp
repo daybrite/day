@@ -46,6 +46,38 @@ void day_textarea_set_text(void *w, const char *text) {
     static_cast<DayTextArea *>(w)->setTextGuarded(QString::fromUtf8(text));
 }
 
+// editable / selectable. Qt has no built-in spell-check (Cap::TextSpellCheck = Unsupported), so
+// there's no setter for it. Editing implies selection; a read-only editor is selectable when asked,
+// otherwise inert. The two single-attribute setters read the current state of the other attribute
+// off the widget so they stay consistent.
+static void applyTextAreaAttrs(QPlainTextEdit *w, bool editable, bool selectable) {
+    w->setReadOnly(!editable);
+    Qt::TextInteractionFlags flags;
+    if (editable)
+        flags = Qt::TextEditorInteraction;
+    else if (selectable)
+        flags = Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard;
+    else
+        flags = Qt::NoTextInteraction;
+    w->setTextInteractionFlags(flags);
+}
+
+void day_textarea_set_attrs(void *ptr, int editable, int selectable) {
+    applyTextAreaAttrs(static_cast<QPlainTextEdit *>(ptr), editable != 0, selectable != 0);
+}
+
+void day_textarea_set_read_only(void *ptr, int read_only) {
+    QPlainTextEdit *w = static_cast<QPlainTextEdit *>(ptr);
+    bool selectable = (w->textInteractionFlags() &
+                       (Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard)) != 0;
+    applyTextAreaAttrs(w, read_only == 0, selectable);
+}
+
+void day_textarea_set_selectable(void *ptr, int selectable) {
+    QPlainTextEdit *w = static_cast<QPlainTextEdit *>(ptr);
+    applyTextAreaAttrs(w, !w->isReadOnly(), selectable != 0);
+}
+
 // Content-driven height for the proposed width, clamped to the line band. `max_lines == 0` = unbounded.
 void day_textarea_measure(void *ptr, double avail_w, uint32_t min_lines, uint32_t max_lines,
                           double *out_w, double *out_h) {

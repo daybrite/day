@@ -515,6 +515,14 @@ pub enum Cap {
     /// The toolkit presents a `kinds::COVER` node as a native fullscreen modal surface
     /// (docs/cover.md). `Unsupported` ⇒ the `cover` piece's content never shows.
     Cover,
+    /// The toolkit's `text_area` can be made read-only (`TextAreaProps::editable = false`).
+    TextEditable,
+    /// The toolkit's `text_area` selectability can be toggled (`TextAreaProps::selectable`).
+    /// `Unsupported` where selection is always on (GTK) or the editor isn't wired (ArkUI).
+    TextSelectable,
+    /// The toolkit's `text_area` has built-in spell-check/autocorrect (`TextAreaProps::spellcheck`).
+    /// `Unsupported` where the toolkit ships none (GTK, Qt, ArkUI).
+    TextSpellCheck,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1244,13 +1252,22 @@ pub mod props {
 
     /// Full text-area props (realize, kinds::TEXT_AREA — docs/textarea.md). `text` seeds the
     /// editor; `min_lines`/`max_lines` bound the auto-growing height in text lines
-    /// (`max_lines == 0` = unbounded). Only `text` changes after build.
+    /// (`max_lines == 0` = unbounded). `editable`/`selectable`/`spellcheck` control the native
+    /// editor attributes (all default `true`); a backend that can't honor one answers
+    /// `Cap::Text{Editable,Selectable,SpellCheck}` = `Unsupported`. `text` and the three attributes
+    /// change after build (via [`TextAreaPatch`]); the rest are build-only.
     #[derive(Clone, Debug, PartialEq)]
     pub struct TextAreaProps {
         pub text: String,
         pub placeholder: String,
         pub min_lines: u32,
         pub max_lines: u32,
+        /// Whether the user can edit the text (`false` = read-only). Default `true`.
+        pub editable: bool,
+        /// Whether the text can be selected (and copied). Default `true`.
+        pub selectable: bool,
+        /// Whether spell-check / autocorrect highlighting is on. Default `true`.
+        pub spellcheck: bool,
     }
 
     impl Default for TextAreaProps {
@@ -1260,14 +1277,21 @@ pub mod props {
                 placeholder: String::new(),
                 min_lines: 1,
                 max_lines: 0,
+                editable: true,
+                selectable: true,
+                spellcheck: true,
             }
         }
     }
 
-    /// The single imperative text-area update: replace the editor's text (programmatic sync).
+    /// Imperative text-area updates: replace the text (programmatic sync), or flip one of the
+    /// live attributes.
     #[derive(Clone, Debug, PartialEq)]
     pub enum TextAreaPatch {
         SetText(String),
+        SetEditable(bool),
+        SetSelectable(bool),
+        SetSpellCheck(bool),
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]

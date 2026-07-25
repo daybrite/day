@@ -642,6 +642,7 @@ toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
 text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (docs/textarea.md)
+    .editable(e).selectable(s).spellcheck(sc)  // reactive attrs; Cap::Text{Editable,Selectable,SpellCheck}
 picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
 progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
@@ -1108,7 +1109,8 @@ pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
-    // NativeSymbols, Snapshot, NavSplit, NavHeader, Dialogs, FileDialogs, Animation, Cover)
+    // NativeSymbols, Snapshot, NavSplit, NavHeader, Dialogs, FileDialogs, Animation, Cover,
+    // TextEditable, TextSelectable, TextSpellCheck)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update

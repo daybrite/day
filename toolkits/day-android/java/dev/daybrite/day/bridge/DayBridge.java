@@ -509,9 +509,10 @@ public final class DayBridge {
         }
     }
 
-    public static View makeToggle(final long id, boolean value) {
+    public static View makeToggle(final long id, boolean value, boolean enabled) {
         MaterialSwitch s = new MaterialSwitch(ctx); // M3 switch
         s.setChecked(value);
+        s.setEnabled(enabled);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton b, boolean on) {
                 nativeOnEvent(id, K_TOGGLE_CHANGED, on ? 1 : 0, null);
