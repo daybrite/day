@@ -1,12 +1,21 @@
 ---
 // Auto-advancing carousel of real Day Showcase screenshots — one native rendering per platform,
 // cross-fading, with the platform name + toolkit animating in below each image. The pool is built
-// (and every image verified non-blank) at build time by scripts/hero-shots.mjs.
+// (and every image verified non-blank) at build time by scripts/hero-shots.mjs. Each slide carries
+// its light capture plus, where CI produced one, the matching dark capture; the site theme picks
+// which shows (platforms without a dark set keep their light shot — never a missing file).
 import { url } from '../lib/site';
 import shotsData from '../data/hero-shots.json';
 
-const shots: { src: string; shot?: string; os: string; toolkit: string; accent: string; alt: string }[] =
-  shotsData.shots ?? [];
+const shots: {
+  src: string;
+  srcDark?: string;
+  shot?: string;
+  os: string;
+  toolkit: string;
+  accent: string;
+  alt: string;
+}[] = shotsData.shots ?? [];
 ---
 {shots.length > 0 && (
   <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
@@ -24,6 +33,8 @@ const shots: { src: string; shot?: string; os: string; toolkit: string; accent: 
             height="750"
             decoding="async"
             loading={i < 3 ? 'eager' : 'lazy'}
+            data-src-light={url(s.src)}
+            data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
             data-shot={s.shot}
             data-os={s.os}
             data-toolkit={s.toolkit}
@@ -122,9 +133,26 @@ const shots: { src: string; shot?: string; os: string; toolkit: string; accent: 
 </style>
 
 <script>
+  // Show each slide's capture for the current site theme (html[data-theme], set before paint by
+  // BaseLayout). Dark visitors get the dark screenshots; a slide with no dark capture keeps its
+  // light one — data-src-dark is only emitted for files verified to exist.
+  function applyHeroTheme() {
+    const dark = document.documentElement.dataset.theme === 'dark';
+    for (const img of document.querySelectorAll<HTMLImageElement>('[data-hero-carousel] .hc-img')) {
+      const src = (dark && img.dataset.srcDark) || img.dataset.srcLight;
+      if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
+    }
+  }
+  // Re-resolve when the theme toggle (or the OS, under "system") flips the site theme.
+  new MutationObserver(applyHeroTheme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+
   // Carousel controller: shuffle the verified pool (so each visit differs), cross-fade the images,
   // and animate the platform caption in sync. Pauses on hover / when the tab is hidden.
   function initHeroCarousel() {
+    applyHeroTheme();
     const root = document.querySelector<HTMLElement>('[data-hero-carousel]');
     if (!root) return;
 

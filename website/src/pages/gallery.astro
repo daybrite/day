@@ -161,7 +161,13 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   // pair resolves to a preference order; the first variant a tile actually has wins, and a
   // small badge names the fallback when the exact combination wasn't captured (e.g. French is
   // captured in light only, and some toolkits can't force dark).
-  const state = { theme: 'light', locale: 'en' };
+  //
+  // The preview theme starts on the SITE theme (html[data-theme], set before paint by BaseLayout):
+  // a dark-mode visitor lands on the dark captures. It keeps tracking the site theme toggle until
+  // the visitor picks a preview theme themselves — an explicit choice pins it.
+  const siteTheme = () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  const state = { theme: siteTheme(), locale: 'en' };
+  let themePinned = false;
 
   // Variant ids are `<theme>` for English and `<theme>-<locale>` otherwise (lowercased),
   // matching gallery.config.mjs. Fallback order: same locale in the other theme, then English
@@ -215,11 +221,19 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     }
   }
 
-  for (const seg of document.querySelectorAll<HTMLElement>('.seg')) {
+  function reflectThemeSeg(): void {
+    const seg = document.querySelector<HTMLElement>('.seg[data-seg="theme"]');
+    for (const b of seg?.querySelectorAll('button') ?? []) {
+      b.setAttribute('aria-checked', b.dataset.value === state.theme ? 'true' : 'false');
+    }
+  }
+
+  for (const seg of document.querySelectorAll<HTMLElement>('.seg[data-seg]')) {
     const key = seg.dataset.seg as 'theme' | 'locale';
     seg.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-value]');
       if (!btn) return;
+      if (key === 'theme') themePinned = true;
       state[key] = btn.dataset.value!;
       for (const b of seg.querySelectorAll('button')) {
         b.setAttribute('aria-checked', b === btn ? 'true' : 'false');
@@ -227,6 +241,17 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       applyVariants();
     });
   }
+
+  // Land on the site theme's captures (the server-rendered markup assumes light/en), and follow
+  // the site theme toggle live while the preview theme is unpinned.
+  reflectThemeSeg();
+  applyVariants();
+  new MutationObserver(() => {
+    if (themePinned || state.theme === siteTheme()) return;
+    state.theme = siteTheme();
+    reflectThemeSeg();
+    applyVariants();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   // ---- Full-size lightbox: 2-D, platform-aware navigation ----
   //   ←/→  cycle platforms across the SAME screen (the tiles of one row)

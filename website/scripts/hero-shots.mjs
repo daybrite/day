@@ -7,13 +7,21 @@
 // single-colour image has ~0 stdev, real UI has plenty.
 //
 // Sources, in order of preference per (platform, shot):
-//   1. `public/gallery/<suite>/<platform>/<shot>.png` — the real CI artifacts, already assembled by
-//      scripts/assemble-gallery.mjs (so production/CI needs no network).
-//   2. `https://daybrite.dev/gallery/<suite>/<platform>/<shot>.png` — the live gallery, downloaded
-//      when local artifacts are placeholders (local dev previews get real images "to build the page").
+//   1. `public/gallery/<suite>/<platform>/<variant>/<shot>.png` — the real CI artifacts, already
+//      assembled by scripts/assemble-gallery.mjs (so production/CI needs no network).
+//   2. `https://daybrite.dev/gallery/<suite>/<platform>/<variant>/<shot>.png` — the live gallery,
+//      downloaded when local artifacts are placeholders (local dev previews get real images "to
+//      build the page").
 //
-// Outputs : `public/hero/<platform>-<shot>.png`  (verified images, copied as static assets)
-//           `src/data/hero-shots.json`           (consumed by src/components/HeroCarousel.astro)
+// Each admitted shot is the LIGHT capture; when the matching `dark` capture exists (and passes the
+// same non-blank check plus a predominantly-dark check — see `isDark`) it is emitted alongside so
+// the carousel can follow the site theme. A shot is never admitted on its dark capture alone, and
+// `srcDark` is only written for files that exist and verified — the carousel falls back to light
+// rather than pointing at a missing or defective image.
+//
+// Outputs : `public/hero/<platform>-<shot>.png`       (verified images, copied as static assets)
+//           `public/hero/<platform>-<shot>-dark.png`  (only where a dark capture was verified)
+//           `src/data/hero-shots.json`                (consumed by src/components/HeroCarousel.astro)
 //
 // Runnable standalone (`node scripts/hero-shots.mjs [--refresh]`) and from the Astro integration
 // (integrations/gallery.mjs), after the gallery is assembled.
@@ -43,7 +51,9 @@ const PRIMARY_PLATFORMS = [
   'ios-uikit',
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.
-const PRIMARY_KEY = PRIMARY_PLATFORMS.join(',');
+// The `v2` marker is the manifest format (light + optional dark per shot) — bump it when the
+// output shape changes so stale caches rebuild.
+const PRIMARY_KEY = ['v2', ...PRIMARY_PLATFORMS].join(',');
 
 // Shots tried per platform, richest-looking UI first. The first (up to MAX_PER_PLATFORM) that pass
 // verification are admitted, so a platform missing "home" still contributes via "controls", etc.
@@ -77,14 +87,32 @@ async function isContentful(buf) {
   }
 }
 
-/** Fetch a (platform, shot) PNG: prefer the locally-assembled artifact, else the live gallery.
- *  Screenshots are per-variant since the themed capture sets landed; the hero shows the light
- *  set (the pre-variant flat path is kept as a live-fallback for the transition window). */
-async function obtain(platformId, shot) {
-  const rels = [
-    `gallery/${SUITE_ID}/${platformId}/light/${shot}.png`,
-    `gallery/${SUITE_ID}/${platformId}/${shot}.png`, // pre-variant layout (live fallback)
-  ];
+/** True when the capture is predominantly dark. Guards against a "dark" artifact whose content
+ *  pane rendered white (a capture defect seen on some toolkits) shipping as a dark hero shot.
+ *  Genuine dark captures measure ~25–55 mean luminance, the defective ones ~145, and light sets
+ *  ~230+ — 100 splits those populations with a wide margin either way. */
+async function isDark(buf) {
+  try {
+    const stats = await sharp(buf, { failOn: 'none' }).stats();
+    const mean = stats.channels.slice(0, 3).reduce((sum, c) => sum + c.mean, 0) / 3;
+    return mean < 100;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch a (platform, shot, theme) PNG: prefer the locally-assembled artifact, else the live
+ *  gallery. Screenshots are per-variant since the themed capture sets landed; only light keeps
+ *  the pre-variant flat path as a live-fallback for the transition window (those captures were
+ *  light — a flat file must never be passed off as dark). */
+async function obtain(platformId, shot, theme) {
+  const rels =
+    theme === 'dark'
+      ? [`gallery/${SUITE_ID}/${platformId}/dark/${shot}.png`]
+      : [
+          `gallery/${SUITE_ID}/${platformId}/light/${shot}.png`,
+          `gallery/${SUITE_ID}/${platformId}/${shot}.png`, // pre-variant layout (live fallback)
+        ];
   for (const rel of rels) {
     const local = join(WEBSITE_ROOT, 'public', rel);
     if (existsSync(local)) return readFileSync(local);
@@ -118,7 +146,11 @@ export async function assembleHeroShots(opts = {}) {
         cached.key === PRIMARY_KEY &&
         Array.isArray(cached.shots) &&
         cached.shots.length > 0 &&
-        cached.shots.every((s) => existsSync(join(WEBSITE_ROOT, 'public', s.src)))
+        cached.shots.every(
+          (s) =>
+            existsSync(join(WEBSITE_ROOT, 'public', s.src)) &&
+            (!s.srcDark || existsSync(join(WEBSITE_ROOT, 'public', s.srcDark))),
+        )
       ) {
         log(`reusing ${cached.shots.length} cached hero shot(s) (pass --refresh to rebuild)`);
         return { count: cached.shots.length, manifestPath };
@@ -132,6 +164,14 @@ export async function assembleHeroShots(opts = {}) {
   mkdirSync(outDir, { recursive: true });
   mkdirSync(dirname(manifestPath), { recursive: true });
 
+  // Normalise for the web: cap the longest side (the iOS captures are ~2600px tall) so the hero
+  // stays light, and re-encode PNG. Never enlarge — desktop shots are already ~1000px.
+  const normalise = (buf) =>
+    sharp(buf, { failOn: 'none' })
+      .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+
   const shots = [];
   const platforms = PRIMARY_PLATFORMS
     .map((id) => galleryConfig.platforms.find((p) => p.id === id))
@@ -140,18 +180,12 @@ export async function assembleHeroShots(opts = {}) {
     let taken = 0;
     for (const shot of PREFERRED_SHOTS) {
       if (taken >= MAX_PER_PLATFORM) break;
-      const buf = await obtain(platform.id, shot);
+      const buf = await obtain(platform.id, shot, 'light');
       if (!buf) continue;
       if (!(await isContentful(buf))) continue;
       const file = `${platform.id}-${shot}.png`;
-      // Normalise for the web: cap the longest side (the iOS captures are ~2600px tall) so the hero
-      // stays light, and re-encode PNG. Never enlarge — desktop shots are already ~1000px.
-      const out = await sharp(buf, { failOn: 'none' })
-        .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
-        .png({ compressionLevel: 9 })
-        .toBuffer();
-      writeFileSync(join(outDir, file), out);
-      shots.push({
+      writeFileSync(join(outDir, file), await normalise(buf));
+      const entry = {
         src: `hero/${file}`,
         // The gallery shot id — the carousel links each image to its row anchor (`/gallery#<shot>`).
         shot,
@@ -159,7 +193,17 @@ export async function assembleHeroShots(opts = {}) {
         toolkit: platform.toolkit,
         accent: OS_ACCENT[platform.os] ?? 'macos',
         alt: `The Day Showcase app running natively on ${platform.os} with ${platform.toolkit}`,
-      });
+      };
+      // The matching dark capture, when it exists, is equally non-blank, and actually reads as
+      // dark. `srcDark` is only written for a verified file — the carousel falls back to light
+      // otherwise.
+      const darkBuf = await obtain(platform.id, shot, 'dark');
+      if (darkBuf && (await isContentful(darkBuf)) && (await isDark(darkBuf))) {
+        const darkFile = `${platform.id}-${shot}-dark.png`;
+        writeFileSync(join(outDir, darkFile), await normalise(darkBuf));
+        entry.srcDark = `hero/${darkFile}`;
+      }
+      shots.push(entry);
       taken += 1;
     }
     if (taken === 0) log(`no non-blank screenshot found for ${platform.id} — skipped`);
@@ -167,7 +211,11 @@ export async function assembleHeroShots(opts = {}) {
 
   writeFileSync(manifestPath, JSON.stringify({ key: PRIMARY_KEY, shots }, null, 2) + '\n');
   const platformCount = new Set(shots.map((s) => `${s.os}/${s.toolkit}`)).size;
-  log(`verified ${shots.length} hero shot(s) across ${platformCount} native rendering(s)`);
+  const darkCount = shots.filter((s) => s.srcDark).length;
+  log(
+    `verified ${shots.length} hero shot(s) across ${platformCount} native rendering(s), ` +
+      `${darkCount} with a dark capture`,
+  );
   return { count: shots.length, manifestPath };
 }
 

@@ -47,9 +47,8 @@ mod imp {
     thread_local! {
         /// Navigation state (docs/navigation.md): the single app nav host (its day NodeId +
         /// ArkUI node pointer), the host's attached page children in order (page ptr → day
-        /// NodeId, so a Pushed patch can re-home the just-attached last page), pages re-homed
-        /// into ArkTS NodeContents (page ptr → key), how many pops Day itself initiated (a
-        /// `navPopped` for one of those must NOT sync back), and the current native stack depth.
+        /// NodeId, so a Pushed patch can re-home the just-attached last page), and pages
+        /// re-homed into ArkTS NodeContents (page ptr → key).
         static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
@@ -57,8 +56,15 @@ mod imp {
         /// page is still mounted — its Remove must not touch the torn-down ArkTS content.
         static NAV_POPPED_KEYS: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
-        static NAV_EXPECT_POP: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
-        static NAV_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        /// Keys whose next `navPopped` acknowledges a DAY-initiated pop (must not sync back
+        /// as a native back). Keyed, not counted: a page pushed and popped within one frame
+        /// never mounts, so ArkUI fires NO disappear for it — a counter would wait forever
+        /// on an acknowledgement that never comes (the CI post-stack blank-screenshot wedge).
+        static NAV_EXPECT_POP: RefCell<std::collections::HashSet<u64>> =
+            RefCell::new(std::collections::HashSet::new());
+        /// Rust's own order of pushed page keys — what a `NavPatch::Popped` pops, so the pop
+        /// handler knows WHICH key it retired (ArkTS only reports keys on disappear).
+        static NAV_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
         static NAV_PAGE_IDS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
@@ -110,11 +116,15 @@ mod imp {
         /// which `run` consumes) — covers re-home onto it while presented.
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
         /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
-        /// it): pushed page keys awaiting their destination's first area report, and the
-        /// count of Day-initiated pops awaiting their `navPopped` acknowledgement.
+        /// it): pushed page keys awaiting their destination's first area report, and popped
+        /// page keys awaiting their `navPopped` acknowledgement. Both hold only keys whose
+        /// native event is actually COMING: a pop retires its own pending-push entry (a
+        /// never-mounted page reports neither), and only lands in the pending-pop set when
+        /// the page had mounted.
         static NAV_PENDING_PUSH: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
-        static NAV_PENDING_POP: Cell<u32> = const { Cell::new(0) };
+        static NAV_PENDING_POP: RefCell<std::collections::HashSet<u64>> =
+            RefCell::new(std::collections::HashSet::new());
         /// Each `scroll()`'s shim-owned content Stack (scroll ptr → stack ptr), sized by
         /// `set_scroll_content`. Day's content nodes are layout-only (no native child of
         /// their own), and an ArkUI Scroll whose children are absolutely-placed leaves
@@ -422,23 +432,20 @@ mod imp {
         if NAV_PUSHED.with(|m| m.borrow().values().any(|k| *k == key)) {
             NAV_POPPED_KEYS.with(|s| s.borrow_mut().insert(key));
         }
-        NAV_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
         // A destination that never landed can no longer be waited on.
         NAV_PENDING_PUSH.with(|s| {
             s.borrow_mut().remove(&key);
         });
-        let expected = NAV_EXPECT_POP.with(|e| {
-            let v = e.get();
-            if v > 0 {
-                e.set(v - 1);
-                true
-            } else {
-                false
-            }
-        });
+        // Day-initiated pops retired their key from NAV_STACK already; a NATIVE back is the
+        // toolkit popping on its own, so drop the key here (keeping Rust's order in sync
+        // before the NavBack sync writes the pop into the route state).
+        NAV_STACK.with(|s| s.borrow_mut().retain(|k| *k != key));
+        let expected = NAV_EXPECT_POP.with(|e| e.borrow_mut().remove(&key));
         if expected {
             // The acknowledgement of a Day-initiated pop (`ui_idle`'s pending-pop signal).
-            NAV_PENDING_POP.with(|p| p.set(p.get().saturating_sub(1)));
+            NAV_PENDING_POP.with(|p| {
+                p.borrow_mut().remove(&key);
+            });
         }
         if !expected && let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
             emit(
@@ -719,10 +726,10 @@ mod imp {
                     NAV_ATTACHED.with(|v| v.borrow_mut().clear());
                     NAV_PUSHED.with(|m| m.borrow_mut().clear());
                     NAV_POPPED_KEYS.with(|s| s.borrow_mut().clear());
-                    NAV_EXPECT_POP.with(|e| e.set(0));
-                    NAV_DEPTH.with(|d| d.set(0));
+                    NAV_EXPECT_POP.with(|e| e.borrow_mut().clear());
+                    NAV_STACK.with(|s| s.borrow_mut().clear());
                     NAV_PENDING_PUSH.with(|s| s.borrow_mut().clear());
-                    NAV_PENDING_POP.with(|p| p.set(0));
+                    NAV_PENDING_POP.with(|p| p.borrow_mut().clear());
                     n
                 }
                 kinds::NAV_PAGE => {
@@ -826,7 +833,7 @@ mod imp {
                                     };
                                     if rc == 0 {
                                         NAV_PUSHED.with(|m| m.borrow_mut().insert(page, key));
-                                        NAV_DEPTH.with(|d| d.set(d.get() + 1));
+                                        NAV_STACK.with(|s| s.borrow_mut().push(key));
                                         NAV_PENDING_PUSH.with(|s| s.borrow_mut().insert(key));
                                     } else {
                                         // No ArkTS bridge (old host page): fall back to the
@@ -839,12 +846,21 @@ mod imp {
                             }
                             NavPatch::Popped => {
                                 // Pop natively only if a destination is actually up and not
-                                // already popped by a native back (the NavBack sync path).
-                                let outstanding =
-                                    NAV_DEPTH.with(|d| d.get()) > NAV_EXPECT_POP.with(|e| e.get());
-                                if outstanding {
-                                    NAV_EXPECT_POP.with(|e| e.set(e.get() + 1));
-                                    NAV_PENDING_POP.with(|p| p.set(p.get() + 1));
+                                // already popped by a native back (the NavBack sync path —
+                                // `day_arkui_nav_popped` removed its key from NAV_STACK).
+                                let popped = NAV_STACK.with(|s| s.borrow_mut().pop());
+                                if let Some(key) = popped {
+                                    NAV_EXPECT_POP.with(|e| e.borrow_mut().insert(key));
+                                    // A page popped before it ever landed (pushed and popped
+                                    // within one frame) mounts nothing: ArkUI will fire
+                                    // neither its area report nor its disappear. Retire the
+                                    // pending push and wait on no acknowledgement — only a
+                                    // LANDED page's pop blocks `ui_idle`.
+                                    let landed = NAV_PENDING_PUSH
+                                        .with(|s| !s.borrow_mut().remove(&key));
+                                    if landed {
+                                        NAV_PENDING_POP.with(|p| p.borrow_mut().insert(key));
+                                    }
                                     unsafe { ffi::day_ark_nav_pop() };
                                 }
                             }
@@ -1249,7 +1265,7 @@ mod imp {
         /// report (content laid out) and for Day-initiated pops to be acknowledged.
         fn ui_idle(&mut self) -> bool {
             NAV_PENDING_PUSH.with(|s| s.borrow().is_empty())
-                && NAV_PENDING_POP.with(|p| p.get()) == 0
+                && NAV_PENDING_POP.with(|p| p.borrow().is_empty())
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).

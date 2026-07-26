@@ -1887,6 +1887,12 @@ impl Toolkit for AppKit {
                     h.clone().downcast::<DayFlipped>(),
                 ) {
                     // A background patch only targets a background container (corner radius 0).
+                    // The AnimSpec is deliberately not honored: the fill is drawRect CONTENT
+                    // (rasterized by our own drawing code so dynamic system colors re-resolve
+                    // per appearance), not a CALayer property, and Core Animation only
+                    // interpolates layer properties — there is nothing for the render server
+                    // to tween. Day animates only what the toolkit's own animator can execute
+                    // (§8.4), so an animated background change applies at commit here.
                     v.set_surface(*c, 0.0, false);
                 }
             }

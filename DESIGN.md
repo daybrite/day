@@ -1257,9 +1257,17 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 
 ### §8.4 Animation (reserved hooks — still unimplemented)
 
-> [!WARNING]
-> **Status: as designed, still reserved.** `AnimSpec` parameters sit on `set_frame`/`update`
-> and every backend ignores them; no `.transition`/`with_animation` surface exists yet.
+> [!NOTE]
+> **Status: partly shipped (2026-07).** `with_animation(spec, || …)` exists (day-core
+> `anim.rs`) and threads `AnimSpec` through `set_frame`/`set_opacity`/`set_transform`/
+> `update`; the backends execute opacity and transform changes natively (the showcase
+> Animation page drives every channel at once). An animated background-color `update`
+> interpolates on UIKit only: `UIView.backgroundColor` is a CALayer property that UIKit's
+> own animator tweens on the render server. The AppKit backend paints its fill in
+> `drawRect` (so dynamic system colors re-resolve per appearance), which Core Animation
+> cannot interpolate — and per §0.3 Day does not tick its own animations for native
+> widgets — so there, and on the other backends, the color applies at commit. The
+> `.transition` enter/exit surface remains unimplemented.
 
 Native-widget frameworks that bolt animation on later end up breaking their backend ABI — so the
 seam ships now even though MVP backends ignore it. Day commits to **backend-executed animation**:
