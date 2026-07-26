@@ -80,6 +80,12 @@ compose_styled_btn = Filled
 compose_env_value = Tinted by the provided accent
 list_add = Add 100
 list_caption = { $count } rows — only the visible cells are built
+list_selection_none = No rows selected
+list_selection = { $count ->
+    [one] Selected row: { $rows }
+   *[other] Selected rows: { $rows }
+}
+list_clear_selection = Clear Selection
 
 webview_url_hint = Enter a URL
 webview_go = Go
@@ -371,11 +377,13 @@ image_mode_stretch = Stretch
 resources_data_section = Data assets
 
 # About page
-about_caption = What this app is, and the platform it landed on.
 about_app_section = This app
 about_version = Version
 about_toolkit = Toolkit
-about_battery = Battery
+about_id = App ID
+about_os = OS
+about_model = Model
+about_locale = Locale
 history_hint = Tap + or − above and each change lands here.
 
 # Focus page (docs/focus.md)

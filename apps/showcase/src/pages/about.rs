@@ -1,11 +1,12 @@
 use day::prelude::*;
 
-use crate::widgets::{battery_line, page};
+use crate::widgets::page;
 
-/// About — the closing page: an identity hero (logo + name + blurb), then one info card of
-/// live facts about this build and the platform it landed on: version, the native toolkit
-/// compiled into the binary, the battery reading (day-part-battery, a headless part), and the
-/// most recent app-lifecycle phase (docs/lifecycle.md).
+/// About — the opening page (and the desktop split's default detail): an identity hero
+/// (logo + name + blurb + site link) over one card of live facts about this build and the
+/// platform it landed on — version, bundle id, the native toolkit compiled into the binary,
+/// the OS and device it is running on, the active locale, and the most recent app-lifecycle
+/// phase (docs/lifecycle.md).
 pub(crate) fn about_page() -> AnyPiece {
     let hero = column((
         image(crate::res::images::day_logo).frame(96.0, 96.0),
@@ -24,18 +25,35 @@ pub(crate) fn about_page() -> AnyPiece {
     // the hero's own centering is visible.
     .grow_w();
 
+    // The platform identity, read once at build (day-part-deviceinfo; values vary per host).
+    let d = day_part_deviceinfo::get();
     let info = section((
         labeled(
             crate::res::str::about_version(),
             label(env!("CARGO_PKG_VERSION")).id("about-version"),
         ),
         labeled(
+            crate::res::str::about_id(),
+            // Baked from Day.toml's [app].id by build.rs (DAY_APP_ID, set by `day build`);
+            // a bare `cargo` build has no identity to show.
+            label(option_env!("DAY_SHOWCASE_APP_ID").unwrap_or("\u{2014}")).id("about-id"),
+        ),
+        labeled(
             crate::res::str::about_toolkit(),
             label(day::toolkit_name()).id("about-toolkit"),
         ),
         labeled(
-            crate::res::str::about_battery(),
-            label(battery_line()).id("battery-line"),
+            crate::res::str::about_os(),
+            label(format!("{} {}", d.system_name, d.system_version)).id("about-os"),
+        ),
+        labeled(
+            crate::res::str::about_model(),
+            label(d.model).id("about-model"),
+        ),
+        labeled(
+            crate::res::str::about_locale(),
+            // Live: switching on the Localization page re-renders this tag on the spot.
+            label(move || day::locale().get()).id("about-locale"),
         ),
         labeled(
             crate::res::str::menus_lifecycle(),
@@ -47,7 +65,7 @@ pub(crate) fn about_page() -> AnyPiece {
     page(
         crate::res::str::nav_about(),
         "about-title",
-        Some(crate::res::str::about_caption()),
+        None,
         column((hero, form((info,))))
             .spacing(16.0)
             .align(HAlign::Leading)

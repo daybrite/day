@@ -320,7 +320,15 @@ flow:
   - navigate: { route: list }
   - assert_route: { route: list }
   - assert_visible: { id: list-title }
+  # Selection (docs/list.md): the synthetic select drives the same rail as a native tap;
+  # the app signal echoes it back into the native list, so the screenshot shows the
+  # highlighted row. Row index 1 = row number 2. Clear syncs an empty selection natively.
+  - assert_text: { id: list-selection, key: list_selection_none }
+  - select: { id: demo-list, index: 1 }
+  - assert_text: { id: list-selection, key: list_selection, args: { count: 1, rows: "2" } }
   - screenshot: list
+  - tap: { id: list-clear }
+  - assert_text: { id: list-selection, key: list_selection_none }
   - assert_text: { id: list-caption, key: list_caption, args: { count: 500 } }
   - toggle: { id: list-refresh, value: true }
   - pause: 2

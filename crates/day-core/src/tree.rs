@@ -353,6 +353,15 @@ impl<B: Toolkit> Tree<B> {
         // Collect the whole subtree.
         let mut stack = vec![node];
         while let Some(n) = stack.pop() {
+            // A LIST node's per-cell row subtrees live in scopes owned by the list machinery
+            // (not the node tree): dispose them with the node, or their bindings — e.g. a
+            // localized row label — outlive the list and patch freed native cells on the
+            // next locale/theme change (a use-after-free on raw-pointer backends like Qt).
+            if let Some(list) = self.lists.remove(&n) {
+                for (_, cell) in list.cells {
+                    cell.scope.dispose();
+                }
+            }
             let Some(data) = self.nodes.remove(n) else {
                 continue;
             };
@@ -538,6 +547,9 @@ pub trait TreeOps {
     fn list_reload(&mut self, node: RNode);
     /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
     fn list_scroll_to_end(&mut self, node: RNode);
+    /// Programmatically sync the list's selected rows (empty = clear). The toolkit applies
+    /// without re-emitting a selection event.
+    fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>);
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -1091,7 +1103,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 key,
                 crate::list::BoundCell {
                     anchor,
-                    _scope: built.scope,
+                    scope: built.scope,
                     rebind: built.rebind,
                 },
             );
@@ -1152,6 +1164,17 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 &handle,
                 kinds::LIST,
                 &day_spec::props::ListPatch::ScrollToEnd as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::Selected(rows) as &dyn Any,
                 None,
             );
         }

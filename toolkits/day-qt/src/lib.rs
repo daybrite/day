@@ -98,10 +98,66 @@ struct ListEntry {
     /// Last host width a populate ran at — so `set_frame` only repopulates on a real width change
     /// (a populate's own child `set_frame`s must not schedule another, or it loops forever).
     last_width: c_int,
+    /// Selection (docs/list.md): whether rows select at all, whether several may be selected,
+    /// the currently selected rows, and the last plainly-clicked row (the shift-range anchor).
+    node: u64,
+    selectable: bool,
+    multi: bool,
+    selected: std::collections::BTreeSet<usize>,
+    anchor: Option<usize>,
 }
 
 thread_local! {
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// List NODE id → host key, so the cell-click callback (which carries the node) can
+    /// find its entry.
+    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+}
+
+/// Repaint every cell's selected treatment from the entry's selection set.
+fn list_paint_selection(entry: &ListEntry) {
+    for (i, &cell) in entry.cells.iter().enumerate() {
+        unsafe { ffi::day_qt_cell_set_selected(cell, entry.selected.contains(&i) as c_int) };
+    }
+}
+
+/// A press on an emulated list cell (docs/list.md). Owns the selection semantics: plain click
+/// replaces the selection, ctrl/cmd toggles the row, shift extends from the anchor (multi-select
+/// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
+extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
+    let row = row.max(0) as usize;
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return;
+    };
+    let emit_ev = LIST_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let st = m.get_mut(&host_key)?;
+        if !st.selectable {
+            return None;
+        }
+        let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
+        if st.multi && ctrl {
+            if !st.selected.remove(&row) {
+                st.selected.insert(row);
+            }
+            st.anchor = Some(row);
+        } else if st.multi && shift {
+            let a = st.anchor.unwrap_or(row);
+            st.selected = (a.min(row)..=a.max(row)).collect();
+        } else {
+            st.selected = std::iter::once(row).collect();
+            st.anchor = Some(row);
+        }
+        list_paint_selection(st);
+        Some(if st.multi {
+            Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
+        } else {
+            Event::SelectionChanged(row as i64)
+        })
+    });
+    if let Some(ev) = emit_ev {
+        emit(NodeId(node), ev);
+    }
 }
 
 /// Populate/refresh a list's cells on the next event-loop turn — NOT inline: a reload runs inside
@@ -142,6 +198,18 @@ fn list_populate(host_key: usize) {
         while st.cells.len() < n {
             let cell = unsafe { ffi::day_qt_container_new() };
             unsafe { ffi::day_qt_add_child(content, cell) };
+            // Cell index == row for the cell's whole life (docs/list.md): the press filter's
+            // row is fixed at creation.
+            if st.selectable {
+                unsafe {
+                    ffi::day_qt_list_cell_click(
+                        cell,
+                        st.node,
+                        st.cells.len() as c_int,
+                        on_list_row_click,
+                    )
+                };
+            }
             st.cells.push(cell);
         }
         st.last_width = width;
@@ -919,9 +987,15 @@ impl Toolkit for Qt {
                                 source: Rc::new(RefCell::new(None)),
                                 cells: Vec::new(),
                                 last_width: -1,
+                                node: id.0,
+                                selectable: p.selectable,
+                                multi: p.multi_select,
+                                selected: Default::default(),
+                                anchor: None,
                             },
                         )
                     });
+                    LIST_BY_NODE.with(|m| m.borrow_mut().insert(id.0, host as usize));
                     QtHandle(host)
                 }
                 _ => {
@@ -1101,6 +1175,16 @@ impl Toolkit for Qt {
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+                    Some(ListPatch::Selected(rows)) => {
+                        // Programmatic selection sync (empty = clear): repaint, no re-emit.
+                        LIST_STATE.with(|m| {
+                            if let Some(st) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                st.selected = rows.iter().copied().collect();
+                                st.anchor = rows.last().copied();
+                                list_paint_selection(st);
+                            }
+                        });
+                    }
                     _ => {}
                 },
                 _ => {
@@ -1114,9 +1198,11 @@ impl Toolkit for Qt {
 
     fn release(&mut self, h: QtHandle) {
         let key = h.0 as usize;
-        LIST_STATE.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
+        if let Some(entry) = LIST_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            LIST_BY_NODE.with(|m| {
+                m.borrow_mut().remove(&entry.node);
+            });
+        }
         // A disposed nav host / page MUST drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
         // later widget that reuses the freed address is mistaken for a nav host in `set_frame`,
         // and `nav_sync_panes` reads its freed panes (a use-after-free SIGSEGV).

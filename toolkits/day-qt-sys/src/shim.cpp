@@ -1185,6 +1185,54 @@ void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb)
     widget->installEventFilter(f);
 }
 
+// --- emulated list row selection (docs/list.md) ---
+// A press on a list cell reports (list node, row, modifiers) so the Rust side owns the
+// selection semantics. modifiers: bit 0 = ctrl/cmd (toggle), bit 1 = shift (range).
+typedef void (*DayRowClickCb)(uint64_t node, int row, int modifiers);
+
+class DayRowClickFilter : public QObject {
+public:
+    uint64_t node; int row; DayRowClickCb cb;
+    DayRowClickFilter(uint64_t n, int r, DayRowClickCb c) : node(n), row(r), cb(c) {}
+protected:
+    bool eventFilter(QObject *, QEvent *ev) override {
+        if (ev->type() == QEvent::MouseButtonPress) {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (me->button() == Qt::LeftButton) {
+                int mods = 0;
+                if (me->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) mods |= 1;
+                if (me->modifiers() & Qt::ShiftModifier) mods |= 2;
+                cb(node, row, mods);
+            }
+        }
+        return false; // observe only: row content stays interactive
+    }
+};
+
+// The emulated list's cell i shows row i for the cell's whole life (cells are created per
+// row and never re-indexed), so the row is fixed at install time.
+void day_qt_list_cell_click(void *w, uint64_t node, int row, DayRowClickCb cb) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    DayRowClickFilter *f = new DayRowClickFilter(node, row, cb);
+    f->setParent(widget); // freed with the widget
+    widget->installEventFilter(f);
+}
+
+// Paint (or clear) the selected-row treatment on an emulated list cell: the palette
+// highlight fill with its matching text color, the plain QListView look.
+void day_qt_cell_set_selected(void *w, int on) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    widget->setAutoFillBackground(on != 0);
+    if (on) {
+        QPalette p = widget->palette();
+        p.setColor(QPalette::Window, p.color(QPalette::Highlight));
+        p.setColor(QPalette::WindowText, p.color(QPalette::HighlightedText));
+        widget->setPalette(p);
+    } else {
+        widget->setPalette(QPalette());
+    }
+}
+
 // --- focus (docs/focus.md) ---
 // kind: 1 = gained, 0 = lost, 2 = submitted (line-edit return key).
 typedef void (*DayFocusCb)(uint64_t node, int kind);

@@ -93,30 +93,46 @@ impl Anim {
         self.p_hue.set(210.0);
         self.commit();
     }
+
+    /// Whether any queued target differs from the applied state — i.e. whether Animate!
+    /// has anything to do. Tracked reads, so bindings on this re-run as the sliders move
+    /// and as a commit applies the queue.
+    fn dirty(self) -> bool {
+        self.p_scale.get() != self.a_scale.get()
+            || self.p_rot.get() != self.a_rot.get()
+            || self.p_op.get() != self.a_op.get()
+            || self.p_offx.get() != self.a_offx.get()
+            || self.p_offy.get() != self.a_offy.get()
+            || self.p_hue.get() != self.a_hue.get()
+    }
 }
 
 pub(crate) fn animation_page() -> AnyPiece {
     let s = Anim::new();
 
     // Three equal-width action buttons across the top, on the palette: the warm RUST carries
-    // the hero action (Animate!), VIOLET the dice roll, SLATE the quiet reset.
+    // the hero action (Animate!), VIOLET the dice roll, SLATE the quiet reset. Animate! is
+    // dimmed and inert while the queued targets already match the applied state.
     let actions = row((
         action_button(
             "anim-randomize",
             crate::res::str::anim_randomize().format(),
             VIOLET,
+            || true,
             move || s.randomize(),
         ),
         action_button(
             "anim-go",
             crate::res::str::anim_go_label().format(),
             RUST,
+            move || s.dirty(),
             move || s.commit(),
         ),
         action_button(
             "anim-reset",
             crate::res::str::anim_reset_label().format(),
             SLATE,
+            || true,
             move || s.reset(),
         ),
     ))
@@ -214,18 +230,24 @@ fn stage(s: Anim) -> AnyPiece {
 }
 
 /// A filled, tappable, equal-width action button (`.grow_w()` makes each take an equal share of the
-/// row). Coloured directly so each reads distinctly.
+/// row), dimmed and inert while `enabled` reads false. Coloured directly so each reads distinctly.
 fn action_button(
     id: &'static str,
     text: String,
     color: Color,
+    enabled: impl Fn() -> bool + Copy + 'static,
     on_tap: impl Fn() + 'static,
 ) -> AnyPiece {
     row((spacer(), label(text).color(Color::WHITE).bold(), spacer()))
         .padding(Insets::symmetric(6.0, 12.0))
         .background(color)
         .corner_radius(10.0)
-        .on_tap(on_tap)
+        .opacity(move || if enabled() { 1.0 } else { 0.4 })
+        .on_tap(move || {
+            if enabled() {
+                on_tap();
+            }
+        })
         .id(id)
         .grow_w()
 }

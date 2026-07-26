@@ -878,9 +878,10 @@ mod imp {
     // -----------------------------------------------------------------------
     // DayNavCell — a nav row whose icon reads as a natural iOS glyph: a small
     // (20pt) template image tinted with the neutral secondaryLabel colour (NOT
-    // the accent), its baseline aligned to the row label's text baseline. The
-    // stock UITableViewCell centres its imageView and accent-tints it, so we lay
-    // the row out ourselves (docs/navigation.md).
+    // the accent), vertically centred on the row like the label, so the glyph's
+    // optical centre matches the text's line centre (the UIListContentConfiguration
+    // idiom). The stock UITableViewCell accent-tints its imageView, so we lay the
+    // row out ourselves (docs/navigation.md).
     // -----------------------------------------------------------------------
     struct NavCellIvars {
         icon: Retained<objc2_ui_kit::UIImageView>,
@@ -906,7 +907,6 @@ mod imp {
                 };
                 let line_h = unsafe { font.lineHeight() };
                 let label_y = ((ch - line_h) / 2.0).max(0.0);
-                let baseline = label_y + unsafe { font.ascender() }; // text baseline from top
                 const LEADING: f64 = 16.0;
                 const ICON: f64 = 20.0;
                 const GAP: f64 = 12.0;
@@ -919,9 +919,12 @@ mod imp {
                     ));
                     iv.icon.setHidden(!has_icon);
                     if has_icon {
-                        // The icon's bottom sits on the label's text baseline.
+                        // Centre the icon on the row, matching the centred label. Bottoming
+                        // the box on the text BASELINE rode visibly high: Material template
+                        // PNGs pad the glyph inside the canvas, so the box must align by
+                        // optical centre, not by edge.
                         iv.icon.setFrame(CGRect::new(
-                            CGPoint::new(LEADING, baseline - ICON),
+                            CGPoint::new(LEADING, ((ch - ICON) / 2.0).max(0.0)),
                             CGSize::new(ICON, ICON),
                         ));
                     }

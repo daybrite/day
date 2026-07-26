@@ -80,6 +80,12 @@ compose_styled_btn = Rempli
 compose_env_value = Teinté par l'accent fourni
 list_add = Ajouter 100
 list_caption = { $count } lignes — seules les cellules visibles sont créées
+list_selection_none = Aucune ligne sélectionnée
+list_selection = { $count ->
+    [one] Ligne sélectionnée : { $rows }
+   *[other] Lignes sélectionnées : { $rows }
+}
+list_clear_selection = Effacer la sélection
 
 webview_url_hint = Saisir une URL
 webview_go = Aller
@@ -371,11 +377,13 @@ image_mode_stretch = Étirer
 resources_data_section = Données embarquées
 
 # Page À propos
-about_caption = Ce qu’est cette app, et la plateforme où elle s’exécute.
 about_app_section = Cette app
 about_version = Version
 about_toolkit = Boîte à outils
-about_battery = Batterie
+about_id = Identifiant
+about_os = Système
+about_model = Modèle
+about_locale = Langue
 history_hint = Touchez + ou − ci-dessus : chaque changement s’affiche ici.
 
 # Page Focus (docs/focus.md)

@@ -29,7 +29,8 @@ The row builder receives the same `ItemSlot<T, K>` as `each` (Copy handle, track
 memoised `field()` projections). Because cells are recycled, the builder must read through the
 slot rather than move the item in, so a surviving cell can be fed a new `&T` with one write.
 
-Builder options: `.row_height(RowHeight)`, `.on_select(Fn(K))`, and (reserved) `.row_kind(Fn(&T) -> RowKind)`
+Builder options: `.row_height(RowHeight)`, `.on_select(Fn(K))`, `.multi_select(bool)`,
+`.on_selection(Fn(Vec<K>))`, `.selected_rows(Fn() -> Vec<usize>)`, and (reserved) `.row_kind(Fn(&T) -> RowKind)`
 mapping to native reuse pools.
 
 ### Imperative scroll-to-end (chat timelines)
@@ -117,7 +118,7 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behaviou
 
 ## Building it (mock-first, like M0–M1)
 
-1. **spec**: `kinds::LIST`, `ListProps { row_height, selectable }`, `RowHeight`, `ListPatch`,
+1. **spec**: `kinds::LIST`, `ListProps { row_height, selectable, multi_select }`, `RowHeight`, `ListPatch`,
    `ListSource`, `Toolkit::attach_list`. *(additive; no backend breaks)*
 2. **pieces**: `list()` + builder, reusing `ItemSlot`; produces the type-erased row factory.
 3. **core**: the driver + cell-anchor adoption + `list_bind_row`/`list_len`/reload.
@@ -125,3 +126,19 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behaviou
    recycle = slot-write (no rebuild), data change → reload rebinds, `on_select`.
 5. **backends**: AppKit first (reference), then UIKit/Android/GTK/Qt; showcase `list` playground +
    walkthrough leg on all five.
+
+## Selection
+
+Rows report selection through two events: `Event::SelectionChanged(row)` (single) and, in
+multi-select mode, `Event::SelectionSet(rows)` — the FULL set of selected indices on every
+change. `.on_selection(Fn(Vec<K>))` receives the selected keys either way (a single-selection
+report arrives as a one-element set), so an app tracking the whole selection works on every
+toolkit. `.selected_rows(Fn() -> Vec<usize>)` reactively syncs app state back into the native
+selection (`ListPatch::Selected`; empty clears) without a selection-event echo — drive it from
+the same signal `on_selection` writes to get a two-way binding and a "clear selection" action.
+
+Support matrix: **AppKit** (native `NSTableView` multi-selection) and **Qt** (the emulated
+list: per-cell press filter, palette-highlight treatment, ctrl/cmd toggles, shift extends)
+honor `multi_select` and `ListPatch::Selected`. The remaining toolkits report single
+selection (`SelectionChanged`) and ignore the multi flag and the programmatic sync — the
+one-element `on_selection` contract still holds there.

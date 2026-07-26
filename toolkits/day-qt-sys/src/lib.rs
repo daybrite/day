@@ -133,6 +133,16 @@ unsafe extern "C" {
         is_drag: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
+    // Emulated list row selection (docs/list.md): a press on a cell reports
+    // (list node, row, modifiers: bit0 ctrl/cmd, bit1 shift); the selected treatment is the
+    // palette highlight fill.
+    pub fn day_qt_list_cell_click(
+        w: *mut c_void,
+        node: u64,
+        row: c_int,
+        cb: extern "C" fn(u64, c_int, c_int),
+    );
+    pub fn day_qt_cell_set_selected(w: *mut c_void, on: c_int);
     // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
     // drive via setFocus/clearFocus.
     pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));

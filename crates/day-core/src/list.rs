@@ -36,7 +36,10 @@ pub struct BuiltRow {
 
 pub(crate) struct BoundCell {
     pub anchor: RNode,
-    pub _scope: Scope,
+    /// The row subtree's reactive scope — disposed by `remove_subtree` when the LIST node
+    /// goes away (the cells live in the list machinery, not the node tree, so nothing else
+    /// would dispose their bindings).
+    pub scope: Scope,
     pub rebind: Rc<dyn Fn(usize)>,
 }
 
@@ -72,6 +75,12 @@ pub fn list_reload(node: RNode) {
 /// A no-op while the list is empty. Call with no borrow held.
 pub fn list_scroll_to_end(node: RNode) {
     with_tree(|t| t.list_scroll_to_end(node));
+}
+
+/// Programmatically sync the list's selected rows (empty = clear selection). Applied by the
+/// toolkit without re-emitting a selection event. Call with no borrow held.
+pub fn list_set_selected(node: RNode, rows: Vec<usize>) {
+    with_tree(|t| t.list_set_selected(node, rows));
 }
 
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver

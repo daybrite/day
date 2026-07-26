@@ -1233,6 +1233,7 @@ pub enum Event {
     ToggleChanged(bool),
     ValueChanged(f64),                        // slider et al.
     SelectionChanged(i64),                    // pickers, tabs, nav lists
+    SelectionSet(Vec<i64>),                   // multi-select lists (docs/list.md)
     FocusChanged(bool),                       // docs/focus.md
     Tap(Point), LongPress(Point), ContextMenu(Point),
     Drag { phase, location, translation },    // docs/shapes.md gestures

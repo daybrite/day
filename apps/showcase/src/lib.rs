@@ -148,9 +148,17 @@ pub fn root() -> AnyPiece {
         .style(SelectorStyle::Sidebar)
         .title(crate::res::str::app_title())
         .header(sidebar_header)
-        // Ordered as a story: author content (controls, text, drawing), put it in collections
-        // and navigate it, embed rich views, then reach the platform around the app — with the
-        // meta pages (resources, tweaks, about) closing the list.
+        // Ordered as a story, opened by the app's own face: About first (it is also the
+        // desktop split's default detail — the split selects the FIRST item when nothing is
+        // chosen), then author content (controls, text, drawing), put it in collections and
+        // navigate it, embed rich views, then reach the platform around the app — with the
+        // meta pages (resources, tweaks, crash reporting) closing the list.
+        .item_icon(
+            Section::About,
+            crate::res::str::nav_about(),
+            res::images::nav_about,
+            about_page,
+        )
         .item_icon(
             Section::Controls,
             crate::res::str::nav_controls(),
@@ -291,13 +299,7 @@ pub fn root() -> AnyPiece {
         res::images::nav_map,
         map_page,
     );
-    nav.item_icon(
-        Section::About,
-        crate::res::str::nav_about(),
-        res::images::nav_about,
-        about_page,
-    )
-    .id("nav")
+    nav.id("nav")
 }
 
 fn sidebar_header() -> AnyPiece {

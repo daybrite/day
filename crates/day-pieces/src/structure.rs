@@ -260,6 +260,9 @@ pub struct List<T: 'static, K: 'static> {
     build_row: Rc<dyn Fn(ItemSlot<T, K>) -> AnyPiece>,
     row_height: RowHeight,
     on_select: Option<Rc<dyn Fn(K)>>,
+    on_selection: Option<Rc<dyn Fn(Vec<K>)>>,
+    multi_select: bool,
+    selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     scroll_to_end: Option<day_reactive::Trigger>,
     stick_to_bottom: bool,
 }
@@ -281,6 +284,9 @@ where
         build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
         row_height: RowHeight::Automatic,
         on_select: None,
+        on_selection: None,
+        multi_select: false,
+        selected_rows: None,
         scroll_to_end: None,
         stick_to_bottom: false,
     }
@@ -295,6 +301,27 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
     /// Called with the selected row's key when the native list reports a selection.
     pub fn on_select(mut self, f: impl Fn(K) + 'static) -> Self {
         self.on_select = Some(Rc::new(f));
+        self
+    }
+    /// Allow selecting several rows at once, where the toolkit supports it (docs/list.md has
+    /// the matrix; single-selection backends fall back to one row at a time). Every selection
+    /// change calls [`Self::on_selection`] with the FULL set of selected keys.
+    pub fn multi_select(mut self, on: bool) -> Self {
+        self.multi_select = on;
+        self
+    }
+    /// Called with the full set of selected keys (row order, empty = cleared) whenever the
+    /// selection changes — the multi-select analogue of [`Self::on_select`]. Also fired by
+    /// single-selection backends with a one-element (or empty) set.
+    pub fn on_selection(mut self, f: impl Fn(Vec<K>) + 'static) -> Self {
+        self.on_selection = Some(Rc::new(f));
+        self
+    }
+    /// Reactively sync the native selection to `rows` (row indices; empty clears). Re-runs
+    /// whenever the closure's tracked reads change; the toolkit applies the sync without
+    /// re-emitting a selection event — drive it from app state to build "Clear selection".
+    pub fn selected_rows(mut self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
+        self.selected_rows = Some(Rc::new(rows));
         self
     }
     /// Scroll the list so its LAST row is fully visible whenever `trigger` fires — e.g. a chat
@@ -320,7 +347,8 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let props = ListProps {
             row_height: self.row_height,
-            selectable: self.on_select.is_some(),
+            selectable: self.on_select.is_some() || self.on_selection.is_some(),
+            multi_select: self.multi_select,
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -338,15 +366,34 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
         let snapshot: Rc<RefCell<Vec<T>>> = Rc::new(RefCell::new(Vec::new()));
         let tokens: Rc<RefCell<Vec<u64>>> = Rc::new(RefCell::new(Vec::new()));
 
-        // Selection → key (translate the native row index through the snapshot).
-        if let Some(on_select) = self.on_select.clone() {
+        // Selection → keys (translate the native row indices through the snapshot). A
+        // single-selection report also feeds `on_selection` as a one-element set, so an app
+        // tracking the full selection works unchanged on single-selection backends.
+        if self.on_select.is_some() || self.on_selection.is_some() {
+            let (on_select, on_selection) = (self.on_select.clone(), self.on_selection.clone());
             let (snap, key_of) = (snapshot.clone(), self.key_of.clone());
-            cx.on(node, move |ev| {
-                if let Event::SelectionChanged(i) = ev
-                    && let Some(item) = snap.borrow().get(*i as usize)
-                {
-                    on_select(key_of(item));
+            cx.on(node, move |ev| match ev {
+                Event::SelectionChanged(i) => {
+                    let snap = snap.borrow();
+                    if let Some(item) = snap.get(*i as usize) {
+                        if let Some(f) = &on_select {
+                            f(key_of(item));
+                        }
+                        if let Some(f) = &on_selection {
+                            f(vec![key_of(item)]);
+                        }
+                    }
                 }
+                Event::SelectionSet(rows) => {
+                    if let Some(f) = &on_selection {
+                        let snap = snap.borrow();
+                        f(rows
+                            .iter()
+                            .filter_map(|i| snap.get(*i as usize).map(&*key_of))
+                            .collect());
+                    }
+                }
+                _ => {}
             });
         }
 
@@ -426,6 +473,15 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
             watch(
                 move || trigger.track(),
                 move |_: &(), _| list_scroll_to_end(node),
+            );
+        }
+
+        // Programmatic selection sync: re-runs whenever the closure's tracked reads change
+        // (`watch`, so the initial build doesn't clobber a toolkit-default selection).
+        if let Some(rows) = self.selected_rows {
+            watch(
+                move || rows(),
+                move |rows: &Vec<usize>, _| day_core::list_set_selected(node, rows.clone()),
             );
         }
         node

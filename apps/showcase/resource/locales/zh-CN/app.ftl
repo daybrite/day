@@ -77,6 +77,11 @@ compose_styled_btn = 填充
 compose_env_value = 使用提供的强调色着色
 list_add = 添加 100 行
 list_caption = { $count } 行——只构建可见的单元格
+list_selection_none = 未选择任何行
+list_selection = { $count ->
+   *[other] 已选行：{ $rows }
+}
+list_clear_selection = 清除选择
 
 webview_url_hint = 输入网址
 webview_go = 前往
@@ -367,11 +372,13 @@ image_mode_stretch = 拉伸
 resources_data_section = 内置数据
 
 # 关于页面
-about_caption = 这个应用是什么，以及它运行的平台。
 about_app_section = 本应用
 about_version = 版本
 about_toolkit = 工具包
-about_battery = 电池
+about_id = 应用 ID
+about_os = 系统
+about_model = 型号
+about_locale = 语言
 history_hint = 点按上方的 + 或 −，每次变化都会记录在这里。
 
 # 焦点页（docs/focus.md）

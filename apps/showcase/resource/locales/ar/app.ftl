@@ -83,6 +83,13 @@ compose_styled_btn = ممتلئ
 compose_env_value = ملوَّن باللون المميّز المُمرَّر
 list_add = أضف ١٠٠
 list_caption = { $count } صف — تُبنى الخلايا المرئية فقط
+list_selection_none = لم يتم تحديد أي صف
+list_selection = { $count ->
+    [one] الصف المحدد: { $rows }
+    [two] الصفان المحددان: { $rows }
+   *[other] الصفوف المحددة: { $rows }
+}
+list_clear_selection = مسح التحديد
 
 webview_url_hint = أدخل عنوان URL
 webview_go = انتقال
@@ -377,11 +384,13 @@ image_mode_stretch = تمديد
 resources_data_section = بيانات مضمّنة
 
 # صفحة حول
-about_caption = ما هو هذا التطبيق، والمنصة التي يعمل عليها.
 about_app_section = هذا التطبيق
 about_version = الإصدار
 about_toolkit = عدة الأدوات
-about_battery = البطارية
+about_id = معرّف التطبيق
+about_os = النظام
+about_model = الطراز
+about_locale = اللغة
 history_hint = اضغط + أو − أعلاه وسيظهر كل تغيير هنا.
 
 # صفحة التركيز (docs/focus.md)

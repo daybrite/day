@@ -37,7 +37,9 @@ use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
     NSApplicationWillTerminateNotification,
 };
-use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
+use objc2_app_kit::{
+    NSOutlineViewDataSource, NSOutlineViewDelegate, NSSplitViewDelegate, NSTabViewDelegate,
+};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
@@ -477,6 +479,8 @@ const NAV_HEADER_H: f64 = 34.0;
 struct NavState {
     sidebar_wrap: Retained<NSView>,
     detail_wrap: Retained<NSView>,
+    /// Keeps the split's delegate (weakly referenced by AppKit) alive with the host.
+    _split_delegate: Retained<DaySplitDelegate>,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -523,6 +527,51 @@ thread_local! {
     /// Handles whose frames are native-owned (nav pages): set_frame skips them.
     static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
+}
+
+// ---------------------------------------------------------------------------
+// DaySplitDelegate — the sidebar pane holds its width through NSSplitView's own
+// layout passes (docs/navigation.md).
+// ---------------------------------------------------------------------------
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DaySplitDelegate"]
+    struct DaySplitDelegate;
+
+    unsafe impl NSObjectProtocol for DaySplitDelegate {}
+
+    unsafe impl NSSplitViewDelegate for DaySplitDelegate {
+        /// Size changes go to the DETAIL pane; the sidebar (pane 0) holds its width. Without
+        /// this, the split's own layout pass after a section switch (the swap of the detail
+        /// page subview dirties the split) redistributed the panes and collapsed the sidebar
+        /// to zero — and `set_frame`'s divider restore only runs on window resizes, so
+        /// nothing ever brought it back. In stack mode the same rule pins the (deliberately
+        /// zero-width) sidebar pane closed.
+        #[unsafe(method(splitView:shouldAdjustSizeOfSubview:))]
+        fn should_adjust(
+            &self,
+            sv: &objc2_app_kit::NSSplitView,
+            subview: &NSView,
+        ) -> objc2::runtime::Bool {
+            let subs = sv.subviews();
+            if subs.count() == 0 {
+                return objc2::runtime::Bool::YES;
+            }
+            let first = subs.objectAtIndex(0);
+            objc2::runtime::Bool::new(!std::ptr::eq(
+                &*first as *const NSView,
+                subview as *const NSView,
+            ))
+        }
+    }
+);
+
+impl DaySplitDelegate {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        unsafe { msg_send![Self::alloc(mtm), init] }
+    }
 }
 
 struct NavPageIvars {
@@ -827,6 +876,8 @@ struct ListIvars {
     /// Injected by `attach_list` once day-core wires the driver.
     source: RefCell<Option<ListSource>>,
     selectable: std::cell::Cell<bool>,
+    /// Multi-select mode (docs/list.md): every change reports the FULL selected set.
+    multi: std::cell::Cell<bool>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
 }
@@ -893,20 +944,33 @@ define_class!(
             let Ok(tv) = obj.downcast::<NSTableView>() else {
                 return;
             };
-            let row = unsafe { tv.selectedRow() };
-            if row >= 0 {
-                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+            if self.ivars().multi.get() {
+                // Multi-select: report the FULL set (ascending; empty = cleared).
+                let idx = unsafe { tv.selectedRowIndexes() };
+                let mut rows = Vec::with_capacity(idx.count());
+                let mut i = idx.firstIndex();
+                while i != objc2_foundation::NSNotFound as usize {
+                    rows.push(i as i64);
+                    i = unsafe { idx.indexGreaterThanIndex(i) };
+                }
+                emit(self.ivars().node, Event::SelectionSet(rows));
+            } else {
+                let row = unsafe { tv.selectedRow() };
+                if row >= 0 {
+                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                }
             }
         }
     }
 );
 
 impl DayListData {
-    fn new(mtm: MainThreadMarker, node: NodeId, selectable: bool) -> Retained<Self> {
+    fn new(mtm: MainThreadMarker, node: NodeId, selectable: bool, multi: bool) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ListIvars {
             node,
             source: RefCell::new(None),
             selectable: std::cell::Cell::new(selectable),
+            multi: std::cell::Cell::new(multi),
             suppress: std::cell::Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
@@ -1633,14 +1697,17 @@ impl Toolkit for AppKit {
                     effect.addSubview(&sidebar_wrap);
                 }
                 let detail_wrap = view_of(DayFlipped::new(mtm));
+                let split_delegate = DaySplitDelegate::new(mtm);
                 unsafe {
                     split.addArrangedSubview(&effect);
                     split.addArrangedSubview(&detail_wrap);
                     // (Holding priorities are a no-op when Day drives the split's frame
-                    // directly — the sidebar-holds-width behaviour lives in `set_frame`,
-                    // which restores the divider position after each window resize.)
+                    // directly — the sidebar-holds-width behaviour lives in the delegate's
+                    // `splitView:shouldAdjustSizeOfSubview:`, plus `set_frame`'s divider
+                    // restore after each window resize.)
                     split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
                     split.setHoldingPriority_forSubviewAtIndex(250.0, 1);
+                    split.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
                 }
                 // Stack presentation: a back header (hidden at root) — desktop has no system
                 // back affordance, so a pushed page needs its own way out (docs/navigation.md).
@@ -1710,6 +1777,7 @@ impl Toolkit for AppKit {
                         NavState {
                             sidebar_wrap,
                             detail_wrap,
+                            _split_delegate: split_delegate,
                             pages: Vec::new(),
                             positioned: false,
                             split: is_split,
@@ -1809,8 +1877,11 @@ impl Toolkit for AppKit {
                         &NSString::from_str("day.list.col"),
                     )
                 };
-                let data = DayListData::new(mtm, id, p.selectable);
+                let data = DayListData::new(mtm, id, p.selectable, p.multi_select);
                 unsafe {
+                    if p.multi_select {
+                        table.setAllowsMultipleSelection(true);
+                    }
                     table.addTableColumn(&col);
                     table.setHeaderView(None);
                     table.setColumnAutoresizingStyle(
@@ -2110,6 +2181,27 @@ impl Toolkit for AppKit {
                             if rows > 0 {
                                 unsafe { table.scrollRowToVisible(rows - 1) };
                             }
+                        }
+                    });
+                }
+                Some(ListPatch::Selected(rows)) => {
+                    // Programmatic selection sync (empty = clear) — suppressed, so the
+                    // delegate does not echo it back as a selection event.
+                    LIST_STATE.with(|m| {
+                        if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
+                            data.ivars().suppress.set(true);
+                            unsafe {
+                                if rows.is_empty() {
+                                    table.deselectAll(None);
+                                } else {
+                                    let set = objc2_foundation::NSMutableIndexSet::new();
+                                    for r in rows {
+                                        set.addIndex(*r);
+                                    }
+                                    table.selectRowIndexes_byExtendingSelection(&set, false);
+                                }
+                            }
+                            data.ivars().suppress.set(false);
                         }
                     });
                 }

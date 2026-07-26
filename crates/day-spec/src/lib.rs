@@ -208,6 +208,10 @@ pub enum Event {
     ToggleChanged(bool),
     ValueChanged(f64),
     SelectionChanged(i64),
+    /// A multi-select list's selection changed: the FULL set of selected row indices,
+    /// ascending (empty = nothing selected). Emitted instead of `SelectionChanged` where
+    /// `ListProps::multi_select` is honored (docs/list.md).
+    SelectionSet(Vec<i64>),
     FocusChanged(bool),
     Tap(Point),
     LongPress(Point),
@@ -1470,6 +1474,11 @@ pub mod props {
         pub row_height: RowHeight,
         /// Whether the native list reports row selection (`Event::SelectionChanged` with the row).
         pub selectable: bool,
+        /// Whether the native list allows selecting several rows at once. Where honored
+        /// (docs/list.md has the matrix), every selection change reports the FULL set via
+        /// `Event::SelectionSet`; single-selection backends keep reporting
+        /// `Event::SelectionChanged` and treat this as `selectable`.
+        pub multi_select: bool,
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -1481,6 +1490,9 @@ pub mod props {
         /// Imperatively scroll the native list so its LAST row is fully visible (a chat timeline
         /// sticking to the newest message). No-op when the list is empty (docs/list.md).
         ScrollToEnd,
+        /// Programmatic selection sync (row indices; empty = clear) — toolkits apply WITHOUT
+        /// re-emitting a selection event, like every other programmatic sync.
+        Selected(Vec<usize>),
     }
 }
 

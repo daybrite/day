@@ -467,6 +467,7 @@ impl Toolkit for MockToolkit {
                         w.flag = true;
                         "list scroll-to-end".into()
                     }
+                    ListPatch::Selected(rows) => format!("list selected {rows:?}"),
                 }
             } else {
                 "?".into()

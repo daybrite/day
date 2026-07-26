@@ -856,8 +856,8 @@ mod imp {
                                     // neither its area report nor its disappear. Retire the
                                     // pending push and wait on no acknowledgement — only a
                                     // LANDED page's pop blocks `ui_idle`.
-                                    let landed = NAV_PENDING_PUSH
-                                        .with(|s| !s.borrow_mut().remove(&key));
+                                    let landed =
+                                        NAV_PENDING_PUSH.with(|s| !s.borrow_mut().remove(&key));
                                     if landed {
                                         NAV_PENDING_POP.with(|p| p.borrow_mut().insert(key));
                                     }
