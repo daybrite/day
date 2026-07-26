@@ -632,6 +632,27 @@ struct NavMenuIvars {
 }
 
 define_class!(
+    #[unsafe(super(objc2_app_kit::NSTableRowView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavRowView"]
+    struct DayNavRowView;
+
+    unsafe impl NSObjectProtocol for DayNavRowView {}
+
+    impl DayNavRowView {
+        /// Always report the emphasized (key-window) state, so the selected sidebar row draws
+        /// the accent pill with auto-whitened label/icon in BOTH themes. Without this, a run
+        /// whose window never becomes key (scripted screenshot captures) falls back to the
+        /// unemphasized selection fill, which under a forced appearance rendered as a
+        /// near-black pill that swallowed the row's label.
+        #[unsafe(method(isEmphasized))]
+        fn is_emphasized(&self) -> bool {
+            true
+        }
+    }
+);
+
+define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[name = "DayNavMenuData"]
@@ -729,6 +750,17 @@ define_class!(
                 }
                 objc2::rc::Retained::into_super(cell)
             })
+        }
+
+        #[unsafe(method_id(outlineView:rowViewForItem:))]
+        fn row_view_for(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            _item: &objc2::runtime::AnyObject,
+        ) -> Retained<objc2_app_kit::NSTableRowView> {
+            let row: Retained<DayNavRowView> =
+                unsafe { msg_send![DayNavRowView::alloc(self.mtm()), init] };
+            objc2::rc::Retained::into_super(row)
         }
 
         #[unsafe(method(outlineViewSelectionDidChange:))]
@@ -1732,7 +1764,17 @@ impl Toolkit for AppKit {
                     outline.addTableColumn(&col);
                     outline.setOutlineTableColumn(Some(&col));
                     outline.setHeaderView(None);
-                    outline.setStyle(objc2_app_kit::NSTableViewStyle::SourceList);
+                    // Inset style, NOT SourceList: the source-list style draws its selection
+                    // and labels through the sidebar material/vibrancy pipeline, which needs a
+                    // backdrop behind the window to composite. Screenshot captures render the
+                    // window offscreen (`cacheDisplayInRect`, no backdrop), where that material
+                    // came out as a black pill that swallowed the row label. Inset keeps the
+                    // rounded-pill selection look with a plain accent fill that renders the
+                    // same on screen and in captures.
+                    outline.setStyle(objc2_app_kit::NSTableViewStyle::Inset);
+                    outline.setSelectionHighlightStyle(
+                        objc2_app_kit::NSTableViewSelectionHighlightStyle::Regular,
+                    );
                     outline.setIndentationPerLevel(0.0);
                     outline.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     outline.setDelegate(Some(ProtocolObject::from_ref(&*data)));

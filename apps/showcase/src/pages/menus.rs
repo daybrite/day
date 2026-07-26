@@ -157,7 +157,9 @@ fn context_section() -> impl Piece {
                 .shortcut(Shortcut::plain("Delete"))
                 .action(log(format!("{context} ▸ {delete}"))),
         ])
-        .background(Color::rgba(0.5, 0.5, 0.55, 0.16))
+        // A translucent brand-blue wash: tinted enough to read as "this spot is interactive"
+        // over both the light and dark grounds.
+        .background(Color::rgba(0.184, 0.435, 0.871, 0.13))
         .corner_radius(10.0),))
     .title(crate::res::str::menus_context_section())
 }

@@ -1,4 +1,5 @@
 app_title = عرض Day
+app_tagline = واجهة أصلية، كود Rust واحد
 counter_value = { $count ->
     [zero] لا نقرات
     [one] نقرة واحدة
@@ -105,6 +106,11 @@ tab_three = الإعدادات
 tab_one_body = علامة تبويب النظرة العامة. تحتفظ كل علامة تبويب بحالتها الخاصة.
 tab_two_body = علامة تبويب التفاصيل، تُحدَّد بمفتاح مسارها.
 tab_three_body = علامة تبويب الإعدادات. الروابط العميقة وdayscript يحدّدان علامات التبويب بالمفتاح.
+tab_state_note = انتقل إلى تبويب آخر ثم عد — تبقى حالة هذا التبويب محفوظة.
+tab_detail_route = مفتاح المسار
+tab_detail_link = رابط عميق
+tab_set_badges = إظهار الشارات
+tab_set_sounds = تشغيل الأصوات
 about_text = تطبيق أصلي متعدد المنصات مبني بـ day.
 modal_alert = إظهار تنبيه
 modal_confirm = تأكيد

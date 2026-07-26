@@ -258,6 +258,8 @@ flow:
   - assert_route: { route: tabs/one }
   - assert_visible: { id: tab-one-content }
   - assert_value: { id: demo-tabs, value: 0 }
+  # Let the mobile push transition settle so the capture has no mid-animation sliver.
+  - pause: { secs: 0.5 }
   - screenshot: tabs-one
   - navigate: { route: two }
   - assert_route: { route: tabs/two }

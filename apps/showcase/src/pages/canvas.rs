@@ -1,6 +1,7 @@
 use day::prelude::*;
 use day_piece_rating::{Card, badge, rating};
 
+use crate::palette::{AMBER, AZURE, CORAL, INK, RUST, SKY, SLATE, TEAL, VIOLET};
 use crate::widgets::{gauge, page};
 
 /// Drawing & composition (docs/shapes.md, docs/canvas.md, DESIGN §8/§11): the unified `shape`
@@ -52,11 +53,12 @@ fn gradients_section() -> impl Piece {
     };
     section((
         row((
+            // Dawn: the icon's amber down into its rust sun-base.
             rectangle()
                 .fill_linear(linear(
                     UnitPoint::TOP,
                     UnitPoint::BOTTOM,
-                    vec![(0.0, Color::hex(0x2E6FB8)), (1.0, Color::hex(0x7FB2E5))],
+                    vec![(0.0, AMBER), (1.0, RUST)],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-vertical"),
@@ -64,19 +66,16 @@ fn gradients_section() -> impl Piece {
                 .fill_linear(linear(
                     UnitPoint::LEADING,
                     UnitPoint::TRAILING,
-                    vec![(0.0, Color::hex(0x8E44AD)), (1.0, Color::hex(0xE67E22))],
+                    vec![(0.0, VIOLET), (1.0, SKY)],
                 ))
                 .frame(76.0, 56.0)
                 .id("gradient-horizontal"),
+            // The website's sunrise gradient (--grad-day): amber through coral into blue.
             circle()
                 .fill_linear(linear(
                     UnitPoint::TOP_LEADING,
                     UnitPoint::BOTTOM_TRAILING,
-                    vec![
-                        (0.0, Color::hex(0xE74C3C)),
-                        (0.5, Color::hex(0xF1C40F)),
-                        (1.0, Color::hex(0x27AE60)),
-                    ],
+                    vec![(0.0, AMBER), (0.5, CORAL), (1.0, AZURE)],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-stops"),
@@ -84,7 +83,7 @@ fn gradients_section() -> impl Piece {
                 .fill_linear(linear(
                     UnitPoint::LEADING,
                     UnitPoint::TRAILING,
-                    vec![(0.0, Color::hex(0x16A085)), (1.0, Color::hex(0x2C3E50))],
+                    vec![(0.0, TEAL), (1.0, INK)],
                 ))
                 .frame(76.0, 56.0)
                 .id("gradient-angle"),
@@ -97,7 +96,7 @@ fn gradients_section() -> impl Piece {
                 .fill_radial(radial(
                     UnitPoint::CENTER,
                     0.5,
-                    vec![(0.0, Color::hex(0xFFF2B0)), (1.0, Color::hex(0xE67E22))],
+                    vec![(0.0, Color::hex(0xFFF2B0)), (1.0, CORAL)],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-radial"),
@@ -105,7 +104,7 @@ fn gradients_section() -> impl Piece {
                 .fill_radial(radial(
                     UnitPoint::new(0.35, 0.35),
                     0.75,
-                    vec![(0.0, Color::hex(0xBBDEFB)), (1.0, Color::hex(0x1D5FA8))],
+                    vec![(0.0, Color::hex(0xD9E6FF)), (1.0, SKY)],
                 ))
                 .frame(56.0, 56.0)
                 .id("gradient-radial-offset"),
@@ -113,11 +112,7 @@ fn gradients_section() -> impl Piece {
                 .fill_radial(radial(
                     UnitPoint::BOTTOM,
                     1.0,
-                    vec![
-                        (0.0, Color::hex(0xFFD24A)),
-                        (0.5, Color::hex(0xE74C3C)),
-                        (1.0, Color::hex(0x2C3E50)),
-                    ],
+                    vec![(0.0, AMBER), (0.5, RUST), (1.0, INK)],
                 ))
                 .frame(76.0, 56.0)
                 .id("gradient-radial-stops"),
@@ -134,36 +129,27 @@ fn gradients_section() -> impl Piece {
 fn shapes_section() -> impl Piece {
     section((
         row((
-            rectangle()
-                .fill(Color::hex(0x2F6FDE))
-                .frame(56.0, 56.0)
-                .id("shape-rect"),
+            rectangle().fill(SKY).frame(56.0, 56.0).id("shape-rect"),
             rounded_rectangle(12.0)
-                .fill(Color::hex(0x8E44AD))
+                .fill(VIOLET)
                 .frame(56.0, 56.0)
                 .id("shape-rrect"),
-            circle()
-                .fill(Color::hex(0x27AE60))
-                .frame(56.0, 56.0)
-                .id("shape-circle"),
-            capsule()
-                .fill(Color::hex(0xE67E22))
-                .frame(76.0, 40.0)
-                .id("shape-capsule"),
+            circle().fill(TEAL).frame(56.0, 56.0).id("shape-circle"),
+            capsule().fill(CORAL).frame(76.0, 40.0).id("shape-capsule"),
         ))
         .spacing(12.0),
         row((
             ellipse()
-                .stroke(Color::hex(0xC0392B), 4.0)
+                .stroke(AZURE, 4.0)
                 .frame(76.0, 48.0)
                 .id("shape-ellipse"),
             arc(135.0, 270.0)
-                .stroke(Color::hex(0x16A085), 6.0)
+                .stroke(TEAL, 6.0)
                 .frame(56.0, 56.0)
                 .id("shape-arc"),
             // Line + polygon resolve unit points against the frame (docs/shapes.md §3.1).
             line((0.1, 0.85), (0.9, 0.15))
-                .stroke(Color::hex(0x2C3E50), 4.0)
+                .stroke(SLATE, 4.0)
                 .frame(56.0, 56.0)
                 .id("shape-line"),
             polygon([
@@ -178,20 +164,18 @@ fn shapes_section() -> impl Piece {
                 (0.02, 0.38),
                 (0.39, 0.38),
             ])
-            .fill(Color::hex(0xF1C40F))
+            .fill(AMBER)
             .frame(56.0, 56.0)
             .id("shape-polygon"),
             // A shape_group flattens its shapes into ONE canvas leaf (docs/shapes.md §3.6):
             // a target — ring, disc, and four `.at`-placed tick lines — as a single native view.
             shape_group([
-                circle().stroke(Color::hex(0xC0392B), 4.0).inset(4.0),
-                circle()
-                    .fill(Color::hex(0xC0392B))
-                    .at(0.38, 0.38, 0.24, 0.24),
-                line((0.5, 0.0), (0.5, 0.14)).stroke(Color::hex(0xC0392B), 3.0),
-                line((0.5, 0.86), (0.5, 1.0)).stroke(Color::hex(0xC0392B), 3.0),
-                line((0.0, 0.5), (0.14, 0.5)).stroke(Color::hex(0xC0392B), 3.0),
-                line((0.86, 0.5), (1.0, 0.5)).stroke(Color::hex(0xC0392B), 3.0),
+                circle().stroke(RUST, 4.0).inset(4.0),
+                circle().fill(RUST).at(0.38, 0.38, 0.24, 0.24),
+                line((0.5, 0.0), (0.5, 0.14)).stroke(RUST, 3.0),
+                line((0.5, 0.86), (0.5, 1.0)).stroke(RUST, 3.0),
+                line((0.0, 0.5), (0.14, 0.5)).stroke(RUST, 3.0),
+                line((0.86, 0.5), (1.0, 0.5)).stroke(RUST, 3.0),
             ])
             .frame(56.0, 56.0)
             .id("shape-group"),
@@ -216,7 +200,7 @@ fn transform_section() -> impl Piece {
             // rotated square's corners stay within the canvas frame (backends that clip children
             // to bounds — e.g. Qt — would otherwise shave the corners at an angle).
             rounded_rectangle(10.0)
-                .fill(Color::hex(0x2F6FDE))
+                .fill(SKY)
                 .rotate(move || angle.get())
                 .inset(20.0)
                 .frame(120.0, 120.0)
@@ -224,19 +208,13 @@ fn transform_section() -> impl Piece {
             // Tap to recolor (path-precise hit-testing). `.id` before `.frame` so the identifier
             // lands on the shape leaf (the gesture target), not the frame wrapper.
             circle()
-                .fill(move || {
-                    if tapped.get() {
-                        Color::hex(0xE74C3C)
-                    } else {
-                        Color::hex(0x3498DB)
-                    }
-                })
+                .fill(move || if tapped.get() { CORAL } else { AZURE })
                 .on_tap(move || tapped.update(|t| *t = !*t))
                 .id("shapes-tap-circle")
                 .frame(90.0, 90.0),
             // Drag to move (offset bound to the drag translation).
             rectangle()
-                .fill(Color::hex(0x9B59B6))
+                .fill(VIOLET)
                 .offset(move || pos.get().0, move || pos.get().1)
                 .on_drag(move |dr| match dr.phase {
                     DragPhase::Began => base.set(pos.get_untracked()),
@@ -278,7 +256,7 @@ fn compose_section() -> impl Piece {
     // A custom ambient value flowed via `with_environment` and read back by a descendant.
     #[derive(Clone, Copy)]
     struct Accent(Color);
-    let accent = Color::hex(0x30_B0_60);
+    let accent = TEAL;
 
     section((
         label(crate::res::str::compose_caption()).font(Font::Footnote),
@@ -304,21 +282,14 @@ fn compose_section() -> impl Piece {
             .spacing(4.0)
             .align(HAlign::Leading)
             .modifier(Card),
-            badge(
-                3,
-                rounded_rectangle(10.0)
-                    .fill(Color::hex(0x8E_8E_93))
-                    .frame(48.0, 48.0),
-            ),
+            badge(3, rounded_rectangle(10.0).fill(SLATE).frame(48.0, 48.0)),
         ))
         .spacing(20.0),
         // 3) ButtonStyle — a FilledButtonStyle button next to a plain one for contrast.
         row((
             button(crate::res::str::compose_plain_btn()).id("compose-plain-btn"),
             button(crate::res::str::compose_styled_btn())
-                .style(FilledButtonStyle {
-                    color: Color::hex(0x0A_84_FF),
-                })
+                .style(FilledButtonStyle { color: SKY })
                 .id("compose-styled-btn"),
         ))
         .spacing(12.0),

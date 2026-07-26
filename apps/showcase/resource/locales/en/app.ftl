@@ -1,4 +1,5 @@
 app_title = Day Showcase
+app_tagline = Native widgets, one codebase
 counter_value = { $count ->
     [one] { $count } click
    *[other] { $count } clicks
@@ -102,6 +103,11 @@ tab_three = Settings
 tab_one_body = The overview tab. Each tab keeps its own state.
 tab_two_body = The details tab, selected by its route key.
 tab_three_body = The settings tab. Deep links and dayscript select tabs by key.
+tab_state_note = Switch tabs and back — this tab's state survives.
+tab_detail_route = Route key
+tab_detail_link = Deep link
+tab_set_badges = Show badges
+tab_set_sounds = Play sounds
 about_text = A native cross-platform app built with day.
 modal_alert = Show alert
 modal_confirm = Confirm

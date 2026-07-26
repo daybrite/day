@@ -11,9 +11,29 @@ pub(crate) fn scrolling_page() -> AnyPiece {
     let rows = PieceVec(
         (1..=150)
             .map(|i| {
-                label(crate::res::str::scrolling_item(format!("{i}")))
-                    .id(format!("scroll-item-{i}"))
-                    .any()
+                // A quiet numbered gutter; the reveal target of "Scroll to item 100" gets a
+                // warm bold number so the programmatic jump visibly lands on it.
+                let num: AnyPiece = if i == 100 {
+                    label(i.to_string())
+                        .font(Font::Footnote)
+                        .bold()
+                        .color(crate::palette::CORAL)
+                        .width(34.0)
+                        .any()
+                } else {
+                    label(i.to_string())
+                        .font(Font::Footnote)
+                        .color(Color::rgba(0.55, 0.57, 0.62, 1.0))
+                        .width(34.0)
+                        .any()
+                };
+                row((
+                    num,
+                    label(crate::res::str::scrolling_item(format!("{i}")))
+                        .id(format!("scroll-item-{i}")),
+                ))
+                .spacing(8.0)
+                .any()
             })
             .collect(),
     );

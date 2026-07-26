@@ -1,5 +1,7 @@
 use day::prelude::*;
 
+use crate::palette::{AZURE, CORAL, INK, SKY, TEAL};
+
 day::routes! {
     /// The Grid example's sub-pages, typed (docs/grid.md): tabs on desktop, push/pop pages on
     /// mobile — the same keys either way, so deep links and dayscript address both hosts alike.
@@ -146,8 +148,8 @@ fn basics_demo() -> AnyPiece {
 /// One grid, three column behaviors: a fixed 80 pt column (`.width`), a content-sized column,
 /// and a flexible column (`.grow_w`) that takes whatever width is left.
 fn sizing_demo() -> AnyPiece {
-    fn bar(color: u32) -> AnyPiece {
-        capsule().fill(Color::hex(color)).height(10.0).grow_w()
+    fn bar(color: Color) -> AnyPiece {
+        capsule().fill(color).height(10.0).grow_w()
     }
     pane(
         crate::res::str::grid_tab_sizing(),
@@ -158,21 +160,21 @@ fn sizing_demo() -> AnyPiece {
                     .font(Font::Footnote)
                     .width(80.0),
                 label(crate::res::str::grid_sizing_short()),
-                bar(0x2F6FDE),
+                bar(SKY),
             )),
             grid_row((
                 label(crate::res::str::grid_sizing_fixed())
                     .font(Font::Footnote)
                     .width(80.0),
                 label(crate::res::str::grid_sizing_longer()),
-                bar(0x27AE60),
+                bar(TEAL),
             )),
             grid_row((
                 label(crate::res::str::grid_sizing_fixed())
                     .font(Font::Footnote)
                     .width(80.0),
                 label(crate::res::str::grid_sizing_content()),
-                bar(0xE67E22),
+                bar(CORAL),
             )),
         ))
         .spacing(10.0)
@@ -198,6 +200,9 @@ fn spanning_demo() -> AnyPiece {
     fn event(text: LocalizedText, color: u32, span: usize) -> AnyPiece {
         label(text)
             .font(Font::Footnote)
+            // Explicit ink: the pill fills are pale, so the default label color would go
+            // white-on-pastel in dark mode.
+            .color(INK)
             .padding(Insets::symmetric(8.0, 4.0))
             .background(Color::hex(color))
             .corner_radius(9.0)
@@ -222,12 +227,8 @@ fn spanning_demo() -> AnyPiece {
     )
 }
 
-const SUN: Color = Color {
-    r: 0.98,
-    g: 0.78,
-    b: 0.19,
-    a: 1.0,
-};
+/// The app icon's ray amber.
+const SUN: Color = crate::palette::AMBER;
 const CLOUD: Color = Color {
     r: 0.62,
     g: 0.68,
@@ -295,11 +296,12 @@ fn range_bar(low: f64, high: f64, wmin: f64, wmax: f64) -> AnyPiece {
             capsule()
                 .fill(Color::rgba(0.5, 0.55, 0.6, 0.25))
                 .at(0.0, y, 1.0, h),
+            // Cold-to-warm along the palette: azure lows into coral highs.
             capsule()
                 .fill_linear(LinearGradient::new(
                     UnitPoint::LEADING,
                     UnitPoint::TRAILING,
-                    vec![(0.0, Color::hex(0x5AA9E6)), (1.0, Color::hex(0xE67E22))],
+                    vec![(0.0, AZURE), (1.0, CORAL)],
                 ))
                 .at(x0, y, w, h),
         ]
@@ -372,7 +374,7 @@ fn stress_demo() -> AnyPiece {
                 } else if c == COLS - 1 {
                     cells.push(
                         capsule()
-                            .fill(Color::hex(if r % 2 == 0 { 0x2F6FDE } else { 0x27AE60 }))
+                            .fill(if r % 2 == 0 { SKY } else { TEAL })
                             .height(8.0)
                             .grow_w(),
                     );

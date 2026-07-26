@@ -9,6 +9,7 @@ use day::prelude::*;
 use std::cell::OnceCell;
 
 mod pages;
+mod palette;
 mod widgets;
 
 use crate::pages::*;
@@ -300,13 +301,23 @@ pub fn root() -> AnyPiece {
 }
 
 fn sidebar_header() -> AnyPiece {
+    // The identity block above the section list: logo beside the title with a one-line
+    // tagline under it. On mobile the nav bar already shows the app title, so the tagline
+    // keeps this row from reading as a duplicate; on desktop it crowns the sidebar.
     row((
-        image(res::images::day_logo).frame(28.0, 28.0),
-        label(crate::res::str::app_title())
-            .font(Font::Headline)
-            .id("home-title"),
+        image(res::images::day_logo).frame(32.0, 32.0),
+        column((
+            label(crate::res::str::app_title())
+                .font(Font::Headline)
+                .id("home-title"),
+            label(crate::res::str::app_tagline())
+                .font(Font::Caption)
+                .color(Color::rgba(0.55, 0.57, 0.62, 1.0)),
+        ))
+        .spacing(1.0)
+        .align(HAlign::Leading),
     ))
-    .spacing(8.0)
+    .spacing(10.0)
     .padding(12.0)
     .any()
 }

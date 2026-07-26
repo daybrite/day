@@ -1,4 +1,5 @@
 app_title = Day 演示
+app_tagline = 一份代码，处处原生
 counter_value = { $count } 次点击
 decrement = −
 increment = +
@@ -99,6 +100,11 @@ tab_three = 设置
 tab_one_body = 概览标签页。每个标签页保留自己的状态。
 tab_two_body = 详情标签页，由其路由键选中。
 tab_three_body = 设置标签页。深层链接和 dayscript 按键选择标签页。
+tab_state_note = 切换到其他标签页再回来——本页状态依然保留。
+tab_detail_route = 路由键
+tab_detail_link = 深层链接
+tab_set_badges = 显示角标
+tab_set_sounds = 播放声音
 about_text = 一个用 day 构建的原生跨平台应用。
 modal_alert = 显示警告框
 modal_confirm = 确认

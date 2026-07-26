@@ -15,6 +15,7 @@ use std::cell::Cell;
 
 use day::prelude::*;
 
+use crate::palette::{RUST, SLATE, VIOLET};
 use crate::widgets::page;
 
 /// Every signal the page threads together: the queued (`p_`) targets the controls write, the
@@ -97,24 +98,25 @@ impl Anim {
 pub(crate) fn animation_page() -> AnyPiece {
     let s = Anim::new();
 
-    // Three equal-width, distinctly-coloured action buttons across the top.
+    // Three equal-width action buttons across the top, on the palette: the warm RUST carries
+    // the hero action (Animate!), VIOLET the dice roll, SLATE the quiet reset.
     let actions = row((
         action_button(
             "anim-randomize",
             crate::res::str::anim_randomize().format(),
-            Color::hsl(280.0, 0.55, 0.52),
+            VIOLET,
             move || s.randomize(),
         ),
         action_button(
             "anim-go",
             crate::res::str::anim_go_label().format(),
-            Color::hsl(145.0, 0.55, 0.42),
+            RUST,
             move || s.commit(),
         ),
         action_button(
             "anim-reset",
             crate::res::str::anim_reset_label().format(),
-            Color::hsl(0.0, 0.0, 0.42),
+            SLATE,
             move || s.reset(),
         ),
     ))
@@ -198,9 +200,17 @@ fn stage(s: Anim) -> AnyPiece {
             anchor_y: 0.5,
         })
         .id("anim-box");
-    // A zstack over a transparent sizer: it centres the box (both axes) in a large area and makes
-    // that area the box's only clipping parent, so the box travels freely within it.
-    zstack((label("").frame(320.0, 300.0), box_view)).any()
+    // A zstack over the stage floor: a quiet rounded panel that sizes the stage, centres the box
+    // (both axes), and is the box's only clipping parent, so the box travels freely within it.
+    // The panel is a translucent neutral so it reads as a surface on both themes.
+    let floor = shape_group([
+        rounded_rectangle(20.0).fill(Color::rgba(0.5, 0.53, 0.6, 0.10)),
+        rounded_rectangle(20.0)
+            .stroke(Color::rgba(0.5, 0.53, 0.6, 0.30), 1.5)
+            .inset(1.0),
+    ])
+    .frame(320.0, 300.0);
+    zstack((floor, box_view)).any()
 }
 
 /// A filled, tappable, equal-width action button (`.grow_w()` makes each take an equal share of the

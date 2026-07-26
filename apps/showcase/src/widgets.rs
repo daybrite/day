@@ -23,7 +23,7 @@ pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
         }
         let r = Rect::from_size(size).inset(8.0);
         let track = Color::rgba(0.5, 0.5, 0.55, 0.35);
-        let accent = Color::hex(0x2F6FDE);
+        let accent = crate::palette::SKY;
         d.stroke(
             Shape::Arc {
                 rect: r,

@@ -13,6 +13,10 @@ pub(crate) fn about_page() -> AnyPiece {
         label(crate::res::str::about_text())
             .font(Font::Footnote)
             .id("about-text"),
+        // The URL is the label (a value, not prose) — it stays raw in every locale.
+        link("daybrite.dev", "https://daybrite.dev")
+            .font(Font::Footnote)
+            .id("about-link"),
     ))
     .spacing(8.0)
     .align(HAlign::Center)

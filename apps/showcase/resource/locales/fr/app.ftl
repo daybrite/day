@@ -1,4 +1,5 @@
 app_title = Vitrine de Day
+app_tagline = Widgets natifs, une base Rust
 counter_value = { $count ->
     [one] { $count } clic
    *[other] { $count } clics
@@ -102,6 +103,11 @@ tab_three = Réglages
 tab_one_body = L'onglet aperçu. Chaque onglet conserve son propre état.
 tab_two_body = L'onglet détails, sélectionné par sa clé de route.
 tab_three_body = L'onglet réglages. Les liens profonds et dayscript choisissent les onglets par clé.
+tab_state_note = Changez d'onglet puis revenez — l'état de cet onglet est conservé.
+tab_detail_route = Clé de route
+tab_detail_link = Lien profond
+tab_set_badges = Afficher les badges
+tab_set_sounds = Jouer les sons
 about_text = Une application native multiplateforme construite avec day.
 modal_alert = Afficher l'alerte
 modal_confirm = Confirmer

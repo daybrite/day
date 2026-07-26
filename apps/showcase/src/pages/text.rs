@@ -1,5 +1,6 @@
 use day::prelude::*;
 
+use crate::palette::{SKY, TEAL, VIOLET};
 use crate::widgets::page;
 
 /// Typography playground: every semantic text style (mapped to the platform's native styles + Dynamic
@@ -92,7 +93,7 @@ pub(crate) fn text_page() -> AnyPiece {
             .font(Font::Title2)
             .weight(FontWeight::Heavy)
             .italic()
-            .color(Color::hex(0x8E44AD))
+            .color(VIOLET)
             .id("text-emphasis"),
     ))
     .title(crate::res::str::text_styling_header());
@@ -136,7 +137,7 @@ pub(crate) fn text_page() -> AnyPiece {
             .id("text-font-specialelite"),
         label(crate::res::str::text_font_pacifico_lg())
             .font(Font::custom(crate::res::fonts::pacifico, 36.0))
-            .color(Color::hex(0x2F6FDE))
+            .color(SKY)
             .id("text-font-pacifico-lg"),
     ))
     .title(crate::res::str::text_fonts_header());
@@ -158,7 +159,7 @@ pub(crate) fn text_page() -> AnyPiece {
             crate::res::str::text_link_mail_label().format(),
             "mailto:hello@daybrite.dev",
         )
-        .color(Color::hex(0x27AE60))
+        .color(TEAL)
         .id("text-link-mail"),
     ))
     .title(crate::res::str::text_links_section());
