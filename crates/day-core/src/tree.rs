@@ -778,10 +778,23 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>) {
-        if let Some(n) = self.nodes.get(node)
-            && let Some(h) = n.handle.clone()
-        {
-            self.toolkit.set_context_menu(&h, rnode_to_id(node), &items);
+        // The modifier often sits on a handle-less layout wrapper (`.padding`/`.frame` build
+        // those): the native affordance needs a real view, so fall through to the first
+        // native root under the node. Silently dropping the menu here is what made
+        // `label(..).padding(..).context_menu(..)` dead on every backend.
+        let target = if self.nodes.get(node).is_some_and(|n| n.handle.is_some()) {
+            Some(node)
+        } else {
+            let mut roots = Vec::new();
+            self.native_descendants(node, &mut roots);
+            roots.first().copied()
+        };
+        let Some(t) = target else {
+            eprintln!("day: context_menu on a subtree with no native view — menu dropped");
+            return;
+        };
+        if let Some(h) = self.nodes.get(t).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_context_menu(&h, rnode_to_id(t), &items);
         }
     }
 

@@ -133,8 +133,15 @@ fn context_section() -> impl Piece {
     let inbox = crate::res::str::menu_inbox().format();
     let archive = crate::res::str::menu_archive().format();
     let delete = crate::res::str::delete().format();
+    // Order matters: `.background`/`.corner_radius` build the pill CONTAINER (a native
+    // view), and `.context_menu` after them attaches to that container — the whole padded
+    // pill is the right-click / long-press surface, not just the label's text run.
     section((label(crate::res::str::menus_target())
         .padding(Insets::symmetric(24.0, 24.0))
+        // A translucent brand-blue wash: tinted enough to read as "this spot is interactive"
+        // over both the light and dark grounds.
+        .background(Color::rgba(0.184, 0.435, 0.871, 0.13))
+        .corner_radius(10.0)
         .id("menus-context-target")
         .context_menu(vec![
             menu_item(rename.clone()).action(log(format!("{context} ▸ {rename}"))),
@@ -156,11 +163,7 @@ fn context_section() -> impl Piece {
             menu_item(delete.clone())
                 .shortcut(Shortcut::plain("Delete"))
                 .action(log(format!("{context} ▸ {delete}"))),
-        ])
-        // A translucent brand-blue wash: tinted enough to read as "this spot is interactive"
-        // over both the light and dark grounds.
-        .background(Color::rgba(0.184, 0.435, 0.871, 0.13))
-        .corner_radius(10.0),))
+        ]),))
     .title(crate::res::str::menus_context_section())
 }
 

@@ -280,6 +280,20 @@ define_class!(
             true
         }
 
+        /// Show the attached context menu (docs/menus.md) explicitly rather than relying on
+        /// `NSResponder`'s default `.menu` display — popping it ourselves is deterministic
+        /// regardless of how the click threads through Day's container hierarchy.
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, event: &objc2_app_kit::NSEvent) {
+            if let Some(menu) = self.menu() {
+                unsafe {
+                    objc2_app_kit::NSMenu::popUpContextMenu_withEvent_forView(&menu, event, self)
+                };
+            } else {
+                let _: () = unsafe { msg_send![super(self), rightMouseDown: event] };
+            }
+        }
+
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
             if let Some(radius) = self.ivars().section_card.get() {
@@ -2615,8 +2629,19 @@ impl Toolkit for AppKit {
             return;
         }
         let menu = build_ns_menu(self.mtm, "", items);
-        // NSView (via NSResponder) shows this on right-click automatically; setMenu retains it.
+        // Attach to the view AND its current subviews: a right-click that hit-tests a child
+        // control (the label inside a padded target) must find the menu on the view it hit —
+        // AppKit does not walk ancestors for `.menu`, and controls swallow the event.
+        // DayFlipped's `rightMouseDown:` pops the menu explicitly; native controls (labels)
+        // show their `.menu` through their own default path.
         unsafe { view.setMenu(Some(&menu)) };
+        fn apply_to_subviews(v: &NSView, menu: &NSMenu) {
+            for sub in v.subviews() {
+                unsafe { sub.setMenu(Some(menu)) };
+                apply_to_subviews(&sub, menu);
+            }
+        }
+        apply_to_subviews(view, &menu);
     }
 
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
