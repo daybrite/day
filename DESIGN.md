@@ -1405,8 +1405,11 @@ overflow scrolling). The shipped `day-dom` follows the sketch with two changes: 
 (a hand-written ES-module shim owns the DOM, the day-arkui trampoline shape with JS in place of
 C), and DP-8 resolved to exactly the proposed hybrid — absolute placement inside
 `overflow:auto` scroll containers, with nav/tab panes CSS-framed and reporting size back via
-ResizeObserver. The WebSocket dayscript transport is still not wired. docs/web.md is the
-reference.
+ResizeObserver. The WebSocket dayscript transport shipped as sketched ([§14.5](#145-transport-and-rendezvous)):
+the page speaks WebSocket to the dev server, which bridges to the runner's TCP protocol — CI
+drives the full walkthrough this way, including the HTTP demo against the dev server's
+`/day-http-ok` echo (day-part-http's browser arm rides the shim, docs/http.md). docs/web.md
+is the reference.
 
 **ohos-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
 (`ArkUI_NativeNodeAPI_1`) matched day-spec's shape and the backend is now first-class — full

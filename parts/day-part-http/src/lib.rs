@@ -11,13 +11,15 @@
 //! proxies + PAC, per-network VPN routing, Low Data Mode ([`Request::allow_constrained`]),
 //! enterprise/MDM certificate stores — and the binary carries no bundled TLS on the native
 //! targets. macOS/iOS use `NSURLSession`, Android OkHttp (via this crate's Java shim, on the
-//! platform trust/proxy/policy rails), Windows `WinHTTP`; Linux and HarmonyOS (whose OSS NDK
-//! has no HTTP C API) use a cfg-gated Rust fallback (`ureq` + rustls). [`tier`] reports which
-//! one an app got.
+//! platform trust/proxy/policy rails), Windows `WinHTTP`, the web (web-dom) the browser's own
+//! `fetch()` — async entry points only; the blocking calls return [`HttpError::Unsupported`]
+//! there; Linux and HarmonyOS (whose OSS NDK has no HTTP C API) use a cfg-gated Rust fallback
+//! (`ureq` + rustls). [`tier`] reports which one an app got.
 //!
 //! **Threading.** [`fetch`] BLOCKS the calling thread — run it on your own thread, never the UI
 //! thread. [`fetch_async`]'s completion runs on an unspecified BACKGROUND thread (NSURLSession's
-//! delegate queue on Apple; a spawned thread elsewhere); deliver results into the UI by capturing
+//! delegate queue on Apple; a spawned thread elsewhere; the sole browser thread on the web);
+//! deliver results into the UI by capturing
 //! a [`day_reactive::Signal::setter`]-style setter in the callback — setters hop to the UI thread
 //! themselves and silently no-op after disposal, so late completions are harmless (DESIGN §4.5):
 //!
@@ -71,11 +73,7 @@ impl Method {
 /// A request under construction. Build with [`Request::get`] (and friends), then [`fetch`].
 #[derive(Clone, Debug)]
 pub struct Request {
-    // On the Unavailable tier (wasm32) no backend consumes the request, so nothing reads these
-    // two; every real backend does.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) method: Method,
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) url: String,
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) body: Option<Vec<u8>>,
@@ -207,7 +205,8 @@ pub enum HttpError {
     Io(String),
     /// The request was cancelled — its [`FetchFuture`] dropped, or a platform-side cancel.
     Cancelled,
-    /// No HTTP capability on this platform ([`Tier::Unavailable`]).
+    /// No HTTP capability on this platform ([`Tier::Unavailable`]), or an entry point that
+    /// cannot exist on it (the blocking calls on the web's single thread — docs/http.md).
     Unsupported,
 }
 
@@ -231,8 +230,10 @@ impl std::error::Error for HttpError {}
 /// How requests are realized on the compiled target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
-    /// The platform's own networking stack (URLSession / HttpURLConnection / WinHTTP): system
-    /// proxy + PAC, VPN routing, platform TLS + certificate stores.
+    /// The platform's own networking stack (URLSession / OkHttp / WinHTTP / browser fetch):
+    /// system proxy + PAC, VPN routing, platform TLS + certificate stores. On the web this
+    /// tier is async-only — the blocking entry points return [`HttpError::Unsupported`]
+    /// (docs/http.md's matrix).
     NativeStack,
     /// The bundled Rust client (ureq + rustls): correct HTTP(S), but system awareness is limited
     /// to `http_proxy`/`https_proxy`/`no_proxy` environment variables.
@@ -259,12 +260,16 @@ pub fn tier() -> Tier {
 
 /// Perform the request, BLOCKING the calling thread until the response (or [`Request::timeout`]).
 /// Run it on your own thread — calling this on the UI thread stalls the app (docs/http.md).
+/// On the web (web-dom) blocking is impossible on the single browser thread: this returns
+/// [`HttpError::Unsupported`] there — use [`fetch_async`] or [`fetch_future`].
 pub fn fetch(req: &Request) -> Result<Response, HttpError> {
     imp::fetch(req)
 }
 
 /// Perform the request without blocking; `on_done` runs on an unspecified BACKGROUND thread
-/// (capture a reactive `Setter` to deliver into UI state — see the crate docs).
+/// (capture a reactive `Setter` to deliver into UI state — see the crate docs). On the web
+/// the completion runs on the browser thread — the only one — which the Setter idiom absorbs
+/// unchanged.
 pub fn fetch_async(
     req: Request,
     on_done: impl FnOnce(Result<Response, HttpError>) + Send + 'static,
@@ -277,8 +282,9 @@ pub fn fetch_async(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        // wasm32 has no threads; the Unavailable tier answers immediately, so complete inline.
-        on_done(imp::fetch(&req));
+        // Natively async on the browser event loop: the shim's fetch() completion invokes
+        // `on_done` on the sole thread (docs/web.md).
+        imp::fetch_async(req, Box::new(on_done));
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_arch = "wasm32")))]
     {
@@ -299,7 +305,8 @@ pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> 
 
 /// Start the request immediately and await the result. The future is the cancellation grip:
 /// **dropping it cancels the request** where the platform supports it (docs/http.md's cancel
-/// matrix) — Apple `NSURLSessionTask.cancel`, Android OkHttp `Call.cancel`; Windows and the
+/// matrix) — Apple `NSURLSessionTask.cancel`, Android OkHttp `Call.cancel`, the web the
+/// fetch's `AbortController`; Windows and the
 /// Rust fallback run the request to completion on their worker thread and discard the result.
 /// A cancelled request that still completes resolves nothing; a platform-side cancel that beats
 /// the drop surfaces as [`HttpError::Cancelled`].
@@ -426,10 +433,11 @@ fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn
     }
     #[cfg(target_arch = "wasm32")]
     {
-        // wasm32 has no threads; the Unavailable tier answers immediately, so deliver the error
-        // inline (there is nothing in flight to cancel).
-        deliver_future(&shared, imp::fetch(&req));
-        None
+        // Browser fetch is natively async AND cancellable: the closure fires the shim's
+        // AbortController, and the completion then lands as `Cancelled` (docs/http.md's
+        // cancel matrix). A synchronously-failed start (bad URL) delivered before we return
+        // leaves a cancel closure that harmlessly no-ops on an unknown id.
+        imp::fetch_async_cancellable(req, Box::new(move |result| deliver_future(&shared, result)))
     }
     #[cfg(not(any(
         target_os = "macos",
@@ -460,7 +468,8 @@ pub fn fetch_to_file_async(
 ) {
     #[cfg(target_arch = "wasm32")]
     {
-        // wasm32 has no threads; the Unavailable tier answers immediately, so complete inline.
+        // No filesystem in the browser sandbox: the Unsupported answer is immediate, so
+        // complete inline (wasm32 has no threads to defer to).
         on_done(fetch_to_file(&req, &dest));
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -514,13 +523,20 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
-// Any other platform (including wasm32, until a real Web backend exists): no HTTP capability.
+// The web (web-dom, docs/web.md): the browser's fetch() through the day-dom shim's imports —
+// async entry points only (the blocking calls return Unsupported; docs/http.md's matrix).
+#[cfg(target_arch = "wasm32")]
+#[path = "web.rs"]
+mod imp;
+
+// Any other platform: no HTTP capability.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "windows",
     target_os = "linux",
-    target_os = "android"
+    target_os = "android",
+    target_arch = "wasm32"
 )))]
 mod imp {
     use super::{Download, HttpError, Request, Response, StreamSink, Tier};

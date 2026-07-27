@@ -9,6 +9,7 @@ let lastSetRoute = null;    // the route we last wrote to the hash (echo suppres
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
+const httpInflight = new Map(); // request id → AbortController (day-part-http's browser arm)
 const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
 
@@ -279,6 +280,68 @@ const env = {
     catch { return 0; }
   },
 
+  // HTTP (docs/http.md): the browser arm of day-part-http. One fetch() per request id, with
+  // an AbortController serving both day_dom_http_abort and the timeout timer (the timer
+  // bounds connect + response head; the body phase is uncapped — Rust-fallback parity). The
+  // completion re-enters wasm EXACTLY once per id: day_http_done, or day_http_failed with
+  // kind 1 BadUrl / 2 Timeout / 3 Cancelled / 0 Io (a browser hides DNS/connect/TLS detail).
+  // Headers cross as flat `u32-LE len, bytes` key/value records both ways — no JSON escaping,
+  // order and duplicates preserved. Request buffers are COPIED out before the first await:
+  // a day_http_alloc call may grow (and move) wasm memory under any borrowed view.
+  day_dom_http_start(id, m, ml, u, ul, h, hl, b, bl, hasBody, timeoutMs) {
+    const method = str(m, ml);
+    let url;
+    try { url = new URL(str(u, ul), document.baseURI).toString(); }
+    catch { httpFail(id, 1, str(u, ul)); return; }
+    const headers = new Headers();
+    const hb = new Uint8Array(wasm.memory.buffer, h, hl).slice();
+    const hv = new DataView(hb.buffer);
+    for (let i = 0; i + 4 <= hb.length;) {
+      const kl = hv.getUint32(i, true); const k = utf8.decode(hb.subarray(i + 4, i + 4 + kl)); i += 4 + kl;
+      const vl = hv.getUint32(i, true); const v = utf8.decode(hb.subarray(i + 4, i + 4 + vl)); i += 4 + vl;
+      headers.append(k, v);
+    }
+    const body = hasBody ? new Uint8Array(wasm.memory.buffer, b, bl).slice() : undefined;
+    const ctl = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeoutMs);
+    httpInflight.set(id, ctl);
+    (async () => {
+      try {
+        const resp = await fetch(url, { method, headers, body, signal: ctl.signal });
+        clearTimeout(timer); // head arrived — the body phase runs uncapped
+        const bodyBytes = new Uint8Array(await resp.arrayBuffer());
+        const recs = [];
+        let hdrLen = 0;
+        for (const [k, v] of resp.headers) {
+          const kb = utf8enc.encode(k); const vb = utf8enc.encode(v);
+          const rec = new Uint8Array(8 + kb.length + vb.length);
+          const dv = new DataView(rec.buffer);
+          dv.setUint32(0, kb.length, true); rec.set(kb, 4);
+          dv.setUint32(4 + kb.length, vb.length, true); rec.set(vb, 8 + kb.length);
+          recs.push(rec); hdrLen += rec.length;
+        }
+        const hdr = new Uint8Array(hdrLen);
+        let off = 0;
+        for (const rec of recs) { hdr.set(rec, off); off += rec.length; }
+        // Allocate-then-copy per buffer, refreshing the memory view after each alloc (see
+        // the note above about memory growth).
+        const hp = hdr.length ? wasm.day_http_alloc(hdr.length) : 0;
+        if (hdr.length) mem().set(hdr, hp);
+        const bp = bodyBytes.length ? wasm.day_http_alloc(bodyBytes.length) : 0;
+        if (bodyBytes.length) mem().set(bodyBytes, bp);
+        wasm.day_http_done(id, resp.status, hp, hdr.length, bp, bodyBytes.length);
+      } catch (e) {
+        if (e && e.name === 'AbortError') httpFail(id, timedOut ? 2 : 3, '');
+        else httpFail(id, 0, String((e && e.message) || e));
+      } finally {
+        clearTimeout(timer);
+        httpInflight.delete(id);
+      }
+    })();
+  },
+  day_dom_http_abort(id) { httpInflight.get(id)?.abort(); },
+
   day_dom_script_send(ptr, len) {
     const line = str(ptr, len);
     if (!scriptWs) return; // scripting not armed — nothing is listening
@@ -314,6 +377,14 @@ const env = {
 
 function selectAmong(group, idx) {
   [...group.children].forEach((b, i) => b.classList.toggle('selected', i === idx));
+}
+
+// Deliver a day-part-http failure: kind per the taxonomy on day_dom_http_start above.
+function httpFail(id, kind, msg) {
+  const bytes = utf8enc.encode(msg);
+  const p = bytes.length ? wasm.day_http_alloc(bytes.length) : 0;
+  if (bytes.length) mem().set(bytes, p);
+  wasm.day_http_failed(id, kind, p, bytes.length);
 }
 
 // ---------------------------------------------------------------------------

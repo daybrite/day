@@ -30,6 +30,12 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   RUST_BACKTRACE: full
+  # The walkthrough capture matrix — themes × locales, space-separated (the shell word-splits
+  # them). ONE place to grow: every screenshot leg (macOS, iOS, Linux, Android, HarmonyOS,
+  # Windows, web-dom) loops over these; the gallery variant ids in website/gallery.config.mjs
+  # (`<theme>` / `<theme>-<locale>`) must list any addition too.
+  WALKTHROUGH_THEMES: light dark
+  WALKTHROUGH_LOCALES: en fr ar zh-CN
 
 jobs:
   fmt:
@@ -408,8 +414,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
@@ -568,8 +574,8 @@ jobs:
               fi
             fi
           }
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               run_variant --variant $VAR --env DAY_THEME=$TH $EXTRA
@@ -696,8 +702,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          for TH in light dark; do
-          for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+          for LOC in $WALKTHROUGH_LOCALES; do
             VAR=$TH
             EXTRA="--variant $TH --env DAY_THEME=$TH"
             if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--variant $VAR --env DAY_THEME=$TH --locale $LOC"; fi
@@ -869,7 +875,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd apps/showcase && for TH in light dark; do for LOC in en fr ar zh-CN; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
+          script: cd apps/showcase && for TH in $WALKTHROUGH_THEMES; do for LOC in $WALKTHROUGH_LOCALES; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1057,8 +1063,8 @@ jobs:
         # ohos tiles fell back to the English captures before these variants existed). Every
         # variant is individually best-effort — one TCG flake must not skip the remaining runs.
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               $DAY_BIN launch -p ohos-arkui --script dayscript/walkthrough.yaml \
@@ -1181,8 +1187,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               $DAY_BIN launch -p windows-winui --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
@@ -1298,8 +1304,8 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         working-directory: apps/showcase
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA --env WEBKIT_DISABLE_COMPOSITING_MODE=1
@@ -1402,6 +1408,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Install walkthrough tools
+        # ubuntu-latest preinstalls neither: ImageMagick's `identify` is the validation
+        # script's Linux path, and without Noto CJK the zh-CN captures render tofu boxes
+        # (the same pair the linux-gtk leg installs).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends imagemagick fonts-noto-cjk
       - name: Install the walkthrough browser (Playwright WebKit)
         run: |
           mkdir -p "$RUNNER_TEMP/webdriver" && cd "$RUNNER_TEMP/webdriver"
@@ -1414,8 +1427,8 @@ jobs:
           DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
         run: |
-          for TH in light dark; do
-            for LOC in en fr ar zh-CN; do
+          for TH in $WALKTHROUGH_THEMES; do
+            for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
               cargo run --locked -q -p day-cli -- launch -p web-dom --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA

@@ -11,7 +11,8 @@ license.workspace = true
 # A HEADLESS day-ecosystem crate (no UI Piece): HTTP(S) requests through each platform's NATIVE
 # networking stack, so apps inherit the system's configuration — proxies + PAC, per-network VPN
 # routing, Low Data Mode, enterprise/MDM certificate stores — and ship ZERO bundled TLS on the
-# native targets. Platform selection is by `#[cfg(target_os)]` (networking is an OS concern, not a
+# native targets. Platform selection is by `#[cfg(target_os)]` / `#[cfg(target_arch)]`
+# (networking is an OS concern, not a
 # widget-toolkit one), so there are no backend features — it "just works" per target:
 #   macOS/iOS — NSURLSession (Foundation; ephemeral sessions; Low Data Mode via
 #               allowsConstrainedNetworkAccess), shared src/apple.rs
@@ -20,6 +21,8 @@ license.workspace = true
 #               still apply; HTTP/2, PATCH, and per-call cancel come from the engine)
 #   Windows   — WinHTTP (winhttp.dll, resolved dynamically; automatic proxy/PAC, schannel +
 #               the system certificate store)
+#   Web       — the browser's fetch() through the day-dom shim (wasm32; async entry points
+#               only — the blocking calls return Unsupported; cancel via AbortController)
 #   Linux     — Rust fallback: ureq + rustls (the only target that bundles TLS; proxy from
 #               http(s)_proxy env vars)
 #   HarmonyOS — the OSS NDK has no HTTP C API, so the same Rust fallback (rustls compiles for

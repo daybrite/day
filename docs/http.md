@@ -3,10 +3,12 @@
 > **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no
 > UI Piece: request/response HTTP (plus streaming downloads) through each platform's own networking
 > stack — NSURLSession on macOS/iOS, OkHttp on Android (the platform's own frozen engine,
-> current — see the engine note below), WinHTTP on Windows — with a
+> current — see the engine note below), WinHTTP on Windows, the browser's `fetch()` on the web
+> (`web-dom`; async entry points only — see the web tier below) — with a
 > bundled ureq + rustls fallback on Linux and HarmonyOS. Verified end-to-end with a local-server
 > test suite on the real Apple half (macOS) and the real fallback half (Linux), and live on
-> macOS/iOS-sim/Android-emulator via the showcase walkthrough and Day Skies' Open-Meteo fetch.
+> macOS/iOS-sim/Android-emulator/browser via the showcase walkthrough and Day Skies' Open-Meteo
+> fetch.
 
 Why the platform stack instead of a Rust HTTP crate: the OS already knows the things an app can't
 easily discover — system proxies and PAC scripts, per-network VPN routing, Low Data Mode,
@@ -57,7 +59,9 @@ day_part_http::fetch_async(Request::get(url), move |result| {
 `day_reactive::on_main` (which requires an installed backend poster and would break plain-`main`
 programs and `cargo test`). Capturing a `Setter` in `on_done` is the standard delivery idiom
 (DESIGN §4.5) — it marshals to the UI thread itself and absorbs late deliveries after disposal.
-The showcase's Platform services page demonstrates it twice: a deterministic loopback fetch, and
+The showcase's Platform services page demonstrates it twice: a deterministic local fetch (a
+one-shot loopback server natively; on web-dom, where a tab can host no listener, the dev
+server's same-origin `/day-http-ok` echo endpoint with identical bodies), and
 a URL checker (type any http(s) URL, tap Check) that prints the response headers and body size —
 `resp.headers` is the full header list, `resp.header(name)` the case-insensitive lookup.
 
@@ -103,6 +107,7 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | macOS + iOS | `NSURLSession` (shared ephemeral session; per-request delegate session for streaming) | objc2-foundation, shared `apple.rs` |
 | Android | OkHttp 4.12 via the part-owned `DayHttp.java` shim; one `byte[]` envelope per call | `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
 | Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) | raw FFI (runtime lookup) |
+| Web (`web-dom`) | the browser's `fetch()` via the day-dom shim's `day_dom_http_*` imports (request-id + AbortController); **async entry points only** — `fetch`/`fetch_to_file`/`fetch_streamed` return `Unsupported` | `web.rs` (wasm32; requires the day-dom host page, the day-part-prefs pattern) |
 | Linux | ureq 3 + rustls (the only tier that bundles TLS) | ureq, `fallback.rs` |
 | HarmonyOS | ureq 3 + rustls — the OSS 5.1 NDK has no HTTP C API (`HMS_Rcp_*` is HarmonyOS-NEXT-SDK-only) | ureq, same `fallback.rs` |
 | unknown/mock | catch-all: every call returns `HttpError::Unsupported` | — |
@@ -111,6 +116,12 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 `RustFallback`, or `Unavailable` — so an app (or a doc table) never has to guess:
 
 - **NativeStack**: system proxy + PAC, VPN routing, platform TLS + certificate stores all apply.
+  The web is this tier — the browser IS the platform stack (proxies, TLS, certificate store,
+  HTTP/2/3 all come from it) — but async-only: on the single browser thread a blocking wait
+  would starve the event loop the completion needs (docs/web.md), so the blocking entry points
+  return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only realities
+  apply: CORS governs cross-origin requests (and limits which response headers are visible),
+  and browser-controlled headers (`Host`, `Cookie`, `Origin`, …) cannot be set from a request.
 - **RustFallback**: correct HTTP(S) via rustls + webpki roots, but system awareness is limited to
   the `http_proxy`/`https_proxy`/`no_proxy` environment variables (no PAC, no desktop proxy
   settings).
@@ -118,25 +129,30 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 
 ## Error mapping
 
-| `HttpError` | Apple (`NSURLErrorDomain`) | Android (exception) | Windows (`ERROR_WINHTTP_*`) | fallback (ureq) |
-|---|---|---|---|---|
-| `Timeout` | −1001 | `SocketTimeoutException` | 12002 | `Timeout` |
-| `Dns` | −1003, −1006 | `UnknownHostException` | 12007 | `HostNotFound` |
-| `Connect` | −1004, −1009 | `ConnectException` | 12029, 12030 | `ConnectionFailed` |
-| `Tls(msg)` | −1200…−1206 | `SSLException` | secure-failure set (12157, 12175, …) | `Tls` |
-| `BadUrl` | −1000, −1002 | `IllegalArgumentException` (URL rejected) | 12005, 12006 | `BadUri` |
-| `Cancelled` | −999 | `Call.isCanceled()` (sentinel −7) | — (discard tier) | — (discard tier) |
-| `Io(msg)` | anything else | anything else | anything else | anything else |
+| `HttpError` | Apple (`NSURLErrorDomain`) | Android (exception) | Windows (`ERROR_WINHTTP_*`) | web (fetch rejection) | fallback (ureq) |
+|---|---|---|---|---|---|
+| `Timeout` | −1001 | `SocketTimeoutException` | 12002 | `AbortError` from the timeout timer | `Timeout` |
+| `Dns` | −1003, −1006 | `UnknownHostException` | 12007 | — (see below) | `HostNotFound` |
+| `Connect` | −1004, −1009 | `ConnectException` | 12029, 12030 | — (see below) | `ConnectionFailed` |
+| `Tls(msg)` | −1200…−1206 | `SSLException` | secure-failure set (12157, 12175, …) | — (see below) | `Tls` |
+| `BadUrl` | −1000, −1002 | `IllegalArgumentException` (URL rejected) | 12005, 12006 | `new URL(...)` rejects | `BadUri` |
+| `Cancelled` | −999 | `Call.isCanceled()` (sentinel −7) | — (discard tier) | `AbortError` from `day_dom_http_abort` | — (discard tier) |
+| `Io(msg)` | anything else | anything else | anything else | anything else (see below) | anything else |
+
+The web column is deliberately coarse: browsers collapse DNS, connect, TLS, and CORS failures
+into one opaque `TypeError` (an anti-fingerprinting measure), so every network-level failure
+surfaces as `Io` with the browser's message — `Dns`/`Connect`/`Tls` never occur on this tier.
 
 ## Option honesty
 
 Options that only some platforms can realize are documented, not silently dropped:
 
-| option | Apple | Android | Windows | fallback |
-|---|---|---|---|---|
-| `.timeout` | `timeoutInterval` (idle timer) | OkHttp connect/read/write per-phase bounds (no callTimeout) | per-operation `WinHttpSetTimeouts` | resolve/connect/send/response-head timeouts (body phase uncapped) |
-| `.allow_expensive` / `.allow_constrained` | native (`allowsExpensiveNetworkAccess` / `allowsConstrainedNetworkAccess`, Low Data Mode) | advisory only | advisory only | advisory only |
-| redirects | followed (no opt-out in v1) | followed | followed | followed |
+| option | Apple | Android | Windows | web | fallback |
+|---|---|---|---|---|---|
+| `.timeout` | `timeoutInterval` (idle timer) | OkHttp connect/read/write per-phase bounds (no callTimeout) | per-operation `WinHttpSetTimeouts` | an abort timer over connect + response head (body phase uncapped — fallback parity; fetch has no native timeout) | resolve/connect/send/response-head timeouts (body phase uncapped) |
+| `.allow_expensive` / `.allow_constrained` | native (`allowsExpensiveNetworkAccess` / `allowsConstrainedNetworkAccess`, Low Data Mode) | advisory only | advisory only | advisory only | advisory only |
+| `.header` | as given | as given | as given | browser-controlled names (`Host`, `Cookie`, `Origin`, …) are ignored per the fetch spec | as given |
+| redirects | followed (no opt-out in v1) | followed | followed | followed | followed |
 
 ## App Transport Security (iOS/macOS) and Android cleartext
 
@@ -163,6 +179,11 @@ reason `tier()` exists.
 on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
 fire-and-forget wrappers that deliver on a background thread — see the Setter idiom above.
 
+On the web there is exactly one thread, and it must never wait: the blocking calls return
+`Unsupported` there, and `fetch_async`'s completion arrives on that sole (UI) thread from the
+browser event loop. Both delivery idioms work unchanged — a captured `Setter` detects it is
+already on the UI thread, and `fetch_future` under `day::task` resumes there anyway.
+
 ## Async and cancellation
 
 ```rust
@@ -184,6 +205,7 @@ grip — dropping it cancels the request** where the platform can:
 |---|---|
 | Apple | native — `NSURLSessionTask.cancel()`; a completion that beats the observer maps `NSURLErrorCancelled` → `HttpError::Cancelled` |
 | Android | native — OkHttp `Call.cancel()` via a cancel-token registry in `DayHttp.java` (sentinel −7 → `Cancelled`). One microsecond-scale race is accepted: a drop that lands between the worker starting and the Java-side registration degrades to discard-only (the token registry stays leak-free by pairing every put with a finally-remove — no tombstones) |
+| Web | native — the shim's per-request `AbortController.abort()` (`day_dom_http_abort`), rejecting the in-flight fetch (or its body read) with `AbortError` → `Cancelled` |
 | Windows / fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
 
 Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
@@ -221,4 +243,6 @@ dependencies, part-owned Java staged via `[package.metadata.day.android]` (which
 `android.permission.INTERNET`), no framework changes. It is the first part with an async surface
 and background completion threads — the shape DESIGN §4.5 blesses — and the first whose Java runs
 on Rust-spawned threads, which is what motivated the app-ClassLoader fallback in day-android's
-`DayEnv` helpers.
+`DayEnv` helpers. The web arm rides the day-part-prefs precedent — part-declared `extern "C"`
+imports the day-dom shim implements — extended with the shim's request-id callback pattern for
+its async completions; it is the first part to complete back into wasm.

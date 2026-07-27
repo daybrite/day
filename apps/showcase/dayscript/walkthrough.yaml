@@ -197,13 +197,17 @@ flow:
   - assert_text: { id: battery-level-value, text: "12%" }
   - set_value: { id: battery-level, value: 65 }
 
-  # Platform services: clipboard round-trip, persisted prefs, haptics, and the native file
+  # Platform services: an HTTP fetch (first — it runs on every target, including web-dom),
+  # clipboard round-trip, persisted prefs, haptics, and the native file
   # pickers — one form, one screenshot. The strict OS clipboard assertion lives in
   # scripts/clipboard-roundtrip.yaml (macOS + Android only; headless Linux has no system
   # clipboard). The save/open pickers answer with a temp path (relative → app temp dir).
   - navigate: { route: services }
   - assert_route: { route: services }
   - assert_visible: { id: clipboard-field }
+  # Resource (day::reactive, docs/async.md): the first fetch runs at page build. Let it settle
+  # BEFORE the shot — the HTTP section leads the form now, so its readout is in frame.
+  - assert_text: { id: http-res-status, text: "ok 1: 200 day-http-ok" }
   # Screenshot the pristine form BEFORE the clipboard copy: Android 13+ pops a system
   # clipboard-preview overlay on copy that lingers several seconds and would photobomb the shot.
   - screenshot: services
@@ -232,21 +236,22 @@ flow:
   - respond: { path: "day-walkthrough.txt", skip_on: [web-dom] }
   - assert_text: { id: files-status, text: "opened", skip_on: [web-dom] }
   - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" }, skip_on: [web-dom] }
-  # HTTP fetch (docs/http.md): a one-shot loopback server + day-part-http fetch_async. The
-  # status label fills in from a background completion, so assert_text's bounded retry (§14.3)
-  # covers the async gap. The body is raw on purpose — identical across locales.
-  # skip_on web-dom: the demo's loopback TCP server cannot exist in a browser (docs/web.md).
-  - tap: { id: http-fetch, skip_on: [web-dom] }
-  - assert_text: { id: http-status, text: "200 day-http-ok", skip_on: [web-dom] }
-  # PATCH, await-style (docs/async.md): the loopback server echoes the method into the body,
+  # HTTP fetch (docs/http.md): day-part-http against a deterministic target — a one-shot
+  # loopback server natively; on web-dom (where a tab can host no TCP listener) the dev
+  # server's same-origin /day-http-ok endpoint answers with the identical bodies, so these
+  # asserts run UNSKIPPED everywhere. The status label fills in from an async completion, so
+  # assert_text's bounded retry (§14.3) covers the gap. The body is raw on purpose — identical
+  # across locales.
+  - tap: { id: http-fetch }
+  - assert_text: { id: http-status, text: "200 day-http-ok" }
+  # PATCH, await-style (docs/async.md): the demo target echoes the method into the body,
   # proving the verb crossed the platform engine (the old Android HttpURLConnection gap).
-  - tap: { id: http-patch, skip_on: [web-dom] }
-  - assert_text: { id: http-patch-status, text: "200 day-http-ok:PATCH", skip_on: [web-dom] }
-  # Resource (day::reactive, docs/async.md): the first fetch runs at build; Refetch re-runs it
-  # (the attempt counter proves it — a fresh fetch, not a cached readout).
-  - assert_text: { id: http-res-status, text: "ok 1: 200 day-http-ok", skip_on: [web-dom] }
-  - tap: { id: http-res-refetch, skip_on: [web-dom] }
-  - assert_text: { id: http-res-status, text: "ok 2: 200 day-http-ok", skip_on: [web-dom] }
+  - tap: { id: http-patch }
+  - assert_text: { id: http-patch-status, text: "200 day-http-ok:PATCH" }
+  # Refetch re-runs the Resource fetch asserted before the screenshot above (the attempt
+  # counter proves it — a fresh fetch, not a cached readout).
+  - tap: { id: http-res-refetch }
+  - assert_text: { id: http-res-status, text: "ok 2: 200 day-http-ok" }
   - assert_visible: { id: http-tier }
   # The URL checker (type any http(s) URL → response headers + body size) needs live network,
   # so the walkthrough only checks its presence.

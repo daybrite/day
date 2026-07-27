@@ -3,15 +3,18 @@
 Fetch like the platform, not around it.
 
 This crate does HTTP through each platform's own networking stack — NSURLSession on macOS and
-iOS, OkHttp on Android, WinHTTP on Windows — so requests pick up everything the OS
+iOS, OkHttp on Android, WinHTTP on Windows, the browser's `fetch()` on the web — so requests
+pick up everything the OS
 already knows: system proxies and PAC scripts, VPN routing, Low Data Mode, enterprise certificate
 stores. On Linux and HarmonyOS, where no OS-level HTTP API exists, a bundled ureq + rustls
 fallback keeps the same API working; `tier()` tells you which world you're in.
 
-The surface is small on purpose: blocking `fetch`, callback `fetch_async`, streaming
+The surface is small on purpose: blocking `fetch`, callback `fetch_async`, awaitable
+`fetch_future` (dropping it cancels the request), streaming
 `fetch_to_file` and `fetch_streamed` (progress, cancellation, hash-as-you-go). HTTP error
 statuses are responses, not errors, and a long download is never cut off by the request timeout —
-it bounds progress, not the transfer.
+it bounds progress, not the transfer. In the browser only the asynchronous calls exist — a
+single-threaded page has no room for a blocking wait.
 
 Parts are Day's small capability crates: no UI, just a plain Rust API over something the platform
 already provides. This one works in any Rust program — you don't need a Day app around it.

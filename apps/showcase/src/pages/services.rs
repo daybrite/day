@@ -3,21 +3,21 @@ use day_part_haptics::Haptic;
 
 use crate::widgets::page;
 
-/// Platform services (docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/files.md,
-/// docs/http.md): the headless "do something with the OS" parts, one grouped form section each —
-/// clipboard round-trip, persisted preferences, haptic feedback, the native file pickers, and a
-/// loopback HTTP fetch.
+/// Platform services (docs/http.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md,
+/// docs/files.md): the headless "do something with the OS" parts, one grouped form section
+/// each — an HTTP fetch (first: it works on every target, including web-dom), clipboard
+/// round-trip, persisted preferences, haptic feedback, and the native file pickers.
 pub(crate) fn services_page() -> AnyPiece {
     page(
         crate::res::str::nav_services(),
         "services-title",
         Some(crate::res::str::services_caption()),
         form((
+            http_section(),
             clipboard_section(),
             prefs_section(),
             haptics_section(),
             files_section(),
-            http_section(),
         ))
         .any(),
     )
@@ -265,10 +265,29 @@ fn files_section() -> impl Piece {
     .title(crate::res::str::nav_files())
 }
 
+/// The demo's target URL. Native targets spin the one-shot loopback server below; the web
+/// (web-dom) instead fetches the same-origin `day-http-ok` path — a browser tab can host no
+/// TCP listener, and `day launch`'s dev server answers that path with the identical bodies
+/// (crates/day-cli/src/web.rs), so the walkthrough asserts the same bytes everywhere. On a
+/// static host without the endpoint the buttons report the server's honest error instead.
+fn demo_url() -> Result<String, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Relative on purpose: resolves against the page origin (and subpath, e.g. the
+        // website's /showcase/web-dom/), keeping the request same-origin — no CORS.
+        Ok("day-http-ok".into())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        serve_once().map_err(|e| e.to_string())
+    }
+}
+
 /// One-shot loopback server answering `200` — the demo needs no external network, so it behaves
 /// the same in airplane mode, on CI, and behind a proxy. GET keeps the historic `day-http-ok`
 /// body (walkthrough-asserted, byte-identical); any other method echoes it as
 /// `day-http-ok:<METHOD>` — the deterministic proof that e.g. PATCH crossed the platform engine.
+#[cfg(not(target_arch = "wasm32"))]
 fn serve_once() -> std::io::Result<String> {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -298,7 +317,8 @@ fn serve_once() -> std::io::Result<String> {
 
 fn http_section() -> impl Piece {
     let status = Signal::new(crate::res::str::http_idle().format());
-    // The callback idiom (docs/http.md): fetch_async completes on a BACKGROUND thread; the
+    // The callback idiom (docs/http.md): fetch_async completes on a BACKGROUND thread (the
+    // sole browser thread on web); the
     // captured Setter hops to the UI thread itself and no-ops if the page is gone. Kept as the
     // living Setter example — the rows below use the newer await/Resource rails (docs/async.md).
     let done = status.setter();
@@ -308,7 +328,7 @@ fn http_section() -> impl Piece {
         row((
             button(crate::res::str::http_fetch())
                 .bordered()
-                .action(move || match serve_once() {
+                .action(move || match demo_url() {
                     Ok(url) => day_part_http::fetch_async(
                         day_part_http::Request::get(url)
                             .timeout(std::time::Duration::from_secs(10)),
@@ -333,7 +353,7 @@ fn http_section() -> impl Piece {
         row((
             button(crate::res::str::http_patch())
                 .bordered()
-                .action(move || match serve_once() {
+                .action(move || match demo_url() {
                     Ok(url) => {
                         day::task(async move {
                             let req = day_part_http::Request::patch(url, Vec::new())
@@ -373,7 +393,7 @@ fn http_resource_row() -> impl Piece {
             attempts.set(attempts.get() + 1);
             let n = attempts.get();
             async move {
-                let url = serve_once().map_err(|e| day_part_http::HttpError::Io(e.to_string()))?;
+                let url = demo_url().map_err(day_part_http::HttpError::Io)?;
                 let resp = day_part_http::fetch_future(
                     day_part_http::Request::get(url).timeout(std::time::Duration::from_secs(10)),
                 )

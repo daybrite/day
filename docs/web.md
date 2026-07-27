@@ -72,8 +72,11 @@ areas, all three picker styles, progress and spinners, images, dividers, scrolli
 with back bar, tabs, the emulated recycling list with multi-selection, alert/confirm/prompt
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
-visibility), routes in the URL (below), and day-part-prefs backed by `localStorage`
-(docs/prefs.md) — so app state bound through `day_part_prefs::bind` survives a reload.
+visibility), routes in the URL (below), day-part-prefs backed by `localStorage`
+(docs/prefs.md) — so app state bound through `day_part_prefs::bind` survives a reload — and
+day-part-http backed by the browser's `fetch()` (docs/http.md): `fetch_async` and
+`fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
+entry points return `Unsupported` (one thread, no blocking waits).
 
 ## Routes in the URL
 
@@ -106,9 +109,11 @@ every platform. Differences from native, all internal:
   it as `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and
   `GET /quit` on the control port. Without a driver, scripted runs fail at the first
   screenshot; interactive `day launch` never needs one.
-- Steps for capabilities the web genuinely lacks (file pickers, the showcase's loopback HTTP
-  demo) carry `skip_on: [web-dom]` in the walkthrough — the runner drops them for this target
-  (DESIGN.md Appendix C).
+- Steps for capabilities the web genuinely lacks (the native file pickers) carry
+  `skip_on: [web-dom]` in the walkthrough — the runner drops them for this target
+  (DESIGN.md Appendix C). The HTTP demo runs unskipped: the dev server answers the
+  same-origin `/day-http-ok` echo endpoint (below) with the same bodies the native demo's
+  loopback server serves.
 - Day element ids double as DOM ids (via the a11y identifier duty), so the page is
   inspectable with the same ids scripts use.
 
@@ -122,7 +127,7 @@ Known gaps, in rough order of interest:
   yet.
 - **App menus and context menus** — no DOM equivalent of a native menu bar; unsupported.
 - **Native pieces** — webview, media, map, lottie, combobox, searchfield, activity render
-  their standard placeholder. Parts other than prefs (battery, sensors, clipboard, http…)
+  their standard placeholder. Parts other than prefs and http (battery, sensors, clipboard…)
   answer their unavailable tier.
 - **day-break** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
@@ -137,6 +142,14 @@ instantiate wasm from `file:` URLs; any static host works, including GitHub Page
 prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
 back to a buffered instantiate on hosts that serve wasm as something else, so a plain
 directory listing on a dumb server still boots.
+
+Beyond static files, the dev server answers two dynamic paths: `/dayscript` (the WebSocket
+bridge above) and **`/day-http-ok`** — a method-echo endpoint for HTTP demos whose native
+form would spin a loopback listener, which a browser tab cannot (GET answers `day-http-ok`;
+any other method echoes `day-http-ok:<METHOD>`, matching the showcase's native one-shot
+server byte for byte). On a static host that endpoint does not exist, so the showcase's demo
+buttons report the host's honest answer (a 404 page, or a 405 for PATCH) — the URL checker
+and every other HTTP call work anywhere.
 
 The Day website publishes the showcase's web-dom build at
 **`https://daybrite.dev/showcase/web-dom/`**: CI's `web-dom` job uploads the release dist as

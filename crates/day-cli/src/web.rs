@@ -223,7 +223,8 @@ fn open_in_browser(url: &str) {
     }
 }
 
-/// Answer one HTTP request: GET only, paths resolved strictly inside `dist`.
+/// Answer one HTTP request: static GETs resolved strictly inside `dist`, plus the two dynamic
+/// paths — the `/dayscript` WebSocket and the `/day-http-ok` echo endpoint.
 fn serve_one(mut stream: TcpStream, dist: &Path) {
     let mut buf = [0u8; 4096];
     let n = match stream.read(&mut buf) {
@@ -241,6 +242,27 @@ fn serve_one(mut stream: TcpStream, dist: &Path) {
     if path == "/dayscript" {
         // The page's dayscript WebSocket (docs/web.md) — this thread becomes its pump.
         serve_dayscript_ws(stream, &buf[..n]);
+        return;
+    }
+    if path == "/day-http-ok" {
+        // day-part-http's same-origin demo endpoint (docs/web.md): a browser tab can host no
+        // loopback listener, so apps whose HTTP demo would spin one (the showcase's Platform
+        // services page) fetch this path instead. Same bodies as that native one-shot server —
+        // GET answers `day-http-ok`, any other method echoes `day-http-ok:<METHOD>` — so
+        // walkthrough asserts are byte-identical on web.
+        let method = head.split_whitespace().next().unwrap_or("GET");
+        let body = if method == "GET" {
+            "day-http-ok".to_string()
+        } else {
+            format!("day-http-ok:{method}")
+        };
+        let _ = stream.write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .as_bytes(),
+        );
         return;
     }
     match resolve(dist, path).and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {
