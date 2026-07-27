@@ -308,6 +308,7 @@ controls_basics = 基础
 controls_feedback = 反馈
 canvas_caption = 形状、变换、手势和组合层部件——全部通过画布绘制。
 canvas_gauge = 画布仪表
+gauge_value_label = 数值
 system_caption = 无界面的设备状态部件：电池、网络连接、运动传感器和设备标识。
 services_caption = 无界面的"与操作系统交互"部件：HTTP、剪贴板、偏好设置、触感反馈和文件选择器。
 subscribe_label = 订阅

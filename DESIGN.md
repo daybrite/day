@@ -1032,10 +1032,12 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 
 > [!IMPORTANT]
 > **Status: partially shipped.** Safe-area insets are applied at the window root by the mobile
-> backends (UIKit reads `safeAreaInsets`; Android is edge-to-edge with the root held in a
-> margin-inset wrapper, and the root's size changes — late inset passes, rotation, bar changes —
-> flow to Day as `Event::WindowResized`, the same rail AppKit uses, so layout follows the safe
-> area instead of a launch-time snapshot). **Keyboard avoidance shipped (2026-07,
+> backends (UIKit pins the root inside the window's `safeAreaInsets`; Android is edge-to-edge
+> with the root held in a margin-inset wrapper), and on every backend the root's size changes —
+> late inset passes, rotation, bar changes — flow to Day as `Event::WindowResized`, the same rail
+> AppKit uses, so layout follows the safe area instead of a launch-time snapshot. UIKit's rail is
+> the holder view's layout pass (`DayHolderView.layoutSubviews`, fixed 2026-07: rotation used to
+> leave the root at its launch frame). **Keyboard avoidance shipped (2026-07,
 > docs/focus.md):** each mobile backend consumes the keyboard natively and resizes the Day root
 > through the `WindowResized` rail — Android folds `WindowInsetsCompat.ime()` into the root
 > margins, UIKit observes `UIKeyboardWillChangeFrame` (clamping the root to the keyboard top and

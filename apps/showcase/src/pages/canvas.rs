@@ -130,23 +130,21 @@ fn gradients_section() -> impl Piece {
 /// The nine shape kinds in a 3×3 grid whose cells split the section width evenly (`grow_w`
 /// marks every column flexible — docs/grid.md) and whose drawing scales with the cell. ONE
 /// angle slider rotates every shape live. Each cell draws through [`shape_group_fn`], sizing
-/// its shape to the largest box whose ROTATED bounding box still fits the laid-out cell —
-/// rotation never clips, at any angle, on backends that clip a canvas to its bounds (Qt,
-/// Android, the web).
+/// its shape to the largest box that fits the laid-out cell at EVERY angle — so the slider
+/// is a pure transform (the shape spins without resizing) and rotation never clips on
+/// backends that clip a canvas to its bounds (Qt, Android, the web).
 fn shapes_section() -> impl Piece {
     let angle = Signal::new(0.0f64);
     const H: f64 = 96.0;
-    // A Kinds cell: `make()`'s shape at `aspect` (height:width), centred, shrink-to-fit under
-    // the shared rotation. Reads `angle` inside the recorder, so the slider re-records live.
+    // A Kinds cell: `make()`'s shape at `aspect` (height:width), centred, at a CONSTANT size
+    // independent of the shared rotation: a w × (w·aspect) box sweeps a circumcircle of
+    // diameter w·√(1+aspect²), so capping that at the cell's short side fits every angle.
+    // Reads `angle` inside the recorder, so the slider re-records live.
     let cell = move |aspect: f64, make: fn() -> ShapePiece| {
         shape_group_fn(move |size| {
             let a = angle.get();
-            let (s, c) = a.to_radians().sin_cos();
-            let (s, c) = (s.abs(), c.abs());
-            let avail_w = (size.width - 8.0).max(1.0);
-            let avail_h = (size.height - 8.0).max(1.0);
-            // Largest w × (w·aspect) whose rotated bounding box fits the cell.
-            let w = (avail_w / (c + aspect * s)).min(avail_h / (s + aspect * c));
+            let avail = ((size.width - 8.0).min(size.height - 8.0)).max(1.0);
+            let w = avail / (1.0 + aspect * aspect).sqrt();
             let (uw, uh) = (w / size.width, w * aspect / size.height);
             vec![
                 make()
@@ -249,24 +247,25 @@ fn shapes_section() -> impl Piece {
     .title(crate::res::str::shapes_kinds())
 }
 
-/// Three custom-drawn readings of ONE volume signal — the arc dial, a VU-style segment
+/// Three custom-drawn readings of ONE value signal — the arc dial, a VU-style segment
 /// meter, and a sunrise (the sun climbs from the left horizon to the zenith and sets to the
-/// right as the value runs 0→100). Laid out like the grids above: three width-flexible cells
-/// splitting the row evenly, each canvas re-recording at its laid-out size.
+/// right as the value runs 0→100, under a sky whose light follows it). Laid out like the
+/// grids above: three width-flexible cells splitting the row evenly, each canvas
+/// re-recording at its laid-out size, with the shared slider underneath.
 fn gauge_section() -> impl Piece {
     let level = Signal::new(40.0f64);
     const H: f64 = 120.0;
     section((
-        labeled(
-            crate::res::str::volume_label(),
-            slider(level).range(0.0..=100.0).id("gauge-slider"),
-        ),
         grid((grid_row((
             gauge(level).height(H).grow_w(),
             led_meter(level).height(H).grow_w(),
             sunrise_meter(level).height(H).grow_w(),
         )),))
         .spacing(12.0),
+        labeled(
+            crate::res::str::gauge_value_label(),
+            slider(level).range(0.0..=100.0).id("gauge-slider"),
+        ),
     ))
     .title(crate::res::str::canvas_gauge())
 }
@@ -310,15 +309,23 @@ fn led_meter(level: Signal<f64>) -> AnyPiece {
     })
     .a11y(move |a| {
         a.role(Role::Meter)
-            .label(crate::res::str::volume_label().format())
+            .label(crate::res::str::gauge_value_label().format())
             .value(format!("{:.0}", level.get_untracked()))
     })
     .id("gauge-led")
 }
 
+/// Blend two colors component-wise, `t` = 0 → `a`, 1 → `b`.
+fn mix(a: Color, b: Color, t: f64) -> Color {
+    let l = |x: f64, y: f64| x + (y - x) * t;
+    Color::rgba(l(a.r, b.r), l(a.g, b.g), l(a.b, b.b), l(a.a, b.a))
+}
+
 /// A sunrise meter: the sun travels a half-circle above the horizon — rising from the left
-/// at 0, zenith at 50, setting to the right at 100 — with rays, a faint path track, and a
-/// ground line. All geometry derives from the laid-out size.
+/// at 0, zenith at 50, setting to the right at 100 — with rays, a faint path track, a
+/// ground line, and a sky gradient whose light follows the sun: night indigo over an amber
+/// glow at dawn, blue over haze at noon, dusk purple over coral at sunset. All geometry
+/// derives from the laid-out size.
 fn sunrise_meter(level: Signal<f64>) -> AnyPiece {
     canvas(move |d, size| {
         let frac = (level.get() / 100.0).clamp(0.0, 1.0);
@@ -328,6 +335,29 @@ fn sunrise_meter(level: Signal<f64>) -> AnyPiece {
         if r <= 10.0 {
             return;
         }
+        // Sky first, behind everything: top and horizon colors each lerp dawn → noon →
+        // sunset with the slider.
+        let (top, glow) = if frac < 0.5 {
+            let t = frac * 2.0;
+            (
+                mix(Color::hex(0x232A5C), Color::hex(0x6FBFF2), t),
+                mix(Color::hex(0xFFAC5F), Color::hex(0xEAF6FF), t),
+            )
+        } else {
+            let t = frac * 2.0 - 1.0;
+            (
+                mix(Color::hex(0x6FBFF2), Color::hex(0x46265E), t),
+                mix(Color::hex(0xEAF6FF), Color::hex(0xFF6B52), t),
+            )
+        };
+        d.fill(
+            Shape::Rect(Rect::new(8.0, 8.0, size.width - 16.0, horizon_y - 8.0)),
+            LinearGradient::new(
+                UnitPoint::TOP,
+                UnitPoint::BOTTOM,
+                vec![(0.0, top), (1.0, glow)],
+            ),
+        );
         let track = Color::rgba(0.5, 0.5, 0.55, 0.3);
         // The sun's path, then the ground.
         d.stroke(
@@ -372,14 +402,19 @@ fn sunrise_meter(level: Signal<f64>) -> AnyPiece {
                 2.5,
             );
         }
+        // The sun itself warms from deep amber at the horizons to a pale noon glare.
         d.fill(
             Shape::Ellipse(Rect::new(sx - sun_r, sy - sun_r, sun_r * 2.0, sun_r * 2.0)),
-            AMBER,
+            mix(
+                Color::hex(0xFF9E3B),
+                Color::hex(0xFFEDAD),
+                (std::f64::consts::PI * frac).sin(),
+            ),
         );
     })
     .a11y(move |a| {
         a.role(Role::Meter)
-            .label(crate::res::str::volume_label().format())
+            .label(crate::res::str::gauge_value_label().format())
             .value(format!("{:.0}", level.get_untracked()))
     })
     .id("gauge-sunrise")

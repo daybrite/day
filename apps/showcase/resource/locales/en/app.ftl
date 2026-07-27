@@ -313,6 +313,7 @@ controls_basics = Basics
 controls_feedback = Feedback
 canvas_caption = Shapes, transforms, gestures, and composition-tier widgets — all drawn through the canvas.
 canvas_gauge = Canvas gauge
+gauge_value_label = Value
 system_caption = The headless device-state parts: battery, connectivity, motion sensors, and device identity.
 services_caption = The headless "do something with the OS" parts: HTTP, clipboard, preferences, haptics, and file pickers.
 subscribe_label = Subscribe

@@ -782,6 +782,11 @@ mod imp {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                // Before launch has published the root, its own frame computation owns this
+                // (it runs once the window is key) — nothing to re-pin yet.
+                let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
+                    return;
+                };
                 let bounds = self.bounds();
                 let insets = self.safeAreaInsets();
                 let inner = CGRect::new(
@@ -792,21 +797,19 @@ mod imp {
                     ),
                 );
                 let base = ROOT_BASE_FRAME.with(|f| f.get());
-                let same = inner.origin.x == base.origin.x
+                if inner.origin.x == base.origin.x
                     && inner.origin.y == base.origin.y
                     && inner.size.width == base.size.width
-                    && inner.size.height == base.size.height;
-                if same {
+                    && inner.size.height == base.size.height
+                {
                     return;
                 }
                 ROOT_BASE_FRAME.with(|f| f.set(inner));
-                if let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) {
-                    unsafe { root.setFrame(inner) };
-                    emit(
-                        WINDOW_NODE,
-                        Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
-                    );
-                }
+                unsafe { root.setFrame(inner) };
+                emit(
+                    WINDOW_NODE,
+                    Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
+                );
             }
         }
     );

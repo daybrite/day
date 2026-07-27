@@ -313,6 +313,7 @@ controls_basics = Essentiels
 controls_feedback = Retour visuel
 canvas_caption = Formes, transformations, gestes et widgets composés — tous dessinés via le canevas.
 canvas_gauge = Jauge canevas
+gauge_value_label = Valeur
 system_caption = Les modules d'état de l'appareil : batterie, connectivité, capteurs et identité.
 services_caption = Les modules « agir avec l'OS » : HTTP, presse-papiers, préférences, haptique et fichiers.
 subscribe_label = S'abonner

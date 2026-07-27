@@ -72,7 +72,7 @@ pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
     // a11y is a follow-up).
     .a11y(move |a| {
         a.role(Role::Meter)
-            .label(crate::res::str::volume_label().format())
+            .label(crate::res::str::gauge_value_label().format())
             .value(format!("{:.0}", value.get_untracked()))
     })
     .id("gauge")
