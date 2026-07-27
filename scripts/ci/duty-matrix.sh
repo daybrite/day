@@ -35,6 +35,7 @@ backends = [
     ("winui", "toolkits/day-winui/src/lib.rs"),
     ("android", "toolkits/day-android/src/lib.rs"),
     ("arkui", "toolkits/day-arkui/src/lib.rs"),
+    ("dom", "toolkits/day-dom/src/lib.rs"),
     ("mock", "crates/day-mock/src/lib.rs"),
 ]
 sources = {name: Path(path).read_text() for name, path in backends}

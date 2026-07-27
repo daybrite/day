@@ -17,6 +17,10 @@
 //! artifact means the session vanished without any handler firing (an OS kill / battery pull); that
 //! is reported as an *unknown* end, never a crash.
 
+// On wasm32 the capture machinery is never armed (`Config::init` is a graceful no-op there), so
+// only the report queries and `SessionEnd` stay reachable — the rest is intentionally uncalled.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 use std::path::{Path, PathBuf};
 
 use crate::report::{Fields, Kind, Report, SignalInfo, parse_kv};

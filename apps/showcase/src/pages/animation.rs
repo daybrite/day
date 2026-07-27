@@ -286,11 +286,20 @@ fn rand_range(lo: f64, hi: f64) -> f64 {
     let x = SEED.with(|s| {
         let mut x = s.get();
         if x == 0 {
-            x = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0x9E37_79B9_7F4A_7C15)
-                | 1;
+            // Seed from the clock where there is one; wasm has no SystemTime, and a fixed odd
+            // seed is fine — the demo only needs variety within a session, not across runs.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                x = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0x9E37_79B9_7F4A_7C15)
+                    | 1;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                x = 0x9E37_79B9_7F4A_7C15;
+            }
         }
         x ^= x << 13;
         x ^= x >> 7;

@@ -12,6 +12,11 @@ pub(crate) fn controls_page() -> AnyPiece {
     // The counter signal is shared: Basics owns the buttons, the History section derives its
     // keyed collection from the same signal (watch + monotonic keys, §5.4 / A.1).
     let count = Signal::new(0i64);
+    // On the web a reload is part of normal life, so this page's state survives it via
+    // day-part-prefs (localStorage — docs/web.md). Native launches start fresh on purpose:
+    // a demo app resetting per run is expected there, and the CI walkthrough asserts it.
+    #[cfg(target_arch = "wasm32")]
+    day_part_prefs::bind("controls.count", count);
     page(
         crate::res::str::nav_controls(),
         "controls-title",
@@ -31,6 +36,13 @@ fn basics_section(count: Signal<i64>) -> impl Piece {
     let name = Signal::new(String::new());
     let volume = Signal::new(40.0f64);
     let subscribed = Signal::new(false);
+    // Reload-persistent on the web, like the counter above.
+    #[cfg(target_arch = "wasm32")]
+    {
+        day_part_prefs::bind("controls.name", name);
+        day_part_prefs::bind("controls.volume", volume);
+        day_part_prefs::bind("controls.subscribed", subscribed);
+    }
     section((
         // — state: counter —
         row((

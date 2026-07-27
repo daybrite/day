@@ -46,6 +46,10 @@ thread_local! {
     static NAV_STACK: RefCell<Vec<(NavToken, Rc<NavController>)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
+    /// A launch deep link recorded by the platform entry before `launch_with` runs — the seam
+    /// for hosts with no process environment (web-dom seeds it from the page's URL hash). The
+    /// `DAY_DEEPLINK` environment variable, where one exists, still wins.
+    static LAUNCH_DEEPLINK: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Query params of the most recent `navigate()` (empty between navigations). Destination
     /// builders read them via [`route_params`] while their route is being entered.
     static PARAMS: RefCell<Rc<Vec<(String, String)>>> = RefCell::new(Rc::new(Vec::new()));
@@ -203,6 +207,23 @@ pub fn route_param(name: &str) -> Option<String> {
         .iter()
         .find(|(k, _)| k == name)
         .map(|(_, v)| v.clone())
+}
+
+/// Record the host's launch deep link before `launch_with` runs (docs/navigation.md).
+/// Platform glue only — apps navigate with [`navigate`]. `DAY_DEEPLINK`, where a process
+/// environment exists, takes precedence.
+pub fn set_launch_deeplink(route: &str) {
+    LAUNCH_DEEPLINK.with(|l| *l.borrow_mut() = Some(route.to_string()));
+}
+
+/// The launch deep link: the `DAY_DEEPLINK` environment variable, else the platform's
+/// [`set_launch_deeplink`] hint. Consumed by `launch_with` after the first mount.
+pub(crate) fn launch_deeplink() -> Option<String> {
+    std::env::var("DAY_DEEPLINK")
+        .ok()
+        .filter(|r| !r.is_empty())
+        .or_else(|| LAUNCH_DEEPLINK.with(|l| l.borrow().clone()))
+        .filter(|r| !r.is_empty())
 }
 
 /// Navigate to a route (docs/navigation.md).

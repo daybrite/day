@@ -205,6 +205,84 @@ pub fn init() {
     std::thread::spawn(move || serve(port, token));
 }
 
+// ---------------------------------------------------------------------------
+// Web transport (docs/web.md): the host page pipes newline-JSON request lines from a
+// WebSocket into [`web_line`], and replies leave through the sender given to [`web_init`]
+// (the day-cli dev server bridges that WebSocket to the same TCP protocol the runner
+// already speaks, so `day drive`/`--script` are unchanged). Everything runs on the one
+// wasm thread: the implicit bounded wait reschedules through the delayed poster instead
+// of sleeping, and there is no `Instant` (it traps on wasm) — attempts are counted.
+// ---------------------------------------------------------------------------
+
+/// Retry cadence of the implicit bounded wait, shared by both transports.
+const RETRY_MS: u32 = 100;
+
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// One reply line out to the page (installed by [`web_init`]).
+    type WebSender = Box<dyn Fn(&str)>;
+
+    thread_local! {
+        /// (token, reply sender) once [`web_init`] ran; requests before/without it are dropped.
+        static WEB: RefCell<Option<(String, WebSender)>> = const { RefCell::new(None) };
+    }
+
+    /// Arm the web transport: `token` authenticates each request (the query-parameter
+    /// spelling of `DAYSCRIPT_TOKEN`), `send` carries one reply line back to the page.
+    pub fn web_init(token: String, send: impl Fn(&str) + 'static) {
+        WEB.with(|w| *w.borrow_mut() = Some((token, Box::new(send))));
+    }
+
+    /// One request line from the page. Executes on the main thread now; a retryable failure
+    /// reschedules itself until the shared step timeout is spent, then the reply goes out
+    /// through the sender. Requests are answered in order because the runner awaits each
+    /// reply before sending the next step.
+    pub fn web_line(line: &str) {
+        let reply = match serde_json::from_str::<Request>(line.trim()) {
+            Ok(req) => {
+                let authed = WEB.with(|w| {
+                    w.borrow()
+                        .as_ref()
+                        .map(|(t, _)| *t == req.token)
+                        .unwrap_or(false)
+                });
+                if authed {
+                    let attempts = (DEFAULT_TIMEOUT_SECS * 1000.0 / RETRY_MS as f64) as u32;
+                    attempt(req.step, attempts);
+                    return;
+                }
+                Reply::fail("bad token", false)
+            }
+            Err(e) => Reply::fail(format!("bad request: {e}"), false),
+        };
+        send_reply(reply);
+    }
+
+    fn attempt(step: Step, attempts_left: u32) {
+        let reply = exec(step.clone());
+        if reply.ok || !reply.retryable || attempts_left == 0 {
+            send_reply(reply);
+            return;
+        }
+        day_reactive::on_main_delayed(RETRY_MS, move || attempt(step, attempts_left - 1));
+    }
+
+    fn send_reply(reply: Reply) {
+        let mut out = serde_json::to_string(&reply).unwrap_or_else(|_| "{\"ok\":false}".into());
+        out.push('\n');
+        WEB.with(|w| {
+            if let Some((_, send)) = w.borrow().as_ref() {
+                send(&out);
+            }
+        });
+    }
+}
+#[cfg(target_arch = "wasm32")]
+pub use web::{web_init, web_line};
+
 fn serve(port: u16, token: String) {
     // Give the app time to mount before binding traffic arrives.
     std::thread::sleep(Duration::from_millis(300));
@@ -251,7 +329,7 @@ fn run_step_with_wait(step: Step) -> Reply {
         if reply.ok || !reply.retryable || Instant::now() > deadline {
             return reply;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(u64::from(RETRY_MS)));
     }
 }
 

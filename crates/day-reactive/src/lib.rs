@@ -553,6 +553,25 @@ pub fn on_main(f: impl FnOnce() + Send + 'static) {
     }
 }
 
+type DelayedPoster = Box<dyn Fn(u32, Box<dyn FnOnce() + Send>) + Send + Sync>;
+static DELAYED_POSTER: std::sync::OnceLock<DelayedPoster> = std::sync::OnceLock::new();
+
+/// Install the timer door (`Platform::post_delayed`). Backends call this once at startup.
+pub fn install_delayed_poster(
+    post: impl Fn(u32, Box<dyn FnOnce() + Send>) + Send + Sync + 'static,
+) {
+    let _ = DELAYED_POSTER.set(Box::new(post));
+}
+
+/// Schedule `f` on the UI thread after (at least) `ms` milliseconds — the rail behind
+/// `day::sleep` (docs/async.md).
+pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
+    match DELAYED_POSTER.get() {
+        Some(post) => post(ms, Box::new(f)),
+        None => panic!("day-reactive: no delayed poster installed (backend not started)"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Scope
 // ---------------------------------------------------------------------------

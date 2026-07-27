@@ -8,40 +8,41 @@ backend defines the method; `·` = it inherits the day-spec default (a no-op or 
 answer — day-spec documents each). Required duties have no default; every backend must
 implement them, and this table proves it.
 
-| duty | req | appkit | uikit | gtk | qt | winui | android | arkui | mock |
-|---|---|---|---|---|---|---|---|---|---|
-| `capability` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `realize` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `update` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `release` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `insert` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `remove` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `move_child` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `measure` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
-| `set_transform` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ |
-| `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `scroll_to` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `scroll_offset` | · | · | · | · | · | ✓ | · | · | ✓ |
-| `set_event_sink` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `enable_gesture` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | · | ✓ |
-| `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | ✓ |
-| `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ |
-| `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
-| `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | ✓ |
-| `dark_mode` | · | · | ✓ | · | · | · | ✓ | ✓ | · |
-| `on_suspend` | · | · | · | · | · | · | · | · | ✓ |
-| `on_resume` | · | · | · | · | · | · | · | · | ✓ |
-| `on_memory_warning` | · | · | · | · | · | · | · | · | ✓ |
-| `adopt` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| duty | req | appkit | uikit | gtk | qt | winui | android | arkui | dom | mock |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `capability` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `realize` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `update` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `release` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `insert` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `remove` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `move_child` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `measure` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | ✓ |
+| `set_transform` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | ✓ |
+| `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `scroll_to` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `scroll_offset` | · | · | · | · | · | ✓ | · | · | ✓ | ✓ |
+| `set_event_sink` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `enable_gesture` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `set_route` | · | · | · | · | · | · | · | · | ✓ | · |
+| `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | · | ✓ | ✓ |
+| `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |
+| `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
+| `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
+| `dark_mode` | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | · |
+| `on_suspend` | · | · | · | · | · | · | · | · | · | ✓ |
+| `on_resume` | · | · | · | · | · | · | · | · | · | ✓ |
+| `on_memory_warning` | · | · | · | · | · | · | · | · | · | ✓ |
+| `adopt` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

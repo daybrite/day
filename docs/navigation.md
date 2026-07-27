@@ -95,7 +95,13 @@ state instead.
   `navigate(&saved)` after the first mount on the way back. dayscript's `assert_route` compares
   against the same full path.
 - Startup deep links (`DAY_DEEPLINK`) and Android warm links (`Custom("deeplink")`) route the
-  same way.
+  same way. On hosts with no process environment the platform entry records the launch route
+  with `day_core::set_launch_deeplink` instead — web-dom seeds it from the page's URL hash
+  (docs/web.md), so `…/#controls` opens on that section.
+- The URL stays live both ways on web-dom: day-core reports every route change to the backend
+  (`Toolkit::set_route` — the hash updates as you navigate, one history entry per step), and a
+  hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
+  `Event::RouteRequested` and navigates. Other backends inherit the no-op default.
 
 Because each surface owns its own signal, nesting needs no extra machinery: a `selector(Tabs)` or
 a `stack` inside a `selector(Sidebar)` section just works. There is no global navigation controller

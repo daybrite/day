@@ -21,6 +21,9 @@ use std::time::Instant;
 
 use day_reactive::Signal;
 
+// The panic hook records pending artifacts through the store — capture machinery that is never
+// armed on wasm32 (`Config::init` is a graceful no-op there).
+#[cfg(not(target_arch = "wasm32"))]
 mod hook;
 mod report;
 mod store;
@@ -92,6 +95,8 @@ impl std::error::Error for InitError {}
 type Redactor = Box<dyn Fn(&mut String) + Send + Sync>;
 
 /// Crash-reporting configuration. Build with [`Config::new`], then [`Config::init`].
+// On wasm32 `init` arms nothing, so the builder's fields are set but never read there.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub struct Config {
     app_id: Option<String>,
     app_version: Option<String>,
@@ -183,7 +188,27 @@ impl Config {
     /// Arm crash capture: resolve identity + directory, reconcile the previous session(s), write
     /// this session's sentinel, and install the panic hook (+ signal handlers, + the Android
     /// uncaught-exception handler). Idempotent-safe: a second call returns [`InitError::AlreadyInitialized`].
+    /// On wasm32 this is a graceful no-op — nothing is armed and every query reports the empty state.
     pub fn init(self) -> Result<(), InitError> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            // No crash capture on the web target: there are no signals or pids, and std's
+            // fs/temp-dir surfaces are unsupported there. Arm nothing — every query then reports
+            // the empty state — but keep the single-shot contract so call sites behave the same.
+            let _ = self;
+            static ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if ARMED.swap(true, Ordering::SeqCst) {
+                return Err(InitError::AlreadyInitialized);
+            }
+            Ok(())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.init_native()
+    }
+
+    /// The native arm path — everything [`Config::init`]'s doc describes.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn init_native(self) -> Result<(), InitError> {
         if STATE.get().is_some() {
             return Err(InitError::AlreadyInitialized);
         }
@@ -479,6 +504,8 @@ pub fn on_crash(f: fn(&CrashInfo)) {
 
 // ---- internal state ------------------------------------------------------------------------
 
+// On wasm32 `init` never constructs a `State`, so the capture-side fields go unread there.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 struct State {
     dir: PathBuf,
     sid: String,
@@ -490,6 +517,8 @@ struct State {
     last_session: SessionEnd,
 }
 
+// These accessors serve the panic hook, which is not compiled on wasm32.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 impl State {
     fn uptime_ms(&self) -> u64 {
         self.start.elapsed().as_millis() as u64
@@ -509,6 +538,9 @@ impl State {
 
 static STATE: OnceLock<State> = OnceLock::new();
 
+/// Read by the panic hook (not compiled on wasm32) and the `ui` feature's consent surface —
+/// without `ui` there is no wasm32 caller, hence the targeted allow.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn state() -> Option<&'static State> {
     STATE.get()
 }
@@ -517,6 +549,7 @@ pub(crate) fn state() -> Option<&'static State> {
 
 /// Resolve a field: explicit override, else the value baked by build.rs, else a runtime env var,
 /// else `"unknown"`.
+#[cfg(not(target_arch = "wasm32"))] // only the native init path resolves identity
 fn resolve(explicit: Option<String>, baked_var: &str, runtime_var: &str) -> String {
     if let Some(v) = explicit {
         return v;
@@ -541,6 +574,7 @@ fn resolve(explicit: Option<String>, baked_var: &str, runtime_var: &str) -> Stri
     "unknown".to_string()
 }
 
+#[cfg(not(target_arch = "wasm32"))] // only the native init path stamps the sentinel
 fn unix_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -550,6 +584,7 @@ fn unix_millis() -> u64 {
 
 /// The current UI locale (the launcher sets `DAY_LOCALE`; default `"en"`). Kept env-based so the
 /// capture core has no dependency on the l10n stack.
+#[cfg(not(target_arch = "wasm32"))] // only the native init path stamps the sentinel
 fn current_locale() -> String {
     std::env::var("DAY_LOCALE")
         .ok()

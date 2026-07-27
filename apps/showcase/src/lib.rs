@@ -26,7 +26,10 @@ thread_local! {
     static LIFECYCLE_LOG: OnceCell<Signal<String>> = const { OnceCell::new() };
 }
 pub(crate) fn lifecycle_log() -> Signal<String> {
-    LIFECYCLE_LOG.with(|c| *c.get_or_init(|| Signal::new("—".into())))
+    // `global`, NOT `new`: the first read can come from inside a page scope (on desktop-split
+    // web the About page is the default detail), and a scope-owned signal would die with that
+    // page — the second About visit would read a disposed signal.
+    LIFECYCLE_LOG.with(|c| *c.get_or_init(|| Signal::global("—".into())))
 }
 
 /// Register app-lifecycle handlers (docs/lifecycle.md). Call this from `main` BEFORE `day::launch`
@@ -325,8 +328,9 @@ fn sidebar_header() -> AnyPiece {
 }
 
 // Mobile / embedded entries (DESIGN.md §17.4): the iOS Runner binds `day_main`, DayBridge binds the
-// `Java_…` natives, and the HarmonyOS ArkTS host binds `day_arkui_start`. Every macro emits nothing
-// off its own target.
+// `Java_…` natives, the HarmonyOS ArkTS host binds `day_arkui_start`, and the web host page binds
+// `day_dom_main`. Every macro emits nothing off its own target.
 day::ios_main!("Day Showcase", root);
 day::android_main!(root);
 day::arkui_main!(root);
+day::web_main!("Day Showcase", root);

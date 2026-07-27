@@ -11,10 +11,15 @@
     all(feature = "winui", feature = "gtk"),
     all(feature = "winui", feature = "qt"),
     all(feature = "winui", feature = "mock"),
+    all(feature = "dom", feature = "appkit"),
+    all(feature = "dom", feature = "gtk"),
+    all(feature = "dom", feature = "qt"),
+    all(feature = "dom", feature = "winui"),
+    all(feature = "dom", feature = "mock"),
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, task};
+pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, sleep, task};
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
 /// loading — namespaced because the prelude's `Resource` is the ASSET handle above, a different
@@ -41,7 +46,8 @@ pub use day_pieces::routes;
 pub use day_spec::{Lifecycle, WindowOptions};
 
 /// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,
-/// `"UIKit"`, `"Android"`, `"WinUI"` (or `"Mock"`). Handy for a window title that names its backend.
+/// `"UIKit"`, `"Android"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
+/// title that names its backend.
 pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "appkit")]
     {
@@ -70,6 +76,10 @@ pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "arkui")]
     {
         return "ArkUI";
+    }
+    #[cfg(feature = "dom")]
+    {
+        return "DOM";
     }
     #[allow(unreachable_code)]
     {
@@ -186,6 +196,13 @@ pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static)
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
     day_core::launch_with(day_winui::WinUi::new(), options, root);
+}
+
+#[cfg(all(feature = "dom", target_arch = "wasm32"))]
+pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+    // No day_script::init(): dayscript's TCP transport has no wasm equivalent yet
+    // (a WebSocket transport is planned; see docs/web.md).
+    day_core::launch_with(day_dom::Dom::new(), options, root);
 }
 
 #[cfg(feature = "mock")]
@@ -401,6 +418,65 @@ macro_rules! arkui_main {
             $crate::arkui::start(content, w, h, density, $root);
         }
     };
+}
+
+/// Expands to the `day_dom_main` C export the web host's `shim.js` calls once the wasm module
+/// is instantiated (`wasm.day_dom_main()` at the end of `start()` in `host/shim.js`).
+///
+/// ```ignore
+/// day::web_main!(root);              // or: day::web_main!("My App", root);
+/// ```
+#[macro_export]
+macro_rules! web_main {
+    ($root:expr) => {
+        $crate::web_main!("", $root);
+    };
+    ($title:expr, $root:expr) => {
+        /// Web entry: the host page's shim calls this from the app cdylib (§17.4).
+        #[cfg(target_arch = "wasm32")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn day_dom_main() {
+            $crate::web::start($title, $root);
+        }
+    };
+}
+
+/// Web glue (§17.4): the app cdylib's `day_dom_main` export forwards here.
+#[cfg(all(feature = "dom", target_arch = "wasm32"))]
+pub mod web {
+    /// One dayscript request line from the page's WebSocket (docs/web.md). Lives here — not in
+    /// day-dom — because backends depend only on day-spec; the umbrella is where the backend
+    /// and the engine meet.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_dom_script_line(ptr: *mut u8, len: usize) {
+        let line = day_dom::take_alloc_string(ptr, len);
+        day_script::web_line(&line);
+    }
+
+    /// Install the panic hook (panics report through the browser console before the trap),
+    /// hand the page's locale (`?locale=` else the browser languages) to the localization
+    /// engine and its URL hash to the deep-link seam, arm the dayscript web transport when
+    /// the serving `day launch` session invites it (`?dayscript=` token), and launch `root`
+    /// into the host page's day root.
+    pub fn start(title: &str, root: impl FnOnce() -> crate::AnyPiece + 'static) {
+        day_dom::install_panic_hook();
+        if let Some(locale) = day_dom::launch_locale() {
+            day_fluent::set_launch_locale(&locale);
+        }
+        if let Some(route) = day_dom::launch_route() {
+            day_core::set_launch_deeplink(&route);
+        }
+        if let Some(token) = day_dom::dayscript_token() {
+            day_script::web_init(token, |line| day_dom::script_send(line));
+        }
+        crate::launch(
+            crate::WindowOptions {
+                title: title.into(),
+                ..Default::default()
+            },
+            root,
+        );
+    }
 }
 
 /// HarmonyOS ArkUI glue (§17.4): the app cdylib's `day_arkui_start` export forwards here.

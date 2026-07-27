@@ -35,3 +35,7 @@ pnpm-debug.log*
 # day API reference: locally-generated rustdoc bundle for previewing /docs/api
 # (`scripts/build-api-docs.sh --out website/public/api`). In CI it lands in dist/api instead.
 /public/api/
+
+# day live web showcase: locally-staged web-dom dist for previewing /showcase/web-dom/
+# (`scripts/website.sh webdom`). In CI it lands in dist/showcase/web-dom instead.
+/public/showcase/

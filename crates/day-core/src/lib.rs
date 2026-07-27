@@ -149,6 +149,15 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
     }
 }
 
+/// A runtime route request from the backend (`Event::RouteRequested` — web-dom's URL hash
+/// changing via browser back/forward or a hand-edited hash). Echoes of our own `set_route`
+/// match the current route and are dropped.
+fn handle_route_request(route: &str) {
+    if nav::current_route().as_deref() != Some(route) && !nav::navigate(route) {
+        eprintln!("day: requested route {route:?} did not match");
+    }
+}
+
 /// Launch a Day app on the given platform backend: sets up the reactive scheduler and the
 /// cross-thread poster, mounts the root piece into the window's content container, runs the
 /// initial layout, and installs the turn-end layout callback (§3.3). The backend then owns
@@ -167,6 +176,10 @@ pub fn launch_with<P: Platform>(
     // of surfacing. Contain at this single backend-agnostic boundary and reset the runtime.
     day_reactive::install_main_poster(|f| {
         P::post(Box::new(move || contain_posted_panic(f)));
+    });
+    // The timer door (docs/async.md `day::sleep`): same panic containment as the poster.
+    day_reactive::install_delayed_poster(|ms, f| {
+        P::post_delayed(ms, Box::new(move || contain_posted_panic(f)));
     });
     day_reactive::install_scheduler(|| {
         P::post(Box::new(|| {
@@ -201,16 +214,21 @@ pub fn launch_with<P: Platform>(
             // phases this platform doesn't deliver (docs/lifecycle.md).
             lifecycle::warn_unsupported_registrations();
 
-            // Window resize → relayout.
+            // Window resize → relayout. Route requests (runtime deep links: web-dom's URL
+            // hash changing under the app via browser back/forward or a hand-edited hash) →
+            // navigate, guarded against echo — the request the backend reflects back after
+            // our own `set_route` matches the current route and is dropped here.
             with_tree(|t| {
                 let rn = root;
                 t.on_event(
                     rn,
-                    std::rc::Rc::new(move |ev| {
-                        if let day_spec::Event::WindowResized(size) = ev {
+                    std::rc::Rc::new(move |ev| match ev {
+                        day_spec::Event::WindowResized(size) => {
                             let s = *size;
                             with_tree(|t| t.set_window_size(s));
                         }
+                        day_spec::Event::RouteRequested(route) => handle_route_request(route),
+                        _ => {}
                     }),
                 );
             });
@@ -231,17 +249,31 @@ pub fn launch_with<P: Platform>(
             lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);
 
             // Startup deep link (docs/navigation.md): uniform across platforms — desktop
-            // sets the env directly, mobile shells forward the launch URL/intent into it.
-            // Deferred one turn so the first frame mounts before the destination pushes.
-            if let Ok(route) = std::env::var("DAY_DEEPLINK")
-                && !route.is_empty()
-            {
-                day_reactive::on_main(move || {
-                    if !nav::navigate(&route) {
-                        eprintln!("day: DAY_DEEPLINK {route:?} did not match a route");
+            // sets `DAY_DEEPLINK` directly, mobile shells forward the launch URL/intent into
+            // it, and web-dom (no process environment) records the URL hash via
+            // `set_launch_deeplink`. Deferred one turn so the first frame mounts before the
+            // destination pushes. The turn-end ROUTE SYNC (`Toolkit::set_route` on change —
+            // web-dom mirrors it into the URL hash) installs in the same deferred closure,
+            // AFTER the deep link resolves, so the launch route is never clobbered by a sync
+            // of the pre-navigation state.
+            day_reactive::on_main(move || {
+                if let Some(route) = nav::launch_deeplink()
+                    && !nav::navigate(&route)
+                {
+                    eprintln!("day: launch deep link {route:?} did not match a route");
+                }
+                // First reflection runs eagerly — a launch with no deep link ends no turn.
+                let route = nav::current_route().unwrap_or_default();
+                with_tree(|t| t.set_route(&route));
+                let last = std::cell::RefCell::new(Some(route));
+                day_reactive::on_turn_end(move || {
+                    let route = nav::current_route().unwrap_or_default();
+                    if last.borrow().as_deref() != Some(route.as_str()) {
+                        *last.borrow_mut() = Some(route.clone());
+                        with_tree(|t| t.set_route(&route));
                     }
                 });
-            }
+            });
 
             // Verification hook (headless CI / no-input environments): drive the app through
             // Day's own event path once the native loop starts (delayed past first allocation

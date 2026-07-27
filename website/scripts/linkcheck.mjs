@@ -20,11 +20,14 @@ function htmlFiles(dir, base = dir) {
   let out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, entry.name);
-    // The generated Rust API reference (dist/api, from `cargo doc`) is not ours to lint — rustdoc
-    // validates its own links, and the bundle is absent in local builds. Skip the whole subtree.
-    if (dir === base && entry.name === 'api') continue;
-    if (entry.isDirectory()) out = out.concat(htmlFiles(p, base));
-    else if (entry.name.endsWith('.html')) out.push(relative(base, p));
+    if (entry.isDirectory()) {
+      // Generated bundles are not ours to lint, and both are absent in local builds: the Rust
+      // API reference (dist/api, from `cargo doc` — rustdoc validates its own links) and the
+      // web-dom showcase build (dist/showcase/web-dom, from `day build -p web-dom`).
+      const rel = relative(base, p);
+      if (rel === 'api' || rel === join('showcase', 'web-dom')) continue;
+      out = out.concat(htmlFiles(p, base));
+    } else if (entry.name.endsWith('.html')) out.push(relative(base, p));
   }
   return out;
 }
@@ -51,9 +54,9 @@ const result = await checker.check({
   path: paths,
   serverRoot: DIST,
   recurse: true,
-  // Skip external links (flaky, not ours) and any link INTO the generated /api/ rustdoc bundle
-  // (validated by `cargo doc`; absent in local builds).
-  linksToSkip: ['^https?://(?!localhost)', '://[^/]+/api/'],
+  // Skip external links (flaky, not ours) and any link INTO a generated bundle — the /api/
+  // rustdoc reference and the /showcase/web-dom/ live build (both absent in local builds).
+  linksToSkip: ['^https?://(?!localhost)', '://[^/]+/api/', '://[^/]+/showcase/web-dom/'],
 });
 
 if (broken.length === 0) {

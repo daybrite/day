@@ -71,7 +71,11 @@ impl Method {
 /// A request under construction. Build with [`Request::get`] (and friends), then [`fetch`].
 #[derive(Clone, Debug)]
 pub struct Request {
+    // On the Unavailable tier (wasm32) no backend consumes the request, so nothing reads these
+    // two; every real backend does.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) method: Method,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) url: String,
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) body: Option<Vec<u8>>,
@@ -271,7 +275,12 @@ pub fn fetch_async(
         // delegate queue — no extra thread.
         imp::fetch_async(req, Box::new(on_done));
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(target_arch = "wasm32")]
+    {
+        // wasm32 has no threads; the Unavailable tier answers immediately, so complete inline.
+        on_done(imp::fetch(&req));
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_arch = "wasm32")))]
     {
         std::thread::spawn(move || on_done(imp::fetch(&req)));
     }
@@ -415,7 +424,19 @@ fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn
         });
         Some(Box::new(move || imp::cancel(token)))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+    #[cfg(target_arch = "wasm32")]
+    {
+        // wasm32 has no threads; the Unavailable tier answers immediately, so deliver the error
+        // inline (there is nothing in flight to cancel).
+        deliver_future(&shared, imp::fetch(&req));
+        None
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_arch = "wasm32"
+    )))]
     {
         // Windows / fallback / unavailable: blocking half on a worker thread; a drop before
         // the request started is a free discard, a drop mid-flight lets the request run out
@@ -437,6 +458,12 @@ pub fn fetch_to_file_async(
     dest: PathBuf,
     on_done: impl FnOnce(Result<Download, HttpError>) + Send + 'static,
 ) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // wasm32 has no threads; the Unavailable tier answers immediately, so complete inline.
+        on_done(fetch_to_file(&req, &dest));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(move || on_done(fetch_to_file(&req, &dest)));
 }
 
@@ -487,7 +514,7 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
-// Any other platform: no HTTP capability.
+// Any other platform (including wasm32, until a real Web backend exists): no HTTP capability.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",

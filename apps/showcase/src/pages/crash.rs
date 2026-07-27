@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use day::prelude::*;
 
 use crate::widgets::page;
@@ -112,11 +110,11 @@ pub(crate) fn crash_page() -> AnyPiece {
 }
 
 /// Run `crash` shortly after returning, so the caller (a button handler inside the event pump) can
-/// finish and reply to the driving dayscript step before the process dies. The crash is
-/// process-wide (abort / fault), so a worker thread is a fine place to fire it.
+/// finish and reply to the driving dayscript step before the process dies. A delayed main-loop
+/// task is fine — the crash is process-wide (abort / fault) wherever it fires.
 fn schedule(crash: fn()) {
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
+    day::task(async move {
+        day::sleep(150).await;
         crash();
     });
 }

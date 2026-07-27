@@ -222,29 +222,31 @@ flow:
   - assert_text: { id: haptics-last-played, key: haptics_last_played, args: { style: "Medium" } }
   - tap: { id: haptics-success }
   - assert_text: { id: haptics-last-played, key: haptics_last_played, args: { style: "Success" } }
-  - tap: { id: btn-save-file }
-  - assert_presented: {}
-  - respond: { path: "day-walkthrough.txt" }
-  - assert_text: { id: files-status, text: "saved:day-walkthrough.txt" }
-  - tap: { id: btn-open-file }
-  - assert_presented: {}
-  - respond: { path: "day-walkthrough.txt" }
-  - assert_text: { id: files-status, text: "opened" }
-  - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" } }
+  # skip_on web-dom: a browser sandbox has no native file pickers or filesystem (docs/web.md).
+  - tap: { id: btn-save-file, skip_on: [web-dom] }
+  - assert_presented: { skip_on: [web-dom] }
+  - respond: { path: "day-walkthrough.txt", skip_on: [web-dom] }
+  - assert_text: { id: files-status, text: "saved:day-walkthrough.txt", skip_on: [web-dom] }
+  - tap: { id: btn-open-file, skip_on: [web-dom] }
+  - assert_presented: { skip_on: [web-dom] }
+  - respond: { path: "day-walkthrough.txt", skip_on: [web-dom] }
+  - assert_text: { id: files-status, text: "opened", skip_on: [web-dom] }
+  - assert_text: { id: files-opened-name, key: files_opened, args: { name: "day-walkthrough.txt" }, skip_on: [web-dom] }
   # HTTP fetch (docs/http.md): a one-shot loopback server + day-part-http fetch_async. The
   # status label fills in from a background completion, so assert_text's bounded retry (§14.3)
   # covers the async gap. The body is raw on purpose — identical across locales.
-  - tap: { id: http-fetch }
-  - assert_text: { id: http-status, text: "200 day-http-ok" }
+  # skip_on web-dom: the demo's loopback TCP server cannot exist in a browser (docs/web.md).
+  - tap: { id: http-fetch, skip_on: [web-dom] }
+  - assert_text: { id: http-status, text: "200 day-http-ok", skip_on: [web-dom] }
   # PATCH, await-style (docs/async.md): the loopback server echoes the method into the body,
   # proving the verb crossed the platform engine (the old Android HttpURLConnection gap).
-  - tap: { id: http-patch }
-  - assert_text: { id: http-patch-status, text: "200 day-http-ok:PATCH" }
+  - tap: { id: http-patch, skip_on: [web-dom] }
+  - assert_text: { id: http-patch-status, text: "200 day-http-ok:PATCH", skip_on: [web-dom] }
   # Resource (day::reactive, docs/async.md): the first fetch runs at build; Refetch re-runs it
   # (the attempt counter proves it — a fresh fetch, not a cached readout).
-  - assert_text: { id: http-res-status, text: "ok 1: 200 day-http-ok" }
-  - tap: { id: http-res-refetch }
-  - assert_text: { id: http-res-status, text: "ok 2: 200 day-http-ok" }
+  - assert_text: { id: http-res-status, text: "ok 1: 200 day-http-ok", skip_on: [web-dom] }
+  - tap: { id: http-res-refetch, skip_on: [web-dom] }
+  - assert_text: { id: http-res-status, text: "ok 2: 200 day-http-ok", skip_on: [web-dom] }
   - assert_visible: { id: http-tier }
   # The URL checker (type any http(s) URL → response headers + body size) needs live network,
   # so the walkthrough only checks its presence.
@@ -378,7 +380,8 @@ flow:
   - assert_route: { route: media }
   - assert_visible: { id: media-title }
   - pause: { secs: 5 }
-  - tap: { id: media-pause }
+  # skip_on web-dom: the media piece renders its placeholder (no dom renderer yet).
+  - tap: { id: media-pause, skip_on: [web-dom] }
   - screenshot: media
 
   # Bundled resources (§18.3): an image loaded by name via the native image pipeline +

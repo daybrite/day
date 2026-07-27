@@ -16,7 +16,7 @@ pub struct BuildOutcome {
     pub seconds: f64,
 }
 
-fn cargo_dir(project: &Project, target: &Target, profile: &str) -> PathBuf {
+pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: &str) -> PathBuf {
     project
         .root
         .join("build/day/cargo")
@@ -130,6 +130,7 @@ pub fn build(
         TargetKind::IosSim => crate::mobile::build_ios(project, target, profile, start),
         TargetKind::Android => crate::mobile::build_android(project, target, profile, start),
         TargetKind::HarmonyOs => crate::ohos::build_ohos(project, target, profile, start),
+        TargetKind::Web => crate::web::build_web(project, target, profile, start),
     }
 }
 
@@ -270,6 +271,7 @@ pub fn launch(
         TargetKind::IosSim => crate::mobile::launch_ios(project, outcome, spec),
         TargetKind::Android => crate::mobile::launch_android(project, outcome, spec),
         TargetKind::HarmonyOs => crate::ohos::launch_ohos(project, outcome, spec),
+        TargetKind::Web => crate::web::launch_web(project, outcome, spec),
     }
 }
 

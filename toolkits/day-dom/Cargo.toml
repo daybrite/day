@@ -1,0 +1,16 @@
+[package]
+name = "day-dom"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# The web backend (DESIGN.md §9): the DOM is the toolkit. Pure Rust over a small JS shim
+# (host/shim.js) that owns the actual DOM calls, keyed by numeric node ids — the same
+# trampoline architecture as day-arkui's NodeAPI shim, with JS in place of C.
+[dependencies]
+day-spec = { workspace = true }
+day-geometry = { workspace = true }

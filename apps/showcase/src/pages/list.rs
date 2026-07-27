@@ -19,8 +19,9 @@ pub(crate) fn list_page() -> AnyPiece {
     // The selected ROW NUMBERS (1-based, matching the row labels), fed from the native list's
     // selection reports; single-selection toolkits contribute one-element sets.
     let selected: Signal<BTreeSet<i64>> = Signal::new(BTreeSet::new());
-    // The one reload path for every begin (pull, toggle, programmatic): off the UI thread,
-    // completion hops back through the Setters (docs/pullrefresh.md).
+    // The one reload path for every begin (pull, toggle, programmatic): a timed task on the
+    // main-loop executor (`day::sleep`, docs/async.md) stands in for the network — the same
+    // code on every platform, including the single-threaded web backend.
     watch(
         move || refreshing.get(),
         move |now, _| {
@@ -28,8 +29,8 @@ pub(crate) fn list_page() -> AnyPiece {
                 let next = count.get_untracked() + 100;
                 let grow = count.setter();
                 let done = refreshing.setter();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(900));
+                day::task(async move {
+                    day::sleep(900).await;
                     grow.set(next);
                     done.set(false);
                 });

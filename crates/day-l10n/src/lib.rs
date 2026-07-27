@@ -94,10 +94,24 @@ fn ensure_state() {
     });
 }
 
+thread_local! {
+    /// A launch-locale override set by the platform entry before `install` runs — the seam for
+    /// hosts with no process environment (web-dom seeds it from the page's `?locale=`). The
+    /// `DAY_LOCALE` environment variable, where one exists, still wins.
+    static LAUNCH_LOCALE: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Record the host's launch locale before [`install`] runs. Platform glue only — apps pick
+/// locales with `set_locale`. No-op once `install` has resolved the initial locale.
+pub fn set_launch_locale(locale: &str) {
+    LAUNCH_LOCALE.with(|l| *l.borrow_mut() = Some(locale.to_string()));
+}
+
 /// Register an app's locales from `.ftl` sources and set the current locale from (1) the `DAY_LOCALE`
-/// launch override, (2) `default`. Call once, before building the root piece. The built-in core
-/// catalog is preserved (and remains the fallback); the app's strings take precedence over it, and
-/// re-registering reuses the existing locale [`Signal`] so bindings created earlier keep working.
+/// launch override, (2) the platform's [`set_launch_locale`] hint, (3) `default`. Call once, before
+/// building the root piece. The built-in core catalog is preserved (and remains the fallback); the
+/// app's strings take precedence over it, and re-registering reuses the existing locale [`Signal`]
+/// so bindings created earlier keep working.
 pub fn install(default: &str, locales: &[(&str, &str)]) {
     ensure_state();
     STATE.with(|s| {
@@ -107,6 +121,7 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         st.default = default.to_string();
         let initial = std::env::var("DAY_LOCALE")
             .ok()
+            .or_else(|| LAUNCH_LOCALE.with(|l| l.borrow().clone()))
             .map(normalize)
             .filter(|l| {
                 // Accept anything that RESOLVES — exactly, sans `-u-…` extension, or by language

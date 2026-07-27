@@ -31,6 +31,59 @@ thread_local! {
 /// `day_core::app_temp_dir()` keeps working for the pieces layer's file-save staging.
 pub use day_spec::present::app_temp_dir;
 
+/// Resolve after (at least) `ms` milliseconds, on the UI thread — the portable delay for
+/// `day::task` flows (docs/async.md). Rides `Platform::post_delayed`, so it works on
+/// single-threaded hosts (web) where `std::thread::sleep` + `Setter` cannot.
+pub fn sleep(ms: u32) -> Sleep {
+    Sleep {
+        ms,
+        scheduled: false,
+        shared: std::sync::Arc::new(SleepShared {
+            done: std::sync::atomic::AtomicBool::new(false),
+            waker: std::sync::Mutex::new(None),
+        }),
+    }
+}
+
+struct SleepShared {
+    done: std::sync::atomic::AtomicBool,
+    waker: std::sync::Mutex<Option<Waker>>,
+}
+
+/// Future returned by [`sleep`].
+pub struct Sleep {
+    ms: u32,
+    scheduled: bool,
+    shared: std::sync::Arc<SleepShared>,
+}
+
+impl Future for Sleep {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        use std::sync::atomic::Ordering;
+        if self.shared.done.load(Ordering::Acquire) {
+            return Poll::Ready(());
+        }
+        if let Ok(mut w) = self.shared.waker.lock() {
+            *w = Some(cx.waker().clone());
+        }
+        if !self.scheduled {
+            self.scheduled = true;
+            let shared = self.shared.clone();
+            day_reactive::on_main_delayed(self.ms, move || {
+                shared.done.store(true, Ordering::Release);
+                if let Ok(mut w) = shared.waker.lock()
+                    && let Some(w) = w.take()
+                {
+                    w.wake();
+                }
+            });
+        }
+        Poll::Pending
+    }
+}
+
 struct PendingEntry {
     shared: Rc<PendingShared>,
     spec: PresentSpec,

@@ -236,6 +236,12 @@ pub enum Event {
     Key(KeyEvent),
     Pointer(PointerEvent),
     WindowResized(Size),
+    /// The platform asks the app to show a route (docs/navigation.md): a runtime deep link —
+    /// on web-dom, the URL hash changing under the app (hand-edited, or browser back/forward).
+    /// Emitted on [`WINDOW_NODE`]; day-core answers with `navigate()` when the route differs
+    /// from the current one. Launch-time deep links use `DAY_DEEPLINK`/`set_launch_deeplink`
+    /// instead — this variant is for changes while the app runs.
+    RouteRequested(String),
     /// A native modal answered request `req` (docs/dialogs.md).
     PresentResult {
         req: u64,
@@ -1599,7 +1605,19 @@ pub mod present {
     /// An app-writable scratch directory: the backend-supplied one, else `std::env::temp_dir()`.
     /// Used by the file-save flow (docs/files.md) to stage bytes before the native save picker.
     pub fn app_temp_dir() -> std::path::PathBuf {
-        APP_TEMP_DIR.with(|d| d.borrow().clone().unwrap_or_else(std::env::temp_dir))
+        APP_TEMP_DIR.with(|d| {
+            d.borrow().clone().unwrap_or_else(|| {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // A browser has no filesystem and std's `temp_dir()` PANICS on wasm. A
+                    // nominal path keeps join/display plumbing alive; actual reads and writes
+                    // fail with ordinary io errors the file flows already surface.
+                    std::path::PathBuf::from("/day-tmp")
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                std::env::temp_dir()
+            })
+        })
     }
 
     impl PresentResult {
@@ -1783,6 +1801,13 @@ pub trait Toolkit: Sized + 'static {
     // data-source; the default no-op means a backend without list support simply renders nothing.
     fn attach_list(&mut self, _host: &Self::Handle, _source: ListSource) {}
 
+    // routes (docs/navigation.md): day-core reports the app's CURRENT route path here whenever
+    // it changes ("" = everything at its root), so a backend with a native notion of location
+    // can mirror it — web-dom writes the URL hash (`#controls`), and browser back/forward or a
+    // hand-edited hash comes back as `Event::RouteRequested`. Default no-op: most toolkits
+    // have nowhere to put a route.
+    fn set_route(&mut self, _route: &str) {}
+
     // menus (§ menus): render `items` with the backend's native menu affordance, firing
     // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard
     // command. Default no-op — a toolkit without a menu bar / context menu simply shows nothing.
@@ -1898,6 +1923,18 @@ pub trait Platform: Toolkit {
     /// Post a closure onto the native main loop. Callable from ANY thread; this is the
     /// single door the reactive scheduler and `Setter` deliveries ride (§3.3).
     fn post(f: Box<dyn FnOnce() + Send>);
+
+    /// Post `f` onto the native main loop after (at least) `ms` milliseconds — the timer
+    /// door behind `day::sleep` (docs/async.md). The default spawns a helper thread that
+    /// sleeps and rides [`Platform::post`] home, which is correct on every threaded
+    /// platform with zero backend code; a single-threaded host (web) overrides it with
+    /// the platform's own timer.
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
+            Self::post(f);
+        });
+    }
 
     /// Request a single main-thread callback aligned to the next display refresh (vsync), carrying
     /// the frame timestamp in seconds. The day-core animation driver re-arms it each tick while

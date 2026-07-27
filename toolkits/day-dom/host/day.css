@@ -1,0 +1,356 @@
+/* day-dom base stylesheet — the web backend's native theme. Class names mirror the two
+   halves of the toolkit (src/lib.rs sets them; shim.js creates them). Layout is owned by
+   day-core: almost everything is absolutely positioned by set_frame, so this file styles
+   surfaces and controls, never placement. */
+
+:root {
+  --day-bg: #ffffff;
+  --day-fg: #1d1d1f;
+  --day-fg-dim: #6e6e73;
+  --day-accent: #0a66ff;
+  --day-accent-fg: #ffffff;
+  --day-control-bg: rgba(120, 120, 128, 0.12);
+  --day-control-border: rgba(60, 60, 67, 0.24);
+  --day-card-bg: rgba(255, 255, 255, 0.72);
+  --day-card-border: rgba(0, 0, 0, 0.08);
+  --day-sidebar-bg: #f3f2f7;
+  --day-bar-bg: rgba(249, 249, 251, 0.88);
+  --day-divider: rgba(60, 60, 67, 0.2);
+  --day-selected-row: rgba(10, 102, 255, 0.14);
+  --day-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+html.dark {
+  --day-bg: #1e1e20;
+  --day-fg: #f5f5f7;
+  --day-fg-dim: #98989d;
+  --day-accent: #3f83ff;
+  --day-accent-fg: #ffffff;
+  --day-control-bg: rgba(120, 120, 128, 0.24);
+  --day-control-border: rgba(140, 140, 147, 0.4);
+  --day-card-bg: rgba(44, 44, 46, 0.72);
+  --day-card-border: rgba(255, 255, 255, 0.1);
+  --day-sidebar-bg: #262628;
+  --day-bar-bg: rgba(36, 36, 38, 0.88);
+  --day-divider: rgba(140, 140, 147, 0.35);
+  --day-selected-row: rgba(63, 131, 255, 0.3);
+  --day-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--day-bg);
+  color: var(--day-fg);
+  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#day-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.day-container, .day-page, .day-cell { box-sizing: border-box; }
+
+.day-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  cursor: default;
+}
+.day-label.placeholder { color: var(--day-fg-dim); }
+
+/* Controls ---------------------------------------------------------------- */
+
+.day-btn {
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--day-fg);
+  background: var(--day-control-bg);
+  border: none;
+  border-radius: 7px;
+  padding: 0 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.12s ease;
+}
+.day-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.day-btn:active:not(:disabled) { filter: brightness(0.92); }
+.day-btn:disabled { opacity: 0.4; cursor: default; }
+.day-btn.prominent { background: var(--day-accent); color: var(--day-accent-fg); }
+.day-btn.bordered {
+  background: transparent;
+  border: 1px solid var(--day-control-border);
+}
+.day-btn.destructive { background: #e63946; color: #fff; }
+
+.day-toggle {
+  display: inline-block;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  cursor: pointer;
+}
+.day-toggle input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.day-toggle .day-toggle-knob {
+  position: absolute;
+  inset: 0;
+  border-radius: 13px;
+  background: var(--day-control-bg);
+  transition: background-color 0.18s ease;
+  pointer-events: none;
+}
+.day-toggle .day-toggle-knob::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s ease;
+}
+.day-toggle input:checked + .day-toggle-knob { background: #34c759; }
+.day-toggle input:checked + .day-toggle-knob::after { transform: translateX(18px); }
+.day-toggle input:disabled + .day-toggle-knob { opacity: 0.4; }
+
+.day-slider { accent-color: var(--day-accent); margin: 0; }
+
+.day-field, .day-area, .day-select {
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--day-fg);
+  background: var(--day-bg);
+  border: 1px solid var(--day-control-border);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+.day-area { padding: 6px 8px; resize: none; }
+.day-field:focus, .day-area:focus, .day-select:focus {
+  outline: 2px solid var(--day-accent);
+  outline-offset: -1px;
+}
+
+.day-progress {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--day-control-bg);
+  accent-color: var(--day-accent);
+}
+.day-progress::-webkit-progress-bar { background: var(--day-control-bg); border-radius: 3px; }
+.day-progress::-webkit-progress-value { background: var(--day-accent); border-radius: 3px; }
+
+.day-spinner {
+  border: 3px solid var(--day-control-bg);
+  border-top-color: var(--day-accent);
+  border-radius: 50%;
+  animation: day-spin 0.8s linear infinite;
+  box-sizing: border-box;
+}
+@keyframes day-spin { to { transform: rotate(360deg); } }
+
+.day-img { object-fit: contain; }
+.day-canvas { display: block; }
+
+.day-divider { background: var(--day-divider); }
+
+.day-card {
+  background: var(--day-card-bg);
+  border: 1px solid var(--day-card-border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Scrolling --------------------------------------------------------------- */
+
+.day-scroll { overflow-x: hidden; overflow-y: auto; }
+.day-scroll.horizontal { overflow-x: auto; overflow-y: hidden; }
+.day-scroll-content { position: relative; }
+
+/* Navigation -------------------------------------------------------------- */
+
+.day-nav { overflow: hidden; }
+.day-nav.split { display: flex; }
+.day-nav.split .day-nav-sidebar {
+  position: relative;
+  width: 240px;
+  flex: none;
+  background: var(--day-sidebar-bg);
+  border-right: 1px solid var(--day-divider);
+  overflow: hidden;
+}
+.day-nav .day-nav-detail { position: relative; flex: 1; overflow: hidden; }
+.day-nav.stack { position: relative; }
+.day-nav.stack .day-nav-detail { position: absolute; inset: 0; }
+.day-nav.stack .day-nav-detail.under-bar { top: 48px; }
+.day-nav-backbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: var(--day-bar-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--day-divider);
+  z-index: 10;
+}
+.day-nav-back {
+  font: 26px/1 -apple-system, sans-serif;
+  color: var(--day-accent);
+  background: none;
+  border: none;
+  padding: 0 10px 4px;
+  cursor: pointer;
+}
+.day-nav-title { font-weight: 600; font-size: 15px; }
+
+/* Pages fill whichever pane they land in; day-core frames their contents. */
+.day-page { position: absolute; inset: 0; overflow: hidden; }
+
+.day-navmenu { overflow-y: auto; padding: 8px; box-sizing: border-box; }
+.day-navmenu-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: default;
+  user-select: none;
+}
+.day-navmenu-row img { width: 18px; height: 18px; object-fit: contain; }
+.day-navmenu-row:hover { background: var(--day-control-bg); }
+.day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
+
+/* Tabs -------------------------------------------------------------------- */
+
+.day-tabs { display: flex; flex-direction: column; }
+.day-tabs-strip {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--day-divider);
+}
+.day-tab {
+  font: inherit;
+  color: var(--day-fg);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.day-tab.selected { background: var(--day-control-bg); font-weight: 600; }
+.day-tabs-pages { position: relative; flex: 1; }
+.day-tabs-pages > .day-page { position: absolute; inset: 0; }
+
+/* Segmented + radio groups ------------------------------------------------ */
+
+.day-segmented {
+  display: flex;
+  background: var(--day-control-bg);
+  border-radius: 8px;
+  padding: 2px;
+  box-sizing: border-box;
+}
+.day-seg {
+  flex: 1;
+  font: inherit;
+  color: var(--day-fg);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.day-seg.selected {
+  background: var(--day-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  font-weight: 600;
+}
+
+.day-radios { display: flex; flex-direction: column; gap: 6px; }
+.day-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  color: var(--day-fg);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+}
+.day-radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--day-control-border);
+  box-sizing: border-box;
+  flex: none;
+}
+.day-radio.selected .day-radio-dot {
+  border: 5px solid var(--day-accent);
+}
+
+/* Lists (emulated, docs/list.md) ------------------------------------------ */
+
+.day-scroll.day-list .day-cell { cursor: default; user-select: none; }
+.day-scroll.day-list .day-cell.selected { background: var(--day-selected-row); }
+.day-scroll.day-list .day-cell:not(.selected):hover { background: var(--day-control-bg); }
+
+/* Dialogs (docs/dialogs.md) ----------------------------------------------- */
+
+.day-dialog {
+  min-width: 280px;
+  max-width: 420px;
+  border: none;
+  border-radius: 12px;
+  padding: 20px;
+  background: var(--day-bg);
+  color: var(--day-fg);
+  box-shadow: var(--day-shadow);
+}
+.day-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+.day-dialog.sheet {
+  margin-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  width: min(420px, 100vw);
+}
+.day-dialog-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.day-dialog-msg { color: var(--day-fg-dim); margin-bottom: 14px; }
+.day-dialog .day-field { width: 100%; height: 28px; margin-bottom: 14px; }
+.day-dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.day-dialog-buttons .day-btn { height: 28px; }
+
+.day-boot-error {
+  margin: 24px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(230, 57, 70, 0.12);
+  border: 1px solid rgba(230, 57, 70, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation-duration: 0.01ms !important; }
+}

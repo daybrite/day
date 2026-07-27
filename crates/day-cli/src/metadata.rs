@@ -14,6 +14,7 @@ fn kind_str(k: TargetKind) -> &'static str {
         TargetKind::IosSim => "iosSim",
         TargetKind::Android => "android",
         TargetKind::HarmonyOs => "harmonyOs",
+        TargetKind::Web => "web",
     }
 }
 

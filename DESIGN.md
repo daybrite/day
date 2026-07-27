@@ -68,6 +68,7 @@ the architecture-level view and the rationale.
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
+| web — the `web-dom` backend (wasm32 + DOM) | docs/web.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | docs/break.md | [§8.5](#85-panics-and-crashes) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
@@ -148,11 +149,14 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak) in CI |
 | `windows-winui` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
 | `ohos-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers (docs/harmonyos.md) |
+| `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server (docs/web.md) |
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
-measurements, so the whole pipeline is unit-testable without a display ([§3.2](#32-crates)). A `web-html`
-(wasm32 + DOM) backend was sketched in the original design and **was never built**; no `day-web`
-crate exists. The sketch is preserved in [§9](#9-the-eight-toolkits-and-the-extra-combinations) as a recorded design.
+measurements, so the whole pipeline is unit-testable without a display ([§3.2](#32-crates)). A ninth,
+**`web-dom`** (`toolkits/day-dom`: wasm32 + the browser DOM as the toolkit), landed 2026-07 as an
+**experimental** target — build/serve via `day build|launch -p web-dom`, subset capabilities;
+docs/web.md is the reference. It descends from the original `web-html` sketch, whose record is
+preserved in [§9](#9-the-eight-toolkits-and-the-extra-combinations).
 
 Because GTK and Qt are themselves portable, the **non-default combinations** `macos-gtk`,
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
@@ -307,7 +311,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-lite` | dynamic miniapps (docs/lite.md): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http |
 | `day-break` | OPTIONAL consent-first crash reporting (docs/break.md, [§8.5](#85-panics-and-crashes)): chained panic hook + POSIX signal handlers + Android UEH, session sentinel, next-launch reconcile into a schema-versioned JSON report, pluggable `Reporter` upload (never automatic) | day-core, day-pieces (`ui`), day-part-http, day-part-deviceinfo |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend | all of the above |
-| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-arkui` (+`day-arkui-sys`) | backend crates | day-spec (NOT day-core) |
+| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-winui` (+`day-winui-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (+ its `host/` JS shim) | backend crates | day-spec (NOT day-core) |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
@@ -1142,6 +1146,11 @@ pub trait Toolkit: Sized + 'static {
     // native recycling lists (§10, docs/list.md)
     fn attach_list(&mut self, host, source: ListSource) {}
 
+    // routes (docs/navigation.md): the current route, mirrored to a backend with a native
+    // notion of location (web-dom: the URL hash); the reverse direction arrives as
+    // Event::RouteRequested
+    fn set_route(&mut self, route: &str) {}
+
     // menus (docs/menus.md)
     fn set_app_menu(&mut self, items: &[MenuItem]) {}
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
@@ -1173,6 +1182,10 @@ pub trait Platform: Toolkit {
     const TOOLKIT: &'static str;   // "appkit"
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Self::Handle, Size)>);
     fn post(f: Box<dyn FnOnce() + Send>);          // the one cross-thread door (§3.3)
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) { … } // timers; default = thread +
+                                                   // sleep + post; single-threaded hosts (web)
+                                                   // override with a native timer. Backs
+                                                   // `day::sleep(ms)` (docs/async.md).
     fn locale_hints(&self) -> Vec<String> { … }    // ORDERED OS preference list (fluent-langneg)
 }
 ```
@@ -1310,11 +1323,12 @@ report, so this policy was specified up front:
 ## §9 The eight toolkits (and the extra combinations)
 
 > [!IMPORTANT]
-> **Status: all eight shipped** (seven native + mock); `day-web` was never built. One material
-> change from the design: the Windows backend hosts **system XAML** (`Windows.UI.Xaml` controls
-> in a `DesktopWindowXamlSource` island inside a Win32 window), not WinUI 3 / Windows App SDK —
-> no runtime bootstrap, no framework-package dependency, and the `windows-winui` target name
-> stayed.
+> **Status: all eight shipped** (seven native + mock), and a ninth — **`day-dom`**, the
+> `web-dom` backend — landed 2026-07 as experimental (docs/web.md; it grew out of the
+> `web-html` sketch recorded below). One material change from the design: the Windows backend
+> hosts **system XAML** (`Windows.UI.Xaml` controls in a `DesktopWindowXamlSource` island
+> inside a Win32 window), not WinUI 3 / Windows App SDK — no runtime bootstrap, no
+> framework-package dependency, and the `windows-winui` target name stayed.
 
 Shared mechanics came from pane's working code; every FFI choice below now runs in this repo:
 
@@ -1327,6 +1341,7 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
 | `day-winui` | C++/WinRT shim (`day-winui-sys`, cppwinrt-staged headers) | XAML `Canvas` in a `DesktopWindowXamlSource` island | shipped; CI-verified build/walkthrough/pack |
 | `day-arkui` | ArkUI **NDK C API** via a C++ shim (`day-arkui-sys`; `aarch64-unknown-linux-ohos`) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day ohos` (docs/harmonyos.md) |
+| `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`host/shim.js`; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental (docs/web.md); `day build\|launch -p web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 
 Per-toolkit notes beyond pane's baseline (the day-new duties):
@@ -1380,13 +1395,18 @@ where the toolkit libraries come from and whether `day pack` can bundle them; bu
 a redistributable macOS/Windows app is real work and is explicitly **post-MVP**, DP-7). The
 `Day.toml` `targets:` list and `day doctor` gate which combinations a project claims.
 
-**web-html sketch (never built):** wasm32 binary; pieces map to semantic elements
-(`<button>`, `<input>`, `<label>`); Day layout emits `position:absolute; transform:translate(…)`
-placements; text measurement via a hidden measurement element or `canvas.measureText` (cached);
-events via `wasm-bindgen` closures; scripting transport is a `WebSocket` ([§14.5](#145-transport-and-rendezvous)). The open
-question — whether absolute placement forfeits too much of the browser (text selection across
-elements, native scrolling) — is recorded as DP-8 with a proposed hybrid (Day layout, but `scroll`
-maps to overflow scrolling).
+**web-html sketch → `web-dom`, shipped experimental (2026-07):** the sketch read: wasm32 binary;
+pieces map to semantic elements (`<button>`, `<input>`, `<label>`); Day layout emits
+`position:absolute` placements; text measurement via a hidden measurement element or
+`canvas.measureText` (cached); events via `wasm-bindgen` closures; scripting transport is a
+`WebSocket` ([§14.5](#145-transport-and-rendezvous)). The open question — whether absolute placement forfeits too much of
+the browser — was recorded as DP-8 with a proposed hybrid (Day layout, but `scroll` maps to
+overflow scrolling). The shipped `day-dom` follows the sketch with two changes: no wasm-bindgen
+(a hand-written ES-module shim owns the DOM, the day-arkui trampoline shape with JS in place of
+C), and DP-8 resolved to exactly the proposed hybrid — absolute placement inside
+`overflow:auto` scroll containers, with nav/tab panes CSS-framed and reporting size back via
+ResizeObserver. The WebSocket dayscript transport is still not wired. docs/web.md is the
+reference.
 
 **ohos-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
 (`ArkUI_NativeNodeAPI_1`) matched day-spec's shape and the backend is now first-class — full
@@ -1813,7 +1833,7 @@ registry (`day stop` tears sessions down).
 | iOS Simulator | localhost TCP (simulator shares host loopback) | handshake file via `simctl` container path |
 | Android emulator/device | abstract UNIX socket `localabstract:dayscript.<app-id>` + `adb forward tcp:0` (adb assigns the host port; no on-device TCP port) | forwarded port + on-device handshake file |
 | iOS device | post-MVP (usbmux tunnel) | — |
-| web | WebSocket (engine in wasm connects *out* to the runner) | runner URL in query params |
+| web | WebSocket — shipped 2026-07 as sketched: the page opens `ws://<dev-server>/dayscript`, the `day launch` server bridges it to the SAME TCP protocol on `DAYSCRIPT_PORT`, so the runner is unchanged (docs/web.md) | token in the page's `?dayscript=` query parameter |
 
 The engine binds `127.0.0.1` only and is **not** a general remote-control surface: the protocol
 allows only the step catalog.
@@ -2497,7 +2517,8 @@ day/                                # THIS repository
   docs/                             # the normative subsystem docs (see the index at the top)
   website/                          # Astro site: curated guides + docs/ symlinked as the
                                     #   internal reference (scripts/website.sh builds it)
-  scripts/                          # repo dev/CI helpers (axdump, screenshot validation, …)
+  scripts/                          # CI + release helpers (screenshot validation, duty matrix,
+                                    #   installer packaging, API-docs build, website.sh)
   .github/workflows/                # ci.yml (build/test/e2e/pack/release), install.yml
 ```
 
@@ -2539,7 +2560,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `day new` scaffold smoke test, the **showcase walkthrough × light/dark/fr** with
    content-validated screenshot uploads, service round-trip scripts (e.g. clipboard), and
    `day pack` — with real Developer ID / notarization / ASC signing on protected runs,
-   degrading loudly to dev signing on fork PRs.
+   degrading loudly to dev signing on fork PRs. A `web-dom` job builds the showcase's wasm
+   dist (`day build -p web-dom --profile release`), uploads it for the website job (published
+   at `/showcase/web-dom/` — the live, statically-hosted web build linked from the gallery),
+   and runs the SAME walkthrough × light/dark × en/fr/ar/zh-CN in headless WebKit
+   (`DAY_WEB_DRIVER` = scripts/ci/webdom-driver.mjs; the dayscript WebSocket bridge, §14.5),
+   uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md).
 4. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
    --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries, and crates.io
    Trusted Publishing (wired; crates not yet published — [§1](#1-glossary-and-naming)).
@@ -2649,7 +2675,7 @@ implementation as noted above.
 | DP-5 | iOS/macOS project generation | checked-in template `.xcodeproj` (flutter-style) vs. xcodegen/tuist dependency | template (no extra toolchain; scaffold-version handshake [§17.3](#173-daytoml) covers evolution); revisit if pbxproj churn hurts |
 | DP-6 | Windows installer | `.msix` primary + `.msi` (WiX) optional vs. msi-only | msix primary, msi optional; note Azure Trusted Signing onboarding constraints (individual/org verification, subscription) affect who can sign — [§16.5](#165-subcommands)'s provider enum keeps alternatives open |
 | DP-7 | bundling GTK/Qt into macOS/Windows apps for `pack` | support post-MVP vs. never (dev-only combos) | post-MVP support for qt (windeployqt/macdeployqt exist; **LGPL-3** obligations enforced by pack, [§16.5](#165-subcommands)); gtk (**LGPL-2.1+**, different obligations) stays dev-only until demand |
-| DP-8 | web-html layout strategy | day-absolute-positioning (as specced) vs. hybrid with browser flow | start absolute + native `scroll`; evaluate hybrid in the experiment |
+| DP-8 | web-html layout strategy | day-absolute-positioning (as specced) vs. hybrid with browser flow | start absolute + native `scroll`; evaluate hybrid in the experiment — *outcome (2026-07): `day-dom` shipped exactly this hybrid ([§9](#9-the-eight-toolkits-and-the-extra-combinations), docs/web.md)* |
 | DP-9 | `list` excluded from MVP | confirm | confirm (spec hooks reserved, [§10](#10-native-list-integration)) |
 | DP-10 | extra subcommands `doctor`/`clean`/`config` | approve / reject | approve (five toolchains make doctor indispensable; config is where doctor's fixes land) |
 | DP-11 | layout engine | own SwiftUI-model engine (as specced, now with measurement cache [§7.4](#74-incremental-relayout-and-the-measurement-cache)) vs. Taffy | own engine (native height-for-width measurement + proposal negotiation don't fit Taffy; hop/pane heritage de-risks it) |
@@ -3004,6 +3030,11 @@ path) on the main thread between flushes — deterministic and toolkit-uniform, 
 `focus` step is the deliberate exception that drives a real toolkit duty. The designed
 actionability preconditions (enabled/occlusion checks, auto-scroll-into-view) are **not
 implemented** — scripts scroll explicitly and the walkthrough is written accordingly.
+
+Any step may carry `skip_on: [<target-or-toolkit>, …]` (2026-07): the RUNNER drops it on the
+named targets before sending, so one script drives every platform while staying honest about
+genuinely absent capabilities (the showcase walkthrough skips its file-picker and
+loopback-HTTP steps on `web-dom` — docs/web.md).
 
 ---
 

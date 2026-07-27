@@ -9,6 +9,10 @@ pub enum TargetKind {
     /// into a NodeContent, packaged into a `.hap` (see apps/day-arkui-demo/platform/ohos). Cross-compiled
     /// with the OpenHarmony NDK (`OHOS_NDK_HOME`); packaged/signed/run via DevEco Studio or hvigor.
     HarmonyOs,
+    /// web-dom (DESIGN.md §9, docs/web.md): a wasm32 cdylib plus the day-dom host page,
+    /// assembled into a servable `dist/`; `day launch` serves it over loopback and opens
+    /// the default browser.
+    Web,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -115,6 +119,14 @@ pub const TARGETS: &[Target] = &[
         host: "any",
         label: "OpenHarmony ArkUI",
         experimental: false,
+    },
+    Target {
+        name: "web-dom",
+        toolkit: "dom",
+        kind: TargetKind::Web,
+        host: "any",
+        label: "Web (DOM)",
+        experimental: true,
     },
 ];
 

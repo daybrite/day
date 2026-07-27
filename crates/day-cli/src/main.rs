@@ -26,6 +26,7 @@ mod targets;
 mod template;
 mod term;
 mod update;
+mod web;
 
 fn main() {
     // Before any thread spawns (the update check): point icu4x's source cache at ~/.day/icu/src.

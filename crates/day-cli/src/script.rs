@@ -160,6 +160,11 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             }
             Err("desktop snapshot returned unsupported".into())
         }
+        TargetKind::Web => {
+            // The engine's in-page snapshot is unsupported (a DOM can't rasterize itself);
+            // the DAY_WEB_DRIVER browser answers instead (docs/web.md).
+            crate::web::driver_screenshot(path)
+        }
         TargetKind::HarmonyOs => {
             // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes in a
             // .png file are wrong) — prefer uitest, fall back to snapshot_display. Then `hdc file recv`.
@@ -385,6 +390,23 @@ pub fn run_scripts(
                 }
                 continue;
             }
+            // `skip_on:` — a per-step target filter: the step is dropped on the named targets
+            // or toolkits (`skip_on: [web-dom]`), so ONE walkthrough stays honest across
+            // platforms with genuinely absent capabilities (docs/agent.md).
+            if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
+                let hit = skips
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|s| s == target.name || s == target.toolkit);
+                if hit {
+                    eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
+                    continue;
+                }
+            }
+            let mut step = step;
+            if let Some(map) = step.as_object_mut() {
+                map.remove("skip_on");
+            }
             let req = serde_json::json!({"token": token, "step": step});
             let mut line = serde_json::to_string(&req).unwrap();
             line.push('\n');
@@ -569,6 +591,9 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                 .args(["shell", "aa", "force-stop", &project.manifest.app.id])
                 .status();
         }
+        // Stop the DAY_WEB_DRIVER browser when one is running; an interactively opened
+        // browser tab is the user's own, and the dev server dies with `day`.
+        TargetKind::Web => crate::web::stop_driver(),
     }
 }
 

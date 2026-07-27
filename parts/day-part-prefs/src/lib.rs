@@ -44,6 +44,33 @@ pub fn contains(key: &str) -> bool {
     imp::contains(key)
 }
 
+/// Two-way-bind a signal to a stored preference: seed the signal from the store now (when a
+/// stored value exists and parses as `T`), then persist every later change. Call it right
+/// after creating the signal, before anything reads it. The write-back lives in the current
+/// reactive scope, so it stops with the page that created the signal.
+///
+/// ```no_run
+/// let count = day_reactive::Signal::new(0i64);
+/// day_part_prefs::bind("controls.count", count);
+/// ```
+pub fn bind<T>(key: &str, signal: day_reactive::Signal<T>)
+where
+    T: std::str::FromStr + ToString + Clone + 'static,
+{
+    if let Some(stored) = get(key)
+        && let Ok(v) = stored.parse::<T>()
+    {
+        signal.set(v);
+    }
+    let key = key.to_string();
+    day_reactive::watch(
+        move || signal.get(),
+        move |v, _| {
+            let _ = set(&key, &v.to_string());
+        },
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Per-OS implementations. Each exposes:
 //   fn set(&str, &str) -> bool
@@ -68,13 +95,19 @@ mod imp;
 #[path = "file.rs"]
 mod imp;
 
+// The web (web-dom, docs/web.md): localStorage through the day-dom shim's imports.
+#[cfg(target_arch = "wasm32")]
+#[path = "web.rs"]
+mod imp;
+
 // Any other platform: no persistent store.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "android",
     target_os = "linux",
-    target_os = "windows"
+    target_os = "windows",
+    target_arch = "wasm32"
 )))]
 mod imp {
     pub fn set(_key: &str, _value: &str) -> bool {

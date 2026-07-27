@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use day::prelude::*;
 use day_piece_pullrefresh::pull_to_refresh;
 
@@ -8,16 +6,16 @@ use crate::widgets::heading;
 /// Pull-to-refresh (day-piece-pullrefresh, an EXTERNAL standalone piece — and the reference
 /// CONTAINER piece): a feed in a plain `scroll()` wrapped with `pull_to_refresh`. The bound
 /// `refreshing: Signal<bool>` is two-way — a pull (native on iOS/Android/HarmonyOS, elastic/
-/// overshoot on AppKit/GTK) or the button sets it true; a `watch` starts the fake reload off the
-/// UI thread and its `Setter`s append rows + end the refresh. The List page wraps its recycling
-/// `list()` the same way.
+/// overshoot on AppKit/GTK) or the button sets it true; a `watch` starts a timed fake reload
+/// (`day::sleep`) whose `Setter`s append rows + end the refresh. The List page wraps its
+/// recycling `list()` the same way.
 pub(crate) fn refresh_page() -> AnyPiece {
     let refreshing = Signal::new(false);
     let items = Signal::new(8i64);
 
     // ONE reload path for every begin — pull gesture, dayscript `toggle:`, or the button: the
     // watch fires whenever `refreshing` turns true (the SwiftUI `refreshable` action, expressed
-    // as Day's signal-watch idiom). The work leaves the UI thread; `Setter`s hop back.
+    // as Day's signal-watch idiom). `day::sleep` stands in for the network (docs/async.md).
     watch(
         move || refreshing.get(),
         move |now, _| {
@@ -25,8 +23,8 @@ pub(crate) fn refresh_page() -> AnyPiece {
                 let next = items.get_untracked() + 4;
                 let grow = items.setter();
                 let done = refreshing.setter();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(900)); // the "network"
+                day::task(async move {
+                    day::sleep(900).await; // the "network"
                     grow.set(next);
                     done.set(false);
                 });

@@ -486,6 +486,10 @@ pub trait TreeOps {
     fn mark_layout_dirty(&mut self);
     fn layout_if_needed(&mut self);
     fn set_window_size(&mut self, s: Size);
+    /// Report the app's current route to the backend (`Toolkit::set_route`) — web-dom mirrors
+    /// it into the URL hash (docs/navigation.md). Called by the turn-end route sync when the
+    /// route actually changed.
+    fn set_route(&mut self, route: &str);
     fn child_count(&self, node: RNode) -> usize;
     fn first_child(&self, node: RNode) -> Option<RNode>;
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
@@ -990,6 +994,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
         self.layout_dirty = false;
         self.layout_now();
+    }
+
+    fn set_route(&mut self, route: &str) {
+        self.toolkit.set_route(route);
     }
 
     fn set_window_size(&mut self, s: Size) {

@@ -22,10 +22,11 @@ day_part_prefs::remove("greeting");                  // delete it
 | `get(key) -> Option<String>` | The stored string, or `None` if absent. A stored `""` is `Some("")`. |
 | `remove(key) -> bool` | Delete the value; `true` only if it existed and was removed. |
 | `contains(key) -> bool` | Whether a value is currently stored under `key`. |
+| `bind(key, signal)` | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
 
 Values persist across launches; that's the point. The crate has no cargo features: platform
-selection is purely `#[cfg(target_os)]`, since persistence depends on the OS, not on which widget
-toolkit is in use. `parts/day-part-prefs/examples/prefs.rs` is a plain `main` that uses it with no
+selection is purely `#[cfg(target_os)]` (plus `#[cfg(target_arch = "wasm32")]` for the web),
+since persistence depends on the OS, not on which widget toolkit is in use. `parts/day-part-prefs/examples/prefs.rs` is a plain `main` that uses it with no
 Day framework at all (run it twice to watch a value survive the process).
 
 This is a small string store for user settings and lightweight app state, not a database. Keep
@@ -41,6 +42,7 @@ values modest; large blobs belong in a file.
 | Linux | file store under `$XDG_CONFIG_HOME/day` (or `~/.config/day`) | std only, shared `file.rs` |
 | Windows | file store under `%APPDATA%\day` | std only, shared `file.rs` |
 | HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
+| Web | `localStorage` (per origin, `day.pref.` namespace) via the day-dom shim | the `web-dom` host page (docs/web.md), `web.rs` |
 
 ## What each platform does
 
@@ -68,6 +70,12 @@ values modest; large blobs belong in a file.
   by treating the store as empty, so a partial write or a hand-edit can never panic a caller. `set`
   returns `false` only when the store file could not be written (e.g. a read-only home). No extra
   dependencies beyond `std`.
+- **Web (web-dom)**: `localStorage`, reached through the day-dom host shim's `day_dom_pref_*`
+  imports under a `day.pref.` key namespace — values survive reloads and browser restarts,
+  scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
+  report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
+  page binds its state through this store, so a reload keeps the counter (docs/web.md). On
+  wasm outside a day-dom host page the imports are unresolved and instantiation fails.
 - **Any other platform**: a no-op store: `set`/`remove`/`contains` return `false`, `get` returns
   `None`.
 
