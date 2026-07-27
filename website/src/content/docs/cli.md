@@ -80,11 +80,16 @@ day launch -p macos-gtk --script dayscript/walkthrough.yaml --locale fr
 # capture VARIANTS of the same walkthrough: `--variant` names the screenshot subdirectory
 # (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
 day launch -p macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
+
+# variant loops share ONE binary (theme and locale are runtime inputs): build once, then
+# `--skip-build` reuses the artifact — on iOS this pays xcodebuild once instead of per variant
+day build -p ios-uikit
+day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 ```
 
-CI runs each showcase walkthrough three times — `light` and `dark` under a forced `DAY_THEME`,
-and `fr` under `--locale fr` — and the [gallery](/gallery) lets you flip every screenshot
-between those variants.
+CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN)
+exactly this way, and the [gallery](/gallery) lets you flip every screenshot between those
+variants.
 
 ## The conventional project
 

@@ -69,6 +69,11 @@ enum Cmd {
         /// of the same script run (e.g. `--variant dark --env DAY_THEME=dark`)
         #[arg(long)]
         variant: Option<String>,
+        /// Reuse the previous build's artifact instead of building (errors if none exists).
+        /// For runs whose variants share one binary — theme and locale are runtime inputs —
+        /// e.g. CI capture loops that pay xcodebuild/hvigor once, then launch per variant.
+        #[arg(long)]
+        skip_build: bool,
     },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
@@ -638,6 +643,7 @@ pub fn run() -> i32 {
             keep_alive,
             scripts,
             variant,
+            skip_build,
         } => with_project(cli.project.as_deref(), |project| {
             let script_mode = !scripts.is_empty();
             let mut spec = ops::LaunchSpec {
@@ -676,7 +682,12 @@ pub fn run() -> i32 {
                         return 2;
                     }
                 };
-                let outcome = match ops::build(project, target, &profile) {
+                let built = if skip_build {
+                    ops::reuse_build(project, target, &profile)
+                } else {
+                    ops::build(project, target, &profile)
+                };
+                let outcome = match built {
                     Ok(o) => o,
                     Err(e) => {
                         eprintln!("error: {e}");

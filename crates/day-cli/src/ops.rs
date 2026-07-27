@@ -47,6 +47,46 @@ pub fn feature_selection(project: &Project, backend: &str) -> String {
     features.join(",")
 }
 
+/// Where [`build`] records the last successful artifact path for a (target, profile) — the
+/// `--skip-build` reuse stamp. One line, the absolute artifact path.
+fn artifact_stamp(project: &Project, target: &Target, profile: &str) -> PathBuf {
+    project
+        .root
+        .join("build/day/artifacts")
+        .join(format!("{}-{profile}.path", target.name))
+}
+
+/// Reuse the previous [`build`]'s artifact instead of building (`day launch --skip-build`):
+/// the artifact is read from the stamp and must still exist. For runs whose variants share one
+/// binary (theme/locale are runtime inputs), this drops the per-invocation build overhead —
+/// CI's iOS walkthrough pays xcodebuild once instead of once per variant.
+pub fn reuse_build(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+) -> Result<BuildOutcome, String> {
+    let stamp = artifact_stamp(project, target, profile);
+    let artifact = std::fs::read_to_string(&stamp)
+        .ok()
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.exists())
+        .ok_or_else(|| {
+            format!(
+                "--skip-build: no reusable {} {profile} artifact — build once without the flag first",
+                target.name
+            )
+        })?;
+    status(
+        "Reusing",
+        &format!("{} → {}", target.name, artifact.display()),
+    );
+    Ok(BuildOutcome {
+        target: target.name,
+        artifact,
+        seconds: 0.0,
+    })
+}
+
 pub fn build(
     project: &Project,
     target: &'static Target,
@@ -69,7 +109,7 @@ pub fn build(
     if let Err(e) = crate::resources::stage(project, target) {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
-    match target.kind {
+    let outcome = match target.kind {
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
@@ -131,7 +171,15 @@ pub fn build(
         TargetKind::Android => crate::mobile::build_android(project, target, profile, start),
         TargetKind::HarmonyOs => crate::ohos::build_ohos(project, target, profile, start),
         TargetKind::Web => crate::web::build_web(project, target, profile, start),
+    }?;
+    // Record the artifact for `--skip-build` reuse ([`reuse_build`]). Best-effort — a failed
+    // stamp write must never fail a successful build.
+    let stamp = artifact_stamp(project, target, profile);
+    if let Some(dir) = stamp.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
+    let _ = std::fs::write(&stamp, outcome.artifact.display().to_string());
+    Ok(outcome)
 }
 
 /// Side-by-side manifest that lets an unpackaged app host `Windows.UI.Xaml` islands (§9).
