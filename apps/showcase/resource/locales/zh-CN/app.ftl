@@ -43,7 +43,6 @@ nav_about = 关于
 shapes_kinds = 种类
 gradients_title = 渐变
 gradient_angle = 角度
-shapes_transform = 变换
 shapes_angle = 角度
 
 picker_shared_caption = 三种样式绑定到同一个选择信号——改动其中一个，其余的会跟着变化。
@@ -309,7 +308,6 @@ controls_basics = 基础
 controls_feedback = 反馈
 canvas_caption = 形状、变换、手势和组合层部件——全部通过画布绘制。
 canvas_gauge = 画布仪表
-shapes_interact_hint = 拖动滑块旋转，点按圆形换色，拖动紫色方块移动它。
 system_caption = 无界面的设备状态部件：电池、网络连接、运动传感器和设备标识。
 services_caption = 无界面的"与操作系统交互"部件：HTTP、剪贴板、偏好设置、触感反馈和文件选择器。
 subscribe_label = 订阅

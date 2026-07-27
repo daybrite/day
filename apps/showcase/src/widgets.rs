@@ -16,14 +16,25 @@ pub(crate) fn battery_line() -> LocalizedText {
     }
 }
 
+/// The arc dial: a 270° track sweep with the value centred — RESPONSIVE, drawing a centred
+/// square dial scaled to whatever size the caller lays it out at (the canvas re-records on
+/// `FrameChanged`). Size it with `.height`/`.grow_w` (or `.frame`) at the call site.
 pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
     canvas(move |d, size| {
-        if size.width <= 0.0 {
+        let side = size.width.min(size.height);
+        if side <= 20.0 {
             return;
         }
-        let r = Rect::from_size(size).inset(8.0);
+        let r = Rect::new(
+            (size.width - side) / 2.0,
+            (size.height - side) / 2.0,
+            side,
+            side,
+        )
+        .inset(8.0);
         let track = Color::rgba(0.5, 0.5, 0.55, 0.35);
         let accent = crate::palette::SKY;
+        let stroke_w = (side * 0.055).clamp(4.0, 9.0);
         d.stroke(
             Shape::Arc {
                 rect: r,
@@ -31,7 +42,7 @@ pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
                 sweep_deg: 270.0,
             },
             track,
-            6.0,
+            stroke_w,
         );
         let frac = (value.get() / 100.0).clamp(0.0, 1.0);
         if frac > 0.0 {
@@ -42,29 +53,29 @@ pub(crate) fn gauge(value: Signal<f64>) -> AnyPiece {
                     sweep_deg: 270.0 * frac,
                 },
                 accent,
-                6.0,
+                stroke_w,
             );
         }
         d.text(
             &format!("{:.0}", value.get()),
             Point::new(size.width / 2.0, size.height / 2.0),
             TextStyle {
-                size: 22.0,
+                size: (side * 0.2).clamp(14.0, 30.0),
                 color: accent,
                 anchor: TextAnchor::Centered,
             },
         );
     })
     // Accessibility (§13): a canvas has no inherent role, so Day applies `Meter` + a spoken value
-    // and label. `.id`/`.a11y` go on the canvas leaf (before `.frame`, a handle-less layout node),
-    // so they reach the native widget. Value is a build-time snapshot (reactive a11y is a follow-up).
+    // and label. `.id`/`.a11y` go on the canvas leaf (before any frame wrapper, a handle-less
+    // layout node), so they reach the native widget. Value is a build-time snapshot (reactive
+    // a11y is a follow-up).
     .a11y(move |a| {
         a.role(Role::Meter)
             .label(crate::res::str::volume_label().format())
             .value(format!("{:.0}", value.get_untracked()))
     })
     .id("gauge")
-    .frame(110.0, 110.0)
 }
 
 pub(crate) fn history(count: Signal<i64>) -> AnyPiece {

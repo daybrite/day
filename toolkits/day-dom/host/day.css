@@ -236,6 +236,20 @@ html, body {
   user-select: none;
 }
 .day-navmenu-row img { width: 18px; height: 18px; object-fit: contain; }
+/* Sidebar icons are template images (shim.js sets the PNG as this element's mask): painted
+   with currentColor, they track the row — dark on light, light on dark, white when selected. */
+.day-navmenu-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  background-color: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
 .day-navmenu-row:hover { background: var(--day-control-bg); }
 .day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
 

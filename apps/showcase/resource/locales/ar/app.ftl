@@ -49,7 +49,6 @@ nav_about = حول
 shapes_kinds = الأنواع
 gradients_title = التدرجات اللونية
 gradient_angle = الزاوية
-shapes_transform = التحويل
 shapes_angle = الزاوية
 
 picker_shared_caption = الأنماط الثلاثة مرتبطة بإشارة اختيار واحدة — غيّر أحدها وسيتبعه الآخران.
@@ -321,7 +320,6 @@ controls_basics = الأساسيات
 controls_feedback = الاستجابة
 canvas_caption = أشكال وتحويلات وإيماءات وقطع الطبقة التركيبية — كلها تُرسم عبر اللوحة.
 canvas_gauge = مقياس اللوحة
-shapes_interact_hint = اسحب المنزلق للتدوير، وانقر الدائرة لتغيير لونها، واسحب المربع البنفسجي لتحريكه.
 system_caption = قطع حالة الجهاز بلا واجهة: البطارية والاتصال ومستشعرات الحركة وهوية الجهاز.
 services_caption = قطع «التعامل مع نظام التشغيل» بلا واجهة: HTTP والحافظة والتفضيلات والاهتزاز اللمسي ومنتقيات الملفات.
 subscribe_label = اشتراك

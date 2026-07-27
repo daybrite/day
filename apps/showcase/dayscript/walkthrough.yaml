@@ -111,13 +111,13 @@ flow:
   - assert_text: { id: focus-bool-state, key: focus_state_off }
   - screenshot: focus
 
-  # Canvas & shapes: shape kinds, live transforms + gestures, the slider-driven gauge, and the
-  # composition-tier widgets. Drive a rotation + a recolor tap so the screenshot shows both.
+  # Canvas & shapes: the 3×3 shape-kind grid (one slider rotates every shape live), the
+  # gradient grid, the slider-driven gauge, and the composition-tier widgets. Drive the shared
+  # rotation so the screenshot shows the grid mid-spin.
   - navigate: { route: canvas }
   - assert_route: { route: canvas }
   - assert_visible: { id: canvas-title }
   - set_value: { id: shapes-angle-slider, value: 45 }
-  - tap: { id: shapes-tap-circle }
   # Accessibility (§13): diff the native AX tree against day's expectations. The gauge is a
   # canvas, so day applies role=Meter + a spoken label/value; the audit reads them back natively
   # (apple targets; gtk/qt report unsupported and skip). A full-tree audit follows.

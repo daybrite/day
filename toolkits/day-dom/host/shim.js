@@ -183,7 +183,14 @@ const env = {
     el.textContent = '';
     spec.items.forEach((item, i) => {
       const row = div('day-navmenu-row');
-      if (item.icon) { const img = document.createElement('img'); img.src = item.icon; img.alt = ''; row.append(img); }
+      if (item.icon) {
+        // Template rendering, the iOS model: the icon is a MASK painted with currentColor,
+        // so it follows the row's text color — light in dark mode, white when selected.
+        const icon = div('day-navmenu-icon');
+        icon.style.maskImage = `url("${item.icon}")`;
+        icon.style.webkitMaskImage = `url("${item.icon}")`;
+        row.append(icon);
+      }
       const t = document.createElement('span'); t.textContent = item.title; row.append(t);
       if (i === spec.selected) row.classList.add('selected');
       row.addEventListener('click', () => wasm.day_dom_event(id, 6, i, 0, 0, 0));

@@ -46,7 +46,6 @@ nav_about = About
 shapes_kinds = Kinds
 gradients_title = Gradients
 gradient_angle = Angle
-shapes_transform = Transform
 shapes_angle = Angle
 
 picker_shared_caption = All three stylings are bound to the same selection signal — change one and the others follow.
@@ -314,7 +313,6 @@ controls_basics = Basics
 controls_feedback = Feedback
 canvas_caption = Shapes, transforms, gestures, and composition-tier widgets — all drawn through the canvas.
 canvas_gauge = Canvas gauge
-shapes_interact_hint = Drag the slider to rotate, tap the circle to recolor, drag the purple square to move it.
 system_caption = The headless device-state parts: battery, connectivity, motion sensors, and device identity.
 services_caption = The headless "do something with the OS" parts: HTTP, clipboard, preferences, haptics, and file pickers.
 subscribe_label = Subscribe

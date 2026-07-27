@@ -46,7 +46,6 @@ nav_about = À propos
 shapes_kinds = Types
 gradients_title = Dégradés
 gradient_angle = Angle
-shapes_transform = Transformation
 shapes_angle = Angle
 
 picker_shared_caption = Les trois styles sont liés au même signal de sélection — modifiez-en un, les autres suivent.
@@ -314,7 +313,6 @@ controls_basics = Essentiels
 controls_feedback = Retour visuel
 canvas_caption = Formes, transformations, gestes et widgets composés — tous dessinés via le canevas.
 canvas_gauge = Jauge canevas
-shapes_interact_hint = Glissez le curseur pour pivoter, touchez le cercle pour recolorer, déplacez le carré violet.
 system_caption = Les modules d'état de l'appareil : batterie, connectivité, capteurs et identité.
 services_caption = Les modules « agir avec l'OS » : HTTP, presse-papiers, préférences, haptique et fichiers.
 subscribe_label = S'abonner
