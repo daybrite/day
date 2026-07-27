@@ -279,8 +279,8 @@ search_clear = 清除
 # --- day-piece-map ---
 nav_map = 地图
 map_caption = 原生 MKMapView——仅限 Apple 平台。点按预设可实时重新定位地图。
-map_sf = 旧金山
-map_nyc = 纽约
+map_boston = 波士顿
+map_paris = 巴黎
 
 # — tweaks page (docs/tweaks.md) —
 nav_tweaks = 微调

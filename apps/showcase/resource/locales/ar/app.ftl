@@ -291,8 +291,8 @@ search_clear = مسح
 # --- day-piece-map ---
 nav_map = الخريطة
 map_caption = ‏MKMapView أصلي — منصات Apple فقط. انقر إعدادًا مسبقًا لإعادة تمركز الخريطة مباشرة.
-map_sf = سان فرانسيسكو
-map_nyc = نيويورك
+map_boston = بوسطن
+map_paris = باريس
 
 # — tweaks page (docs/tweaks.md) —
 nav_tweaks = التوليفات

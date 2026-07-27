@@ -2139,7 +2139,10 @@ target: `.dmg` (macos-appkit: sign `.app` → `hdiutil` → sign dmg → notariz
 AltStore/SideStore or the developer's own signing — without App Store Connect signing config;
 changed 2026-07 from the original zipped-Simulator-`.app` fallback),
 `.apk` + `.aab` (android), **flatpak** (linux-gtk/qt — with generated icons at the freedesktop
-policy sizes), **`.msix` + an NSIS `setup.exe`** (windows), **`.hap`** (ohos via hvigor).
+policy sizes; the Qt WebEngine BaseApp, which a `base:` copies INTO the bundle at ~87 MB, is
+named only when the packed binary's `DT_NEEDED` list actually links WebEngine — 2026-07, it was
+previously added to every Qt bundle), **`.msix` + an NSIS `setup.exe`** (windows), **`.hap`**
+(ohos via hvigor).
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and
 the designed LGPL/licences-stage guard rails remain future work.
 

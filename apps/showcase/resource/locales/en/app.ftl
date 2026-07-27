@@ -284,8 +284,8 @@ search_clear = Clear
 # --- day-piece-map ---
 nav_map = Map
 map_caption = A native MKMapView — Apple platforms only. Tap a preset to recenter the map live.
-map_sf = San Francisco
-map_nyc = New York
+map_boston = Boston
+map_paris = Paris
 
 # — tweaks page (docs/tweaks.md) —
 nav_tweaks = Tweaks

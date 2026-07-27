@@ -36,9 +36,8 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
         ? <p class="gen">Latest run · {generated}</p>
         : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
       <p class="gen">
-        Screenshots not enough? <a href="/showcase/web-dom/">Open the live web build</a> — the
-        same showcase compiled to WebAssembly on the experimental web-dom backend, rendering
-        real DOM controls.
+        Screenshots not enough? <a href={url('showcase')}>Run the Showcase app</a> — installed on
+        your machine, or live in this browser.
       </p>
 
     </div>

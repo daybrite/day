@@ -284,8 +284,8 @@ search_clear = Effacer
 # --- day-piece-map ---
 nav_map = Carte
 map_caption = Une MKMapView native — plateformes Apple uniquement. Touchez un préréglage pour recentrer la carte en direct.
-map_sf = San Francisco
-map_nyc = New York
+map_boston = Boston
+map_paris = Paris
 
 # — page tweaks (docs/tweaks.md) —
 nav_tweaks = Tweaks

@@ -5,7 +5,13 @@
 //! generates the app-id-named exports (.desktop, metainfo.xml, hicolor icons), then
 //! flatpak-builder → repo → `flatpak build-bundle` with --runtime-repo so the runtime resolves
 //! from Flathub at install time. Flathub-ready offline manifests are a later mode.
+//!
+//! One dependency is NOT in a runtime: QtWebEngine. A flatpak `base:` is copied INTO the app at
+//! build time (a `runtime:` is resolved at install), so naming the Qt WebEngine BaseApp adds
+//! ~87 MB of Chromium to the bundle. Day names it only when the packed binary actually links
+//! WebEngine — see [`links_qt_webengine`].
 
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::process::Command;
 
@@ -147,8 +153,22 @@ pub fn pack(
         .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- manifest -------------------------------------------------------------
+    // The WebEngine BaseApp is dead weight for a Qt app that never opens a webview, so ask the
+    // binary. An unreadable/unexpected ELF answers "don't know" — take the base, since a bundle
+    // that is too big still runs and one missing QtWebEngine does not.
+    let webengine = target.toolkit == "qt" && links_qt_webengine(&outcome.artifact).unwrap_or(true);
+    if target.toolkit == "qt" {
+        status(
+            "Packing",
+            if webengine {
+                "linked against QtWebEngine — bundling the Qt WebEngine BaseApp"
+            } else {
+                "no QtWebEngine link — packing without the Qt WebEngine BaseApp"
+            },
+        );
+    }
     let manifest_path = work.join(format!("{id}.yml"));
-    std::fs::write(&manifest_path, manifest_yaml(target, &id, &name))
+    std::fs::write(&manifest_path, manifest_yaml(target, &id, &name, webengine))
         .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- flatpak-builder → repo → bundle ---------------------------------------
@@ -196,7 +216,8 @@ pub fn pack(
 }
 
 /// The generated flatpak-builder manifest: runtime per toolkit, module = dump the staged tree.
-pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str) -> String {
+/// `webengine` adds the Qt WebEngine BaseApp — only for a Qt app that links it (§16.5).
+pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str, webengine: bool) -> String {
     let (runtime, runtime_version) = match target.toolkit {
         "qt" => (
             "org.kde.Platform",
@@ -209,7 +230,7 @@ pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str) -> String {
     };
     let sdk = runtime.replace(".Platform", ".Sdk");
     // Qt apps that link WebEngine need the BaseApp (QtWebEngine is not in org.kde.Platform).
-    let base = if target.toolkit == "qt" {
+    let base = if webengine {
         format!("base: {QT_WEBENGINE_BASEAPP}\nbase-version: '{runtime_version}'\n")
     } else {
         String::new()
@@ -304,6 +325,93 @@ fn stage_project_icons(project: &Project, stage: &Path, id: &str) -> usize {
     staged
 }
 
+/// Does this ELF binary link QtWebEngine? Reads the shared-library names the dynamic linker will
+/// load (`DT_NEEDED`) and looks for a `libQt6WebEngine*` among them — the piece links
+/// `Qt6WebEngineWidgets` directly (pieces/day-piece-webview/build.rs), so the link is recorded
+/// here whenever a webview is actually compiled in.
+///
+/// `None` = "can't tell": not the ELF64 little-endian shape Day packs flatpaks for (x86_64,
+/// aarch64), unreadable, or statically linked. Callers treat that as "assume yes".
+///
+/// Header offsets are the ELF64 spec's; the file is read through a handful of small seeks rather
+/// than slurped, since a release binary with debug info can be hundreds of megabytes.
+fn links_qt_webengine(binary: &Path) -> Option<bool> {
+    const SHT_DYNAMIC: u32 = 6;
+    const DT_NULL: u64 = 0;
+    const DT_NEEDED: u64 = 1;
+    const SHDR_LEN: usize = 64;
+
+    let mut f = std::fs::File::open(binary).ok()?;
+    let mut ehdr = [0u8; 64];
+    f.read_exact(&mut ehdr).ok()?;
+    // \x7fELF, ELFCLASS64, ELFDATA2LSB.
+    if ehdr[..4] != *b"\x7fELF" || ehdr[4] != 2 || ehdr[5] != 1 {
+        return None;
+    }
+    fn u16_at(b: &[u8], o: usize) -> Option<u16> {
+        Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+    }
+    fn u32_at(b: &[u8], o: usize) -> Option<u32> {
+        Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+    }
+    fn u64_at(b: &[u8], o: usize) -> Option<u64> {
+        Some(u64::from_le_bytes(b.get(o..o + 8)?.try_into().ok()?))
+    }
+    let e_shoff = u64_at(&ehdr, 0x28)?;
+    let e_shentsize = u16_at(&ehdr, 0x3a)? as usize;
+    let e_shnum = u16_at(&ehdr, 0x3c)? as usize;
+    if e_shentsize < SHDR_LEN || e_shnum == 0 {
+        return None;
+    }
+
+    // One section header: (type, offset, size, link).
+    let mut read_shdr = |i: usize| -> Option<(u32, u64, u64, u32)> {
+        let at = e_shoff.checked_add((i * e_shentsize) as u64)?;
+        f.seek(SeekFrom::Start(at)).ok()?;
+        let mut sh = [0u8; SHDR_LEN];
+        f.read_exact(&mut sh).ok()?;
+        Some((
+            u32_at(&sh, 4)?,
+            u64_at(&sh, 24)?,
+            u64_at(&sh, 32)?,
+            u32_at(&sh, 40)?,
+        ))
+    };
+    let (dyn_off, dyn_size, strtab_idx) = (0..e_shnum)
+        .filter_map(&mut read_shdr)
+        .find(|(kind, ..)| *kind == SHT_DYNAMIC)
+        .map(|(_, off, size, link)| (off, size, link as usize))?;
+    let (_, str_off, str_size, _) = read_shdr(strtab_idx)?;
+
+    // Walk the dynamic array (16-byte entries: tag, value) collecting DT_NEEDED string offsets.
+    let mut needed = Vec::new();
+    for i in 0..(dyn_size / 16) {
+        f.seek(SeekFrom::Start(dyn_off.checked_add(i * 16)?)).ok()?;
+        let mut ent = [0u8; 16];
+        f.read_exact(&mut ent).ok()?;
+        match u64_at(&ent, 0)? {
+            DT_NULL => break,
+            DT_NEEDED => needed.push(u64_at(&ent, 8)?),
+            _ => {}
+        }
+    }
+    // Each value indexes .dynstr; read the NUL-terminated name there. 256 bytes covers any
+    // soname (a longer one simply won't match the prefix we're looking for).
+    for off in needed {
+        if off >= str_size {
+            continue;
+        }
+        f.seek(SeekFrom::Start(str_off.checked_add(off)?)).ok()?;
+        let mut buf = [0u8; 256];
+        let n = f.read(&mut buf).ok()?;
+        let name = buf[..n].split(|b| *b == 0).next().unwrap_or_default();
+        if name.starts_with(b"libQt6WebEngine") {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
 fn on_path(tool: &str) -> bool {
     std::env::var("PATH").is_ok_and(|p| std::env::split_paths(&p).any(|d| d.join(tool).is_file()))
 }
@@ -323,20 +431,105 @@ mod tests {
 
     #[test]
     fn manifest_runtime_per_toolkit() {
-        let gtk = manifest_yaml(targets::find("linux-gtk").unwrap(), "dev.x.app", "app");
+        let gtk = manifest_yaml(
+            targets::find("linux-gtk").unwrap(),
+            "dev.x.app",
+            "app",
+            false,
+        );
         assert!(gtk.contains("runtime: org.gnome.Platform"));
         assert!(gtk.contains("sdk: org.gnome.Sdk"));
         assert!(!gtk.contains("base:"));
-        let qt = manifest_yaml(targets::find("linux-qt").unwrap(), "dev.x.app", "app");
+        let qt = manifest_yaml(targets::find("linux-qt").unwrap(), "dev.x.app", "app", true);
         assert!(qt.contains("runtime: org.kde.Platform"));
         assert!(qt.contains("base: io.qt.qtwebengine.BaseApp"));
         assert!(qt.contains("command: dev.x.app"));
+        // A Qt app with no WebEngine link keeps the runtime but drops the ~87 MB BaseApp.
+        let lean = manifest_yaml(
+            targets::find("linux-qt").unwrap(),
+            "dev.x.app",
+            "app",
+            false,
+        );
+        assert!(lean.contains("runtime: org.kde.Platform"));
+        assert!(!lean.contains("base:"));
         // Both manifests must be valid YAML and skip the debuginfo split (its eu-strip
         // dependency isn't installed on CI runners).
-        for manifest in [&gtk, &qt] {
+        for manifest in [&gtk, &qt, &lean] {
             let parsed: serde_json::Value = serde_norway::from_str(manifest).unwrap();
             assert_eq!(parsed["build-options"]["no-debuginfo"], true);
             assert_eq!(parsed["build-options"]["strip"], false);
         }
+    }
+
+    /// A minimal ELF64 LE file whose dynamic section lists `names` as DT_NEEDED — enough shape
+    /// for [`links_qt_webengine`], so the probe is testable on every host, not just Linux.
+    fn elf_needing(names: &[&str]) -> Vec<u8> {
+        const STR_OFF: usize = 0x100;
+        const DYN_OFF: usize = 0x400;
+        const SH_OFF: usize = 0x800;
+        let mut dynstr = vec![0u8];
+        let mut dynamic = Vec::new();
+        for n in names {
+            dynamic.extend_from_slice(&1u64.to_le_bytes()); // DT_NEEDED
+            dynamic.extend_from_slice(&(dynstr.len() as u64).to_le_bytes());
+            dynstr.extend_from_slice(n.as_bytes());
+            dynstr.push(0);
+        }
+        dynamic.extend_from_slice(&[0u8; 16]); // DT_NULL
+
+        let mut f = vec![0u8; SH_OFF + 3 * 64];
+        f[..4].copy_from_slice(b"\x7fELF");
+        (f[4], f[5]) = (2, 1); // ELFCLASS64, ELFDATA2LSB
+        f[0x28..0x30].copy_from_slice(&(SH_OFF as u64).to_le_bytes()); // e_shoff
+        f[0x3a..0x3c].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        f[0x3c..0x3e].copy_from_slice(&3u16.to_le_bytes()); // e_shnum
+        f[STR_OFF..STR_OFF + dynstr.len()].copy_from_slice(&dynstr);
+        f[DYN_OFF..DYN_OFF + dynamic.len()].copy_from_slice(&dynamic);
+        // Section headers: [0] null, [1] .dynstr, [2] .dynamic (sh_link → .dynstr).
+        let mut shdr = |i: usize, kind: u32, off: usize, size: usize, link: u32| {
+            let at = SH_OFF + i * 64;
+            f[at + 4..at + 8].copy_from_slice(&kind.to_le_bytes());
+            f[at + 24..at + 32].copy_from_slice(&(off as u64).to_le_bytes());
+            f[at + 32..at + 40].copy_from_slice(&(size as u64).to_le_bytes());
+            f[at + 40..at + 44].copy_from_slice(&link.to_le_bytes());
+        };
+        shdr(1, 3, STR_OFF, dynstr.len(), 0); // SHT_STRTAB
+        shdr(2, 6, DYN_OFF, dynamic.len(), 1); // SHT_DYNAMIC
+        f
+    }
+
+    #[test]
+    fn webengine_probe_reads_dt_needed() {
+        let dir = std::env::temp_dir().join(format!("day-flatpak-elf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |stem: &str, bytes: &[u8]| {
+            let p = dir.join(stem);
+            std::fs::write(&p, bytes).unwrap();
+            p
+        };
+
+        let with = write(
+            "with",
+            &elf_needing(&[
+                "libQt6Widgets.so.6",
+                "libQt6WebEngineWidgets.so.6",
+                "libc.so.6",
+            ]),
+        );
+        assert_eq!(links_qt_webengine(&with), Some(true));
+
+        let without = write(
+            "without",
+            &elf_needing(&["libQt6Widgets.so.6", "libQt6Gui.so.6", "libc.so.6"]),
+        );
+        assert_eq!(links_qt_webengine(&without), Some(false));
+
+        // Not an ELF (e.g. a Mach-O host build): "can't tell" — the caller keeps the BaseApp.
+        let alien = write("alien", b"\xcf\xfa\xed\xfe not an elf at all");
+        assert_eq!(links_qt_webengine(&alien), None);
+        assert_eq!(links_qt_webengine(&dir.join("nonexistent")), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
