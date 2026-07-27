@@ -5,13 +5,68 @@ import HeroCarousel from '../components/HeroCarousel.astro';
 import InstallCommand from '../components/InstallCommand.astro';
 import Logo from '../components/Logo.astro';
 import { url, site } from '../lib/site';
-import { platforms } from '../../gallery.config.mjs';
 
-// Group the eleven CI targets by OS for the "runs on" grid.
-const byOs = platforms.reduce((acc, p) => {
-  (acc[p.os] ??= []).push(p);
-  return acc;
-}, {} as Record<string, typeof platforms>);
+// The eight primary platform-toolkits for the "runs on" grid, in Day's canonical order.
+// Each card wears its platform accent (global.css `--pf-<target>`, iOS-palette light/dark)
+// via data-pf; the blurbs say what the toolkit is and where people actually meet it.
+const targets = [
+  {
+    id: 'macos-appkit',
+    name: 'AppKit',
+    os: 'macOS',
+    blurb:
+      'The Mac’s native toolkit — the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
+  },
+  {
+    id: 'ios-uikit',
+    name: 'UIKit',
+    os: 'iOS & iPadOS',
+    blurb:
+      'Apple’s UI framework for iPhone and iPad: real navigation pushes, tab bars, and system text handling. Ships as a normal .ipa.',
+  },
+  {
+    id: 'android-mdc',
+    name: 'Material Components',
+    os: 'Android',
+    blurb:
+      'Google’s native widgets over android.view, on phones, tablets, and foldables — themed by the OS, packaged as .apk or .aab.',
+  },
+  {
+    id: 'linux-gtk',
+    name: 'GTK 4',
+    os: 'Linux',
+    blurb:
+      'GNOME’s toolkit, styled by libadwaita — the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
+  },
+  {
+    id: 'linux-qt',
+    name: 'Qt 6 Widgets',
+    os: 'Linux',
+    blurb:
+      'The toolkit beneath KDE Plasma — the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
+  },
+  {
+    id: 'windows-winui',
+    name: 'WinUI (system XAML)',
+    os: 'Windows',
+    blurb:
+      'Windows 11’s native controls, hosted in a Win32 window with no framework runtime to install. Packs as .msix plus an installer.',
+  },
+  {
+    id: 'ohos-arkui',
+    name: 'ArkUI',
+    os: 'HarmonyOS',
+    blurb:
+      'HarmonyOS Next’s native UI framework, driven through its C node API on Huawei phones and tablets. Packs as a .hap.',
+  },
+  {
+    id: 'web-dom',
+    name: 'The DOM',
+    os: 'Web',
+    blurb:
+      'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files — open the live build.',
+  },
+];
 
 const heroCode = `use day::prelude::*;
 
@@ -49,7 +104,7 @@ const features = [
   {
     icon: '⬢',
     title: 'One codebase, one team',
-    body: 'Six operating systems from a single Rust program. A feature lands once and ships everywhere at the same time — instead of three implementations drifting apart across three teams and three schedules.',
+    body: 'Six operating systems and the web from a single Rust program. A feature lands once and ships everywhere at the same time — instead of three implementations drifting apart across three teams and three schedules.',
   },
   {
     icon: '✦',
@@ -59,7 +114,7 @@ const features = [
   {
     icon: '◱',
     title: 'Proven on every platform, every change',
-    body: 'Each commit builds a full demo app on all eleven targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
+    body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
   },
   {
     icon: '⌘',
@@ -95,7 +150,7 @@ const compare = [
     <div class="container hero-grid">
       <div class="hero-copy">
         <h1 class="hero-title">
-          <span class="grad-text">Day</span>: create native apps for every platform{' '}
+          <span class="hero-day">Day:</span> create native apps for every platform{' '}
           <span class="sun-text">under the sun</span> from a single Rust codebase
         </h1>
         <p class="lead hero-lead">{site.description}</p>
@@ -117,14 +172,24 @@ const compare = [
   <section class="section runs">
     <div class="container">
       <p class="eyebrow">Runs natively on</p>
-      <div class="os-grid">
-        {Object.entries(byOs).map(([os, list]) => (
-          <div class="os-card">
-            <h3>{os}</h3>
-            <ul>
-              {list.map((p) => <li><span class="tick">◆</span>{p.toolkit}</li>)}
-            </ul>
-          </div>
+      <div class="pf-grid">
+        {targets.map((t) => (
+          <article class="pf-card" data-pf={t.id}>
+            <p class="pf-os">{t.os}</p>
+            <h3 class="pf-name">{t.name}</h3>
+            <code class="pf-id">{t.id}</code>
+            <p class="pf-blurb">
+              {t.id === 'web-dom' ? (
+                <>
+                  The browser’s own widgets: the same Rust compiled to WebAssembly, driving
+                  real <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code> elements.
+                  Hosts as static files — <a href={url('showcase/web-dom/')}>open the live build</a>.
+                </>
+              ) : (
+                t.blurb
+              )}
+            </p>
+          </article>
         ))}
       </div>
     </div>
@@ -153,7 +218,41 @@ const compare = [
       </div>
       <div class="codeshow-code">
         <CodeSample code={heroCode} title="counter.rs" />
-        <p class="codeshow-note">One function — a native counter on all eleven targets.</p>
+        <p class="codeshow-note">One function — a native counter on all twelve targets.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI + CI -->
+  <section class="section ai-ci">
+    <div class="container">
+      <p class="eyebrow">Agents & automation</p>
+      <h2 class="sec-title">Built from the ground up <span class="grad-text">for AI and CI</span>.</h2>
+      <p class="lead">
+        Every Day app embeds <b>dayscript</b> — the same automation engine that drives Day's own
+        release pipeline. A YAML script, an agent over MCP, or your CI taps buttons, types text,
+        asserts what's on screen by stable element ids, and captures screenshots — identically on
+        every platform.
+      </p>
+      <ul class="how-list">
+        <li>
+          <b>Agents that see their work:</b> Claude Code and other MCP clients get the day tools —
+          build, relaunch, drive, screenshot — so an LLM edits your app, drives the running build,
+          and shows you pixels to prove the change landed.
+        </li>
+        <li>
+          <b>Quality assurance that travels:</b> one walkthrough script runs on all twelve
+          targets; run it per theme and locale and the same YAML produces your localized
+          screenshots — the <a href={url('gallery')}>gallery</a> on this site is exactly that.
+        </li>
+        <li>
+          <b>Regressions caught in CI, not in reviews:</b> the walkthrough runs on every push; a
+          failed assertion or a blank capture is a red build before it is ever a user report.
+        </li>
+      </ul>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href={url('docs/day-ai')}>Getting started with DayAI →</a>
+        <a class="btn btn-ghost" href={url('docs/dayscript')}>Testing with dayscript →</a>
       </div>
     </div>
   </section>
@@ -268,6 +367,13 @@ const compare = [
      code block scrolls inside its own box instead of stretching the page. */
   .hero-grid > *, .how-grid > * { min-width: 0; }
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; line-height: 1.08; }
+  /* "Day:" wears the carousel's active platform accent — HeroCarousel sets --hero-accent on
+     the .hero section at every slide change, and transitioning `color` makes the hue glide
+     between platforms instead of jumping. The duration is ~¾ of the carousel's 3400ms
+     interval, so the color is in motion for most of every cycle — a continuous drift through
+     the palette — settling just before the next advance. Before the first slide (or with no
+     carousel manifest) it rests on the brand blue. */
+  .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
   /* "under the sun" in a warm amber gradient — a nod to the Ember Dawn mark. Guarded like
      `.grad-text` (global.css): the gradient clip is applied only where the browser can clip a
      background to the text, so engines that can't fall back to a solid amber instead of a bar. */
@@ -292,12 +398,38 @@ const compare = [
   .codeshow-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
 
   /* RUNS ON */
-  .os-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; margin-top: 8px; }
-  .os-card { border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 18px 20px; background: var(--surface); }
-  .os-card h3 { margin: 0 0 12px; font-size: 1.05rem; }
-  .os-card ul { list-style: none; margin: 0; padding: 0; }
-  .os-card li { color: var(--muted); font-size: 0.92rem; padding: 4px 0; display: flex; align-items: center; gap: 8px; }
-  .tick { color: var(--sun); font-size: 0.7rem; }
+  /* Eight platform cards, one per target, each wearing its accent (data-pf → --pf).
+     Explicit column counts per band: 4-up wide, 2-up narrow, 1-up mobile. */
+  .pf-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 8px; }
+  @media (max-width: 980px) { .pf-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .pf-grid { grid-template-columns: 1fr; } }
+  .pf-card {
+    border: 1px solid var(--border-soft);
+    border-top: 3px solid var(--pf);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    background: var(--surface);
+  }
+  .pf-os {
+    margin: 0 0 2px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--pf) 78%, var(--text));
+  }
+  .pf-name { margin: 0 0 6px; font-size: 1.02rem; }
+  .pf-id {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    padding: 0.1em 0.45em;
+    border-radius: 6px;
+    color: color-mix(in srgb, var(--pf) 78%, var(--text));
+    background: color-mix(in srgb, var(--pf) 13%, transparent);
+  }
+  .pf-blurb { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+  .pf-blurb code { font-size: 0.85em; }
 
   /* section headers */
   .sec-title { font-size: clamp(1.7rem, 3.6vw, 2.4rem); margin: 0 0 14px; }

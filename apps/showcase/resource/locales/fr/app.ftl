@@ -316,7 +316,7 @@ canvas_caption = Formes, transformations, gestes et widgets composés — tous d
 canvas_gauge = Jauge canevas
 shapes_interact_hint = Glissez le curseur pour pivoter, touchez le cercle pour recolorer, déplacez le carré violet.
 system_caption = Les modules d'état de l'appareil : batterie, connectivité, capteurs et identité.
-services_caption = Les modules « agir avec l'OS » : presse-papiers, préférences, haptique, fichiers et HTTP.
+services_caption = Les modules « agir avec l'OS » : HTTP, presse-papiers, préférences, haptique et fichiers.
 subscribe_label = S'abonner
 
 # — data strings localized for the walkthrough locales (option lists, specimen rows) —

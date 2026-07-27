@@ -1,7 +1,7 @@
 # A dayscript smoke test (https://daybrite.dev/docs/dayscript): drives the running app by
 # element id and route, on any target. Run it with:
 #
-#     day launch -p {{first_target}} --script scripts/smoke.yaml
+#     day launch -p {{first_target}} --script dayscript/smoke.yaml
 #
 flow:
   # The nav host mounts immediately on every platform (a section's content only mounts once

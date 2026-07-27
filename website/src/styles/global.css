@@ -25,15 +25,30 @@
   --grad-day: linear-gradient(115deg, #ffc861 0%, #ff8f5e 38%, #6aa4ff 100%);
   --grad-text: linear-gradient(115deg, #ffd07a 0%, #ff9e73 42%, #7fb2ff 100%);
 
-  /* Hero platform accents — a bold, evenly-spread hexad (green·orange·blue·amber·violet·pink), ordered
-     so no two adjacent names share a hue. Bright 400-level shades for the dark background; the light
-     theme swaps to deeper 600/700-level shades below for contrast on white. */
-  --pf-android: #34d399;
-  --pf-ios: #fb923c;
-  --pf-harmony: #38bdf8;
-  --pf-macos: #fbbf24;
-  --pf-windows: #a78bfa;
-  --pf-linux: #f472b6;
+  /* Per-target platform accents, used wherever the site names a platform (landing grid,
+     gallery captions, hero carousel, docs prose). The palette is the iOS system palette
+     (HIG "Color" specifications): DARK variants here, light variants in the light theme
+     below, so both modes get the shade Apple tuned for that background. Assignments lean
+     on each platform's own associations — iOS keeps the system Blue, macOS the Apple-family
+     Indigo, Android the robot's Green, GTK the Linux-Mint Mint, Qt the KDE-Plasma Cyan,
+     Windows the classic-desktop Teal, HarmonyOS the Huawei Red, the web HTML's Orange. */
+  --pf-macos-appkit: #5e5ce6;  /* indigo */
+  --pf-ios-uikit: #0a84ff;     /* blue */
+  --pf-android-mdc: #30d158;   /* green */
+  --pf-linux-gtk: #63e6e2;     /* mint */
+  --pf-linux-qt: #64d2ff;      /* cyan */
+  --pf-windows-winui: #40c8e0; /* teal */
+  --pf-ohos-arkui: #ff453a;    /* red */
+  --pf-web-dom: #ff9f0a;       /* orange */
+
+  /* OS-level aliases (the hero carousel is keyed by OS) resolve to the canonical target. */
+  --pf-macos: var(--pf-macos-appkit);
+  --pf-ios: var(--pf-ios-uikit);
+  --pf-android: var(--pf-android-mdc);
+  --pf-linux: var(--pf-linux-gtk);
+  --pf-windows: var(--pf-windows-winui);
+  --pf-harmony: var(--pf-ohos-arkui);
+  --pf-web: var(--pf-web-dom);
 
   --radius: 14px;
   --radius-lg: 22px;
@@ -72,16 +87,29 @@
   --grad-text: linear-gradient(115deg, #e08a00 0%, #f9703e 42%, #2f6fde 100%);
   --shadow: 0 18px 46px -22px rgba(20, 33, 66, 0.26);
 
-  /* Deeper shades of the hero platform hexad, for contrast on the white background. */
-  --pf-android: #059669;
-  --pf-ios: #ea580c;
-  --pf-harmony: #0284c7;
-  --pf-macos: #b45309;
-  --pf-windows: #7c3aed;
-  --pf-linux: #db2777;
+  /* The iOS palette's LIGHT variants — the shades Apple tuned for white backgrounds. */
+  --pf-macos-appkit: #5856d6;  /* indigo */
+  --pf-ios-uikit: #007aff;     /* blue */
+  --pf-android-mdc: #34c759;   /* green */
+  --pf-linux-gtk: #00c7be;     /* mint */
+  --pf-linux-qt: #32ade6;      /* cyan */
+  --pf-windows-winui: #30b0c7; /* teal */
+  --pf-ohos-arkui: #ff3b30;    /* red */
+  --pf-web-dom: #ff9500;       /* orange */
 
   color-scheme: light;
 }
+
+/* Platform-reference hook: any element carrying data-pf="<target>" gets its accent as
+   `--pf`. The secondary desktop combos take their toolkit family's color. */
+[data-pf='macos-appkit'] { --pf: var(--pf-macos-appkit); }
+[data-pf='ios-uikit'] { --pf: var(--pf-ios-uikit); }
+[data-pf='android-mdc'] { --pf: var(--pf-android-mdc); }
+[data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
+[data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
+[data-pf='windows-winui'] { --pf: var(--pf-windows-winui); }
+[data-pf='ohos-arkui'] { --pf: var(--pf-ohos-arkui); }
+[data-pf='web-dom'] { --pf: var(--pf-web-dom); }
 
 * { box-sizing: border-box; }
 
@@ -212,6 +240,12 @@ pre.code code { color: inherit; background: none; padding: 0; }
   padding: 0.12em 0.4em;
   border-radius: 6px;
   font-size: 0.88em;
+}
+/* Target names in prose (`macos-appkit`, `web-dom`, …) wear their platform accent — the
+   accent-target-code rehype plugin stamps data-pf on matching inline code at build time. */
+:not(pre) > code[data-pf] {
+  color: color-mix(in srgb, var(--pf) 78%, var(--text));
+  background: color-mix(in srgb, var(--pf) 13%, transparent);
 }
 
 /* very light syntax tint (token classes emitted by the CodeSample component) */

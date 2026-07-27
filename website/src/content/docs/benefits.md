@@ -66,7 +66,7 @@ onto other stacks.
    per-toolkit native code, without forking Day. ([how](/docs/extending))
 
 **Tooling built for CI and agents as much as humans.** `day doctor` diagnoses five toolchains
-with fix-it text; `day launch` runs any subset of eleven targets; `day pack`
+with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
 [produces signed installable artifacts](/docs/packaging); everything speaks JSON when asked.
 
 ## What you give up

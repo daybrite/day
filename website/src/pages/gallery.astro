@@ -102,6 +102,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                       data-shot={shot.label}
                       data-os={platform.os}
                       data-tk={platform.label}
+                      data-plat={platform.id}
                     >
                       <div class="frame">
                         {tile.placeholder ? (
@@ -125,7 +126,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                           </>
                         )}
                       </div>
-                      <figcaption>
+                      <figcaption data-pf={platform.id}>
                         <span class="cap-os">{platform.os}</span>
                         <span class="cap-tk">{platform.label}</span>
                       </figcaption>
@@ -306,6 +307,8 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       shotEl.textContent = fig.dataset.shot ?? '';
       osEl.textContent = fig.dataset.os ?? '';
       tkEl.textContent = fig.dataset.tk ?? '';
+      // The platform accent (global.css [data-pf] → --pf) tints the caption's platform line.
+      if (fig.dataset.plat) box.setAttribute('data-pf', fig.dataset.plat);
     }
 
     function open(s: number, r: number, c: number): void {
@@ -488,6 +491,8 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   }
   .cap-os { color: var(--muted); font-weight: 650; }
   .cap-tk { color: var(--faint); font-size: 0.76rem; }
+  /* The toolkit line wears its platform accent (data-pf on the figcaption → --pf). */
+  figcaption[data-pf] .cap-tk { color: color-mix(in srgb, var(--pf) 72%, var(--text)); font-weight: 600; }
 
   /* ---- Full-size lightbox viewer ---- */
   .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
@@ -523,6 +528,8 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .lb-plat { color: var(--muted); font-size: 0.98rem; }
   .lb-plat b { color: var(--text); }
   .lb-plat span { margin-left: 8px; color: var(--faint); }
+  /* Accent the toolkit name by the viewed platform (data-pf set on open/arrow-move). */
+  .lightbox[data-pf] .lb-plat span { color: color-mix(in srgb, var(--pf) 72%, var(--text)); }
 
   .lb-btn {
     position: absolute; z-index: 2; appearance: none; cursor: pointer;

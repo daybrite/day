@@ -323,7 +323,7 @@ canvas_caption = أشكال وتحويلات وإيماءات وقطع الطب�
 canvas_gauge = مقياس اللوحة
 shapes_interact_hint = اسحب المنزلق للتدوير، وانقر الدائرة لتغيير لونها، واسحب المربع البنفسجي لتحريكه.
 system_caption = قطع حالة الجهاز بلا واجهة: البطارية والاتصال ومستشعرات الحركة وهوية الجهاز.
-services_caption = قطع «التعامل مع نظام التشغيل» بلا واجهة: الحافظة والتفضيلات والاهتزاز اللمسي ومنتقيات الملفات وHTTP.
+services_caption = قطع «التعامل مع نظام التشغيل» بلا واجهة: HTTP والحافظة والتفضيلات والاهتزاز اللمسي ومنتقيات الملفات.
 subscribe_label = اشتراك
 
 # — data strings localized for the walkthrough locales (option lists, specimen rows) —

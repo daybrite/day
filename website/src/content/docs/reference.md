@@ -36,6 +36,7 @@ they tend to lead the guides when something changes.
 | [vscode](/docs/internal/vscode) | editor setup |
 | [environment](/docs/internal/environment) | toolchain/SDK discovery env vars (DAY_CPPWINRT, DAY_WINDOWS_KITS_ROOT, …) |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
+| [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |
 
 ## Optional pieces
 

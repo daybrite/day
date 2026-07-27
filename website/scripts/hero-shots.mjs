@@ -51,9 +51,17 @@ const PRIMARY_PLATFORMS = [
   'ios-uikit',
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.
-// The `v2` marker is the manifest format (light + optional dark per shot) — bump it when the
-// output shape changes so stale caches rebuild.
-const PRIMARY_KEY = ['v2', ...PRIMARY_PLATFORMS].join(',');
+// The marker is the manifest format — bump it when the output shape or the caption/accent
+// fields change so stale caches rebuild (v3: desktop-anchored toolkit names + per-target accents).
+const PRIMARY_KEY = ['v3', ...PRIMARY_PLATFORMS].join(',');
+
+// Carousel caption names — shorter than the gallery's toolkit strings, anchored to the desktop
+// each toolkit is known by. Platforms not listed keep their gallery toolkit string.
+const CAROUSEL_TOOLKIT = {
+  'linux-gtk': 'GTK (GNOME)',
+  'linux-qt': 'Qt (KDE)',
+  'windows-winui': 'WinUI',
+};
 
 // Shots tried per platform, richest-looking UI first. The first (up to MAX_PER_PLATFORM) that pass
 // verification are admitted, so a platform missing "home" still contributes via "controls", etc.
@@ -62,15 +70,6 @@ const PREFERRED_SHOTS = [
 ];
 const MAX_PER_PLATFORM = 2;
 
-// OS display name -> the theme-adaptive accent CSS var suffix (--pf-<accent>) defined in global.css.
-const OS_ACCENT = {
-  macOS: 'macos',
-  iOS: 'ios',
-  Android: 'android',
-  Linux: 'linux',
-  Windows: 'windows',
-  HarmonyOS: 'harmony',
-};
 
 /** True when the image decodes and is not blank/solid (real UI has high channel variance). */
 async function isContentful(buf) {
@@ -185,14 +184,17 @@ export async function assembleHeroShots(opts = {}) {
       if (!(await isContentful(buf))) continue;
       const file = `${platform.id}-${shot}.png`;
       writeFileSync(join(outDir, file), await normalise(buf));
+      const toolkit = CAROUSEL_TOOLKIT[platform.id] ?? platform.toolkit;
       const entry = {
         src: `hero/${file}`,
         // The gallery shot id — the carousel links each image to its row anchor (`/gallery#<shot>`).
         shot,
         os: platform.os,
-        toolkit: platform.toolkit,
-        accent: OS_ACCENT[platform.os] ?? 'macos',
-        alt: `The Day Showcase app running natively on ${platform.os} with ${platform.toolkit}`,
+        toolkit,
+        // The per-target accent token suffix (--pf-<target>, global.css): linux-gtk and
+        // linux-qt glow their own colors, not one shared "linux".
+        accent: platform.id,
+        alt: `The Day Showcase app running natively on ${platform.os} with ${toolkit}`,
       };
       // The matching dark capture, when it exists, is equally non-blank, and actually reads as
       // dark. `srcDark` is only written for a verified file — the carousel falls back to light

@@ -185,6 +185,9 @@ const shots: {
       root!.style.setProperty('--hc-accent', accent);
       root!.style.setProperty('--hc-interval', `${INTERVAL}ms`);
       if (glow) glow.style.setProperty('--hc-accent', accent);
+      // The headline's "Day:" wears the active platform's accent too (index.astro .hero-day
+      // transitions `color`, so it glides between platforms in step with the cross-fade).
+      root!.closest<HTMLElement>('.hero')?.style.setProperty('--hero-accent', accent);
 
       imgs.forEach((im, i) => im.classList.toggle('is-active', i === idx));
 

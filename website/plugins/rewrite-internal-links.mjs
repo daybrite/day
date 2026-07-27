@@ -24,8 +24,10 @@ export default function rewriteInternalLinks() {
       const hashAt = href.indexOf('#');
       const bare = hashAt >= 0 ? href.slice(0, hashAt) : href;
       const hash = hashAt >= 0 ? href.slice(hashAt) : '';
-      if (/\.md$/i.test(bare)) {
+      if (/\.md$/i.test(bare) && !bare.startsWith('..')) {
         // A sibling internal doc: keep only the basename (all internal docs are flat siblings).
+        // A .md that climbs OUT of docs/ (`../DESIGN.md`) has no page here — it falls through
+        // to the GitHub-source branch below like any other repo path.
         const slug = bare.replace(/\.md$/i, '').split('/').pop();
         return `/docs/internal/${slug}${hash}`;
       }

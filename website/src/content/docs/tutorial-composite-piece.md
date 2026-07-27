@@ -8,7 +8,7 @@ section: Extend
 Most Day widgets you build won't need a single line of platform code. They are
 **composite pieces**: new widgets assembled from primitives Day already ships. A composite
 piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it
-to an app as a plain dependency and it runs on all eleven targets (AppKit, UIKit, Android, GTK, Qt,
+to an app as a plain dependency and it runs on all twelve targets (AppKit, UIKit, Android, GTK, Qt,
 WinUI), because every leaf it composes is already a native control on each one.
 
 In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
@@ -290,6 +290,6 @@ let the native leaves do the platform work. The same idea covers most of a desig
 - **Themed subtrees** flow through `with_environment(value, || …)` and are read back with
   `environment::<T>()`, with no prop drilling and no backend code.
 
-Every one of these is composite: pure Rust with no cargo features, working on all eleven targets the
+Every one of these is composite: pure Rust with no cargo features, working on all twelve targets the
 day you publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you
 need a native control Day does not already wrap.

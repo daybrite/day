@@ -311,7 +311,7 @@ canvas_caption = 形状、变换、手势和组合层部件——全部通过画
 canvas_gauge = 画布仪表
 shapes_interact_hint = 拖动滑块旋转，点按圆形换色，拖动紫色方块移动它。
 system_caption = 无界面的设备状态部件：电池、网络连接、运动传感器和设备标识。
-services_caption = 无界面的"与操作系统交互"部件：剪贴板、偏好设置、触感反馈、文件选择器和 HTTP。
+services_caption = 无界面的"与操作系统交互"部件：HTTP、剪贴板、偏好设置、触感反馈和文件选择器。
 subscribe_label = 订阅
 
 # — data strings localized for the walkthrough locales (option lists, specimen rows) —

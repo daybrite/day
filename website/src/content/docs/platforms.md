@@ -5,7 +5,7 @@ order: 33
 section: Build & ship
 ---
 
-Not all eleven targets are equally mature, and this page exists so you don't have to infer the
+Not all twelve targets are equally mature, and this page exists so you don't have to infer the
 differences from bug trackers. It reflects what runs in CI on every push and what has been
 exercised by real applications, and it gets updated when reality changes.
 
@@ -24,6 +24,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
 | `ohos-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
+| `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](/showcase/web-dom/) on this site is the CI artifact — see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
 [dayscript](/docs/dayscript) walkthrough — navigation, inputs, dialogs, screenshots — on that

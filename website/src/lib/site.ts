@@ -63,7 +63,7 @@ export const site = {
   name: 'Day',
   tagline: 'Create native apps for every platform under the sun from a single Rust codebase.',
   description:
-    'Day is a Rust framework that builds genuinely native applications for macOS, Windows, Linux, iOS, Android, and HarmonyOS from one codebase — using each platform’s own interface components, so your product looks and works the way users of each platform expect.',
+    'Day is a framework for Rust app development that builds for Android, iOS, HarmonyOS, Windows, macOS, Linux, and the web using each platform’s native interface components, so your product looks and works the way users of each platform expect.',
   repo: 'https://github.com/daybrite/day',
   targets: [
     'macOS · AppKit',
