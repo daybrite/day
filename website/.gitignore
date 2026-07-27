@@ -39,3 +39,8 @@ pnpm-debug.log*
 # day live web showcase: locally-staged web-dom dist for previewing /showcase/web-dom/
 # (`scripts/website.sh webdom`). In CI it lands in dist/showcase/web-dom instead.
 /public/showcase/
+
+# day showcase downloads: packaged apps + manifest assembled from showcase-dist-* CI artifacts
+# (scripts/assemble-downloads.mjs)
+/public/downloads/
+/src/data/downloads.json

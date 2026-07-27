@@ -491,7 +491,8 @@ jobs:
     env:
       # Release signing (§20), active on tag pushes only: the distribution cert + App Store
       # Connect API key light up the device .ipa; without them (and on every branch/PR run)
-      # pack zips the Simulator .app instead. Empty secrets degrade to the dev tier.
+      # pack builds an UNSIGNED device .ipa instead (sideloadable via AltStore/SideStore,
+      # or signed by the developer). Empty secrets degrade to that same unsigned tier.
       DAY_APPLE_TEAM: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_APPLE_TEAM || '' }}
       DAY_ASC_KEY_ID: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_ASC_KEY_ID || '' }}
       DAY_ASC_ISSUER: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_ASC_ISSUER || '' }}
@@ -590,7 +591,7 @@ jobs:
             done
           done
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
-      # the secrets these no-op and pack falls back to the Simulator .app (dev tier, §20).
+      # the secrets these no-op and pack produces the unsigned device .ipa (dev tier, §20).
       - name: Import the distribution certificate
         if: env.HAS_APPLE_CERT == 'true'
         uses: apple-actions/import-codesign-certs@v5
@@ -607,7 +608,7 @@ jobs:
             echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
           fi
       # Distribution packaging (§16.5): without signing.ios (ASC API key) this is the zipped
-      # Simulator .app — a device .ipa lights up when the ASC secrets are configured (§20).
+      # unsigned device .ipa — a SIGNED .ipa lights up when the ASC secrets are configured (§20).
       - name: Pack (ios-uikit)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
@@ -1493,6 +1494,15 @@ jobs:
         continue-on-error: true
         with:
           pattern: screenshots-*
+          path: website/artifacts
+      - name: Download the showcase app packages
+        # The per-combo `day pack` outputs, for the /showcase/ downloads page — the build's
+        # assembly (scripts/assemble-downloads.mjs) copies them into the site with sizes and
+        # SHA-256 checksums. Missing packages degrade to per-card placeholders.
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          pattern: showcase-dist-*
           path: website/artifacts
       - name: Build the site (assembles the gallery from the artifacts)
         working-directory: website

@@ -240,7 +240,7 @@ pub fn xcode_backend_build() -> i32 {
 /// `write_ios_pieces`), and day-uikit ALSO registers them with CoreText at launch, so a plist
 /// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
 /// build — idempotent, so a committed plist only changes when `fonts/` changes.
-fn sync_uiappfonts(project: &Project) -> Result<(), String> {
+pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
     // The scaffold's app target is Runner/ (older scaffolds used DayApp/).
     let plist = [
         "platform/ios/Runner/Info.plist",

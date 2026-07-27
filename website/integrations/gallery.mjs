@@ -5,6 +5,7 @@
 // them. On CI the images come from downloaded artifacts; locally they are placeholders.
 import { assembleGallery } from '../scripts/assemble-gallery.mjs';
 import { assembleHeroShots } from '../scripts/hero-shots.mjs';
+import { assembleDownloads } from '../scripts/assemble-downloads.mjs';
 
 /** @returns {import('astro').AstroIntegration} */
 export default function gallery() {
@@ -22,6 +23,10 @@ export default function gallery() {
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });
         logger.info(`hero carousel: ${count} verified screenshot(s)`);
+        // Stage the /showcase/ downloads (the per-combo `day pack` artifacts) + their manifest
+        // of sizes and SHA-256 checksums. Absent artifacts ⇒ placeholders, like the gallery.
+        const dl = assembleDownloads({ quiet: true });
+        logger.info(`showcase downloads: ${dl.files} package(s) across ${dl.platforms} platform(s)`);
       },
     },
   };

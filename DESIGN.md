@@ -2133,7 +2133,9 @@ app's locale; `--env` passes app environment; each `--script` runs via the embed
 
 `day pack -p <target> [--profile release]` = build → sign → **installable artifact**, per
 target: `.dmg` (macos-appkit: sign `.app` → `hdiutil` → sign dmg → notarize → staple), `.ipa`
-(ios; degrades to a zipped Simulator `.app` without App Store Connect signing config),
+(ios; degrades to an UNSIGNED device `.ipa` — `-unsigned.ipa`, for sideloading via
+AltStore/SideStore or the developer's own signing — without App Store Connect signing config;
+changed 2026-07 from the original zipped-Simulator-`.app` fallback),
 `.apk` + `.aab` (android), **flatpak** (linux-gtk/qt — with generated icons at the freedesktop
 policy sizes), **`.msix` + an NSIS `setup.exe`** (windows), **`.hap`** (ohos via hvigor).
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and

@@ -1,0 +1,213 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { url } from '../lib/site';
+import manifest from '../data/downloads.json';
+
+// The Day Showcase, packaged for every primary platform by `day pack` on the SAME CI run
+// that drives the gallery's walkthroughs. Files, sizes, and SHA-256 checksums come from
+// src/data/downloads.json (scripts/assemble-downloads.mjs); a platform with no artifact in
+// this build renders its placeholder instead of a download.
+type ManifestFile = { name: string; bytes: number; sha256: string };
+const byId = new Map<string, ManifestFile[]>(
+  (manifest.platforms ?? []).map((p: { id: string; files: ManifestFile[] }) => [p.id, p.files]),
+);
+
+const targets = [
+  {
+    id: 'macos-appkit',
+    os: 'macOS',
+    name: 'AppKit',
+    kind: '.dmg',
+    install:
+      'Open the .dmg and drag Day Showcase into Applications. The build is development-signed, not notarized, so Gatekeeper objects the first time: right-click the app and choose Open, and on macOS 15+ additionally allow it under System Settings → Privacy & Security → “Open Anyway”.',
+  },
+  {
+    id: 'ios-uikit',
+    os: 'iOS',
+    name: 'UIKit',
+    kind: '.ipa',
+    install:
+      'An unsigned device .ipa — it can only be sideloaded: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window. It is not App Store distributed.',
+  },
+  {
+    id: 'android-mdc',
+    os: 'Android',
+    name: 'Material Components',
+    kind: '.apk / .aab',
+    install:
+      'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
+  },
+  {
+    id: 'windows-winui',
+    os: 'Windows',
+    name: 'WinUI (system XAML)',
+    kind: '.msix + setup.exe',
+    install:
+      'Run the -setup.exe. SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”. The .msix package needs the development certificate trusted first, so the setup.exe is the easier path.',
+  },
+  {
+    id: 'linux-gtk',
+    os: 'Linux',
+    name: 'GTK 4',
+    kind: '.flatpak',
+    install:
+      'Install with `flatpak install --user ./<file>.flatpak`. flatpak asks to confirm the unsigned local bundle and offers the Freedesktop runtime if it is missing.',
+  },
+  {
+    id: 'linux-qt',
+    os: 'Linux',
+    name: 'Qt 6 Widgets',
+    kind: '.flatpak',
+    install:
+      'Same as the GTK build: `flatpak install --user ./<file>.flatpak`, confirm the unsigned local bundle, accept the runtime offer if prompted.',
+  },
+  {
+    id: 'ohos-arkui',
+    os: 'HarmonyOS',
+    name: 'ArkUI',
+    kind: '.hap',
+    install:
+      'Development-signed for the public OpenHarmony certificate: install on an emulator or developer device with `hdc install <file>.hap`.',
+  },
+];
+
+function human(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+// Render `backticked` fragments of the install notes as <code>.
+function richInstall(text: string): (string | { code: string })[] {
+  return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
+}
+const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
+---
+<BaseLayout title="Showcase downloads" description="Install the Day Showcase natively: packaged builds for macOS, iOS, Android, Windows, Linux, and HarmonyOS, with sizes and SHA-256 checksums — or open the web build in place." active="showcase">
+  <section class="section dl-hero">
+    <div class="container">
+      <p class="eyebrow">Showcase downloads</p>
+      <h1 class="dl-title">The same app the <a href={url('gallery')}>gallery</a> shows — <span class="grad-text">installed on your machine</span>.</h1>
+      <p class="lead">
+        Every package below is built and driven end to end by CI from the same commit: one Rust
+        codebase, packaged with <code>day pack</code> for each platform's native format. These
+        are development builds — unsigned or dev-signed — so each card notes how to get past
+        the platform's unsigned-app guard.
+      </p>
+      {totalFiles === 0 && (
+        <p class="dl-note">
+          Preview build: packages are attached by CI, so downloads appear on the live site
+          — this local build shows the layout with placeholders.
+        </p>
+      )}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="dl-grid">
+        <article class="dl-card" data-pf="web-dom">
+          <p class="dl-os">Web</p>
+          <h2 class="dl-name">The DOM</h2>
+          <code class="dl-id">web-dom</code>
+          <p class="dl-install">
+            Nothing to install: the WebAssembly build is hosted on this site as static files.
+          </p>
+          <p class="dl-files">
+            <a class="btn btn-primary dl-btn" href={url('showcase/web-dom/')}>Open the live build →</a>
+          </p>
+        </article>
+        {targets.map((t) => {
+          const files = byId.get(t.id) ?? [];
+          return (
+            <article class="dl-card" data-pf={t.id}>
+              <p class="dl-os">{t.os}</p>
+              <h2 class="dl-name">{t.name}</h2>
+              <code class="dl-id">{t.id}</code>
+              <p class="dl-install">
+                {richInstall(t.install).map((part) =>
+                  typeof part === 'string' ? part : <code>{part.code}</code>,
+                )}
+              </p>
+              {files.length > 0 ? (
+                <ul class="dl-files">
+                  {files.map((f) => (
+                    <li>
+                      <a class="dl-file" href={url(`downloads/${t.id}/${f.name}`)} download>
+                        ⤓ {f.name}
+                      </a>
+                      <span class="dl-size">{human(f.bytes)}</span>
+                      <code class="dl-sha" title="SHA-256">{f.sha256}</code>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p class="dl-missing">Packaged by CI as {t.kind} — download appears on the live site.</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <p class="dl-verify">
+        Verify a download: <code>shasum -a 256 &lt;file&gt;</code> (macOS/Linux) or
+        <code>Get-FileHash &lt;file&gt;</code> (Windows PowerShell) must print the checksum
+        shown on its card.
+      </p>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .dl-hero { padding-bottom: 8px; }
+  .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
+  .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
+  .dl-note { color: var(--faint); font-size: 0.92rem; }
+
+  .dl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .dl-grid { grid-template-columns: 1fr; } }
+  .dl-card {
+    border: 1px solid var(--border-soft);
+    border-top: 3px solid var(--pf, var(--brand));
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+  }
+  .dl-os {
+    margin: 0 0 2px;
+    font-size: 0.78rem;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
+  }
+  .dl-name { margin: 0 0 6px; font-size: 1.15rem; }
+  .dl-id {
+    align-self: flex-start;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    padding: 0.1em 0.45em;
+    border-radius: 6px;
+    color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
+    background: color-mix(in srgb, var(--pf, var(--brand)) 13%, transparent);
+  }
+  .dl-install { margin: 10px 0 12px; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+  .dl-install code, .dl-verify code { font-size: 0.85em; }
+
+  .dl-files { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .dl-files li { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
+  .dl-file { font-weight: 650; }
+  .dl-size { color: var(--faint); font-size: 0.85rem; }
+  .dl-sha {
+    flex-basis: 100%;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--faint);
+    overflow-wrap: anywhere;
+    background: none;
+    padding: 0;
+  }
+  .dl-missing { margin: auto 0 0; color: var(--faint); font-size: 0.88rem; font-style: italic; }
+  .dl-btn { align-self: flex-start; }
+  .dl-verify { margin-top: 22px; color: var(--muted); font-size: 0.9rem; }
+</style>

@@ -1,7 +1,10 @@
 //! ios-uikit → App Store .ipa via `xcodebuild archive` + `-exportArchive` (arm64-only device
 //! build; automatic signing with an App Store Connect API key — the Tauri/Flutter CI path).
-//! Without `signing.ios` config this degrades LOUDLY to the zipped Simulator .app (installable
-//! via simctl; there is no "simulator .ipa" — §16.5).
+//! Without `signing.ios` config this degrades LOUDLY to an UNSIGNED device .ipa
+//! (`-unsigned.ipa`): a real `-sdk iphoneos` Release build with code signing disabled,
+//! packaged as `Payload/<App>.app`. It cannot launch as-is — the developer signs it
+//! (codesign / Xcode's Devices window) or sideloads it with AltStore/SideStore, which re-sign
+//! every binary with the user's own Apple ID anyway (§16.5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,12 +12,12 @@ use std::process::Command;
 use super::settings::{PackOptions, resolve_degradable};
 use super::{Artifact, PackError, SignTier, run_tool};
 use crate::meta::Project;
-use crate::ops::{self, status};
+use crate::ops::status;
 use crate::targets::Target;
 
 pub fn pack(
     project: &Project,
-    target: &'static Target,
+    _target: &'static Target,
     opts: &PackOptions,
     dist: &Path,
 ) -> Result<Artifact, PackError> {
@@ -27,22 +30,23 @@ pub fn pack(
         if ios.is_none() {
             status(
                 "Warning",
-                "no signing.ios config — packing the SIMULATOR .app.zip (a device .ipa needs \
-                 signing.ios: {team, key-id, issuer, key-path})",
+                "no signing.ios config — packing an UNSIGNED device .ipa (sideload it with \
+                 AltStore/SideStore or sign it yourself; a signed .ipa needs signing.ios: \
+                 {team, key-id, issuer, key-path})",
             );
         }
-        return sim_zip(project, target, opts, dist);
+        return unsigned_ipa(project, opts, dist);
     }
     let ios = ios.unwrap();
 
-    // A team that references an unset secret degrades to the sim zip (§20).
+    // A team that references an unset secret degrades to the unsigned device .ipa (§20).
     let Some(team) = resolve_degradable(&ios.team, "signing.ios.team").map_err(PackError::Sign)?
     else {
         status(
             "Warning",
-            "signing.ios.team unresolved — packing the SIMULATOR .app.zip instead of a device .ipa",
+            "signing.ios.team unresolved — packing an UNSIGNED device .ipa instead of a signed one",
         );
-        return sim_zip(project, target, opts, dist);
+        return unsigned_ipa(project, opts, dist);
     };
     let method = ios
         .export_method
@@ -253,29 +257,75 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
     None
 }
 
-/// The MVP fallback: zipped Simulator .app (installable via `simctl install`).
-fn sim_zip(
-    project: &Project,
-    target: &'static Target,
-    opts: &PackOptions,
-    dist: &Path,
-) -> Result<Artifact, PackError> {
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+/// The unsigned fallback: a real DEVICE build (`-sdk iphoneos`, Release) with code signing
+/// disabled, packaged as `Payload/<App>.app` inside a `-unsigned.ipa`. It cannot launch until
+/// signed — AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
+/// developer signs it directly (codesign / Xcode's Devices window).
+fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Artifact, PackError> {
     let name = &project.manifest.app.name;
     let version = &project.manifest.app.version;
-    let out = dist.join(format!("{name}{}-sim.app.zip", opts.version_tag(version)));
+
+    // The same pre-build staging the signed path (and build_ios) performs.
+    crate::pieces::write_ios_pieces(project).map_err(PackError::Other)?;
+    crate::mobile::sync_uiappfonts(project).map_err(PackError::Other)?;
+
+    let build_dir = project.root.join("build/day/ios-uikit");
+    let symroot = build_dir.join("pack-unsigned");
+    let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
+    status("Building", "ios-uikit (xcodebuild, iphoneos, unsigned)");
+    run_tool(
+        Command::new("xcodebuild")
+            .current_dir(project.root.join("platform/ios"))
+            .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+            .args(["-configuration", "Release", "-sdk", "iphoneos"])
+            .args(["-arch", "arm64"])
+            .arg(format!("SYMROOT={}", symroot.display()))
+            .arg("CODE_SIGNING_ALLOWED=NO")
+            .arg("CODE_SIGNING_REQUIRED=NO")
+            .arg(format!("MARKETING_VERSION={version}"))
+            .arg(format!(
+                "CURRENT_PROJECT_VERSION={}",
+                project.manifest.app.build
+            ))
+            .arg(format!("DAY_BIN={}", day_bin.display()))
+            .arg("build"),
+        "xcodebuild (iphoneos, unsigned)",
+    )
+    .map_err(PackError::Other)?;
+
+    let products = symroot.join("Release-iphoneos");
+    let app = std::fs::read_dir(&products)
+        .map_err(|e| PackError::Other(format!("reading {}: {e}", products.display())))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
+        .ok_or_else(|| PackError::Other(format!("no .app bundle in {}", products.display())))?;
+
+    // .ipa layout: a zip whose root holds Payload/<App>.app.
+    let staging = build_dir.join("ipa-staging");
+    let payload = staging.join("Payload");
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&payload).map_err(|e| PackError::Other(e.to_string()))?;
+    run_tool(
+        Command::new("ditto")
+            .arg(&app)
+            .arg(payload.join(app.file_name().unwrap_or_default())),
+        "ditto stage",
+    )
+    .map_err(PackError::Other)?;
+    let out = dist.join(format!("{name}{}-unsigned.ipa", opts.version_tag(version)));
     let _ = std::fs::remove_file(&out);
     run_tool(
         Command::new("ditto")
-            .args(["-c", "-k", "--keepParent"])
-            .arg(&outcome.artifact)
+            .args(["-c", "-k"])
+            .arg(&staging)
             .arg(&out),
         "ditto zip",
     )
     .map_err(PackError::Other)?;
     Ok(Artifact {
         path: out,
-        kind: "sim-app",
+        kind: "ipa-unsigned",
         sha256: String::new(),
         tier: SignTier::Unsigned,
     })

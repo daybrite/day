@@ -765,6 +765,59 @@ mod imp {
         }
     }
 
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayHolderView"]
+        #[ivars = ()]
+        struct DayHolderView;
+
+        /// The window root's content holder. UIKit resizes it on rotation (and iPad
+        /// multitasking) and runs this layout pass — Day's size-change rail: re-pin the day
+        /// root to the CURRENT safe area and emit `WindowResized`, the same shape as
+        /// Android's configuration-change delivery (§9). Launch computes the initial frame;
+        /// this fires only when the BASE frame really changed, so the keyboard rail's
+        /// shrunken root (which alters the frame but not the base) is never stomped.
+        impl DayHolderView {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                let bounds = self.bounds();
+                let insets = self.safeAreaInsets();
+                let inner = CGRect::new(
+                    CGPoint::new(insets.left, insets.top),
+                    CGSize::new(
+                        (bounds.size.width - insets.left - insets.right).max(0.0),
+                        (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                    ),
+                );
+                let base = ROOT_BASE_FRAME.with(|f| f.get());
+                let same = inner.origin.x == base.origin.x
+                    && inner.origin.y == base.origin.y
+                    && inner.size.width == base.size.width
+                    && inner.size.height == base.size.height;
+                if same {
+                    return;
+                }
+                ROOT_BASE_FRAME.with(|f| f.set(inner));
+                if let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) {
+                    unsafe { root.setFrame(inner) };
+                    emit(
+                        WINDOW_NODE,
+                        Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
+                    );
+                }
+            }
+        }
+    );
+
+    impl DayHolderView {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
     /// Queue the cover's presentation behind any in-flight modal transition (§dialogs FIFO).
     fn cover_present(vc: Retained<DayCoverVC>) {
         modal_enqueue(ModalOp::Run(Box::new(move || {
@@ -3405,7 +3458,10 @@ mod imp {
                 // A DayRootVC (not a plain UIViewController) so `defers_system_gestures`
                 // reaches the window root's screen-edge override (docs/cover.md).
                 let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
-                let holder = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+                // A DayHolderView (not a plain UIView): its layout pass is the rotation /
+                // size-change rail that re-pins the day root and emits WindowResized.
+                let holder = DayHolderView::new(mtm);
+                unsafe { holder.setFrame(bounds) };
                 let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
                 // RTL locales (docs/localization): force the semantic content attribute on
                 // the window AND the day content roots — descendants left at `.unspecified`
