@@ -39,9 +39,9 @@ const LIVE_ORIGIN = 'https://daybrite.dev';
 // The suite whose screenshots feed the hero (the one real sample app).
 const SUITE_ID = galleryConfig.suites[0]?.id ?? 'showcase';
 
-// The carousel shows only the "primary" target per OS — one canonical native toolkit each — not the
-// secondary/cross ports (macos-qt, macos-gtk, windows-gtk, windows-qt) that also build in CI. Order
-// here is the default (the client reshuffles anyway).
+// The carousel shows only the "primary" target per OS — one canonical native toolkit each (plus
+// the web) — not the secondary/cross ports (macos-qt, macos-gtk, windows-gtk, windows-qt) that
+// also build in CI. Order here is the default (the client reshuffles anyway).
 const PRIMARY_PLATFORMS = [
   'macos-appkit',
   'windows-winui',
@@ -49,11 +49,12 @@ const PRIMARY_PLATFORMS = [
   'linux-qt',
   'android-mdc',
   'ios-uikit',
+  'web-dom',
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.
-// The marker is the manifest format — bump it when the output shape or the caption/accent
-// fields change so stale caches rebuild (v3: desktop-anchored toolkit names + per-target accents).
-const PRIMARY_KEY = ['v3', ...PRIMARY_PLATFORMS].join(',');
+// The marker is the manifest format — bump it when the output shape, the caption/accent fields,
+// or the shot pool change so stale caches rebuild (v5: staggered bling-first pool, 3 per platform).
+const PRIMARY_KEY = ['v5', ...PRIMARY_PLATFORMS].join(',');
 
 // Carousel caption names — shorter than the gallery's toolkit strings, anchored to the desktop
 // each toolkit is known by. Platforms not listed keep their gallery toolkit string.
@@ -61,14 +62,18 @@ const CAROUSEL_TOOLKIT = {
   'linux-gtk': 'GTK (GNOME)',
   'linux-qt': 'Qt (KDE)',
   'windows-winui': 'WinUI',
+  'web-dom': 'DOM',
 };
 
-// Shots tried per platform, richest-looking UI first. The first (up to MAX_PER_PLATFORM) that pass
-// verification are admitted, so a platform missing "home" still contributes via "controls", etc.
+// Shots tried per platform, richest-looking UI first: the showcase's "bling" screens (drawn
+// canvas, the sensor dashboard, the custom-font type ramp) lead, the plainer forms and
+// navigation screens fill in behind. Per-platform selection staggers through this list (see
+// the loop) so the pool covers many different screens; unverifiable shots fall through.
 const PREFERRED_SHOTS = [
-  'home', 'controls', 'canvas', 'stack-detail', 'text', 'tabs-one', 'resources', 'system', 'tweaks',
+  'canvas', 'system', 'text', 'home', 'controls', 'animation', 'grid', 'localization',
+  'dates', 'stack-detail', 'tabs-one', 'resources', 'tweaks',
 ];
-const MAX_PER_PLATFORM = 2;
+const MAX_PER_PLATFORM = 3;
 
 
 /** True when the image decodes and is not blank/solid (real UI has high channel variance). */
@@ -177,7 +182,21 @@ export async function assembleHeroShots(opts = {}) {
     .filter(Boolean);
   for (const platform of platforms) {
     let taken = 0;
-    for (const shot of PREFERRED_SHOTS) {
+    // Stagger each platform's picks: a rotating bling lead (canvas/system/text) so every
+    // platform contributes one showpiece, then the rest of the list offset by platform index
+    // so the pool covers many DIFFERENT screens instead of the same three everywhere. The
+    // unused bling shots stay as final fallbacks for platforms with sparse verified captures.
+    const idx = Math.max(0, PRIMARY_PLATFORMS.indexOf(platform.id));
+    const bling = PREFERRED_SHOTS.slice(0, 3);
+    const rest = PREFERRED_SHOTS.slice(3);
+    const off = (idx * 2) % rest.length;
+    const candidates = [
+      bling[idx % bling.length],
+      ...rest.slice(off),
+      ...rest.slice(0, off),
+      ...bling.filter((_, i) => i !== idx % bling.length),
+    ];
+    for (const shot of candidates) {
       if (taken >= MAX_PER_PLATFORM) break;
       const buf = await obtain(platform.id, shot, 'light');
       if (!buf) continue;

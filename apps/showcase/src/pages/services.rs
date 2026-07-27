@@ -431,7 +431,10 @@ fn http_resource_row() -> impl Piece {
 /// response headers plus the body size — a live view of what the platform stack returns
 /// (and of platform policy: iOS ATS rejecting a cleartext host shows up here as the error).
 fn url_check_field() -> impl Piece {
-    let url = Signal::new(String::new());
+    // Pre-filled with a host that answers cross-origin requests (httpbin echoes with
+    // `Access-Control-Allow-Origin: *`), so Check works out of the box on web-dom too —
+    // an arbitrary site would be blocked by CORS in a browser (docs/web.md).
+    let url = Signal::new("https://httpbin.org/get".to_string());
     let out = Signal::new(String::new());
     // The in-flight check, if any: re-tapping Check aborts the previous task, which drops its
     // FetchFuture and CANCELS the platform request (docs/async.md's drop-cancel rail) — type a
@@ -483,4 +486,7 @@ fn url_check_field() -> impl Piece {
             .id("http-headers"),
     ))
     .spacing(8.0)
+    // Leading, like the section's other rows — the default centered alignment floated the
+    // Check button and readout as islands mid-card on every platform.
+    .align(HAlign::Leading)
 }
