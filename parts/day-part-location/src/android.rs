@@ -28,7 +28,7 @@ pub fn is_available() -> bool {
 pub fn start(acc: Accuracy) {
     let best = acc == Accuracy::Best;
     with_env(|env| {
-        let _ = env.dcall_static(CLASS, "start", "(Z)V", &[JValue::Bool(u8::from(best))]);
+        let _ = env.dcall_static(CLASS, "start", "(Z)V", &[JValue::Bool(best)]);
     });
 }
 

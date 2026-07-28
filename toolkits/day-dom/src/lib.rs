@@ -405,7 +405,7 @@ impl Toolkit for Dom {
                     ButtonStyleSpec::Automatic => {}
                 }
                 if !p.enabled {
-                    attr(el, "disabled", "");
+                    attr(el, "disabled", "-");
                 }
                 unsafe { day_dom_listen(el, 1) };
                 el
@@ -415,7 +415,7 @@ impl Toolkit for Dom {
                 let el = unsafe { day_dom_create(EL_TOGGLE) };
                 unsafe { day_dom_set_checked(el, p.on as u32) };
                 if !p.enabled {
-                    attr(el, "disabled", "");
+                    attr(el, "disabled", "-");
                 }
                 unsafe { day_dom_listen(el, 4) };
                 el
@@ -432,7 +432,7 @@ impl Toolkit for Dom {
                 );
                 unsafe { day_dom_set_value(el, p.value) };
                 if !p.enabled {
-                    attr(el, "disabled", "");
+                    attr(el, "disabled", "-");
                 }
                 unsafe { day_dom_listen(el, 2) };
                 el
@@ -443,7 +443,7 @@ impl Toolkit for Dom {
                 attr(el, "value", &p.text);
                 attr(el, "placeholder", &p.placeholder);
                 if !p.enabled {
-                    attr(el, "disabled", "");
+                    attr(el, "disabled", "-");
                 }
                 unsafe { day_dom_listen(el, 2 | 8 | 16) };
                 el
@@ -711,8 +711,11 @@ impl Toolkit for Dom {
                 if let Some(p) = patch.downcast_ref::<TextAreaPatch>() {
                     match p {
                         TextAreaPatch::SetText(t) => text(el, t),
+                        // `readonly` is the INVERSE of editable, and the marker convention is
+                        // "-" sets / "" removes (see the shim's day_dom_set_attr): editable ⇒ no
+                        // readonly attribute.
                         TextAreaPatch::SetEditable(e) => {
-                            attr(el, "readonly", if *e { "-" } else { "" })
+                            attr(el, "readonly", if *e { "" } else { "-" })
                         }
                         TextAreaPatch::SetSelectable(sel) => {
                             s(el, "user-select", if *sel { "text" } else { "none" })
