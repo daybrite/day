@@ -37,7 +37,7 @@ pub fn is_available(kind: SensorKind) -> bool {
     })
 }
 
-pub fn read(kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     // `read()` returns the latest sample as a double[3] {x, y, z}, or null when the sensor is
     // missing or no event has arrived yet (the first call only registers the listener).
     with_env(|env| {

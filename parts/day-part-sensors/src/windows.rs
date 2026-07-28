@@ -16,7 +16,7 @@ pub fn is_available(kind: SensorKind) -> bool {
     read(kind).is_some()
 }
 
-pub fn read(kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     // A missing sensor makes `GetDefault` yield a null object whose `GetCurrentReading` errors, so
     // every `.ok()?` naturally collapses to `None` — no explicit null check needed.
     match kind {

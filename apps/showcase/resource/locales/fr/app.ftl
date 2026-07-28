@@ -147,7 +147,6 @@ battery_reading = Batterie : { $percent } · { $state }
 battery_reading_none = Batterie : aucune API batterie sur cette plateforme
 
 # Aire de jeu Capteurs (docs/sensors.md)
-sensors_refresh = Lire les capteurs
 sensor_accelerometer = Accéléromètre
 sensor_gyroscope = Gyroscope
 sensor_magnetometer = Magnétomètre
@@ -542,3 +541,17 @@ textareas_seed_markdown = Markdown
 textareas_editable = Modifiable
 textareas_selectable = Sélectionnable
 textareas_spellcheck = Correction orthographique
+sensor_permission = Accès aux mouvements
+perm_request = Demander
+perm_open_settings = Ouvrir les réglages
+nav_location = Localisation
+location_permission = Accès à la position
+location_start = Démarrer
+location_stop = Arrêter
+location_waiting = en attente d’une position…
+location_unavailable = aucun service de localisation sur cette plateforme
+location_coords = { $lat }, { $lon }
+location_altitude = Altitude
+location_accuracy = Précision
+location_unknown = —
+chart_axes = x rouge · y turquoise · z violet

@@ -28,6 +28,116 @@ pub struct Manifest {
     /// parse time, so `day sign --check` can report missing variables without failing the parse.
     #[serde(default)]
     pub signing: Option<Signing>,
+    /// OS permissions this app declares, and the user-facing reason for each (docs/permissions.md).
+    /// `day build` turns these into `<uses-permission>` entries, `Info.plist` usage descriptions,
+    /// and HarmonyOS `requestPermissions` — the declaration every mobile OS requires before the app
+    /// may even ask. `#[serde(default)]`, so every Day.toml written before this existed still parses.
+    #[serde(default)]
+    pub permissions: Permissions,
+}
+
+/// `[permissions]`. Every key is a portable permission name from `day_build::permissions` except the
+/// reserved `raw`, which carries per-platform escape hatches.
+///
+/// This struct carries no `deny_unknown_fields` because the `flatten` map has to absorb the
+/// permission keys (the same reason [`App`] doesn't) — [`parse_manifest`] validates the names
+/// instead, and rejects a typo with the list of valid ones, which is the better error anyway.
+#[derive(Debug, Default, Deserialize)]
+pub struct Permissions {
+    #[serde(default)]
+    pub raw: RawPermissions,
+    #[serde(flatten)]
+    pub declared: BTreeMap<String, Declaration>,
+}
+
+/// How one permission is declared. The short forms cover the common cases:
+/// `camera = "Attach photos to your notes."` and `notifications = true`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Declaration {
+    /// `<name> = "<reason>"`
+    Reason(String),
+    /// `<name> = true` declares a permission that needs no reason on any platform (notifications).
+    /// `<name> = false` is the opposite: an explicit "not this one", useful to hold the line against
+    /// a permission a dependency might otherwise pull in.
+    Enabled(bool),
+    /// The long form, for per-platform reason overrides or a platform subset.
+    Detailed(Box<DeclarationTable>),
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct DeclarationTable {
+    pub reason: Option<String>,
+    pub ios_reason: Option<String>,
+    pub macos_reason: Option<String>,
+    pub ohos_reason: Option<String>,
+    /// Restrict the declaration to a subset of `ios` / `macos` / `android` / `ohos`. Default: every
+    /// platform the permission maps to.
+    pub platforms: Option<Vec<String>>,
+}
+
+impl Declaration {
+    /// The reason to use for `platform`, most specific first.
+    pub fn reason_for(&self, platform: &str) -> Option<&str> {
+        match self {
+            Declaration::Reason(r) => Some(r.as_str()),
+            Declaration::Enabled(_) => None,
+            Declaration::Detailed(t) => {
+                let specific = match platform {
+                    "ios" => t.ios_reason.as_deref(),
+                    "macos" => t.macos_reason.as_deref(),
+                    "ohos" => t.ohos_reason.as_deref(),
+                    _ => None,
+                };
+                specific.or(t.reason.as_deref())
+            }
+        }
+    }
+
+    /// Whether the app actually wants this permission. `<name> = false` declares that it does not.
+    pub fn enabled(&self) -> bool {
+        !matches!(self, Declaration::Enabled(false))
+    }
+
+    /// Whether this declaration applies to `platform`.
+    pub fn covers(&self, platform: &str) -> bool {
+        match self {
+            Declaration::Detailed(t) => match &t.platforms {
+                Some(list) => list.iter().any(|p| p == platform),
+                None => true,
+            },
+            _ => true,
+        }
+    }
+}
+
+/// `[permissions.raw]` — platform-native declarations for anything outside the portable set.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawPermissions {
+    /// Android permission ids, e.g. `"android.permission.READ_CONTACTS"`.
+    #[serde(default)]
+    pub android: Vec<String>,
+    /// `Info.plist` key → usage description.
+    #[serde(default)]
+    pub ios: BTreeMap<String, String>,
+    #[serde(default)]
+    pub macos: BTreeMap<String, String>,
+    /// HarmonyOS entries, each needing its own reason and scene.
+    #[serde(default)]
+    pub ohos: Vec<RawOhosPermission>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawOhosPermission {
+    pub name: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// `"inuse"` (default) or `"always"`.
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -281,8 +391,55 @@ fn strip_verbatim(p: PathBuf) -> PathBuf {
     p
 }
 
+/// Check `[permissions]` against the declaration table, with messages a human can act on.
+///
+/// This runs over the raw TOML BEFORE the typed parse on purpose. `Declaration` is an untagged
+/// enum, so serde reports any malformed entry as "data did not match any variant of untagged enum
+/// Declaration" — which names neither the permission nor the key at fault. Both mistakes it catches
+/// are the same class: a permission that silently fails to be declared is a crash on iOS.
+fn validate_permissions(day_toml: &str) -> Result<(), String> {
+    /// The long form's keys, in `DeclarationTable`'s kebab-case spelling.
+    const LONG_FORM: &[&str] = &[
+        "reason",
+        "ios-reason",
+        "macos-reason",
+        "ohos-reason",
+        "platforms",
+    ];
+
+    let raw: toml::Value = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
+    let Some(perms) = raw.get("permissions").and_then(|v| v.as_table()) else {
+        return Ok(());
+    };
+    for (key, value) in perms {
+        if key == "raw" {
+            continue; // the escape hatch, checked by its own deny_unknown_fields
+        }
+        if day_build::permissions::find(key).is_none() {
+            return Err(format!(
+                "Day.toml: [permissions] {key:?} is not a known permission (valid: {})",
+                day_build::permissions::names().join(", ")
+            ));
+        }
+        if let Some(table) = value.as_table() {
+            for k in table.keys() {
+                if !LONG_FORM.contains(&k.as_str()) {
+                    return Err(format!(
+                        "Day.toml: [permissions.{key}] has unknown key {k:?} (valid: {})",
+                        LONG_FORM.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse Day.toml text + the sibling Cargo.toml's `[package]` into a Manifest.
 pub fn parse_manifest(day_toml: &str, cargo_toml: &str) -> Result<Manifest, String> {
+    // Before the typed parse: serde's untagged `Declaration` turns any mistake in [permissions]
+    // into an unactionable "data did not match any variant".
+    validate_permissions(day_toml)?;
     let mut manifest: Manifest = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
     if manifest.schema != 1 {
         return Err(format!(
@@ -429,5 +586,109 @@ build = 7
         // canonicalize() really does hand back a verbatim path here; the result must not.
         let canon = std::fs::canonicalize(".").unwrap();
         assert!(!strip_verbatim(canon).to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    /// Adding `permissions` to a `deny_unknown_fields` struct must not break the manifests already
+    /// checked into every app in the tree.
+    #[test]
+    fn manifest_without_permissions_still_parses() {
+        let m = parse_manifest("schema = 1\n[app]\nid = \"dev.x.demo\"\n", CARGO).expect("parse");
+        assert!(m.permissions.declared.is_empty());
+        assert!(m.permissions.raw.android.is_empty());
+    }
+
+    #[test]
+    fn permission_declaration_forms() {
+        let toml = r#"
+schema = 1
+[app]
+id = "dev.x.demo"
+
+[permissions]
+camera = "Scan a document."
+notifications = true
+
+[permissions.photos]
+reason = "Attach a picture."
+ios-reason = "Day attaches pictures from your library."
+platforms = ["ios", "android"]
+
+[permissions.raw]
+android = ["android.permission.READ_CONTACTS"]
+ios = { NSContactsUsageDescription = "Find friends." }
+ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when = "inuse" }]
+"#;
+        let m = parse_manifest(toml, CARGO).expect("parse");
+        assert_eq!(m.permissions.declared.len(), 3);
+
+        let camera = &m.permissions.declared["camera"];
+        assert_eq!(camera.reason_for("ios"), Some("Scan a document."));
+        assert!(camera.covers("ohos"));
+
+        // `true` declares the permission without a reason — the notifications shape.
+        assert_eq!(
+            m.permissions.declared["notifications"].reason_for("ios"),
+            None
+        );
+
+        // The per-platform override wins over the shared reason; other platforms fall back to it.
+        let photos = &m.permissions.declared["photos"];
+        assert_eq!(
+            photos.reason_for("ios"),
+            Some("Day attaches pictures from your library.")
+        );
+        assert_eq!(photos.reason_for("ohos"), Some("Attach a picture."));
+        assert!(photos.covers("android"));
+        assert!(
+            !photos.covers("ohos"),
+            "platforms = [...] must exclude ohos"
+        );
+
+        assert_eq!(
+            m.permissions.raw.android,
+            ["android.permission.READ_CONTACTS"]
+        );
+        assert_eq!(
+            m.permissions
+                .raw
+                .ios
+                .get("NSContactsUsageDescription")
+                .map(String::as_str),
+            Some("Find friends.")
+        );
+        assert_eq!(
+            m.permissions.raw.ohos[0].name,
+            "ohos.permission.READ_CONTACTS"
+        );
+    }
+
+    /// A misspelled permission must fail the parse with the valid names, not be ignored — an
+    /// undeclared permission is a runtime crash on iOS.
+    #[test]
+    fn unknown_permission_name_is_rejected() {
+        let err = parse_manifest(
+            "schema = 1\n[app]\nid = \"dev.x.demo\"\n[permissions]\ncammera = \"typo\"\n",
+            CARGO,
+        )
+        .expect_err("should reject");
+        assert!(err.contains("cammera"), "{err}");
+        assert!(
+            err.contains("camera"),
+            "the error must list the valid names: {err}"
+        );
+    }
+
+    /// An unknown key inside the long form is a typo too, and `deny_unknown_fields` catches it.
+    #[test]
+    fn unknown_key_inside_a_declaration_is_rejected() {
+        let err = parse_manifest(
+            "schema = 1\n[app]\nid = \"dev.x.demo\"\n[permissions.camera]\nresaon = \"typo\"\n",
+            CARGO,
+        )
+        .expect_err("should reject");
+        assert!(
+            err.contains("resaon") || err.contains("unknown field"),
+            "{err}"
+        );
     }
 }

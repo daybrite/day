@@ -61,5 +61,8 @@ they tend to lead the guides when something changes.
 | [sensors](/docs/internal/sensors) | `day-part-sensors` |
 | [haptics](/docs/internal/haptics) | `day-part-haptics` |
 | [deviceinfo](/docs/internal/deviceinfo) | `day-part-deviceinfo` |
+| [http](/docs/internal/http) | `day-part-http` |
+| [permissions](/docs/internal/permissions) | `day-part-permissions` |
+| [location](/docs/internal/location) | `day-part-location` |
 
 If a guide and a reference page disagree, trust the reference page and tell us about the guide.

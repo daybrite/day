@@ -147,7 +147,6 @@ battery_reading = Battery: { $percent } · { $state }
 battery_reading_none = Battery: no battery API on this platform
 
 # Sensors playground (docs/sensors.md)
-sensors_refresh = Read Sensors
 sensor_accelerometer = Accelerometer
 sensor_gyroscope = Gyroscope
 sensor_magnetometer = Magnetometer
@@ -542,3 +541,17 @@ textareas_seed_markdown = Markdown
 textareas_editable = Editable
 textareas_selectable = Selectable
 textareas_spellcheck = Spell-check
+sensor_permission = Motion access
+perm_request = Request
+perm_open_settings = Open Settings
+nav_location = Location
+location_permission = Location access
+location_start = Start
+location_stop = Stop
+location_waiting = waiting for a fix…
+location_unavailable = no location service on this platform
+location_coords = { $lat }, { $lon }
+location_altitude = Altitude
+location_accuracy = Accuracy
+location_unknown = —
+chart_axes = x red · y teal · z violet

@@ -45,6 +45,37 @@ fn scan_res_str(dir: &Path, out: &mut Vec<String>) {
     }
 }
 
+/// Collect portable permissions referenced in code as `Permission::<Variant>` (docs/permissions.md).
+///
+/// Reads an identifier rather than a quoted literal, the same shape as [`scan_res_str`]. The
+/// contract with `day-part-permissions` is that its enum is called `Permission` and its variants are
+/// the table's `variant` spellings — pinned by `tests/permissions_parity.rs`.
+fn scan_permission_uses(dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            scan_permission_uses(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs")
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            let pat = "Permission::";
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find(pat) {
+                rest = &rest[i + pat.len()..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                if end > 0 {
+                    out.push(rest[..end].to_string());
+                }
+            }
+        }
+    }
+}
+
 /// Every Rust source root the lint scans: the project package's `src/` plus each WORKSPACE
 /// MEMBER crate's `src/` inside the project directory (a multi-crate app keeps its
 /// `tr("key")` / `.id("…")` literals in member crates too — Day-Games' games live in
@@ -226,6 +257,83 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                     message: format!(
                         "Day.toml: [app.{key}] does not name a known platform, toolkit, or \
                          target"
+                    ),
+                });
+            }
+        }
+    }
+
+    // --- Permission declarations (docs/permissions.md) ---
+    // The backstop for the whole declaration pipeline: an undeclared permission reports Restricted
+    // on Android and TERMINATES the app on iOS the first time it touches the API. Catching it here
+    // turns a crash on a device into a lint failure.
+    {
+        let mut used = Vec::new();
+        for root in source_roots(&project.root) {
+            scan_permission_uses(&root, &mut used);
+        }
+        used.sort();
+        used.dedup();
+        let declared = &project.manifest.permissions.declared;
+        for variant in &used {
+            let Some(spec) = day_build::permissions::find_variant(variant) else {
+                continue; // Raw(…) and any non-portable variant have nothing to declare
+            };
+            match declared.get(spec.name) {
+                None => findings.push(Finding {
+                    code: "day::lint::undeclared-permission",
+                    message: format!(
+                        "code requests Permission::{variant}, but Day.toml has no [permissions] \
+                         entry for {:?} — iOS terminates an app that touches the API without its \
+                         usage description",
+                        spec.name
+                    ),
+                }),
+                Some(decl) if !decl.enabled() => findings.push(Finding {
+                    code: "day::lint::undeclared-permission",
+                    message: format!(
+                        "code requests Permission::{variant}, but Day.toml declares {:?} = false",
+                        spec.name
+                    ),
+                }),
+                Some(decl) if spec.needs_reason && decl.reason_for("ios").is_none() => findings
+                    .push(Finding {
+                        code: "day::lint::missing-reason",
+                        message: format!(
+                            "[permissions] {:?} has no reason — it is the text iOS and HarmonyOS \
+                             show the user when they prompt",
+                            spec.name
+                        ),
+                    }),
+                Some(_) => {}
+            }
+        }
+
+        // Has a build actually written the declarations into the checked-in iOS manifest? The
+        // Android overlay is gitignored and regenerated every build, so there is nothing stale to
+        // find there — checking it would only produce false alarms on a fresh clone.
+        if let Some(plist) = crate::mobile::app_info_plist(project)
+            && let Ok(text) = std::fs::read_to_string(&plist)
+            && let Ok(plan) = crate::permissions::resolve(&project.manifest, "ios", &[])
+        {
+            let have = crate::plist::read_string_keys(&text);
+            let want = crate::permissions::apple_keys(&plan, false);
+            let missing: Vec<&String> = want
+                .iter()
+                .filter(|(k, v)| have.get(*k) != Some(*v))
+                .map(|(k, _)| k)
+                .collect();
+            if !missing.is_empty() {
+                findings.push(Finding {
+                    code: "day::lint::stale-manifest",
+                    message: format!(
+                        "platform/ios/Runner/Info.plist is missing or out of date for {} — run \
+                         `day build -p ios-uikit` to regenerate it",
+                        missing
+                            .iter()
+                            .map(|k| k.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 });
             }

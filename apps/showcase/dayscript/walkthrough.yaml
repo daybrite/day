@@ -186,9 +186,19 @@ flow:
   - set_value: { id: battery-level, value: 65 }
   - toggle: { id: battery-charging, value: true }
   - tap: { id: network-refresh }
-  - tap: { id: sensors-refresh }
-  - tap: { id: sensors-refresh }
+  # Sensors stream now (docs/sensors.md), so there is nothing to refresh: each row subscribes on
+  # page build and updates itself. Assert the rows are present — their VALUES are live and differ
+  # per device, so they are never asserted.
   - assert_visible: { id: sensor-accel }
+  - assert_visible: { id: sensor-gyro }
+  - assert_visible: { id: sensor-magnet }
+  # Permission rows (docs/permissions.md) show STATUS only. Their Request buttons are deliberately
+  # never tapped here: an OS permission dialog is a system modal that dayscript cannot dismiss (it
+  # is not on day's present() rail), so a tap would hang the run on the Simulator and the emulator.
+  # apps/showcase/dayscript/permissions-request.yaml drives the real prompt, opt-in.
+  - assert_visible: { id: sensors-perm }
+  - assert_visible: { id: location-perm }
+  - assert_visible: { id: location-coords }
   - assert_visible: { id: deviceinfo-model }
   - tap: { id: deviceinfo-refresh }
   - assert_visible: { id: deviceinfo-system }

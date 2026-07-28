@@ -21,8 +21,14 @@
 //! This crate is also the canonical source of the resource-name → identifier rules: the CLI stagers
 //! (`day-cli/src/resources`) reuse [`sanitize_ident`] and the derivation helpers here so the string
 //! baked into a constant is exactly the name staged into each backend's native store.
+//!
+//! For the same reason it owns [`permissions`]: the CLI generates each platform's permission
+//! declarations from that table while `day-part-permissions` queries the same permissions at
+//! runtime, and the two must never disagree (docs/permissions.md).
 
 use std::path::{Path, PathBuf};
+
+pub mod permissions;
 
 /// A single generated constant: its Rust `symbol`, the `value` string it wraps (the wire name the
 /// backend resolves by), and the `source` file (for the doc comment).

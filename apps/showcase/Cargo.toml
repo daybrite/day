@@ -50,6 +50,8 @@ day-break = { workspace = true }
 # A HEADLESS capability crate (no UI Piece): app Rust code calls day_part_battery::status() directly.
 day-part-battery = { workspace = true }
 day-part-sensors = { workspace = true }
+day-part-permissions = { workspace = true }
+day-part-location = { workspace = true }
 day-part-clipboard = { workspace = true }
 day-part-network = { workspace = true }
 day-piece-combobox = { workspace = true }

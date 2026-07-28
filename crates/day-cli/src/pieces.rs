@@ -39,6 +39,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::meta::Project;
 
+/// `[package.metadata.day.permissions]` — a library declaring which PORTABLE permissions it needs
+/// (docs/permissions.md). Machine-facing only: a library cannot write the user-facing reason, which
+/// is why that lives in the app's Day.toml and why a contribution without one is a build error on
+/// the platforms that show it.
+#[derive(Debug, Default, Deserialize)]
+struct PermissionsMeta {
+    #[serde(default)]
+    uses: Vec<String>,
+}
+
 /// The build-side contribution list handed to Gradle (serialized to day-pieces.json).
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
@@ -366,43 +376,97 @@ fn closure(meta: &Metadata) -> HashSet<String> {
 }
 
 /// Write the resolved contributions to `build/day/android/day-pieces.json` for Gradle to read (and,
+/// Every `[package.metadata.day.permissions].uses` in the app's dependency closure, as
+/// `(crate_name, permission)`. The app package itself participates (the closure starts at the
+/// resolve root), so an app may use the same key instead of Day.toml when it has no reason to give.
+pub fn contributed_permissions(project: &Project, backends: &[&str]) -> Vec<(String, String)> {
+    let Ok(meta) = cargo_metadata(project, backends) else {
+        return Vec::new();
+    };
+    let reachable = closure(&meta);
+    let mut out = Vec::new();
+    for pkg in meta.packages.iter().filter(|p| reachable.contains(&p.id)) {
+        if let Some(m) = piece_meta::<PermissionsMeta>(pkg, "permissions") {
+            for perm in m.uses {
+                out.push((pkg.name.clone(), perm));
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// when pieces contribute Android permissions, a `day-pieces-manifest.xml` overlay the scaffold
 /// merges). Always writes (an empty manifest when there are no pieces) so a stale file never lingers.
 pub fn write_android_manifest(project: &Project) -> Result<(), String> {
-    let pieces = resolve_android(project, &["mdc"]).unwrap_or_else(|e| {
+    let mut pieces = resolve_android(project, &["mdc"]).unwrap_or_else(|e| {
         eprintln!("day: piece discovery failed ({e}); building with framework pieces only");
         AndroidPieces::default()
     });
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    // Day.toml's [permissions] joins the pieces' raw contributions here, so BOTH reach the overlay
+    // through one path. `pieces.permissions` must carry every name: the scaffold's build.gradle.kts
+    // gates the overlay on that list being non-empty.
+    let contributed = contributed_permissions(project, &["mdc"]);
+    let declared = crate::permissions::resolve(&project.manifest, "android", &contributed)
+        .map_err(|e| format!("Day.toml: {e}"))?;
+    let mut entries = crate::permissions::android_entries(&declared);
+    for name in &pieces.permissions {
+        if !entries.iter().any(|e| &e.name == name) {
+            entries.push(crate::permissions::AndroidRaw {
+                name: name.clone(),
+                max_sdk: None,
+            });
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    pieces.permissions = entries.iter().map(|e| e.name.clone()).collect();
+
+    // day-pieces.json is written AFTER the merge so Gradle sees the full list.
     let json = serde_json::to_string_pretty(&pieces).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("day-pieces.json"), json).map_err(|e| e.to_string())?;
 
     // Permissions → a manifest overlay AGP merges into the app manifest (the scaffold points its
     // debug+release source-set manifests here). Remove any stale overlay when there are none.
+    //
+    // The FILENAME is a compatibility surface: it is baked into every scaffold `day new` has ever
+    // generated, and a source set has exactly one manifest slot (debug and release are both already
+    // claimed). Widen what this file contains; never move or split it, or permission merging breaks
+    // silently in every checked-out app.
     let overlay = dir.join("day-pieces-manifest.xml");
-    if pieces.permissions.is_empty() {
+    if entries.is_empty() {
         let _ = std::fs::remove_file(&overlay);
     } else {
-        std::fs::write(&overlay, permissions_manifest(&pieces.permissions))
-            .map_err(|e| e.to_string())?;
+        std::fs::write(&overlay, permissions_manifest(&entries)).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-/// A minimal manifest carrying only the pieces' `<uses-permission>`s — merged into the app manifest
-/// by AGP's manifest merger (which also dedups against any the app already declares).
-fn permissions_manifest(permissions: &[String]) -> String {
+/// A minimal manifest carrying only the `<uses-permission>`s — merged into the app manifest by AGP's
+/// manifest merger (which also dedups against any the app already declares).
+fn permissions_manifest(permissions: &[crate::permissions::AndroidRaw]) -> String {
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
-         <!-- Generated by `day build` from standalone-piece [package.metadata.day.android] \
-         permissions. Do not edit. -->\n\
+         <!-- Generated by `day build` from Day.toml [permissions] and \
+         [package.metadata.day.*] contributions. Do not edit. -->\n\
          <manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n",
     );
     for perm in permissions {
-        s.push_str(&format!(
-            "    <uses-permission android:name=\"{perm}\" />\n"
-        ));
+        match perm.max_sdk {
+            // The cap matters: an uncapped legacy storage permission makes stores flag the app for
+            // requesting broad access that API 33+ replaced with the granular READ_MEDIA_* set.
+            Some(max) => s.push_str(&format!(
+                "    <uses-permission android:name=\"{}\" android:maxSdkVersion=\"{max}\" />\n",
+                perm.name
+            )),
+            None => s.push_str(&format!(
+                "    <uses-permission android:name=\"{}\" />\n",
+                perm.name
+            )),
+        }
     }
     s.push_str("</manifest>\n");
     s

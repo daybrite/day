@@ -253,34 +253,101 @@ pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
         return Ok(());
     };
     let fonts = crate::resources::scan_fonts(project)?;
-    // Remove-then-insert keeps the array exactly equal to fonts/ (plutil -remove fails
-    // harmlessly when the key is absent).
-    let _ = Command::new("plutil")
-        .args(["-remove", "UIAppFonts"])
-        .arg(&plist)
-        .output();
-    if fonts.is_empty() {
-        return Ok(());
-    }
     let paths: Vec<String> = fonts
         .iter()
         .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()))
         .map(|n| format!("DayPieces_DayPieces.bundle/fonts/{n}"))
         .collect();
-    let json = serde_json::to_string(&paths).expect("UIAppFonts json");
-    let out = Command::new("plutil")
-        .args(["-replace", "UIAppFonts", "-json", &json])
-        .arg(&plist)
-        .output()
-        .map_err(|e| format!("plutil: {e}"))?;
-    if !out.status.success() {
+    // Written through the same editor as the permission keys, NOT `plutil -replace`. plutil
+    // reserializes the document and moves the key it rewrites to the end, so while these were two
+    // different writers they swapped each other's entries around on every build and the checked-in
+    // plist never stopped churning.
+    let before =
+        std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
+    let values = if paths.is_empty() {
+        None
+    } else {
+        Some(paths.as_slice())
+    };
+    let after = crate::plist::apply_array_key(&before, "UIAppFonts", values)
+        .map_err(|e| format!("{}: {e}", plist.display()))?;
+    if after != before {
+        std::fs::write(&plist, after).map_err(|e| format!("{}: {e}", plist.display()))?;
+    }
+    Ok(())
+}
+
+/// The app Info.plist of the scaffold's app target (older scaffolds used `DayApp/`).
+pub(crate) fn app_info_plist(project: &Project) -> Option<std::path::PathBuf> {
+    [
+        "platform/ios/Runner/Info.plist",
+        "platform/ios/DayApp/Info.plist",
+    ]
+    .iter()
+    .map(|rel| project.root.join(rel))
+    .find(|p| p.exists())
+}
+
+/// Write the `NS…UsageDescription` keys for the app's declared permissions (docs/permissions.md).
+///
+/// iOS reads these at prompt time, and an app that touches a gated API without the matching key is
+/// TERMINATED by TCC — so this is what stands between `[permissions]` in Day.toml and a crash on a
+/// device.
+///
+/// The managed set is DERIVED from the declaration table plus the app's `[permissions.raw].ios`
+/// keys, never from a state file: on a fresh clone the table alone still knows which keys are Day's
+/// to write and to remove. A key outside that set — one a developer added by hand — is never
+/// touched, which is the escape hatch for anything Day doesn't model yet.
+pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<(), String> {
+    let Some(plist) = app_info_plist(project) else {
+        return Ok(());
+    };
+    let platform = if macos { "macos" } else { "ios" };
+    let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
+    let plan = crate::permissions::resolve(&project.manifest, platform, &contributed)
+        .map_err(|e| format!("Day.toml: {e}"))?;
+
+    let want = crate::permissions::apple_keys(&plan, macos);
+    let mut managed = crate::permissions::apple_managed_keys(macos);
+    managed.extend(plan.raw_apple.keys().cloned());
+    let remove: std::collections::BTreeSet<String> = managed
+        .difference(&want.keys().cloned().collect())
+        .cloned()
+        .collect();
+
+    let before =
+        std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
+    let after = crate::plist::apply_string_keys(&before, &want, &remove)
+        .map_err(|e| format!("{}: {e}", plist.display()))?;
+    if after == before {
+        return Ok(()); // touch only when changed — keeps Xcode's incremental build warm
+    }
+    std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
+
+    // Apple's own parser gets the last word. macOS-only, so elsewhere this costs checking, not
+    // correctness — and on failure the original file is restored rather than left corrupt.
+    if cfg!(target_os = "macos")
+        && let Ok(out) = Command::new("plutil").arg("-lint").arg(&plist).output()
+        && !out.status.success()
+    {
+        let _ = std::fs::write(&plist, &before);
         return Err(format!(
-            "could not update UIAppFonts in {}: {}",
-            plist.display(),
-            String::from_utf8_lossy(&out.stderr).trim()
+            "generated Info.plist failed `plutil -lint` and was restored: {}",
+            String::from_utf8_lossy(&out.stdout).trim()
         ));
     }
     Ok(())
+}
+
+/// Everything the iOS build stages before xcodebuild runs.
+///
+/// One function, three call sites (`build_ios`, and both `pack::ios` paths) — because they had
+/// already drifted: the signed-archive path never synced `UIAppFonts`, so a released `.ipa` could
+/// ship a stale font list.
+pub(crate) fn prepare_ios(project: &Project) -> Result<(), String> {
+    crate::pieces::write_ios_pieces(project)?;
+    sync_uiappfonts(project)?;
+    sync_usage_descriptions(project, false)
 }
 
 pub fn build_ios(
@@ -301,12 +368,9 @@ pub fn build_ios(
     // but absolutize here too so this invariant is enforced at the one place that actually matters.
     let symroot = absolute(&project.root.join("build/day/ios-uikit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    // Generate the local DayPieces SwiftPM package (piece Swift shims + SwiftPM deps) that the
-    // .xcodeproj links, from every piece's [package.metadata.day.ios] — before xcodebuild resolves it.
-    crate::pieces::write_ios_pieces(project)?;
-    // Bundled fonts (§18.4): iOS additionally requires every custom font file to be listed in
-    // the app Info.plist's UIAppFonts array. Keep the checked-in plist in sync with fonts/.
-    sync_uiappfonts(project)?;
+    // Stage everything xcodebuild needs: the local DayPieces SwiftPM package the .xcodeproj links,
+    // the UIAppFonts array, and the permission usage descriptions (docs/permissions.md).
+    prepare_ios(project)?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration})", target.name),

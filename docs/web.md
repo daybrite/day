@@ -127,8 +127,12 @@ Known gaps, in rough order of interest:
   yet.
 - **App menus and context menus** — no DOM equivalent of a native menu bar; unsupported.
 - **Native pieces** — webview, media, map, lottie, combobox, searchfield, activity render
-  their standard placeholder. Parts other than prefs and http (battery, sensors, clipboard…)
-  answer their unavailable tier.
+  their standard placeholder. Parts other than prefs, http, sensors and location (battery,
+  clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
+  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists — docs/sensors.md),
+  `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from
+  `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
+  requested from inside a button action while the user gesture is still live.
 - **day-break** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
 - **Window control** — the page can set `document.title`; size, minimum size, and multi-window

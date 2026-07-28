@@ -143,7 +143,6 @@ battery_reading = 电池：{ $percent } · { $state }
 battery_reading_none = 电池：此平台没有电池 API
 
 # Sensors playground (docs/sensors.md)
-sensors_refresh = 读取传感器
 sensor_accelerometer = 加速度计
 sensor_gyroscope = 陀螺仪
 sensor_magnetometer = 磁力计
@@ -537,3 +536,17 @@ textareas_seed_markdown = Markdown
 textareas_editable = 可编辑
 textareas_selectable = 可选择
 textareas_spellcheck = 拼写检查
+sensor_permission = 运动权限
+perm_request = 请求
+perm_open_settings = 打开设置
+nav_location = 定位
+location_permission = 定位权限
+location_start = 开始
+location_stop = 停止
+location_waiting = 正在等待定位…
+location_unavailable = 此平台没有定位服务
+location_coords = { $lat }, { $lon }
+location_altitude = 海拔
+location_accuracy = 精度
+location_unknown = —
+chart_axes = x 红 · y 青 · z 紫

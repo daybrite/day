@@ -384,6 +384,125 @@ pub(crate) fn find_ohos_ndk() -> Result<String, String> {
     )
 }
 
+/// Write the declared permissions into `module.json5`, and their reasons into the module's string
+/// resources.
+///
+/// HarmonyOS requires a user_grant permission's `reason` to be a `$string:` RESOURCE reference, not
+/// literal text — so the two files are written together. Both writers are idempotent and touch only
+/// what Day owns: a marker region in `module.json5`, and the `day_perm_reason_` prefix in
+/// `string.json`.
+fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
+    let module = project
+        .root
+        .join("platform/ohos/entry/src/main/module.json5");
+    if !module.exists() {
+        return Ok(());
+    }
+    let contributed = crate::pieces::contributed_permissions(project, &["arkui"]);
+    let plan = crate::permissions::resolve(&project.manifest, "ohos", &contributed)
+        .map_err(|e| format!("Day.toml: {e}"))?;
+    let entries = crate::permissions::ohos_entries(&plan);
+    for e in &entries {
+        if e.name.ends_with("READ_IMAGEVIDEO") {
+            status("Packing", day_build::permissions::OHOS_PHOTOS_APL_NOTE);
+        }
+    }
+
+    // The ability the permissions are used by — the scaffold has exactly one. Omitting `abilities`
+    // is safer than naming one that doesn't exist, which hvigor rejects.
+    let ability = std::fs::read_to_string(&module)
+        .ok()
+        .filter(|s| s.contains("\"name\": \"EntryAbility\""))
+        .map(|_| "EntryAbility");
+
+    let mut body = String::new();
+    for e in &entries {
+        body.push_str("      { \"name\": \"");
+        body.push_str(&e.name);
+        body.push('"');
+        if let Some(key) = &e.reason_key {
+            body.push_str(&format!(", \"reason\": \"$string:{key}\""));
+        }
+        if let Some(ability) = ability {
+            body.push_str(&format!(
+                ", \"usedScene\": {{ \"abilities\": [\"{ability}\"], \"when\": \"{}\" }}",
+                e.when
+            ));
+        }
+        body.push_str(" },\n");
+    }
+
+    let before =
+        std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+    let with_region = crate::json5::ensure_region(&before, "requestPermissions", "permissions")?;
+    let after = crate::json5::replace_region(&with_region, "permissions", &body)
+        .ok_or_else(|| format!("{}: could not place the managed region", module.display()))?;
+    if after != before {
+        std::fs::write(&module, after).map_err(|e| format!("{}: {e}", module.display()))?;
+    }
+
+    write_ohos_reason_strings(
+        project,
+        &crate::permissions::ohos_reason_strings(&plan, &project.manifest),
+    )
+}
+
+/// Merge the generated `day_perm_reason_*` entries into the module's `string.json`, preserving every
+/// other entry in its existing order.
+fn write_ohos_reason_strings(
+    project: &Project,
+    reasons: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    let path = project
+        .root
+        .join("platform/ohos/entry/src/main/resources/base/element/string.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let before = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let doc: serde_json::Value =
+        serde_json::from_str(&before).map_err(|e| format!("{}: {e}", path.display()))?;
+    let existing = doc
+        .get("string")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("{}: no \"string\" array", path.display()))?;
+
+    let mut kept: Vec<(String, String)> = Vec::new();
+    for item in existing {
+        let (Some(name), Some(value)) = (
+            item.get("name").and_then(|v| v.as_str()),
+            item.get("value").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        // The prefix IS the ownership marker: a reason whose permission was removed disappears with
+        // no state file to consult.
+        if !name.starts_with("day_perm_reason_") {
+            kept.push((name.to_string(), value.to_string()));
+        }
+    }
+    for (k, v) in reasons {
+        kept.push((k.clone(), v.clone()));
+    }
+
+    // Hand-rolled to match the scaffold's exact layout — `to_string_pretty` uses a different one,
+    // which would rewrite the whole file on the first build.
+    let mut out = String::from("{ \"string\": [\n");
+    for (i, (name, value)) in kept.iter().enumerate() {
+        let comma = if i + 1 == kept.len() { "" } else { "," };
+        out.push_str(&format!(
+            "  {{ \"name\": {}, \"value\": {} }}{comma}\n",
+            serde_json::to_string(name).unwrap_or_default(),
+            serde_json::to_string(value).unwrap_or_default()
+        ));
+    }
+    out.push_str("] }\n");
+    if out != before {
+        std::fs::write(&path, out).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 pub fn build_ohos(
     project: &Project,
     target: &'static Target,
@@ -515,6 +634,11 @@ pub fn build_ohos(
             );
         }
     }
+
+    // 1b) Declared permissions → module.json5 + the $string: reason resources they reference
+    //     (docs/permissions.md). HarmonyOS refuses a `reason` that is not a resource reference, so
+    //     both files move together or neither does.
+    sync_ohos_permissions(project)?;
 
     // 2) Assemble the .hap with hvigor (compiles the ArkTS host + packs the native libs + resources).
     //    hvigor + ohpm come from the OpenHarmony command-line-tools (on PATH); the SDK from

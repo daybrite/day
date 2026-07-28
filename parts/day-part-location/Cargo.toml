@@ -1,0 +1,50 @@
+[package]
+name = "day-part-location"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): the device's location, as a one-shot fix or a live
+# stream, through each platform's NATIVE service. Any Rust code can depend on it and call
+# `day_part_location::watch(...)`. Platform selection is by `#[cfg(target_os)]` (location is an OS
+# concern, not a widget-toolkit one), so there are no backend features:
+#   iOS/macOS — CoreLocation CLLocationManager + a delegate
+#   Android   — LocationManager.requestLocationUpdates via a Java shim staged through
+#               [package.metadata.day.android] (deliberately NOT FusedLocationProvider: that needs
+#               Play Services, which AOSP images and many emulators lack — and a Gradle dependency)
+#   Web       — navigator.geolocation.watchPosition through the day-dom shim
+#   HarmonyOS — unsupported: location is an ArkTS-only API with no NDK surface (docs/location.md)
+#   Linux     — unsupported (GeoClue2 would need a D-Bus dependency this tree does not have)
+#   Windows   — unsupported for now (Windows.Devices.Geolocation is the future impl)
+# See docs/location.md + docs/extending.md.
+#
+# PERMISSIONS. This crate does not ask for any: a denial surfaces as
+# `LocationError::PermissionDenied` and the app requests access through day-part-permissions
+# (`Permission::Location`). Keeping them separate means neither crate depends on the other.
+
+[dependencies]
+
+# Apple: raw `objc2` + `block2`, no framework wrapper crates — the same budget day-part-permissions
+# and day-part-network keep. Unlike an authorization read, position updates need a delegate, so this
+# arm defines one with `objc2::define_class!`.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSObject"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+[package.metadata.day.android]
+java = ["android/java"]
+# Location is a runtime permission the APP declares (docs/permissions.md) — this crate never forces
+# one into an app's manifest.
+permissions = []
+
+# --- iOS framework linking (docs/extending.md) ---
+[package.metadata.day.ios]
+frameworks = ["CoreLocation"]

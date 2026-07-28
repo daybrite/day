@@ -41,5 +41,11 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>NSCameraUsageDescription</key>
+	<string>Show how Day asks for a permission — the showcase never opens the camera.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Show your coordinates live on the Device &amp; sensors page.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Show live accelerometer, gyroscope and magnetometer traces on the Device &amp; sensors page.</string>
 </dict>
 </plist>

@@ -16,6 +16,16 @@ targets = [
   "ohos-arkui",
 ]
 
+# OS permissions (docs/permissions.md). `day build` turns these into <uses-permission> entries,
+# Info.plist usage descriptions, and HarmonyOS requestPermissions — the declaration every mobile OS
+# requires before an app may even ask. The reason text is what the OS shows the user in its prompt.
+# The showcase's Device & sensors page reads their status; it never prompts during the walkthrough.
+[permissions]
+camera = "Show how Day asks for a permission — the showcase never opens the camera."
+location-when-in-use = "Show your coordinates live on the Device & sensors page."
+notifications = true
+motion = "Show live accelerometer, gyroscope and magnetometer traces on the Device & sensors page."
+
 [window]
 width = 480
 height = 640

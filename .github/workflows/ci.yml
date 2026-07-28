@@ -78,10 +78,13 @@ jobs:
           scripts/ci/duty-matrix.sh
           git diff --exit-code docs/duty-matrix.md
       # The Android cross-check lint gates HERE (the android-mdc job is continue-on-error
-      # for an emulator flake, so a lint failure there would not fail the workflow). day-part-battery
-      # is headless (no toolkit feature): lint its Linux + Android impls; the macOS/iOS/Windows impls
-      # compile as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
-      - name: Clippy (android cross-check + day-part-battery)
+      # for an emulator flake, so a lint failure there would not fail the workflow). The headless
+      # parts named below have no toolkit feature, and parts are NOT in default-members, so a bare
+      # `cargo test`/`clippy` never reaches them: lint their Linux + Android impls explicitly, and
+      # RUN the tests for the two whose decision logic is pure and host-testable (the permission
+      # status tables and the sensor subscription bookkeeping). The macOS/iOS/Windows impls compile
+      # as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
+      - name: Clippy (android cross-check + headless parts)
         run: |
           rustup target add aarch64-linux-android
           # `-A missing_const_for_thread_local`: clippy 1.97 false-positives this lint on the
@@ -90,8 +93,12 @@ jobs:
           # step above still enforces the lint accurately.
           cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
             --no-default-features --features mdc -- -A clippy::missing_const_for_thread_local
-          cargo clippy --locked -p day-part-battery --all-targets
-          cargo clippy --locked --target aarch64-linux-android -p day-part-battery
+          for P in day-part-battery day-part-permissions day-part-location day-part-sensors; do
+            cargo clippy --locked -p $P --all-targets
+            cargo clippy --locked --target aarch64-linux-android -p $P \
+              -- -A clippy::missing_const_for_thread_local
+          done
+          cargo test --locked -p day-part-permissions -p day-part-location -p day-part-sensors
 
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
@@ -1451,6 +1458,26 @@ jobs:
               cargo run --locked -q -p day-cli -- launch -p web-dom --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
+      # Headless WebKit has no motion hardware, so the walkthrough above can only prove the
+      # "unavailable" path. Serve the built page, dispatch a synthetic `devicemotion` with known
+      # values, and assert the CONVERTED numbers — the deg/s → rad/s conversion and the
+      # beta/gamma/alpha → x/y/z mapping are where a browser sensor arm actually goes wrong
+      # (docs/sensors.md).
+      - name: Sensors (synthetic devicemotion)
+        working-directory: apps/showcase
+        env:
+          DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
+        run: |
+          cargo run --locked -q -p day-cli -- launch -p web-dom --keep-alive >"$RUNNER_TEMP/weblaunch.log" 2>&1 &
+          for _ in $(seq 1 90); do
+            URL=$(grep -o 'http://127.0.0.1:[0-9]*' "$RUNNER_TEMP/weblaunch.log" 2>/dev/null | head -1)
+            [ -n "$URL" ] && break
+            sleep 1
+          done
+          if [ -z "$URL" ]; then
+            echo "the web server never reported a URL:"; cat "$RUNNER_TEMP/weblaunch.log"; exit 1
+          fi
+          node "$GITHUB_WORKSPACE/scripts/ci/webdom-sensor-test.mjs" "$URL/"
       - name: Validate screenshot content
         run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots/web-dom
       - name: Upload screenshots

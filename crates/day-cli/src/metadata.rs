@@ -70,9 +70,11 @@ pub fn run(project: &Project, json: bool) -> i32 {
             "targets": m.app.targets,
             "window": m.window,
             "resolved": resolved,
+            "permissions": declared_permissions(m),
         },
         "host": { "os": host_os() },
         "targetCatalog": catalog,
+        "permissionCatalog": permission_catalog(),
     });
     if json {
         match serde_json::to_string_pretty(&doc) {
@@ -101,4 +103,50 @@ pub fn run(project: &Project, json: bool) -> i32 {
         }
     }
     0
+}
+
+/// The app's declared permissions, resolved from Day.toml alone — no `cargo metadata`, so
+/// `day metadata` stays as fast as it has always been. Library contributions are therefore NOT
+/// included here; `day build` unions them at build time (docs/permissions.md).
+fn declared_permissions(m: &crate::meta::Manifest) -> Vec<serde_json::Value> {
+    m.permissions
+        .declared
+        .iter()
+        .filter(|(_, d)| d.enabled())
+        .filter_map(|(name, decl)| {
+            let spec = day_build::permissions::find(name)?;
+            Some(serde_json::json!({
+                "name": spec.name,
+                "variant": spec.variant,
+                "reason": decl.reason_for("ios"),
+                "android": spec.android.iter().map(|p| p.name).collect::<Vec<_>>(),
+                "ios": spec.ios,
+                "macos": spec.macos,
+                "ohos": spec.ohos.iter().map(|p| p.name).collect::<Vec<_>>(),
+            }))
+        })
+        .collect()
+}
+
+/// Every permission Day can declare, mirroring `targetCatalog`: tooling (day-vscode's completion
+/// for `[permissions]`) reads it from here instead of hand-mirroring the table.
+fn permission_catalog() -> Vec<serde_json::Value> {
+    day_build::permissions::ALL
+        .iter()
+        .map(|spec| {
+            serde_json::json!({
+                "name": spec.name,
+                "variant": spec.variant,
+                "needsReason": spec.needs_reason,
+                "android": spec.android.iter().map(|p| serde_json::json!({
+                    "name": p.name, "maxSdk": p.max_sdk,
+                })).collect::<Vec<_>>(),
+                "ios": spec.ios,
+                "macos": spec.macos,
+                "ohos": spec.ohos.iter().map(|p| serde_json::json!({
+                    "name": p.name, "when": p.when.as_str(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
 }

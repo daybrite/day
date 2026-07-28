@@ -50,7 +50,7 @@ pub fn is_available(kind: SensorKind) -> bool {
     device_dir(channel(kind).0).is_some()
 }
 
-pub fn read(kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     let (prefix, unit) = channel(kind);
     let dir = device_dir(prefix)?;
     Some(SensorReading {

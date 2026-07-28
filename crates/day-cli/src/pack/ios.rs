@@ -81,7 +81,7 @@ pub fn pack(
         .unwrap_or_else(|| name.clone());
 
     // The DayPieces SwiftPM package must exist before xcodebuild resolves the project.
-    crate::pieces::write_ios_pieces(project).map_err(PackError::Other)?;
+    crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
     ensure_shared_scheme(project).map_err(PackError::Other)?;
 
     let build_dir = project.root.join("build/day/ios-uikit");
@@ -266,8 +266,7 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
     let version = &project.manifest.app.version;
 
     // The same pre-build staging the signed path (and build_ios) performs.
-    crate::pieces::write_ios_pieces(project).map_err(PackError::Other)?;
-    crate::mobile::sync_uiappfonts(project).map_err(PackError::Other)?;
+    crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
 
     let build_dir = project.root.join("build/day/ios-uikit");
     let symroot = build_dir.join("pack-unsigned");

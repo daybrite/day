@@ -39,7 +39,7 @@ pub fn is_available(kind: SensorKind) -> bool {
     }
 }
 
-pub fn read(kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     let m = manager().lock().ok()?;
     unsafe {
         match kind {

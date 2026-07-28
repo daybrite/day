@@ -1,0 +1,63 @@
+[package]
+name = "day-part-permissions"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): portable access to the OS PERMISSION system —
+# query what the OS will do, and ask it. Any Rust code can depend on it and call
+# `day_part_permissions::status(perm)` / `request(perm, cb)`. Platform selection is by
+# `#[cfg(target_os)]` (consent is an OS concern, not a widget-toolkit one), so there are no backend
+# features — it "just works" per target:
+#   iOS/macOS — the per-framework authorization APIs (CLLocationManager, AVCaptureDevice,
+#               PHPhotoLibrary, UNUserNotificationCenter, CMMotionActivityManager)
+#   Android   — Context.checkSelfPermission + requestPermissions from a headless Fragment,
+#               through a Java shim staged by [package.metadata.day.android]
+#   HarmonyOS — OH_AT_CheckSelfPermission (libability_access_control), gated on target_env = "ohos"
+#   Web       — navigator.permissions + the per-API request calls, through the day-dom shim
+#   Linux/Windows — no consent database: every gated capability answers Ungated/Granted
+# See docs/permissions.md + docs/extending.md.
+#
+# DEPENDENCY BUDGET. The Apple arm deliberately uses raw `objc2` + `block2` with `class!`/`msg_send!`
+# rather than the objc2-core-location / -av-foundation / -photos / -user-notifications /
+# -core-motion wrapper crates: this crate calls a handful of static authorization methods, and
+# day-part-network already sets the precedent of raw framework access with zero wrapper crates.
+# This crate depends on NO other part.
+
+[dependencies]
+
+# Apple: `objc2` for the runtime (class! / msg_send!), `block2` for the completion handlers the
+# request APIs take. No objc2-* framework wrappers — see the dependency note above.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+
+# Android calls its own Java shim through day-android's cached JVM/Context — the one platform where
+# this headless crate rides on the day runtime (like day-part-http and day-part-sensors).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# --- Android backend contribution (docs/extending.md) ---
+# `day build` stages this Java into the app's Gradle build without touching any core day crate.
+[package.metadata.day.android]
+java = ["android/java"]
+# INTENTIONALLY EMPTY, and it must stay that way: a permissions crate must never force a permission
+# into an app's manifest. The app declares exactly the ones it uses, through `[permissions]` in
+# Day.toml (docs/permissions.md).
+permissions = []
+
+# --- iOS framework linking (docs/extending.md) ---
+# Rust's own `#[link]` is honored only when cargo drives the final link; on iOS xcodebuild links the
+# staticlib and ignores it, so the app links these through the generated DayPieces SwiftPM package.
+[package.metadata.day.ios]
+frameworks = [
+    "CoreLocation",
+    "AVFoundation",
+    "Photos",
+    "UserNotifications",
+    "CoreMotion",
+]

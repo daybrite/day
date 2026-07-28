@@ -1,6 +1,6 @@
 ---
 title: Device capabilities (parts)
-description: "Headless platform capabilities — battery, clipboard, preferences, sensors, network — as ordinary crates with per-OS implementations."
+description: "Headless platform capabilities — battery, clipboard, preferences, sensors, network, permissions, location — as ordinary crates with per-OS implementations."
 order: 25
 section: Guides
 ---
@@ -24,7 +24,10 @@ registry, no runtime lookup, no capability negotiation. Just Rust.
 | `day-part-prefs` | small key-value preference storage in the platform's conventional location | [prefs](/docs/internal/prefs) |
 | `day-part-network` | connectivity status | [network](/docs/internal/network) |
 | `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/internal/deviceinfo) |
-| `day-part-sensors` | accelerometer and friends | [sensors](/docs/internal/sensors) |
+| `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/internal/sensors) |
+| `day-part-http` | HTTP through each platform's own networking stack | [http](/docs/internal/http) |
+| `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
+| `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
 
 ## Using parts

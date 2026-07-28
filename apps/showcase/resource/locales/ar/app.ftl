@@ -151,7 +151,6 @@ battery_reading = البطارية: { $percent } · { $state }
 battery_reading_none = البطارية: لا توجد واجهة برمجة للبطارية على هذه المنصة
 
 # Sensors playground (docs/sensors.md)
-sensors_refresh = قراءة المستشعرات
 sensor_accelerometer = مقياس التسارع
 sensor_gyroscope = الجيروسكوب
 sensor_magnetometer = مقياس المغناطيسية
@@ -549,3 +548,17 @@ textareas_seed_markdown = ماركداون
 textareas_editable = قابل للتحرير
 textareas_selectable = قابل للتحديد
 textareas_spellcheck = التدقيق الإملائي
+sensor_permission = الوصول إلى الحركة
+perm_request = طلب
+perm_open_settings = فتح الإعدادات
+nav_location = الموقع
+location_permission = الوصول إلى الموقع
+location_start = ابدأ
+location_stop = إيقاف
+location_waiting = …في انتظار تحديد الموقع
+location_unavailable = لا توجد خدمة موقع على هذه المنصة
+location_coords = { $lat }, { $lon }
+location_altitude = الارتفاع
+location_accuracy = الدقة
+location_unknown = —
+chart_axes = س أحمر · ص فيروزي · ع بنفسجي

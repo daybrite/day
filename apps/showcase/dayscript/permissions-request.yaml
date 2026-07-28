@@ -1,0 +1,17 @@
+name: permissions-request
+description: >
+  Drive a REAL permission prompt. Opt-in, and deliberately NOT part of walkthrough.yaml: an OS
+  permission dialog is a system modal outside day's present() rail, so dayscript cannot dismiss it
+  and the main matrix would hang waiting. Run it by hand, or on Android where
+  `adb shell pm grant dev.daybrite.showcase android.permission.ACCESS_FINE_LOCATION` (or `revoke`)
+  makes the outcome deterministic before the run.
+flow:
+  - wait_for: { id: home-title }
+  - navigate: { route: system }
+  - assert_route: { route: system }
+  - assert_visible: { id: location-perm }
+  # The button only exists where the platform actually gates the capability — on a target where it
+  # does not, this step is expected to fail, which is itself the honest signal.
+  - tap: { id: location-perm-action }
+  - pause: { secs: 3 }
+  - screenshot: permission-prompt

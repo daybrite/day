@@ -64,7 +64,7 @@ the architecture-level view and the rationale.
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -202,7 +202,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
 | **Toolkit** | A native widget system: UIKit, android.widget, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
@@ -1881,8 +1881,10 @@ Two package kinds share the mechanism:
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
   datetime, pull-refresh, webview, media, map, lottie, remote-image.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
-  battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http (requests through the
-  platform HTTP stack, docs/http.md). Same registration and metadata machinery, no widget.
+  battery, network, sensors (streaming, docs/sensors.md), clipboard, prefs, haptics, deviceinfo,
+  http (requests through the platform HTTP stack, docs/http.md), permissions (the OS consent system
+  plus the build-time declarations each platform requires, docs/permissions.md) and location
+  (docs/location.md). Same registration and metadata machinery, no widget.
 
 ### §15.2 Package layout and aggregation
 
@@ -1908,14 +1910,36 @@ proguard = []                              # R8 keep rules for classes native co
 [package.metadata.day.ios]
 swift = ["ios/swift"]                      # Swift shim source dirs
 swift-packages = [{ url = "https://github.com/airbnb/lottie-ios", from = "4.0.0", products = ["Lottie"] }]
+frameworks = ["CoreLocation"]              # system frameworks the app must link (xcodebuild ignores Rust #[link])
+
+[package.metadata.day.permissions]
+uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
 ```
+
+`[package.metadata.day.permissions]` is machine-facing only: a library declares WHICH permissions it
+needs, never the user-facing reason, which is app copy and lives in the app's `[permissions]` table
+in Day.toml. A contribution the app has given no reason for is a hard build error on iOS and
+HarmonyOS — the alternative is an app that builds and then terminates on a device.
 
 Qt/WinUI/ArkUI native halves are C++ compiled by the crate's own `build.rs` (the `-sys`
 convention, with `day-toolchain` locating SDKs) — no metadata needed. OS-API *parts* select
 their half by OS (`cfg(target_os)`), so battery on `macos-gtk` gets the IOKit half, exactly the
 extra-combo case the design worried about.
 
-**Aggregation never mutates the scaffolds** — this principle shipped intact. `day build` reads
+> [!NOTE]
+> **Status: one deliberate exception (2026-07).** Permission declarations (docs/permissions.md) are
+> written into two CHECKED-IN scaffold files: iOS/macOS `Info.plist` usage-description keys, and a
+> marker region in HarmonyOS's `module.json5`. `sync_uiappfonts` already set that precedent for
+> `UIAppFonts`. Two alternatives were evaluated and rejected: `INFOPLIST_KEY_*` build settings are
+> consumed only when `GENERATE_INFOPLIST_FILE = YES`, which the scaffold pbxproj sets to `NO`
+> (flipping it is a full scaffold rewrite plus a migration); and pointing `INFOPLIST_FILE` at a
+> generated merged plist is architecturally right but breaks the IDE escape hatch — ⌘R in Xcode
+> would produce an app that crashes on first camera use with no signal that `day build` was
+> required. What keeps the exception honest: Day writes and removes ONLY keys inside a closed
+> managed set derived from the declaration table, every other byte is preserved, and two consecutive
+> builds produce a byte-identical file.
+
+**Aggregation never mutates the scaffolds** — this principle shipped intact for everything else. `day build` reads
 the resolved dependency graph via `cargo metadata`, collects every crate's
 `[package.metadata.day.<platform>]`, and regenerates gitignored files the checked-in scaffolds
 reference generically, exactly once:
@@ -2084,7 +2108,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day app` | add platforms/toolkits to an existing app |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, Day.toml schema — fast, source-level |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), Day.toml schema — fast, source-level |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
@@ -2153,7 +2177,9 @@ daybrite/actions' release job packs with that flag ([§20](#20-continuous-integr
 #### `day lint`
 
 Built-in rules only, source-level and fast: fluent coverage (missing/unused/unknown keys across
-all locales), duplicate element ids, unknown navigation routes, `Day.toml` schema validation.
+all locales), duplicate element ids, unknown navigation routes, permission declarations (a
+`Permission::X` the app's `[permissions]` table doesn't declare, a missing reason, and drift between
+that table and the checked-in iOS `Info.plist` — docs/permissions.md), `Day.toml` schema validation.
 `day lint` exits nonzero on findings in strict mode. The wider designed rule set (a11y labels,
 bare literals, scroll nesting, RTL styling) has not been built; `res::str` ([§18.5](#185-typed-resource-constants-docsresourcesmd)) made the
 missing-key class a compile error instead.
@@ -2242,7 +2268,10 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 > **Status: shipped with a smaller schema.** The shipped manifest keeps the principles below;
 > the concrete sections in real projects are `schema`, `[app]` (id, title, build, targets —
 > any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
-> and `[signing.*]` (env-var interpolated, degrade-loudly). Locales, images, assets, and fonts
+> `[signing.*]` (env-var interpolated, degrade-loudly), and — added 2026-07 —
+> `[permissions]`, which declares the OS permissions the app uses and the reason each prompt shows;
+> `day build` turns it into every platform's manifest entry (docs/permissions.md). Locales, images,
+> assets, and fonts
 > are **convention, not configuration** — the `resource/` tree is scanned ([§18](#18-resources-icons-and-theming)). The extended
 > schema sketched below (`[localization]`, `[assets]`, `[icons]`, `[scripting]`, `[lint]`,
 > per-OS tables) was not needed; `day metadata --json` is the tooling contract either way.
@@ -2385,6 +2414,13 @@ Generated at build time into ignored-by-git locations (like flutter's `Generated
 Regeneration is idempotent and content-hashed (touch only when changed — keeps native incremental
 builds warm).
 
+Permission declarations (docs/permissions.md, added 2026-07) follow the same touch-only-when-changed
+rule but two of their three destinations are CHECKED-IN scaffold files rather than generated ones —
+see the exception note in [§15.2](#152-package-layout-and-aggregation), which also records why the
+`Day-Generated.xcconfig` + `INFOPLIST_KEY_*` route above was evaluated for them and rejected (the
+scaffold pbxproj sets `GENERATE_INFOPLIST_FILE = NO`, and changing that would break running the app
+straight from Xcode).
+
 **`cargo build` works standalone — really.** The shipped mechanism: the app's own `build.rs`
 calls `day_build::generate_resources()` (scanning `resource/` relative to the manifest — no CLI
 required), and the `mock` backend is the default cargo feature, so bare `cargo build`, `cargo
@@ -2516,7 +2552,8 @@ day/                                # THIS repository
                                     #   -picker, -rating, -activity, -webview, -media, -map,
                                     #   -lottie, -remote-image, -textarea)
   parts/                            # headless platform services (day-part-battery, -network,
-                                    #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo)
+                                    #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo,
+                                    #   -http, -permissions, -location)
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -label-selectable,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
   apps/

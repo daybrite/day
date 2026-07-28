@@ -13,6 +13,13 @@ const httpInflight = new Map(); // request id → AbortController (day-part-http
 const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
 
+// devicemotion state (see day_dom_sensor_*). One listener, both kinds.
+const SENSOR_GRACE_MS = 2000;
+// The live geolocation watch id (0 = none).
+let geoWatch = 0;
+
+const sensorState = { started: false, startedAt: 0, saw: false, accel: null, gyro: null, timers: [0, 0, 0] };
+
 const mem = () => new Uint8Array(wasm.memory.buffer);
 const f64 = (ptr, len) => new Float64Array(wasm.memory.buffer, ptr, len);
 const str = (ptr, len) => utf8.decode(new Uint8Array(wasm.memory.buffer, ptr, len));
@@ -257,6 +264,91 @@ const env = {
     if (replace || route === location.hash.slice(1)) history.replaceState(null, '', url);
     else if (route) location.hash = route;
     else history.pushState(null, '', url);
+  },
+
+  // Motion sensors (docs/sensors.md): the browser arm of day-part-sensors, over `devicemotion`.
+  //
+  // ONE listener feeds both kinds — the event carries acceleration and rotation together. The
+  // magnetometer has no cross-browser API at all (Chromium's Generic Sensor `Magnetometer` is
+  // flag-gated and absent from Safari and Firefox), so kind 2 is always unavailable.
+  //
+  // Availability can only be known in retrospect: `'DeviceMotionEvent' in window` is true on a
+  // desktop browser with no hardware, so this reports "available" until a grace period passes with
+  // no event, and "unavailable" after — which is the honest answer for a laptop.
+  day_dom_sensor_start(kind) {
+    if (kind === 2 || sensorState.started) return;
+    sensorState.started = true;
+    sensorState.startedAt = Date.now();
+    addEventListener('devicemotion', (e) => {
+      const a = e.accelerationIncludingGravity;
+      if (a && a.x !== null) {
+        sensorState.accel = [a.x, a.y, a.z];
+        sensorState.saw = true;
+      }
+      const r = e.rotationRate;
+      if (r && r.alpha !== null) {
+        // day's gyroscope contract is rad/s about the device axes; the event reports deg/s, with
+        // beta about x, gamma about y and alpha about z.
+        const d = Math.PI / 180;
+        sensorState.gyro = [r.beta * d, r.gamma * d, r.alpha * d];
+        sensorState.saw = true;
+      }
+    });
+  },
+  /// 1 when a sample was written to `out` as three f64s, 0 when none has arrived.
+  day_dom_sensor_read(kind, out) {
+    const v = kind === 0 ? sensorState.accel : kind === 1 ? sensorState.gyro : null;
+    if (!v) return 0;
+    f64(out, 3).set(v);
+    return 1;
+  },
+  // The feed timer. wasm32 has no threads, so the browser drives sampling: this calls the module's
+  // exported day_sensors_tick(kind), which fans the newest reading out to that sensor's watchers.
+  day_dom_sensor_feed(kind, ms) {
+    if (sensorState.timers[kind]) return;
+    sensorState.timers[kind] = setInterval(() => {
+      try { wasm.day_sensors_tick(kind); } catch (e) { console.error('day: sensor tick', e); }
+    }, ms);
+  },
+  day_dom_sensor_unfeed(kind) {
+    clearInterval(sensorState.timers[kind]);
+    sensorState.timers[kind] = 0;
+  },
+  day_dom_sensor_available(kind) {
+    if (kind === 2 || typeof DeviceMotionEvent === 'undefined') return 0;
+    if (sensorState.saw) return 1;
+    // Not started yet, or still inside the grace period.
+    return !sensorState.started || Date.now() - sensorState.startedAt < SENSOR_GRACE_MS ? 1 : 0;
+  },
+
+  // Location (docs/location.md): the browser arm of day-part-location, over
+  // `navigator.geolocation.watchPosition`. The browser's API is already a subscription with an
+  // error channel, so it maps almost one-to-one.
+  //
+  // A field the browser did not measure is `null`, which crosses to Rust as NaN — the part turns a
+  // non-finite value back into `None` rather than inventing a zero.
+  day_dom_geo_available() {
+    return navigator.geolocation ? 1 : 0;
+  },
+  day_dom_geo_start(high) {
+    if (geoWatch !== 0 || !navigator.geolocation) return;
+    const n = (v) => (v === null || v === undefined ? NaN : v);
+    geoWatch = navigator.geolocation.watchPosition(
+      (p) => {
+        const c = p.coords;
+        wasm.day_location_fix(
+          c.latitude, c.longitude, n(c.altitude), n(c.accuracy),
+          n(c.altitudeAccuracy), n(c.speed), n(c.heading), n(p.timestamp),
+        );
+      },
+      (e) => wasm.day_location_error(e.code),
+      { enableHighAccuracy: high !== 0, timeout: 30000, maximumAge: 0 },
+    );
+  },
+  day_dom_geo_stop() {
+    if (geoWatch === 0) return;
+    navigator.geolocation.clearWatch(geoWatch);
+    geoWatch = 0;
   },
 
   // Preferences (docs/prefs.md): the browser arm of day-part-prefs. localStorage can throw

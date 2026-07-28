@@ -207,7 +207,7 @@ pub fn is_available(kind: SensorKind) -> bool {
     available_types().contains(&sensor_type(kind))
 }
 
-pub fn read(kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     if !is_available(kind) {
         return None;
     }

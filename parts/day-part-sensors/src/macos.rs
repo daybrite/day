@@ -8,6 +8,6 @@ pub fn is_available(_kind: SensorKind) -> bool {
     false
 }
 
-pub fn read(_kind: SensorKind) -> Option<SensorReading> {
+pub fn sample(_kind: SensorKind) -> Option<SensorReading> {
     None
 }
