@@ -1216,6 +1216,16 @@ and primitives, never text formats.
 > generated Rust registrant and the required-kinds startup completeness check — was **not
 > built**; release builds (including the packed iOS app) have not hit the dead-strip problem in
 > practice, and the design is kept here in case it ever does.
+>
+> **web-dom is the exception (2026-07):** `linkme`'s `#[distributed_slice]` refuses to compile for
+> `wasm32-unknown-unknown` ("distributed_slice is not implemented for this platform", 0.3.36 and
+> 0.3.37), so `day-dom` carries a runtime registry instead — a `thread_local` `Registry<Dom>` plus
+> `day_dom::register_renderer(fn() -> Renderer<Dom>)`, idempotent per kind and consulted at all
+> three dispatch points (realize, update, measure) before the placeholder leaf. Pieces call it from
+> their own constructor, which necessarily runs before the node they return is realized. That is
+> layer 1 above (the idempotent `register()`) arriving on the one backend that had no choice, and it
+> needs no link-time trick because a wasm module has a single deterministic init path. First
+> consumer: `day-piece-media` ([docs/media.md](docs/media.md)).
 
 Registration was designed **layered** so that `linkme` is a convenience, not a correctness mechanism (the
 bare `use crate as _;` anchor is a link-time gamble under iOS `-dead_strip` + LTO, and a

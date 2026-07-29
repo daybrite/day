@@ -71,6 +71,12 @@ function create(kind) {
     case 20: el = div('day-radios'); break;
     default: el = div('day-container');
   }
+  return register(el);
+}
+
+/// Give an element its shim-side id and keep it addressable. Shared by create() and the
+/// tag-name escape hatch piece renderers use.
+function register(el) {
   el.__id = els.length;
   els.push(el);
   return el.__id;
@@ -114,6 +120,14 @@ const env = {
     if (name === 'disabled' || name === 'readonly') {
       val === '' ? el.removeAttribute(name) : el.setAttribute(name, '');
     } else el.setAttribute(name, val);
+  },
+  // The piece-renderer escape hatch (docs/extending.md): day-dom's own EL_* kind codes cover only
+  // the built-in vocabulary, so an external piece creates its element by tag name and drives it
+  // with zero-argument method calls (`play`, `pause`, `load`, …).
+  day_dom_create_tag(t, tl) { return register(document.createElement(str(t, tl))); },
+  day_dom_call(id, m, ml) {
+    const el = V(id); const name = str(m, ml);
+    try { el[name]?.(); } catch (e) { console.error('day: ' + name + '()', e); }
   },
   day_dom_set_class(id, ptr, len, on) { E(id).classList.toggle(str(ptr, len), !!on); },
   day_dom_set_value(id, v) {

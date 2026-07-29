@@ -388,15 +388,14 @@ flow:
   - scroll_to: { id: scroll-demo, edge: top }
 
   # Native media player (docs/media.md): an EXTERNAL piece wrapping each toolkit's native player
-  # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo). The pause lets
-  # first frames of the network sample arrive; then pause playback so the captured frame is
-  # stable. (On iOS/Android the bundled Lottie animation joins this page.)
+  # (AVPlayerView / AVPlayerViewController / QMediaPlayer / VideoView / GtkVideo / <video>). The
+  # pause lets first frames of the network sample arrive; then pause playback so the captured frame
+  # is stable. (On iOS/Android the bundled Lottie animation joins this page.)
   - navigate: { route: media }
   - assert_route: { route: media }
   - assert_visible: { id: media-title }
   - pause: { secs: 5 }
-  # skip_on web-dom: the media piece renders its placeholder (no dom renderer yet).
-  - tap: { id: media-pause, skip_on: [web-dom] }
+  - tap: { id: media-pause }
   - screenshot: media
 
   # Bundled resources (§18.3): an image loaded by name via the native image pipeline +

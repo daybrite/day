@@ -19,6 +19,9 @@ The whole extensibility story rests on two mechanisms:
 
 1. **Renderers register link-time** into each backend's `RENDERERS` slice (via `linkme`), so a backend
    dispatches an unknown `kind` to the piece's `make`/`update`/`measure` with no registry edits.
+   (web-dom is the one exception: `linkme` has no wasm32 implementation, so `day-dom` keeps a
+   runtime registry and the piece calls `day_dom::register_renderer` from its own constructor. Same
+   three functions, same dispatch, different moment — see [media.md](media.md).)
 2. **Native backend assets** (C++ shims, Android Java, Gradle deps) are declared in the crate's own
    `Cargo.toml` / `build.rs` and folded into the app's native build automatically.
 

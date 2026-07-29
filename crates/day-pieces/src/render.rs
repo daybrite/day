@@ -87,6 +87,111 @@ macro_rules! renderer {
     };
 }
 
+/// Register a piece's **web-dom** renderer, whose registry is populated at RUNTIME.
+///
+/// `linkme` has no `wasm32-unknown-unknown` implementation (DESIGN.md §8.2), so `day-dom` keeps a
+/// `Registry<Dom>` that pieces add to by calling `day_dom::register_renderer`. This macro is
+/// `renderer!`'s counterpart for that seam: same typed `make`/`update`/`measure`, same inserted
+/// downcast, but it defines an idempotent `pub(crate) fn register()` instead of a static — and the
+/// piece's own constructor must call it, which is the one line web pieces write that link-time ones
+/// don't:
+///
+/// ```ignore
+/// // lib-dom.rs
+/// day_pieces::dom_renderer!(day_dom::register_renderer, day_dom::Dom,
+///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update, measure: measure);
+///
+/// // lib.rs — a constructor always runs before the node it returns is realized.
+/// pub fn my_piece(…) -> MyPiece {
+///     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+///     dom_impl::register();
+///     …
+/// }
+/// ```
+///
+/// One `dom_renderer!` per module.
+#[macro_export]
+macro_rules! dom_renderer {
+    ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
+     make: $make:expr, update: $update:expr, measure: $measure:expr $(,)?) => {
+        $crate::__dom_renderer!(
+            $register,
+            $backend,
+            $kind,
+            $props,
+            $patch,
+            $make,
+            $update,
+            ::core::option::Option::Some($measure)
+        );
+    };
+    ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
+     make: $make:expr, update: $update:expr $(,)?) => {
+        $crate::__dom_renderer!(
+            $register,
+            $backend,
+            $kind,
+            $props,
+            $patch,
+            $make,
+            $update,
+            ::core::option::Option::None
+        );
+    };
+    // patchless: props + make (+ measure), mirroring `renderer!`.
+    ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty,
+     make: $make:expr, measure: $measure:expr $(,)?) => {
+        $crate::__dom_renderer!(
+            $register,
+            $backend,
+            $kind,
+            $props,
+            (),
+            $make,
+            (|_b, _h, _p| {}),
+            ::core::option::Option::Some($measure)
+        );
+    };
+    ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, make: $make:expr $(,)?) => {
+        $crate::__dom_renderer!(
+            $register,
+            $backend,
+            $kind,
+            $props,
+            (),
+            $make,
+            (|_b, _h, _p| {}),
+            ::core::option::Option::None
+        );
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __dom_renderer {
+    ($register:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr, $measure:expr) => {
+        /// Add this piece's renderer to web-dom's runtime registry. Idempotent — the registry
+        /// keeps the first entry per kind, so calling it from every constructor is free.
+        pub(crate) fn register() {
+            ($register)(|| $crate::Renderer::<$backend> {
+                kind: $kind,
+                make: |__b, __props, __id| {
+                    let __p = __props
+                        .downcast_ref::<$props>()
+                        .expect(concat!("day renderer: props are not ", stringify!($props)));
+                    ($make)(__b, __p, __id)
+                },
+                update: |__b, __h, __patch| {
+                    if let ::core::option::Option::Some(__p) = __patch.downcast_ref::<$patch>() {
+                        ($update)(__b, __h, __p)
+                    }
+                },
+                measure: $measure,
+            });
+        }
+    };
+}
+
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __renderer {
@@ -162,5 +267,12 @@ macro_rules! __glue_module {
         #[cfg(all(feature = "arkui", target_env = "ohos"))]
         #[path = "lib-arkui.rs"]
         mod arkui_impl;
+    };
+    // `pub(crate)` unlike its siblings: web-dom registers at runtime, so the piece's own
+    // constructor calls `dom_impl::register()` (see `dom_renderer!`) — the module has a caller.
+    (dom) => {
+        #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+        #[path = "lib-dom.rs"]
+        pub(crate) mod dom_impl;
     };
 }

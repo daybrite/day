@@ -31,13 +31,16 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 # exists so apps can enable `day-piece-media/mock` uniformly; the media kind then falls back to
 # day's placeholder leaf.
 winui = ["dep:day-winui", "dep:day-winui-sys"]
+# Web: a plain <video>. Registered at RUNTIME rather than link-time — wasm has no `linkme`
+# distributed slice (see lib-dom.rs), so the piece registers itself from its constructor.
+dom = ["dep:day-dom"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "dom", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -53,6 +56,7 @@ day-android = { workspace = true, optional = true }
 day-winui = { workspace = true, optional = true }
 day-winui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
+day-dom = { workspace = true, optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIViewController", "UIResponder"] }

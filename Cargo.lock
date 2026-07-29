@@ -968,6 +968,7 @@ dependencies = [
  "day-android",
  "day-appkit",
  "day-core",
+ "day-dom",
  "day-gtk",
  "day-mock",
  "day-pieces",

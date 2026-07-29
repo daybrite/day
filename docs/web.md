@@ -126,8 +126,13 @@ Known gaps, in rough order of interest:
   browser). Images and fonts work; raw asset bytes need an embedding mode that does not exist
   yet.
 - **App menus and context menus** — no DOM equivalent of a native menu bar; unsupported.
-- **Native pieces** — webview, media, map, lottie, combobox, searchfield, activity render
-  their standard placeholder. Parts other than prefs, http, sensors and location (battery,
+- **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
+  standard placeholder. `day-piece-media` now renders a real `<video>` (docs/media.md): the browser
+  supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
+  `.muted(true)`. The seam is open for the others — day-dom exposes a RUNTIME renderer registry
+  (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
+  use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
+  own constructor. Parts other than prefs, http, sensors and location (battery,
   clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
   and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists — docs/sensors.md),
   `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from

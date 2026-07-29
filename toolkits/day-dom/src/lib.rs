@@ -21,7 +21,8 @@ use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, FontSpec, FontWeight,
     GestureKind, Lifecycle, ListSource, MenuItem, NodeId, Paint, PieceKind, Platform, Point,
-    Proposal, Rect, Shape, Size, Support, TextAnchor, Toolkit, Transform, WindowOptions, kinds,
+    Proposal, Rect, Registry, Renderer, Shape, Size, Support, TextAnchor, Toolkit, Transform,
+    WindowOptions, kinds,
     present::{PresentButton, PresentResult, PresentSpec},
 };
 
@@ -34,6 +35,11 @@ use day_spec::{
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn day_dom_create(kind: u32) -> u32;
+    /// Create an element by TAG NAME — the escape hatch piece renderers build on, since day-dom's
+    /// own `EL_*` kind codes only cover the built-in vocabulary.
+    fn day_dom_create_tag(tag: *const u8, tag_len: usize) -> u32;
+    /// Invoke a zero-argument method on an element (`play`, `pause`, `load`, …).
+    fn day_dom_call(el: u32, method: *const u8, method_len: usize);
     fn day_dom_insert(parent: u32, child: u32, index: u32);
     fn day_dom_remove(child: u32);
     fn day_dom_release(el: u32);
@@ -344,6 +350,39 @@ fn json_str(out: &mut String, v: &str) {
 // The toolkit
 // ---------------------------------------------------------------------------
 
+thread_local! {
+    /// Renderers registered by external Day Piece crates (§8.2, docs/extending.md).
+    ///
+    /// Every other backend exposes this seam as a `linkme` distributed slice populated at link
+    /// time. **That mechanism does not exist on wasm** — `#[distributed_slice]` fails to compile
+    /// for `wasm32-unknown-unknown` with "distributed_slice is not implemented for this platform"
+    /// (checked against linkme 0.3.37) — so web-dom registers at RUNTIME instead, and a piece
+    /// self-registers the first time its constructor runs. That happens before its node is
+    /// realized, so the renderer is always in place by the time it is needed.
+    ///
+    /// Without this seam a piece could not render on the web at all: `realize` receives `&dyn Any`
+    /// props whose concrete type lives in the piece crate, so only the piece itself can downcast
+    /// them — day-dom cannot special-case a piece it does not (and must not) depend on.
+    static REGISTRY: RefCell<Registry<Dom>> = RefCell::new(Registry::default());
+}
+
+/// Register an external piece's web renderer. Idempotent: a piece calls this from its constructor,
+/// which may run many times.
+pub fn register_renderer(make: fn() -> Renderer<Dom>) {
+    REGISTRY.with(|r| {
+        let mut r = r.borrow_mut();
+        let renderer = make();
+        if r.get(renderer.kind).is_none() {
+            r.register(renderer);
+        }
+    });
+}
+
+/// Look up a registered renderer's `make`/`update`/`measure`, if any.
+fn registered<T>(kind: PieceKind, f: impl FnOnce(&Renderer<Dom>) -> T) -> Option<T> {
+    REGISTRY.with(|r| r.borrow().get(kind).map(f))
+}
+
 pub struct Dom {
     root: u32,
 }
@@ -352,6 +391,25 @@ impl Dom {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Dom { root: 1 }
+    }
+
+    /// Create a DOM element of `tag` for a piece renderer, returning its handle.
+    ///
+    /// The public helper surface a `lib-dom.rs` builds on: piece crates cannot reach day-dom's
+    /// private shim imports, so element creation, attributes and method calls go through these.
+    pub fn element(&mut self, tag: &str) -> DomHandle {
+        DomHandle(unsafe { day_dom_create_tag(tag.as_ptr(), tag.len()) })
+    }
+
+    /// Set an attribute. The boolean-attribute convention applies: `""` removes, `"-"` sets
+    /// (see the shim's `day_dom_set_attr`).
+    pub fn set_attr(&mut self, h: &DomHandle, name: &str, value: &str) {
+        attr(h.0, name, value);
+    }
+
+    /// Call a zero-argument method on the element (`play`, `pause`, `load`, …).
+    pub fn call(&mut self, h: &DomHandle, method: &str) {
+        unsafe { day_dom_call(h.0, method.as_ptr(), method.len()) };
     }
 }
 
@@ -610,6 +668,12 @@ impl Toolkit for Dom {
                 host
             }
             other => {
+                // An external piece's own dom renderer, if one registered for this kind.
+                if let Some(make) = registered(other, |r| r.make) {
+                    let h = make(self, props, id);
+                    remember(h.0, id);
+                    return h;
+                }
                 warn(&format!(
                     "day: no renderer for piece kind \"{other}\" on web-dom (rendering a placeholder)"
                 ));
@@ -763,7 +827,11 @@ impl Toolkit for Dom {
                     list_patch(el, p);
                 }
             }
-            _ => {}
+            other => {
+                if let Some(update) = registered(other, |r| r.update) {
+                    update(self, h, patch);
+                }
+            }
         }
     }
 
@@ -887,7 +955,12 @@ impl Toolkit for Dom {
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             kinds::IMAGE => Size::new(p.width.unwrap_or(100.0), p.height.unwrap_or(100.0)),
-            _ => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+            other => {
+                if let Some(measure) = registered(other, |r| r.measure).flatten() {
+                    return measure(self, h, p);
+                }
+                Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+            }
         }
     }
 

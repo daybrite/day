@@ -79,6 +79,10 @@ pub struct Media {
 /// a file path or an http(s) URL). The initial value loads on creation and autoplays by default;
 /// call `.load(trigger)` and fire the trigger to (re)load whatever `url` currently holds.
 pub fn media<M>(url: impl IntoText<M>) -> Media {
+    // Self-register the web renderer. wasm has no link-time renderer slice, and a constructor is
+    // the earliest point the piece is known to be in play — always before its node is realized.
+    #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+    dom_impl::register();
     Media {
         url: url.into_text(),
         autoplay: true,
@@ -195,7 +199,7 @@ impl Piece for Media {
 // falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui, dom);
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's

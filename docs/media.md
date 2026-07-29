@@ -1,9 +1,10 @@
 # Media player (external piece)
 
 > **Status: implemented** as `day-piece-media`, an external Day Piece (like `day-piece-webview`),
-> registered link-time into each backend's renderer slice without touching day. It wraps each
-> toolkit's native media player for audio/video playback and fills the space it's offered
-> (constrain it with `.frame(w, h)`).
+> registered into each backend's renderer slice without touching day — link-time on the eight native
+> backends, runtime on web-dom (wasm has no `linkme`, so the piece registers itself from `media()`).
+> It wraps each toolkit's native media player for audio/video playback and fills the space it's
+> offered (constrain it with `.frame(w, h)`).
 
 ## Authoring
 
@@ -32,7 +33,8 @@ media(url)
 string accepts either a local file path or an http(s)/file URL; each backend picks the right
 loader (`fileURLWithPath` vs `URLWithString`, `QUrl::fromUserInput`, `Uri.parse`,
 `gio::File::for_path/for_uri`), and anything containing `://` is treated as a URL. The initial value
-loads when the view is created. Transport is imperative with `Copy` `Trigger`s: `.play()` /
+loads when the view is created. (Web is the exception on paths: a page can only fetch a URL, so
+web-dom needs an http(s) one — see the Web note below.) Transport is imperative with `Copy` `Trigger`s: `.play()` /
 `.pause()` resume and pause, and `.load()` re-reads the bound url and plays it (track switching). There
 is deliberately no two-way "playing" binding in v1: native chrome mutates play state behind
 day's back, so state readback would need an observer rail on every backend (the `Event::custom`
@@ -42,12 +44,12 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
 
 ## Per-backend native realization
 
-| | AppKit | UIKit | Qt | Android | GTK |
-|---|---|---|---|---|---|
-| control | `AVPlayerView` + `AVPlayer` | `AVPlayerViewController` + `AVPlayer` | `QMediaPlayer` + `QAudioOutput` + `QVideoWidget` | `android.widget.VideoView` | `gtk4::Video` (GtkMediaFile) |
-| native code | objc2-av-kit / objc2-av-foundation | hand-rolled `extern_class!` + `msg_send!` (+ objc2-av-foundation) | `src/lib-qt-shim.cpp` (+ links `Qt6MultimediaWidgets`) | `android/java/…/DayMedia.java` | gtk4 crate (core widget) |
-| chrome (`.controls`) | `controlsStyle` Inline/None | `showsPlaybackControls` | none (v1: drive with triggers) | `MediaController` | GtkVideo overlay (always on) |
-| looping | end-notification observer → seek 0 | end-notification observer → seek 0 | `QMediaPlayer::setLoops(Infinite)` | `MediaPlayer.setLooping` | `Video::set_loop` |
+| | AppKit | UIKit | Qt | Android | GTK | Web |
+|---|---|---|---|---|---|---|
+| control | `AVPlayerView` + `AVPlayer` | `AVPlayerViewController` + `AVPlayer` | `QMediaPlayer` + `QAudioOutput` + `QVideoWidget` | `android.widget.VideoView` | `gtk4::Video` (GtkMediaFile) | `<video>` |
+| native code | objc2-av-kit / objc2-av-foundation | hand-rolled `extern_class!` + `msg_send!` (+ objc2-av-foundation) | `src/lib-qt-shim.cpp` (+ links `Qt6MultimediaWidgets`) | `android/java/…/DayMedia.java` | gtk4 crate (core widget) | `src/lib-dom.rs` (attributes only, no shim) |
+| chrome (`.controls`) | `controlsStyle` Inline/None | `showsPlaybackControls` | none (v1: drive with triggers) | `MediaController` | GtkVideo overlay (always on) | `controls` attribute |
+| looping | end-notification observer → seek 0 | end-notification observer → seek 0 | `QMediaPlayer::setLoops(Infinite)` | `MediaPlayer.setLooping` | `Video::set_loop` | `loop` attribute |
 
 **Backend notes:**
 
@@ -80,6 +82,16 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
   Homebrew's gtk4 ships no media backend, so on macos-gtk GtkVideo shows its own "no media backend"
   error UI (the same caveat class as webkitgtk, a Linux-first backend). GtkVideo's overlay controls
   cannot be hidden, so `.controls(false)` is a no-op.
+- **Web**: the one backend where the player is *less* work than the native arms — the browser
+  supplies transport chrome, buffering, scrubbing, fullscreen, captions and picture-in-picture, and
+  every `MediaProps` field is an attribute of the same name. Two web-only rules follow from browser
+  policy, not from day: a **file path will not load** (a page can only fetch a URL, and a
+  cross-origin one needs CORS — serve it from the app's own `dist/` or use a permissive remote), and
+  **autoplay with sound is blocked** until the user has interacted with the page, so `.muted(true)`
+  is what makes `.autoplay(true)` actually start. Registration is the other difference: `linkme`'s
+  `#[distributed_slice]` does not compile for `wasm32-unknown-unknown`, so day-dom keeps a runtime
+  registry (`day_dom::register_renderer`) and `media()` registers the renderer on its first call,
+  which always precedes the node being realized.
 - **WinUI / mock**: the features exist (so an app can enable `day-piece-media/<feature>` uniformly
   per backend) but register no renderer; the media kind falls back to day's placeholder leaf.
   WinUI's eventual route is `MediaPlayerElement` via the cppwinrt shim pattern. HarmonyOS is
