@@ -105,7 +105,7 @@ Candidates a chat client needs that Day may lack — confirm against the invento
 | macos-gtk / macos-qt | ✓ | ✓ | none (host) |
 | ios-uikit | via xcodebuild | ✓ (simulator) | **rustls/sqlite for aarch64-apple-ios-sim** |
 | android-mdc | via gradle | ✓ (emulator) | **rustls/sqlite for aarch64-linux-android (NDK)** |
-| ohos-arkui | env-gated | ✗ (needs DevEco/Huawei) | **ohos target** |
+| harmony-arkui | env-gated | ✗ (needs DevEco/Huawei) | **ohos target** |
 | windows-winui | ✗ on Mac | ✗ | — |
 
 "Locally-available platforms" = appkit, gtk, qt, ios-sim, android-emu. OHOS/WinUI are build-checked
@@ -246,7 +246,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   matrix-core fix above resolves it (real names → `tap room-day-test-room` succeeds → send).
 - **macos-appkit re-verified 13/13 ✓** after the matrix-core changes (no regression); macos-gtk
   unaffected (matrix-core changes are cross-platform).
-- **ohos-arkui / windows-winui**: not attempted here — winui needs Windows, and ohos would need its
+- **harmony-arkui / windows-winui**: not attempted here — winui needs Windows, and ohos would need its
   own `platform/` scaffold + an ohos entry macro + an OHOS matrix-sdk cross-compile (beyond the
   "don't spend long" build-check).
 

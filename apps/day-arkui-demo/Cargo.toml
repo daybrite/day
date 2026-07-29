@@ -10,7 +10,7 @@ publish = false
 name = "entry"
 crate-type = ["cdylib"]
 
-# `day build -p ohos-arkui` selects the backend via `--features arkui` (Tier A.2), like every other
+# `day build -p harmony-arkui` selects the backend via `--features arkui` (Tier A.2), like every other
 # target; the `day = { features = ["arkui"] }` dep below keeps a bare `cargo build` working too.
 [features]
 arkui = ["day/arkui"]

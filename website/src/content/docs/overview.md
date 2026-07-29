@@ -69,7 +69,7 @@ layer to pay for.
 | `linux-gtk` | Linux | GTK 4 · libadwaita |
 | `linux-qt` | Linux | Qt 6 Widgets |
 | `windows-winui` | Windows | WinUI (XAML Islands) |
-| `ohos-arkui` | OpenHarmony / HarmonyOS | ArkUI |
+| `harmony-arkui` | OpenHarmony / HarmonyOS | ArkUI |
 | `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |
 | `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 |
 

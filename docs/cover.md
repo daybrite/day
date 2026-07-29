@@ -1,7 +1,7 @@
 # Fullscreen cover (`cover`) & the system-gesture shield
 
 > **Status: implemented** on ios-uikit (native fullscreen modal), android-mdc (window
-> overlay + slide transition), ohos-arkui (topmost full-window child), and mock (probe-visible
+> overlay + slide transition), harmony-arkui (topmost full-window child), and mock (probe-visible
 > patches). Desktop backends have no realization yet — `Cap::Cover` answers `Unsupported`
 > there and the content never shows. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.

@@ -5,7 +5,7 @@
 //!
 //! Per-target default formats:
 //!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
-//!   linux-gtk/linux-qt → flatpak · windows-winui → msix+nsis · ohos-arkui → hap
+//!   linux-gtk/linux-qt → flatpak · windows-winui → msix+nsis · harmony-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
 pub(crate) mod android;
@@ -90,7 +90,7 @@ fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
         "android-mdc" => vec!["apk", "aab"],
         "linux-gtk" | "linux-qt" => vec!["flatpak"],
         "windows-winui" => vec!["msix", "nsis"],
-        "ohos-arkui" => vec!["hap"],
+        "harmony-arkui" => vec!["hap"],
         "macos-gtk" | "macos-qt" | "windows-gtk" | "windows-qt" => {
             return Err(format!(
                 "pack for {} means bundling the toolkit into the package — deferred (DESIGN.md \
@@ -152,7 +152,7 @@ pub fn run(
                 artifacts.push(nsis::pack(project, opts, &staged, &dist)?);
             }
         }
-        "ohos-arkui" => {
+        "harmony-arkui" => {
             artifacts.push(ohos::pack(project, target, opts, &dist)?);
         }
         other => return Err(PackError::Other(format!("pack does not support {other}"))),

@@ -5,7 +5,7 @@ schema = 1
 id = "dev.daybrite.daylite"
 title = "Daylite"
 build = 1
-targets = ["ios-uikit", "android-mdc", "ohos-arkui"]
+targets = ["ios-uikit", "android-mdc", "harmony-arkui"]
 
 [window]
 width = 420

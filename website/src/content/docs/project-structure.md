@@ -152,14 +152,14 @@ adb install … && am start DayActivity                   (day launch)
 The Gradle scaffold also calls back (`day gradle-backend build`) so a build started from Android
 Studio rebuilds the Rust `.so` the same way.
 
-### HarmonyOS: `ohos-arkui`
+### HarmonyOS: `harmony-arkui`
 
 The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project in
 `platform/ohos/`, a cross-compiled NAPI library, and a post-build signing step that needs no vendor
 account:
 
 ```text
-day build -p ohos-arkui
+day build -p harmony-arkui
 │
 ├── cargo rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
 │       linker = $OHOS_NDK_HOME/llvm/bin/<triple>-clang

@@ -23,7 +23,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `windows-winui` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
 | `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
-| `ohos-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
+| `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
 | `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](/showcase/web-dom/) on this site is the CI artifact — see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
@@ -75,7 +75,7 @@ WinAppSDK runtime, so there's no runtime bootstrap to install. Built with MSVC. 
 shim pattern is the same as Qt's. This target builds and walks through in CI but has had less
 real-application time than the Apple/Linux/Android targets; calibrate expectations accordingly.
 
-### OpenHarmony (`ohos-arkui`)
+### OpenHarmony (`harmony-arkui`)
 The newest and least proven backend: ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
 are the least ergonomic of the supported platforms to install — `day doctor --toolkit harmonyos`

@@ -1,4 +1,4 @@
-//! ohos-arkui → .hap. With `signing.ohos` config the hvigor-built UNSIGNED hap is release-signed
+//! harmony-arkui → .hap. With `signing.ohos` config the hvigor-built UNSIGNED hap is release-signed
 //! via the SDK's hap-sign-tool (localSign, user keystore + release cert + provisioning profile);
 //! without it the dev path stands (platform/ohos/sign-hap.mjs + the public OpenHarmony cert —
 //! emulator installs only, dev tier).

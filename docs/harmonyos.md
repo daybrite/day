@@ -128,7 +128,7 @@ hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
 
 `day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
-In practice you don't run any of the above by hand — `day launch -p ohos-arkui` does the whole flow
+In practice you don't run any of the above by hand — `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
 ```bash
@@ -137,12 +137,12 @@ In practice you don't run any of the above by hand — `day launch -p ohos-arkui
 day ohos emulator launch
 
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
-day launch --project apps/showcase -p ohos-arkui
+day launch --project apps/showcase -p harmony-arkui
 ```
 
 ## Multiple devices / architectures
 
-`day launch -p ohos-arkui` enumerates every reachable `hdc` target, queries each one's arch
+`day launch -p harmony-arkui` enumerates every reachable `hdc` target, queries each one's arch
 (`uname -m` → x86_64 emulator / arm64 device), builds a `libentry.so` for **each** arch, and packs
 them all into the one `.hap` (`libs/x86_64/` + `libs/arm64-v8a/`) so it installs on any of them.
 It then installs + starts the app on **every** connected target. Android (`adb`, per-device
@@ -151,7 +151,7 @@ all connected devices, building whatever ABIs they need.
 
 ## Status
 
-`ohos-arkui` is a **first-class, non-experimental** target. Pieces render as real ArkUI Native
+`harmony-arkui` is a **first-class, non-experimental** target. Pieces render as real ArkUI Native
 NodeAPI nodes, verified on the Oniro emulator:
 
 - **Nav shell** (`selector`) — a scrollable list that pushes detail pages.
@@ -181,7 +181,7 @@ packed into the `.hap`.
 
 ## CI
 
-The `ohos-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`macos-14`). The build
+The `harmony-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`macos-14`). The build
 gates **hard** (clippy + cross-compile + `hvigorw assembleHap` + sign + `day doctor`); only the
 emulator boot + walkthrough are best-effort (`continue-on-error` per step) because the GitHub-hosted
 TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmony

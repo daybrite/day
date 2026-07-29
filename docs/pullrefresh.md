@@ -55,7 +55,7 @@ The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the
 |---|---|---|
 | ios-uikit | **Native** | A passthrough host view attaches a `UIRefreshControl` to the descendant `UIScrollView` when day mounts it (`didAddSubview:` — covers `list()`: a `UITableView` IS a `UIScrollView`). |
 | android-mdc | **Native** | This crate's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
-| ohos-arkui | **Native** | `ARKUI_NODE_REFRESH` created by this crate's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
+| harmony-arkui | **Native** | `ARKUI_NODE_REFRESH` created by this crate's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
 | macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from ELASTIC scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
 | gtk | Emulated | Overlay + `GtkScrolledWindow::edge-overshot` (Top) — GTK's purpose-built overshoot signal. |
 | qt / winui | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; WinUI's `RefreshContainer` is touch-only — native tier is a follow-up for touch devices). |

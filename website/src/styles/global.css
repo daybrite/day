@@ -38,7 +38,7 @@
   --pf-linux-gtk: #63e6e2;     /* mint */
   --pf-linux-qt: #64d2ff;      /* cyan */
   --pf-windows-winui: #40c8e0; /* teal */
-  --pf-ohos-arkui: #ff453a;    /* red */
+  --pf-harmony-arkui: #ff453a;    /* red */
   --pf-web-dom: #ff9f0a;       /* orange */
 
   /* OS-level aliases (the hero carousel is keyed by OS) resolve to the canonical target. */
@@ -47,7 +47,7 @@
   --pf-android: var(--pf-android-mdc);
   --pf-linux: var(--pf-linux-gtk);
   --pf-windows: var(--pf-windows-winui);
-  --pf-harmony: var(--pf-ohos-arkui);
+  --pf-harmony: var(--pf-harmony-arkui);
   --pf-web: var(--pf-web-dom);
 
   --radius: 14px;
@@ -94,7 +94,7 @@
   --pf-linux-gtk: #00c7be;     /* mint */
   --pf-linux-qt: #32ade6;      /* cyan */
   --pf-windows-winui: #30b0c7; /* teal */
-  --pf-ohos-arkui: #ff3b30;    /* red */
+  --pf-harmony-arkui: #ff3b30;    /* red */
   --pf-web-dom: #ff9500;       /* orange */
 
   color-scheme: light;
@@ -108,7 +108,7 @@
 [data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
 [data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
 [data-pf='windows-winui'] { --pf: var(--pf-windows-winui); }
-[data-pf='ohos-arkui'] { --pf: var(--pf-ohos-arkui); }
+[data-pf='harmony-arkui'] { --pf: var(--pf-harmony-arkui); }
 [data-pf='web-dom'] { --pf: var(--pf-web-dom); }
 
 * { box-sizing: border-box; }

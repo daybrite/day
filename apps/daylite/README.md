@@ -8,7 +8,7 @@ WebView and no build step (TypeScript is stripped at load).
 ## Run it
 
 ```sh
-day launch -p ios-uikit          # or android-mdc / ohos-arkui
+day launch -p ios-uikit          # or android-mdc / harmony-arkui
 ```
 
 The three bundled samples (Weather, Todos, Tic-Tac-Toe) appear in the catalog and install
@@ -41,7 +41,7 @@ installed apps and their data persist across launches.
 ## Known issues
 
 None open. Daylite runs the full smoke script on all three targets (ios-uikit,
-android-mdc, ohos-arkui — the Oniro emulator included).
+android-mdc, harmony-arkui — the Oniro emulator included).
 
 Earlier issues in this list are FIXED in day itself (see docs/cover.md's delivery
 contract): re-opening a miniapp after closing one no longer breaks — the process-global

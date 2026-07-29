@@ -43,7 +43,7 @@ jobs:
           - { combo: linux-gtk,      os: ubuntu-latest,  toolkit: gtk }
           - { combo: linux-qt,       os: ubuntu-latest,  toolkit: qt }
           - { combo: android-mdc, os: ubuntu-latest,  toolkit: android }
-          - { combo: ohos-arkui,     os: ubuntu-latest,  toolkit: harmonyos }
+          - { combo: harmony-arkui,     os: ubuntu-latest,  toolkit: harmonyos }
           - { combo: windows-winui,  os: windows-latest, toolkit: winui }
           - { combo: windows-qt,     os: windows-latest, toolkit: qt }
           - { combo: windows-gtk,    os: windows-latest, toolkit: gtk }
@@ -101,15 +101,15 @@ jobs:
           tool: cargo-ndk
 
       # The OpenHarmony SDK (NDK for the Rust cross-compile) + hvigor/ohpm/node from the
-      # command-line-tools — the same recipe ci.yml's ohos-arkui job uses.
+      # command-line-tools — the same recipe ci.yml's harmony-arkui job uses.
       - name: OHOS SDK
-        if: ${{ matrix.combo == 'ohos-arkui' }}
+        if: ${{ matrix.combo == 'harmony-arkui' }}
         uses: openharmony-rs/setup-ohos-sdk@v1
         id: ohos-sdk
         with:
           version: "6.1"
       - name: OHOS toolchain env + hvigor
-        if: ${{ matrix.combo == 'ohos-arkui' }}
+        if: ${{ matrix.combo == 'harmony-arkui' }}
         env:
           CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
         run: |
@@ -129,7 +129,7 @@ jobs:
           # layout with "The SDK management mode has changed" — it wants the NEW versioned view
           # (<base>/<api>/{ets,native,toolchains,…}). Build one from the CLT's bundled API-18
           # OpenHarmony SDK (matching the app template's compileSdkVersion), the same recipe as
-          # ci.yml's ohos-arkui job.
+          # ci.yml's harmony-arkui job.
           OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
           BASE="$HOME/ohos-ohsdk"
           mkdir -p "$BASE"

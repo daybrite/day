@@ -26,7 +26,7 @@ const PRIMARY = [
   'windows-winui',
   'linux-gtk',
   'linux-qt',
-  'ohos-arkui',
+  'harmony-arkui',
 ];
 
 // Installable payloads only — pack.json/log droppings in the dist dirs are skipped.

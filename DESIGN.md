@@ -148,7 +148,7 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak) in CI |
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak) in CI |
 | `windows-winui` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
-| `ohos-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers (docs/harmonyos.md) |
+| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers (docs/harmonyos.md) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server (docs/web.md) |
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
@@ -162,7 +162,7 @@ Because GTK and Qt are themselves portable, the **non-default combinations** `ma
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
 (OS, toolkit) pair whose toolkit supports that OS. Day's own development loop runs six targets
 on a single macOS host: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator),
-`android-mdc` (emulator), and `ohos-arkui` (cross-compile; emulator via `day ohos`).
+`android-mdc` (emulator), and `harmony-arkui` (cross-compile; emulator via `day ohos`).
 
 A `day` command-line tool — deliberately modeled on the architecture of `flutter_tools`
 (`flutter/packages/flutter_tools`) — creates, builds, signs, launches, packs, lints, scripts,
@@ -1423,7 +1423,7 @@ drives the full walkthrough this way, including the HTTP demo against the dev se
 `/day-http-ok` echo (day-part-http's browser arm rides the shim, docs/http.md). docs/web.md
 is the reference.
 
-**ohos-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
+**harmony-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
 (`ArkUI_NativeNodeAPI_1`) matched day-spec's shape and the backend is now first-class — full
 walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` packing, and
 `day ohos` emulator helpers. docs/harmonyos.md is the reference.

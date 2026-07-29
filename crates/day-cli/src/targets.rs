@@ -113,7 +113,7 @@ pub const TARGETS: &[Target] = &[
         experimental: false,
     },
     Target {
-        name: "ohos-arkui",
+        name: "harmony-arkui",
         toolkit: "arkui",
         kind: TargetKind::HarmonyOs,
         host: "any",

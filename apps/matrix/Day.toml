@@ -13,7 +13,7 @@ targets = [
   "windows-winui",
   "ios-uikit",
   "android-mdc",
-  "ohos-arkui",
+  "harmony-arkui",
 ]
 
 [window]

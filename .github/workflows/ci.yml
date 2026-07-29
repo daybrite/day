@@ -224,7 +224,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-mdc, ohos-arkui, windows-winui]
+    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-winui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -908,13 +908,13 @@ jobs:
           if-no-files-found: warn
 
   # --- HarmonyOS Next / OpenHarmony ArkUI emulator -------------------------
-  # Brings ohos-arkui to parity with the other mobile targets: `day launch -p ohos-arkui --script …`
+  # Brings harmony-arkui to parity with the other mobile targets: `day launch -p harmony-arkui --script …`
   # cross-compiles the app to libentry.so, packages + signs the .hap, then installs + launches + drives
   # it on an emulator over hdc, capturing screenshots for the gallery — exactly the Android/iOS flow.
   # The OpenHarmony SDK (NDK + hdc + RELEASE signing material) comes from openharmony-rs/setup-ohos-sdk;
   # the Oniro QEMU emulator boots via Day's own launcher; hvigor + ohpm (absent from the public SDK)
   # come from the command-line-tools, run under the runner's node.
-  ohos-arkui:
+  harmony-arkui:
     # EXPERIMENTAL (continue-on-error at the JOB level): the whole HarmonyOS job runs on ONE
     # x86_64 Linux runner so the x86_64 Oniro guest can run KVM-accelerated (same-arch guest +
     # /dev/kvm) instead of TCG software emulation — the boot + 8-variant walkthrough was ~25 min
@@ -926,7 +926,7 @@ jobs:
     # the guest reliably — ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
     # TCG bottleneck, so x86_64 Linux should now be both far faster AND reliable. If KVM turns out
     # unavailable, set `DAY_OHOS_ACCEL=tcg,thread=multi` to force software emulation.)
-    name: ohos-arkui
+    name: harmony-arkui
     runs-on: ubuntu-latest
     continue-on-error: true
     needs: [linux-day]
@@ -1078,7 +1078,7 @@ jobs:
       # per cycle so each run's engine port takes effect — docs/harmonyos.md). Two variants
       # (light/dark) rather than the full eight: each TCG pass is minutes long, and the
       # gallery's OHOS column falls back per shot for the locale variants.
-      - name: Emulator walkthrough (ohos-arkui × light/dark × en/fr/ar/zh-CN)
+      - name: Emulator walkthrough (harmony-arkui × light/dark × en/fr/ar/zh-CN)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true
         working-directory: apps/showcase
@@ -1093,12 +1093,12 @@ jobs:
           DAY_OHOS_SHOT_SETTLE_MS: 2500
         run: |
           # One hvigor+sign build for all eight variants (theme/locale are runtime inputs).
-          $DAY_BIN build -p ohos-arkui
+          $DAY_BIN build -p harmony-arkui
           for TH in $WALKTHROUGH_THEMES; do
             for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ohos-arkui --skip-build --script dayscript/walkthrough.yaml \
+              $DAY_BIN launch -p harmony-arkui --skip-build --script dayscript/walkthrough.yaml \
                 --variant $VAR --env DAY_THEME=$TH $EXTRA \
                 || echo "::warning::ohos walkthrough variant $VAR failed"
             done
@@ -1127,29 +1127,29 @@ jobs:
       # Distribution packaging (§16.5): the .hap, release-signed when signing.ohos material is
       # configured; the public-cert dev signature otherwise (emulator installs only, dev tier).
       # DAY_OHOS_ARCH pins the packaged .so to arm64 (devices); the emulator runs x86_64.
-      - name: Pack (ohos-arkui → hap)
+      - name: Pack (harmony-arkui → hap)
         working-directory: apps/showcase
         env:
           DAY_OHOS_ARCH: arm64
-        run: $DAY_BIN pack -p ohos-arkui --no-version-in-name --format json
+        run: $DAY_BIN pack -p harmony-arkui --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: showcase-dist-ohos-arkui
+          name: showcase-dist-harmony-arkui
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-ohos-arkui
-          path: apps/showcase/build/day/screenshots/ohos-arkui
+          name: screenshots-harmony-arkui
+          path: apps/showcase/build/day/screenshots/harmony-arkui
           if-no-files-found: warn
       - name: Upload the .hap (post-mortem)
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ohos-arkui-artifacts
+          name: harmony-arkui-artifacts
           path: apps/showcase/platform/ohos/entry/build/**/*.hap
           if-no-files-found: ignore
 
@@ -1508,7 +1508,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website:
     name: website (build)
-    needs: [macos, ios-uikit, linux, android-mdc, ohos-arkui, windows-winui, windows-msys2, api-docs, web-dom]
+    needs: [macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-winui, windows-msys2, api-docs, web-dom]
     # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
     # the release pipeline instead).
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}

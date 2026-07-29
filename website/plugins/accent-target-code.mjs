@@ -13,7 +13,7 @@ const TARGETS = new Set([
   'linux-gtk',
   'linux-qt',
   'windows-winui',
-  'ohos-arkui',
+  'harmony-arkui',
   'web-dom',
   // Secondary desktop combos take their toolkit family's color (see global.css).
   'macos-gtk',

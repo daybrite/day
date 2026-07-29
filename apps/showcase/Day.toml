@@ -13,7 +13,7 @@ targets = [
   "macos-qt",
   "ios-uikit",
   "android-mdc",
-  "ohos-arkui",
+  "harmony-arkui",
 ]
 
 # OS permissions (docs/permissions.md). `day build` turns these into <uses-permission> entries,

@@ -5,7 +5,7 @@ Day's HarmonyOS / OpenHarmony backend, built on ArkUI's native C API.
 Pieces become real ArkUI nodes — text, buttons, sliders, swipers — created from native
 code and mounted into a slot provided by a small ArkTS host, which owns the window while
 Rust owns the widget tree. The shape mirrors Day's Android backend. This is the backend
-behind the `ohos-arkui` target; `day ohos` helps with emulators, and the details live in
+behind the `harmony-arkui` target; `day ohos` helps with emulators, and the details live in
 Day's HarmonyOS guide.
 
 You don't add this crate to a project yourself. Backends are chosen by a cargo feature on

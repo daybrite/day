@@ -1,4 +1,4 @@
-//! HarmonyOS / OpenHarmony (`ohos-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
+//! HarmonyOS / OpenHarmony (`harmony-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
 //! pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages + signs a `.hap`
 //! via the ArkTS host project under `<project>/platform/ohos/`; `launch_ohos` installs + starts it on a
 //! connected emulator/device over `hdc`.
@@ -221,7 +221,7 @@ pub fn ohos_target() -> String {
 
 /// The `hdc` executable: on PATH if present, else resolved from the SDK install's sibling
 /// `toolchains/` dir (the public SDK ships it there, next to the `native` NDK) — so
-/// `day launch -p ohos-arkui` works from GUI-launched editors whose environment has neither the
+/// `day launch -p harmony-arkui` works from GUI-launched editors whose environment has neither the
 /// variable nor the PATH entry.
 fn hdc_bin() -> &'static str {
     static HDC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -512,7 +512,7 @@ pub fn build_ohos(
     let harmony = project.root.join("platform/ohos");
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
-            "ohos-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/ohos/` \
+            "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/ohos/` \
              project (the hvigor project + sign-hap.mjs), like apps/showcase/platform/ohos. See \
              docs/harmonyos.md.",
             harmony.display()
@@ -531,7 +531,7 @@ pub fn build_ohos(
     for (triple, abi) in ohos_build_arches() {
         let target_dir = project
             .root
-            .join("build/day/cargo/ohos-arkui")
+            .join("build/day/cargo/harmony-arkui")
             .join(abi)
             .join(profile);
         let linker_var = format!(
@@ -844,7 +844,7 @@ fn install_and_start(
     // service may not accept installs yet, and `hdc install`'s exit code + its "error: failed to
     // execute your command" message are BOTH unreliable on Oniro (the app often installs anyway).
     // Gate on `bm dump -a` actually listing the bundle rather than on the install command's output.
-    status("Installing", &format!("ohos-arkui ({bundle}) on {key}"));
+    status("Installing", &format!("harmony-arkui ({bundle}) on {key}"));
     let mut install_log = String::new();
     let mut installed = false;
     for attempt in 1..=10u32 {
@@ -892,7 +892,7 @@ fn install_and_start(
         args.extend(["--ps".to_string(), "day.locale".to_string(), locale.clone()]);
     }
 
-    status("Launching", &format!("ohos-arkui ({bundle}) on {key}"));
+    status("Launching", &format!("harmony-arkui ({bundle}) on {key}"));
     // Kill any RUNNING instance first: the ability is a singleton, so a bare `aa start` would
     // just foreground it — with the OLD run's dayscript port/token, while this run's engine
     // params ride the new want. A fresh process re-reads them in onCreate (docs/harmonyos.md).

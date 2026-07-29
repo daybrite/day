@@ -34,7 +34,7 @@ export const platforms = /** @type {Platform[]} */ ([
   { id: 'windows-winui', label: 'WinUI 3', os: 'Windows', toolkit: 'WinUI 3' },
   { id: 'windows-gtk', label: 'GTK 4', os: 'Windows', toolkit: 'GTK 4 · libadwaita' },
   { id: 'windows-qt', label: 'Qt 6', os: 'Windows', toolkit: 'Qt 6 Widgets' },
-  { id: 'ohos-arkui', label: 'ArkUI', os: 'HarmonyOS', toolkit: 'ArkUI · NodeAPI' },
+  { id: 'harmony-arkui', label: 'ArkUI', os: 'HarmonyOS', toolkit: 'ArkUI · NodeAPI' },
   { id: 'web-dom', label: 'Web DOM', os: 'Web', toolkit: 'DOM · captured in WebKit' },
 ]);
 
@@ -74,7 +74,7 @@ export const suites = [
     platforms: [
       'ios-uikit',
       'android-mdc',
-      'ohos-arkui',
+      'harmony-arkui',
       'macos-appkit',
       'windows-winui',
       'linux-qt',
