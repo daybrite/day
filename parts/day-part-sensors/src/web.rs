@@ -1,5 +1,5 @@
 //! The browser (`web-dom`): `DeviceMotionEvent` through the day-dom shim's `day_dom_sensor_*`
-//! imports (`toolkits/day-dom/host/shim.js`).
+//! imports (`crates/day-cli/resources/web/shim.js`).
 //!
 //! One `devicemotion` listener feeds both supported kinds, because the event carries acceleration
 //! and rotation together:

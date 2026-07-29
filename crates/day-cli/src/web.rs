@@ -1,6 +1,6 @@
 //! web-dom build + launch (DESIGN.md §9, docs/web.md). Build compiles the app's lib crate as a
 //! wasm32 cdylib and assembles a self-contained `dist/` — host page + shim + stylesheet
-//! (embedded from `toolkits/day-dom/host/` at CLI compile time), the wasm module, bundled
+//! (embedded from `resources/web/` at CLI compile time), the wasm module, bundled
 //! images, and fonts with a `fonts.json` manifest the shim pre-loads. Launch serves `dist/`
 //! over loopback (browsers won't instantiate wasm from `file:`) and opens the default browser.
 
@@ -13,11 +13,15 @@ use crate::meta::Project;
 use crate::ops::{BuildOutcome, LaunchSpec, apply_app_identity, feature_selection, status};
 use crate::targets::Target;
 
-// The host page trio, embedded so an installed CLI needs no source checkout. These are the
-// SAME files day-dom's crate docs describe; edits there ship with the next CLI build.
-const HOST_INDEX: &str = include_str!("../../../toolkits/day-dom/host/index.html");
-const HOST_SHIM: &str = include_str!("../../../toolkits/day-dom/host/shim.js");
-const HOST_CSS: &str = include_str!("../../../toolkits/day-dom/host/day.css");
+// The host page trio, embedded so an installed CLI needs no source checkout. They live INSIDE
+// this crate (not next to `toolkits/day-dom`, whose `extern "C"` block shim.js implements)
+// because `include_str!` may not reach outside the package: `cargo package` copies only this
+// directory, so a path into the workspace vanishes on crates.io and `cargo install day-cli`
+// fails to compile — which is exactly what shipped in 0.0.15. Editing shim.js means rebuilding
+// the CLI, and `day-dom`'s crate docs point here.
+const HOST_INDEX: &str = include_str!("../resources/web/index.html");
+const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
+const HOST_CSS: &str = include_str!("../resources/web/day.css");
 
 pub fn build_web(
     project: &Project,

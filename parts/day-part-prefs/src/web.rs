@@ -1,5 +1,5 @@
 //! The browser arm: `localStorage` through the day-dom shim's `day_dom_pref_*` imports
-//! (`toolkits/day-dom/host/shim.js`, `day.pref.` key namespace). Persistence is an OS concern,
+//! (`crates/day-cli/resources/web/shim.js`, `day.pref.` key namespace). Persistence is an OS concern,
 //! and on the web the OS is the browser — values survive reloads and browser restarts, scoped
 //! per origin. Using this crate on wasm outside a day-dom host page fails at instantiation
 //! (the imports are unresolved); the web target is `web-dom` (docs/web.md).

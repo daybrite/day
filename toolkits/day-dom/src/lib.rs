@@ -3,10 +3,16 @@
 //! semantic HTML plus ARIA, never a canvas-painted imitation (§0.3).
 //!
 //! Architecture: the same trampoline shape as day-arkui, with JavaScript in place of C. A
-//! small shim (`host/shim.js`) owns every real DOM call, keyed by numeric element ids; Rust
-//! passes ids and UTF-8 (ptr, len) pairs across plain `extern "C"` imports, and the shim
-//! calls back through a handful of exports (`day_dom_event`, `day_dom_posted`, …). No
-//! wasm-bindgen, no bundler: the host page is a plain ES module that instantiates the wasm.
+//! small shim owns every real DOM call, keyed by numeric element ids; Rust passes ids and
+//! UTF-8 (ptr, len) pairs across plain `extern "C"` imports, and the shim calls back through
+//! a handful of exports (`day_dom_event`, `day_dom_posted`, …). No wasm-bindgen, no bundler:
+//! the host page is a plain ES module that instantiates the wasm.
+//!
+//! **The shim lives in `crates/day-cli/resources/web/`** (`shim.js`, `index.html`, `day.css`),
+//! not here: `day-cli` embeds the trio with `include_str!` so an installed CLI serves a
+//! self-contained `dist/`, and `include_str!` may not reach outside its own package. Every
+//! `extern "C"` import below has its implementation there — change one, change both, and
+//! rebuild the CLI for the edit to reach a served page.
 //!
 //! Layout stays day-core-owned: `set_frame` writes absolute positions, exactly like the Qt
 //! and ArkUI backends. The exceptions are nav/tab pages, whose panes are CSS-managed and

@@ -8,9 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# The web backend (DESIGN.md §9): the DOM is the toolkit. Pure Rust over a small JS shim
-# (host/shim.js) that owns the actual DOM calls, keyed by numeric node ids — the same
-# trampoline architecture as day-arkui's NodeAPI shim, with JS in place of C.
+# The web backend (DESIGN.md §9): the DOM is the toolkit. Pure Rust over a small JS shim that
+# owns the actual DOM calls, keyed by numeric node ids — the same trampoline architecture as
+# day-arkui's NodeAPI shim, with JS in place of C. The shim ships inside day-cli
+# (crates/day-cli/resources/web/), which embeds it; see this crate's lib.rs header.
 [dependencies]
 day-spec = { workspace = true }
 day-geometry = { workspace = true }

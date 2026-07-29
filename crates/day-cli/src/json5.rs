@@ -164,8 +164,10 @@ fn indent_of(text: &str, pos: usize) -> String {
 mod tests {
     use super::*;
 
-    const MODULE: &str =
-        include_str!("../../../apps/showcase/platform/ohos/entry/src/main/module.json5");
+    // The scaffold template, not the showcase's copy: `include_str!` may not reach outside this
+    // package (see web.rs) — and a fixture the CLI's own writers can edit would drift. Same
+    // reasoning as plist.rs's `SHOWCASE` fixture; `day new` copies this file verbatim.
+    const MODULE: &str = include_str!("../templates/app/platform/ohos/entry/src/main/module.json5");
 
     #[test]
     fn inserts_a_region_then_replaces_it() {

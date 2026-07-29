@@ -1,5 +1,5 @@
 //! The browser (`web-dom`): `navigator.geolocation.watchPosition` through the day-dom shim's
-//! `day_dom_geo_*` imports (`toolkits/day-dom/host/shim.js`).
+//! `day_dom_geo_*` imports (`crates/day-cli/resources/web/shim.js`).
 //!
 //! The cleanest arm of the three: the browser's API is already a subscription with an error channel,
 //! so it maps onto this crate's shape almost exactly. The shim pushes each position into the

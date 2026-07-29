@@ -212,10 +212,15 @@ jobs:
   # (cargo-dist style: version/URLs/sizes/checksums baked in); pulls in the per-combo app packages
   # (release-signed on tags when the DAY_* secrets are set, dev-signed otherwise); writes one
   # SHA256SUMS; attests build provenance for every file; and attaches the lot to a published GitHub
-  # release. The actual crates.io upload is the separate `publish` job (Trusted Publishing). `--no-verify`:
-  # the workspace's per-platform toolkit crates can't all compile on one runner (iOS/Android/Qt/GTK/
-  # WinUI/ArkUI) and the CI matrix already build-verifies them, so publishing only packages + uploads.
+  # release. The actual crates.io upload is the separate `publish` job (Trusted Publishing).
   # `!cancelled()`: the dry-run is independent of the matrix, so a flaky leg still lets the gate report.
+  #
+  # The dry-run VERIFIES (it does not pass `--no-verify`): cargo unpacks each .crate and builds it,
+  # which is the only check that catches a package that is not self-contained. `include_str!` reaching
+  # outside its package compiles in-tree and fails for every `cargo install day-cli` user — that
+  # shipped in 0.0.15 (the web-dom host trio). Verification is cheap here because all four publishable
+  # crates (day-build, day-cli, day-fonts, day-toolchain) are host-only tooling; the per-platform
+  # toolkit crates that can't share a runner are all publish=false and are never packaged.
   release:
     name: release
     if: ${{ !cancelled() }}
@@ -237,7 +242,7 @@ jobs:
       # Publishability gate — verify the workspace could publish on every push/PR/tag (a green gate on
       # the tagged commit precedes the real upload in the `publish` job).
       - name: Verify publishability (cargo publish --workspace --dry-run)
-        run: cargo publish --workspace --dry-run --no-verify --locked
+        run: cargo publish --workspace --dry-run --locked
 
       # --- GitHub release (semantic tags only) ---
       - name: Check the tag matches the workspace version
@@ -310,10 +315,12 @@ jobs:
   # No API-key secret. crates.io Trusted Publishing exchanges this job's GitHub OIDC token (minted by
   # rust-lang/crates-io-auth-action) for a short-lived, publish-scoped token. The job runs in the
   # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this job —
-  # on a semantic tag — can mint that token. It publishes the three publishable crates
-  # (day-fonts → day-toolchain → day-cli; every other member is publish=false) in dependency order;
-  # --no-verify because the CI matrix already build-verifies them. `needs: [release]` orders it after
-  # the version-match check + GitHub release, and only runs if the publishability dry-run passed.
+  # on a semantic tag — can mint that token. It publishes the four publishable crates in dependency
+  # order (day-fonts, day-toolchain → day-build → day-cli; every other member is publish=false);
+  # --no-verify because the `release` job's dry-run already unpacked and BUILT each package from this
+  # same commit, and re-verifying mid-upload would risk failing with some crates already published.
+  # `needs: [release]` orders it after the version-match check + GitHub release, and only runs if the
+  # publishability dry-run passed.
   publish:
     name: publish (crates.io)
     needs: [release]

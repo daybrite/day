@@ -421,7 +421,7 @@ macro_rules! arkui_main {
 }
 
 /// Expands to the `day_dom_main` C export the web host's `shim.js` calls once the wasm module
-/// is instantiated (`wasm.day_dom_main()` at the end of `start()` in `host/shim.js`).
+/// is instantiated (`wasm.day_dom_main()` at the end of `start()` in `crates/day-cli/resources/web/shim.js`).
 ///
 /// ```ignore
 /// day::web_main!(root);              // or: day::web_main!("My App", root);

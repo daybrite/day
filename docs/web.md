@@ -30,10 +30,12 @@ index.html                        app.wasm (Rust cdylib)
 - **`toolkits/day-dom/src/lib.rs`** — the `Toolkit`/`Platform` impl. Pieces map to elements
   (`<div>`, `<button>`, `<input>`, `<select>`, `<progress>`, `<img>`, `<canvas>`, `<dialog>`…);
   layout stays day-core-owned `position:absolute` frames, with two exceptions below.
-- **`toolkits/day-dom/host/`** — `shim.js` (the DOM half: element table, event dispatch, canvas
-  replay, dialogs, text measurement), `day.css` (control styling, light + dark via CSS custom
-  properties), `index.html` (fetches and instantiates the wasm). `day build` embeds these three
-  files, so an installed CLI needs no source checkout.
+- **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
+  canvas replay, dialogs, text measurement), `day.css` (control styling, light + dark via CSS
+  custom properties), `index.html` (fetches and instantiates the wasm). The trio lives in the CLI
+  rather than beside the toolkit because `day build` embeds it with `include_str!` — so an
+  installed CLI needs no source checkout — and `include_str!` may not reach outside its own
+  package. **Editing shim.js means rebuilding the CLI** before the change reaches a served page.
 - **`day::web_main!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
   instantiated. Emits nothing off wasm32, like the other entry macros (§17.4).
 
