@@ -12,7 +12,7 @@ the backend arrives through a cargo feature on [`day`](https://crates.io/crates/
 
 This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
 out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
-GTK 4, Qt 6, WinUI, and ArkUI — from one codebase. There is no web view and no bundled
+GTK 4, Qt 6, XAML, and ArkUI — from one codebase. There is no web view and no bundled
 rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
 shows a Material button.
 

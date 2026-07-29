@@ -46,7 +46,7 @@ pub(crate) fn tweaks_page() -> AnyPiece {
     .align(HAlign::Leading)
     .modifier(Card);
 
-    // day-tweak-slider-tickmarks: the full-range tweak — six toolkits, incl. its own Qt/WinUI/
+    // day-tweak-slider-tickmarks: the full-range tweak — six toolkits, incl. its own Qt/XAML/
     // ArkUI native code. The tweaked slider snaps to its marks where the platform supports it.
     let ticks_card = column((
         label(crate::res::str::tweaks_ticks_title()).font(Font::Headline),

@@ -159,7 +159,7 @@ impl<'de> Deserialize<'de> for StringOrVec {
 /// contribute nothing.
 #[derive(Deserialize, Default)]
 struct PieceMeta {
-    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `mdc`, `winui`, `mock`) this piece
+    /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `mdc`, `xaml`, `mock`) this piece
     /// declares a `[features]` entry for. Only these get `<pkg>/<backend>` unioned in.
     #[serde(default)]
     backends: Vec<String>,

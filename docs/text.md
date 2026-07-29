@@ -35,7 +35,7 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 |---|---|---|
 | **UIKit** (iOS) | `UIFont.preferredFont(forTextStyle:)` (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
 | **AppKit** (macOS) | `NSFont.preferredFont(forTextStyle:)` | Follows the system font settings |
-| **WinUI** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
+| **XAML** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
 | **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |

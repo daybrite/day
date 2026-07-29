@@ -301,7 +301,7 @@ pub fn support() -> day_spec::Support {
         all(feature = "uikit", target_os = "ios"),
         all(feature = "mdc", target_os = "android"),
         feature = "qt",
-        all(feature = "winui", windows),
+        all(feature = "xaml", windows),
         all(feature = "arkui", target_env = "ohos"),
     )) {
         day_spec::Support::Native
@@ -495,7 +495,7 @@ impl Piece for TimePicker {
 // each to its feature + target.
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui, arkui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui);
 
 // ---------------------------------------------------------------------------
 // Unit tests: the calendar math every backend leans on.

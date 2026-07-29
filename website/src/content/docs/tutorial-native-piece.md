@@ -1,6 +1,6 @@
 ---
 title: "Tutorial: A native piece (per-toolkit)"
-description: "Build a piece backed by a native control on each platform: a front-end in Rust plus per-toolkit backends (objc2 for AppKit/UIKit, gtk-rs, a Qt C++ shim, an Android Java factory, WinUI), registered without touching any core Day crate."
+description: "Build a piece backed by a native control on each platform: a front-end in Rust plus per-toolkit backends (objc2 for AppKit/UIKit, gtk-rs, a Qt C++ shim, an Android Java factory, XAML), registered without touching any core Day crate."
 order: 42
 section: Extend
 ---
@@ -13,7 +13,7 @@ each toolkit you want to support.
 
 This is the highest-effort tier of extension in Day. You are going to write the same widget five or
 six times: once in Objective-C (through `objc2`), once in gtk-rs, once as a Qt C++ shim, once as an
-Android Java factory, and once as a WinUI C++/WinRT shim. That is more work than a composite
+Android Java factory, and once as a XAML C++/WinRT shim. That is more work than a composite
 piece. The payoff is a control that works like a built-in `text_field` on every platform, is
 installable by any app with a single line in `Cargo.toml`, and requires no changes to any core Day
 crate.
@@ -52,15 +52,15 @@ possible, and [step 6](#6-the-llm-workflow) is about handing most of the typing 
 Start with the scaffolder. `day new piece --toolkits <list>` generates every file described below:
 the front-end `src/lib.rs` (builder + `KIND` + `Props`/`Patch` + `#[cfg]`/`#[path]` backend index),
 one `src/lib-<backend>.rs` renderer per toolkit, and the `[features]` table. Where a backend needs
-native glue, it also emits the C++ shim + `build.rs` (Qt/WinUI), the Java shim +
+native glue, it also emits the C++ shim + `build.rs` (Qt/XAML), the Java shim +
 `[package.metadata.day.android]` (Android/`mdc`), and the `[package.metadata.day.ios]` block
 (iOS/`uikit`):
 
 ```bash
-day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,winui
+day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,xaml
 ```
 
-Pick any subset of `appkit,gtk,qt,uikit,mdc,winui`; passing `--toolkits` at all makes it a
+Pick any subset of `appkit,gtk,qt,uikit,mdc,xaml`; passing `--toolkits` at all makes it a
 native piece rather than a composite one. The crate builds against a remote Day release out of
 the box (add `--local <path>` for a local Day checkout). Everything from here down describes what the
 scaffolder produces and how the halves fit together.
@@ -71,7 +71,7 @@ One crate carries both halves of the piece:
   `impl Piece` whose `build` emits a *native leaf* of a well-known `KIND` string and wires up
   reactivity. This is the only code an app author ever calls.
 - **A backend per toolkit**: one file each (`lib-appkit.rs`, `lib-gtk.rs`, `lib-qt.rs`,
-  `lib-uikit.rs`, `lib-android.rs`, `lib-winui.rs`), compiled only for its feature+target, that
+  `lib-uikit.rs`, `lib-android.rs`, `lib-xaml.rs`), compiled only for its feature+target, that
   turns the `KIND` leaf into a native widget.
 
 The two halves never call each other directly. They communicate through a tiny typed protocol:
@@ -252,7 +252,7 @@ one place:
 #[cfg(feature = "qt")]                                #[path = "lib-qt.rs"]     mod qt_impl;
 #[cfg(all(feature = "uikit", target_os = "ios"))]     #[path = "lib-uikit.rs"]  mod uikit_impl;
 #[cfg(all(feature = "mdc", target_os = "android"))]#[path = "lib-android.rs"]mod android_impl;
-#[cfg(all(feature = "winui", windows))]               #[path = "lib-winui.rs"]  mod winui_impl;
+#[cfg(all(feature = "xaml", windows))]               #[path = "lib-xaml.rs"]  mod xaml_impl;
 ```
 
 Every backend implements the same three functions and ends with one `renderer!` line:
@@ -425,12 +425,12 @@ gradle-repositories = []
 # permissions = ["android.permission.INTERNET"]   # add if your control needs one (e.g. a web view)
 ```
 
-### WinUI: a C++/WinRT shim, boxed through `day-winui-sys`
+### XAML: a C++/WinRT shim, boxed through `day-xaml-sys`
 
-Symmetric to Qt: the piece carries `src/lib-winui-shim.cpp`, a C++/WinRT shim wrapping an
-`AutoSuggestBox` (the WinUI search control). Because WinUI handles are a private boxed type owned by
-`day-winui-sys`, the shim boxes its XAML element through that crate's exported
-`day_winui_box`/`day_winui_unbox` seam, and reuses `day_winui_measure`. `build.rs` compiles it with
+Symmetric to Qt: the piece carries `src/lib-xaml-shim.cpp`, a C++/WinRT shim wrapping an
+`AutoSuggestBox` (the XAML search control). Because XAML handles are a private boxed type owned by
+`day-xaml-sys`, the shim boxes its XAML element through that crate's exported
+`day_xaml_box`/`day_xaml_unbox` seam, and reuses `day_xaml_measure`. `build.rs` compiles it with
 `cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and built in CI; you will
 likely not verify it locally.
 
@@ -444,7 +444,7 @@ For any native piece, each backend is the same three functions:
    toolkit re-emits programmatic edits.
 3. **`measure`**: answer a `Proposal` with a `Size` (grow, natural, or fixed).
 
-Toolkits that are hard to drive from Rust (Qt, WinUI, non-`@objc` iOS classes, anything on the Android
+Toolkits that are hard to drive from Rust (Qt, XAML, non-`@objc` iOS classes, anything on the Android
 `Context`) get a *native asset*: a C++ shim compiled in `build.rs`, an Android Java factory staged via
 `[package.metadata.day.android]`, or an iOS Swift shim + SwiftPM package via
 `[package.metadata.day.ios]`. The last is how a piece links a framework it drives. The media piece,
@@ -467,7 +467,7 @@ toolkit's slice:
 day_pieces::renderer!(day_gtk::RENDERERS,   Gtk,   kind: KIND, props: SearchProps, patch: SearchPatch, make: make, update: update, measure: measure);
 day_pieces::renderer!(day_qt::RENDERERS,    Qt,    kind: KIND, props: SearchProps, patch: SearchPatch, make: make, update: update, measure: measure);
 day_pieces::renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: SearchProps, patch: SearchPatch, make: make, update: update, measure: measure);
-// …and day_android::RENDERERS / day_winui::RENDERERS likewise.
+// …and day_android::RENDERERS / day_xaml::RENDERERS likewise.
 ```
 
 (For a piece configured once with no later updates, drop `patch:`/`update:`; the macro has a
@@ -485,7 +485,7 @@ gtk    = ["dep:day-gtk", "dep:gtk4"]
 qt     = ["dep:day-qt"]              # + build.rs compiles src/lib-qt-shim.cpp
 uikit  = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]         # + [package.metadata.day.android] carries the DaySearch Java
-winui  = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-winui-shim.cpp
+xaml  = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
 
@@ -496,7 +496,7 @@ renderer feature for:
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 ```
 
 …and `day build` reads that from `cargo metadata`, walks the app's dependency closure, and derives
@@ -555,7 +555,7 @@ Make the boundary crisp first, then delegate each backend body:
    example: *"Write the AppKit backend as an objc2 `make`/`update`/`measure` for a `NSSearchField`
    bound to this `SearchProps`/`SearchPatch`; per-node delegate on `controlTextDidChange:` emitting
    `Event::TextChanged`; no echo guard because programmatic `setStringValue:` doesn't fire the
-   delegate."* Then repeat for the Qt C++ shim, the Android Java factory, and the WinUI C++/WinRT shim
+   delegate."* Then repeat for the Qt C++ shim, the Android Java factory, and the XAML C++/WinRT shim
    against the frozen signatures. Give the model this crate's finished file as the template; it is a
    ready-made few-shot example.
 5. **Wire each behind `renderer!` and enable its feature.** Add the module line to `lib.rs`, the
@@ -564,7 +564,7 @@ Make the boundary crisp first, then delegate each backend body:
 Two properties of the design make this workflow safe. First, the typed macro means a body that
 compiles has type-checked `Props`/`Patch` handling; the model cannot silently mismatch
 the protocol. Second, an unwritten backend degrades to the placeholder rather than breaking
-the app, so you can ship AppKit + Android today and add Qt or WinUI later without either half of the
+the app, so you can ship AppKit + Android today and add Qt or XAML later without either half of the
 codebase blocking the other. Write the toolkits you can verify, generate the rest, and let the
 registration check tell you which ones are still stubs.
 

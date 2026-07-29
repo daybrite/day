@@ -22,17 +22,17 @@ widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(Pick
 
 ## Per-backend native realization
 
-| style | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| style | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|
 | **Menu** | `NSPopUpButton` | `UIButton`+`UIMenu` pull-down | `GtkDropDown` | `QComboBox` | `Spinner` | `ComboBox` | `TextPicker` wheel |
 | **Segmented** | `NSSegmentedControl` | `UISegmentedControl` | `.linked` grouped `GtkToggleButton`s | checkable `QPushButton`s in a `QButtonGroup` | button-row `LinearLayout` (dim unselected) | horizontal `RadioButton` `StackPanel` | `TextPicker` wheel |
 | **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` | `TextPicker` wheel |
 
 HarmonyOS has no segmented control, so ArkUI renders every style as the native `ARKUI_NODE_TEXT_PICKER`
-wheel — the platform's option-selection idiom. The Qt and WinUI renderers each carry a C++ shim in the
+wheel — the platform's option-selection idiom. The Qt and XAML renderers each carry a C++ shim in the
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
-`toolkits/day-winui-sys/src/shim-picker.cpp`); the WinUI shim boxes its XAML element into a Day handle
-through the `day_winui_box`/`day_winui_unbox` seam. Android's Java factory
+`toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
+through the `day_xaml_box`/`day_xaml_unbox` seam. Android's Java factory
 (`toolkits/day-android/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
 All backends report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per backend so it never loops.

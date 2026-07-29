@@ -18,8 +18,8 @@ members = [
     "toolkits/day-qt-sys",
     "toolkits/day-uikit",
     "toolkits/day-android",
-    "toolkits/day-winui",
-    "toolkits/day-winui-sys",
+    "toolkits/day-xaml",
+    "toolkits/day-xaml-sys",
     "toolkits/day-arkui",
     "toolkits/day-arkui-sys",
     "toolkits/day-dom",
@@ -140,8 +140,8 @@ day-qt = { path = "toolkits/day-qt", version = "0.0.17" }
 day-qt-sys = { path = "toolkits/day-qt-sys", version = "0.0.17" }
 day-uikit = { path = "toolkits/day-uikit", version = "0.0.17" }
 day-android = { path = "toolkits/day-android", version = "0.0.17" }
-day-winui = { path = "toolkits/day-winui", version = "0.0.17" }
-day-winui-sys = { path = "toolkits/day-winui-sys", version = "0.0.17" }
+day-xaml = { path = "toolkits/day-xaml", version = "0.0.17" }
+day-xaml-sys = { path = "toolkits/day-xaml-sys", version = "0.0.17" }
 day-arkui = { path = "toolkits/day-arkui", version = "0.0.17" }
 day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.0.17" }
 day-dom = { path = "toolkits/day-dom", version = "0.0.17" }

@@ -1,5 +1,5 @@
 // day-arkui-sys — a flat C ABI over the HarmonyOS ArkUI Native NodeAPI (arkui/native_node.h) and
-// NAPI (napi/native_api.h), the HarmonyOS analogue of day-qt-sys / day-winui-sys. day builds the
+// NAPI (napi/native_api.h), the HarmonyOS analogue of day-qt-sys / day-xaml-sys. day builds the
 // widget tree natively (createNode/setAttribute/addChild) and mounts it into an ArkTS `NodeContent`
 // slot; native events call back into Rust by node id; main-thread posting rides libuv (uv_async).
 //

@@ -17,7 +17,7 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
         └── OH_ArkUI_NodeContent_AddNode ── the native tree Day builds is mounted here
 ```
 
-- **`day-arkui-sys`**: a C++ shim (like `day-qt-sys`/`day-winui-sys`) exposing a flat C ABI over
+- **`day-arkui-sys`**: a C++ shim (like `day-qt-sys`/`day-xaml-sys`) exposing a flat C ABI over
   `arkui/native_node.h` (`createNode`/`setAttribute`/`addChild`/`registerNodeEvent`/`measureNode`),
   `arkui/native_node_napi.h` (`NodeContent`), and `napi/native_api.h`. It also registers the NAPI
   module (`entry`) whose `start(nodeContent, widthVp, heightVp, density)` kicks off Day, wires the

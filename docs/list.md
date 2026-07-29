@@ -51,7 +51,7 @@ follow.notify();
   each backend maps to its native "make the last row visible" call
   (`NSTableView::scrollRowToVisible` · `UITableView::scrollToRowAtIndexPath(.bottom)` ·
   `GtkScrolledWindow` vadjustment→max · `QScrollArea` scrollbar→max ·
-  `ListView::smoothScrollToPosition` · WinUI `ScrollViewer::ChangeView`). day-core guards the
+  `ListView::smoothScrollToPosition` · XAML `ScrollViewer::ChangeView`). day-core guards the
   empty-list case (no patch is sent), and building the list never auto-scrolls.
 - `.stick_to_bottom(bool)`: best-effort convenience that scrolls to the end after each data reload.
   It does not check whether the user is already near the bottom (no cross-backend scroll-position

@@ -25,7 +25,7 @@ use crate::targets;
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
 /// The toolkits a NATIVE piece can carry a backend renderer for.
-const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "winui"];
+const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "xaml"];
 /// The platforms a PART can carry a native impl for.
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
@@ -90,7 +90,7 @@ fn subpath(crate_name: &str) -> String {
         n if n.starts_with("day-piece-") => format!("pieces/{n}"),
         n if n.starts_with("day-part-") => format!("parts/{n}"),
         "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-android"
-        | "day-winui" | "day-winui-sys" | "day-arkui" | "day-arkui-sys" => {
+        | "day-xaml" | "day-xaml-sys" | "day-arkui" | "day-arkui-sys" => {
             format!("toolkits/{crate_name}")
         }
         n => format!("crates/{n}"),
@@ -317,7 +317,7 @@ fn toolkit_label(tk: &str) -> String {
         "qt" => "Qt — Linux / macOS / Windows",
         "uikit" => "UIKit — iOS",
         "mdc" => "Android — Material Design Components",
-        "winui" => "WinUI — Windows",
+        "xaml" => "XAML — Windows",
         _ => tk,
     };
     format!("{human}  ({tk})")
@@ -339,7 +339,7 @@ fn platform_label(pl: &str) -> String {
 fn host_toolkit_index() -> usize {
     let want = match targets::host_os() {
         "linux" => "gtk",
-        "windows" => "winui",
+        "windows" => "xaml",
         _ => "appkit",
     };
     TOOLKITS.iter().position(|&t| t == want).unwrap_or(0)
@@ -924,7 +924,7 @@ edition = "2024"
 
 fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String, String)> {
     let has = |t: &str| toolkits.iter().any(|x| x == t);
-    let needs_build_rs = has("qt") || has("winui");
+    let needs_build_rs = has("qt") || has("xaml");
 
     // [features]
     let mut features = String::new();
@@ -939,7 +939,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
                 "uikit = [\"dep:day-uikit\", \"dep:objc2\", \"dep:objc2-ui-kit\", \"dep:objc2-foundation\", \"dep:objc2-core-foundation\"]"
             }
             "mdc" => "mdc = [\"dep:day-android\"]",
-            "winui" => "winui = [\"dep:day-winui\", \"dep:day-winui-sys\"]",
+            "xaml" => "xaml = [\"dep:day-xaml\", \"dep:day-xaml-sys\"]",
             _ => continue,
         };
         features.push_str(entry);
@@ -974,9 +974,9 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
     if has("mdc") {
         push_dep(deps.dep("day-android", ", optional = true"));
     }
-    if has("winui") {
-        push_dep(deps.dep("day-winui", ", optional = true"));
-        push_dep(deps.dep("day-winui-sys", ", optional = true"));
+    if has("xaml") {
+        push_dep(deps.dep("day-xaml", ", optional = true"));
+        push_dep(deps.dep("day-xaml-sys", ", optional = true"));
     }
 
     // crates.io deps for the native bindings (only for chosen toolkits).
@@ -1111,9 +1111,9 @@ linkme = "0.3"
             r.expand(ANDROID_JAVA),
         ));
     }
-    if has("winui") {
-        files.push(("src/lib-winui.rs".into(), r.expand(WINUI_IMPL)));
-        files.push(("src/lib-winui-shim.cpp".into(), r.expand(WINUI_SHIM)));
+    if has("xaml") {
+        files.push(("src/lib-xaml.rs".into(), r.expand(XAML_IMPL)));
+        files.push(("src/lib-xaml-shim.cpp".into(), r.expand(XAML_SHIM)));
     }
     if needs_build_rs {
         files.push(("build.rs".into(), r.expand(BUILD_RS)));
@@ -1309,7 +1309,7 @@ const COMPOSITE_README: &str = r#"# __CRATE__
 
 A **composite** Day piece — a reusable widget built purely from Day's core primitives. There is no
 per-backend or native code and no cargo features, so it works on every backend (AppKit, GTK, Qt,
-UIKit, Android, WinUI) for free.
+UIKit, Android, XAML) for free.
 
 ## Use
 
@@ -1347,7 +1347,7 @@ with `DAY_LOCAL` set / `day new piece … --local <path>`.
 // --- NATIVE piece -----------------------------------------------------------
 
 const NATIVE_LIB: &str = r#"//! __CRATE__ — a NATIVE Day piece: a two-way text input realized as a DISTINCT native control per
-//! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a WinUI
+//! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a XAML
 //! TextBox), registered link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged` back
@@ -1932,8 +1932,8 @@ public final class Day__PASCAL__ {
 }
 "#;
 
-const WINUI_IMPL: &str = r#"// WinUI: this crate's OWN C++/WinRT shim (src/lib-winui-shim.cpp) — a TextBox boxed into a Day handle
-// via the day_winui_box/unbox seam that day-winui-sys exports. Windows-only; built in CI, not verified
+const XAML_IMPL: &str = r#"// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a TextBox boxed into a Day handle
+// via the day_xaml_box/unbox seam that day-xaml-sys exports. Windows-only; built in CI, not verified
 // on non-Windows hosts.
 
 use super::*;
@@ -1941,18 +1941,18 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
 use day_spec::{NodeId, Proposal, Size};
-use day_winui::{WinHandle, WinUi};
+use day_xaml::{WinHandle, Xaml};
 
 unsafe extern "C" {
-    fn day___SNAKE___winui_new(
+    fn day___SNAKE___xaml_new(
         placeholder: *const c_char,
         initial: *const c_char,
         id: u64,
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
-    fn day___SNAKE___winui_set_text(w: *mut c_void, text: *const c_char);
-    // Generic size hint from day-winui-sys (already linked).
-    fn day_winui_measure(
+    fn day___SNAKE___xaml_set_text(w: *mut c_void, text: *const c_char);
+    // Generic size hint from day-xaml-sys (already linked).
+    fn day_xaml_measure(
         w: *mut c_void,
         avail_w: f64,
         avail_h: f64,
@@ -1969,16 +1969,16 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
             .to_string_lossy()
             .into_owned()
     };
-    day_winui::emit(NodeId(id), Event::TextChanged(s));
+    day_xaml::emit(NodeId(id), Event::TextChanged(s));
 }
 
 fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
 
-fn make(_backend: &mut WinUi, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
+fn make(_backend: &mut Xaml, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
     WinHandle(unsafe {
-        day___SNAKE___winui_new(
+        day___SNAKE___xaml_new(
             cstr(&p.placeholder).as_ptr(),
             cstr(&p.text).as_ptr(),
             id.0,
@@ -1987,26 +1987,26 @@ fn make(_backend: &mut WinUi, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
     })
 }
 
-fn update(_backend: &mut WinUi, h: &WinHandle, patch: &__PASCAL__Patch) {
+fn update(_backend: &mut Xaml, h: &WinHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
-    unsafe { day___SNAKE___winui_set_text(h.0, cstr(t).as_ptr()) };
+    unsafe { day___SNAKE___xaml_set_text(h.0, cstr(t).as_ptr()) };
 }
 
-fn measure(_backend: &mut WinUi, h: &WinHandle, p: Proposal) -> Size {
+fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_winui_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
     let width = p.width.unwrap_or(w).max(160.0);
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(day_winui::RENDERERS, WinUi,
+day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
 
-const WINUI_SHIM: &str = r#"// This piece's OWN C++/WinRT shim — a TextBox boxed into a Day handle via the day_winui_box/unbox seam
-// that day-winui-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string; programmatic
+const XAML_SHIM: &str = r#"// This piece's OWN C++/WinRT shim — a TextBox boxed into a Day handle via the day_xaml_box/unbox seam
+// that day-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string; programmatic
 // Text(...) is guarded so it only re-writes on a real change. Windows-only; compiled by build.rs.
 
 #include <winrt/Windows.Foundation.h>
@@ -2022,9 +2022,9 @@ using namespace winrt;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 
-// The boxing seam, exported by day-winui-sys (already linked into the app).
-extern "C" void *day_winui_box(void *iinspectable_abi);
-extern "C" void *day_winui_unbox(void *handle);
+// The boxing seam, exported by day-xaml-sys (already linked into the app).
+extern "C" void *day_xaml_box(void *iinspectable_abi);
+extern "C" void *day_xaml_unbox(void *handle);
 
 static winrt::hstring hs(const char *s) {
     if (!s || !*s)
@@ -2050,7 +2050,7 @@ static std::string to_utf8(winrt::hstring const &h) {
 
 extern "C" {
 
-void *day___SNAKE___winui_new(const char *placeholder, const char *initial, uint64_t id,
+void *day___SNAKE___xaml_new(const char *placeholder, const char *initial, uint64_t id,
                               void (*cb)(uint64_t, const char *)) {
     WUXC::TextBox box;
     box.PlaceholderText(hs(placeholder));
@@ -2066,12 +2066,12 @@ void *day___SNAKE___winui_new(const char *placeholder, const char *initial, uint
             cb(id, t.c_str());
         }
     });
-    return day_winui_box(winrt::get_abi(box));
+    return day_xaml_box(winrt::get_abi(box));
 }
 
-void day___SNAKE___winui_set_text(void *handle, const char *text) {
+void day___SNAKE___xaml_set_text(void *handle, const char *text) {
     WUX::UIElement e{nullptr};
-    winrt::copy_from_abi(e, day_winui_unbox(handle));
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
     if (auto box = e.try_as<WUXC::TextBox>()) {
         auto nt = hs(text);
         if (box.Text() != nt)
@@ -2083,20 +2083,20 @@ void day___SNAKE___winui_set_text(void *handle, const char *text) {
 "#;
 
 const BUILD_RS: &str = r#"//! Compiles this piece's OWN native shims when their feature is on — a native Day piece carrying C++
-//! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; WinUI uses `cc` (MSVC) + the
-//! Windows SDK cppwinrt projection, mirroring day-winui-sys.
+//! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the
+//! Windows SDK cppwinrt projection, mirroring day-xaml-sys.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
-    println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-xaml-shim.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
     }
-    // Windows-only, and only when the app targets WinUI.
-    if std::env::var("CARGO_FEATURE_WINUI").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
-        build_winui();
+    // Windows-only, and only when the app targets XAML.
+    if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
+        build_xaml();
     }
 }
 
@@ -2115,7 +2115,7 @@ fn build_qt() {
     // Qt libs themselves are already linked by day-qt-sys.
 }
 
-fn build_winui() {
+fn build_xaml() {
     // Shared, env-overridable lookup (DAY_CPPWINRT / DAY_WINDOWS_KITS_ROOT / WindowsSdkDir —
     // docs/environment.md); also emits the matching rerun-if-env-changed lines.
     let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
@@ -2128,13 +2128,13 @@ fn build_winui() {
         .cpp(true)
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
-        .file("src/lib-winui-shim.cpp")
+        .file("src/lib-xaml-shim.cpp")
         .include(&cppwinrt)
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
-    build.compile("day__SNAKE__winuishim");
-    // WindowsApp.lib + the day_winui_box/unbox seam are already linked by day-winui-sys.
+    build.compile("day__SNAKE__xamlshim");
+    // WindowsApp.lib + the day_xaml_box/unbox seam are already linked by day-xaml-sys.
 }
 
 "#;
@@ -2163,11 +2163,11 @@ fn view() -> AnyPiece {
 ## Build a single backend
 
 ```sh
-cargo build --features appkit    # or gtk / qt / uikit / mdc / winui
+cargo build --features appkit    # or gtk / qt / uikit / mdc / xaml
 ```
 
 - `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
-- `qt` / `winui` compile a small C++ shim (`build.rs`).
+- `qt` / `xaml` compile a small C++ shim (`build.rs`).
 - `mdc` carries its own Java factory under `android/java` (staged into the app's Gradle build).
 
 ## Next steps

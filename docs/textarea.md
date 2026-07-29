@@ -45,14 +45,14 @@ Native support varies; a toolkit that can't honor an attribute answers the match
 `Support::Unsupported`, so an app can gray out a control that would do nothing (the showcase's Text
 Areas page does this with `capability(Cap::TextSpellCheck) == Support::Native`):
 
-| attribute | Cap | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| attribute | Cap | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|---|
 | editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | follow-up | follow-up |
 | selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | follow-up | follow-up |
 | spell-check | `Cap::TextSpellCheck` | ✓ | ✓ | — (none built in) | — (none) | ✓ | follow-up | follow-up |
 
 GTK's `GtkTextView` is always selectable (no toggle), and neither GTK nor Qt ships a built-in
-spell-checker (that needs libspelling/gspell or Hunspell). The **WinUI** (`TextBox` has
+spell-checker (that needs libspelling/gspell or Hunspell). The **XAML** (`TextBox` has
 `IsReadOnly`/`IsTextSelectionEnabled`/`IsSpellCheckEnabled`) and **ArkUI** editors support the
 attributes natively, but their shims don't yet expose the setters — a documented follow-up; until
 then those two report `Unsupported` for all three and ignore the props.
@@ -64,14 +64,14 @@ to both.
 
 ## Per-backend native realization
 
-| AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|
 | `NSTextView` in `NSScrollView` | `UITextView` | `GtkTextView` in `GtkScrolledWindow` | `QPlainTextEdit` | multi-line `EditText` | wrapping `TextBox` | `ARKUI_NODE_TEXT_AREA` |
 
 Each backend keeps the `(min_lines, max_lines)` band and grows its `measure` height in a line band.
 Text changes report through `Event::TextChanged(String)`; programmatic sync (`TextAreaPatch::SetText`)
 is echo-guarded per backend, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
-apply the native property. The Qt and WinUI renderers carry C++ shims in the matching `-sys` crate
+apply the native property. The Qt and XAML renderers carry C++ shims in the matching `-sys` crate
 (`shim-textarea.cpp` — Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`); Android's
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,
 selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS`).
@@ -84,7 +84,7 @@ round-trips.
 
 ## Follow-ups
 
-- **WinUI + ArkUI attribute setters**: `TextBox`/`ARKUI_NODE_TEXT_AREA` support editable/selectable/
+- **XAML + ArkUI attribute setters**: `TextBox`/`ARKUI_NODE_TEXT_AREA` support editable/selectable/
   spell-check natively, but their shims don't expose the setters yet — they report `Unsupported` and
   ignore the props for now.
 - Rich text / attributed runs (a separate `RichText` piece; DESIGN §B.5).

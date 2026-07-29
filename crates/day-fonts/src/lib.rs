@@ -14,7 +14,7 @@
 //! * [`font_dir`] / [`bundled_fonts`] — locate the staged font files at runtime (`DAY_FONT_ROOT`
 //!   under `day launch`, bundle-relative `Resources/fonts` when packed).
 //! * [`resolve_font_file`] — map a requested family name to one of the bundled files, for
-//!   backends whose native API wants a file path rather than a registered family (WinUI).
+//!   backends whose native API wants a file path rather than a registered family (XAML).
 //! * [`font_ident`] — the identifier both the Android/ArkUI stagers and their runtimes derive
 //!   from a family name (`"Special Elite"` → `special_elite`), so lookup needs no side table.
 

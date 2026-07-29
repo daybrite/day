@@ -59,7 +59,7 @@ Every field is best-effort; each platform reports what it can:
 - **Windows**: `RtlGetVersion` (ntdll) reports the actual running version (`major.minor.build`), unlike
   the Win32 `GetVersionExW`, which lies for Windows 8+ without a compatibility manifest. `system_name` is
   `"Windows"`; `model` is a best-effort `"PC"` (there is no cheap portable hardware-model source). Written
-  blind, like the rest of the winui backend.
+  blind, like the rest of the xaml backend.
 - **Linux**: no single portable API is guaranteed, so the crate reads the two files every desktop distro
   provides: `/etc/os-release` (`NAME` / `PRETTY_NAME` for `system_name`, `VERSION_ID` for
   `system_version`) and the DMI node `/sys/devices/virtual/dmi/id/product_name` for `model` (falling back

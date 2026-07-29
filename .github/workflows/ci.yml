@@ -224,7 +224,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-winui]
+    needs: [macos-day, linux-day, windows-day, macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1153,14 +1153,14 @@ jobs:
           path: apps/showcase/platform/ohos/entry/build/**/*.hap
           if-no-files-found: ignore
 
-  # --- Windows desktop: winui (MSVC) ----------------------------------------
-  # winui uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
+  # --- Windows desktop: xaml (MSVC) ----------------------------------------
+  # xaml uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
   # captures via RenderTargetBitmap. It runs on the default `bash` shell. It is a
   # SEPARATE job from windows-qt / windows-gtk because those need the msys2 shell:
   # the `matrix` context is not available in a step's `shell:` field, so a single
   # matrix cannot switch shells per combo — the toolchains are split into two jobs.
-  windows-winui:
-    name: windows-winui
+  windows-xaml:
+    name: windows-xaml
     runs-on: windows-latest
     needs: [windows-day]
     defaults:
@@ -1176,9 +1176,9 @@ jobs:
       - name: Test host-portable crates
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: cargo test --locked
-      - name: Clippy (winui backend)
+      - name: Clippy (xaml backend)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo clippy --locked -p showcase --no-default-features --features winui --all-targets
+        run: cargo clippy --locked -p showcase --no-default-features --features xaml --all-targets
       # Lint the headless day-part-battery crate's Windows impl (GetSystemPowerStatus) on a real Windows host.
       - name: Clippy (day-part-battery, Windows impl)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -1197,24 +1197,24 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      - name: Doctor (winui)
+      - name: Doctor (xaml)
         shell: bash
-        run: $DAY_BIN doctor --toolkit winui
-      # The only CI job that can compile `day new`'s winui template branch: scaffold a winui piece +
-      # a part + a full app (deps redirected to this checkout) and build each. winui is a desktop
+        run: $DAY_BIN doctor --toolkit xaml
+      # The only CI job that can compile `day new`'s xaml template branch: scaffold a xaml piece +
+      # a part + a full app (deps redirected to this checkout) and build each. xaml is a desktop
       # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
-      - name: Scaffold smoke-test (windows-winui)
+      - name: Scaffold smoke-test (windows-xaml)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           DAY=$DAY_BIN
           cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits winui --local "$GITHUB_WORKSPACE"
+          "$DAY" new piece smoke-piece --toolkits xaml --local "$GITHUB_WORKSPACE"
           "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit windows-winui --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features winui )
+          "$DAY" new app   smoke-app   --toolkit windows-xaml --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
+          ( cd smoke-piece && cargo build --features xaml )
           ( cd smoke-part  && cargo build )
-          ( cd smoke-app   && cargo build --features winui )
-      - name: Walkthrough (windows-winui × light/dark/fr)
+          ( cd smoke-app   && cargo build --features xaml )
+      - name: Walkthrough (windows-xaml × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
@@ -1222,7 +1222,7 @@ jobs:
             for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p windows-winui --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+              $DAY_BIN launch -p windows-xaml --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
@@ -1230,21 +1230,21 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis -y --no-progress
-      - name: Pack (windows-winui → msix + setup.exe)
+      - name: Pack (windows-xaml → msix + setup.exe)
         working-directory: apps/showcase
-        run: $DAY_BIN pack -p windows-winui --no-version-in-name --format json
+        run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
-          name: showcase-dist-windows-winui
+          name: showcase-dist-windows-xaml
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
-          name: screenshots-windows-winui
-          path: apps/showcase/build/day/screenshots/windows-winui
+          name: screenshots-windows-xaml
+          path: apps/showcase/build/day/screenshots/windows-xaml
           if-no-files-found: warn
 
   # --- Windows desktop: qt / gtk (gnu toolchain + MSYS2) --------------------
@@ -1508,7 +1508,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website:
     name: website (build)
-    needs: [macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-winui, windows-msys2, api-docs, web-dom]
+    needs: [macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml, windows-msys2, api-docs, web-dom]
     # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
     # the release pipeline instead).
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}

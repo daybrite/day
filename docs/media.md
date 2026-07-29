@@ -92,9 +92,9 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
   `#[distributed_slice]` does not compile for `wasm32-unknown-unknown`, so day-dom keeps a runtime
   registry (`day_dom::register_renderer`) and `media()` registers the renderer on its first call,
   which always precedes the node being realized.
-- **WinUI / mock**: the features exist (so an app can enable `day-piece-media/<feature>` uniformly
+- **XAML / mock**: the features exist (so an app can enable `day-piece-media/<feature>` uniformly
   per backend) but register no renderer; the media kind falls back to day's placeholder leaf.
-  WinUI's eventual route is `MediaPlayerElement` via the cppwinrt shim pattern. HarmonyOS is
+  XAML's eventual route is `MediaPlayerElement` via the cppwinrt shim pattern. HarmonyOS is
   deferred until day-arkui grows XComponent surface plumbing (`OH_AVPlayer_SetVideoSurface` needs
   an `OHNativeWindow`).
 

@@ -1,19 +1,19 @@
 //! Compiles this piece's OWN native shims when their feature is on — an external Day Piece carrying
 //! native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim). Qt uses `cc` +
-//! pkg-config; WinUI uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-winui-sys.
+//! pkg-config; XAML uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-xaml-sys.
 //! (This is the day-piece-searchfield build.rs verbatim, retargeted at this crate's two shim files.)
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
-    println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-xaml-shim.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
     }
-    // Windows-only, and only when the app targets WinUI.
-    if std::env::var("CARGO_FEATURE_WINUI").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
-        build_winui();
+    // Windows-only, and only when the app targets XAML.
+    if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
+        build_xaml();
     }
 }
 
@@ -32,8 +32,8 @@ fn build_qt() {
     // Qt libs themselves are already linked by day-qt-sys.
 }
 
-fn build_winui() {
-    // Same recipe as day-winui-sys: the cppwinrt projection headers live under the SDK's
+fn build_xaml() {
+    // Same recipe as day-xaml-sys: the cppwinrt projection headers live under the SDK's
     // Include\<ver>\cppwinrt (not on the default INCLUDE path); C++20 + /bigobj + /EHsc.
     let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
@@ -45,12 +45,12 @@ fn build_winui() {
         .cpp(true)
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
-        .file("src/lib-winui-shim.cpp")
+        .file("src/lib-xaml-shim.cpp")
         .include(&cppwinrt)
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
-    build.compile("daycombowinuishim");
-    // WindowsApp.lib (WinRT umbrella) + the day_winui_box/unbox seam are already linked by
-    // day-winui-sys; nothing extra to link here.
+    build.compile("daycomboxamlshim");
+    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox seam are already linked by
+    // day-xaml-sys; nothing extra to link here.
 }

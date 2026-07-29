@@ -17,7 +17,7 @@ day-gtk = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
 day-android = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
-day-winui = { workspace = true, optional = true }
+day-xaml = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -29,7 +29,7 @@ appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 mdc = ["dep:day-android"]
 qt = ["dep:day-qt"]
-winui = ["dep:day-winui"]
+xaml = ["dep:day-xaml"]
 arkui = ["dep:day-arkui"]
 # uikit intentionally absent: UISlider has no native tick API — the tweak is a documented no-op
 # there (see lib.rs), and declaring no backend keeps `day build` from enabling a dead feature.
@@ -37,4 +37,4 @@ arkui = ["dep:day-arkui"]
 # Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "mdc", "qt", "winui", "arkui"]
+backends = ["appkit", "gtk", "mdc", "qt", "xaml", "arkui"]

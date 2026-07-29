@@ -37,10 +37,10 @@ There is deliberately no determinate mode here; that is day's built-in `progress
 
 ## Per-backend native realization
 
-| | AppKit | UIKit | GTK | Qt | Android | WinUI |
+| | AppKit | UIKit | GTK | Qt | Android | XAML |
 |---|---|---|---|---|---|---|
 | control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` |
-| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `android/java/…/DayActivity.java` | `src/lib-winui-shim.cpp` |
+| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `android/java/…/DayActivity.java` | `src/lib-xaml-shim.cpp` |
 | run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` |
 | `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 |
 | stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` |
@@ -73,9 +73,9 @@ There is deliberately no determinate mode here; that is day's built-in `progress
   (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with the crate under `android/java` and
   folded into the app's Gradle build via `[package.metadata.day.android]`, using only day-android's
   public `DayBridge.ctx`.
-- **WinUI**: this crate's own C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP
-  system XAML, no WinAppSDK), boxed via day-winui-sys's `day_winui_box` seam like the media / picker
-  / webview WinUI pieces. `IsActive` runs/stops it; `.large` sets Width/Height. Written blind
+- **XAML**: this crate's own C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP
+  system XAML, no WinAppSDK), boxed via day-xaml-sys's `day_xaml_box` seam like the media / picker
+  / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. Written blind
   (Windows-only, built in CI); creation degrades to a `TextBlock` on any unexpected throw.
 - **mock**: the feature exists (so an app can enable `day-piece-activity/mock` uniformly per
   backend) but registers no renderer; the activity kind falls back to day's placeholder leaf.

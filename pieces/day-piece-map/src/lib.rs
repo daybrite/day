@@ -1,6 +1,6 @@
 //! day-piece-map — an EXTERNAL Day Piece (DESIGN.md §15) wrapping the platform's NATIVE map view,
 //! **APPLE PLATFORMS ONLY**. It is the reference for a piece that deliberately does NOT support every
-//! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/WinUI the `map` kind falls
+//! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/XAML the `map` kind falls
 //! back to day's placeholder leaf (those features exist but register no renderer). One Rust API,
 //! registered link-time into each Apple backend's renderer slice without touching day.
 //!
@@ -158,7 +158,7 @@ impl Piece for Map {
 
 // ---------------------------------------------------------------------------
 // Per-toolkit native renderers — Apple only. Each registers a `Renderer` link-time into its backend's
-// `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/mdc/winui/mock register
+// `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/mdc/xaml/mock register
 // nothing (the map kind falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
@@ -173,7 +173,7 @@ mod tests {
 
     // Building + recentering the piece must never panic — even with no native renderer registered
     // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly
-    // like a backend built without this piece's feature, e.g. GTK/Qt/Android/WinUI).
+    // like a backend built without this piece's feature, e.g. GTK/Qt/Android/XAML).
     #[test]
     fn build_and_recenter_do_not_panic() {
         let center = Signal::new((37.7749, -122.4194)); // San Francisco

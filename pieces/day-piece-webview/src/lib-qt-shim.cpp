@@ -3,7 +3,7 @@
 // and forwards `urlChanged` to a C callback so a bound text field follows navigation. When it is
 // NOT — e.g. MSYS2/MINGW64, which does not package Qt6 WebEngine (Chromium won't build with MinGW
 // GCC) — it degrades to a QLabel showing the URL, so windows-qt still builds/launches/screenshots
-// (mirrors day-piece-webview's winui EdgeHTML degrade). The C ABI is identical either way, so
+// (mirrors day-piece-webview's xaml EdgeHTML degrade). The C ABI is identical either way, so
 // lib-qt.rs is unchanged. The callback's `const char*` is only valid for the call (Rust copies it).
 
 #include <QUrl>

@@ -10,7 +10,7 @@ applications on every platform — because they are native applications.
 
 You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View
 and Flutter calls a Widget). Each Piece is realized by a real platform widget — an
-`NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a WinUI `TextBox` —
+`NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox` —
 through a per-platform **toolkit backend**. Day owns layout, reactivity, localization,
 accessibility policy, and scripting; the platform owns pixels, text input, scrolling physics,
 and assistive technology.
@@ -68,7 +68,7 @@ layer to pay for.
 | `android-mdc` | Android | Material Components / android.view |
 | `linux-gtk` | Linux | GTK 4 · libadwaita |
 | `linux-qt` | Linux | Qt 6 Widgets |
-| `windows-winui` | Windows | WinUI (XAML Islands) |
+| `windows-xaml` | Windows | XAML (XAML Islands) |
 | `harmony-arkui` | OpenHarmony / HarmonyOS | ArkUI |
 | `web-dom` | Web (any modern browser) | the DOM — wasm32 + semantic HTML |
 | `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |

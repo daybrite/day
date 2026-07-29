@@ -23,13 +23,13 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
-winui = ["dep:day-winui", "dep:day-winui-sys"]
+xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/datetime-arkui.cpp
 
 # Backends this piece carries a native renderer for — ALL seven (the first external piece to close
 # the arkui gap). `day build` unions `<pkg>/<backend>` into an app build (Tier A.2).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "arkui"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -42,8 +42,8 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
-day-winui = { workspace = true, optional = true }
-day-winui-sys = { workspace = true, optional = true }
+day-xaml = { workspace = true, optional = true }
+day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }

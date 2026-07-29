@@ -38,9 +38,9 @@ const targets = [
       'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
   },
   {
-    id: 'windows-winui',
+    id: 'windows-xaml',
     os: 'Windows',
-    name: 'WinUI (system XAML)',
+    name: 'XAML (system XAML)',
     kind: '.msix + setup.exe',
     install:
       'Run the -setup.exe. SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”. The .msix package needs the development certificate trusted first, so the setup.exe is the easier path.',

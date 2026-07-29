@@ -8,7 +8,7 @@ backend defines the method; `·` = it inherits the day-spec default (a no-op or 
 answer — day-spec documents each). Required duties have no default; every backend must
 implement them, and this table proves it.
 
-| duty | req | appkit | uikit | gtk | qt | winui | android | arkui | dom | mock |
+| duty | req | appkit | uikit | gtk | qt | xaml | android | arkui | dom | mock |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `capability` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `realize` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

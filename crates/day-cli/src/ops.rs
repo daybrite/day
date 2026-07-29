@@ -121,11 +121,11 @@ pub fn build(
             // renderer feature, derived from `cargo metadata` — so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).
             let features = feature_selection(project, target.toolkit);
-            if target.toolkit == "winui" {
+            if target.toolkit == "xaml" {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
                 // embed our own — `cargo rustc -- <link-args>` scopes this to the bin only.
-                let manifest = write_winui_manifest(project, target, profile)?;
+                let manifest = write_xaml_manifest(project, target, profile)?;
                 cmd.args(["rustc", "--bin", &project.manifest.app.name])
                     .args(["--no-default-features", "--features", &features]);
                 if profile == "release" {
@@ -184,7 +184,7 @@ pub fn build(
 
 /// Side-by-side manifest that lets an unpackaged app host `Windows.UI.Xaml` islands (§9).
 /// The `maxversiontested` element is the specific thing `WindowsXamlManager` demands.
-const WINUI_MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+const XAML_MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
@@ -201,15 +201,15 @@ const WINUI_MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </assembly>
 "#;
 
-fn write_winui_manifest(
+fn write_xaml_manifest(
     project: &Project,
     target: &Target,
     profile: &str,
 ) -> Result<PathBuf, String> {
     let dir = cargo_dir(project, target, profile);
     std::fs::create_dir_all(&dir).map_err(|e| format!("manifest dir: {e}"))?;
-    let path = dir.join("day-winui.manifest");
-    std::fs::write(&path, WINUI_MANIFEST).map_err(|e| format!("manifest write: {e}"))?;
+    let path = dir.join("day-xaml.manifest");
+    std::fs::write(&path, XAML_MANIFEST).map_err(|e| format!("manifest write: {e}"))?;
     Ok(path)
 }
 

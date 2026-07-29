@@ -1,6 +1,6 @@
 # Programmatic scrolling
 
-> **Status: implemented** on every backend (AppKit, UIKit, Android, GTK, Qt, WinUI, ArkUI, mock).
+> **Status: implemented** on every backend (AppKit, UIKit, Android, GTK, Qt, XAML, ArkUI, mock).
 > One primitive carries it all: `Toolkit::scroll_to(handle, rect, animated)` with
 > scrollRectToVisible semantics — day-core composes edges, offsets, and reveal-element targets
 > into content-space rects, so each backend only implements "minimal scroll to make this rect
@@ -67,7 +67,7 @@ backend then applies the same "minimal scroll to make the rect visible" rule:
 | Android | offset math + `ScrollView.smoothScrollTo` / `scrollTo` (per axis class) |
 | GTK | adjustment clamp + `set_value` (no animation — GTK adjusts immediately) |
 | Qt | scroll-bar clamp + `setValue` (no animation) |
-| WinUI | `ScrollViewer.ChangeView` (shim `day_winui_scroll_to`) |
+| XAML | `ScrollViewer.ChangeView` (shim `day_xaml_scroll_to`) |
 | ArkUI | `NODE_SCROLL_OFFSET` get/compute/set (300 ms animation when animated) |
 | mock | records the computed offset (`MockWidget::scroll_offset`) — the unit-test probe |
 

@@ -1,6 +1,6 @@
 //! day-piece-searchfield — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input realized as a
 //! distinct search control per toolkit (NSSearchField / UISearchTextField / GtkSearchEntry / a
-//! QLineEdit search shim / an EditText styled for search / a WinUI AutoSuggestBox), registered
+//! QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox), registered
 //! link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>` — the same pattern as day-piece-picker: a native
@@ -110,4 +110,4 @@ impl Piece for SearchField {
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-picker layout).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);

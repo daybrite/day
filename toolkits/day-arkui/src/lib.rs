@@ -1269,7 +1269,7 @@ mod imp {
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).
-        /// Alerts/prompts aren't wired on ArkUI yet, so those specs are ignored (like WinUI).
+        /// Alerts/prompts aren't wired on ArkUI yet, so those specs are ignored (like XAML).
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::PresentSpec;
             match spec {

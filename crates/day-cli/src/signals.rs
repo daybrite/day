@@ -6,7 +6,7 @@
 //! Unix does the real work: a SIGINT/SIGTERM handler writes one byte to a self-pipe
 //! (async-signal-safe); a watcher thread does the killing off the signal context. On
 //! Windows the console already delivers Ctrl-C to every process in the group, and Day's
-//! only Windows backend (winui) has no `adb`/`simctl` log watchers, so `install` is a
+//! only Windows backend (xaml) has no `adb`/`simctl` log watchers, so `install` is a
 //! no-op there and `kill_all` (used on the normal-exit path) terminates by PID.
 
 use std::sync::Mutex;

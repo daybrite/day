@@ -7,14 +7,14 @@
     all(feature = "qt", feature = "appkit"),
     all(feature = "qt", feature = "gtk"),
     all(feature = "qt", feature = "mock"),
-    all(feature = "winui", feature = "appkit"),
-    all(feature = "winui", feature = "gtk"),
-    all(feature = "winui", feature = "qt"),
-    all(feature = "winui", feature = "mock"),
+    all(feature = "xaml", feature = "appkit"),
+    all(feature = "xaml", feature = "gtk"),
+    all(feature = "xaml", feature = "qt"),
+    all(feature = "xaml", feature = "mock"),
     all(feature = "dom", feature = "appkit"),
     all(feature = "dom", feature = "gtk"),
     all(feature = "dom", feature = "qt"),
-    all(feature = "dom", feature = "winui"),
+    all(feature = "dom", feature = "xaml"),
     all(feature = "dom", feature = "mock"),
 ))]
 compile_error!("day: enable exactly one backend feature");
@@ -46,7 +46,7 @@ pub use day_pieces::routes;
 pub use day_spec::{Lifecycle, WindowOptions};
 
 /// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,
-/// `"UIKit"`, `"Android"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
+/// `"UIKit"`, `"Android"`, `"XAML"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
 /// title that names its backend.
 pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "appkit")]
@@ -69,9 +69,9 @@ pub const fn toolkit_name() -> &'static str {
     {
         return "Android";
     }
-    #[cfg(feature = "winui")]
+    #[cfg(feature = "xaml")]
     {
-        return "WinUI";
+        return "XAML";
     }
     #[cfg(feature = "arkui")]
     {
@@ -138,9 +138,9 @@ pub mod lifecycle {
         {
             return day_android::lifecycle_supported(phase);
         }
-        #[cfg(all(feature = "winui", windows))]
+        #[cfg(all(feature = "xaml", windows))]
         {
-            return day_winui::lifecycle_supported(phase);
+            return day_xaml::lifecycle_supported(phase);
         }
         // No concrete backend (mock, or a mobile backend compiled for the host to check): the
         // universal phases are always deliverable.
@@ -192,10 +192,10 @@ pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static)
     day_core::launch_with(day_uikit::Uikit::new(), options, root);
 }
 
-#[cfg(all(feature = "winui", windows))]
+#[cfg(all(feature = "xaml", windows))]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_winui::WinUi::new(), options, root);
+    day_core::launch_with(day_xaml::Xaml::new(), options, root);
 }
 
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]

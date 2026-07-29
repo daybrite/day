@@ -114,7 +114,7 @@ If a property can't be honored by a toolkit, Day logs it once in debug rather th
 approximating it with custom drawing. That's a real constraint, and it's the flip side of every
 Day control behaving — and evolving with the OS — exactly like a native one.
 
-When a *specific platform* offers the knob you want — an AppKit bezel style, WinUI tick marks —
+When a *specific platform* offers the knob you want — an AppKit bezel style, XAML tick marks —
 [tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit, without leaving the
 native-widget premise. And when you truly need fully custom visuals, that's what
 [`canvas`](/docs/internal/shapes) and [composite pieces](/docs/tutorial-composite-piece) are for:

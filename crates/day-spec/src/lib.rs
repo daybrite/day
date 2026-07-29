@@ -82,7 +82,7 @@ pub struct NodeId(pub u64);
 pub enum SurfaceRole {
     /// A form `section` card: the platform's grouped-content background — AppKit quaternary
     /// system fill, libadwaita `.card`, Qt `palette(alternate-base)`, UIKit tertiary system
-    /// fill, Material surface-container, WinUI card background brush.
+    /// fill, Material surface-container, XAML card background brush.
     SectionCard,
 }
 
@@ -103,7 +103,7 @@ pub type RawHandle = *mut std::ffi::c_void;
 /// single source of truth for those kind numbers; the Java and C++ sides carry mirrored
 /// constants that parity tests check against these discriminants (so a collision or drift
 /// fails `cargo test` on the host instead of silently mis-decoding events on a device).
-/// AppKit/UIKit/GTK/Qt emit `Event` values directly and never use these numbers; WinUI uses
+/// AppKit/UIKit/GTK/Qt emit `Event` values directly and never use these numbers; XAML uses
 /// per-event callbacks with its own small local codes.
 ///
 /// Payload conventions ride `(num: f64, text: String)` per kind — documented on each variant.
@@ -284,7 +284,7 @@ impl Event {
 ///
 /// Rough native mapping:
 ///
-/// | phase | AppKit | UIKit | GTK | Qt | Android | WinUI |
+/// | phase | AppKit | UIKit | GTK | Qt | Android | XAML |
 /// |---|---|---|---|---|---|---|
 /// | `WillLaunch` / `DidLaunch` | `applicationWill/DidFinishLaunching` | same | `startup`/mount | mount | `onCreate` | window create |
 /// | `DidBecomeActive` | `didBecomeActive` | `didBecomeActive` | `notify::is-active` | `ApplicationActive` | `onResume` | `Activated` |
@@ -377,11 +377,11 @@ pub enum GestureKind {
 // ---------------------------------------------------------------------------
 // Menus (app menu bar + context menus). The MODEL is a toolkit-neutral tree; each backend renders it
 // with its OWN native affordance (NSMenu / GMenu+GtkPopoverMenu / QMenu / UIMenu / Android PopupMenu /
-// WinUI MenuFlyout) and its own conventions, so day imposes no menu manager of its own.
+// XAML MenuFlyout) and its own conventions, so day imposes no menu manager of its own.
 // ---------------------------------------------------------------------------
 
 /// A keyboard shortcut for a menu item. `primary` is the platform's command modifier — ⌘ on Apple,
-/// Ctrl on GTK/Qt/WinUI — so one declaration reads correctly everywhere. `key` is a single character
+/// Ctrl on GTK/Qt/XAML — so one declaration reads correctly everywhere. `key` is a single character
 /// (`"s"`, `"."`) or a named key (`"Return"`, `"Delete"`, `"Left"`, `"F1"`).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Shortcut {
@@ -426,7 +426,7 @@ impl Shortcut {
 }
 
 /// A standard/system command. The backend supplies the NATIVE item — selector on AppKit/UIKit
-/// (`cut:`/`copy:`/`paste:`…), a stock action on GTK/Qt/WinUI — so it targets the focused control,
+/// (`cut:`/`copy:`/`paste:`…), a stock action on GTK/Qt/XAML — so it targets the focused control,
 /// gets the platform's default label + shortcut, and enables/disables itself automatically. This is
 /// how default items (Edit ▸ Cut/Copy/Paste, the app's Quit/About) are accommodated without the app
 /// re-implementing them.
@@ -658,7 +658,7 @@ fn spring_step(response: f64, damping: f64, t: f64) -> f64 {
 }
 
 /// Animation intent (§8.4). Native-widget backends map it onto their own animator (Core Animation,
-/// `ViewPropertyAnimator`, WinUI Composition, `OH_ArkUI_AnimateTo`, …); the canvas/self-driven path
+/// `ViewPropertyAnimator`, XAML Composition, `OH_ArkUI_AnimateTo`, …); the canvas/self-driven path
 /// samples `curve` via [`Curve::fraction`]. Threaded through `Toolkit::update`/`set_frame`/
 /// `set_opacity`/`set_transform`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -954,7 +954,7 @@ impl LinearGradient {
 
 /// A radial gradient (docs/shapes.md §3.2 / §7): color stops from `center` outward. Both the
 /// center and the radius live in the unit space of the filled shape's bounding box, so the
-/// gradient stretches into an ELLIPSE when the bounds aren't square (the WinUI relative-brush
+/// gradient stretches into an ELLIPSE when the bounds aren't square (the XAML relative-brush
 /// behavior; the other backends reproduce it with a local matrix on a circular gradient). A
 /// `radius` of `0.5` from the default center touches the edge midpoints of the bounds.
 #[derive(Clone, Debug, PartialEq)]
@@ -1041,7 +1041,7 @@ pub enum DrawOp {
 
 /// A semantic (logical) text style. Each maps to the PLATFORM's native text style where the toolkit
 /// has one — `UIFont`/`NSFont.preferredFont(forTextStyle:)` on Apple (Dynamic Type), the
-/// `*TextBlockStyle` resources on WinUI — so a Day app matches the OS's own typography and inherits its
+/// `*TextBlockStyle` resources on XAML — so a Day app matches the OS's own typography and inherits its
 /// accessibility text scaling for free. Backends without semantic styles (GTK/Qt/Android) approximate
 /// with sizes that still track the platform's text-scale / font-scale accessibility setting.
 ///

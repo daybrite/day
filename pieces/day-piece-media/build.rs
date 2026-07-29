@@ -1,19 +1,19 @@
 //! Compiles this piece's OWN native shim per feature — a standalone Day Piece carrying native C++
 //! without touching Day's toolkit crates (like day-piece-webview). Qt uses `cc` + pkg-config and
-//! (unlike day-qt-sys) links Qt6MultimediaWidgets when the host ships it. WinUI uses `cc` (MSVC) +
-//! the Windows SDK cppwinrt projection, mirroring day-winui-sys / the webview's WinUI shim.
+//! (unlike day-qt-sys) links Qt6MultimediaWidgets when the host ships it. XAML uses `cc` (MSVC) +
+//! the Windows SDK cppwinrt projection, mirroring day-xaml-sys / the webview's XAML shim.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
-    println!("cargo:rerun-if-changed=src/lib-winui-shim.cpp");
+    println!("cargo:rerun-if-changed=src/lib-xaml-shim.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
     }
-    // Windows-only, and only when the app targets WinUI.
-    if std::env::var("CARGO_FEATURE_WINUI").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
-        build_winui();
+    // Windows-only, and only when the app targets XAML.
+    if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
+        build_xaml();
     }
     // NOTE: the iOS AVPlayerViewController (lib-uikit.rs) needs AVKit.framework linked. That's
     // declared in Cargo.toml's `[package.metadata.day.ios].frameworks = ["AVKit", "AVFoundation"]`
@@ -21,8 +21,8 @@ fn main() {
     // `cargo:rustc-link-lib` never reaches xcodebuild, which performs the app's final link).
 }
 
-fn build_winui() {
-    // Same recipe as day-winui-sys / the webview's WinUI shim: the cppwinrt projection headers live
+fn build_xaml() {
+    // Same recipe as day-xaml-sys / the webview's XAML shim: the cppwinrt projection headers live
     // under the SDK's Include\<ver>\cppwinrt (not on the default INCLUDE path); C++20 + /bigobj + /EHsc.
     let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
@@ -34,14 +34,14 @@ fn build_winui() {
         .cpp(true)
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
-        .file("src/lib-winui-shim.cpp")
+        .file("src/lib-xaml-shim.cpp")
         .include(&cppwinrt)
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
-    build.compile("daymediawinuishim");
-    // WindowsApp.lib (WinRT umbrella) + the day_winui_box/unbox seam are already linked by
-    // day-winui-sys; nothing extra to link here.
+    build.compile("daymediaxamlshim");
+    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox seam are already linked by
+    // day-xaml-sys; nothing extra to link here.
 }
 fn build_qt() {
     // QMediaPlayer/QVideoWidget live in Qt6Multimedia(Widgets), which not every Qt host ships.

@@ -67,7 +67,7 @@ target.
 | android | `ACTION_OPEN_DOCUMENT` + `ContentResolver` (copy → cache) | `ACTION_CREATE_DOCUMENT` + `ContentResolver` |
 | arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` + `@ohos.file.fs` (copy → cache) | `DocumentViewPicker.save` + `@ohos.file.fs` |
 | mock   | records the spec; resolved programmatically | same |
-| winui  | not yet implemented (like its alert dialogs) | — |
+| xaml  | not yet implemented (like its alert dialogs) | — |
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the

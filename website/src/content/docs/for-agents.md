@@ -21,7 +21,7 @@ finish. A machine-readable index of the whole site lives at [`/llms.txt`](/llms.
 
 Day builds cross-platform desktop + mobile apps in Rust. You write one declarative UI as a tree of
 **Pieces**; each Piece is realized by a native widget (`NSTextField`, `UILabel`, `GtkEntry`,
-`QSlider`, WinUI `TextBox`, `android.widget.*`) through a per-platform toolkit backend. Day owns layout,
+`QSlider`, XAML `TextBox`, `android.widget.*`) through a per-platform toolkit backend. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
 and assistive tech. There is no virtual DOM and no diffing: the native tree is built once and Signals
 bind straight to native attributes.
@@ -78,7 +78,7 @@ height = 640
 - **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-mdc`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`, `windows-qt`.
+  `android-mdc`, `linux-gtk`, `linux-qt`, `windows-xaml`, `windows-gtk`, `windows-qt`.
 
 ## Canonical patterns (copy these)
 

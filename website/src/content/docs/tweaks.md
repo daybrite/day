@@ -6,7 +6,7 @@ section: Guides
 ---
 
 Sometimes the widget Day gives you is exactly right except for one platform-specific detail: you
-want the standard button, but with AppKit's toolbar bezel; the standard slider, but with WinUI's
+want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's
 tick marks. Writing a whole custom piece for two method calls is disproportionate — so Day has
 **tweaks**: a supported way to reach the real native widget behind a built-in piece and configure
 it, while Day keeps owning layout, lifecycle, and everything else. A piece with a tweak applied
@@ -39,7 +39,7 @@ button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
 ```
 
 `.gtk(|mdc, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
-follow the same shape with each platform's own types. Qt, WinUI, and ArkUI sit behind C shims, so
+follow the same shape with each platform's own types. Qt, XAML, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe — honest tiers, spelled out in the [tweaks reference](/docs/internal/tweaks).
 

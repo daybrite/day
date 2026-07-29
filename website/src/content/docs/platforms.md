@@ -20,7 +20,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `android-mdc` | ✓ | ✓ (emulator) | `.apk` + `.aab` | Emulator leg tolerates flakes; the build itself gates hard |
 | `macos-gtk` | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |
 | `macos-qt` | ✓ | ✓ | — (dev only) | Development combo |
-| `windows-winui` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
+| `windows-xaml` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
 | `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
 | `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
@@ -71,8 +71,8 @@ toolkit, so bundles stay app-sized. GTK is the default recommendation; Qt matter
 cross-OS accessibility bridge or ecosystem is the deciding factor. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
-### Windows (`windows-winui`) — [full page](/docs/platforms/windows-winui)
-WinUI through XAML Islands — the XAML stack that ships with Windows 10/11 itself, not the
+### Windows (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
+XAML through XAML Islands — the XAML stack that ships with Windows 10/11 itself, not the
 WinAppSDK runtime, so there's no runtime bootstrap to install. Built with MSVC. The C++/WinRT
 shim pattern is the same as Qt's. This target builds and walks through in CI but has had less
 real-application time than the Apple/Linux/Android targets; calibrate expectations accordingly.

@@ -21,7 +21,7 @@ pub mod apple; // write_media_xcassets is called from pieces::write_ios_pieces
 mod arkui;
 pub mod gtk; // gresource_path is read by ops::launch
 pub mod qt; // qresource_path is read by ops::launch
-mod winui;
+mod xaml;
 
 /// A single declared resource file: its lookup `name` and on-disk source `path`.
 // Fields are consumed by the per-toolkit stagers (some still landing).
@@ -212,7 +212,7 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
     let icons = project.root.join("resource/icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
-        "winui" => (&["windows", ""], "ico"),
+        "xaml" => (&["windows", ""], "ico"),
         _ if cfg!(target_os = "macos") => (&["macos", "png", ""], "png"),
         _ => (&["linux", "png", ""], "png"),
     };
@@ -278,7 +278,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         // `fonts/` dir next to the binary / in Resources when packed (§18.4).
         "gtk" => gtk::stage(project, &set),
         "qt" => qt::stage(project, &set),
-        "winui" => winui::stage(project, &set),
+        "xaml" => xaml::stage(project, &set),
         _ => Ok(()),
     }
 }

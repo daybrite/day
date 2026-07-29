@@ -52,7 +52,7 @@ platform mapping is uneven, and it's worth knowing the truth rather than assumin
 | Platform | Identifier surface |
 |---|---|
 | iOS / macOS | `accessibilityIdentifier` — full support (XCUITest etc.) |
-| Windows (WinUI, Qt) | UIA `AutomationId` — full support |
+| Windows (XAML, Qt) | UIA `AutomationId` — full support |
 | Android | `uniqueId`, API 33+ only; older versions expose no automation id to Appium/UiAutomator |
 | GTK | no public settable AT-SPI id today — inspector-visible only |
 | Web | DOM `id` |

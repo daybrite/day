@@ -10,7 +10,7 @@ targets = [
   "macos-appkit",
   "macos-gtk",
   "macos-qt",
-  "windows-winui",
+  "windows-xaml",
   "ios-uikit",
   "android-mdc",
   "harmony-arkui",

@@ -2,7 +2,7 @@
 
 A full-featured Matrix chat client built on the `day` native-UI framework, using
 [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk) for all protocol + E2E encryption.
-Targets every Day backend: macOS (AppKit), Linux (GTK, Qt), Windows (WinUI), iOS (UIKit),
+Targets every Day backend: macOS (AppKit), Linux (GTK, Qt), Windows (XAML), iOS (UIKit),
 Android (mdc/JNI), HarmonyOS (ArkUI).
 
 This file is the source of truth for the plan and survives context compaction. Update the
@@ -106,9 +106,9 @@ Candidates a chat client needs that Day may lack — confirm against the invento
 | ios-uikit | via xcodebuild | ✓ (simulator) | **rustls/sqlite for aarch64-apple-ios-sim** |
 | android-mdc | via gradle | ✓ (emulator) | **rustls/sqlite for aarch64-linux-android (NDK)** |
 | harmony-arkui | env-gated | ✗ (needs DevEco/Huawei) | **ohos target** |
-| windows-winui | ✗ on Mac | ✗ | — |
+| windows-xaml | ✗ on Mac | ✗ | — |
 
-"Locally-available platforms" = appkit, gtk, qt, ios-sim, android-emu. OHOS/WinUI are build-checked
+"Locally-available platforms" = appkit, gtk, qt, ios-sim, android-emu. OHOS/XAML are build-checked
 where possible but not runnable here.
 
 ## Build config (REQUIRED — hard-won)
@@ -190,7 +190,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   `.frame_width` doesn't exist → use `.frame`/grow; verify `Insets::symmetric`).
 - CROSS-PLATFORM: gtk, qt (desktop — should mirror appkit), then ios-uikit (sim; homeserver
   `http://localhost:6167` reachable) + android-mdc (emulator; homeserver `http://10.0.2.2:6167` +
-  store_dir must use the app sandbox, NOT $HOME — fix `store_dir()` for ios/android). ohos/winui
+  store_dir must use the app sandbox, NOT $HOME — fix `store_dir()` for ios/android). ohos/xaml
   build-check only.
 
 ## Platform status (functional flow via dayscript/full-demo.yaml)
@@ -246,7 +246,7 @@ on the main thread, so the closure stays Send. NEVER call `state()` off the main
   matrix-core fix above resolves it (real names → `tap room-day-test-room` succeeds → send).
 - **macos-appkit re-verified 13/13 ✓** after the matrix-core changes (no regression); macos-gtk
   unaffected (matrix-core changes are cross-platform).
-- **harmony-arkui / windows-winui**: not attempted here — winui needs Windows, and ohos would need its
+- **harmony-arkui / windows-xaml**: not attempted here — xaml needs Windows, and ohos would need its
   own `platform/` scaffold + an ohos entry macro + an OHOS matrix-sdk cross-compile (beyond the
   "don't spend long" build-check).
 

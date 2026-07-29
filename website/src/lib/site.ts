@@ -71,7 +71,7 @@ export const site = {
     'Android · Material Design Components',
     'Linux · GTK 4',
     'Linux · Qt 6',
-    'Windows · WinUI 3',
+    'Windows · XAML (XAML Islands)',
     'macOS/Windows · GTK & Qt',
   ],
 };

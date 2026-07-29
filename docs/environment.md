@@ -2,7 +2,7 @@
 
 Day locates host toolchains and SDKs through one shared implementation
 (`crates/day-toolchain`), used by the `day` CLI, by every crate build script that compiles its
-own native shim (day-winui-sys, the `day-piece-*`/`day-tweak-*` crates, and the scaffolds
+own native shim (day-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the scaffolds
 `day new` generates). Two rules apply everywhere:
 
 1. **An environment variable always wins** over probing.
@@ -57,7 +57,7 @@ the affected script instead of keeping stale results.
 | Variable | Meaning |
 |---|---|
 | `DAY_LOCAL` | Make `day new` scaffolds depend on a local day checkout instead of the git remote (CI) |
-| `DAY_THEME` | `light` \| `dark` — forces the app's theme on every backend (AppKit appearance, libadwaita color scheme, Qt 6.8+ color scheme, UIKit interface style, Android night mode, WinUI element theme, OHOS color mode); unset = follow the system. CI's themed screenshot cycles pass it via `day launch --env` |
+| `DAY_THEME` | `light` \| `dark` — forces the app's theme on every backend (AppKit appearance, libadwaita color scheme, Qt 6.8+ color scheme, UIKit interface style, Android night mode, XAML element theme, OHOS color mode); unset = follow the system. CI's themed screenshot cycles pass it via `day launch --env` |
 | `ANDROID_SERIAL` | adb's standard device selector — when set, `day build/launch` and dayscript sessions target ONLY that device instead of every connected one |
 | `DAY_SIGN_*`, `DAY_NOTARY_*`, `DAY_ASC_*`, `DAY_KS_PASS`, … | Release-signing secrets referenced from `Day.toml`'s `[signing]` tables via `${VAR}` — resolved at pack time, degrade to the dev signing tier when unset (§20) |
 

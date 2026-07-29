@@ -195,11 +195,11 @@ impl Piece for Media {
 // ---------------------------------------------------------------------------
 // Per-toolkit native renderers — one file per backend. Each module registers a `Renderer`
 // link-time into its backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target, and
-// `#[path]` keeps the files grouped next to lib.rs. winui/mock register nothing (the media kind
+// `#[path]` keeps the files grouped next to lib.rs. xaml/mock register nothing (the media kind
 // falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui, dom);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, dom);
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's

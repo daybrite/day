@@ -21,7 +21,7 @@ gtk = ["day/gtk", "day-piece-remote-image/gtk"]
 qt = ["day/qt", "day-piece-remote-image/qt"]
 uikit = ["day/uikit", "day-piece-remote-image/uikit"]
 mdc = ["day/mdc", "day-piece-remote-image/mdc"]
-winui = ["day/winui", "day-piece-remote-image/winui"]
+xaml = ["day/xaml", "day-piece-remote-image/xaml"]
 mock = ["day/mock", "day-piece-remote-image/mock"]
 
 [lib]

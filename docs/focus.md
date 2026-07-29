@@ -1,6 +1,6 @@
 # Focus
 
-> Status: **implemented** on every backend — AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, and
+> Status: **implemented** on every backend — AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
 > mock. `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
 > behind it, and DESIGN §4.4's controlled-input rule ("the native widget is the source of truth
 > **while it has focus**") now rests on actual focus knowledge. The showcase's Focus page
@@ -97,7 +97,7 @@ traversal stays native — Day wraps real widgets, so platform traversal is alre
 | GTK 4 | `EventControllerFocus` (`enter`/`leave`) on entry, button, switch, and scale — it tracks focus-within, which covers `GtkEntry`'s inner `GtkText`. `Entry::activate` is `Submitted`. | `grab_focus()`, retried once at `map` if the widget isn't mapped yet (rule 4); resign via `root.set_focus(None)`, only while the widget holds focus-within. |
 | Qt 6 | `day_qt_enable_focus` — a `FocusIn`/`FocusOut` event filter (the `DayGestureFilter` pattern) on line edit, button, checkbox, and slider; popup-reason focus-outs are ignored (menus are transient). `returnPressed` is `Submitted`. | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` (only while focused). Qt delivers focus events only in the *active* window, so the duty activates it first — via the OS when allowed, else app-locally (`QApplication::setActiveWindow`, kept by Qt for exactly this driving/embedding case). |
 | Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, hide the IME and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
-| WinUI | `GotFocus`/`LostFocus` per control (system XAML has no global focus event) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual — by design); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
+| XAML | `GotFocus`/`LostFocus` per control (system XAML has no global focus event) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual — by design); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
 | ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, and slider; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
 | mock | logged op + `MockWidget.focused` | logged op |
 
@@ -137,8 +137,8 @@ focusable, and the bindings stay quiet there.
 1. **Group-signal loss semantics** — solved in the pump: a `FocusChanged(false)` scans the
    queue for a paired `FocusChanged(true)` from another node and dispatches the gain first, so
    group signals never blip through `None` (rule 6).
-2. **Resign target on Android/WinUI** — both resign to a focusable root: Android to the
-   activity's focusable-in-touch-mode content root, WinUI to a hidden focus-sink control.
+2. **Resign target on Android/XAML** — both resign to a focusable root: Android to the
+   activity's focusable-in-touch-mode content root, XAML to a hidden focus-sink control.
 3. **`focused_eq` naming** — one `.focused()` name via two marker-trait impls; the tuple form
    `(signal, key)` replaces a second method.
 4. **Headless CI focus** — programmatic `grab_focus`/`setFocus` is window-local on every

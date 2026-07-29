@@ -2,7 +2,7 @@
 
 Day renders menus with each toolkit's native menu machinery: `NSMenu`, `GtkPopoverMenu` /
 `GtkPopoverMenuBar`, `QMenu` / `QMenuBar`, `UIMenu` (via `UIContextMenuInteraction`), Android
-`PopupMenu` / the app-bar overflow, and WinUI `MenuFlyout` / `MenuBar`. There are two surfaces:
+`PopupMenu` / the app-bar overflow, and XAML `MenuFlyout` / `MenuBar`. There are two surfaces:
 
 - **Context menus**: per-Piece, shown on secondary-click (desktop) or long-press (touch), attached
   with the [`Decorate::context_menu`] modifier.
@@ -79,7 +79,7 @@ app_menu(vec![
 ])
 ```
 
-| Role | AppKit | GTK | Qt | UIKit | Android | WinUI |
+| Role | AppKit | GTK | Qt | UIKit | Android | XAML |
 |---|---|---|---|---|---|---|
 | Cut/Copy/Paste/SelectAll | `cut:`/`copy:`… selectors (first responder) | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain (`cut:`…) | system text toolbar¹ | accelerator² |
 | Undo/Redo | `undo:`/`redo:` | stock actions | focused editor | — | — | — |
@@ -92,7 +92,7 @@ equivalent on a platform render as an inert labelled item; no behaviour is impos
 
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.
-² WinUI carries the standard accelerator; the focused `TextBox` handles the keystroke itself.
+² XAML carries the standard accelerator; the focused `TextBox` handles the keystroke itself.
 
 ## The app menu
 
@@ -117,7 +117,7 @@ replaces the previous app menu. Where each backend puts it:
 - **GTK**: a `GtkPopoverMenuBar` at the top of the window; accelerators registered on the `GtkApplication`.
 - **Qt**: a `QMenuBar` (the native global bar on macOS-qt).
 - **Android**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
-- **WinUI**: a `MenuBar` docked at the top of the window.
+- **XAML**: a `MenuBar` docked at the top of the window.
 - **iOS/iPhone**: a no-op by design. Touch platforms have no persistent global menu bar; the native
   affordances are the per-Piece context menu and the system edit menu. (iPad/Catalyst `UIMenuBuilder`
   wiring is a future addition.)

@@ -5,7 +5,7 @@
 //!
 //! Per-target default formats:
 //!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
-//!   linux-gtk/linux-qt → flatpak · windows-winui → msix+nsis · harmony-arkui → hap
+//!   linux-gtk/linux-qt → flatpak · windows-xaml → msix+nsis · harmony-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
 pub(crate) mod android;
@@ -89,7 +89,7 @@ fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
         "ios-uikit" => vec!["ipa"], // falls back to sim-app without ASC signing config
         "android-mdc" => vec!["apk", "aab"],
         "linux-gtk" | "linux-qt" => vec!["flatpak"],
-        "windows-winui" => vec!["msix", "nsis"],
+        "windows-xaml" => vec!["msix", "nsis"],
         "harmony-arkui" => vec!["hap"],
         "macos-gtk" | "macos-qt" | "windows-gtk" | "windows-qt" => {
             return Err(format!(
@@ -143,7 +143,7 @@ pub fn run(
         "linux-gtk" | "linux-qt" => {
             artifacts.push(flatpak::pack(project, target, opts, &dist)?);
         }
-        "windows-winui" => {
+        "windows-xaml" => {
             let staged = msix::stage_payload(project, target, opts)?;
             if formats.iter().any(|f| f == "msix") {
                 artifacts.push(msix::pack(project, opts, &staged, &dist)?);

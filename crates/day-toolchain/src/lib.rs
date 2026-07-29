@@ -1,5 +1,5 @@
 //! day-toolchain — ONE place that knows where host toolchains and SDKs live, shared by the
-//! `day` CLI and by crate build scripts (day-winui-sys, every `day-piece-*`/`day-tweak-*` that
+//! `day` CLI and by crate build scripts (day-xaml-sys, every `day-piece-*`/`day-tweak-*` that
 //! compiles its own native shim, and the scaffolds `day new` generates).
 //!
 //! Two rules govern every lookup here (docs/environment.md):
@@ -41,7 +41,7 @@ pub fn windows_kits_roots() -> Vec<PathBuf> {
 }
 
 /// The newest `Include\<version>\cppwinrt` directory (the C++/WinRT projection headers), for
-/// compiling WinUI shims with `cc`.
+/// compiling XAML shims with `cc`.
 ///
 /// Overrides: `DAY_CPPWINRT` (the exact cppwinrt include dir — highest priority), then the
 /// roots from [`windows_kits_roots`]. Validated by `winrt/base.h`.

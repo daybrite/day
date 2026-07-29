@@ -39,7 +39,7 @@ seam if those are wanted later.
 
 ## Per-backend native realization
 
-| | AppKit | UIKit | GTK / Qt / Android / WinUI |
+| | AppKit | UIKit | GTK / Qt / Android / XAML |
 |---|---|---|---|
 | control | `MKMapView` (NSView) | `MKMapView` (UIView) | — (placeholder leaf) |
 | native code | `objc2-map-kit` typed binding | hand-rolled `extern_class!` + `msg_send!` | none |
@@ -60,7 +60,7 @@ seam if those are wanted later.
   + CoreLocation must be linked for the ObjC classes to register; they're declared via
   `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` and linked by the generated
   DayPieces SwiftPM package (the framework-contribution seam).
-- **GTK / Qt / Android / WinUI / mock**: the features exist (so an app can enable
+- **GTK / Qt / Android / XAML / mock**: the features exist (so an app can enable
   `day-piece-map/<feature>` uniformly per backend) but register no renderer; the map kind falls
   back to day's placeholder leaf. There is no de-facto native slippy-map widget in these toolkits
   without a heavy external dependency (a WebView + tile provider, `osm-gps-map`, `QtLocation`, Google

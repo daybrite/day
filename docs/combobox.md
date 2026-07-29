@@ -36,7 +36,7 @@ emit it — a native pick already arrives as text).
 
 ## Per-backend native realization
 
-| AppKit | GTK | Qt | Android | WinUI | UIKit | ArkUI |
+| AppKit | GTK | Qt | Android | XAML | UIKit | ArkUI |
 |---|---|---|---|---|---|---|
 | `NSComboBox` | `GtkComboBoxText` with entry | editable `QComboBox` | `AutoCompleteTextView` | editable `ComboBox` (1809+) | — placeholder | — placeholder |
 
@@ -55,11 +55,11 @@ Use `picker` or `text_field` on those platforms. The change plumbing per backend
   per-node `suppress` cell guards the sync. GTK 4.10 deprecated `GtkComboBoxText` without an
   editable replacement (`GtkDropDown` has no entry), so the renderer keeps it under a commented
   `allow(deprecated)`.
-- **Qt / WinUI**: each carries its own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
-  `src/lib-winui-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim is a
+- **Qt / XAML**: each carries its own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
+  `src/lib-xaml-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim is a
   `QComboBox` with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
-  path, and programmatic setters sit in `blockSignals`. The WinUI shim boxes an editable
-  `ComboBox` through the `day_winui_box` / `day_winui_unbox` seam. Documented divergence: XAML's
+  path, and programmatic setters sit in `blockSignals`. The XAML shim boxes an editable
+  `ComboBox` through the `day_xaml_box` / `day_xaml_unbox` seam. Documented divergence: XAML's
   `ComboBox` has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
@@ -86,5 +86,5 @@ every backend feature.
 - `Event::Submitted` on Return for "commit" semantics distinct from per-keystroke changes.
 - Disabled/enabled state; a max-visible-items hint for the dropdown.
 
-WinUI is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the
+XAML is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the
 macOS/Linux dev hosts.

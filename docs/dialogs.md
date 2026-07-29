@@ -78,7 +78,7 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 | qt | `QMessageBox.open()` + `finished` (shim) | `QInputDialog.getText` (shim) |
 | android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + `TextInputLayout` |
 | mock | records the spec; resolved programmatically | same |
-| winui | `ContentDialog` (UNVERIFIED, no local Windows) | `ContentDialog` + `TextBox` |
+| xaml | `ContentDialog` (UNVERIFIED, no local Windows) | `ContentDialog` + `TextBox` |
 
 All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.

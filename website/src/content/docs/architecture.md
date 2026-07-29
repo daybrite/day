@@ -21,7 +21,7 @@ follows a widget through the running system.
       ┌──────────────┐                   ┌──────────────────┐
       │  day-pieces  │  built-in pieces  │ toolkit backend   │  day-appkit / day-uikit /
       │              │  + Decorate API   │ (one per binary)  │  day-gtk / day-qt / day-android /
-      └──────┬───────┘                   └────────┬─────────┘  day-winui / day-arkui / day-mock
+      └──────┬───────┘                   └────────┬─────────┘  day-xaml / day-arkui / day-mock
              ▼                                    │ implements
       ┌──────────────┐   realized tree,           ▼
       │   day-core   │   layout engine,   ┌──────────────┐
@@ -102,7 +102,7 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | AppKit / UIKit | `objc2` bindings — Rust calls Objective-C runtime directly, no shim |
 | GTK | `gtk4-rs` (gobject bindings) |
 | Qt | a small hand-written C++ shim (`day-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
-| WinUI | same pattern with C++/WinRT (`day-winui-sys`) |
+| XAML | same pattern with C++/WinRT (`day-xaml-sys`) |
 | Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
 

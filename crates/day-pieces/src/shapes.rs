@@ -329,7 +329,7 @@ fn record_shape(spec: &ShapeSpec, d: &mut Draw, bounds: Rect) {
     let kind = spec.kind.get();
     // A centered stroke overflows the geometry by half its width; inset closed shapes by w/2 so
     // the whole stroke stays inside the view bounds — backends that clip a canvas to its bounds
-    // (Qt/Android/WinUI) would otherwise cut the stroke's outer edge. (SwiftUI `strokeBorder`
+    // (Qt/Android/XAML) would otherwise cut the stroke's outer edge. (SwiftUI `strokeBorder`
     // behavior.) Fill-only shapes are unaffected (stroke_half = 0). Line/Polygon are exempt:
     // they resolve exactly at their authored unit points, and a line's rect is legitimately
     // degenerate (zero-height for a horizontal segment), so they skip the empty-rect bail too.

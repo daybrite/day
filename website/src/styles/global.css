@@ -37,7 +37,7 @@
   --pf-android-mdc: #30d158;   /* green */
   --pf-linux-gtk: #63e6e2;     /* mint */
   --pf-linux-qt: #64d2ff;      /* cyan */
-  --pf-windows-winui: #40c8e0; /* teal */
+  --pf-windows-xaml: #40c8e0; /* teal */
   --pf-harmony-arkui: #ff453a;    /* red */
   --pf-web-dom: #ff9f0a;       /* orange */
 
@@ -46,7 +46,7 @@
   --pf-ios: var(--pf-ios-uikit);
   --pf-android: var(--pf-android-mdc);
   --pf-linux: var(--pf-linux-gtk);
-  --pf-windows: var(--pf-windows-winui);
+  --pf-windows: var(--pf-windows-xaml);
   --pf-harmony: var(--pf-harmony-arkui);
   --pf-web: var(--pf-web-dom);
 
@@ -93,7 +93,7 @@
   --pf-android-mdc: #34c759;   /* green */
   --pf-linux-gtk: #00c7be;     /* mint */
   --pf-linux-qt: #32ade6;      /* cyan */
-  --pf-windows-winui: #30b0c7; /* teal */
+  --pf-windows-xaml: #30b0c7; /* teal */
   --pf-harmony-arkui: #ff3b30;    /* red */
   --pf-web-dom: #ff9500;       /* orange */
 
@@ -107,7 +107,7 @@
 [data-pf='android-mdc'] { --pf: var(--pf-android-mdc); }
 [data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
 [data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
-[data-pf='windows-winui'] { --pf: var(--pf-windows-winui); }
+[data-pf='windows-xaml'] { --pf: var(--pf-windows-xaml); }
 [data-pf='harmony-arkui'] { --pf: var(--pf-harmony-arkui); }
 [data-pf='web-dom'] { --pf: var(--pf-web-dom); }
 

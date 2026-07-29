@@ -1,11 +1,11 @@
 //! day-piece-combobox — an EXTERNAL Day Piece (DESIGN.md §15 tier 1, Appendix B.1): one Rust
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with no
-//! edits to Day or its toolkit crates. The Qt and WinUI renderers carry their own C++ shims;
+//! edits to Day or its toolkit crates. The Qt and XAML renderers carry their own C++ shims;
 //! the Android renderer its own Java factory.
 //!
 //! A REAL combo box: free-form text entry PLUS a dropdown of suggestions, as the platform's
 //! genuine combo control — `NSComboBox` (AppKit), `GtkComboBoxText` with an entry (GTK), an
-//! editable `QComboBox` (Qt), `AutoCompleteTextView` (Android), an editable `ComboBox` (WinUI).
+//! editable `QComboBox` (Qt), `AutoCompleteTextView` (Android), an editable `ComboBox` (XAML).
 //! Because a typed value need not be in the list, the VALUE is the text: a `Signal<String>`
 //! bound two-way, exactly like `search_field` (typing sets the signal; setting the signal
 //! patches the control, echo-guarded). Picking a dropdown item is just another way to set the
@@ -143,4 +143,4 @@ impl Piece for ComboBox {
 // No uikit arm: iOS has no native combo-box control (day renders its placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, mdc, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml);

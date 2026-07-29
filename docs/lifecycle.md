@@ -50,7 +50,7 @@ of memory the way a phone does. The **universal** phases (`WillLaunch`, `DidLaun
 `DidBecomeActive`, `WillResignActive`, `WillTerminate`) are delivered by every backend. The
 background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android).
 
-| Phase | AppKit | GTK | Qt | UIKit | Android | WinUI |
+| Phase | AppKit | GTK | Qt | UIKit | Android | XAML |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | WillLaunch / DidLaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DidBecomeActive / WillResignActive | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -60,7 +60,7 @@ background/foreground/memory phases are delivered only by the mobile backends (U
 
 Native mapping: AppKit `NSApplication` notifications; UIKit `UIApplicationDelegate`; GTK window
 `is-active` + GApplication `shutdown`; Qt `applicationStateChanged` + `aboutToQuit`; Android Activity
-lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); WinUI window
+lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); XAML window
 `WM_ACTIVATE`/`WM_CLOSE`.
 
 ### Guarding platform-specific phases
@@ -100,7 +100,7 @@ day::require_lifecycle!(Lifecycle::DidEnterBackground);  // compile error on a d
 `WillTerminate` fires on every quit path: the `Quit` menu command (`menu_role(MenuRole::Quit)`), the
 platform quit shortcut (⌘Q on macOS, Ctrl+Q elsewhere), and the OS reclaiming the app. The `Quit`
 command exits the app. On GTK a standard `app.quit` action is registered so ⌘Q / Ctrl+Q and the menu
-item both work; on macOS the App-menu Quit is standard; Qt/WinUI quit their event loops. Save work in a
+item both work; on macOS the App-menu Quit is standard; Qt/XAML quit their event loops. Save work in a
 `WillTerminate` handler.
 
 Mobile note: iOS/Android apps don't have a user-facing "quit". There, `WillTerminate` means the OS is

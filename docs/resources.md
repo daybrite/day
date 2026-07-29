@@ -8,9 +8,9 @@ uncompressed wherever the platform allows, so the runtime can return a zero-copy
 
 | Project dir | Kind | API (typed, §18.5) | Native store |
 |---|---|---|---|
-| `resource/images/` | processed images | `image(res::images::logo)` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
-| `resource/assets/` | arbitrary data | `resource(res::assets::stations_json)` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `resource/fonts/` | custom fonts | `Font::custom(res::fonts::family, pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | `image(res::images::logo)` | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (XAML) · rawfile (ArkUI) |
+| `resource/assets/` | arbitrary data | `resource(res::assets::stations_json)` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (XAML) · rawfile fd (ArkUI) |
+| `resource/fonts/` | custom fonts | `Font::custom(res::fonts::family, pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (XAML) · rawfile + ArkTS `registerFont` (ArkUI) |
 
 ## Referencing resources — typed constants (§18.5)
 
@@ -70,7 +70,7 @@ the backend resolves the name.
   "drawable", pkg)` (cached) → `getDrawable`.
 - **GTK / Qt:** compiled into the binary as a GResource / `.qrc` and loaded by a stable virtual path
   (`/dev/<appid>/logo.png`, `:/logo.png`).
-- **WinUI:** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
+- **XAML:** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
   WIC/DPI resolver picks the file when unpackaged.
 - **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
@@ -127,7 +127,7 @@ Per platform:
   The label carries a Pango `AttrString::new_family` attribute.
 - **Qt:** `QFontDatabase::addApplicationFont` per file at startup (shim `day_qt_register_font`);
   labels get `QFont::setFamily` on top of the size/weight/italic font.
-- **WinUI:** unpackaged Win32 XAML has no registration API and rejects `file://`/absolute font
+- **XAML:** unpackaged Win32 XAML has no registration API and rejects `file://`/absolute font
   locations (like `BitmapImage`). The one location system XAML resolves is `ms-appx:///`, mapped to
   the executable directory and its subtree, so `run()` stages every bundled font into `<exe>/fonts/`
   (a no-op when packed — `day pack` already ships them there) and the shim sets
@@ -151,7 +151,7 @@ Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, nev
 with `.content_mode(ContentMode::Fill)` (preserve aspect, crop), `.stretch()`, or the shorthands
 `.fit()`/`.fill()`; constrain the frame to a ratio with `.aspect_ratio(16.0/9.0)`. Each maps to the
 native scaler: NSImageView `imageScaling`, UIImageView `contentMode`, GtkPicture `content-fit`, a
-Qt aspect-painting label, Android `ImageView.ScaleType`, WinUI `Image.Stretch`, ArkUI
+Qt aspect-painting label, Android `ImageView.ScaleType`, XAML `Image.Stretch`, ArkUI
 `NODE_IMAGE_OBJECT_FIT`.
 
 ## Build-time staging
@@ -169,6 +169,6 @@ optimizes.
 - ArkUI uses `rawfile` (native-reachable, uncompressed) with no per-density auto-selection yet; a
   `media/` + ArkTS-bridge path for density is a future enhancement.
 - macOS AppKit does not run actool (cargo build), so its images are unoptimized bundle files.
-- WinUI is built unpackaged, so images/data load as loose files via WIC/the file opener (the
+- XAML is built unpackaged, so images/data load as loose files via WIC/the file opener (the
   recommended unpackaged path); MRT `.pri` (`ms-appx:///`) applies only to MSIX-packaged apps.
-- WinUI unpackaged uses loose scale-suffixed files + a DPI resolver (MRT/`.pri` needs MSIX).
+- XAML unpackaged uses loose scale-suffixed files + a DPI resolver (MRT/`.pri` needs MSIX).

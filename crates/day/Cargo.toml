@@ -15,7 +15,7 @@ gtk = ["dep:day-gtk"]
 qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit"]
 mdc = ["dep:day-android"]
-winui = ["dep:day-winui"]
+xaml = ["dep:day-xaml"]
 arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
 mock = ["dep:day-mock"]
@@ -33,7 +33,7 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
-day-winui = { workspace = true, optional = true }
+day-xaml = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
 day-mock = { workspace = true, optional = true }

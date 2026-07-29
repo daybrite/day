@@ -58,7 +58,7 @@ over (DESIGN.md §2: native-at-home beats identical-everywhere).
 | ios-uikit | **Native** | `UIDatePicker` .compact (popover) | `.inline` calendar | `.compact` keypad; Inline = `.wheels` (iOS has no inline clock) |
 | android-mdc | **Native** | value button → `MaterialDatePicker` dialog (via `DayActivity`'s FragmentManager) | framework `DatePicker` calendar | button → `MaterialTimePicker` clock dialog; Inline = framework `TimePicker` |
 | qt | **Native** | `QDateEdit` + calendar popup | `QCalendarWidget` | `QTimeEdit` (both styles; seconds via display format) |
-| winui | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles — WinUI has no inline clock) |
+| xaml | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles — XAML has no inline clock) |
 | harmony-arkui | **Native** | `ARKUI_NODE_CALENDAR_PICKER` (entry → calendar popup) | `ARKUI_NODE_DATE_PICKER` wheels (native START/END) | `ARKUI_NODE_TIME_PICKER` wheels |
 | gtk | Emulated | `GtkMenuButton` (locale-formatted label) → `GtkCalendar` in a `GtkPopover` | `GtkCalendar` | linked `GtkSpinButton`s h/m[/s] — GTK4/libadwaita have **no** stock date/time picker; this composes native primitives |
 | mock | Emulated | generic widget; tests drive via events | " | " |

@@ -31,14 +31,14 @@ implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via `Decorate`. It's a
 
 ## Per-backend native realization
 
-| | AppKit | UIKit | Qt | Android | GTK | WinUI |
+| | AppKit | UIKit | Qt | Android | GTK | XAML |
 |---|---|---|---|---|---|---|
 | control | `WKWebView` | `WKWebView` | `QWebEngineView` | `android.webkit.WebView` | WebKitGTK `WebView` | UWP-XAML `WebView` |
-| native code | objc2-web-kit | hand-rolled `extern_class!` + `msg_send!` | `src/lib-qt-shim.cpp` (+ links `Qt6WebEngineWidgets`) | `android/java/…/DayWebView.java` | `webkit6` crate | `src/lib-winui-shim.cpp` |
+| native code | objc2-web-kit | hand-rolled `extern_class!` + `msg_send!` | `src/lib-qt-shim.cpp` (+ links `Qt6WebEngineWidgets`) | `android/java/…/DayWebView.java` | `webkit6` crate | `src/lib-xaml-shim.cpp` |
 | URL-back event | `Custom("webview:url", …)` | `Custom("webview:url", …)` | `Custom("webview:url", …)` | `TextChanged` (kind 1) | `Custom("webview:url", …)` | `Custom("webview:url", …)` |
 
 Rendering, two-way URL binding, and controls are verified on AppKit, Qt, UIKit (iOS sim), and Android.
-GTK and WinUI are written blind (no WebKitGTK / Windows host on the reference machine) to build and run
+GTK and XAML are written blind (no WebKitGTK / Windows host on the reference machine) to build and run
 in CI; the GTK `webkit6` API is verified against the crate source, and both are captured in the CI
 gallery.
 
@@ -47,8 +47,8 @@ gallery.
   GTK3 API and has no bottle, and WebKitGTK isn't viable on macOS-quartz, so `webkit6` is a non-macOS
   target dependency and `macos-gtk` falls back to a placeholder leaf. The CI Linux/Windows GTK jobs
   install `libwebkitgtk-6.0-dev` / `mingw-w64-x86_64-webkitgtk6`.
-- **WinUI**: the UWP-XAML `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), which is in the base Windows SDK
-  cppwinrt projection day-winui already uses (no Windows App SDK / WebView2). Creation + navigation are
+- **XAML**: the UWP-XAML `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), which is in the base Windows SDK
+  cppwinrt projection day-xaml already uses (no Windows App SDK / WebView2). Creation + navigation are
   wrapped in try/catch: EdgeHTML WebView can be unavailable in an unpackaged Win32 XAML host, so it
   degrades to a label rather than crashing.
 

@@ -9,7 +9,7 @@ Most Day widgets you build won't need a single line of platform code. They are
 **composite pieces**: new widgets assembled from primitives Day already ships. A composite
 piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it
 to an app as a plain dependency and it runs on all twelve targets (AppKit, UIKit, Android, GTK, Qt,
-WinUI), because every leaf it composes is already a native control on each one.
+XAML), because every leaf it composes is already a native control on each one.
 
 In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
@@ -23,7 +23,7 @@ Day has two kinds of pieces:
 |---|---|---|
 | What it wraps | a *new* native control (`NSComboBox`, `WKWebView`, …) | *existing* Day pieces |
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
-| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `winui` | none |
+| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
 | Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
 

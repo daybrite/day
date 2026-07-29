@@ -374,7 +374,7 @@ pub struct Project {
 /// flows into `CARGO_TARGET_DIR` (ops.rs), and the windows-gnu toolchain's MinGW linker
 /// (`ld`/`collect2`) can't parse `\\?\` object-file arguments — it drops the prefix and reports
 /// `cannot find \\symbols.o`, failing the link (hit on windows-gtk / windows-qt; MSVC's link.exe
-/// tolerates it, so winui was unaffected). De-verbatim the path so every subtool gets a plain
+/// tolerates it, so xaml was unaffected). De-verbatim the path so every subtool gets a plain
 /// absolute path — still absolute, so the xcodebuild-SYMROOT need in `find_project` holds. No-op off
 /// Windows, where canonicalize never adds a verbatim prefix.
 fn strip_verbatim(p: PathBuf) -> PathBuf {

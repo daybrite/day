@@ -23,7 +23,7 @@ const PRIMARY = [
   'macos-appkit',
   'ios-uikit',
   'android-mdc',
-  'windows-winui',
+  'windows-xaml',
   'linux-gtk',
   'linux-qt',
   'harmony-arkui',

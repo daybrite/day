@@ -536,7 +536,7 @@ dependencies = [
  "day-script",
  "day-spec",
  "day-uikit",
- "day-winui",
+ "day-xaml",
 ]
 
 [[package]]
@@ -862,8 +862,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -886,8 +886,8 @@ dependencies = [
  "day-reactive",
  "day-spec",
  "day-toolchain",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -913,8 +913,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -977,8 +977,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -1042,8 +1042,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -1069,8 +1069,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -1096,8 +1096,8 @@ dependencies = [
  "day-spec",
  "day-toolchain",
  "day-uikit",
- "day-winui",
- "day-winui-sys",
+ "day-xaml",
+ "day-xaml-sys",
  "gtk4",
  "linkme",
  "objc2",
@@ -1208,7 +1208,7 @@ dependencies = [
  "day-pieces",
  "day-qt",
  "day-toolchain",
- "day-winui",
+ "day-xaml",
  "gtk4",
  "objc2-app-kit",
 ]
@@ -1232,18 +1232,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-winui"
+name = "day-xaml"
 version = "0.0.17"
 dependencies = [
  "day-core",
  "day-pieces",
  "day-spec",
- "day-winui-sys",
+ "day-xaml-sys",
  "linkme",
 ]
 
 [[package]]
-name = "day-winui-sys"
+name = "day-xaml-sys"
 version = "0.0.17"
 dependencies = [
  "cc",

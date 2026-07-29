@@ -28,7 +28,7 @@ fn tool_list() -> serde_json::Value {
             "name": "day_doctor",
             "description": "Check the development environment per toolkit (Rust targets, Android SDK, Xcode, GTK/Qt packages, OpenHarmony SDK). Returns human-readable findings.",
             "inputSchema": {"type": "object", "properties": {
-                "toolkit": {"type": "string", "description": "Focus one toolkit (appkit|uikit|gtk|qt|winui|android|harmonyos); its findings become errors with setup help."}
+                "toolkit": {"type": "string", "description": "Focus one toolkit (appkit|uikit|gtk|qt|xaml|android|harmonyos); its findings become errors with setup help."}
             }}
         },
         {

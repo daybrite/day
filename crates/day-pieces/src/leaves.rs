@@ -170,7 +170,7 @@ impl Button {
     }
 
     /// The platform's accent-filled / default-action button (iOS bordered-prominent, macOS
-    /// return-key blue, GTK suggested-action, WinUI accent style). Use for the one primary
+    /// return-key blue, GTK suggested-action, XAML accent style). Use for the one primary
     /// action of a view.
     pub fn prominent(mut self) -> Self {
         self.native_style = day_spec::props::ButtonStyleSpec::Prominent;

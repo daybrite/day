@@ -24,7 +24,7 @@ gtk = ["day/gtk", "day-tweak-label-selectable/gtk", "day-tweak-slider-tickmarks/
 qt = ["day/qt", "day-tweak-slider-tickmarks/qt"]
 uikit = ["day/uikit"]
 mdc = ["day/mdc", "day-tweak-label-selectable/mdc", "day-tweak-slider-tickmarks/mdc"]
-winui = ["day/winui", "day-tweak-slider-tickmarks/winui"]
+xaml = ["day/xaml", "day-tweak-slider-tickmarks/xaml"]
 arkui = ["day/arkui", "day-tweak-slider-tickmarks/arkui"]
 # The web backend (day/DESIGN.md §9). No tweak crate has a dom renderer yet, so the line is bare.
 dom = ["day/dom"]

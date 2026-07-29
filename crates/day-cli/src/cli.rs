@@ -111,7 +111,7 @@ enum Cmd {
     /// Check the development environment, grouped by toolkit
     Doctor {
         /// Focus a toolkit (repeatable): its checks become errors + print setup help.
-        /// One of: appkit, uikit, gtk, qt, winui, android, harmonyos.
+        /// One of: appkit, uikit, gtk, qt, xaml, android, harmonyos.
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
@@ -205,7 +205,7 @@ enum NewKind {
     Piece {
         /// Crate name (prompted if omitted in an interactive terminal).
         name: Option<String>,
-        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,mdc,winui).
+        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,mdc,xaml).
         /// Omit for a COMPOSITE piece (pure composition; works on every backend with no per-backend code).
         #[arg(long)]
         toolkits: Option<String>,

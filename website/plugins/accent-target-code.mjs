@@ -12,7 +12,7 @@ const TARGETS = new Set([
   'android-mdc',
   'linux-gtk',
   'linux-qt',
-  'windows-winui',
+  'windows-xaml',
   'harmony-arkui',
   'web-dom',
   // Secondary desktop combos take their toolkit family's color (see global.css).

@@ -8,7 +8,7 @@ with no edits to any core Day crate. `day-piece-searchfield` is the reference im
 **Scaffold a new piece with `day new`.** Don't hand-assemble the crate: `day new piece <name>`
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
 checkout). With no `--toolkits` it emits a **composite** piece (front-end only); with
-`--toolkits appkit,gtk,qt,uikit,mdc,winui` (any subset) it emits a **native** piece with a renderer
+`--toolkits appkit,gtk,qt,uikit,mdc,xaml` (any subset) it emits a **native** piece with a renderer
 per backend plus the C++/Java/Swift glue each one needs. The companion `day new part <name>` scaffolds
 a headless part. For full walkthroughs see the tutorials:
 [composite piece](https://daybrite.dev/docs/tutorial-composite-piece/),
@@ -52,7 +52,7 @@ realize payload; a sparse `Patch` enum carries changes.
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice, the same
 slice the built-ins use, so no Day edit is needed. Declare the per-toolkit glue modules with one
-line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui)` expands to the
+line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml)` expands to the
 feature-and-target-gated `mod` block binding each `lib-<toolkit>.rs` (list only the toolkits you
 implement; a non-standard gate, like webview's Linux-only GTK, stays a hand-written block beside
 it). Then write typed `make`/`update` (no `&dyn Any`
@@ -75,7 +75,7 @@ Add `measure: f` for custom sizing: `measure: day_pieces::fill_measure` for a gr
 view, a canvas), or omit it for the backend's default. A **patchless** piece (configured once, e.g. Lottie)
 drops `patch:`/`update:`: `renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: MyProps, make: make)`.
 Do the same for `day_gtk::RENDERERS`, `day_qt::RENDERERS`, `day_uikit::RENDERERS`,
-`day_android::RENDERERS`, `day_winui::RENDERERS`. Each backend is behind a cargo feature that pulls in
+`day_android::RENDERERS`, `day_xaml::RENDERERS`. Each backend is behind a cargo feature that pulls in
 that toolkit crate; the app enables `my-piece/<backend>` alongside `day/<backend>`.
 
 **Reporting events back.** A renderer calls `day_<backend>::emit(node, event)`. Beyond the fixed
@@ -89,14 +89,14 @@ text)` (kind 12 = the open Custom channel). `day-piece-webview` reports its URL 
 A piece often needs native code the Rust FFI alone can't express. Day gives each toolkit a local
 extension path so that code lives in the piece crate:
 
-### C++ shims: Qt & WinUI (`build.rs`)
+### C++ shims: Qt & XAML (`build.rs`)
 
-The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-winui-shim.cpp` and compiles them in `build.rs`
+The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
 (gated on the feature). Qt widgets are plain C++ objects and the handle is a raw `QWidget*`, so a Qt
-shim is self-contained. WinUI handles are a private boxed type owned by `day-winui-sys`, so the piece
-boxes its XAML element through the exported `day_winui_box` / `day_winui_unbox` seam (a stable
-WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` / `day_winui_measure`).
-See `pieces/day-piece-searchfield/{build.rs,src/lib-qt-shim.cpp,src/lib-winui-shim.cpp}`.
+shim is self-contained. XAML handles are a private boxed type owned by `day-xaml-sys`, so the piece
+boxes its XAML element through the exported `day_xaml_box` / `day_xaml_unbox` seam (a stable
+WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` / `day_xaml_measure`).
+See `pieces/day-piece-searchfield/{build.rs,src/lib-qt-shim.cpp,src/lib-xaml-shim.cpp}`.
 
 ### Android Java + Gradle deps (`[package.metadata.day.android]`)
 
@@ -244,7 +244,7 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + a build.rs that compiles src/lib-qt-shim.cpp
 uikit = ["dep:day-uikit", …]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
-winui = ["dep:day-winui", "dep:day-winui-sys"]   # + build.rs compiles src/lib-winui-shim.cpp
+xaml = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
 ```
 
 The app mirrors each: `my-piece/<backend>` in the matching feature. That's it: no changes to `day`,
@@ -280,7 +280,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
   node measures/places through its layout, not through the renderer's `measure` fn.
 - Your per-backend `make` must return a **container-capable native view**: any `NSView`/`UIView`,
   any `QWidget`, any ArkUI FrameNode — but on GTK a `gtk4::Fixed`-backed view, on Android a
-  `ViewGroup`, and on WinUI a `Panel`, or the generic `insert` silently drops the child.
+  `ViewGroup`, and on XAML a `Panel`, or the generic `insert` silently drops the child.
   (Conveniently, native wrappers like Android's `SwipeRefreshLayout` ARE ViewGroups.)
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
   through `with_tree(|t| t.patch(node, …))` — identical to leaf pieces.
@@ -288,14 +288,14 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 ## Reference
 
 `pieces/day-piece-searchfield` implements all of the above: a native search input on six backends,
-its own Qt + WinUI C++ shims, and its own Android Java. It's verified on AppKit / GTK / Qt / iOS /
-Android and CI-built on WinUI. Use it as a template. Its layout keeps the shared front-end and each
+its own Qt + XAML C++ shims, and its own Android Java. It's verified on AppKit / GTK / Qt / iOS /
+Android and CI-built on XAML. Use it as a template. Its layout keeps the shared front-end and each
 toolkit backend in a separate file:
 
 ```
 pieces/day-piece-searchfield/
 ├── Cargo.toml               # features + [package.metadata.day.android]
-├── build.rs                 # compiles lib-qt-shim.cpp / lib-winui-shim.cpp per feature
+├── build.rs                 # compiles lib-qt-shim.cpp / lib-xaml-shim.cpp per feature
 ├── android/java/…/DaySearch.java   # this piece's own Android backend
 └── src/
     ├── lib.rs               # front-end (the `Piece`) + `day_pieces::glue_modules!(…)`
@@ -304,13 +304,13 @@ pieces/day-piece-searchfield/
     ├── lib-qt.rs            (+ lib-qt-shim.cpp)
     ├── lib-uikit.rs
     ├── lib-android.rs      (+ android/java DaySearch.java)
-    ├── lib-winui.rs        (+ lib-winui-shim.cpp)
+    ├── lib-xaml.rs        (+ lib-xaml-shim.cpp)
     ├── lib-qt-shim.cpp
-    └── lib-winui-shim.cpp
+    └── lib-xaml-shim.cpp
 ```
 
 `lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc,
-winui)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
+xaml)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
 native surface for a toolkit lives in one place.
 
 `pieces/day-piece-webview` (see [webview.md](webview.md)) is a second reference: a heavier native

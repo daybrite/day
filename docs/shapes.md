@@ -125,7 +125,7 @@ Line/Polygon semantics, deliberately different from the closed kinds:
 - **No stroke-half inset.** Closed kinds inset by `stroke/2` so a centered stroke stays inside the
   frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
   points, and a stroked segment touching the frame edge may clip on the clipping backends
-  (Qt/Android/WinUI), exactly as raw canvas does.
+  (Qt/Android/XAML), exactly as raw canvas does.
 - **Line is stroke-only** (`.fill` records nothing — a segment has no interior), and its rect may
   be degenerate (a horizontal line in a zero-height sub-rect), so it skips the empty-rect bail.
 - **Polygon hit-testing is path-precise** (even-odd ray cast), keeping the D5 promise.
@@ -143,7 +143,7 @@ children of a group (§3.6) — and works on a standalone shape too.
 ```rust
 /// A fill source (day-spec). `Solid` and `Linear` are IMPLEMENTED: `DrawOp::Fill(Shape, Paint)`
 /// replays native gradients on every backend (NSGradient, CGGradient, cairo pattern,
-/// QLinearGradient, Android LinearGradient shader, WinUI LinearGradientBrush, OH_Drawing shader
+/// QLinearGradient, Android LinearGradient shader, XAML LinearGradientBrush, OH_Drawing shader
 /// effect); gradient unit points resolve against the filled shape's bounding box, and the packed
 /// encoding carries stops on the texts channel (kind 14 — see day-spec::encode_ops).
 #[derive(Clone, Debug, PartialEq)]
@@ -154,7 +154,7 @@ pub enum Paint {
     // ── later phases ──
     // Angular { stops: Vec<(f64, Color)>, center: UnitPoint, start_deg: f64 } — native on
     //   Apple (CGContextDrawConicGradient) / Qt (QConicalGradient) / Android (SweepGradient) /
-    //   OH_Drawing (sweep); needs a wedge-fan fallback on cairo + WinUI XAML (the hop recipe).
+    //   OH_Drawing (sweep); needs a wedge-fan fallback on cairo + XAML XAML (the hop recipe).
     // Token(SemanticColor),                            // §6 theme tokens, late-bound
 }
 impl From<Color> for Paint { /* … */ }
@@ -358,14 +358,14 @@ Linear and radial gradients are implemented end-to-end: `Paint::Linear`/`Paint::
 `Fill` op, `Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)`/`.fill_radial(...)`
 on shape pieces (reactive), and native replay on every backend (radial: NSGradient center-draw,
 CGContextDrawRadialGradient, cairo radial pattern, QRadialGradient in ObjectMode, Android
-RadialGradient shader + local matrix, WinUI RadialGradientBrush — OS 1903+, now the msix
+RadialGradient shader + local matrix, XAML RadialGradientBrush — OS 1903+, now the msix
 MinVersion — and OH_Drawing radial shader with local matrix). Radial geometry is unit-space and
 stretches elliptically to non-square bounds on every backend. `Paint` still grows to `Angular` +
 semantic `Token`s later.
 This is the one place the
 canvas layer must grow: a `Fill(Shape, Paint)`/`Stroke(Shape, Paint, StrokeStyle)` op (Paint, not
 just Color) + per-backend gradient replay (CGGradient, cairo pattern, QGradient/QConicalGradient,
-Android shaders, WinUI brushes). hop already implemented this on four toolkits (linear and radial
+Android shaders, XAML brushes). hop already implemented this on four toolkits (linear and radial
 native everywhere; angular native on Qt, hand-rendered as a wedge fan elsewhere), so the recipe is
 known. It benefits raw `canvas()` too. Gradients are a canvas-layer feature, still not a new node
 kind.
@@ -390,7 +390,7 @@ cairo path / QPainterPath / android.graphics.Path all support arbitrary paths). 
 ## 9. Proposal B (alternative): a native `SHAPE` leaf
 
 Instead of lowering to canvas, add `kinds::SHAPE` + `ShapeProps { kind, fill, stroke }` and render
-natively per backend (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics / WinUI Path).
+natively per backend (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics / XAML Path).
 
 - **Pros**: native gradients/shadows/materials, native path animation, native precise hit testing,
   potentially cheaper for many shapes (one layer vs one canvas view each).

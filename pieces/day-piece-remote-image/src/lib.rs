@@ -230,7 +230,7 @@ impl Piece for RemoteImage {
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-searchfield layout).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 
 #[cfg(test)]
 mod tests {

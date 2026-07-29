@@ -8,7 +8,7 @@
 //! | GTK     | gtk4-rs (`Scale::add_mark`)                  | ✓ | ✓ (incl. Both) | ✗ (no native snap) |
 //! | Android | JNI (Material `Slider` step size)            | ✓ | ✗ (Material draws its own) | always on (Material snaps with steps) |
 //! | Qt      | own C++ (`QSlider` ticks; docs/tweaks.md recipe) | ✓ | ✓ | ✗ (no native snap) |
-//! | WinUI   | own C++/WinRT (`Slider` TickFrequency/SnapsTo)   | ✓ | ✓ | ✓ |
+//! | XAML   | own C++/WinRT (`Slider` TickFrequency/SnapsTo)   | ✓ | ✓ | ✓ |
 //! | ArkUI   | own C++ against the NDK (`NODE_SLIDER_STEP`) | ✓ | ✗ | always on (steps snap) |
 //! | UIKit   | — `UISlider` has NO native tick API: documented no-op | | | |
 //!
@@ -171,12 +171,12 @@ fn apply(node: RNode, t: Tickmarks) {
         }
         // snap: QSlider has no native snap-to-ticks — documented, not emulated.
     }
-    #[cfg(all(feature = "winui", windows))]
+    #[cfg(all(feature = "xaml", windows))]
     {
-        // Own C++/WinRT against the borrowed ABI pointer (src/ticks-winui.cpp). The class name
+        // Own C++/WinRT against the borrowed ABI pointer (src/ticks-xaml.cpp). The class name
         // lets the C++ confirm the element is a Slider before `try_as`.
         unsafe extern "C" {
-            fn day_tweak_slider_ticks_winui(
+            fn day_tweak_slider_ticks_xaml(
                 abi: *mut std::os::raw::c_void,
                 cls: *const std::os::raw::c_char,
                 count: std::os::raw::c_int,
@@ -184,7 +184,7 @@ fn apply(node: RNode, t: Tickmarks) {
                 snap: std::os::raw::c_int,
             );
         }
-        if let Some((abi, class)) = day_winui::with_native_raw(node) {
+        if let Some((abi, class)) = day_xaml::with_native_raw(node) {
             let cls = std::ffi::CString::new(class).unwrap_or_default();
             let pos = match t.position {
                 TickPosition::Below => 0,
@@ -192,7 +192,7 @@ fn apply(node: RNode, t: Tickmarks) {
                 TickPosition::Both => 2,
             };
             unsafe {
-                day_tweak_slider_ticks_winui(
+                day_tweak_slider_ticks_xaml(
                     abi,
                     cls.as_ptr(),
                     t.count as std::os::raw::c_int,
@@ -227,7 +227,7 @@ fn apply(node: RNode, t: Tickmarks) {
         feature = "gtk",
         all(feature = "mdc", target_os = "android"),
         feature = "qt",
-        all(feature = "winui", windows),
+        all(feature = "xaml", windows),
         all(feature = "arkui", target_env = "ohos")
     )))]
     let _ = node; // UIKit (and mock): documented no-op — UISlider has no native tick API.

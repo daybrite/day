@@ -33,7 +33,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 | Style | Native container |
 |-------|------------------|
 | `Sidebar` | a NavigationSplitView: macOS `NSSplitView` sidebar (inset-styled `NSOutlineView`; accent selection, capture-safe — no offscreen-hostile material) + detail; GTK `AdwNavigationSplitView` (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
-| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / WinUI `Pivot` (docs/tabs.md). |
+| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` (docs/tabs.md). |
 
 `selector(sel).style(Tabs)` is exactly what used to be `tabs()`; `selector(sel).style(Sidebar)`
 is the old `nav()`. They are one primitive, a selection-bound switcher, differing only in

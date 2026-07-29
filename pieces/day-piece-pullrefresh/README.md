@@ -16,7 +16,7 @@ pull_to_refresh(refreshing, scroll(rows))
 `SwipeRefreshLayout` (Android, added to the app's Gradle build automatically), `ARKUI_NODE_REFRESH`
 (HarmonyOS) — and **emulated** elsewhere: a spinner overlay driven by the two-way `refreshing`
 signal, with the pull gesture detected from AppKit's elastic scrolling and GTK's `edge-overshot`
-signal (Qt/WinUI: overlay + programmatic). `support()` reports the compiled tier. Scriptable on
+signal (Qt/XAML: overlay + programmatic). `support()` reports the compiled tier. Scriptable on
 every backend through dayscript's existing `toggle:` step.
 
 Also the reference **container piece**: the first external Day Piece whose native view hosts a Day
@@ -28,7 +28,7 @@ Docs: `docs/pullrefresh.md`. Demos: the showcase's Refresh page (plain scroll) a
 ## Part of Day
 
 [Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, WinUI, and ArkUI — from a single Rust codebase.
+widgets — AppKit, UIKit, Android, GTK 4, Qt 6, XAML, and ArkUI — from a single Rust codebase.
 
 Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

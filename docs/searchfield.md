@@ -28,7 +28,7 @@ guarded per backend (see the table).
 
 ## Per-backend native realization
 
-| AppKit | UIKit | GTK | Qt | Android | WinUI |
+| AppKit | UIKit | GTK | Qt | Android | XAML |
 |---|---|---|---|---|---|
 | `NSSearchField` | `UISearchTextField` (iOS 13+) | `GtkSearchEntry` | `QLineEdit` search shim (clear button + leading magnifier) | `EditText` (single-line, `IME_ACTION_SEARCH`) | `AutoSuggestBox` (query magnifier) |
 
@@ -43,12 +43,12 @@ code. The change plumbing per backend:
   fire `EditingChanged`, so no suppression is needed.
 - **GTK**: `GtkSearchEntry::"search-changed"`. That signal *does* fire on programmatic `set_text`, so a
   per-node `suppress` cell guards the sync in `update`.
-- **Qt / WinUI**: each carries its own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
-  `src/lib-winui-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim wraps a `QLineEdit`
+- **Qt / XAML**: each carries its own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
+  `src/lib-xaml-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim wraps a `QLineEdit`
   (`setClearButtonEnabled(true)` + a leading `edit-find` action) and wraps programmatic `setText` in
-  `blockSignals`. The WinUI shim boxes its `AutoSuggestBox` into a Day handle through the
-  `day_winui_box` / `day_winui_unbox` seam that `day-winui-sys` exports, the same mechanism the
-  picker/media WinUI shims use, so a piece never touches day-winui's private handle wrapper.
+  `blockSignals`. The XAML shim boxes its `AutoSuggestBox` into a Day handle through the
+  `day_xaml_box` / `day_xaml_unbox` seam that `day-xaml-sys` exports, the same mechanism the
+  picker/media XAML shims use, so a piece never touches day-xaml's private handle wrapper.
 - **Android**: carries its own Java factory
   (`android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`), folded into the app's Gradle build
   automatically via `[package.metadata.day.android]`, with no edits to day-android (see
@@ -73,5 +73,5 @@ cross-compiled for iOS-sim (`uikit`) and Android (`mdc`).
 - A submit rail (`Event::Submitted` on the search-action key / return) for "search on enter" semantics.
 - Disabled/enabled state; scoped-search tokens (macOS `NSSearchField` recent-searches menu).
 
-WinUI is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the macOS/Linux
+XAML is CI-only (built under `cfg(windows)` + the Windows SDK); it isn't buildable on the macOS/Linux
 dev hosts.

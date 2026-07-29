@@ -13,7 +13,7 @@ build = "build.rs"
 # modeled on SwiftUI's `refreshable(action:)`. NATIVE where the toolkit has a real implementation
 # (UIRefreshControl on iOS, AndroidX SwipeRefreshLayout on Android, ARKUI_NODE_REFRESH on
 # HarmonyOS), EMULATED elsewhere (a spinner overlay driven by the `refreshing` signal, plus
-# overscroll-gesture detection on AppKit — elastic scroll — and GTK — `edge-overshot`; Qt/WinUI are
+# overscroll-gesture detection on AppKit — elastic scroll — and GTK — `edge-overshot`; Qt/XAML are
 # spinner + programmatic in v1). Also the reference for CONTAINER pieces: the first external piece
 # that hosts a Day child inside its own native view (docs/extending.md).
 
@@ -25,7 +25,7 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/refresh-arkui.cpp
 
 # Backends this piece carries native-side code for. `day build` unions `<pkg>/<backend>` into an app
-# build (Tier A.2). Qt / WinUI / mock are deliberately ABSENT: with no feature enabled the piece
+# build (Tier A.2). Qt / XAML / mock are deliberately ABSENT: with no feature enabled the piece
 # takes its pure-composition emulated path (overlay spinner, programmatic refresh), which needs no
 # native code at all.
 [package.metadata.day.piece]

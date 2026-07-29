@@ -330,15 +330,15 @@ fn qt_group() -> Group {
     }
 }
 
-fn winui_group() -> Group {
+fn xaml_group() -> Group {
     Group {
-        id: "winui",
-        label: "Windows · WinUI 3",
+        id: "xaml",
+        label: "Windows · XAML",
         hosts: &["windows"],
         probes: vec![
             Probe::new(
                 "msvc-toolchain",
-                // The default rustc must target *-windows-msvc (winui builds with cl.exe + the SDK).
+                // The default rustc must target *-windows-msvc (xaml builds with cl.exe + the SDK).
                 // Scan the FULL `rustc -vV` output for the `host:` line — `run_line` returns only line 1
                 // (`rustc <version>`), which is why the old check false-negatived on a valid msvc host
                 // (and its `bash`+`grep` fallback isn't reliably resolvable from a native process).
@@ -350,7 +350,7 @@ fn winui_group() -> Group {
                 }),
                 "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
             ),
-            // Optional: only `day pack -p windows-winui` needs these (§16.5) — makeappx/signtool
+            // Optional: only `day pack -p windows-xaml` needs these (§16.5) — makeappx/signtool
             // ship with the Windows SDK, makensis via `choco install nsis`.
             Probe::new(
                 "makeappx (Windows SDK)",
@@ -365,11 +365,11 @@ fn winui_group() -> Group {
             )
             .soft(),
         ],
-        setup: "WinUI 3 builds on a Windows host with the MSVC toolchain. Install:\n\
+        setup: "XAML builds on a Windows host with the MSVC toolchain. Install:\n\
                 • the Visual Studio 2022 C++ Build Tools (MSVC + Windows SDK)\n\
                 • the MSVC Rust toolchain: `rustup default stable-msvc`\n\
                 • the Windows App SDK runtime (for XAML Islands at launch)\n\
-                WinUI cannot build off a Windows host.",
+                XAML cannot build off a Windows host.",
     }
 }
 
@@ -501,7 +501,7 @@ fn all_groups() -> Vec<Group> {
         uikit_group(),
         gtk_group(),
         qt_group(),
-        winui_group(),
+        xaml_group(),
         android_group(),
         harmonyos_group(),
     ]

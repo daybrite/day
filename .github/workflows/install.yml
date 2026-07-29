@@ -44,7 +44,7 @@ jobs:
           - { combo: linux-qt,       os: ubuntu-latest,  toolkit: qt }
           - { combo: android-mdc, os: ubuntu-latest,  toolkit: android }
           - { combo: harmony-arkui,     os: ubuntu-latest,  toolkit: harmonyos }
-          - { combo: windows-winui,  os: windows-latest, toolkit: winui }
+          - { combo: windows-xaml,  os: windows-latest, toolkit: xaml }
           - { combo: windows-qt,     os: windows-latest, toolkit: qt }
           - { combo: windows-gtk,    os: windows-latest, toolkit: gtk }
     runs-on: ${{ matrix.os }}

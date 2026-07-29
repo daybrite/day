@@ -89,11 +89,11 @@ pub const TARGETS: &[Target] = &[
         experimental: false,
     },
     Target {
-        name: "windows-winui",
-        toolkit: "winui",
+        name: "windows-xaml",
+        toolkit: "xaml",
         kind: TargetKind::Desktop,
         host: "windows",
-        label: "Windows (WinUI)",
+        label: "Windows (XAML)",
         experimental: false,
     },
     Target {
@@ -151,7 +151,7 @@ pub fn host_os() -> &'static str {
 pub fn host_default() -> &'static str {
     match host_os() {
         "linux" => "linux-gtk",
-        "windows" => "windows-winui",
+        "windows" => "windows-xaml",
         _ => "macos-appkit",
     }
 }

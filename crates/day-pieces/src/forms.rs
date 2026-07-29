@@ -49,7 +49,7 @@ pub fn form<C: PieceSeq + 'static>(sections: C) -> AnyPiece {
 /// whose background is the platform's own theme-adaptive grouped-content material
 /// (`SurfaceRole::SectionCard` — quaternary fill on AppKit, libadwaita `.card`, Qt
 /// `palette(alternate-base)`, tertiary system fill on iOS, Material surface-container, the
-/// WinUI card brush), so it follows light/dark mode with no app code.
+/// XAML card brush), so it follows light/dark mode with no app code.
 pub struct FormSection<C: PieceSeq> {
     title: Option<TextSource>,
     children: C,

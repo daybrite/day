@@ -76,7 +76,7 @@ One backend is compiled per binary. The AppKit build contains no GTK code, the A
 its JNI bridge. Standalone pieces (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
-### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-winui`, and the GTK/Qt combinations
+### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-xaml`, and the GTK/Qt combinations
 
 Desktop targets are the simplest: the artifact is the Cargo binary itself.
 
@@ -84,8 +84,8 @@ Desktop targets are the simplest: the artifact is the Cargo binary itself.
 src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO_TARGET_DIR)
                  │
                  ├── GTK: links system GTK 4 / libadwaita
-                 ├── Qt / WinUI: cc-compiled C++ shim (built by the toolkit crate's build.rs)
-                 └── WinUI: embeds a side-by-side manifest (XAML Islands requires it)
+                 ├── Qt / XAML: cc-compiled C++ shim (built by the toolkit crate's build.rs)
+                 └── XAML: embeds a side-by-side manifest (XAML Islands requires it)
                  ▼
          build/day/cargo/<target>/<profile>/my-app      ◄── day launch runs this directly
                  ▼
@@ -227,8 +227,8 @@ pointer):
 │ macOS    bundle file   │ │ Android  AAssetManager    │   .icns / mipmap /
 │ Android  res/drawable* │ │ GTK      GResource        │   .ico / xcassets
 │ GTK      GResource     │ │ Qt       QResource        │
-│ Qt       .qrc          │ │ WinUI    loose file       │
-│ WinUI    scale-*.png   │ │ ArkUI    rawfile fd+mmap  │
+│ Qt       .qrc          │ │ XAML    loose file       │
+│ XAML    scale-*.png   │ │ ArkUI    rawfile fd+mmap  │
 │ ArkUI    rawfile       │ └───────────┬───────────────┘
 └─────┬──────────────────┘             │
       ▼                                ▼

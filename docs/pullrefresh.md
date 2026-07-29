@@ -58,7 +58,7 @@ The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the
 | harmony-arkui | **Native** | `ARKUI_NODE_REFRESH` created by this crate's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
 | macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from ELASTIC scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
 | gtk | Emulated | Overlay + `GtkScrolledWindow::edge-overshot` (Top) — GTK's purpose-built overshoot signal. |
-| qt / winui | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; WinUI's `RefreshContainer` is touch-only — native tier is a follow-up for touch devices). |
+| qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only — native tier is a follow-up for touch devices). |
 | mock | Emulated | Composition path; drives the piece's tests via `ToggleChanged`. |
 
 The emulated indicator is the built-in `spinner()` in a floating chip, shown while `refreshing` —

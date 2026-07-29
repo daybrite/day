@@ -66,7 +66,7 @@ Each backend resolves the two variants to its usual native widget:
 | GTK 4   | `GtkProgressBar` (`set_fraction`) | `GtkSpinner` (`start`) |
 | Qt      | `QProgressBar` (0..1000) | `QProgressBar` in busy mode (`range(0,0)`) |
 | Android | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
-| WinUI 3 | `ProgressBar` (0..1000) | `ProgressRing` (`IsActive`) |
+| XAML | `ProgressBar` (0..1000) | `ProgressRing` (`IsActive`) |
 
 Notes:
 
@@ -74,7 +74,7 @@ Notes:
   `QProgressBar` (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one intentional cross-platform
   divergence.
-- The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in
+- The determinate fraction crosses the C ABI (Qt/Android/XAML) as an integer tick in
   `0..1000`, the same encoding `slider` uses, so there is no float-ABI concern.
 
 ## Sizing

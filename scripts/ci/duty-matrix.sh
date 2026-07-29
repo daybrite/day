@@ -32,7 +32,7 @@ backends = [
     ("uikit", "toolkits/day-uikit/src/lib.rs"),
     ("gtk", "toolkits/day-gtk/src/lib.rs"),
     ("qt", "toolkits/day-qt/src/lib.rs"),
-    ("winui", "toolkits/day-winui/src/lib.rs"),
+    ("xaml", "toolkits/day-xaml/src/lib.rs"),
     ("android", "toolkits/day-android/src/lib.rs"),
     ("arkui", "toolkits/day-arkui/src/lib.rs"),
     ("dom", "toolkits/day-dom/src/lib.rs"),

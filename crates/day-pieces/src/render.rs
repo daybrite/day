@@ -220,7 +220,7 @@ macro_rules! __renderer {
 /// house-convention module gate binding `lib-<toolkit>.rs` next to the invoking lib.rs:
 ///
 /// ```ignore
-/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, winui);
+/// day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 /// day_pieces::glue_modules!(uikit, mdc, arkui);   // a piece with partial coverage
 /// ```
 ///
@@ -258,10 +258,10 @@ macro_rules! __glue_module {
         #[path = "lib-android.rs"]
         mod android_impl;
     };
-    (winui) => {
-        #[cfg(all(feature = "winui", windows))]
-        #[path = "lib-winui.rs"]
-        mod winui_impl;
+    (xaml) => {
+        #[cfg(all(feature = "xaml", windows))]
+        #[path = "lib-xaml.rs"]
+        mod xaml_impl;
     };
     (arkui) => {
         #[cfg(all(feature = "arkui", target_env = "ohos"))]

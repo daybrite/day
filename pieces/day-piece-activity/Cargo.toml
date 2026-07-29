@@ -11,7 +11,7 @@ build = "build.rs"
 
 # A standalone Day Piece wrapping each toolkit's NATIVE indeterminate activity/loading spinner:
 # NSProgressIndicator (Spinning) on AppKit, UIActivityIndicatorView on UIKit, GtkSpinner on GTK, a
-# busy QProgressBar on Qt, android.widget.ProgressBar on Android, ProgressRing on WinUI. Like
+# busy QProgressBar on Qt, android.widget.ProgressBar on Android, ProgressRing on XAML. Like
 # `day-piece-media`/`day-piece-picker`, it carries BOTH its cross-platform front-end (Rust) and its
 # per-toolkit backend (objc2 / gtk-rs / C++ shim / Android Java) without touching any core day
 # crate. See docs/extending.md + docs/activity.md.
@@ -23,18 +23,18 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"] # + build.rs compiles src/lib-qt-shim.cpp (QProgressBar busy mode; Qt6Widgets, already linked by day-qt-sys)
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit"]
 mdc = ["dep:day-android"] # + [package.metadata.day.android] stages android/java/…/DayActivity.java
-# WinUI: build.rs compiles src/lib-winui-shim.cpp (a ProgressRing boxed via day-winui-sys's
-# day_winui_box seam, like the media/picker/webview winui pieces). mock has no renderer — its feature
+# XAML: build.rs compiles src/lib-xaml-shim.cpp (a ProgressRing boxed via day-xaml-sys's
+# day_xaml_box seam, like the media/picker/webview xaml pieces). mock has no renderer — its feature
 # exists so apps can enable `day-piece-activity/mock` uniformly; the activity kind then falls back to
 # day's placeholder leaf.
-winui = ["dep:day-winui", "dep:day-winui-sys"]
+xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -47,8 +47,8 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
-day-winui = { workspace = true, optional = true }
-day-winui-sys = { workspace = true, optional = true }
+day-xaml = { workspace = true, optional = true }
+day-xaml-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = [

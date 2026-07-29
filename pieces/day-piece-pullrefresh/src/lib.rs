@@ -25,7 +25,7 @@
 //!   first external piece to do so (the `cx.native` + fill-layout + `cx.under` recipe).
 //! - **Emulated** — everywhere else: a pure-composition spinner overlay (`when(refreshing, …)`),
 //!   with the pull GESTURE detected on AppKit (elastic-scroll overscroll) and GTK
-//!   (`edge-overshot`); Qt and WinUI are spinner + programmatic in v1.
+//!   (`edge-overshot`); Qt and XAML are spinner + programmatic in v1.
 
 use std::rc::Rc;
 

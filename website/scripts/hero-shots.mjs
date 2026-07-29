@@ -44,7 +44,7 @@ const SUITE_ID = galleryConfig.suites[0]?.id ?? 'showcase';
 // also build in CI. Order here is the default (the client reshuffles anyway).
 const PRIMARY_PLATFORMS = [
   'macos-appkit',
-  'windows-winui',
+  'windows-xaml',
   'linux-gtk',
   'linux-qt',
   'android-mdc',
@@ -61,7 +61,7 @@ const PRIMARY_KEY = ['v5', ...PRIMARY_PLATFORMS].join(',');
 const CAROUSEL_TOOLKIT = {
   'linux-gtk': 'GTK (GNOME)',
   'linux-qt': 'Qt (KDE)',
-  'windows-winui': 'WinUI',
+  'windows-xaml': 'XAML',
   'web-dom': 'DOM',
 };
 

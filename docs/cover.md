@@ -104,4 +104,4 @@ contribution to `current_route()`. Day-Games' walkthrough drives games with plai
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ViewPropertyAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out end action |
 | arkui | Stack re-homed onto the window root at full bounds (no transition) | none | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
-| appkit / gtk / qt / winui | not realized (`Cap::Cover` = `Unsupported`) | — | — |
+| appkit / gtk / qt / xaml | not realized (`Cap::Cover` = `Unsupported`) | — | — |
