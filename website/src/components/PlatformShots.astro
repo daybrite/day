@@ -1,0 +1,88 @@
+---
+// A small strip of Showcase captures for one platform-toolkit page, linked into the gallery.
+//
+// It reads the SAME `gallery-manifest.json` the gallery page does (assembled from CI screenshot
+// artifacts by integrations/gallery.mjs), and renders only shots that were actually captured for
+// this platform: a missing artifact yields nothing rather than a broken image. That keeps these
+// pages honest on a local build, where usually only a few platforms have artifacts on disk.
+import manifest from '../data/gallery-manifest.json';
+import { url } from '../lib/site';
+
+interface Props {
+  /** Platform id, e.g. `linux-gtk` — must match gallery.config.mjs. */
+  platform: string;
+  /** Curated shot ids, in display order (see the `shots` list in gallery.config.mjs). */
+  shots: string[];
+  /** Preferred variant; falls back to whatever was captured. */
+  variant?: string;
+}
+
+const { platform, shots, variant = 'light' } = Astro.props;
+
+const suite = manifest.suites.find((s) => s.id === 'showcase');
+
+type Tile = { shot: string; label: string; src: string; width?: number; height?: number };
+
+const tiles: Tile[] = [];
+for (const id of shots) {
+  const shot = suite?.shots.find((s) => s.id === id);
+  const tile = shot?.byPlatform.find((t) => t.platform === platform);
+  if (!shot || !tile || tile.placeholder) continue;
+  const variants = (tile.variants ?? {}) as Record<
+    string,
+    { src: string; width?: number; height?: number }
+  >;
+  const img = variants[variant] ?? Object.values(variants)[0];
+  if (!img) continue;
+  tiles.push({ shot: id, label: shot.label, src: img.src, width: img.width, height: img.height });
+}
+---
+
+{tiles.length > 0 && (
+  <div class="shots" data-pagefind-ignore>
+    {tiles.map((t) => (
+      <a class="shot" href={url(`gallery#${t.shot}`)} title={`${t.label} — see every platform in the gallery`}>
+        <img src={url(t.src)} alt={`${t.label}, captured on ${platform}`} width={t.width} height={t.height} loading="lazy" decoding="async" />
+        <span>{t.label}</span>
+      </a>
+    ))}
+  </div>
+)}
+
+<style>
+  .shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    margin: 22px 0 26px;
+  }
+  .shot {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .shot img {
+    width: 100%;
+    height: auto;
+    /* Tall phone captures and wide desktop ones share a row; cap the tall ones so the strip
+       stays a strip. object-position pins the crop to the top, where the content is. */
+    max-height: 260px;
+    object-fit: cover;
+    object-position: top center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .shot span {
+    font-size: 0.82rem;
+    color: var(--fg-dim);
+  }
+  .shot:hover img {
+    border-color: var(--brand);
+  }
+  .shot:hover span {
+    color: var(--fg);
+  }
+</style>

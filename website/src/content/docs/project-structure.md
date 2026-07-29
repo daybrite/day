@@ -178,6 +178,33 @@ platform/ohos/entry/build/…/my-app-signed.hap
 hdc install … && aa start EntryAbility                  (day launch)
 ```
 
+### Web: `web-dom`
+
+The shortest pipeline of the eight, and the only one with no host project to check in — the app's
+lib crate is compiled straight to wasm and dropped next to the host page:
+
+```text
+day build -p web-dom
+│
+├── cargo rustc --crate-type cdylib --target wasm32-unknown-unknown
+│       exports day_dom_main (via day::web_main!)
+│       ────────► dist/app.wasm
+│
+├── the host trio, embedded in the CLI and written out verbatim
+│       ────────► dist/index.html · dist/shim.js · dist/day.css
+│
+└── bundled images and fonts + a fonts.json manifest the shim preloads
+        ────────► dist/assets/…
+                        ▼
+              dist/ is the deployable — copy it to any static host
+                        ▼
+day launch -p web-dom   serves dist/ over loopback and opens your browser
+```
+
+There is no `day pack` for this target: `dist/` is already the artifact. Browsers refuse to
+instantiate WebAssembly from `file:`, so use `day launch` (or any static server) rather than
+opening `index.html` directly.
+
 ## How resources are packaged
 
 `resource/images/` and `resource/assets/` are looked up by name at runtime through `image("logo")` and

@@ -1,0 +1,95 @@
+---
+title: Android (Material Components)
+description: Build Day apps for Android with Material Components — SDK setup, the Gradle pipeline, per-platform caveats, and which Android View every Day piece becomes.
+order: 33.3
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`android-mdc` renders [Material Components](https://github.com/material-components/material-components-android)
+widgets over JNI, inside a checked-in Gradle project. The app theme is
+`Theme.Material3Expressive.DayNight.NoActionBar`, so light and dark follow the system.
+
+<PlatformShots platform="android-mdc" shots={["home", "controls", "list", "menus"]} />
+
+## Getting started
+
+You need the Android SDK and NDK, JDK 21, and [`cargo-ndk`](https://crates.io/crates/cargo-ndk);
+`day doctor --toolkit android` checks each one and prints what's missing.
+
+```sh
+cargo install day-cli cargo-ndk
+day new app my-app --toolkit android-mdc
+cd my-app
+day launch -p android-mdc         # installs on every connected device/emulator, right ABI each
+```
+
+Android Studio works as well — the Gradle scaffold calls back (`day gradle-backend build`) so a
+build started from the IDE rebuilds the Rust `.so` the same way.
+
+```sh
+day pack -p android-mdc           # release-signed .apk + .aab
+```
+
+## Caveats and special considerations
+
+- **Accessibility annotations are partial** — see [the current limits](/docs/accessibility#current-limits-plainly).
+- **Process death is a cold start** unless your app persists its own state. Day does not restore a
+  navigation stack for you.
+- **No map piece.** `day-piece-map` has no Android arm (it would pull in a Google Play services
+  dependency); it renders as a placeholder.
+- **The list is a `ListView`, not a `RecyclerView`.** It recycles rows, but it is the framework's
+  older collection widget; very large or heterogeneous lists may want a native tweak.
+- **Runtime permissions are yours to request.** Day generates the manifest entries from your
+  `[permissions]` table, and `day-part-permissions` performs the request — but Android's
+  never-asked and permanently-denied states are indistinguishable without app-side persistence.
+- **The emulator leg in CI tolerates flakes**; the build itself gates hard.
+
+## What each piece becomes
+
+Both Material Components and framework `android.widget` classes are in play, and which one you get
+matters — the table is explicit about it.
+
+| Day piece | Android class |
+|---|---|
+| `column` / `row` / `stack` / `section` | a `ViewGroup` subclass that lays children out at absolute frames |
+| `label` | [`TextView`](https://developer.android.com/reference/android/widget/TextView) |
+| `button` | [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
+| `toggle` | [`MaterialSwitch`](https://developer.android.com/reference/com/google/android/material/materialswitch/MaterialSwitch) |
+| `slider` | [`Slider`](https://developer.android.com/reference/com/google/android/material/slider/Slider) |
+| `text_field` | [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) wrapping [`TextInputEditText`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputEditText) |
+| `text_area` | [`EditText`](https://developer.android.com/reference/android/widget/EditText) (framework) |
+| `picker().menu()` | [`Spinner`](https://developer.android.com/reference/android/widget/Spinner) |
+| `picker().segmented()` | a row of framework [`Button`](https://developer.android.com/reference/android/widget/Button)s |
+| `picker().inline()` | [`RadioGroup`](https://developer.android.com/reference/android/widget/RadioGroup) |
+| `progress(f)` | [`LinearProgressIndicator`](https://developer.android.com/reference/com/google/android/material/progressindicator/LinearProgressIndicator) |
+| `spinner()` | Material `LoadingIndicator` (M3 Expressive) |
+| `divider` | [`MaterialDivider`](https://developer.android.com/reference/com/google/android/material/divider/MaterialDivider) |
+| `scroll` | [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) / `HorizontalScrollView` |
+| `list` | [`ListView`](https://developer.android.com/reference/android/widget/ListView) + a `BaseAdapter` |
+| `nav` | [`MaterialToolbar`](https://developer.android.com/reference/com/google/android/material/appbar/MaterialToolbar) over a fragment-driven `FrameLayout` |
+| `nav_menu` | scrolling [`TextView`](https://developer.android.com/reference/android/widget/TextView) rows |
+| `tabs` | [`BottomNavigationView`](https://developer.android.com/reference/com/google/android/material/bottomnavigation/BottomNavigationView) |
+| `cover()` | a full-screen `FrameLayout` shell |
+| `image` | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) |
+| `canvas` | a `View` subclass replaying the display list onto [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas) |
+| dialogs / alerts / prompts | [`MaterialAlertDialogBuilder`](https://developer.android.com/reference/com/google/android/material/dialog/MaterialAlertDialogBuilder) |
+| file dialogs | Storage Access Framework intents |
+| context menus | [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) |
+| *external* `activity()` | [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) (framework, circular) |
+| *external* `combobox()` | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) |
+| *external* `search_field()` | [`EditText`](https://developer.android.com/reference/android/widget/EditText) with `IME_ACTION_SEARCH` |
+| *external* `date_picker()` | [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker), or inline [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) |
+| *external* `time_picker()` | [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker), or inline [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
+| *external* `pull_refresh()` | [`SwipeRefreshLayout`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout) |
+| *external* `webview()` | [`WebView`](https://developer.android.com/reference/android/webkit/WebView) |
+| *external* `media()` | [`VideoView`](https://developer.android.com/reference/android/widget/VideoView) |
+| *external* `lottie()` | `LottieAnimationView` ([lottie-android](https://github.com/airbnb/lottie-android)) |
+
+**Text measurement** is Android's own `View.measure` with an `AT_MOST` width probe, so `TextView`
+does the actual line breaking.
+
+**Gradle dependencies** come from the pieces you use — Lottie and SwipeRefreshLayout each
+contribute their own coordinate, and Day merges them into the app module. You never edit Gradle
+per piece.

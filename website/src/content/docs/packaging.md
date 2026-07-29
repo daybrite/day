@@ -22,6 +22,7 @@ them.
 | `linux-gtk` / `linux-qt` | `.flatpak` | single-file bundle; the runtime supplies the toolkit (GTK 4 ⇒ `org.gnome.Platform`, Qt 6 ⇒ `org.kde.Platform`) and resolves from Flathub at install time — `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak` just works (the toolkit is part of the name, so the gtk and qt bundles coexist). A Qt app that links QtWebEngine also carries the Qt WebEngine BaseApp, since no runtime ships it — that is ~87 MB of Chromium, so `day pack` adds it only when the binary actually links it |
 | `windows-winui` | `.msix` + `-setup.exe` | `makeappx` + `signtool` for the MSIX; an NSIS per-user installer (no elevation, ARP entry, silent `/S`) for classic direct download |
 | `harmony-arkui` | `.hap` | hvigor release build, signed with your release material via `hap-sign-tool` (or the public dev certificate without it) |
+| `web-dom` | — | there is no pack step: `day build -p web-dom` writes a self-contained `dist/` (host page, shim, stylesheet, `.wasm`, images, fonts) that you deploy to any static host as-is |
 
 `--formats` narrows the set (`day pack -p android-mdc --formats apk`); `--no-sign` and
 `--no-notarize` skip stages; `--no-wait` submits notarization asynchronously (poll with

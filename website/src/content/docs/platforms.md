@@ -40,55 +40,69 @@ standardize on Qt across Linux and Windows. They are not first-class shipping ta
 packaging for them is deliberately deferred, and `macos-gtk`/`windows-gtk` have no accessibility
 tree.
 
-A `web-html` backend (DOM as the toolkit) is designed but not part of the current target set.
-
 ## Per-platform notes
 
-### macOS (`macos-appkit`)
+Each of the eight primary targets has its own page: how to get set up, the caveats that only apply
+there, and a table of which native control every Day piece becomes, linked to the platform vendor's
+own reference.
+
+### macOS (`macos-appkit`) — [full page](/docs/platforms/macos-appkit)
 AppKit via `objc2`, no shim layer. Native menu bar, dialogs, and window management. Packaging
 produces a signed, notarized `.dmg` when credentials are configured
 ([packaging](/docs/packaging)).
 
-### iOS (`ios-uikit`)
+### iOS (`ios-uikit`) — [full page](/docs/platforms/ios-uikit)
 The scaffold is a real, checked-in Xcode project whose build phase calls back into `day` for the
 Rust static library — so Xcode, `day launch`, and CI all build the same way. Day-to-day
 development targets the Simulator; App Store `.ipa` export exists in `day pack` and needs your
 Apple credentials. Physical-device debugging workflows are still young compared to Simulator use.
 
-### Android (`android-mdc`)
+### Android (`android-mdc`) — [full page](/docs/platforms/android-mdc)
 Material Components widgets over JNI, with a checked-in Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
 with the right ABI. Known rough edges: accessibility annotations are partial
 ([details](/docs/accessibility#current-limits-plainly)), and process-death restoration is a cold
 start unless your app persists its own state.
 
-### Linux (`linux-gtk`, `linux-qt`)
+### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/platforms/linux-gtk), [Qt](/docs/platforms/linux-qt)
 GTK 4 + libadwaita via `gtk4-rs`; Qt 6 Widgets via a small compiled C++ shim. Both run the full
 walkthrough headlessly in CI. Flatpak is the packaging story for both — the runtime supplies the
 toolkit, so bundles stay app-sized. GTK is the default recommendation; Qt matters when its
 cross-OS accessibility bridge or ecosystem is the deciding factor. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
-### Windows (`windows-winui`)
+### Windows (`windows-winui`) — [full page](/docs/platforms/windows-winui)
 WinUI through XAML Islands — the XAML stack that ships with Windows 10/11 itself, not the
 WinAppSDK runtime, so there's no runtime bootstrap to install. Built with MSVC. The C++/WinRT
 shim pattern is the same as Qt's. This target builds and walks through in CI but has had less
 real-application time than the Apple/Linux/Android targets; calibrate expectations accordingly.
 
-### OpenHarmony (`harmony-arkui`)
+### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
 The newest and least proven backend: ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
 are the least ergonomic of the supported platforms to install — `day doctor --toolkit harmonyos`
 and the [HarmonyOS notes](/docs/internal/harmonyos) exist for exactly this. Emulator behavior in
 CI is tolerated-flaky.
 
+### Web (`web-dom`) — [full page](/docs/platforms/web-dom)
+The same Rust compiled to WebAssembly, driving real DOM elements — `<button>`, `<dialog>`,
+`<input type="range">` — with no canvas renderer and no npm in the build. `day build -p web-dom`
+emits a self-contained static `dist/` you can host anywhere; there is no `day pack` step because
+`dist/` is already the artifact. It is **experimental**, and the gaps are real: most external
+pieces (web view, map, Lottie, pickers, search field) render placeholders, there are no file
+dialogs or context menus, the list is emulated rather than recycled, and accessibility is thinner
+than on native because pieces that realize as `<div>`s carry no compensating ARIA roles. The
+[live build](/showcase/web-dom/) on this site is the current CI artifact.
+
 ## Cross-cutting gaps
 
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation.** No animation scheduler or transition API yet; native implicit animations (e.g.
-  navigation transitions) still happen, but you can't author your own beyond redrawing a canvas.
+- **Animation is partial.** `with_animation(spec, || …)` ships and the backends execute opacity,
+  transform and frame changes natively. Two gaps remain: an animated background *color* interpolates
+  on UIKit only (elsewhere it applies at commit, because Day never ticks its own frames for native
+  widgets), and the enter/exit `.transition` surface is not implemented.
 - **Multi-window.** One window per process today.
 - **Semantic color tokens / automatic dark-mode for custom colors.**
   ([styling](/docs/styling#color-backgrounds-shape))

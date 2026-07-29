@@ -37,6 +37,7 @@ day mcp-server               # serve Day tools to AI agents (Model Context Proto
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle |
 | `windows-winui` | `.msix` + NSIS `-setup.exe` |
 | `harmony-arkui` | `.hap` |
+| `web-dom` | none — `day build` already emits a self-contained static `dist/` |
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and toolkits to support. Every question has an equivalent flag, so the same choices

@@ -1,0 +1,98 @@
+---
+title: iOS (UIKit)
+description: Build Day apps for iPhone and iPad with UIKit — Simulator and device workflow, .ipa packaging, per-platform caveats, and which UIKit class every Day piece becomes.
+order: 33.2
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`ios-uikit` renders real `UINavigationController` pushes, a real `UITabBarController`, and system
+text handling — driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a
+checked-in Xcode project whose build phase calls back into `day`, so Xcode, `day launch` and CI all
+build the same way.
+
+<PlatformShots platform="ios-uikit" shots={["home", "controls", "dates", "stack-detail"]} />
+
+## Getting started
+
+```sh
+xcode-select --install          # plus Xcode itself, with an iOS Simulator runtime
+cargo install day-cli
+day new app my-app --toolkit ios-uikit
+cd my-app
+day launch -p ios-uikit          # boots a Simulator and installs
+```
+
+`day doctor --toolkit uikit` verifies Xcode, the Simulator runtimes and the Rust iOS targets.
+Opening `platform/ios/Runner.xcodeproj` in Xcode works too — ⌘R builds the same Rust library
+through the project's build phase.
+
+Packaging produces a device `.ipa`:
+
+```sh
+day pack -p ios-uikit
+```
+
+With `signing.ios` configured you get a signed App Store export; without it you get an unsigned
+device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
+[packaging](/docs/packaging).
+
+## Caveats and special considerations
+
+- **Development is Simulator-first.** Device debugging works but has had far less mileage than the
+  Simulator path.
+- **Declare permissions before you use them.** A gated API without its `NS*UsageDescription` key
+  terminates the app on first use. Day generates those keys from your `[permissions]` table —
+  `day lint` fails the build when one is missing, which is the difference between a CI failure and
+  a crash on a tester's phone.
+- **No combo box.** `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box
+  control; it renders as a placeholder. Use `picker().menu()`.
+- **No `day pack` menu bar.** iOS has no persistent menu bar, so `set_app_menu` is a no-op;
+  context menus work (`UIContextMenuInteraction`).
+- **Window screenshots** aren't implemented in-process — the walkthrough uses
+  `simctl io booted screenshot` instead.
+- **Dynamic Type is live**: labels set `adjustsFontForContentSizeCategory`, so text rescales with
+  the user's system setting and your layout has to tolerate it.
+
+## What each piece becomes
+
+| Day piece | UIKit class |
+|---|---|
+| `column` / `row` / `stack` / `section` | [`UIView`](https://developer.apple.com/documentation/uikit/uiview) |
+| `label` | [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) |
+| `button` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) (system type; bordered/prominent use `UIButtonConfiguration`) |
+| `toggle` | [`UISwitch`](https://developer.apple.com/documentation/uikit/uiswitch) |
+| `slider` | [`UISlider`](https://developer.apple.com/documentation/uikit/uislider) |
+| `text_field` | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) |
+| `text_area` | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) |
+| `picker().segmented()` | [`UISegmentedControl`](https://developer.apple.com/documentation/uikit/uisegmentedcontrol) |
+| `picker().menu()` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) + [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) |
+| `picker().inline()` | [`UIStackView`](https://developer.apple.com/documentation/uikit/uistackview) of check-marked buttons |
+| `progress(f)` | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) |
+| `spinner()` | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
+| `scroll` | [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) |
+| `list` | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) (plain style, recycled cells) |
+| `nav` | [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) |
+| `nav_menu` | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) (inset-grouped) |
+| `tabs` | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) |
+| `cover()` | a full-screen modal [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) |
+| `image` | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) |
+| `canvas` | a custom `UIView` replaying the display list through Core Graphics |
+| dialogs / alerts / prompts | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) |
+| file dialogs | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) |
+| context menus | [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction) |
+| *external* `activity()` | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) |
+| *external* `search_field()` | [`UISearchTextField`](https://developer.apple.com/documentation/uikit/uisearchtextfield) |
+| *external* `date_picker()` / `time_picker()` | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) |
+| *external* `pull_refresh()` | [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) |
+| *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
+| *external* `media()` | [`AVPlayerViewController`](https://developer.apple.com/documentation/avkit/avplayerviewcontroller) |
+| *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
+| *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
+
+Day has no checkbox, radio, stepper or table piece — `toggle` is the only boolean control, radio
+behaviour is `picker().inline()`, and `list` is the only collection.
+
+**Text measurement** is UIKit's own `sizeThatFits:` on the realized view, so wrapping matches what
+the system would do anywhere else on the platform.

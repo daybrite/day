@@ -1,0 +1,99 @@
+---
+title: HarmonyOS (ArkUI)
+description: Build Day apps for HarmonyOS and OpenHarmony with ArkUI — SDK setup, the hvigor and .hap pipeline, the ArkTS seam, and which ArkUI node type every Day piece becomes.
+order: 33.7
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`harmony-arkui` drives ArkUI through its **NDK C node API** — `ARKUI_NODE_BUTTON` and friends —
+from a Rust `cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is the
+newest and least proven of Day's backends, and this page is explicit about where that shows.
+
+<PlatformShots platform="harmony-arkui" shots={["home", "controls", "canvas", "list"]} />
+
+## Getting started
+
+This is the least ergonomic toolchain Day supports. You need the OpenHarmony SDK plus the
+command-line tools (hvigor, `hdc`, the signing tools); `day doctor --toolkit harmonyos` checks
+each piece and prints setup help, and the [HarmonyOS notes](/docs/internal/harmonyos) cover the
+install in detail.
+
+```sh
+cargo install day-cli
+day new app my-app --toolkit harmony-arkui
+cd my-app
+day build -p harmony-arkui       # cross-compiles, then hvigor → signed .hap
+day launch -p harmony-arkui      # installs and starts on an emulator or device
+```
+
+`day build` signs the `.hap` with the public development certificate, so you get an installable
+artifact without a vendor account. `day pack -p harmony-arkui` produces the release `.hap`, signed
+with your own material when configured.
+
+The [`day ohos`](/docs/cli) subcommand wraps the emulator: creating, booting and connecting to the
+QEMU image without leaving the CLI.
+
+## Caveats and special considerations
+
+This backend implements the widget vocabulary well and the surrounding platform integration
+partially. Concretely:
+
+- **No dialogs.** `present()` handles file open/save; alerts and prompts are ignored. If your UI
+  depends on a confirmation dialog, it will silently do nothing here.
+- **Most external pieces have no ArkUI arm** — web view, media, map, Lottie, search field, combo
+  box, activity indicator, remote image all render a placeholder. The date/time pickers and
+  pull-to-refresh **do** have native arms.
+- **Externally-registered pieces don't receive updates.** Realize and measure consult the piece
+  registry, but the update path does not, so a native piece renders correctly and then ignores
+  later patches. This is a bug rather than a design decision, and it affects the date/time pickers
+  and pull-to-refresh.
+- **All three picker styles collapse to one control** — menu, segmented and inline all become
+  `ARKUI_NODE_TEXT_PICKER`.
+- **Layout is measured for very few kinds.** Labels, buttons and the text area ask ArkUI to
+  measure; nearly everything else uses a fixed size, so unusual content may not fit as snugly as
+  it does on other targets.
+- **Much of the platform requires ArkTS**, reached through the host project rather than the C API:
+  navigation (`Navigation`/`NavPathStack`), file pickers, opening a URL, bundled resources, custom
+  font registration, and app bootstrap. Day wires all of this for you in the scaffold — it is worth
+  knowing when you go past what Day models.
+- **Emulator behaviour in CI is tolerated-flaky**; the build and packaging steps gate hard.
+
+## What each piece becomes
+
+Day calls the ArkUI native node API directly, so the mapping below is in terms of `ArkUI_NodeType`
+values. Each links to the official OpenHarmony reference for that enum.
+
+| Day piece | ArkUI node type |
+|---|---|
+| `column` / `row` / `stack` / `section` | [`ARKUI_NODE_STACK`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `label` | [`ARKUI_NODE_TEXT`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `button` | [`ARKUI_NODE_BUTTON`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `toggle` | [`ARKUI_NODE_TOGGLE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `slider` | [`ARKUI_NODE_SLIDER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `text_field` | [`ARKUI_NODE_TEXT_INPUT`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `text_area` | [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `picker()` (all three styles) | [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `progress(f)` | [`ARKUI_NODE_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `spinner()` | [`ARKUI_NODE_LOADING_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `divider` | a 1 vp tinted `ARKUI_NODE_STACK` (no divider node type) |
+| `scroll` | [`ARKUI_NODE_SCROLL`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `list` | [`ARKUI_NODE_LIST`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) with a node adapter (real recycling) |
+| `tabs` | [`ARKUI_NODE_SWIPER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `nav` | `ARKUI_NODE_STACK`, with pushed pages re-homed into ArkTS `NavDestination`s |
+| `nav_menu` | a scroll + column of row nodes |
+| `cover()` | `ARKUI_NODE_STACK` re-homed onto the window root |
+| `image` | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `canvas` | [`ARKUI_NODE_CUSTOM`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) drawn with OH_Drawing |
+| *external* `date_picker()` | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) inline, [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) compact |
+| *external* `time_picker()` | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| *external* `pull_refresh()` | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+
+Further reading in the official OpenHarmony documentation:
+[building UI with the NDK](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/ndk-build-ui-overview.md),
+[Button](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/arkts-common-components-button.md),
+[text display](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/arkts-common-components-text-display.md),
+[text input](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/arkts-common-components-text-input.md),
+[progress indicators](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/arkts-common-components-progress-indicator.md),
+and [stack layout](https://github.com/openharmony/docs/blob/master/en/application-dev/ui/arkts-layout-development-stack-layout.md).

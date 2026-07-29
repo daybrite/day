@@ -1,0 +1,103 @@
+---
+title: macOS (AppKit)
+description: Build Day apps for macOS with AppKit — prerequisites, the day build and pack pipeline, per-platform caveats, and which AppKit class every Day piece becomes.
+order: 33.1
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`macos-appkit` is Day's most exercised target and the one its own development runs on. AppKit is
+driven directly through [`objc2`](https://docs.rs/objc2) — there is no C or Objective-C shim
+between your Rust and `NSButton`.
+
+<PlatformShots platform="macos-appkit" shots={["home", "controls", "canvas", "menus"]} />
+
+## Getting started
+
+You need Xcode's command-line tools for the linker and system headers; the App Store Xcode is only
+required for `day pack` signing and notarization.
+
+```sh
+xcode-select --install
+cargo install day-cli
+day new app my-app --toolkit macos-appkit
+cd my-app
+day launch -p macos-appkit
+```
+
+`day doctor --toolkit appkit` turns the AppKit checks into errors and prints setup help for
+anything missing. Packaging produces a `.dmg`:
+
+```sh
+day pack -p macos-appkit            # unsigned, for local distribution
+day pack -p macos-appkit --formats dmg
+```
+
+Signing and notarization happen when the credentials are configured — see
+[packaging](/docs/packaging).
+
+## Caveats and special considerations
+
+- **`day launch` runs a bare binary, not a bundle.** Anything the OS gates on bundle identity —
+  TCC permission prompts, some system services — only works from `day pack` output. Develop with
+  `launch`, verify permission flows against a packed build.
+- **No `cover()`.** The fullscreen-cover piece has no AppKit arm, so it renders as a
+  `⟨day.cover⟩` placeholder. Use a dialog or a nav push instead.
+- **No Lottie.** `day-piece-lottie` ships UIKit and Android arms only.
+- **Pull-to-refresh is emulated**, not native: the piece observes `NSScrollView`'s elastic
+  overscroll rather than using a native refresh control (macOS has none).
+- **Screenshots capture offscreen** (`cacheDisplayInRect:`), which cannot sample video layers or
+  `NSVisualEffectView` materials — an `AVPlayerView` comes out black in `day pack` captures and in
+  the gallery. That is a capture limitation, not a rendering one.
+
+## What each piece becomes
+
+Every row was read out of the backend source. Pieces marked *external* live in their own crates and
+are only present when you depend on them.
+
+| Day piece | AppKit class |
+|---|---|
+| `column` / `row` / `stack` / `section` | `NSView` (a flipped subclass, so Day's top-left origin applies directly) |
+| `label` | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (`labelWithString:`) |
+| `button` | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) |
+| `toggle` | [`NSSwitch`](https://developer.apple.com/documentation/appkit/nsswitch) |
+| `slider` | [`NSSlider`](https://developer.apple.com/documentation/appkit/nsslider) |
+| `text_field` | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (bezeled, editable) |
+| `text_area` | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) inside an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
+| `picker().menu()` | [`NSPopUpButton`](https://developer.apple.com/documentation/appkit/nspopupbutton) |
+| `picker().segmented()` | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) |
+| `picker().inline()` | radio [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton)s in an [`NSStackView`](https://developer.apple.com/documentation/appkit/nsstackview) |
+| `progress(f)` | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (bar) |
+| `spinner()` | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (spinning) |
+| `divider` | [`NSBox`](https://developer.apple.com/documentation/appkit/nsbox) (separator) |
+| `scroll` | [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) |
+| `list` | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) (headerless, single column) |
+| `nav` (split) | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview); the sidebar sits in an [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview) |
+| `nav_menu` | [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
+| `tabs` | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) |
+| `image` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
+| `canvas` | a custom `NSView` replaying the display list in `drawRect:` |
+| dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
+| file dialogs | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) / [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) |
+| menu bar & context menus | [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) |
+| *external* `activity()` | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) |
+| *external* `combobox()` | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) |
+| *external* `search_field()` | [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield) |
+| *external* `date_picker()` / `time_picker()` | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) |
+| *external* `webview()` | [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview) |
+| *external* `media()` | [`AVPlayerView`](https://developer.apple.com/documentation/avkit/avplayerview) |
+| *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
+
+Day has no checkbox, radio, stepper or table piece: `toggle` is the only boolean control, radio
+behaviour is `picker().inline()`, and `list` is the only collection. See
+[pieces](/docs/pieces) for the full vocabulary.
+
+**Text measurement** goes through AppKit itself — `cellSizeForBounds:` for labels, TextKit's layout
+manager for the text area, and `fittingSize` for everything else — so wrapping and hyphenation are
+the system's, not a reimplementation.
+
+## Reaching AppKit directly
+
+When you need something Day doesn't model, a [tweak](/docs/tweaks) hands you the realized
+`NSView` for a node, so you can set any AppKit property without forking the framework.

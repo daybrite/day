@@ -1,0 +1,103 @@
+---
+title: Linux (Qt 6)
+description: Build Day apps for Linux with Qt 6 Widgets — dependencies, optional Qt modules, flatpak packaging, per-platform caveats, and which Qt class every Day piece becomes.
+order: 33.5
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`linux-qt` renders Qt 6 Widgets through a small compiled C++ shim. It's the toolkit beneath KDE
+Plasma, it has the strongest cross-OS accessibility bridge of Day's backends, and it is portable
+enough to also be a development target on macOS and Windows.
+
+<PlatformShots platform="linux-qt" shots={["home", "controls", "canvas", "tabs-one"]} />
+
+## Getting started
+
+Qt 6 development packages and `pkg-config` are the requirement; the shim is built by `build.rs`,
+and no `moc` step is involved.
+
+```sh
+sudo apt install qt6-base-dev pkg-config      # Debian/Ubuntu
+sudo dnf install qt6-qtbase-devel pkgconf     # Fedora
+brew install qt pkg-config                    # macOS, for the macos-qt dev combo
+
+cargo install day-cli
+day new app my-app --toolkit linux-qt
+cd my-app
+day launch -p linux-qt
+```
+
+Two optional modules unlock two pieces. Both degrade gracefully rather than failing the build:
+
+| Module | Enables | Without it |
+|---|---|---|
+| `qt6-webengine-dev` (`Qt6WebEngineWidgets`) | `webview()` | a URL label; navigation calls become no-ops |
+| `qt6-multimedia-dev` (`Qt6MultimediaWidgets`) | `media()` | a URL label; play/pause become no-ops |
+
+`day doctor --toolkit qt` reports the whole set.
+
+```sh
+day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime)
+```
+
+If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp — about 87 MB of
+Chromium — because no runtime ships it. Apps that don't link it stay small; that check is on the
+actual binary, not on a flag.
+
+## Caveats and special considerations
+
+- **`toggle` is a `QCheckBox`, not a switch.** Qt Widgets has no native switch control. This is the
+  one place where the same Day code produces a visibly different control shape than on the other
+  desktops.
+- **The list is emulated.** Day drives a `QScrollArea` with its own recycling rather than
+  `QListView`, so very large lists behave differently than a model/view Qt app would.
+- **Qt 6.8+ for forced light/dark.** `DAY_THEME` uses `QStyleHints::setColorScheme`; on older Qt
+  (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
+- **No spell-check**, because Qt ships none — `Cap::TextSpellCheck` reports unsupported and the
+  patch is a no-op.
+- **No `cover()`, no Lottie, no map** on this backend — each renders its placeholder.
+- **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo: no packaging.
+  Windows uses the MSYS2/MinGW toolchain and is marked experimental in CI. MSYS2 has no Qt6
+  WebEngine, so the web view degrades there.
+
+## What each piece becomes
+
+| Day piece | Qt class |
+|---|---|
+| `column` / `row` / `stack` / `section` | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) (Day owns layout) |
+| `label` | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) |
+| `button` | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) |
+| `toggle` | [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html) — see the caveat above |
+| `slider` | [`QSlider`](https://doc.qt.io/qt-6/qslider.html) |
+| `text_field` | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) |
+| `text_area` | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) |
+| `picker().menu()` | [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
+| `picker().segmented()` | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in an exclusive group |
+| `picker().inline()` | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in an exclusive group |
+| `progress(f)` | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) |
+| `spinner()` | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (Qt has no spinner widget) |
+| `divider` | [`QFrame`](https://doc.qt.io/qt-6/qframe.html) (`HLine`) |
+| `scroll` | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) |
+| `list` | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with Day-side recycling |
+| `nav` (split) | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); the stack header adds a [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) |
+| `nav_menu` | [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) |
+| `tabs` | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) |
+| `image` | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
+| `canvas` | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
+| dialogs / alerts | [`QMessageBox`](https://doc.qt.io/qt-6/qmessagebox.html) |
+| prompts | [`QInputDialog`](https://doc.qt.io/qt-6/qinputdialog.html) |
+| file dialogs | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) |
+| menu bar / context menus | [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html) / [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) |
+| *external* `activity()` | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (busy) |
+| *external* `combobox()` | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
+| *external* `search_field()` | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) with a clear button and a find icon |
+| *external* `date_picker()` | [`QDateEdit`](https://doc.qt.io/qt-6/qdateedit.html) with a calendar popup, or [`QCalendarWidget`](https://doc.qt.io/qt-6/qcalendarwidget.html) inline |
+| *external* `time_picker()` | [`QTimeEdit`](https://doc.qt.io/qt-6/qtimeedit.html) |
+| *external* `webview()` | [`QWebEngineView`](https://doc.qt.io/qt-6/qwebengineview.html) |
+| *external* `media()` | [`QMediaPlayer`](https://doc.qt.io/qt-6/qmediaplayer.html) + [`QVideoWidget`](https://doc.qt.io/qt-6/qvideowidget.html) |
+
+**Text measurement** asks `QLabel` for its natural width with wrapping temporarily off, then
+`heightForWidth` at the granted width; the text area uses `QTextDocument`. Everything else uses
+`sizeHint()`.

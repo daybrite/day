@@ -22,7 +22,7 @@
  *  header, e.g. `apps/showcase/src/pages/controls.rs`).
  *  @typedef {{ id: string, label: string, source?: string }} Shot */
 
-/** The ten CI targets, grouped by OS for display. Order here is display order. */
+/** The twelve CI targets, grouped by OS for display. Order here is display order. */
 export const platforms = /** @type {Platform[]} */ ([
   { id: 'macos-appkit', label: 'AppKit', os: 'macOS', toolkit: 'AppKit' },
   { id: 'macos-gtk', label: 'GTK 4', os: 'macOS', toolkit: 'GTK 4 · libadwaita' },
@@ -31,7 +31,7 @@ export const platforms = /** @type {Platform[]} */ ([
   { id: 'android-mdc', label: 'Android', os: 'Android', toolkit: 'Material' },
   { id: 'linux-gtk', label: 'GTK 4', os: 'Linux', toolkit: 'GTK 4 · libadwaita' },
   { id: 'linux-qt', label: 'Qt 6', os: 'Linux', toolkit: 'Qt 6 Widgets' },
-  { id: 'windows-winui', label: 'WinUI 3', os: 'Windows', toolkit: 'WinUI 3' },
+  { id: 'windows-winui', label: 'WinUI', os: 'Windows', toolkit: 'System XAML · XAML Islands' },
   { id: 'windows-gtk', label: 'GTK 4', os: 'Windows', toolkit: 'GTK 4 · libadwaita' },
   { id: 'windows-qt', label: 'Qt 6', os: 'Windows', toolkit: 'Qt 6 Widgets' },
   { id: 'harmony-arkui', label: 'ArkUI', os: 'HarmonyOS', toolkit: 'ArkUI · NodeAPI' },

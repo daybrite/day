@@ -189,6 +189,9 @@ const compare = [
                 t.blurb
               )}
             </p>
+            <a class="pf-more" href={url(`docs/platforms/${t.id}`)}>
+              Building for {t.os} <span aria-hidden="true">→</span>
+            </a>
           </article>
         ))}
       </div>
@@ -430,6 +433,17 @@ const compare = [
   }
   .pf-blurb { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
   .pf-blurb code { font-size: 0.85em; }
+  /* Each card ends with the way in: the per-target build guide. Tinted with the card's own
+     platform accent so the link reads as part of the card, not a generic docs link. */
+  .pf-more {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--pf);
+    text-decoration: none;
+  }
+  .pf-more:hover { text-decoration: underline; }
 
   /* section headers */
   .sec-title { font-size: clamp(1.7rem, 3.6vw, 2.4rem); margin: 0 0 14px; }

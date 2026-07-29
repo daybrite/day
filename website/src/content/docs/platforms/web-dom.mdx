@@ -1,0 +1,101 @@
+---
+title: Web (the DOM)
+description: Build Day apps for the browser — the same Rust compiled to WebAssembly driving real DOM elements. Setup, hosting, the experimental gaps, and which HTML element every Day piece becomes.
+order: 33.8
+section: Platforms
+---
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`web-dom` compiles your app to WebAssembly and drives **real DOM elements** — a `<button>` is the
+browser's button, `<dialog>` its modal, `<input type="range">` its slider. There is no canvas
+renderer and no reimplemented widget set. No wasm-bindgen, no bundler, no npm: the output is a
+plain ES module plus a `.wasm` file.
+
+<PlatformShots platform="web-dom" shots={["home", "controls", "canvas", "text"]} />
+
+> **Experimental.** This is the newest backend and the only one whose gaps are large enough to
+> plan around. The list below is exhaustive as of today; the
+> [live Showcase build](/showcase/web-dom/) on this site is the current CI artifact, so you can
+> judge it yourself.
+
+## Getting started
+
+The only prerequisite beyond the CLI is the wasm target.
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install day-cli
+day new app my-app --toolkit web-dom
+cd my-app
+day launch -p web-dom     # builds, serves over loopback, opens your browser
+```
+
+`day build -p web-dom` writes a self-contained `dist/` — `index.html`, the shim, the stylesheet,
+your `.wasm`, and any bundled images and fonts. **There is no `day pack` for web**, because
+`dist/` is already the deployable artifact: copy it to any static host.
+
+```sh
+day build -p web-dom --profile release
+# dist/ → your bucket, your CDN, GitHub Pages, anywhere
+```
+
+Serve it over HTTPS (or localhost). Browsers won't instantiate WebAssembly from `file:`, and
+sensors require a secure context.
+
+## Caveats and special considerations
+
+This backend is a subset. What's missing, precisely:
+
+- **Most external pieces have no web arm** and render a `⟨kind⟩` placeholder: web view, map,
+  Lottie, search field, combo box, date and time pickers, activity indicator, remote image. Only
+  `media()` is implemented, as a `<video>`.
+- **`media()` needs a URL, not a file path**, and autoplay only starts when muted — both are
+  browser policy, not Day's.
+- **No `cover()`**, no file dialogs, no context menus, and no application menu bar.
+- **The list is emulated**, not recycled: one element per row, created eagerly. Long lists cost.
+- **Split navigation is decided once at launch** from the viewport width (≥ 700px), and does not
+  re-evaluate on resize.
+- **Accessibility is thinner here than on native.** Semantics come from the real tags Day uses —
+  `<button>`, `<input>`, `<select>`, `<progress>`, `<textarea>`, `<dialog>` — and `aria-label`
+  flows through from `.a11y(...)`. But where a piece realizes as a `<div>` (label, tabs, navigation,
+  the nav menu, segmented and radio pickers, the spinner), there is **no compensating ARIA role**.
+  If you are shipping to an accessibility requirement, use a native target or budget for tweaks.
+- **Parts are partial.** `http`, `location`, `prefs`, `sensors` and `permissions` have browser
+  arms; battery, clipboard, device info, haptics and network do not. The magnetometer is never
+  available (no cross-browser API).
+- **Piece registration differs.** `linkme`'s distributed slices don't compile for wasm, so web-dom
+  keeps a runtime registry and a piece registers itself from its constructor. A piece needs an
+  explicit `dom` feature to appear at all — see [extending](/docs/extending).
+
+## What each piece becomes
+
+| Day piece | HTML |
+|---|---|
+| `column` / `row` / `stack` / `section` | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) |
+| `label` | [`<div>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div) (not a `<label>`) |
+| `button` | [`<button type="button">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/button) |
+| `toggle` | [`<input type="checkbox">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/checkbox) styled as a switch |
+| `slider` | [`<input type="range">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/range) |
+| `text_field` | [`<input type="text">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/text) |
+| `text_area` | [`<textarea>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/textarea) |
+| `picker().menu()` | [`<select>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/select) with `<option>`s |
+| `picker().segmented()` / `.inline()` | a `<div>` of `<button>`s |
+| `progress(f)` | [`<progress max="1">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/progress) |
+| `spinner()` | a CSS-animated `<div>` |
+| `divider` | `<div>` |
+| `scroll` | `<div>` with `overflow:auto` |
+| `list` | scrolling `<div>` of absolutely positioned cells |
+| `nav` / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
+| `image` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
+| `canvas` | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
+| dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
+| *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |
+
+**Text measurement** uses a hidden offscreen element with the same computed font and a `max-width`,
+measured with `getBoundingClientRect()` — real browser wrapping metrics, cached per element and
+width.
+
+Pages report their own size back through a
+[`ResizeObserver`](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver), which is how
+CSS-managed panes stay in sync with Day's layout.
