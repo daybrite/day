@@ -482,6 +482,9 @@ pub trait TreeOps {
     /// Apply an animatable [`Transform`] to `node`'s native handle (§8.4) — the cheap movement/
     /// scaling channel that never relayouts. No-op if the node has no handle.
     fn set_node_transform(&mut self, node: RNode, t: day_spec::Transform);
+    /// Make `node`'s text user-selectable (the `.selectable()` modifier). One-shot and unmanaged;
+    /// No-op if the node has no handle.
+    fn set_node_selectable(&mut self, node: RNode, selectable: bool);
     fn mark_needs_measure(&mut self, node: RNode);
     fn mark_layout_dirty(&mut self);
     fn layout_if_needed(&mut self);
@@ -968,6 +971,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let size = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
         let anim = self.resolve_anim(node);
         self.toolkit.set_transform(&h, t, size, anim.as_ref());
+    }
+
+    fn set_node_selectable(&mut self, node: RNode, selectable: bool) {
+        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        self.toolkit.set_selectable(&h, selectable);
     }
 
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>) {

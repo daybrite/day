@@ -164,12 +164,27 @@ pub(crate) fn text_page() -> AnyPiece {
     ))
     .title(crate::res::str::text_links_section());
 
+    // Selectable text (docs/text.md): the `.selectable()` core modifier makes a label's text
+    // user-selectable (select + copy) where the toolkit supports it — AppKit, GTK, Qt, XAML,
+    // HarmonyOS, Android (long-press) and the web. Text is NOT selectable by default on any
+    // backend, matching native; the neighbouring specimens above stay unselectable.
+    let selectable = section((
+        label(crate::res::str::tweaks_selectable_caption()).font(Font::Footnote),
+        label(crate::res::str::tweaks_selectable_text())
+            .selectable()
+            .id("text-selectable"),
+    ))
+    .title(crate::res::str::tweaks_selectable_title());
+
     // Bundled fonts lead the page: the most visually distinctive section, and the one the
     // walkthrough screenshot must show above the fold.
     page(
         crate::res::str::nav_text(),
         "text-title",
         Some(crate::res::str::text_caption()),
-        form((fonts, styles, weights, styling, colors, custom, links)).any(),
+        form((
+            fonts, styles, weights, styling, colors, custom, links, selectable,
+        ))
+        .any(),
     )
 }

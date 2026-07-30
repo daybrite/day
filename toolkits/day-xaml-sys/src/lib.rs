@@ -89,6 +89,8 @@ unsafe extern "C" {
     /// Bundled custom font (§18.4): `spec` is a `FontFamily` source of the form
     /// "ms-appx:///fonts/<file>#<family>" (the font staged under `<exe>/fonts/`).
     pub fn day_xaml_label_set_font_family(w: *mut c_void, spec: *const c_char);
+    /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
+    pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
     /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
     pub fn day_xaml_label_set_color(w: *mut c_void, argb: u32);
 

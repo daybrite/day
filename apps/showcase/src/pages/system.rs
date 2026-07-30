@@ -367,15 +367,21 @@ fn location_section() -> impl Piece {
         ),
         labeled(
             crate::res::str::nav_location(),
-            label(move || coords.get()).id("location-coords"),
+            label(move || coords.get())
+                .selectable()
+                .id("location-coords"),
         ),
         labeled(
             crate::res::str::location_altitude(),
-            label(move || altitude.get()).id("location-altitude"),
+            label(move || altitude.get())
+                .selectable()
+                .id("location-altitude"),
         ),
         labeled(
             crate::res::str::location_accuracy(),
-            label(move || accuracy.get()).id("location-accuracy"),
+            label(move || accuracy.get())
+                .selectable()
+                .id("location-accuracy"),
         ),
         button(move || {
             if running.get() {
@@ -432,9 +438,15 @@ fn device_section() -> impl Piece {
     let system = Signal::new(s);
     let simulator = Signal::new(sim);
     section((
-        label(move || model.get()).id("deviceinfo-model"),
-        label(move || system.get()).id("deviceinfo-system"),
-        label(move || simulator.get()).id("deviceinfo-simulator"),
+        label(move || model.get())
+            .selectable()
+            .id("deviceinfo-model"),
+        label(move || system.get())
+            .selectable()
+            .id("deviceinfo-system"),
+        label(move || simulator.get())
+            .selectable()
+            .id("deviceinfo-simulator"),
         button(crate::res::str::deviceinfo_refresh())
             .bordered()
             .action(move || {

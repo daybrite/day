@@ -102,7 +102,7 @@ calls per toolkit and **no-ops where it has no coverage** — the consuming app 
 | crate | scope | demonstrates |
 |---|---|---|
 | `tweaks/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
-| `tweaks/day-tweak-label-selectable` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
+| `tweaks/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
 | `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, XAML, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's OWN Qt C++, WinRT C++, and NDK C++ |
 
 The Cargo shape mirrors piece crates: per-backend `[features]` gating optional deps, plus

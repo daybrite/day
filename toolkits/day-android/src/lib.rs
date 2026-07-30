@@ -1948,6 +1948,19 @@ mod imp {
             );
         }
 
+        fn set_selectable(&mut self, h: &AHandle, selectable: bool) {
+            // A plain label is an android.widget.TextView; make its text selectable (long-press →
+            // copy, docs/text.md). A direct instance call — no DayBridge method needed.
+            with_env(|env| {
+                let _ = env.dcall(
+                    h.0.as_obj(),
+                    "setTextIsSelectable",
+                    "(Z)V",
+                    &[JValue::Bool(selectable)],
+                );
+            });
+        }
+
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
             let d = density();
             call_void(

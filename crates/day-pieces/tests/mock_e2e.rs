@@ -2844,6 +2844,31 @@ fn toggle_enabled_false_renders_disabled() {
     );
 }
 
+#[test]
+fn selectable_modifier_marks_the_node_and_is_opt_in() {
+    // `.selectable()` calls the backend's set_selectable exactly once, on the label's own node.
+    let probe = boot(|| label("copy me").selectable().id("sel").any());
+    flush_sync();
+    let sel_ops: Vec<String> = probe
+        .log()
+        .into_iter()
+        .filter(|o| o.starts_with("set_selectable"))
+        .collect();
+    assert_eq!(sel_ops.len(), 1, "one set_selectable, got {sel_ops:?}");
+    assert!(
+        sel_ops[0].ends_with(" true"),
+        "selectable = true: {sel_ops:?}"
+    );
+
+    // A plain label is NOT selectable — the modifier is strictly opt-in.
+    let probe2 = boot(|| label("plain").id("plain").any());
+    flush_sync();
+    assert!(
+        !probe2.log().iter().any(|o| o.starts_with("set_selectable")),
+        "a plain label must not be selectable by default"
+    );
+}
+
 // --- .restore() (docs/navigation.md) -------------------------------------------------------
 // An in-memory NavStore standing in for `day_part_prefs::install_nav_store`, so these tests
 // exercise the pieces' restore/persist wiring without touching the platform prefs facility.

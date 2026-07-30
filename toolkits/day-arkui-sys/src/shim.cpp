@@ -315,6 +315,17 @@ void day_ark_remove_child(void* p, void* c) {
 }
 
 void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s); }
+// Make a Text node's text user-selectable + copyable (the `.selectable()` modifier, docs/text.md).
+// A non-Text node ignores NODE_TEXT_COPY_OPTION (setAttribute returns an error, no crash).
+void day_ark_label_set_selectable(void* n, int on) {
+    if (!g_api || !n) return;
+    ArkUI_NumberValue nv;
+    nv.i32 = on ? ARKUI_COPY_OPTIONS_LOCAL_DEVICE : ARKUI_COPY_OPTIONS_NONE;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_COPY_OPTION, &it);
+}
 void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
 void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
 void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }

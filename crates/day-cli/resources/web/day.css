@@ -42,9 +42,30 @@ html, body {
   overflow: hidden;
   background: var(--day-bg);
   color: var(--day-fg);
-  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Type sizing (docs/web.md). Two goals: match the generosity of a native app's default text, and
+   respect the OS accessibility text size the way the native backends' `preferredFont(forTextStyle:)`
+   does. `--day-text-scale` lifts the whole rem ramp a touch so the UI doesn't read as miniscule
+   next to native; day-dom's ramp applies the SAME factor.
+     - Desktop keeps a FIXED base (1rem = the browser's font-size preference), so Safari and Chrome
+       on the same Mac render identically and nothing shrinks to the bare 13px system size.
+     - Touch devices anchor `html` to `-apple-system-body`, whose value IS iOS Dynamic Type: every
+       rem grows and shrinks with the user's "Larger Text" setting. Non-Apple mobile browsers drop
+       the unknown keyword and keep the fixed base (Android web has no Dynamic Type to track). */
+:root { --day-text-scale: 1.12; }
+html { font-size: 100%; }
+@media (pointer: coarse) {
+  html { font: -apple-system-body; }
+}
+
+/* The control font — buttons, fields, pickers, sidebar rows, and chrome inherit this (labels
+   carry their own rem ramp). Must stay in sync with measure_str() in day-dom (same rem × scale). */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  font-size: calc(0.875rem * var(--day-text-scale));
 }
 
 #day-root {
@@ -52,17 +73,37 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* Nothing is user-selectable by default, matching every native toolkit (a label, a button's
+     caption, a table cell). The `.selectable()` modifier opts an element back in (.day-selectable),
+     and form controls stay selectable below. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .day-container, .day-page, .day-cell { box-sizing: border-box; }
 
+/* A rounded, clipping surface (`.day-clip`) inside a transformed/animated ancestor (`.day-xform`)
+   otherwise hits a WebKit compositing bug where the clip layer paints its sharp bounding box
+   black behind the rounded content. Promoting the clip to its own layer makes WebKit apply the
+   border-radius clip correctly. Scoped to the transformed subtree, so static rounded surfaces
+   (cards, buttons, lists) are never promoted. */
+.day-xform .day-clip { -webkit-transform: translateZ(0); transform: translateZ(0); }
+
 .day-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  user-select: none;
   cursor: default;
 }
 .day-label.placeholder { color: var(--day-fg-dim); }
+
+/* The `.selectable()` modifier (day-dom set_selectable): opt an element's text back into
+   selection, overriding the #day-root default. `text` re-enables even under an ancestor's `none`.
+   Comes after .day-label so it wins on a selectable label; a text cursor signals the affordance. */
+.day-selectable, .day-selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.day-selectable { cursor: text; }
 
 /* Controls ---------------------------------------------------------------- */
 
@@ -136,6 +177,9 @@ html, body {
   border: 1px solid var(--day-control-border);
   border-radius: 6px;
   padding: 0 8px;
+  /* Editable/interactive controls stay selectable despite the #day-root default. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 .day-area { padding: 6px 8px; resize: none; }
 .day-field:focus, .day-area:focus, .day-select:focus {
@@ -213,14 +257,14 @@ html, body {
   z-index: 10;
 }
 .day-nav-back {
-  font: 26px/1 -apple-system, sans-serif;
+  font: calc(1.625rem * var(--day-text-scale))/1 -apple-system, sans-serif;
   color: var(--day-accent);
   background: none;
   border: none;
   padding: 0 10px 4px;
   cursor: pointer;
 }
-.day-nav-title { font-weight: 600; font-size: 15px; }
+.day-nav-title { font-weight: 600; font-size: calc(1rem * var(--day-text-scale)); }
 
 /* Pages fill whichever pane they land in; day-core frames their contents. */
 .day-page { position: absolute; inset: 0; overflow: hidden; }
@@ -351,7 +395,7 @@ html, body {
   border-radius: 12px 12px 0 0;
   width: min(420px, 100vw);
 }
-.day-dialog-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.day-dialog-title { font-size: calc(1rem * var(--day-text-scale)); font-weight: 600; margin-bottom: 6px; }
 .day-dialog-msg { color: var(--day-fg-dim); margin-bottom: 14px; }
 .day-dialog .day-field { width: 100%; height: 28px; margin-bottom: 14px; }
 .day-dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }

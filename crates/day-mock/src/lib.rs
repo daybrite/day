@@ -626,6 +626,14 @@ impl Toolkit for MockToolkit {
         ));
     }
 
+    fn set_selectable(&mut self, h: &MockHandle, selectable: bool) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.selectable = selectable;
+        }
+        s.log(format!("set_selectable #{} {}", h.0, selectable));
+    }
+
     fn set_scroll_content(&mut self, h: &MockHandle, content: Size) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {

@@ -2575,6 +2575,15 @@ impl Toolkit for AppKit {
         });
     }
 
+    fn set_selectable(&mut self, h: &Handle, selectable: bool) {
+        // A plain label backs onto an NSTextField (docs/text.md); make its text selectable
+        // (copy/drag). The downcast is the guard: a backing that isn't a text field no-ops rather
+        // than mis-cast — a future rich/link label on NSTextView would add its own arm.
+        if let Some(tf) = h.downcast_ref::<NSTextField>() {
+            unsafe { tf.setSelectable(selectable) };
+        }
+    }
+
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
         // Nav pages: the splitter pane / nav container owns the frame (autoresized).
         if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {

@@ -30,30 +30,38 @@ pub(crate) fn about_page() -> AnyPiece {
     let info = section((
         labeled(
             crate::res::str::about_version(),
-            label(env!("CARGO_PKG_VERSION")).id("about-version"),
+            label(env!("CARGO_PKG_VERSION"))
+                .selectable()
+                .id("about-version"),
         ),
         labeled(
             crate::res::str::about_id(),
             // Baked from Day.toml's [app].id by build.rs (DAY_APP_ID, set by `day build`);
             // a bare `cargo` build has no identity to show.
-            label(option_env!("DAY_SHOWCASE_APP_ID").unwrap_or("\u{2014}")).id("about-id"),
+            label(option_env!("DAY_SHOWCASE_APP_ID").unwrap_or("\u{2014}"))
+                .selectable()
+                .id("about-id"),
         ),
         labeled(
             crate::res::str::about_toolkit(),
-            label(day::toolkit_name()).id("about-toolkit"),
+            label(day::toolkit_name()).selectable().id("about-toolkit"),
         ),
         labeled(
             crate::res::str::about_os(),
-            label(format!("{} {}", d.system_name, d.system_version)).id("about-os"),
+            label(format!("{} {}", d.system_name, d.system_version))
+                .selectable()
+                .id("about-os"),
         ),
         labeled(
             crate::res::str::about_model(),
-            label(d.model).id("about-model"),
+            label(d.model).selectable().id("about-model"),
         ),
         labeled(
             crate::res::str::about_locale(),
             // Live: switching on the Localization page re-renders this tag on the spot.
-            label(move || day::locale().get()).id("about-locale"),
+            label(move || day::locale().get())
+                .selectable()
+                .id("about-locale"),
         ),
         labeled(
             crate::res::str::menus_lifecycle(),

@@ -450,7 +450,7 @@ flow:
   - assert_route: { route: tweaks }
   - assert_visible: { id: tweaks-title }
   - assert_visible: { id: tweak-bezel-toolbar }
-  - assert_visible: { id: tweak-selectable-label }
+  - assert_visible: { id: tweak-tooltip-button }
   - assert_visible: { id: tweak-ticks-slider }
   - assert_text: { id: tweak-ref-status, key: tweaks_ref_live }
   - toggle: { id: tweak-ref-toggle, value: false }
@@ -470,6 +470,7 @@ flow:
   - assert_visible: { id: text-font-pacifico }
   - assert_visible: { id: text-font-bungee }
   - assert_visible: { id: text-font-specialelite }
+  - assert_visible: { id: text-selectable }
   - screenshot: text
 
   # Text areas (docs/textarea.md): the native multi-line editor with editable/selectable/spell-check

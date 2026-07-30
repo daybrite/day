@@ -39,6 +39,7 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
 | **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
+| **Web** (`web-dom`) | rem-based ramp — `Body` = 1rem, the rest follow the Apple text-style ratios (`font_rem` in day-dom) | Yes — 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it; page zoom applies on top |
 
 ## Weight & style
 
@@ -57,10 +58,38 @@ light/dark). Colors are given as `Color::hex(0xRRGGBB)` or `Color::rgba(r, g, b,
 
 `Font::System(pt)` takes an explicit point size, but it is still scaled by the platform's
 accessibility text-size setting (iOS runs it through `UIFontMetrics`, Android uses `sp`, GTK uses the
-text-scaling factor), so a hard-coded size never turns into a fixed, unreadable pixel size.
+text-scaling factor, web-dom expresses it as `pt/16` rem so it rides the browser's font-size
+preference), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
 `Font::Custom("Family", pt)` scales the same way — a bundled font never opts out of accessibility
 sizing.
 
+## Selectable text
+
+Text is **not** user-selectable by default on any backend — a label, a button's caption, and a
+table cell all match each platform's native behavior, where static text can't be selected. Opt a
+piece in with `.selectable()`:
+
+```rust
+label("Order #A1B2-C3D4").selectable()   // the reader can select and copy it
+```
+
+It applies to the piece's own widget, so on a container it makes every label within selectable. The
+modifier routes to `Toolkit::set_selectable`, honored where the toolkit has a native affordance:
+
+| Backend | Affordance |
+|---|---|
+| AppKit | `NSTextField.setSelectable:` |
+| GTK | `GtkLabel.set_selectable` |
+| Qt | `QLabel` `TextSelectableByMouse`/`ByKeyboard` |
+| XAML | `TextBlock.IsTextSelectionEnabled` |
+| HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
+| Android | `TextView.setTextIsSelectable` (long-press → copy) |
+| web-dom | `user-select: text` (the `#day-root` default is `none`) |
+| UIKit | not supported on a plain `UILabel` — a no-op |
+
+Selection visuals and the copy shortcut are the platform's own. It's unmanaged — set once at mount,
+and it survives Day's own text updates.
+
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
-and the three bundled custom fonts.
+the three bundled custom fonts, and a `.selectable()` line.

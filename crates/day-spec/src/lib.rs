@@ -1840,6 +1840,13 @@ pub trait Toolkit: Sized + 'static {
     ) {
     }
 
+    // text selection (docs/text.md): make this node's text user-selectable (copy/drag). Applied
+    // once from the `.selectable()` modifier (day-pieces) to the widget it wraps — a `label`'s
+    // native text view, most usefully. UNMANAGED: Day sets it here and never patches it, so it
+    // survives text updates. The default no-op means a backend without a selection affordance
+    // (or where a plain label can't be made selectable) silently leaves the text unselectable.
+    fn set_selectable(&mut self, _h: &Self::Handle, _selectable: bool) {}
+
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}

@@ -1,8 +1,8 @@
 use day::prelude::*;
 use day_piece_rating::Card;
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
-use day_tweak_label_selectable::LabelSelectableTweak;
 use day_tweak_slider_tickmarks::{SliderTickmarksTweak, TickPosition, Tickmarks};
+use day_tweak_tooltip::TooltipTweak;
 
 use crate::widgets::heading;
 
@@ -34,13 +34,14 @@ pub(crate) fn tweaks_page() -> AnyPiece {
     .align(HAlign::Leading)
     .modifier(Card);
 
-    // day-tweak-label-selectable: three toolkits, three access tiers (objc2 / gtk4-rs / JNI).
-    let selectable_card = column((
-        label(crate::res::str::tweaks_selectable_title()).font(Font::Headline),
-        label(crate::res::str::tweaks_selectable_caption()).font(Font::Footnote),
-        label(crate::res::str::tweaks_selectable_text())
-            .selectable()
-            .id("tweak-selectable-label"),
+    // day-tweak-tooltip: one modifier across three access tiers (objc2 / gtk4-rs / JNI). Hover the
+    // button (macOS/GTK) or long-press it (Android) to see the native tooltip.
+    let tooltip_card = column((
+        label(crate::res::str::tweaks_tooltip_title()).font(Font::Headline),
+        label(crate::res::str::tweaks_tooltip_caption()).font(Font::Footnote),
+        button(crate::res::str::tweaks_tooltip_label())
+            .tooltip(crate::res::str::tweaks_tooltip_hint().format())
+            .id("tweak-tooltip-button"),
     ))
     .spacing(8.0)
     .align(HAlign::Leading)
@@ -120,7 +121,7 @@ pub(crate) fn tweaks_page() -> AnyPiece {
                 Some(crate::res::str::tweaks_intro()),
             ),
             bezel_card,
-            selectable_card,
+            tooltip_card,
             ticks_card,
             ref_card,
         ))

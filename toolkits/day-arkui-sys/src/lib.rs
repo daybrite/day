@@ -38,6 +38,8 @@ unsafe extern "C" {
     pub fn day_ark_menu_separator(n: *mut c_void, argb: u32);
 
     pub fn day_ark_set_text(node: *mut c_void, s: *const c_char);
+    /// Make a Text node's text user-selectable (the `.selectable()` modifier). No-op on non-text.
+    pub fn day_ark_label_set_selectable(node: *mut c_void, on: c_int);
     pub fn day_ark_set_button_label(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_input_text(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_placeholder(node: *mut c_void, s: *const c_char);

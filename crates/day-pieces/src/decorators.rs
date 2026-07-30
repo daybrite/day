@@ -150,6 +150,23 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Make this piece's text **user-selectable** — the reader can select and copy it
+    /// (docs/text.md). Most useful on a [`label`](crate::label): text is NOT selectable by default
+    /// on any backend, matching each platform's native behavior. Applied to the piece's own
+    /// widget, so on a container it makes all the text within it selectable.
+    ///
+    /// Best-effort: a backend with a native selection affordance for the widget honors it (AppKit,
+    /// UIKit-less desktop toolkits, GTK, Qt, XAML, HarmonyOS, Android, web); one without leaves the
+    /// text unselectable rather than erroring. Selection visuals and the copy shortcut are the
+    /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
+    fn selectable(self) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            with_tree(|t| t.set_node_selectable(n, true));
+            n
+        })
+    }
+
     /// Capture a [`NativeRef`] to this piece's realized node for later imperative access
     /// (docs/tweaks.md). The ref clears automatically when the piece's scope is disposed.
     fn native_ref(self, r: &NativeRef) -> AnyPiece {

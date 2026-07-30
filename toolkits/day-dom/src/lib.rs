@@ -239,9 +239,12 @@ thread_local! {
     static PICKER_SIZE: RefCell<HashMap<u32, Size>> = RefCell::new(HashMap::new());
 }
 
-/// Measure one string in the control font (13px system stack) with no wrap limit.
+/// Measure one string in the control font with no wrap limit. The size MUST stay in sync
+/// with the `body` font in day.css — controls (`font: inherit`) render at that size, so
+/// measuring at anything else would mis-size pickers.
 fn measure_str(txt: &str) -> Size {
-    let css = format!("13px {SYSTEM_STACK}");
+    // Matches the day.css control font: `0.875rem * --day-text-scale`.
+    let css = format!("{}rem {SYSTEM_STACK}", 0.875 * TEXT_SCALE);
     let mut out = [0.0f64; 2];
     unsafe {
         day_dom_measure_text(
@@ -273,28 +276,39 @@ fn remember(el: u32, id: NodeId) {
 }
 
 // ---------------------------------------------------------------------------
-// Fonts: FontSpec → a CSS font shorthand. The ramp approximates the Apple text styles at
-// web-comfortable sizes; custom families fall back to the system stack.
+// Fonts: FontSpec → a CSS font shorthand. The ramp is rem-based. On desktop 1rem is the browser's
+// font-size preference; on touch devices day.css anchors `html` to `-apple-system-body`, so on iOS
+// 1rem tracks Dynamic Type — every Day font grows with the user's "Larger Text" setting, like the
+// native backends' `preferredFont(forTextStyle:)`. `TEXT_SCALE` mirrors day.css's `--day-text-scale`:
+// it lifts the whole ramp a touch so the UI doesn't read as miniscule next to native (docs/web.md).
+// Body = 1rem × scale; other styles follow the Apple text-style ratios. Custom families fall back
+// to the system stack.
 // ---------------------------------------------------------------------------
 
 const SYSTEM_STACK: &str =
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-fn font_px(style: Font) -> (f64, u32) {
+/// Baseline lift over the platform's raw text size — MUST equal day.css's `--day-text-scale`.
+const TEXT_SCALE: f64 = 1.12;
+
+fn font_rem(style: Font) -> (f64, u32) {
     match style {
-        Font::LargeTitle => (30.0, 700),
-        Font::Title => (24.0, 700),
-        Font::Title2 => (20.0, 600),
-        Font::Title3 => (17.0, 600),
-        Font::Headline => (15.0, 600),
-        Font::Subheadline => (13.0, 400),
-        Font::Body => (15.0, 400),
-        Font::Callout => (14.0, 400),
-        Font::Footnote => (12.0, 400),
-        Font::Caption => (12.0, 400),
-        Font::Caption2 => (11.0, 400),
-        Font::System(pt) => (pt, 400),
-        Font::Custom(_, pt) => (pt, 400),
+        Font::LargeTitle => (2.0, 700),
+        Font::Title => (1.625, 700),
+        Font::Title2 => (1.25, 600),
+        Font::Title3 => (1.125, 600),
+        Font::Headline => (1.0, 600),
+        Font::Subheadline => (0.875, 400),
+        Font::Body => (1.0, 400),
+        Font::Callout => (0.9375, 400),
+        Font::Footnote => (0.8125, 400),
+        Font::Caption => (0.75, 400),
+        Font::Caption2 => (0.6875, 400),
+        // An explicit point size means that many px at the default preference (matching the
+        // Apple pt == logical-px convention) — expressed in rem so it still scales with the
+        // browser preference, per docs/text.md's rule that custom sizes never opt out.
+        Font::System(pt) => (pt / 16.0, 400),
+        Font::Custom(_, pt) => (pt / 16.0, 400),
     }
 }
 
@@ -312,16 +326,18 @@ fn weight_css(w: FontWeight) -> u32 {
     }
 }
 
-/// `font` CSS shorthand: `style weight size/line-height family`.
+/// `font` CSS shorthand: `style weight size/line-height family`. The unitless line-height
+/// (1.3, matching the old px ramp's ratio) rides the rem size, so it scales too.
 fn font_css(f: &FontSpec) -> String {
-    let (px, default_weight) = font_px(f.style);
+    let (rem, default_weight) = font_rem(f.style);
+    let rem = rem * TEXT_SCALE;
     let weight = f.weight.map(weight_css).unwrap_or(default_weight);
     let italic = if f.italic { "italic " } else { "" };
     let family = match f.style {
         Font::Custom(name, _) => format!("'{name}', {SYSTEM_STACK}"),
         _ => SYSTEM_STACK.to_string(),
     };
-    format!("{italic}{weight} {px:.1}px/{:.1}px {family}", px * 1.3)
+    format!("{italic}{weight} {rem}rem/1.3 {family}")
 }
 
 fn color_css(c: day_spec::Color) -> String {
@@ -1096,6 +1112,9 @@ impl Toolkit for Dom {
         if let Some(a) = anim {
             s(h.0, "transition", &format!("transform {}", css_anim(a)));
         }
+        // Mark this element as a compositing root so its rounded-clip descendants get their own
+        // clipped layer (day.css `.day-xform .day-clip`) — see the note in `apply_surface`.
+        class(h.0, "day-xform", true);
         s(h.0, "transform-origin", "50% 50%");
         s(
             h.0,
@@ -1105,6 +1124,12 @@ impl Toolkit for Dom {
                 t.tx, t.ty, t.rotate_deg, t.sx, t.sy
             ),
         );
+    }
+
+    fn set_selectable(&mut self, h: &DomHandle, selectable: bool) {
+        // Nothing is selectable by default (#day-root sets `user-select: none`); the class opts
+        // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
+        class(h.0, "day-selectable", selectable);
     }
 
     fn set_scroll_content(&mut self, h: &DomHandle, content: Size) {
@@ -1324,6 +1349,11 @@ fn apply_surface(el: u32, bg: Option<day_spec::Color>, radius: f64, clips: bool,
     }
     if radius > 0.0 {
         s(el, "border-radius", &format!("{radius}px"));
+        // A rounded clip inside a transformed (animated) ancestor hits a WebKit bug: the clip
+        // layer's backing paints its SHARP bounding box black behind the rounded content. The
+        // `.day-xform .day-clip` rule (day.css) gives such a clip its own correctly-clipped layer;
+        // the class is inert everywhere else, so static rounded surfaces aren't promoted.
+        class(el, "day-clip", true);
     }
     if clips || radius > 0.0 {
         s(el, "overflow", "hidden");

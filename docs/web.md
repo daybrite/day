@@ -53,6 +53,14 @@ Synchronous text measurement — the one duty a browser makes hard — uses a hi
 element (so wrapping matches real labels), cached per element and invalidated on text or font
 patches.
 
+**Typography is rem-based.** The style ramp (`font_rem` in day-dom) sets `Body` at 1rem with the
+other styles at the Apple text-style ratios; controls inherit the 0.875rem `body` font from
+day.css, and the picker measurer (`measure_str`) must stay in sync with it. `html` is pinned at
+`font-size: 100%` and nothing may redefine it: 1rem *is* the browser's default-font-size
+preference, which is how web-dom delivers the accessibility text scaling docs/text.md promises.
+Canvas draw-op text is the deliberate exception — it renders in the app's coordinate space,
+where scaling text but not geometry would corrupt drawings.
+
 ## The main loop, timers, and `day::sleep`
 
 The browser owns the loop; wasm has one thread and no `std::thread`, no `Instant`, no

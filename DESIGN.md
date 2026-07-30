@@ -693,6 +693,7 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 (docs/grid.md; inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()`, `.focused()`,
+`.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, docs/text.md),
 `.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
 (docs/cover.md), `.tweak()` / `.native_ref()` (docs/tweaks.md), `.modifier(impl Modifier)`,
 and `.any()`.
@@ -2586,7 +2587,7 @@ day/                                # THIS repository
   parts/                            # headless platform services (day-part-battery, -network,
                                     #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo,
                                     #   -http, -permissions, -location)
-  tweaks/                           # packaged tweaks (day-tweak-button-bezel, -label-selectable,
+  tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
   apps/
     showcase/                       # THE demo: every subsystem, 4 locales, the walkthrough
@@ -2922,7 +2923,7 @@ Mechanism (implemented; docs/tweaks.md is normative):
   the metadata a C++ tweak crosses the FFI with to guard its cast rather than blind-`static_cast`.
 - Packaged tweaks: `tweaks/day-tweak-*` crates mirror piece crates' Cargo shape and reuse
   `[package.metadata.day.piece] backends` for [§15.2](#152-package-layout-and-aggregation)'s feature union. Three in-tree examples
-  (button-bezel / label-selectable / slider-tickmarks) span single-toolkit trivial to
+  (button-bezel / tooltip / slider-tickmarks) span single-toolkit trivial to
   six-toolkit with crate-owned Qt/WinRT/ArkUI native code; the showcase Tweaks page exercises
   them in CI.
 - Boundaries: main-thread only; never destroy/reparent; managed properties (title, value,

@@ -1237,6 +1237,11 @@ void* day_xaml_label_new(const char* text) {
 void day_xaml_label_set_text(void* h, const char* t) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.Text(hs(t));
 }
+// Make a label's text user-selectable (the `.selectable()` modifier, docs/text.md). try_as
+// guards a non-TextBlock handle — a no-op rather than a bad cast.
+void day_xaml_label_set_selectable(void* h, int on) {
+    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.IsTextSelectionEnabled(on != 0);
+}
 void day_xaml_label_set_color(void* h, unsigned argb) {
     auto tb = elem(h).try_as<WUXC::TextBlock>();
     if (!tb) return;

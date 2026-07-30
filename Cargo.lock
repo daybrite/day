@@ -1184,19 +1184,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-tweak-label-selectable"
-version = "0.0.18"
-dependencies = [
- "day-android",
- "day-appkit",
- "day-core",
- "day-gtk",
- "day-pieces",
- "gtk4",
- "objc2-app-kit",
-]
-
-[[package]]
 name = "day-tweak-slider-tickmarks"
 version = "0.0.18"
 dependencies = [
@@ -1212,6 +1199,20 @@ dependencies = [
  "day-xaml",
  "gtk4",
  "objc2-app-kit",
+]
+
+[[package]]
+name = "day-tweak-tooltip"
+version = "0.0.18"
+dependencies = [
+ "day-android",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-pieces",
+ "gtk4",
+ "objc2-app-kit",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -4341,8 +4342,8 @@ dependencies = [
  "day-piece-searchfield",
  "day-piece-webview",
  "day-tweak-button-bezel",
- "day-tweak-label-selectable",
  "day-tweak-slider-tickmarks",
+ "day-tweak-tooltip",
 ]
 
 [[package]]

@@ -1,13 +1,16 @@
-# day-tweak-label-selectable
+# day-tweak-tooltip
 
-Let users select and copy a label's text: `.selectable()` on any `label(...)`.
+Give any Day piece a native help tooltip: `.tooltip("Save your changes (⌘S)")` on any
+`button(...)`, `label(...)`, or other piece. It shows on hover on macOS and GTK, and on
+long-press on Android.
 
-Implemented on macOS, GTK, and Android — three platforms, three different native calls,
-one modifier. Elsewhere it does nothing, and says so in its documentation.
+The interesting part is the three access tiers behind one modifier: objc2 (`NSView.setToolTip:`),
+gtk4-rs (`GtkWidget.set_tooltip_text`), and JNI (`View.setTooltipText`). On every other toolkit
+`.tooltip(...)` quietly does nothing, so your app code stays free of platform checks.
 
 Tweaks are Day's smallest kind of extension: a little crate that adjusts the native widget
-behind a built-in piece. On platforms a tweak doesn't cover, it quietly does nothing, so
-your app code stays free of platform checks.
+behind a built-in piece. This one is a good mid-size example — one modifier, three native APIs,
+no companion C++ shim.
 
 ## Part of Day
 

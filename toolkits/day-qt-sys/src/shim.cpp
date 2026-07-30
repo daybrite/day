@@ -360,6 +360,15 @@ void day_qt_label_set_font_family(void *w, const char *family) {
     f.setFamily(QString::fromUtf8(family));
     l->setFont(f);
 }
+// Make a label's text user-selectable by mouse + keyboard (the `.selectable()` modifier,
+// docs/text.md). qobject_cast guards a non-label widget — a no-op rather than a bad cast.
+void day_qt_label_set_selectable(void *w, int on) {
+    QLabel *l = qobject_cast<QLabel *>(static_cast<QWidget *>(w));
+    if (!l)
+        return;
+    l->setTextInteractionFlags(on ? (Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard)
+                                  : Qt::NoTextInteraction);
+}
 // Register an application font file with the QFontDatabase (§18.4). Returns the font id
 // (>= 0) or -1 on failure. Requires a constructed QApplication.
 int day_qt_register_font(const char *path) {

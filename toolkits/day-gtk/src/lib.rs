@@ -2252,6 +2252,13 @@ impl Toolkit for Gtk {
         }
     }
 
+    fn set_selectable(&mut self, h: &Handle, selectable: bool) {
+        // A plain label is a GtkLabel (docs/text.md); the downcast guards a non-label backing.
+        if let Some(l) = h.downcast_ref::<gtk4::Label>() {
+            l.set_selectable(selectable);
+        }
+    }
+
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
         let key = widget_key(h);
         // Tab pages / nav pages are laid out by their native container, not by Day; skip them.

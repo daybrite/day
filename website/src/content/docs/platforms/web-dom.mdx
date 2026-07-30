@@ -97,6 +97,11 @@ This backend is a subset. What's missing:
 measured with `getBoundingClientRect()` — real browser wrapping metrics, cached per element and
 width.
 
+**Typography is rem-based**: `Font::Body` is 1rem, the other styles follow the Apple text-style
+ratios, and custom point sizes map to `pt/16` rem — so if you raise your browser's default font
+size, every Day font scales with it (canvas drawing text excepted, since it lives in the app's
+coordinate space).
+
 Pages report their own size back through a
 [`ResizeObserver`](https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver), which is how
 CSS-managed panes stay in sync with Day's layout.

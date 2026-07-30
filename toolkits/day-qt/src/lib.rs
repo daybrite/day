@@ -1474,6 +1474,11 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve) };
     }
 
+    fn set_selectable(&mut self, h: &QtHandle, selectable: bool) {
+        // The shim qobject_casts to QLabel, so a non-label handle is a safe no-op (docs/text.md).
+        unsafe { ffi::day_qt_label_set_selectable(h.0, selectable as c_int) };
+    }
+
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
         // Tab pages are laid out by the QTabWidget, not by Day; skip them.
         if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
