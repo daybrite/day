@@ -448,13 +448,24 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
 
   /* Desktop cells are wide (landscape screens read better); every frame is the SAME tall height
      as the mobile frames, so rows line up across platforms regardless of aspect ratio. Phone shots
-     are ~0.46 aspect and need the height to render the full screen (incl. the home indicator). */
-  .tile { margin: 0; width: 460px; flex: 0 0 auto; }
+     are ~0.46 aspect and need the height to render the full screen (incl. the home indicator).
+
+     The desktop width is sized so a landscape capture FILLS that shared height instead of sitting
+     short in the middle of it: the widest desktop shots are ~1.53:1 (macOS), and the frame's
+     usable box is 500px less 10px padding and 1px border either side = 478px, so 478 × 1.53 ≈ 732px
+     of image + 22px of chrome ≈ 754px. Narrower captures (GTK's ~0.94:1 About window) become
+     height-limited and simply sit narrower inside the same cell. The `clamp` keeps a phone from
+     scrolling two viewports per tile — it never goes below the previous 460px. */
+  .tile { margin: 0; width: clamp(460px, calc(100vw - 48px), 754px); flex: 0 0 auto; }
   .tile.mobile { width: 240px; }
   .frame {
     position: relative;
     height: 500px;
-    display: grid; place-items: center;
+    /* An explicit, DEFINITE row: the implicit `auto` track would be sized by the image, so the
+       image's `max-height: 100%` would resolve against its own height and never clamp — a
+       taller-than-the-frame capture then silently cropped under `overflow: hidden` instead of
+       scaling down. `minmax(0, …)` keeps the auto minimum from re-expanding the track. */
+    display: grid; grid-template-rows: minmax(0, 1fr); place-items: center;
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: 12px;
