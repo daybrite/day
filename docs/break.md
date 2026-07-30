@@ -61,7 +61,7 @@ there are no hidden fields. A conforming app does not call `send` from a non-int
 | Native fault / abort (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT/SIGTRAP) | `sigaction` handlers | all Unix (macOS, iOS, Linux, Android, HarmonyOS) |
 | Uncaught Java exception | `Thread.setDefaultUncaughtExceptionHandler` (Android shim) | Android |
 
-**Deferred to a later version** (documented so the limits are honest): Windows
+**Deferred to a later version** (listed so the limits are on record): Windows
 `SetUnhandledExceptionFilter` (the panic hook still covers Rust panics, the dominant class); iOS
 `NSSetUncaughtExceptionHandler` (an uncaught ObjC exception ends in `abort()`, which the SIGABRT
 handler already records); HarmonyOS `errorManager` (ArkTS-only, no NDK C entry — native crashes

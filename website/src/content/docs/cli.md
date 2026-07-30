@@ -95,7 +95,7 @@ variants.
 ## The conventional project
 
 A Day project is a normal Cargo package plus a small `Day.toml` — the project marker and the
-home of everything Day-specific. Two rules keep it honest: `name` and `version` are **derived
+home of everything Day-specific. Two rules prevent drift: `name` and `version` are **derived
 from Cargo.toml's `[package]`** (never restated, so identity can't drift), and any `[app]`
 property can be **overridden per platform, per toolkit, or per target** — `[app.ios]`,
 `[app.qt]`, `[app.macos-appkit]` — with the most specific table winning. The build tool reads
@@ -151,4 +151,4 @@ Every push builds the showcase on every target and runs the walkthrough, uploadi
 screenshots — and its installable packages — as artifacts. This site's [gallery](/gallery) is
 assembled from those screenshot artifacts, so it always shows the latest captures from each
 platform that succeeded. [Packaging & distribution](/docs/packaging) covers the artifact
-pipeline, and [Platform support](/docs/platforms) reads the same CI honestly.
+pipeline, and [Platform support](/docs/platforms) reports what that CI shows, per target.

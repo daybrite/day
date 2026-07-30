@@ -6,7 +6,7 @@ section: Guides
 ---
 
 A Day project keeps its resources under one conventional `resource/` directory, with four
-subdirectories, each with a different destiny:
+subdirectories, each staged differently at build time:
 
 ```text
 myapp/

@@ -35,7 +35,7 @@ day::invalidate_size(node);
 ## Per-toolkit access
 
 Each toolkit crate has an `ext` module with a typed (or raw) accessor and a matching
-`Decorate` extension trait. The support tiers, honestly:
+`Decorate` extension trait. The support tiers:
 
 Every accessor hands the closure the native widget **and its concrete class name** (a `&str`),
 then whatever context that toolkit needs:

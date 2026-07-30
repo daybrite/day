@@ -21,7 +21,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `macos-gtk` | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |
 | `macos-qt` | ✓ | ✓ | — (dev only) | Development combo |
 | `windows-xaml` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
-| `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI |
+| `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI. External piece renderers currently fail to register under the MinGW linker and draw placeholders |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
 | `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
 | `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](/showcase/web-dom/) on this site is the CI artifact — see the [web notes](/docs/internal/web) |
@@ -75,10 +75,10 @@ functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 XAML through XAML Islands — the XAML stack that ships with Windows 10/11 itself, not the
 WinAppSDK runtime, so there's no runtime bootstrap to install. Built with MSVC. The C++/WinRT
 shim pattern is the same as Qt's. This target builds and walks through in CI but has had less
-real-application time than the Apple/Linux/Android targets; calibrate expectations accordingly.
+real-application time than the Apple/Linux/Android targets.
 
 ### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
-The newest and least proven backend: ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
+The newest backend: ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
 are the least ergonomic of the supported platforms to install — `day doctor --toolkit harmonyos`
 and the [HarmonyOS notes](/docs/internal/harmonyos) exist for exactly this. Emulator behavior in

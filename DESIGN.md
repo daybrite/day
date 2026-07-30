@@ -1215,8 +1215,13 @@ and primitives, never text formats.
 > slice (`#[distributed_slice(day_appkit::RENDERERS)] …`) that external piece crates populate;
 > the `day-spec` `Registry` folds them in at toolkit init. The layered hardening below — the
 > generated Rust registrant and the required-kinds startup completeness check — was **not
-> built**; release builds (including the packed iOS app) have not hit the dead-strip problem in
-> practice, and the design is kept here in case it ever does.
+> built**; release builds (including the packed iOS app) had not hit the dead-strip problem —
+> until the windows-gnu dev combos did (2026-07): MinGW ld drops a piece's registration static
+> when its codegen unit exports nothing else referenced, so on `windows-qt`/`windows-gtk` several
+> external pieces render placeholder leaves (which crates survive is link-order luck; MSVC keeps
+> `#[used]` statics via `/INCLUDE`, so `windows-xaml` is unaffected). The showcase walkthrough's
+> `assert_no_placeholders` ledger records the affected kinds per target; the layered hardening
+> below is the designed fix and is now motivated by a real failure, not a hypothetical.
 >
 > **web-dom is the exception (2026-07):** `linkme`'s `#[distributed_slice]` refuses to compile for
 > `wasm32-unknown-unknown` ("distributed_slice is not implemented for this platform", 0.3.36 and
@@ -1340,7 +1345,7 @@ report, so this policy was specified up front:
 > `web-dom` backend — landed 2026-07 as experimental (docs/web.md; it grew out of the
 > `web-html` sketch recorded below). One material change from the design: the Windows backend
 > hosts **system XAML** (`Windows.UI.Xaml` controls in a `DesktopWindowXamlSource` island
-> inside a Win32 window), not XAML 3 / Windows App SDK — no runtime bootstrap, no
+> inside a Win32 window), not WinUI 3 / Windows App SDK — no runtime bootstrap, no
 > framework-package dependency, and the `windows-xaml` target name stayed.
 
 Shared mechanics came from pane's working code; every FFI choice below now runs in this repo:
@@ -1391,12 +1396,12 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   measure-cache epoch bump + frame re-multiplication ([§7.9](#79-pixel-snapping-and-density)). The
   suspend/resume/memory hooks ([§8.1](#81-the-toolkit-trait)) map to the Activity callbacks. Process-death state
   restoration (`onSaveInstanceState`) is **DP-25** — v1 documents cold restart.
-- **Windows runtime choice.** The designed XAML 3 / Windows App SDK backend (with its
+- **Windows runtime choice.** The designed WinUI 3 / Windows App SDK backend (with its
   `MddBootstrapInitialize2` bootstrap and runtime-installer story) was **replaced by system
   XAML Islands**: `Windows.UI.Xaml` ships in Windows itself, so an unpackaged Day app starts
   with no runtime dependency at all, and `day pack` produces `.msix` plus an NSIS installer
   with nothing to chain. The cost is system-XAML's older control set and per-element theming
-  (the shim forces `DAY_THEME` per-element on the root). Moving to XAML 3 later is a backend
+  (the shim forces `DAY_THEME` per-element on the root). Moving to WinUI 3 later is a backend
   swap behind the same day-spec surface.
 
 On mobile, the [§8.1](#81-the-toolkit-trait) "window" maps to the scene / activity content view; multi-window remains

@@ -496,18 +496,33 @@ flow:
   # are read from the piece crates' backend arms and will be corrected by the first CI run that
   # disagrees — the failure names the kind.
   - assert_no_placeholders:
-      only_on: [macos-appkit, android-mdc, linux-gtk, linux-qt, macos-qt, windows-qt, windows-xaml]
+      only_on: [macos-appkit, android-mdc, linux-gtk, linux-qt, macos-qt, windows-xaml]
       allow: []
   # iOS has no native combo-box control, so the piece ships no uikit arm; the showcase renders an
   # explanatory note beside the placeholder (apps/showcase/src/pages/controls.rs).
   - assert_no_placeholders:
       only_on: [ios-uikit]
       allow: [day.piece.combobox]
-  # WebKitGTK is Linux-only, so the webview piece's gtk arm is compiled out on the macOS and
-  # Windows GTK development combos. (measured on macos-gtk)
+  # WebKitGTK is Linux-only, so the webview piece's gtk arm is compiled out on the macOS GTK
+  # development combo. (measured on macos-gtk)
   - assert_no_placeholders:
-      only_on: [macos-gtk, windows-gtk]
+      only_on: [macos-gtk]
       allow: [day.piece.webview]
+  # The MinGW (windows-gnu) builds lose piece renderer registrations: the linker drops a linkme
+  # static whose codegen unit exports nothing else referenced — the dead-strip gamble DESIGN.md
+  # §8.2 records — and which crates survive is link-order luck (combobox and searchfield register
+  # on the gtk build today, none on qt). windows-xaml links with MSVC, which keeps `#[used]`
+  # statics, and stays in the zero-placeholder group above. These are the sets measured in CI;
+  # shrink them when registration is made dead-strip-proof. webview is additionally absent by
+  # design on windows-gtk (no WebKitGTK 6 for MinGW).
+  - assert_no_placeholders:
+      only_on: [windows-qt]
+      allow: [day.piece.activity, day.piece.combobox, day.piece.datepicker, day.piece.media,
+              day.piece.searchfield, day.piece.timepicker, day.piece.webview]
+  - assert_no_placeholders:
+      only_on: [windows-gtk]
+      allow: [day.piece.activity, day.piece.datepicker, day.piece.media, day.piece.timepicker,
+              day.piece.webview]
   - assert_no_placeholders:
       only_on: [harmony-arkui]
       allow: [day.piece.activity, day.piece.combobox, day.piece.media, day.piece.searchfield,

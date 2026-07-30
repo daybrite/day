@@ -40,7 +40,7 @@ behavior and memory; custom renderers sacrifice native look-and-feel and inherit
 reimplementing text, scrolling, and accessibility; per-platform native sacrifices the single
 codebase. Day's bet is that the platform's own widgets already do most things better than any
 framework can imitate — so it keeps them, and spends its effort only on the parts native
-toolkits are genuinely bad at sharing:
+toolkits are bad at sharing:
 
 - a **layout engine** that works identically everywhere while deferring to native measurement
   ([Layout](/docs/layout));
@@ -89,9 +89,8 @@ the same YAML script taps buttons and asserts labels on every platform, which is
 
 Rust compiles ahead of time, so there is no hot reload — the inner loop is an incremental
 compile and relaunch, usually seconds on desktop, with script replay to put you back on the
-screen you were working on. If sub-second hot reload is central to how you work, that's a
-genuine reason to look elsewhere, and we'd rather say so here than have you discover it in week
-two.
+screen you were working on. If sub-second hot reload is central to how you work, that is a
+reason to look elsewhere — better to know now than in week two.
 
 ## What Day is not
 
@@ -114,7 +113,7 @@ The documentation is sequenced so each section assumes only the ones before it:
 1. **Start here** — this page, the [tradeoffs](/docs/benefits), and
    [getting started](/docs/getting-started).
 2. **Concepts** — [Pieces](/docs/pieces), [Reactivity](/docs/reactivity),
-   [Layout](/docs/layout), [Styling](/docs/styling): the model, once, properly.
+   [Layout](/docs/layout), [Styling](/docs/styling): the model in full.
 3. **Guides** — task-oriented pages on [navigation](/docs/navigation),
    [localization](/docs/localization), [accessibility](/docs/accessibility),
    [testing with dayscript](/docs/dayscript), [resources](/docs/resources), and
@@ -123,6 +122,6 @@ The documentation is sequenced so each section assumes only the ones before it:
    [packaging & signing](/docs/packaging), and [platform status](/docs/platforms).
 5. **Extend** — [how the extension model works](/docs/extending) and three worked tutorials.
 6. **Under the hood** — [architecture](/docs/architecture) and
-   [how rendering actually works](/docs/rendering), for when you want to see the machinery.
+   [how rendering works](/docs/rendering), for when you want to see the machinery.
 7. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), and a
    [condensed page for AI coding agents](/docs/for-agents).

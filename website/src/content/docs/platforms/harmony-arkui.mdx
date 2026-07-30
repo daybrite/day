@@ -8,8 +8,8 @@ section: Platforms
 import PlatformShots from '../../../components/PlatformShots.astro';
 
 `harmony-arkui` drives ArkUI through its **NDK C node API** — `ARKUI_NODE_BUTTON` and friends —
-from a Rust `cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is the
-newest and least proven of Day's backends, and this page is explicit about where that shows.
+from a Rust `cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is
+Day's newest backend, and this page says exactly where that shows.
 
 <PlatformShots platform="harmony-arkui" shots={["home", "controls", "canvas", "list"]} />
 
@@ -54,7 +54,7 @@ partially. Concretely:
   navigation (`Navigation`/`NavPathStack`), file pickers, opening a URL, bundled resources, custom
   font registration, and app bootstrap. Day wires all of this for you in the scaffold — it is worth
   knowing when you go past what Day models.
-- **Emulator behaviour in CI is tolerated-flaky**; the build and packaging steps gate hard.
+- **Emulator behavior in CI is tolerated-flaky**; the build and packaging steps gate hard.
 
 ## What each piece becomes
 

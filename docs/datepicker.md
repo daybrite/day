@@ -38,7 +38,7 @@ user's** — month and weekday names render localized by the platform.
 `min`/`max` bound the date natively where the control supports it, and the piece clamps every
 pick regardless — an out-of-range synthetic set lands on the nearest bound.
 
-## Styles: the honest intersection
+## Styles: the shared subset
 
 Two intents (+ `Automatic`, which is `Compact` everywhere today):
 

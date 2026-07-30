@@ -99,7 +99,7 @@ const features = [
   {
     icon: '↯',
     title: 'No browser, no bundled engine',
-    body: 'Day apps are small native binaries that talk directly to the operating system. There is no embedded browser to patch and no rendering engine to carry, so apps start fast, stay lean, and leave a smaller security surface to maintain.',
+    body: 'Day apps are small native binaries that talk directly to the operating system. There is no embedded browser to patch and no rendering engine to carry, so apps start in milliseconds, install in megabytes, and leave less to patch.',
   },
   {
     icon: '⬢',
@@ -113,18 +113,18 @@ const features = [
   },
   {
     icon: '◱',
-    title: 'Proven on every platform, every change',
+    title: 'Tested on every platform, every change',
     body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
   },
   {
     icon: '⌘',
-    title: 'Tooling teams actually use',
+    title: 'One CLI for the whole pipeline',
     body: 'One command line creates, runs, tests, and packages signed installers for every platform — dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, built for CI and AI-assisted development alike.',
   },
 ];
 
-// Honest one-paragraph contrasts for teams evaluating a cross-platform stack. Factual and
-// non-disparaging — the docs' "Why Day (and why not)" page carries the full, frank comparison.
+// One-paragraph contrasts for teams evaluating a cross-platform stack. Factual and
+// non-disparaging — the docs' "Why Day" page carries the full, frank comparison.
 const compare = [
   {
     name: 'Web-view shells',
@@ -230,7 +230,7 @@ const compare = [
   <section class="section ai-ci">
     <div class="container">
       <p class="eyebrow">Agents & automation</p>
-      <h2 class="sec-title">Built from the ground up <span class="grad-text">for AI and CI</span>.</h2>
+      <h2 class="sec-title">Built <span class="grad-text">for agents and CI</span>.</h2>
       <p class="lead">
         Every Day app embeds <b>dayscript</b> — the same automation engine that drives Day's own
         release pipeline. A YAML script, an agent over MCP, or your CI taps buttons, types text,
@@ -267,7 +267,7 @@ const compare = [
       <h2 class="sec-title">Native quality <span class="grad-text">and</span> a single codebase.</h2>
       <p class="lead">
         Cross-platform tools usually make you choose between apps that feel native and a codebase
-        you only write once. Day is built to deliver both — and to be frank about the trade-offs.
+        you only write once. Day keeps both, and the docs say what that costs.
       </p>
       <div class="feat-grid">
         {features.map((f) => (
@@ -285,7 +285,7 @@ const compare = [
   <section class="section compare">
     <div class="container">
       <p class="eyebrow">Evaluating your options</p>
-      <h2 class="sec-title">Every approach trades something. Know what.</h2>
+      <h2 class="sec-title">What each approach trades away.</h2>
       <div class="cmp-grid">
         {compare.map((c) => (
           <div class="card cmp">
@@ -301,7 +301,7 @@ const compare = [
         the documentation states them plainly, including the cases where a different choice is right
         for you.
       </p>
-      <a class="btn btn-ghost" href={url('docs/benefits')}>Read the frank comparison →</a>
+      <a class="btn btn-ghost" href={url('docs/benefits')}>Read the comparison →</a>
     </div>
   </section>
 
@@ -310,13 +310,13 @@ const compare = [
     <div class="container how-grid">
       <div>
         <p class="eyebrow">How it works</p>
-        <h2 class="sec-title">When data changes, the right control updates. That's it.</h2>
+        <h2 class="sec-title">When data changes, the right control updates.</h2>
         <p class="lead">
           Day builds your interface from real platform components once, then keeps each one
           connected to your application's state. When a value changes, the exact label or control
           showing it updates — no re-rendering, no shadow copy of the interface to reconcile, no
           engine in between. Day apps perform like hand-written platform code because, at runtime,
-          that's essentially what they are.
+          that's what they are.
         </p>
         <ul class="how-list">
           <li><b>Plain Rust:</b> functions and builder calls any engineer can read — no macros, no separate UI language.</li>

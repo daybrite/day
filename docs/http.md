@@ -143,7 +143,7 @@ The web column is deliberately coarse: browsers collapse DNS, connect, TLS, and 
 into one opaque `TypeError` (an anti-fingerprinting measure), so every network-level failure
 surfaces as `Io` with the browser's message — `Dns`/`Connect`/`Tls` never occur on this tier.
 
-## Option honesty
+## Options: applied vs accepted
 
 Options that only some platforms can realize are documented, not silently dropped:
 
@@ -220,7 +220,7 @@ lineage to a current engine rather than changing philosophy: the system `ProxySe
 routing, network security config (OkHttp checks `NetworkSecurityPolicy` for cleartext), and the
 platform `TrustManager`/user CA store all still apply. What the engine adds: HTTP/2 (over TLS via
 ALPN), PATCH (the classic `HttpURLConnection` gap — `Request::patch` now works on every
-platform), and thread-safe per-call cancellation. Costs and behavior deltas, stated honestly:
+platform), and thread-safe per-call cancellation. Costs and behavior deltas:
 the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly 1.5–2.5 MB pre-R8 (well under
 1 MB after shrinking; OkHttp ships its own proguard rules); cross-protocol redirects
 (https→http) are now followed, matching the other platforms; response headers now arrive in
@@ -231,7 +231,7 @@ day-piece-lottie mechanism.
 ## v2 notes (deliberately out of scope)
 
 Cookies, multipart, upload streaming, websockets, `no_redirect` (needs an Apple session delegate
-to honor honestly), cancellation for `fetch_to_file`/`fetch_streamed` futures (today `StreamSink`
+to honor), cancellation for `fetch_to_file`/`fetch_streamed` futures (today `StreamSink`
 cancels mid-body and covers the download cases), and a native HarmonyOS half via a
 framework-owned ArkTS `registerHttp` bridge (the `registerOpenUrl` pattern) if the Remote
 Communication Kit's C API reaches the OSS SDK.

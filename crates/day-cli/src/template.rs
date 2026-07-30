@@ -131,7 +131,12 @@ fn file_platform(path: &str) -> Option<&str> {
 /// (`day new app` scaffolds only the host projects its targets need; `day app add-toolkit`
 /// materializes the rest later from the same template).
 pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<TemplateFile> {
-    let platforms: Vec<&str> = targets.iter().filter_map(|t| t.split('-').next()).collect();
+    // Resolve through the target table, NOT by splitting the name: `harmony-arkui`'s platform
+    // dir is `ohos` (see `Target::os`).
+    let platforms: Vec<&str> = targets
+        .iter()
+        .filter_map(|t| crate::targets::find(t).map(|t| t.os))
+        .collect();
     files
         .into_iter()
         .filter(|f| match file_platform(&f.path) {
@@ -147,7 +152,10 @@ pub fn platform_files_for_targets(
     files: Vec<TemplateFile>,
     targets: &[String],
 ) -> Vec<TemplateFile> {
-    let platforms: Vec<&str> = targets.iter().filter_map(|t| t.split('-').next()).collect();
+    let platforms: Vec<&str> = targets
+        .iter()
+        .filter_map(|t| crate::targets::find(t).map(|t| t.os))
+        .collect();
     files
         .into_iter()
         .filter(|f| file_platform(&f.path).is_some_and(|os| platforms.contains(&os)))

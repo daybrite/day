@@ -111,7 +111,7 @@ every platform. Differences from native, all internal:
   it as `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and
   `GET /quit` on the control port. Without a driver, scripted runs fail at the first
   screenshot; interactive `day launch` never needs one.
-- Steps for capabilities the web genuinely lacks (the native file pickers) carry
+- Steps for capabilities the web lacks (the native file pickers) carry
   `skip_on: [web-dom]` in the walkthrough — the runner drops them for this target
   (DESIGN.md Appendix C). The HTTP demo runs unskipped: the dev server answers the
   same-origin `/day-http-ok` echo endpoint (below) with the same bodies the native demo's
@@ -159,7 +159,7 @@ bridge above) and **`/day-http-ok`** — a method-echo endpoint for HTTP demos w
 form would spin a loopback listener, which a browser tab cannot (GET answers `day-http-ok`;
 any other method echoes `day-http-ok:<METHOD>`, matching the showcase's native one-shot
 server byte for byte). On a static host that endpoint does not exist, so the showcase's demo
-buttons report the host's honest answer (a 404 page, or a 405 for PATCH) — the URL checker
+buttons report what the host returned (a 404 page, or a 405 for PATCH) — the URL checker
 and every other HTTP call work anywhere.
 
 The Day website publishes the showcase's web-dom build at

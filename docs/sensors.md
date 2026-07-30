@@ -100,7 +100,7 @@ Three browser realities:
   after an `.await` does not work.
 - **Availability is only knowable in retrospect.** `'DeviceMotionEvent' in window` is true on a
   desktop browser with no hardware, so the shim reports available until a short grace period passes
-  with no event, and unavailable after — the honest answer for a laptop.
+  with no event, and unavailable after — the right answer for a laptop.
 
 Because headless WebKit has no motion hardware, CI cannot prove any of this from the walkthrough
 alone. `scripts/ci/webdom-sensor-test.mjs` dispatches a synthetic `devicemotion` with known values

@@ -246,9 +246,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         for t in crate::targets::TARGETS {
             known.insert(t.name); // "macos-appkit"
             known.insert(t.toolkit); // "appkit"
-            if let Some(platform) = t.name.split('-').next() {
-                known.insert(platform); // "macos"
-            }
+            known.insert(t.os); // "macos" — and "ohos" for harmony-arkui
         }
         for key in project.manifest.app.overrides.keys() {
             if !known.contains(key.as_str()) {

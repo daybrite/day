@@ -7,10 +7,10 @@ section: Concepts
 
 Styling in Day starts from an unusual premise: the platform draws the widgets. A Day button on
 macOS is an `NSButton` with AppKit's chrome; on Android it's a Material button. That's the point
-of the framework — and it means styling has a different shape than in a renderer, where every
-pixel is yours to command.
+of the framework — and it means styling has a different shape than in a renderer, where you draw
+every pixel.
 
-The honest summary: **you style content and space; the platform styles controls.** Fonts, text
+The short version: **you style content and space; the platform styles controls.** Fonts, text
 color, padding, backgrounds, corner radii, and everything you draw in a `canvas` are yours.
 Button chrome, focus rings, slider tracks, scrollbar appearance, selection highlights — those
 belong to the platform, and Day deliberately doesn't paper over them.
@@ -100,7 +100,7 @@ content.padding(pad)
 
 The design describes a tidier `per_toolkit(12.0).uikit(16.0).qt(8.0)` value type for this; it's
 specified but not yet implemented, so `cfg!` branches are the current idiom. Either way the
-philosophy is the same: where platforms genuinely diverge, Day gives you a targeted override
+philosophy is the same: where platforms diverge, Day gives you a targeted override
 rather than pretending the divergence away.
 
 Piece-specific style hooks exist where a control has real variants — `button(...).style(...)`
@@ -123,7 +123,7 @@ draw your own leaf, keep native behavior around it.
 If your product requires a heavily branded design system on every pixel — custom controls
 everywhere, identical on all platforms — a renderer-based framework will fight you less. Day is
 for apps that want to look like they belong on each platform. That choice is the subject of
-[Why Day (and why not)](/docs/benefits).
+[Why Day](/docs/benefits).
 
 ---
 

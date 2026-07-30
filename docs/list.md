@@ -2,7 +2,7 @@
 
 `list` drives the platform's recycling list (`NSTableView` / `UITableView` /
 `RecyclerView` / `GtkListView` / `QListView`), so large collections get native
-virtualization, scroll physics, and platform behaviours. It is the one place Day's
+virtualization, scroll physics, and platform behaviors. It is the one place Day's
 "build once, bind forever" model meets cell reuse, and the resolution is the same model:
 a row subtree is built once per physical cell and *rebound* (a single slot-write into its
 `ItemSlot`) every time that cell is recycled for a new item.
@@ -55,7 +55,7 @@ follow.notify();
   empty-list case (no patch is sent), and building the list never auto-scrolls.
 - `.stick_to_bottom(bool)`: best-effort convenience that scrolls to the end after each data reload.
   It does not check whether the user is already near the bottom (no cross-backend scroll-position
-  read exists yet); for that finer behaviour drive `scroll_to_end` from your own logic instead.
+  read exists yet); for that finer behavior drive `scroll_to_end` from your own logic instead.
 
 ## The seam — `ListSource` (native → Day, synchronous)
 
@@ -103,7 +103,7 @@ Per `LIST` node the tree holds:
 
 When the items signal changes, the effect refreshes the snapshot and applies a `ListPatch::Reload`
 so the native widget re-queries the source. (Fine-grained insert/remove/move batching over the
-keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behaviour.)
+keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior.)
 
 ## Per-backend mapping
 

@@ -40,7 +40,7 @@ device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
 
 ## Caveats and special considerations
 
-- **Development is Simulator-first.** Device debugging works but has had far less mileage than the
+- **Development is Simulator-first.** Device debugging works but gets far less use than the
   Simulator path.
 - **Declare permissions before you use them.** A gated API without its `NS*UsageDescription` key
   terminates the app on first use. Day generates those keys from your `[permissions]` table —
@@ -92,7 +92,7 @@ device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
 | *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
 
 Day has no checkbox, radio, stepper or table piece — `toggle` is the only boolean control, radio
-behaviour is `picker().inline()`, and `list` is the only collection.
+behavior is `picker().inline()`, and `list` is the only collection.
 
 **Text measurement** is UIKit's own `sizeThatFits:` on the realized view, so wrapping matches what
 the system would do anywhere else on the platform.

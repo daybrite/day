@@ -148,8 +148,7 @@ assert!(probe.measure_calls() <= 6);                // relayout stayed on the la
 
 Those assertions are the interesting part: the framework's core promises — one click, one native
 mutation; bounded measure calls per layout pass — are written down as golden tests over the op
-log, so "fine-grained" is enforced by CI rather than by folklore. Your own component tests get
-the same leverage: no simulator, no display server, milliseconds per test.
+log, so "fine-grained" is enforced by CI rather than by folklore. Your own component tests run the same way: no simulator, no display server, milliseconds per test.
 
 ## Teardown
 

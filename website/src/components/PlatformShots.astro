@@ -4,7 +4,7 @@
 // It reads the SAME `gallery-manifest.json` the gallery page does (assembled from CI screenshot
 // artifacts by integrations/gallery.mjs), and renders only shots that were actually captured for
 // this platform: a missing artifact yields nothing rather than a broken image. That keeps these
-// pages honest on a local build, where usually only a few platforms have artifacts on disk.
+// pages accurate on a local build, where usually only a few platforms have artifacts on disk.
 import manifest from '../data/gallery-manifest.json';
 import { url } from '../lib/site';
 

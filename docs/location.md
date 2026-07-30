@@ -79,7 +79,7 @@ coordinate to every app linking this part. The platform `LocationManager` is alw
 shim prefers GPS at `Accuracy::Best` and the network provider otherwise, and seeds the first update
 from `getLastKnownLocation` so a fix appears immediately instead of waiting for the radio.
 
-### HarmonyOS is genuinely absent
+### HarmonyOS is not implemented
 
 Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, and there is no
 `[package.metadata.day.ohos]` mechanism for a crate to contribute ArkTS. Saying so beats shipping a

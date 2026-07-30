@@ -28,7 +28,7 @@ The selection signal holds the active item's key. Set it from anywhere —
 can't disagree because they're the same state. All item pages are built at mount and kept alive —
 switching shows and hides rather than rebuilding — so pages retain their state (field contents,
 scroll position) across switches. The cost is that a selector with many heavy pages pays for all
-of them up front; keep genuinely expensive content behind a `when` inside the page if that
+of them up front; keep expensive content behind a `when` inside the page if that
 matters.
 
 ## Drill-down: `stack`

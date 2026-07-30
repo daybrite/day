@@ -1,6 +1,6 @@
 ---
-title: Why Day (and why not)
-description: An honest comparison with web-view shells, custom renderers, and per-platform native — including the cases where Day is the wrong choice.
+title: Why Day
+description: How Day compares with web-view shells, custom renderers, and per-platform native — including the cases where Day is the wrong choice.
 order: 2
 section: Start here
 ---
@@ -9,7 +9,7 @@ Choosing a cross-platform stack means choosing what to give up. This page lays o
 trades away and what it gets back, and names the situations where you should pick something
 else. We'd rather lose you on this page than after three months of investment.
 
-## The landscape
+## The options
 
 Four established ways to ship one app on many platforms:
 
@@ -73,7 +73,7 @@ with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
 
 **Hot reload.** Rust compiles ahead of time. The edit loop is an incremental compile plus
 relaunch — seconds on desktop, longer for mobile targets — with dayscript replay to restore UI
-state. Flutter's sub-second stateful hot reload is genuinely better for exploratory UI work, and
+state. Flutter's sub-second stateful hot reload is better for exploratory UI work, and
 nothing in Day currently matches it. (Hot-swapping the app dylib is a researched possibility, not
 a promise.)
 
@@ -86,7 +86,7 @@ you, and a renderer (Flutter, or Rust-native options like Slint or egui) will fi
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is deliberately small, some designed
 features aren't implemented yet (semantic color tokens, an animation scheduler, multi-window,
-form validation — [Platform support](/docs/platforms) keeps the honest list), and you will hit
+form validation — [Platform support](/docs/platforms) keeps the current list), and you will hit
 edges. The mitigations are real but partial: the architecture descends from several generations
 of working systems, a nontrivial Matrix chat client runs on five targets, and every target is
 exercised in CI with screenshot validation on every push. Judge the risk for your project
@@ -120,4 +120,4 @@ edges in exchange for a runtime model with very little between your code and the
 
 ---
 
-Convinced enough to try it? [Getting started](/docs/getting-started) takes about ten minutes.
+[Getting started](/docs/getting-started) takes about ten minutes.

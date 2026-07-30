@@ -14,7 +14,7 @@ license.workspace = true
 # Islands. day owns layout: absolute frames inside XAML Canvases (Canvas.Left/Top + size).
 #
 # System XAML (Windows.UI.Xaml) needs no Windows App SDK / MSIX, so it builds and launches
-# locally with just cargo + MSVC. True XAML 3 (Microsoft.UI.Xaml) would layer on behind this
+# locally with just cargo + MSVC. True WinUI 3 (Microsoft.UI.Xaml) would layer on behind this
 # same shim once the App SDK bootstrap lands (DESIGN §9).
 
 [dependencies]

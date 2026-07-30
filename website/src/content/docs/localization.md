@@ -91,7 +91,7 @@ can assert by Fluent key rather than literal text, so one script passes in every
 visually. `day lint` complements it statically, flagging bare user-facing literals and unused or
 missing keys.
 
-## Honest edges
+## Current limits
 
 - **What's covered:** your UI strings, and OS-facing metadata (the app's display name and
   similar) conveyed into platform manifests at build time.

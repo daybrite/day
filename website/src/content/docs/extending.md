@@ -66,7 +66,7 @@ configuration — no plugin manifest, no runtime discovery, and an app that *doe
 crate's feature for a given toolkit compiles none of it.
 
 A piece that implements some toolkits and not others renders a labeled placeholder on the rest —
-visible and honest rather than a crash — so coverage can grow toolkit by toolkit. The
+visible rather than a crash — so coverage can grow toolkit by toolkit. The
 [native piece tutorial](/docs/tutorial-native-piece) walks through all six desktop/mobile
 backends for one control.
 

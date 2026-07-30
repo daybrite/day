@@ -157,7 +157,7 @@ static WUXM::SolidColorBrush brush_bits(unsigned col) {
     return WUXM::SolidColorBrush(c);
 }
 // System XAML (Windows.UI.Xaml.Media) ships LinearGradientBrush but no RadialGradientBrush — that
-// type lives only in XAML 2 (Microsoft.UI.Xaml), which this shim doesn't pull in. Synthesize the
+// type lives only in WinUI 2 (Microsoft.UI.Xaml), which this shim doesn't pull in. Synthesize the
 // equivalent: rasterize the radial ramp into a unit-square WriteableBitmap and paint it through an
 // ImageBrush with Stretch::Fill, which maps the unit square onto the shape's bounds — so the circle
 // stretches to an ellipse in non-square bounds, matching LinearGradientBrush's RelativeToBoundingBox.

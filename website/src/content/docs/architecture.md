@@ -36,7 +36,7 @@ follows a widget through the running system.
    day-cli (the `day` binary)   day-script (dayscript engine, compiled into apps)
 ```
 
-The load-bearing boundary is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
+The boundary everything crosses is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
 types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is written against
 that trait and monomorphized over the concrete backend, so core code calls native operations
 directly — no `dyn` dispatch, no message bus. Everything above `day-spec` is portable; everything

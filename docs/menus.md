@@ -60,7 +60,7 @@ menu (or its window) is in the responder/focus chain.
 
 Shortcuts render on every platform that has a hardware-keyboard convention: all three desktops, plus
 iPad/Catalyst. On iPhone and Android touch, items appear without accelerators (there is no keyboard),
-which is the correct platform behaviour.
+which is the correct platform behavior.
 
 ## Standard roles
 
@@ -88,7 +88,7 @@ app_menu(vec![
 
 You can override a role's label (`menu_role(r)` starts empty and the backend fills the standard label;
 supply your own via `MenuEntry::role` on a `menu_item` if you want a custom title). Roles with no native
-equivalent on a platform render as an inert labelled item; no behaviour is imposed.
+equivalent on a platform render as an inert labelled item; no behavior is imposed.
 
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.

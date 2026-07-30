@@ -41,9 +41,9 @@ button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
 `.gtk(|mdc, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
 follow the same shape with each platform's own types. Qt, XAML, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
-bring-your-own-C++ recipe — honest tiers, spelled out in the [tweaks reference](/docs/internal/tweaks).
+bring-your-own-C++ recipe — each tier spelled out in the [tweaks reference](/docs/internal/tweaks).
 
-That class name is what makes tweaks robust. On the typed tiers it's the *live* widget's runtime
+That class name is what keeps a tweak from breaking silently. On the typed tiers it's the *live* widget's runtime
 class, so if a piece ever has more than one native backing — a plain `label` as `UILabel`, a
 link-bearing one as `UITextView` — the tweak can `match` on the class instead of guessing a
 downcast. On the raw tiers, where Rust can't introspect an opaque pointer, it's the metadata your
@@ -100,5 +100,5 @@ one is publishing a crate: consumers add a dependency, and `day build` wires the
 features automatically.
 
 The [tweaks reference](/docs/internal/tweaks) has the full per-toolkit matrix, the native-code
-recipes, and the mechanics underneath. For a genuinely new widget rather than a configured
+recipes, and the mechanics underneath. For a new widget rather than a configured
 existing one, you want a [native piece](/docs/extending) instead.

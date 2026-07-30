@@ -316,7 +316,11 @@ impl Manifest {
                 .unwrap_or_else(|| self.app.name.clone()),
             build: self.app.build,
         };
-        let platform = target.split('-').next().unwrap_or_default();
+        // `[app.ohos]` is the platform table for harmony-arkui — the key comes from the
+        // target catalog (`Target::os`), never from splitting the target name.
+        let platform = crate::targets::find(target)
+            .map(|t| t.os)
+            .unwrap_or_default();
         let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
         // Increasing precedence: toolkit, then platform, then the exact target.
         for key in [toolkit, platform, target] {

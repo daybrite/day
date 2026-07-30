@@ -29,7 +29,7 @@ cd my-app
 day launch -p linux-qt
 ```
 
-Two optional modules unlock two pieces. Both degrade gracefully rather than failing the build:
+Two optional modules enable two pieces. Both degrade gracefully rather than failing the build:
 
 | Module | Enables | Without it |
 |---|---|---|
@@ -60,7 +60,8 @@ actual binary, not on a flag.
 - **No `cover()`, no Lottie, no map** on this backend — each renders its placeholder.
 - **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo: no packaging.
   Windows uses the MSYS2/MinGW toolchain and is marked experimental in CI. MSYS2 has no Qt6
-  WebEngine, so the web view degrades there.
+  WebEngine, so the web view degrades there — and the MinGW linker currently drops external piece
+  renderer registrations, so those pieces draw placeholders on `windows-qt`.
 
 ## What each piece becomes
 

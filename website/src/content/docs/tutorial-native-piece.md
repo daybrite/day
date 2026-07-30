@@ -222,7 +222,7 @@ impl Piece for SearchField {
 }
 ```
 
-Three details are load-bearing:
+Three details matter here:
 
 - **`cx.leaf(KIND, &props, flex)`** creates a native-leaf node of `KIND`. `Flex { grow_w: true, .. }`
   makes it a width-growing leaf (it fills its row, keeps its natural single-line height), the same
@@ -269,7 +269,7 @@ Every backend implements the same three functions and ends with one `renderer!` 
 The Apple backends use the `objc2` crates: real Objective-C objects, driven from Rust. An
 `NSSearchField` *is* an `NSTextField`, so a per-node delegate implementing
 `controlTextDidChange:` delivers each keystroke. Programmatic `setStringValue:` does not fire that
-delegate, so this backend needs no echo guard of its own; `update` simply writes when the value
+delegate, so this backend needs no echo guard of its own; `update` writes when the value
 differs.
 
 ```rust

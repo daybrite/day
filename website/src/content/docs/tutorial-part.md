@@ -171,7 +171,7 @@ Two details make this reliable:
   `target_env` pattern is the standard way to split a shared OS.
 - **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, `status()` would
   fail to compile on any target you did not enumerate (a WASM build, a BSD, a bare `cargo check` on an
-  exotic host). The fallback module returns `None` so the crate compiles everywhere and simply
+  exotic host). The fallback module returns `None` so the crate compiles everywhere and
   reports "no battery API here." A part that can panic or fail to build on an unexpected target is a
   broken part; the fallback is what makes the API's `Option` promise true.
 
@@ -545,7 +545,7 @@ The recommended workflow:
 Split this way, "support one more platform" becomes: draft a ~30-line shim, add one `#[cfg]/#[path]`
 arm, and (if it is Android or iOS) one line of `Cargo.toml` metadata. The per-platform sprawl that
 makes cross-platform capability code intimidating is mostly boilerplate an LLM is good at, leaving you
-to own the small, load-bearing FFI seam.
+to review the ~30 lines of FFI that everything else rests on.
 
 ---
 

@@ -62,7 +62,7 @@ framework at all.
 ## Two questions, two vocabularies
 
 `gate()` answers a structural question and `status()` a live one, and keeping them apart is what
-lets an ungated platform answer honestly:
+lets an ungated platform answer accurately:
 
 | `Gate` | meaning |
 |---|---|
