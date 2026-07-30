@@ -120,15 +120,9 @@ pub fn install_crash_reporting() {
 pub fn root() -> AnyPiece {
     // Arm crash capture before the UI mounts so the Crash Reporting page's crashes are recorded.
     install_crash_reporting();
-    install_locales(
-        "en",
-        &[
-            ("en", include_str!("../resource/locales/en/app.ftl")),
-            ("fr", include_str!("../resource/locales/fr/app.ftl")),
-            ("zh-CN", include_str!("../resource/locales/zh-CN/app.ftl")),
-            ("ar", include_str!("../resource/locales/ar/app.ftl")),
-        ],
-    );
+    // Every locale under `resource/locales/` (en, fr, ar, zh-CN), embedded and registered by the
+    // generated catalog (§18.5) — adding a language is a new directory, nothing to edit here.
+    res::locales::install();
     // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound
     // to an app-owned `Signal<Option<Section>>` of the active section (`None` = the collapsed
     // mobile list). Desktop shows sidebar + detail (an AdwNavigationSplitView on GTK); mobile

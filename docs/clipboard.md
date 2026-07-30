@@ -53,7 +53,7 @@ uses the native Pasteboard C API (API 13+) instead. That's pure FFI: it needs ne
 nor the Day runtime (unlike Android). Content is typed through UDMF: a write wraps an
 `OH_UdsPlainText` in a record in an `OH_UdmfData`; a read uses `OH_UdmfData_GetPrimaryPlainText`.
 
-Platform access rules worth knowing:
+Platform access rules:
 
 - **Android 10+** only lets an app *read* the clipboard while it holds input focus: `get_text()` /
   `has_text()` return `None`/`false` in the background. Writing is always allowed. No manifest permission

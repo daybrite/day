@@ -1,7 +1,7 @@
 # Tweaks — per-toolkit configuration of built-in pieces
 
 A **tweak** configures the native widget behind a Day-created piece — the extra `NSButton` or
-XAML `Button` method call that isn't worth a whole custom piece. A piece with a tweak applied is
+XAML `Button` method call that doesn't justify a whole custom piece. A piece with a tweak applied is
 a **Tweaked Piece**. Day keeps owning the widget's lifecycle, layout, and managed properties; the
 tweak reaches in through the same handle Day manages.
 

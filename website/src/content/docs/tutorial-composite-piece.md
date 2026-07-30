@@ -36,7 +36,7 @@ build with `android.graphics.Canvas`, and the GTK build with Cairo. You wrote no
 Most widgets should be composite. Reach for a native piece only when you need a control the
 toolkits provide and Day does not yet wrap.
 
-The composition toolkit lives in the prelude and is worth knowing before we start:
+The composition toolkit lives in the prelude:
 
 - `column` / `row` / `zstack`: stack children (vertical, horizontal, layered).
 - `.overlay(...)` / `.overlay_aligned(align, ...)` with `Alignment`: draw an annotation on top

@@ -2,8 +2,9 @@
 
 > **Status: implemented** on ios-uikit (native fullscreen modal), android-mdc (window
 > overlay + slide transition), harmony-arkui (topmost full-window child), and mock (probe-visible
-> patches). Desktop backends have no realization yet — `Cap::Cover` answers `Unsupported`
-> there and the content never shows. Exercised end-to-end by Day-Games (a grid home page
+> patches). Desktop backends and web-dom have no realization yet — `Cap::Cover` answers `Unsupported`
+> there, the cover node renders the visible `⟨day.cover⟩` placeholder leaf, and the content
+> never presents. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 
 A `cover` presents a Day subtree over the whole window — edge-to-edge, above every other
@@ -104,4 +105,4 @@ contribution to `current_route()`. Day-Games' walkthrough drives games with plai
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ViewPropertyAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out end action |
 | arkui | Stack re-homed onto the window root at full bounds (no transition) | none | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
-| appkit / gtk / qt / xaml | not realized (`Cap::Cover` = `Unsupported`) | — | — |
+| appkit / gtk / qt / xaml / dom | not realized (`Cap::Cover` = `Unsupported`; the node renders the `⟨day.cover⟩` placeholder) | — | — |

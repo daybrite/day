@@ -7,7 +7,8 @@ mod pages;
 use crate::pages::*;
 
 /// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
-/// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`. Reference bundled resources
+/// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`, `res::str::<key>()`, and
+/// the `res::locales` catalog. Reference bundled resources
 /// through these — `image(res::images::app_logo)` — so a typo is a compile error and the resource is
 /// guaranteed present. Drop a file into `resource/images/` and its constant appears on the next build.
 pub mod res {
@@ -27,7 +28,10 @@ day::routes! {
 }
 
 pub fn root() -> AnyPiece {
-    install_locales("en", &[("en", include_str!("../resource/locales/en/app.ftl"))]);
+    // Registers every locale under `resource/locales/` (generated, §18.5). To add a language,
+    // copy `resource/locales/en/` to e.g. `resource/locales/fr/` and translate it — this line
+    // already covers it.
+    res::locales::install();
     // A sidebar selector bound to a Signal<Option<Section>> (`None` = nothing selected — the
     // collapsed list on mobile). Desktop shows sidebar + detail side by side; mobile shows a
     // list that pushes the detail. Deep links and dayscript address sections by key.

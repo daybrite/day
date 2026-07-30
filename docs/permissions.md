@@ -12,11 +12,11 @@
 
 ## Declare before you ask
 
-This is the part that bites, so it comes first. Every mobile OS requires a **build-time
-declaration** in addition to the runtime request, and the failure modes are not symmetric:
+Every mobile OS requires a **build-time declaration** in addition to the runtime request,
+and the failure modes are not symmetric:
 
 - **iOS and macOS terminate the process** when it touches a gated API without the matching
-  `NS…UsageDescription` key. Not an exception you can catch — TCC kills you.
+  `NS…UsageDescription` key. Not an exception you can catch — TCC terminates the process.
 - **Android** reports an undeclared permission as [`Status::Restricted`]: a request returns denied
   in the same frame, with no dialog, and Settings offers nothing.
 - **HarmonyOS** refuses the request outright.

@@ -346,8 +346,8 @@ fn register_route_surface(
 /// How a [`selector`] presents its one-of-N choice.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SelectorStyle {
-    /// A native tab widget: NSTabView / UITabBarController / GtkNotebook / QTabWidget /
-    /// Android tab strip. All pages resident; each keeps its state.
+    /// A native tab widget: NSTabView / UITabBarController / AdwViewStack / QTabWidget /
+    /// BottomNavigationView. All pages resident; each keeps its state.
     Tabs,
     /// A NavigationSplitView: a sidebar list + a detail. Desktop shows both panes (on GTK an
     /// `AdwNavigationSplitView`); mobile collapses to a list that pushes the detail.

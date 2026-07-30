@@ -25,9 +25,10 @@ selector(section)
 
 The selection signal holds the active item's key. Set it from anywhere —
 `section.set("settings".into())` — and the selector switches; the UI and programmatic navigation
-can't disagree because they're the same state. All item pages are built at mount and kept alive —
-switching shows and hides rather than rebuilding — so pages retain their state (field contents,
-scroll position) across switches. The cost is that a selector with many heavy pages pays for all
+can't disagree because they're the same state. Residency differs by style: `Tabs` builds every page at mount and keeps them alive, so tab
+pages retain their state (field contents, scroll position) across switches; `Sidebar` builds
+the selected page on demand and disposes it when the selection changes, so sidebar page state
+lives in your signals, not in the widgets. The cost is that a selector with many heavy pages pays for all
 of them up front; keep expensive content behind a `when` inside the page if that
 matters.
 
@@ -47,7 +48,7 @@ The path signal is the navigation stack: `["album:42"]` means one page pushed ab
 
 ```rust
 nav_link(tr("open-album"), "album:42")   // a button that pushes
-navigate("album:42");                    // push from code; returns false if no stack handles it
+navigate("album:42");                    // push from code; returns false if no surface (selector, tabs, or stack) recognizes it
 nav_back();                              // pop
 current_route();                         // Option<String>
 ```

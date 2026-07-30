@@ -181,7 +181,7 @@ A thin string-route adapter sits over those signals, so keys double as routes:
 ```rust
 navigate("settings");   // select the settings section / tab
 nav_back();             // pop the innermost surface
-current_route();        // the active key
+current_route();        // the full path, outermost surface first
 ```
 
 The same keys drive deep links (`DAY_DEEPLINK=settings`) and dayscript automation

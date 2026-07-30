@@ -45,7 +45,9 @@ Two places where the browser, not day-core, owns geometry:
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged` — the DayNavPage contract
-  (docs/navigation.md).
+  (docs/navigation.md). Split-vs-stack for a `selector(Sidebar)` is decided ONCE at launch from
+  the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize — a
+  window widened past the threshold stays a stack until reload.
 
 Synchronous text measurement — the one duty a browser makes hard — uses a hidden measurement
 element (so wrapping matches real labels), cached per element and invalidated on text or font

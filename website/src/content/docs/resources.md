@@ -53,7 +53,7 @@ At build time each toolkit gets the format it expects — density buckets on And
 platform picks the right density at runtime the same way it does for any native app. The
 [resources reference](/docs/internal/resources) documents the exact per-platform staging.
 
-Two notes worth knowing:
+Two notes:
 
 - **SVG is not a runtime format.** Android and Qt widgets can't render SVG at runtime, so
   runtime images are raster. Keep sources vector, export raster densities into `resource/images/`.
@@ -89,7 +89,7 @@ a confusing runtime-only failure on one platform):
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
   family is "Special Elite" is used as `Font::Custom("Special Elite", 20.0)`.
 
-Two things worth knowing beyond the rules: an unknown family never breaks the app — the label
+Beyond the rules: an unknown family never breaks the app — the label
 renders in the system font and the log names the family that didn't resolve. And `.weight(...)` /
 `.italic()` still apply, but a single-face family only gets what the platform can synthesize (a
 heavier stroke, a slant), not true bold or italic cuts.

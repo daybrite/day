@@ -47,7 +47,7 @@ Two rules Day enforces rather than suggests, via `day lint`:
 
 `.id("save-button")` sets a stable identifier used by three consumers: [dayscript](/docs/dayscript)
 element targeting, external automation tools, and Day's own diagnostics. For external tools the
-platform mapping is uneven, and it's worth knowing the truth rather than assuming:
+platform mapping is uneven:
 
 | Platform | Identifier surface |
 |---|---|

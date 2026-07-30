@@ -306,7 +306,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
-| `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
+| `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day-lite` | dynamic miniapps (docs/lite.md): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http |
@@ -1631,7 +1631,9 @@ decrement = Decrement
 > [!IMPORTANT]
 > **Status: shipped with deltas** (docs/localization.md is normative). The engine is
 > `day-l10n` with `day-fluent` as the app-facing API (`install_locales(default, &[(locale,
-> ftl_source)])` compiles the bundles in via `include_str!`; `set_locale` switches live). The
+> ftl_source)])` compiles the bundles in via `include_str!` — normally through the generated
+> `res::locales::install()`, [§18.5](#185-typed-resource-constants-docsresourcesmd); `set_locale`
+> switches live). The
 > **preferred authoring surface is now the generated `res::str::key(args…)` functions**
 > ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
 > keys. Keys are therefore **snake_case** (they must be Rust identifiers), not kebab-case as
@@ -1681,9 +1683,12 @@ label(tr("app-title"))                        // dynamic-key escape hatch
   routes `onConfigurationChanged` → locale signal; apple backends set `accessibilityLanguage`
   from the locale signal. Residual mixed-locale surfaces (out-of-process dialogs) are documented
   honestly.
-- Fluent sources compile into the binary (`install_locales` + `include_str!`; the `.ftl` files
-  under `resource/locales/` are the source of truth for the codegen, the lint, and the runtime
-  alike), with per-message fallback to the default bundle. Fluent's `use_isolating` stays
+- Fluent sources compile into the binary (the `.ftl` files under `resource/locales/` are the
+  source of truth for the codegen, the lint, and the runtime alike), with per-message fallback
+  to the default bundle. The `include_str!` list is generated too since 2026-07:
+  `res::locales::install()` ([§18.5](#185-typed-resource-constants-docsresourcesmd)) registers
+  every locale directory, so adding a language is adding a directory; `install_locales(default,
+  &[(locale, ftl_source)])` remains public for app-assembled lists. Fluent's `use_isolating` stays
   **on** (FSI/PDI isolation marks around placeables); dayscript text comparison normalizes
   U+2068/U+2069 ([§14](#14-scripting-dayscript), [Appendix C](#appendix-c--dayscript-reference-v1)).
 - **Native-side metadata** localization (generated `InfoPlist.strings` / `strings.xml` display
@@ -2547,6 +2552,17 @@ keys, and using the generated functions is optional (`day lint` counts a `res::s
 The `fluent-syntax` parse is the single source of Fluent handling — the codegen, `day lint`'s coverage
 checks (`day_build::message_keys`), and the runtime resolver (`fluent-bundle`) all share it, so what the
 tooling accepts matches what resolves.
+
+Since the same scan already knows every locale, it also emits a **`res::locales`** bucket (2026-07):
+`CATALOG` (one `(tag, ftl_source)` pair per directory under `resource/locales/`, `include_str!`-embedded
+and `concat!`-joined when a locale is split across several `.ftl` files), `DEFAULT` (the fallback locale
+— `en` when present, else the first tag alphabetically), and `install()`, which registers them. An app's
+`root()` therefore says `res::locales::install()` instead of a hand-maintained `install_locales("en",
+&[("en", include_str!("../resource/locales/en/app.ftl")), …])`, and **adding a language is adding a
+directory** — the list can no longer drift from what ships. The path stays explicit (the generated file
+is `include!`d from `$OUT_DIR`, so the embedded paths are absolute), `install_locales` stays public for
+lists an app assembles itself, and an app wanting a different fallback keeps the generated catalog:
+`install_locales("fr", res::locales::CATALOG)`.
 
 ---
 

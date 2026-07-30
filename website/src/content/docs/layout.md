@@ -138,7 +138,7 @@ per-locale reflow and RTL a framework feature instead of five platform projects.
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
   especially over JNI. The native [`list`](/docs/internal/list) exists precisely so long
   scrolling content doesn't become that case.
-- **Deep negotiation is O(children) per level.** Same as SwiftUI; fine in practice, worth knowing
+- **Deep negotiation is O(children) per level.** Same as SwiftUI; fine in practice, but visible
   when you build a custom `Layout`.
 
 ---

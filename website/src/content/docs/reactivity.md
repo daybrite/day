@@ -139,7 +139,7 @@ Scopes also carry **context**: `scope.provide(value)` makes a value visible to
 `use_context::<T>()` anywhere below, which is how `with_environment` implements ambient
 configuration like theming.
 
-Two sharp edges worth knowing:
+Two sharp edges:
 
 - **A read with no observer never re-runs.** Reading a signal in a plain function body computes
   the value once and forgets it. If you meant "keep this up to date", the read has to be inside a

@@ -18,7 +18,7 @@ my-app/
 ├── Day.toml                  # the app manifest: id, title, targets, window (name/version come from Cargo.toml)
 ├── Cargo.toml                # a normal Cargo package (bin + rlib)
 ├── src/
-│   ├── lib.rs                # the app: pieces, signals, routes; install_locales(…)
+│   ├── lib.rs                # the app: pieces, signals, routes; res::locales::install()
 │   └── main.rs               # desktop entry point; mobile entries live in lib.rs macros
 ├── resource/
 │   ├── assets/               # arbitrary data files   → resource("stations.json")
@@ -26,8 +26,8 @@ my-app/
 │   ├── fonts/                # custom fonts (.ttf/.otf), referenced by family name
 │   ├── icons/                # app icon sources, staged per platform (dock, taskbar, launcher)
 │   └── locales/
-│       ├── en/app.ftl        # Fluent translations, embedded at compile time (include_str!)
-│       └── fr/app.ftl
+│       ├── en/app.ftl        # Fluent translations, embedded at compile time; a new
+│       └── fr/app.ftl        #   directory here IS a new language (res::locales::install())
 ├── dayscript/                # dayscript flows: walkthroughs, screenshots, assertions
 ├── platform/
 │   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner

@@ -553,8 +553,10 @@ pub enum Cap {
     /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
-    /// The toolkit shows the current destination's title in a NATIVE header/bar (e.g. the Windows
-    /// NavigationView header, the iOS/GTK nav bar) — so a page needn't repeat it in its own content.
+    /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
+    /// needn't repeat it in its own content. Today only the XAML backend answers `Native`
+    /// (the NavigationView header); UIKit and Android DO show a native bar title but still
+    /// answer `Unsupported`, so content-side titles render there too (docs/navigation.md).
     NavHeader,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,

@@ -31,6 +31,8 @@ pub mod reactive {
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
+// Same reason: the generated `res::locales::install()` names `day::install_locales` (§18.5).
+pub use day_fluent::install as install_locales;
 // Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
 pub use day_fluent::{compare, compare_in, sort_localized};
