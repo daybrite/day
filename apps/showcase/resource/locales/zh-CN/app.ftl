@@ -550,3 +550,18 @@ location_altitude = 海拔
 location_accuracy = 精度
 location_unknown = —
 chart_axes = x 红 · y 青 · z 紫
+
+# 全屏覆盖层（docs/cover.md）。
+stack_cover_button = 呈现覆盖层
+cover_title = 全屏覆盖层
+cover_body = 由 cover(signal) 呈现在整个窗口之上。iOS 和 Android 上为原生实现，其他平台为置顶子视图。
+cover_dismiss = 关闭
+
+stack_unsaved = 未保存的更改
+stack_discard_title = 放弃更改？
+stack_discard_body = 此页面有未保存的更改。
+stack_discard_ok = 放弃
+
+tab_dynamic_title = 数据驱动的标签页
+tab_dynamic_add = 添加标签页
+tab_dynamic_remove = 移除标签页

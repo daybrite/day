@@ -1123,13 +1123,27 @@ mod tests {
         let root = tmp("locales-render");
         ftl(&root, "en", "hello = Hello");
         ftl(&root, "fr", "hello = Bonjour");
-        let code = render(&plan_resources(&root).unwrap());
+        let plan = plan_resources(&root).unwrap();
+        let code = render(&plan);
         assert!(code.contains("pub mod locales {"));
         assert!(code.contains("pub const DEFAULT: &str = \"en\";"));
         assert!(code.contains("pub const CATALOG: &[(&str, &str)] = &["));
         // Absolute paths: the generated file is `include!`d from $OUT_DIR, so a relative
-        // `include_str!` would resolve against the wrong directory.
-        let en = root.join("resource/locales/en/app.ftl");
+        // `include_str!` would resolve against the wrong directory. Compare against the plan's
+        // own source path, not a re-`join`ed one: on Windows, discovery separates components
+        // with `\` where a joined `"a/b"` literal keeps its `/`, so the strings differ even
+        // when the paths agree. `ends_with` compares components, so it holds on both.
+        let en = &plan
+            .locales
+            .iter()
+            .find(|l| l.locale == "en")
+            .unwrap()
+            .sources[0];
+        assert!(
+            en.is_absolute() && en.ends_with("en/app.ftl"),
+            "{}",
+            en.display()
+        );
         assert!(
             code.contains(&format!(
                 "(\"en\", include_str!({:?}))",

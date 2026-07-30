@@ -37,7 +37,7 @@ pub(crate) fn tabs_page() -> AnyPiece {
     // `item_icon` attaches a bundled template image per tab (docs/tabs.md). Backends whose tab
     // widget shows icons (iOS UITabBar, the Android tab strip) render them; text-only tab widgets
     // (the desktop NSTabView/GtkNotebook/QTabWidget) ignore the icon and just show the label.
-    selector(tab)
+    let main = selector(tab)
         .style(SelectorStyle::Tabs)
         .item_icon(
             Tab::One,
@@ -79,6 +79,60 @@ pub(crate) fn tabs_page() -> AnyPiece {
             },
         )
         .id("demo-tabs")
+        .any();
+    column((dynamic_tabs_demo(), divider(), main))
+        .spacing(12.0)
+        .grow()
+        .any()
+}
+
+/// Data-driven tabs (docs/navigation.md): the tab set comes from a signal, so the Add/Remove
+/// buttons grow and shrink the native tab strip live. String keys, with `.destination` building
+/// each dynamic tab's page.
+fn dynamic_tabs_demo() -> AnyPiece {
+    let tabs = Signal::new(vec!["alpha".to_string(), "beta".to_string()]);
+    let current = Signal::new("alpha".to_string());
+    let (add, remove) = (tabs, tabs);
+    column((
+        label(crate::res::str::tab_dynamic_title())
+            .font(Font::Headline)
+            .id("dyn-tabs-title"),
+        row((
+            button(crate::res::str::tab_dynamic_add())
+                .action(move || {
+                    add.update(|v| {
+                        let n = v.len() + 1;
+                        v.push(format!("tab-{n}"));
+                    })
+                })
+                .id("dyn-tab-add"),
+            button(crate::res::str::tab_dynamic_remove())
+                .bordered()
+                .action(move || {
+                    remove.update(|v| {
+                        v.pop();
+                    })
+                })
+                .id("dyn-tab-remove"),
+        ))
+        .spacing(8.0),
+        selector(current)
+            .style(SelectorStyle::Tabs)
+            .local()
+            .items(move || tabs.get(), |k: &String| item(k.clone(), k.clone()))
+            .destination(|k: &String| {
+                label(format!("Tab: {k}"))
+                    .id("dyn-tab-content")
+                    .padding(16.0)
+                    .any()
+            })
+            .id("dyn-tabs"),
+    ))
+    .spacing(8.0)
+    .align(HAlign::Leading)
+    .padding(16.0)
+    .frame(560.0, 220.0)
+    .any()
 }
 
 /// Overview: a counter whose signal outlives the pane — count a few clicks, switch tabs, and

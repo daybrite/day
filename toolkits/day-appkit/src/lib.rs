@@ -845,6 +845,27 @@ define_class!(
     }
 );
 
+fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_kit::NSImage>>> {
+    // A bundled icon name → a template NSImage (tinted by the source list); `None` per iconless row.
+    icons
+        .iter()
+        .map(|ic| {
+            let path = ic
+                .as_deref()
+                .and_then(day_spec::resource::resolve_image_file)?;
+            use objc2::AllocAnyThread as _;
+            let img = unsafe {
+                objc2_app_kit::NSImage::initWithContentsOfFile(
+                    objc2_app_kit::NSImage::alloc(),
+                    &NSString::from_str(&path.to_string_lossy()),
+                )
+            }?;
+            unsafe { img.setTemplate(true) };
+            Some(img)
+        })
+        .collect()
+}
+
 impl DayNavMenuData {
     fn new(
         mtm: MainThreadMarker,
@@ -852,32 +873,19 @@ impl DayNavMenuData {
         items: &[String],
         icons: &[Option<String>],
     ) -> Retained<Self> {
-        // Resolve each bundled icon name to a template NSImage once (nav is app-root-only, so this
-        // runs a single time). Template = tinted by the source list; `None` where a row has no icon.
-        let resolved: Vec<Option<Retained<objc2_app_kit::NSImage>>> = icons
-            .iter()
-            .map(|ic| {
-                let path = ic
-                    .as_deref()
-                    .and_then(day_spec::resource::resolve_image_file)?;
-                use objc2::AllocAnyThread as _;
-                let img = unsafe {
-                    objc2_app_kit::NSImage::initWithContentsOfFile(
-                        objc2_app_kit::NSImage::alloc(),
-                        &NSString::from_str(&path.to_string_lossy()),
-                    )
-                }?;
-                unsafe { img.setTemplate(true) };
-                Some(img)
-            })
-            .collect();
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
-            icons: RefCell::new(resolved),
+            icons: RefCell::new(resolve_nav_icons(icons)),
             suppress: std::cell::Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Data-driven rows changed (`NavMenuPatch::Items`): swap the stored labels/icons in place.
+    fn set_items(&self, items: &[String], icons: &[Option<String>]) {
+        *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
+        *self.ivars().icons.borrow_mut() = resolve_nav_icons(icons);
     }
 }
 
@@ -1532,6 +1540,9 @@ impl Toolkit for AppKit {
             | Cap::TextEditable
             | Cap::TextSelectable
             | Cap::TextSpellCheck => Support::Native,
+            // A topmost autoresizing child of the content view — not a system modal
+            // (docs/cover.md's ArkUI tier).
+            Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
         }
     }
@@ -1795,6 +1806,14 @@ impl Toolkit for AppKit {
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
                 page
             }
+            // Emulated fullscreen cover (docs/cover.md, the ArkUI tier): a DayNavPage — its
+            // setFrameSize: override reports FrameChanged, so a window resize re-lays the cover
+            // content for free — parked hidden until CoverPatch::Present re-homes it on top.
+            kinds::COVER => {
+                let page = DayNavPage::new(mtm, id);
+                unsafe { page.setHidden(true) };
+                view_of(page)
+            }
             kinds::TABS => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 let tabview = unsafe { NSTabView::new(mtm) };
@@ -2055,20 +2074,69 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::TABS => {
-                if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>()
-                    && let Some(tabview) = h.downcast_ref::<NSTabView>()
-                {
-                    TAB_STATE.with(|m| {
-                        if let Some(state) = m.borrow().get(&ptr_of(h)) {
-                            state.delegate.ivars().suppress.set(true);
-                            unsafe { tabview.selectTabViewItemAtIndex(*i as isize) };
-                            state.delegate.ivars().suppress.set(false);
-                        }
-                    });
+                if let Some(tabview) = h.downcast_ref::<NSTabView>() {
+                    match patch.downcast_ref::<TabsPatch>() {
+                        Some(TabsPatch::Selected(i)) => TAB_STATE.with(|m| {
+                            if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                                state.delegate.ivars().suppress.set(true);
+                                unsafe { tabview.selectTabViewItemAtIndex(*i as isize) };
+                                state.delegate.ivars().suppress.set(false);
+                            }
+                        }),
+                        // Data-driven tabs: the pages were added/removed via insert/remove; sync
+                        // each remaining tab item's label to the new titles, then select.
+                        Some(TabsPatch::Items {
+                            titles, selected, ..
+                        }) => TAB_STATE.with(|m| {
+                            if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                                let items = unsafe { tabview.tabViewItems() };
+                                for i in 0..items.count().min(titles.len()) {
+                                    unsafe {
+                                        items
+                                            .objectAtIndex(i)
+                                            .setLabel(&NSString::from_str(&titles[i]));
+                                    }
+                                }
+                                state.delegate.ivars().suppress.set(true);
+                                if *selected < items.count() {
+                                    unsafe { tabview.selectTabViewItemAtIndex(*selected as isize) };
+                                }
+                                state.delegate.ivars().suppress.set(false);
+                            }
+                        }),
+                        None => {}
+                    }
                 }
             }
             kinds::NAV_MENU => {
-                if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                if let Some(NavMenuPatch::Items {
+                    items,
+                    icons,
+                    selected,
+                }) = patch.downcast_ref::<NavMenuPatch>()
+                {
+                    NAV_MENUS.with(|m| {
+                        let m = m.borrow();
+                        let Some((outline, data)) = m.get(&ptr_of(h)) else {
+                            return;
+                        };
+                        data.set_items(items, icons);
+                        data.ivars().suppress.set(true);
+                        unsafe {
+                            outline.reloadData();
+                            match selected {
+                                Some(i) => outline.selectRowIndexes_byExtendingSelection(
+                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                    false,
+                                ),
+                                None => outline.deselectAll(None),
+                            }
+                        }
+                        data.ivars().suppress.set(false);
+                    });
+                } else if let Some(NavMenuPatch::Selected(sel)) =
+                    patch.downcast_ref::<NavMenuPatch>()
+                {
                     NAV_MENUS.with(|m| {
                         let m = m.borrow();
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
@@ -2142,8 +2210,70 @@ impl Toolkit for AppKit {
                                     }
                                 }
                             }
+                            // The custom back header always routes back through Day
+                            // (NavBack{already_popped:false}), so there is no native auto-pop to
+                            // suppress — the guard runs in the pieces layer (docs/navigation.md).
+                            NavPatch::GuardTop(_) => {}
                         }
                     });
+                }
+            }
+            // Emulated cover (docs/cover.md): present = re-home onto the window's content view
+            // at full bounds, topmost, autoresized with the window (the DayNavPage handle
+            // reports FrameChanged on every resize). Dismiss = hide + report "cover-hidden"
+            // immediately (no transition on this tier). Interactive dismissal doesn't exist on
+            // this backend, so DismissDisabled has nothing to disable.
+            kinds::COVER => {
+                if let (Some(p), Ok(page)) = (
+                    patch.downcast_ref::<CoverPatch>(),
+                    h.clone().downcast::<DayNavPage>(),
+                ) {
+                    let node = page.ivars().node;
+                    match p {
+                        CoverPatch::Present { background, .. } => {
+                            // A cover must OCCLUDE the window (the native tiers' modal surfaces
+                            // are opaque): default to the window background when the app sets
+                            // no explicit color.
+                            unsafe {
+                                page.setWantsLayer(true);
+                                if let Some(layer) = page.layer() {
+                                    let color = match background {
+                                        Some(bg) => nscolor(*bg),
+                                        None => NSColor::windowBackgroundColor(),
+                                    };
+                                    layer.setBackgroundColor(Some(&color.CGColor()));
+                                }
+                            }
+                            let app = NSApplication::sharedApplication(self.mtm());
+                            if let Some(content) =
+                                app.windows().firstObject().and_then(|w| w.contentView())
+                            {
+                                unsafe {
+                                    page.removeFromSuperview();
+                                    content.addSubview(&page);
+                                    page.setFrame(content.bounds());
+                                    page.setAutoresizingMask(
+                                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                                            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                                    );
+                                    page.setHidden(false);
+                                }
+                                let b = content.bounds();
+                                emit(
+                                    node,
+                                    Event::FrameChanged(Size::new(b.size.width, b.size.height)),
+                                );
+                            }
+                        }
+                        CoverPatch::DismissDisabled(_) => {}
+                        CoverPatch::Dismiss => {
+                            unsafe {
+                                page.setHidden(true);
+                                page.removeFromSuperview();
+                            }
+                            emit(node, Event::custom("cover-hidden", ""));
+                        }
+                    }
                 }
             }
             kinds::PICKER => picker::update_any(self, h, patch),
@@ -2322,6 +2452,18 @@ impl Toolkit for AppKit {
                 state.pages.retain(|p| ptr_of(p) != ptr_of(child));
             }
         });
+        // Data-driven tabs: a removed page's NSTabViewItem must go too (removeFromSuperview
+        // leaves an orphan empty tab otherwise).
+        if let Some(tabview) = parent.downcast_ref::<NSTabView>() {
+            let items = unsafe { tabview.tabViewItems() };
+            for i in 0..items.count() {
+                let it = items.objectAtIndex(i);
+                if unsafe { it.view(self.mtm()) }.map(|v| ptr_of(&v)) == Some(ptr_of(child)) {
+                    unsafe { tabview.removeTabViewItem(&it) };
+                    break;
+                }
+            }
+        }
         unsafe { child.removeFromSuperview() };
     }
 

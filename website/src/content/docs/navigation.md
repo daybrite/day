@@ -62,6 +62,52 @@ this behind Developer options → "Predictive back animations"; Android 15 enabl
 default). On desktop, pushed pages get an in-window back header — a chevron and title above
 the page on macOS and Qt, libadwaita's own header on GTK.
 
+## Data-driven items
+
+A `selector`'s items can come from a signal, so a sidebar or tab set follows your data:
+
+```rust
+selector(current)
+    .style(SelectorStyle::Tabs)
+    .items(move || rooms.get(), |r: &Room| item(r.id.clone(), r.name.clone()))
+    .destination(|k| room_page(k))
+```
+
+Rows are added and removed on the native widget as the signal changes; if the selected item
+disappears the selection resets. A data-driven item is a label plus an optional icon (the native
+row) — for a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list). Mark a
+selector `.local()` when it is a widget inside an already-routing page.
+
+## Intercepting back
+
+Guard the user's back — a native gesture, the back button, or `nav_back()` — with `on_back`, for
+the unsaved-changes-confirm case. A programmatic `path.set` is never guarded (a write is not a
+back); this mirrors Jetpack Compose's `BackHandler`.
+
+```rust
+stack(path, editor())
+    .destination(|k| detail(k))
+    .on_back(move |req| {
+        if dirty.get() {
+            day::task(async move {
+                if confirm("Discard changes?").await {
+                    dirty.set(false);
+                    req.proceed();          // perform the pop the guard held
+                }
+            });
+            BackResponse::Handled           // consume the back for now
+        } else {
+            BackResponse::Proceed           // pop normally
+        }
+    });
+```
+
+Return `Proceed` to pop now or `Handled` to consume it; a `Handled` guard can hold the
+`BackRequest` and call `proceed()` later. While a guard is armed Day stops the toolkit from
+auto-popping on a native gesture and routes the back through your guard instead — on iOS the
+swipe is disabled and the back button is intercepted, on Android a back callback takes priority
+(the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
+
 ## Routes and deep links
 
 A route is `segments/joined/by/slashes` with an optional `?name=value` query. A **single key is
@@ -82,8 +128,21 @@ stack(path, root).destination(|key| {
 ```
 
 `current_route()` returns the **full** path (`"library/album-42"`), and it round-trips through
-`navigate` — so persisting navigation across launches is: save `current_route()` on the way
+`navigate` — so persisting the whole route across launches is: save `current_route()` on the way
 out, `navigate(&saved)` on the way back in.
+
+For a single surface, `.restore(key)` does that for you — no `current_route()` plumbing:
+
+```rust
+selector(section).restore("nav.section")   // reopens on the last-viewed section
+stack(path, home).restore("mail.path")     // rebuilds the pushed path
+```
+
+It saves the selected key (or the stack's path) on every change and reads it back at build. A
+launch deep link outranks it, and a saved value that no longer fits is ignored. Persistence runs
+through a store you install once — `day_part_prefs::install_nav_store()` in `main` — which is
+disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
+is a no-op, so you can persist on one target and start fresh on another with the same code.
 
 The same mechanism is what [dayscript](/docs/dayscript) uses: `navigate: { route: controls }` in
 a script performs the write your UI would, and `assert_route` compares the full

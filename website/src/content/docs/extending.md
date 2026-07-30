@@ -109,8 +109,8 @@ on it.
 ## Parts: capabilities without UI
 
 Extensions that don't render — battery, clipboard, Bluetooth — are [parts](/docs/parts), which
-skip all of the above machinery: no kind, no renderer, no registry, just `#[cfg]`-dispatched
-functions (plus the same Cargo-metadata mechanism when Android needs Java or permissions). The
+skip all of the above machinery: a part is plain `#[cfg]`-dispatched functions, with no kind,
+renderer, or registry (plus the same Cargo-metadata mechanism when Android needs Java or permissions). The
 [part tutorial](/docs/tutorial-part) covers six platform implementations of one API.
 
 ## Choosing a tier

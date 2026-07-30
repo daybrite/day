@@ -52,7 +52,8 @@ This backend is a subset. What's missing:
   `media()` is implemented, as a `<video>`.
 - **`media()` needs a URL, not a file path**, and autoplay only starts when muted — both are
   browser policy, not Day's.
-- **No `cover()`**, no file dialogs, no context menus, and no application menu bar.
+- **No file dialogs**, no context menus, and no application menu bar. `cover()` presents as a
+  fixed-position overlay (no transition, programmatic dismissal only).
 - **The list is emulated**, not recycled: one element per row, created eagerly. Long lists cost.
 - **Split navigation is decided once at launch** from the viewport width (≥ 700px), and does not
   re-evaluate on resize.

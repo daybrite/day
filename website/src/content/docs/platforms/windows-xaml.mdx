@@ -55,7 +55,8 @@ The NSIS installer is per-user: no elevation, a normal Add/Remove Programs entry
 - **The inline time picker falls back to a flyout** — system XAML has no inline clock.
 - **Text-area read-only, selectable and spell-check patches are accepted but do nothing**; those
   capabilities report unsupported.
-- **No `cover()`, no Lottie, no map** on this backend — each renders its placeholder.
+- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+  a topmost window-sized child (no transition, programmatic dismissal only).
 - **Radial gradients in a `canvas` are synthesized** into a bitmap brush, because system XAML has
   `LinearGradientBrush` but no `RadialGradientBrush` (that type is XAML-only).
 

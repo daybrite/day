@@ -1078,6 +1078,9 @@ mod imp {
                 | Cap::FileDialogs
                 | Cap::Animation
                 | Cap::Cover
+                // The MaterialToolbar names the destination on every page (DayNavHost
+                // syncChrome) — content needn't repeat the title (docs/navigation.md).
+                | Cap::NavHeader
                 | Cap::TextEditable
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck => Support::Native,
@@ -1550,7 +1553,23 @@ mod imp {
                                 "(Landroid/view/View;)V",
                                 &[JValue::Object(h.0.as_obj())],
                             ),
-                            NavPatch::Title(_) => {}
+                            NavPatch::Title(t) => with_env(|env| {
+                                let s = jstr(env, t);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "navSetTitle",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
+                                );
+                            }),
+                            NavPatch::GuardTop(on) => with_env(|env| {
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "navSetGuard",
+                                    "(Landroid/view/View;Z)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
+                                );
+                            }),
                         }
                     }
                 }

@@ -37,6 +37,7 @@ unsafe extern "C" {
     pub fn day_xaml_scroll_offset(sv: *mut c_void, out_x: *mut c_double, out_y: *mut c_double);
     pub fn day_xaml_scroll_to(sv: *mut c_void, y: c_int, h: c_int, animated: c_int);
     pub fn day_xaml_container_set_bg(w: *mut c_void, argb: u32);
+    pub fn day_xaml_cover_ground(w: *mut c_void);
     /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
     /// Clip whose Rect tracks the element size (SizeChanged). Corner support is limited on a bare
     /// Canvas, so this is best-effort (docs).

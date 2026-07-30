@@ -31,7 +31,7 @@ fn counter() -> AnyPiece {
 ```
 
 That function produces a native label above a native button on macOS, iOS, Android, Linux,
-Windows, and OpenHarmony. There is no web view, no bundled renderer, and no per-platform fork.
+Windows, and OpenHarmony. There is no web view or bundled renderer, and no per-platform fork.
 
 ## The bet
 
@@ -53,7 +53,7 @@ toolkits are bad at sharing:
 
 The cost side of the bet is real too — your app looks like a Mac app on a Mac and a Material app
 on Android *whether you want that or not*, and heavy visual branding is the wrong fit.
-[Why Day (and why not)](/docs/benefits) treats the tradeoffs seriously.
+[Why Day (and why not)](/docs/benefits) covers the tradeoffs and when to pick something else.
 
 ## The targets
 

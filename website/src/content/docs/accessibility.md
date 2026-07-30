@@ -76,7 +76,7 @@ backend's read-back hooks), and fails the script on mismatch. Run in CI, this tu
 labels" into a regression-tested claim. Read-back is implemented on the Apple backends and Qt;
 backends that can't yet read their native tree (Android, GTK) skip rather than fake it.
 
-## Current limits, plainly
+## Current limits
 
 - **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
   `macos-gtk` and `windows-gtk` development combos are invisible to screen readers. Ship the

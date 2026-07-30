@@ -17,6 +17,17 @@ pub enum TextSource {
     Dyn(Rc<dyn Fn() -> String>),
 }
 
+// Clone so nav can keep a page title's SOURCE alongside its resolved snapshot: the live source
+// re-resolves on locale change and feeds `NavPatch::Title` (docs/navigation.md).
+impl Clone for TextSource {
+    fn clone(&self) -> Self {
+        match self {
+            TextSource::Static(s) => TextSource::Static(s.clone()),
+            TextSource::Dyn(f) => TextSource::Dyn(f.clone()),
+        }
+    }
+}
+
 impl TextSource {
     pub fn initial(&self) -> String {
         match self {

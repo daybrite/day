@@ -28,6 +28,7 @@ unsafe extern "C" {
     pub fn day_ark_nav_push(page: *mut c_void, key: u64, title: *const c_char) -> i32;
     pub fn day_ark_nav_pop();
     pub fn day_ark_nav_set_title(title: *const c_char);
+    pub fn day_ark_nav_set_guard(on: i32);
     /// Open a URL via the ArkTS opener (the `link` piece's seam). No-op if unregistered.
     pub fn day_ark_open_url(url: *const c_char);
     pub fn day_ark_nav_remove(key: u64, page: *mut c_void);

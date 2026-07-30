@@ -671,6 +671,8 @@ public final class DayBridge {
     }
     public static void navPush(View host, String title) { ((DayNavHost) host).push(title); }
     public static void navPop(View host) { ((DayNavHost) host).pop(); }
+    public static void navSetTitle(View host, String title) { ((DayNavHost) host).retitle(title); }
+    public static void navSetGuard(View host, boolean on) { ((DayNavHost) host).setGuard(on); }
 
     // --- fullscreen cover (docs/cover.md) ---
     public static View makeCover(long node) { return new DayCover(ctx, node); }

@@ -23,6 +23,7 @@ day_part_prefs::remove("greeting");                  // delete it
 | `remove(key) -> bool` | Delete the value; `true` only if it existed and was removed. |
 | `contains(key) -> bool` | Whether a value is currently stored under `key`. |
 | `bind(key, signal)` | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
+| `install_nav_store()` | Install this store as day-core's navigation-persistence sink, so a `selector`/`stack` marked `.restore(key)` remembers its state across launches (and an Android process death). Call once in `main`, before the UI mounts. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
 Values persist across launches; that's the point. The crate has no cargo features: platform
 selection is purely `#[cfg(target_os)]` (plus `#[cfg(target_arch = "wasm32")]` for the web),

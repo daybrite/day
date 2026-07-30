@@ -597,6 +597,147 @@ fn stack_native_back_writes_into_path() {
 }
 
 #[test]
+fn selector_data_driven_items_reconcile() {
+    // A sidebar whose rows come from a signal: adding/removing rooms re-patches the menu, and
+    // navigating a data-driven key shows its .destination page.
+    let rooms = Signal::new(vec!["general".to_string(), "random".to_string()]);
+    let current = Signal::new(Option::<String>::None);
+    let rooms_r = rooms;
+    let probe = boot(move || {
+        selector(current)
+            .style(SelectorStyle::Sidebar)
+            .items(
+                move || rooms_r.get(),
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            .destination(|k: &Option<String>| {
+                label(format!("room:{}", k.clone().unwrap_or_default()))
+            })
+            .any()
+    });
+    let menu = probe.find_by_kind("day.nav_menu")[0].0;
+    assert_eq!(probe.widget(menu).text, "general|random", "initial rows");
+
+    // Add a room → the menu re-patches.
+    batch(|| rooms.set(vec!["general".into(), "random".into(), "help".into()]));
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "general|random|help", "row added");
+
+    // Navigate a data-driven key → its destination shows.
+    assert!(navigate("help"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("help"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "room:help"),
+        "destination built for the data-driven key"
+    );
+
+    // Remove the selected room → selection resets to None (Option key), menu shrinks.
+    batch(|| rooms.set(vec!["general".into(), "random".into()]));
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "general|random", "row removed");
+    assert_eq!(
+        current.get_untracked(),
+        None,
+        "selection reset when its item vanished"
+    );
+}
+
+#[test]
+fn stack_on_back_guard_intercepts_and_defers() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    // The guard consumes back-like events (nav_back / native NavBack) but NEVER a programmatic
+    // path write, and BackRequest::proceed performs the deferred pop.
+    let path = Signal::new(Vec::<String>::new());
+    let held: Rc<RefCell<Option<BackRequest>>> = Rc::default();
+    let block = Rc::new(Cell::new(true)); // guard consumes while true
+    let (held_c, block_c) = (held.clone(), block.clone());
+    let probe = boot(move || {
+        stack(path, label("root"))
+            .destination(|k: &String| label(format!("d:{k}")))
+            .on_back(move |req| {
+                if block_c.get() {
+                    *held_c.borrow_mut() = Some(req);
+                    BackResponse::Handled
+                } else {
+                    BackResponse::Proceed
+                }
+            })
+            .any()
+    });
+    let host = probe.find_by_kind("day.nav")[0].0;
+
+    // Push two levels (programmatic — never guarded).
+    batch(|| path.set(vec!["a".into(), "b".into()]));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("a/b"));
+    // GuardTop(true) armed the host (mock records it in `flag`).
+    assert!(probe.widget(host).flag, "guard armed while above root");
+
+    // A back-like event: nav_back() is GUARDED — the guard returns Handled, so no pop.
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(
+        day_core::current_route().as_deref(),
+        Some("a/b"),
+        "guarded back must not pop"
+    );
+    assert!(held.borrow().is_some(), "guard received the BackRequest");
+
+    // The app proceeds the stashed request → the deferred pop lands.
+    held.borrow().as_ref().unwrap().proceed();
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("a"));
+
+    // A PROGRAMMATIC path write is never guarded (even while block=true).
+    batch(|| path.set(vec![]));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+    assert!(!probe.widget(host).flag, "guard disarmed at root");
+
+    // With the guard passing through, a back proceeds immediately.
+    batch(|| path.set(vec!["x".into()]));
+    flush_sync();
+    block.set(false);
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some(""));
+}
+
+#[test]
+fn shown_page_retitles_native_bar_live() {
+    // A page title that reads a signal (the locale case: `tr()` reads the locale signal). The
+    // shown page must re-resolve it and retitle the host via NavPatch::Title — before this,
+    // every backend's native bar kept the push-time title forever.
+    let section = Signal::new(String::new());
+    let name = Signal::new(String::from("Inbox"));
+    let title = name;
+    let probe = boot(move || {
+        selector(section)
+            .title("Root")
+            .item("mail", move || title.get(), || label("mail-content"))
+            .any()
+    });
+
+    assert!(navigate("mail"));
+    flush_sync();
+    let nav = probe.find_by_kind("day.nav")[0].0;
+    assert_eq!(probe.widget(nav).text, "Inbox", "push-time title");
+
+    batch(|| name.set("Inbox (3)".into()));
+    flush_sync();
+    assert_eq!(
+        probe.widget(nav).text,
+        "Inbox (3)",
+        "NavPatch::Title must follow the live title source"
+    );
+}
+
+#[test]
 fn nested_stack_in_selector_falls_through() {
     let section = Signal::new(String::new());
     let path = Signal::new(Vec::<String>::new());
@@ -2701,4 +2842,149 @@ fn toggle_enabled_false_renders_disabled() {
         !t.enabled,
         "Toggle::enabled(false) disables the native control"
     );
+}
+
+// --- .restore() (docs/navigation.md) -------------------------------------------------------
+// An in-memory NavStore standing in for `day_part_prefs::install_nav_store`, so these tests
+// exercise the pieces' restore/persist wiring without touching the platform prefs facility.
+// A test that doesn't call `.restore()` never consults the store, so a store left installed on a
+// reused test thread can't affect another test.
+#[derive(Clone, Default)]
+struct MemStore(std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, String>>>);
+
+impl day_core::NavStore for MemStore {
+    fn load(&self, key: &str) -> Option<String> {
+        self.0.borrow().get(key).cloned()
+    }
+    fn save(&self, key: &str, value: &str) {
+        self.0
+            .borrow_mut()
+            .insert(key.to_string(), value.to_string());
+    }
+}
+
+/// Install a fresh MemStore seeded with `pairs`, returning a handle to inspect it afterward.
+fn install_store(pairs: &[(&str, &str)]) -> MemStore {
+    let store = MemStore::default();
+    for (k, v) in pairs {
+        store
+            .0
+            .borrow_mut()
+            .insert((*k).to_string(), (*v).to_string());
+    }
+    day_core::set_nav_store(std::rc::Rc::new(store.clone()));
+    store
+}
+
+#[test]
+fn selector_restore_reopens_last_tab_and_persists() {
+    // A store already holding a last-selected tab: the selector reopens on it, and a later
+    // selection is written back through the store.
+    let store = install_store(&[("day.nav.tabs", "three")]);
+    let sel = Signal::new("one".to_string());
+    let probe = boot(move || {
+        selector(sel)
+            .style(SelectorStyle::Tabs)
+            .restore("day.nav.tabs")
+            .item("one", "One", || label("one-content"))
+            .item("two", "Two", || label("two-content"))
+            .item("three", "Three", || label("three-content"))
+            .any()
+    });
+    flush_sync();
+    assert_eq!(
+        day_core::current_route().as_deref(),
+        Some("three"),
+        "restored"
+    );
+    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 2.0);
+
+    // A later selection is persisted.
+    assert!(navigate("two"));
+    flush_sync();
+    assert_eq!(
+        store.0.borrow().get("day.nav.tabs").map(String::as_str),
+        Some("two"),
+        "selection persisted through the store"
+    );
+}
+
+#[test]
+fn selector_restore_ignores_stale_key() {
+    // A saved key whose item no longer exists is ignored — the selector opens on the app default.
+    install_store(&[("day.nav.tabs", "gone")]);
+    let sel = Signal::new("one".to_string());
+    let probe = boot(move || {
+        selector(sel)
+            .style(SelectorStyle::Tabs)
+            .restore("day.nav.tabs")
+            .item("one", "One", || label("one-content"))
+            .item("two", "Two", || label("two-content"))
+            .any()
+    });
+    flush_sync();
+    assert_eq!(
+        day_core::current_route().as_deref(),
+        Some("one"),
+        "app default kept"
+    );
+    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 0.0);
+}
+
+#[test]
+fn stack_restore_reopens_saved_path_and_persists() {
+    // A store holding a two-deep path: the stack rebuilds it at launch, and a pop is written back.
+    let store = install_store(&[("day.nav.stack", "a/b")]);
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        stack(path, label("home-content"))
+            .destination(|key| label(format!("detail:{key}")))
+            .restore("day.nav.stack")
+            .any()
+    });
+    flush_sync();
+    assert_eq!(
+        day_core::current_route().as_deref(),
+        Some("a/b"),
+        "path restored"
+    );
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "detail:b")
+    );
+
+    // A back writes the shorter path back through the store.
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(
+        store.0.borrow().get("day.nav.stack").map(String::as_str),
+        Some("a"),
+        "shortened path persisted"
+    );
+}
+
+#[test]
+fn restore_yields_to_launch_deeplink() {
+    // A launch deep link outranks restored state: the saved tab is ignored and the deep link wins.
+    install_store(&[("day.nav.dl", "three")]);
+    let sel = Signal::new("one".to_string());
+    let probe = boot_with_env(Some(("DAY_DEEPLINK", "two")), move || {
+        selector(sel)
+            .style(SelectorStyle::Tabs)
+            .restore("day.nav.dl")
+            .item("one", "One", || label("one-content"))
+            .item("two", "Two", || label("two-content"))
+            .item("three", "Three", || label("three-content"))
+            .any()
+    });
+    flush_sync();
+    assert_eq!(
+        day_core::current_route().as_deref(),
+        Some("two"),
+        "deep link wins"
+    );
+    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 1.0);
 }

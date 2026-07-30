@@ -38,7 +38,7 @@ the platform's own.
 
 **A runtime profile you can reason about.** Day builds the widget tree once and binds state to
 native attributes. A state change re-runs the closures that read that state — typically ending in
-one native setter call — with no re-render, no virtual tree, and no diffing on the hot path
+one native setter call — with no re-render and no tree diff on the hot path
 ([how this works](/docs/reactivity)). The compiler monomorphizes your app against exactly one
 toolkit backend per binary, so there's no runtime abstraction layer either. Binaries are ordinary
 Rust binaries linking system libraries — no bundled engine, no bundled browser.
@@ -81,7 +81,7 @@ a promise.)
 Android. If the design brief is a bespoke design system rendered identically everywhere — custom
 controls, custom motion, brand color on every surface — Day's native-widget premise works against
 you, and a renderer (Flutter, or Rust-native options like Slint or egui) will fight you less.
-[Styling](/docs/styling) is explicit about where the line sits.
+[Styling](/docs/styling) lists what you can restyle and what stays native.
 
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is deliberately small, some designed

@@ -125,7 +125,7 @@ create no native widget, so nesting them is cheap.
   backends set the native per-view direction so text, cursors, and assistive technology agree
   with the mirrored layout.
 
-## Tradeoffs, stated plainly
+## Tradeoffs
 
 Owning layout buys cross-platform predictability — the same negotiation everywhere, testable on
 the [mock toolkit](/docs/rendering#the-mock-toolkit) without a display — and it's what makes

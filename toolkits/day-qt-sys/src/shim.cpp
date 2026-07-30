@@ -522,6 +522,14 @@ void day_qt_scroll_to_bottom(void *w) {
 }
 
 // --- tree / geometry ---
+// Emulated fullscreen cover (docs/cover.md): bring the re-homed cover to the front, and give it
+// an OPAQUE default surface (the palette Window color) so it occludes the page under it.
+void day_qt_cover_top(void *w) {
+    QWidget *c = static_cast<QWidget *>(w);
+    c->setAutoFillBackground(true);
+    c->raise();
+}
+
 void day_qt_add_child(void *parent, void *child) {
     // Day's tree mounts under the window's CONTENT area (below any in-window menu bar).
     if (auto *dw = dynamic_cast<DayWindow *>(static_cast<QWidget *>(parent)))
@@ -780,6 +788,21 @@ void day_qt_tabs_add_page(void *tabs, void *page, const char *title, int index) 
     bool b = t->blockSignals(true);
     t->insertTab(index, static_cast<QWidget *>(page), QString::fromUtf8(title));
     t->blockSignals(b);
+}
+// Data-driven tabs (docs/navigation.md): drop a page's tab; relabel a tab.
+void day_qt_tabs_remove_page(void *tabs, void *page) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    int i = t->indexOf(static_cast<QWidget *>(page));
+    if (i >= 0) {
+        bool b = t->blockSignals(true);
+        t->removeTab(i); // QTabWidget::removeTab does not delete the page widget (Day owns it)
+        t->blockSignals(b);
+    }
+}
+void day_qt_tabs_set_title(void *tabs, int index, const char *title) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    if (index >= 0 && index < t->count())
+        t->setTabText(index, QString::fromUtf8(title));
 }
 void day_qt_tabs_set_current(void *tabs, int index) {
     auto *t = static_cast<QTabWidget *>(tabs);

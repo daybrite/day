@@ -555,3 +555,18 @@ location_altitude = Altitude
 location_accuracy = Précision
 location_unknown = —
 chart_axes = x rouge · y turquoise · z violet
+
+# Écran couvrant plein écran (docs/cover.md).
+stack_cover_button = Présenter un écran couvrant
+cover_title = Écran couvrant
+cover_body = Présenté au-dessus de toute la fenêtre par cover(signal). Natif sur iOS et Android, enfant au premier plan ailleurs.
+cover_dismiss = Fermer
+
+stack_unsaved = Modifications non enregistrées
+stack_discard_title = Abandonner les modifications ?
+stack_discard_body = Cette page a des modifications non enregistrées.
+stack_discard_ok = Abandonner
+
+tab_dynamic_title = Onglets pilotés par les données
+tab_dynamic_add = Ajouter un onglet
+tab_dynamic_remove = Retirer un onglet

@@ -434,7 +434,7 @@ Symmetric to Qt: the piece carries `src/lib-xaml-shim.cpp`, a C++/WinRT shim wra
 `cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and built in CI; you will
 likely not verify it locally.
 
-### The pattern, generalized
+### Generalizing the pattern
 
 For any native piece, each backend is the same three functions:
 

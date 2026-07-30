@@ -56,6 +56,9 @@ thread_local! {
     /// Absolute-path segments not yet consumed: surfaces that mount during the navigation
     /// cascade take the front segment(s) as they register (see [`register_nav`]).
     static PENDING: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The app-installed persistence sink a nav surface's `.restore` reads and writes through
+    /// ([`set_nav_store`]). `None` = no store installed, so `.restore` is a no-op.
+    static NAV_STORE: RefCell<Option<Rc<dyn NavStore>>> = const { RefCell::new(None) };
 }
 
 /// Install a controller (innermost = last). Returns its token. The root `nav()` registers once
@@ -214,6 +217,49 @@ pub fn route_param(name: &str) -> Option<String> {
 /// environment exists, takes precedence.
 pub fn set_launch_deeplink(route: &str) {
     LAUNCH_DEEPLINK.with(|l| *l.borrow_mut() = Some(route.to_string()));
+}
+
+/// Whether a launch deep link is pending (`DAY_DEEPLINK` or a platform hint). A nav surface's
+/// `.restore` reads this so a deep link wins over restored state (docs/navigation.md).
+pub fn has_launch_deeplink() -> bool {
+    launch_deeplink().is_some()
+}
+
+/// A key/value sink a nav surface's `.restore` persists its state through, so navigation
+/// survives a relaunch or an Android process death (docs/navigation.md). The framework never
+/// installs one — an app opts in by installing a store (e.g. `day_part_prefs::install_nav_store`)
+/// and marking the surfaces it wants remembered with `.restore(key)`. With no store installed,
+/// `.restore` is a silent no-op, so a surface's `.restore` call never fails to build.
+///
+/// Keys are opaque to day-core and namespaced by the surface's `.restore(key)` argument; the
+/// store implementation is responsible for keeping them clear of the app's own data.
+pub trait NavStore {
+    /// The last value saved under `key`, or `None` if nothing was stored (first launch).
+    fn load(&self, key: &str) -> Option<String>;
+    /// Persist `value` under `key`, replacing any prior value.
+    fn save(&self, key: &str, value: &str);
+}
+
+/// Install the app's navigation persistence store (docs/navigation.md). Call once at startup,
+/// before the UI mounts, so a `.restore` surface reads it on first build. A later call replaces
+/// the store.
+pub fn set_nav_store(store: Rc<dyn NavStore>) {
+    NAV_STORE.with(|s| *s.borrow_mut() = Some(store));
+}
+
+/// Read a `.restore` key through the installed [`NavStore`] (`None` if none is installed or the
+/// key was never saved).
+pub fn nav_store_load(key: &str) -> Option<String> {
+    NAV_STORE
+        .with(|s| s.borrow().clone())
+        .and_then(|st| st.load(key))
+}
+
+/// Write a `.restore` key through the installed [`NavStore`] (a no-op if none is installed).
+pub fn nav_store_save(key: &str, value: &str) {
+    if let Some(st) = NAV_STORE.with(|s| s.borrow().clone()) {
+        st.save(key, value);
+    }
 }
 
 /// The launch deep link: the `DAY_DEEPLINK` environment variable, else the platform's

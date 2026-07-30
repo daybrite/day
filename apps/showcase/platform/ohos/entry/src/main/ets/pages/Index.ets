@@ -26,6 +26,9 @@ struct Index {
   private pathStack: NavPathStack = new NavPathStack();
   private navContents: Map<number, NodeContent> = new Map();
   @State navTitles: Map<number, string> = new Map();
+  // Back guard (docs/navigation.md): true while the top pushed page has a Stack::on_back
+  // guard armed — its NavDestination consumes the native back and defers to Rust's guard.
+  @State navGuardedTop: boolean = false;
   private navKeys: number[] = [];
 
   // Scripted sessions (dayscript, docs/agent.md) push/pop WITHOUT transition animation: a
@@ -66,6 +69,9 @@ struct Index {
         if (top !== undefined) {
           this.navTitles.set(top, title);
         }
+      },
+      (on: boolean): void => {
+        this.navGuardedTop = on;
       }
     );
     const d = display.getDefaultDisplaySync();
@@ -192,6 +198,16 @@ struct Index {
       })
     }
     .title(this.navTitles.get(Number(param)) ?? '')
+    .onBackPressed(() => {
+      // A guarded top page consumes the native back and routes it to Rust's guard, which
+      // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded
+      // page returns false: the native pop proceeds and onDisAppear reports it.
+      if (this.navGuardedTop) {
+        nativeEntry.navBackRequested();
+        return true;
+      }
+      return false;
+    })
     .onDisAppear(() => {
       const key: number = Number(param);
       this.navContents.delete(key);

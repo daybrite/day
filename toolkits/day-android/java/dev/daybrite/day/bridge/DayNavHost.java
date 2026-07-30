@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.WeakHashMap;
 
 import androidx.fragment.app.Fragment;
+import androidx.activity.OnBackPressedCallback;
 import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import com.google.android.material.appbar.AppBarLayout;
@@ -46,7 +47,7 @@ public class DayNavHost extends LinearLayout {
     final MaterialToolbar toolbar;
     final FrameLayout pages;
     final long hostNode;
-    final String rootTitle;
+    String rootTitle; // not final: NavPatch::Title retitles the root live
     private final FragmentManager fm;
     private final int containerId;
     /** This host's back-stack entry name prefix — several hosts share the activity's manager. */
@@ -57,6 +58,12 @@ public class DayNavHost extends LinearLayout {
     private int knownEntries;
     /** Pops the native side already performed — absorb the answering Popped patch. */
     private int nativePops;
+    /** Back guard (docs/navigation.md): while armed, a native back must NOT pop — it emits
+     *  NavBack{already_popped=0} so Rust's guard decides. */
+    private boolean guarded;
+    /** Added LAZILY on the first arm so it lands AFTER the FragmentManager's own back callback
+     *  (OnBackPressedDispatcher is LIFO), giving ours priority while enabled. */
+    private OnBackPressedCallback guardCallback;
     /** Pops we initiated via popBackStack — the listener must not re-report them. */
     private int pendingPops;
 
@@ -71,8 +78,14 @@ public class DayNavHost extends LinearLayout {
         toolbar.setTitle(title);
         toolbar.setNavigationOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
-                // Pop natively (animated); the back-stack listener reports it to Rust.
-                if (myEntries() > 0) fm.popBackStack();
+                if (myEntries() == 0) return;
+                if (guarded) {
+                    // Route through Rust's guard instead of popping (docs/navigation.md).
+                    DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 0.0, null);
+                } else {
+                    // Pop natively (animated); the back-stack listener reports it to Rust.
+                    fm.popBackStack();
+                }
             }
         });
         AppBarLayout appBar = new AppBarLayout(ctx);
@@ -147,6 +160,36 @@ public class DayNavHost extends LinearLayout {
 
     int depth() {
         return titles.size();
+    }
+
+    /** Arm/disarm the back guard (NavPatch::GuardTop). While armed, the system/gesture back and
+     *  the toolbar up-arrow route to Rust as NavBack{already_popped=0} so the app's guard
+     *  decides; a Proceed then calls navPop (docs/navigation.md). The predictive-back preview is
+     *  unavailable while armed (our callback owns the gesture). */
+    void setGuard(boolean on) {
+        this.guarded = on;
+        if (guardCallback == null) {
+            if (!on) return; // never armed yet — nothing to toggle
+            guardCallback = new OnBackPressedCallback(false) {
+                @Override public void handleOnBackPressed() {
+                    DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 0.0, null);
+                }
+            };
+            ((FragmentActivity) getContext()).getOnBackPressedDispatcher()
+                    .addCallback(guardCallback);
+        }
+        guardCallback.setEnabled(on);
+    }
+
+    /** Live retitle of the CURRENT top (`NavPatch::Title`): the root title when nothing is
+     *  pushed, else the top entry — then re-sync the toolbar. */
+    void retitle(String title) {
+        if (titles.isEmpty()) {
+            rootTitle = title;
+        } else {
+            titles.set(titles.size() - 1, title);
+        }
+        syncChrome();
     }
 
     private void syncChrome() {

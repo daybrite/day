@@ -93,6 +93,8 @@ unsafe extern "C" {
         title: *const c_char,
         index: c_int,
     );
+    pub fn day_qt_tabs_remove_page(tabs: *mut c_void, page: *mut c_void);
+    pub fn day_qt_tabs_set_title(tabs: *mut c_void, index: c_int, title: *const c_char);
     pub fn day_qt_tabs_set_current(tabs: *mut c_void, index: c_int);
     pub fn day_qt_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
 
@@ -103,6 +105,7 @@ unsafe extern "C" {
     pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);
+    pub fn day_qt_cover_top(w: *mut c_void);
     pub fn day_qt_remove_child(child: *mut c_void);
     pub fn day_qt_delete(w: *mut c_void);
     pub fn day_qt_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);

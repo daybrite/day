@@ -42,8 +42,6 @@ Signing and notarization happen when the credentials are configured — see
 - **`day launch` runs a bare binary, not a bundle.** Anything the OS gates on bundle identity —
   TCC permission prompts, some system services — only works from `day pack` output. Develop with
   `launch`, verify permission flows against a packed build.
-- **No `cover()`.** The fullscreen-cover piece has no AppKit arm, so it renders as a
-  `⟨day.cover⟩` placeholder. Use a dialog or a nav push instead.
 - **No Lottie.** `day-piece-lottie` ships UIKit and Android arms only.
 - **Pull-to-refresh is emulated**, not native: the piece observes `NSScrollView`'s elastic
   overscroll rather than using a native refresh control (macOS has none).

@@ -24,6 +24,10 @@ license.workspace = true
 # `bind` (a signal persisted through the store) is the one API that touches the reactive core;
 # the plain get/set/remove/contains surface stays dependency-free per platform.
 day-reactive = { workspace = true }
+# `install_nav_store` registers this store as day-core's navigation-persistence sink so a
+# `.restore(key)` selector/stack survives a relaunch (docs/navigation.md). day-core is the base
+# crate — no cycle — and this is the only edge into it.
+day-core = { workspace = true }
 
 # macOS + iOS store into NSUserDefaults — no Java shim, no Day runtime; pure objc2 Foundation.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]

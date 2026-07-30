@@ -95,7 +95,7 @@ webview_reload = Reload
 
 lottie_caption = A native Lottie animation, bundled as JSON (lottie-ios / lottie-android)
 lottie_speed = Speed
-stack_root_body = A genuine push/pop stack. Its path is an app-owned signal.
+stack_root_body = A real push/pop stack. Its path is an app-owned signal.
 stack_push = Push a detail
 stack_detail_title = Level { $depth }
 stack_detail_body = Pushed onto the path. The native back button writes the pop back.
@@ -555,3 +555,18 @@ location_altitude = Altitude
 location_accuracy = Accuracy
 location_unknown = —
 chart_axes = x red · y teal · z violet
+
+# Fullscreen cover (docs/cover.md): presented over the whole window from cover(signal).
+stack_cover_button = Present a cover
+cover_title = Fullscreen cover
+cover_body = Presented over the whole window by cover(signal). Native on iOS and Android, a topmost child elsewhere.
+cover_dismiss = Dismiss
+
+stack_unsaved = Unsaved changes
+stack_discard_title = Discard changes?
+stack_discard_body = You have unsaved changes on this page.
+stack_discard_ok = Discard
+
+tab_dynamic_title = Data-driven tabs
+tab_dynamic_add = Add tab
+tab_dynamic_remove = Remove tab

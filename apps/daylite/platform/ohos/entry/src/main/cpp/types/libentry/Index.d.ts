@@ -40,7 +40,10 @@ export const registerOpenUrl: (callback: (url: string) => void) => void;
 export const registerNav: (
   push: (key: number, title: string) => Object,
   pop: () => void,
-  setTitle: (title: string) => void
+  setTitle: (title: string) => void,
+  setGuard: (on: boolean) => void
 ) => void;
 export const navPopped: (key: number) => void;
+// A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
+export const navBackRequested: () => void;
 export const navPageArea: (key: number, w: number, h: number) => void;

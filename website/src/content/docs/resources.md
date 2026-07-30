@@ -113,7 +113,7 @@ generate-the-whole-matrix-from-one-SVG pipeline is designed but you still export
 conveyed into platform manifests at build time. Piece packages can carry their own `locales/` and
 resources, which aggregate into your app without name collisions.
 
-## What happens at build, concretely
+## What happens at build
 
 ```text
 resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  resource/assets/stations.json ─┐

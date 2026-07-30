@@ -831,6 +831,7 @@ name = "day-part-prefs"
 version = "0.0.18"
 dependencies = [
  "day-android",
+ "day-core",
  "day-reactive",
  "objc2",
  "objc2-foundation",

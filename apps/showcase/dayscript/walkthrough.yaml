@@ -271,6 +271,11 @@ flow:
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.
   - navigate: { route: tabs }
+  # Data-driven tabs (docs/navigation.md): Add grows the native tab strip, Remove shrinks it.
+  - assert_visible: { id: dyn-tabs-title }
+  - tap: { id: dyn-tab-add }
+  - tap: { id: dyn-tab-add }
+  - tap: { id: dyn-tab-remove }
   # Full-tree routes (docs/navigation.md): the selector key + the tab key.
   - assert_route: { route: tabs/one }
   - assert_visible: { id: tab-one-content }
@@ -310,6 +315,28 @@ flow:
   - assert_text: { id: stack-param, key: stack_param_hint, args: { hint: "linked" } }
   - nav_back:
   - assert_route: { route: stack }
+  # Back interception (docs/navigation.md): push a detail, mark it dirty, then a back is
+  # intercepted by on_back — a confirm dialog appears; "cancel" keeps the page, "discard" pops.
+  - tap: { id: stack-push }
+  - assert_route: { route: stack/1 }
+  - toggle: { id: stack-dirty, value: true }
+  - nav_back:
+  - assert_presented: {}
+  # Respond "cancel" (button 0): the guard consumed the back, so we stay on the detail.
+  - respond: { button: 0 }
+  - assert_route: { route: stack/1 }
+  # Back again, this time confirm "discard" (button 1): the deferred pop lands.
+  - nav_back:
+  - assert_presented: {}
+  - respond: { button: 1 }
+  - assert_route: { route: stack }
+  # Fullscreen cover (docs/cover.md): native modal on iOS/Android, topmost child elsewhere —
+  # every backend presents it now, so these steps run everywhere.
+  - tap: { id: cover-present }
+  - assert_visible: { id: cover-title }
+  - screenshot: cover
+  - tap: { id: cover-dismiss }
+  - assert_visible: { id: stack-root }
   # Crash Reporting (day-break, docs/break.md): the walkthrough only VISITS the page (empty state);
   # the actual crash + next-launch report are driven by crash.yaml / crash-report.yaml so the
   # walkthrough itself never dies mid-run.

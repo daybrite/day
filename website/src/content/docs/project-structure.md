@@ -257,4 +257,4 @@ binary at compile time with `include_str!`, so locale switching never touches th
 
 The full per-platform details, including the limits (what gets optimized where, and which stores
 allow zero-copy), are in the [resources reference](/docs/internal/resources); the HarmonyOS
-pipeline has its own [deep dive](/docs/internal/harmonyos).
+pipeline has its own [reference page](/docs/internal/harmonyos).

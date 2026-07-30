@@ -562,3 +562,18 @@ location_altitude = الارتفاع
 location_accuracy = الدقة
 location_unknown = —
 chart_axes = س أحمر · ص فيروزي · ع بنفسجي
+
+# غطاء بملء الشاشة (docs/cover.md).
+stack_cover_button = عرض غطاء
+cover_title = غطاء بملء الشاشة
+cover_body = يُعرض فوق النافذة كاملة عبر cover(signal). أصلي على iOS وأندرويد، وعنصر علوي في الأنظمة الأخرى.
+cover_dismiss = إغلاق
+
+stack_unsaved = تغييرات غير محفوظة
+stack_discard_title = تجاهل التغييرات؟
+stack_discard_body = لديك تغييرات غير محفوظة في هذه الصفحة.
+stack_discard_ok = تجاهل
+
+tab_dynamic_title = علامات تبويب مبنية على البيانات
+tab_dynamic_add = إضافة علامة تبويب
+tab_dynamic_remove = إزالة علامة تبويب

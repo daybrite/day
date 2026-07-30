@@ -71,6 +71,39 @@ where
     );
 }
 
+/// Install this prefs store as the app's navigation-persistence store (docs/navigation.md), so a
+/// [`selector`](day_pieces::selector) or [`stack`](day_pieces::stack) marked `.restore(key)`
+/// remembers its state across launches (and across an Android process death, since the store is
+/// disk-backed). Call once at startup, before the UI mounts. Nav keys are namespaced under a
+/// `day.nav.` prefix, so `.restore("mail")` never collides with the app's own [`set`]/[`get`]
+/// keys.
+///
+/// ```no_run
+/// day_part_prefs::install_nav_store();
+/// // … day::launch(app) …
+/// ```
+pub fn install_nav_store() {
+    day_core::set_nav_store(std::rc::Rc::new(PrefsNavStore));
+}
+
+/// The [`NavStore`](day_core::NavStore) backed by this prefs store; installed by
+/// [`install_nav_store`]. Keys are namespaced under `day.nav.` to stay clear of app data.
+struct PrefsNavStore;
+
+impl day_core::NavStore for PrefsNavStore {
+    fn load(&self, key: &str) -> Option<String> {
+        get(&nav_key(key))
+    }
+    fn save(&self, key: &str, value: &str) {
+        let _ = set(&nav_key(key), value);
+    }
+}
+
+/// Namespace a `.restore` key so nav state never collides with the app's own prefs keys.
+fn nav_key(key: &str) -> String {
+    format!("day.nav.{key}")
+}
+
 // ---------------------------------------------------------------------------
 // Per-OS implementations. Each exposes:
 //   fn set(&str, &str) -> bool

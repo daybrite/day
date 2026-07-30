@@ -39,6 +39,25 @@ pub(crate) fn stack_page() -> AnyPiece {
         path.set(v);
     }
     let path = Signal::new(Vec::<Drill>::new());
+    // Back-interception demo (docs/navigation.md): the detail page has an "unsaved changes"
+    // toggle; while set, on_back shows a confirm dialog and pops only if the user agrees. The
+    // native back gesture/button routes through this guard on every backend.
+    let dirty = Signal::new(false);
+    // Fullscreen cover (docs/cover.md): fullScreenCover-shaped, a projection of an app-owned
+    // Option signal — native modal on iOS/Android, a topmost full-window child elsewhere.
+    // The key is a UNIT route matching only "cover": a cover is also a route surface, and a
+    // String key would claim EVERY segment routed while this page is current (docs/cover.md).
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct CoverKey;
+    impl Route for CoverKey {
+        fn key(&self) -> String {
+            "cover".into()
+        }
+        fn from_key(key: &str) -> Option<Self> {
+            (key == "cover").then_some(CoverKey)
+        }
+    }
+    let cover_open = Signal::new(Option::<CoverKey>::None);
     let root = column((
         stack_glyph(),
         label(crate::res::str::stack_root_body()).id("stack-root"),
@@ -56,6 +75,24 @@ pub(crate) fn stack_page() -> AnyPiece {
                 .param("hint", "linked"),
         )
         .id("stack-link"),
+        button(crate::res::str::stack_cover_button())
+            .action(move || cover_open.set(Some(CoverKey)))
+            .id("cover-present"),
+        cover(cover_open, move |_| {
+            column((
+                label(crate::res::str::cover_title())
+                    .font(Font::Title)
+                    .id("cover-title"),
+                label(crate::res::str::cover_body()),
+                button(crate::res::str::cover_dismiss())
+                    .prominent()
+                    .action(move || cover_open.set(None))
+                    .id("cover-dismiss"),
+            ))
+            .spacing(12.0)
+            .padding(24.0)
+            .any()
+        }),
     ))
     .spacing(12.0)
     .align(HAlign::Leading)
@@ -84,6 +121,13 @@ pub(crate) fn stack_page() -> AnyPiece {
                 );
             }
             parts.push(
+                labeled(
+                    crate::res::str::stack_unsaved(),
+                    toggle(dirty).id("stack-dirty"),
+                )
+                .any(),
+            );
+            parts.push(
                 button(crate::res::str::stack_push())
                     .prominent()
                     .action(move || push(path))
@@ -94,6 +138,24 @@ pub(crate) fn stack_page() -> AnyPiece {
                 .spacing(12.0)
                 .align(HAlign::Leading)
                 .padding(16.0)
+        })
+        .on_back(move |req| {
+            if dirty.get() {
+                // Confirm before losing edits; pop only on "yes" (docs/navigation.md).
+                day::task(async move {
+                    if confirm(crate::res::str::stack_discard_title())
+                        .message(crate::res::str::stack_discard_body())
+                        .confirm_label(crate::res::str::stack_discard_ok())
+                        .await
+                    {
+                        dirty.set(false);
+                        req.proceed();
+                    }
+                });
+                BackResponse::Handled
+            } else {
+                BackResponse::Proceed
+            }
         })
         .id("demo-stack")
 }

@@ -336,6 +336,44 @@ fn apply_font(el: u32, f: &FontSpec) {
 // JSON writer (tiny, escapes only what the shim needs — no serde dependency).
 // ---------------------------------------------------------------------------
 
+/// Build the tabs JSON (`{titles, selected}`) the shim's `day_dom_tabs` consumes (idempotent —
+/// it rebuilds the tab strip), shared by TABS realize and `TabsPatch::Items`.
+fn tabs_json(titles: &[String], selected: usize) -> String {
+    let mut json = String::from("{\"titles\":[");
+    for (i, t) in titles.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        json_str(&mut json, t);
+    }
+    json.push_str("],\"selected\":");
+    json.push_str(&selected.to_string());
+    json.push('}');
+    json
+}
+
+/// Build the nav-menu JSON (`{items:[{title, icon?}], selected}`) the shim's `day_dom_navmenu`
+/// consumes. Shared by NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
+fn navmenu_json(items: &[String], icons: &[Option<String>], selected: Option<usize>) -> String {
+    let mut json = String::from("{\"items\":[");
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str("{\"title\":");
+        json_str(&mut json, item);
+        if let Some(Some(icon)) = icons.get(i) {
+            json.push_str(",\"icon\":");
+            json_str(&mut json, &format!("assets/images/{icon}.png"));
+        }
+        json.push('}');
+    }
+    json.push_str("],\"selected\":");
+    json.push_str(&selected.map(|i| i.to_string()).unwrap_or("-1".into()));
+    json.push('}');
+    json
+}
+
 fn json_str(out: &mut String, v: &str) {
     out.push('"');
     for ch in v.chars() {
@@ -434,6 +472,8 @@ impl Toolkit for Dom {
             Cap::Dialogs | Cap::Animation => Support::Native,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
+            // A topmost fixed-position child — not a system modal (docs/cover.md).
+            Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
         }
     }
@@ -600,41 +640,26 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 32) };
                 el
             }
+            // Emulated fullscreen cover (docs/cover.md): a fixed-position overlay, hidden
+            // until presented. CSS-framed (inset:0) and observer-reported, like nav pages.
+            kinds::COVER => {
+                let el = unsafe { day_dom_create(EL_PAGE) };
+                class(el, "day-cover", true);
+                CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
+                unsafe { day_dom_listen(el, 32) };
+                el
+            }
             kinds::NAV_MENU => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
-                let mut json = String::from("{\"items\":[");
-                for (i, item) in p.items.iter().enumerate() {
-                    if i > 0 {
-                        json.push(',');
-                    }
-                    json.push_str("{\"title\":");
-                    json_str(&mut json, item);
-                    if let Some(Some(icon)) = p.icons.get(i) {
-                        json.push_str(",\"icon\":");
-                        json_str(&mut json, &format!("assets/images/{icon}.png"));
-                    }
-                    json.push('}');
-                }
-                json.push_str("],\"selected\":");
-                json.push_str(&p.selected.map(|i| i.to_string()).unwrap_or("-1".into()));
-                json.push('}');
+                let json = navmenu_json(&p.items, &p.icons, p.selected);
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 el
             }
             kinds::TABS => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_TABS) };
-                let mut json = String::from("{\"titles\":[");
-                for (i, t) in p.titles.iter().enumerate() {
-                    if i > 0 {
-                        json.push(',');
-                    }
-                    json_str(&mut json, t);
-                }
-                json.push_str("],\"selected\":");
-                json.push_str(&p.selected.to_string());
-                json.push('}');
+                let json = tabs_json(&p.titles, p.selected);
                 unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
                 el
             }
@@ -821,13 +846,53 @@ impl Toolkit for Dom {
                     nav_patch(el, p);
                 }
             }
+            // Emulated cover (docs/cover.md): present = re-home under #day-root (position:fixed
+            // escapes ancestor transforms only from a clean containing block) and show; the
+            // ResizeObserver reports the frame. Dismiss = hide + "cover-hidden" at once.
+            kinds::COVER => {
+                if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                    match p {
+                        CoverPatch::Present { background, .. } => {
+                            if let Some(bg) = background {
+                                s(el, "background-color", &color_css(*bg));
+                            }
+                            unsafe { day_dom_insert(1, el, u32::MAX) };
+                            class(el, "open", true);
+                        }
+                        CoverPatch::DismissDisabled(_) => {}
+                        CoverPatch::Dismiss => {
+                            class(el, "open", false);
+                            if let Some(node) = node_of(el) {
+                                emit(node, Event::custom("cover-hidden", ""));
+                            }
+                        }
+                    }
+                }
+            }
             kinds::NAV_MENU => {
-                if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                if let Some(NavMenuPatch::Items {
+                    items,
+                    icons,
+                    selected,
+                }) = patch.downcast_ref::<NavMenuPatch>()
+                {
+                    let json = navmenu_json(items, icons, *selected);
+                    unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
+                } else if let Some(NavMenuPatch::Selected(sel)) =
+                    patch.downcast_ref::<NavMenuPatch>()
+                {
                     unsafe { day_dom_navmenu_select(el, sel.map(|i| i as i32).unwrap_or(-1)) };
                 }
             }
             kinds::TABS => {
-                if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                if let Some(TabsPatch::Items {
+                    titles, selected, ..
+                }) = patch.downcast_ref::<TabsPatch>()
+                {
+                    // Pages were added/removed via insert/remove; rebuild the strip + select.
+                    let json = tabs_json(titles, *selected);
+                    unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
+                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                     unsafe { day_dom_tabs_select(el, *i as u32) };
                 }
             }
@@ -1348,6 +1413,8 @@ fn nav_patch(el: u32, p: &NavPatch) {
                 }
                 sync_back_bar_at(el, state, n.saturating_sub(1));
             }
+            // The custom back bar routes back through Day; no native auto-pop to suppress.
+            NavPatch::GuardTop(_) => {}
             NavPatch::Title(t) => {
                 if let Some(last) = state.titles.last_mut() {
                     *last = t.clone();

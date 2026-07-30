@@ -64,7 +64,7 @@ main thread between flushes, so they are deterministic and behave identically on
 target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
-## How it works, briefly
+## How it works
 
 The engine lives in `day-script`, compiled into your app. It activates only when invited — the
 launcher passes a localhost port and a one-time token through the environment; without them the

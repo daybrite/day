@@ -1,0 +1,64 @@
+---
+// Side-by-side code comparison for the "Day for X developers" guides. Usage in MDX: pass
+// exactly two fenced code blocks as children — the first is the other framework's sample
+// (labeled `lhs`), the second is Day's (labeled `rhs`, default "Day"):
+//
+//   <Compare lhs="Flutter">
+//
+//   ```dart
+//   Text('$count clicks')
+//   ```
+//
+//   ```rust
+//   label(move || format!("{} clicks", count.get()))
+//   ```
+//
+//   </Compare>
+//
+// The fences ride the site's normal Shiki pipeline (night-owl, per-language grammars), so
+// highlighting matches every other code block. Wide screens show the panes side by side and
+// stretch both to the taller pane's height; below 880px they stack, each under its own label.
+interface Props {
+  /** Label over the left pane: the framework being compared. */
+  lhs: string;
+  /** Label over the right pane. */
+  rhs?: string;
+}
+const { lhs, rhs = 'Day' } = Astro.props;
+---
+<div class="compare">
+  <span class="cmp-label">{lhs}</span>
+  <span class="cmp-label day">{rhs}</span>
+  <slot />
+</div>
+
+<style>
+  /* Row-major auto-placement does the work: the two labels fill row 1, the two <pre>
+     children fill row 2 — so both code panes share one row and stretch to equal height. */
+  .compare {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px 14px;
+    margin: 18px 0 26px;
+  }
+  .cmp-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .cmp-label.day { color: var(--sun); }
+  div.compare > :global(pre) {
+    margin: 0;
+    min-width: 0;
+  }
+  @media (max-width: 880px) {
+    .compare { grid-template-columns: minmax(0, 1fr); }
+    /* Re-interleave for the single column: label, pane, label, pane. */
+    .cmp-label:nth-of-type(1) { order: 1; }
+    div.compare > :global(pre:nth-of-type(1)) { order: 2; margin-bottom: 12px; }
+    .cmp-label:nth-of-type(2) { order: 3; }
+    div.compare > :global(pre:nth-of-type(2)) { order: 4; }
+  }
+</style>

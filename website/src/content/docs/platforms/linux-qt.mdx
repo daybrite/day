@@ -57,7 +57,8 @@ actual binary, not on a flag.
   (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
 - **No spell-check**, because Qt ships none — `Cap::TextSpellCheck` reports unsupported and the
   patch is a no-op.
-- **No `cover()`, no Lottie, no map** on this backend — each renders its placeholder.
+- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+  a topmost window-sized child (no transition, programmatic dismissal only).
 - **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo: no packaging.
   Windows uses the MSYS2/MinGW toolchain and is marked experimental in CI. MSYS2 has no Qt6
   WebEngine, so the web view degrades there — and the MinGW linker currently drops external piece

@@ -98,6 +98,7 @@ static napi_ref g_open_url = nullptr;
 static napi_ref g_nav_push = nullptr;  // (key: number, title: string) => NodeContent
 static napi_ref g_nav_pop = nullptr;   // () => void — pathStack.pop()
 static napi_ref g_nav_title = nullptr; // (title: string) => void — retitle the top destination
+static napi_ref g_nav_set_guard = nullptr; // (on: boolean) => void — arm the top-page back guard
 // A pushed page's slot: the NodeContent handle PLUS a strong napi_ref on the JS object. The
 // ArkTS side drops its own reference when the NavDestination disappears (onDisAppear), so
 // without the ref the content is GC'd while Rust may still detach the page from it — the
@@ -108,6 +109,7 @@ struct DayNavContent {
 };
 static std::map<uint64_t, DayNavContent> g_nav_contents;
 extern "C" void day_arkui_nav_popped(uint64_t key);
+extern "C" void day_arkui_nav_back_requested();
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
 extern "C" void day_arkui_resized(double w, double h);
 
@@ -673,6 +675,17 @@ void day_ark_nav_pop(void) {
 }
 
 // Retitle the top destination (NavPatch::Title). JS thread only.
+// Arm/disarm the top NavDestination's back guard (NavPatch::GuardTop). No-op if the ArkTS host
+// predates the seam (g_nav_set_guard null) — the app simply gets no ArkUI guard, back works.
+void day_ark_nav_set_guard(int on) {
+    if (!g_env || !g_nav_set_guard) return;
+    napi_value cb = nullptr, self = nullptr, arg = nullptr, ret = nullptr;
+    napi_get_reference_value(g_env, g_nav_set_guard, &cb);
+    napi_get_undefined(g_env, &self);
+    napi_get_boolean(g_env, on != 0, &arg);
+    napi_call_function(g_env, self, cb, 1, &arg, &ret);
+}
+
 void day_ark_nav_set_title(const char* title) {
     if (!g_env || !g_nav_title) return;
     napi_handle_scope scope;
@@ -1343,12 +1356,12 @@ static napi_value OnFileResult(napi_env env, napi_callback_info info) {
 // ArkTS registers its Navigation bridge: `registerNav(push, pop, setTitle)` — see the
 // Navigation-bridge comment at the top. Re-registration replaces the callbacks.
 static napi_value RegisterNav(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    size_t argc = 4;
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     g_env = env;
-    napi_ref* refs[3] = {&g_nav_push, &g_nav_pop, &g_nav_title};
-    for (size_t i = 0; i < 3; i++) {
+    napi_ref* refs[4] = {&g_nav_push, &g_nav_pop, &g_nav_title, &g_nav_set_guard};
+    for (size_t i = 0; i < 4; i++) {
         if (*refs[i]) {
             napi_delete_reference(env, *refs[i]);
             *refs[i] = nullptr;
@@ -1369,6 +1382,16 @@ static napi_value NavPopped(napi_env env, napi_callback_info info) {
     double key = 0;
     napi_get_value_double(env, argv[0], &key);
     day_arkui_nav_popped((uint64_t)key);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// A guarded NavDestination's back was pressed (onBackPressed): the ArkTS side consumed the
+// native pop and asks Rust's guard to decide (docs/navigation.md).
+static napi_value NavBackRequested(napi_env env, napi_callback_info info) {
+    (void)info;
+    day_arkui_nav_back_requested();
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;
@@ -1442,6 +1465,8 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "registerNav", fn);
     napi_create_function(env, "navPopped", NAPI_AUTO_LENGTH, NavPopped, nullptr, &fn);
     napi_set_named_property(env, exports, "navPopped", fn);
+    napi_create_function(env, "navBackRequested", NAPI_AUTO_LENGTH, NavBackRequested, nullptr, &fn);
+    napi_set_named_property(env, exports, "navBackRequested", fn);
     napi_create_function(env, "navPageArea", NAPI_AUTO_LENGTH, NavPageArea, nullptr, &fn);
     napi_set_named_property(env, exports, "navPageArea", fn);
     return exports;

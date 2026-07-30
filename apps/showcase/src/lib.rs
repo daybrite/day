@@ -131,6 +131,13 @@ pub fn root() -> AnyPiece {
     // Lifecycle handlers (docs/lifecycle.md). On mobile this is the registration point; on desktop
     // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
     install_lifecycle_handlers();
+    // Remember the last-opened section across launches (docs/navigation.md). Web only, matching
+    // this app's prefs policy (controls.rs): a browser reload is normal life on the web, so the
+    // store is installed there and the top-level selector's `.restore` persists the section;
+    // native launches install no store, so `.restore` is a silent no-op and every run starts
+    // fresh — which is what the walkthrough asserts.
+    #[cfg(target_arch = "wasm32")]
+    day_part_prefs::install_nav_store();
     // Deep-link: open directly on a section when `DAY_DEMO_ROUTE` is set (`day launch --env
     // DAY_DEMO_ROUTE=canvas`), else start at the root menu. Handy for driving the emulator when
     // synthetic input is unreliable.
@@ -145,6 +152,8 @@ pub fn root() -> AnyPiece {
         .style(SelectorStyle::Sidebar)
         .title(crate::res::str::app_title())
         .header(sidebar_header)
+        // Reopen on the last-viewed section (web only — see the install_nav_store note above).
+        .restore("nav.section")
         // Ordered as a story, opened by the app's own face: About first (it is also the
         // desktop split's default detail — the split selects the FIRST item when nothing is
         // chosen), then author content (controls, text, drawing), put it in collections and

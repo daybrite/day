@@ -1,0 +1,425 @@
+---
+title: Day for SwiftUI developers
+description: "A SwiftUI-to-Day translation guide: views to Pieces, @State to signals, the same layout protocol, Xcode to Cargo + Day.toml, and archive/export to day pack — with side-by-side code."
+order: 6
+section: Coming from
+---
+
+import Compare from '../../components/Compare.astro';
+
+Day borrows more from SwiftUI than from any other framework: declarative composition, modifier
+chains, semantic fonts, and the same parent-proposes-child-chooses layout protocol. This guide
+maps the vocabulary, then covers what changes:
+the update model (no `body` re-evaluation), the language (Rust), and the reach (the same
+codebase also builds for Android, Windows, Linux, HarmonyOS, and the web as real widgets on
+each).
+
+SwiftUI also describes your UI to Apple's frameworks, which own the result; Day is open source
+all the way down. When a control misbehaves on some platform, the renderer that placed it is
+code you can read and patch.
+
+## SwiftUI terms in Day
+
+| SwiftUI | Day |
+|---|---|
+| `struct MyView: View` + `body` | a plain function returning a Piece |
+| `@State private var count` | `let count = Signal::new(…)` |
+| `@Binding` | pass the `Signal` itself — it's `Copy` |
+| `@Observable` class / `ObservableObject` | a struct holding `Signal`s and `Memo`s |
+| `body` re-evaluated on change | nothing re-runs; one binding patches one widget |
+| `VStack` / `HStack` / `ZStack` / `Spacer` | `column` / `row` / `zstack` / `spacer()` |
+| `.font(.title)` / `.padding()` | `.font(Font::Title)` / `.padding(16.0)` |
+| `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
+| `NavigationSplitView` | `selector(…).style(SelectorStyle::Sidebar)` |
+| `NavigationStack(path:)` | `stack(path, root)` — same idea, a path signal |
+| `.environment` / `@Environment` | `with_environment` / `use_context` |
+| `Task { }` + `@MainActor` | `day::task` — continuations land on the UI thread |
+| String Catalogs (`.xcstrings`) | Fluent `.ftl` + generated `res::str` functions |
+| asset catalogs | the `resource/` directory, staged per platform |
+| Xcode project + SPM | `Cargo.toml` + `Day.toml`, no IDE requirement |
+| Archive → Organizer → notarize / upload | `day pack -p <target>` |
+
+## The same counter in both
+
+<Compare lhs="SwiftUI">
+
+```swift
+struct Counter: View {
+    @State private var count = 0
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("\(count) clicks")
+            Button("+") { count += 1 }
+        }
+        .padding(16)
+    }
+}
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+The structure is nearly identical; the runtime behavior isn't. SwiftUI re-evaluates `body` when
+`count` changes and diffs the result; Day re-runs only the label's closure and sets one native
+string. The distinction you notice day to day is that *you* mark what's dynamic — a closure
+makes text live, a bare value doesn't. In exchange, an update's cost is proportional to what
+observes the change, never to the size of the view. [Reactivity](/docs/reactivity) explains the
+model.
+
+## Bindings without the `$`
+
+SwiftUI splits state into `@State` (ownership) and `$binding` (projection). A `Signal` is both:
+it's a `Copy` handle, so "passing a binding" is passing the signal.
+
+<Compare lhs="SwiftUI">
+
+```swift
+struct SettingsForm: View {
+    @State private var name = ""
+    @State private var volume = 40.0
+    @State private var subscribed = false
+
+    var body: some View {
+        Form {
+            Section("Profile") {
+                TextField("Your name", text: $name)
+                Slider(value: $volume, in: 0...100)
+                Toggle("Subscribe", isOn: $subscribed)
+            }
+        }
+    }
+}
+```
+
+```rust
+fn settings_form() -> impl Piece {
+    let name = Signal::new(String::new());
+    let volume = Signal::new(40.0);
+    let subscribed = Signal::new(false);
+
+    form((section((
+        text_field(name).placeholder("Your name"),
+        slider(volume).range(0.0..=100.0),
+        toggle(subscribed),
+    ))
+    .title("Profile"),))
+}
+```
+
+</Compare>
+
+Where you'd reach for `@Observable`, group signals in a plain struct and pass it around — every
+field is independently observable, and there's no macro or conformance:
+
+```rust
+#[derive(Clone, Copy)]
+struct Player {
+    track: Signal<Option<TrackId>>,
+    position: Signal<f64>,
+    playing: Signal<bool>,
+}
+```
+
+## Lists
+
+<Compare lhs="SwiftUI">
+
+```swift
+List(albums, id: \.id) { album in
+    Text(album.title)
+}
+```
+
+```rust
+list(
+    move || albums.get(),
+    |a| a.id,
+    |slot: ItemSlot<Album, u64>| {
+        label(move || slot.get().title).padding(8.0)
+    },
+)
+```
+
+</Compare>
+
+`list` recycles native cells the way `List` does; `each` is the non-recycling `ForEach`
+equivalent for short collections. The `id:` key path becomes an explicit key function, and rows
+keep their own state across reorders by key, as you'd expect.
+
+## Navigation: the same shapes
+
+Day's two navigation Pieces line up with the two SwiftUI containers you already use, down to
+binding a path collection for push/pop:
+
+<Compare lhs="SwiftUI">
+
+```swift
+@State private var path: [String] = []
+
+NavigationStack(path: $path) {
+    HomeView()
+        .navigationDestination(for: String.self) { key in
+            AlbumView(id: key)
+        }
+}
+
+// push
+path.append("album-42")
+```
+
+```rust
+let path = Signal::new(Vec::<String>::new());
+
+stack(path, home_page())
+    .title("Home")
+    .destination(|key| album_page(key))
+
+// push
+path.update(|p| p.push("album-42".into()));
+// or, from anywhere:
+navigate("album-42");
+```
+
+</Compare>
+
+`NavigationSplitView` maps to `selector(…).style(SelectorStyle::Sidebar)` — a real
+`NSSplitView` source list on macOS, and the platform's own idiom elsewhere (a pushing list on
+phones, libadwaita's split view on GTK). On top of the signals sits a thin route layer:
+`navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
+navigation, state restoration, and deep links with one set of strings — the role
+`onOpenURL` and scene restoration play, unified. See [Navigation](/docs/navigation).
+
+## Modifiers, fonts, and the layout protocol
+
+Day uses SwiftUI's layout algorithm: parents propose sizes, children choose, text is measured by
+the platform (height-for-width), and layout re-enters at boundaries rather than from the root.
+`Spacer` pushes, `.frame` fixes, padding wraps. Modifier ordering works the same way:
+padding before background pads inside the fill.
+
+<Compare lhs="SwiftUI">
+
+```swift
+VStack(alignment: .leading, spacing: 8) {
+    Text("Plan").font(.title)
+    Text("Pro").font(.body)
+}
+.padding(16)
+.background(Color(red: 0.12, green: 0.16, blue: 0.23))
+.cornerRadius(12)
+```
+
+```rust
+column((
+    label("Plan").font(Font::Title),
+    label("Pro").font(Font::Body),
+))
+.spacing(8.0)
+.align(HAlign::Leading)
+.padding(16.0)
+.background(Color::rgb(0.12, 0.16, 0.23))
+.corner_radius(12.0)
+```
+
+</Compare>
+
+The semantic font roles (`Title`, `Headline`, `Body`, `Caption`, …) map to each platform's
+typography scale — on Apple targets, the same text styles you use today. One gap:
+SwiftUI's semantic *colors* (`Color.primary`, automatic dark-mode adaptation for your own
+colors) don't have a Day equivalent yet. Native widget chrome follows the system appearance on
+its own, but hardcoded custom colors are yours to switch per appearance for now.
+[Styling](/docs/styling) states the limits precisely, including what deliberately can't be
+restyled.
+
+## Concurrency
+
+`day::task` plays the role of `Task` with `@MainActor` semantics: the future's continuations
+run on the UI thread, so touching state after an `await` is ordinary code. The compiler
+enforces the boundary the way Swift 6 strict concurrency does — `Signal` is `!Send`, so a
+background thread can't touch one; it gets a `Setter`, a `Send` write-only handle that marshals
+to the main thread and silently drops the write if the owning page is gone (the
+task-outlives-view case).
+
+```rust
+let status = Signal::new(String::new());
+
+day::task(async move {
+    let resp = day_part_http::fetch_future(request).await?;   // suspend
+    status.set(resp.text().into_owned());                     // back on the UI thread
+    Ok::<(), day_part_http::HttpError>(())
+});
+```
+
+Dropping the future cancels the request — the same cooperative-cancellation shape as a Swift
+`Task`, tied to scope lifetime instead of `task { }` modifiers.
+
+## Package configuration
+
+An Xcode project holds targets, build settings, signing, capabilities, and package
+dependencies. Day splits that into two small text files — both diffable, no `.pbxproj` merges:
+
+<Compare lhs="SwiftUI — Xcode + SPM">
+
+```swift
+// Package.swift (if you use SPM for code),
+// plus project.pbxproj for: targets, bundle id,
+// version/build, entitlements, asset catalogs,
+// signing team, Info.plist keys…
+let package = Package(
+    name: "FieldNotes",
+    dependencies: [
+        .package(
+            url: "https://github.com/example/dep",
+            from: "1.0.0"
+        ),
+    ]
+)
+```
+
+```toml
+# Cargo.toml — the package
+[package]
+name = "field-notes"
+version = "1.2.0"
+edition = "2024"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+
+# Day.toml — the app manifest
+[app]
+id = "dev.example.fieldnotes"
+title = "Field Notes"
+build = 34
+targets = ["macos-appkit", "ios-uikit", "android-mdc"]
+
+[window]
+width = 480
+height = 640
+```
+
+</Compare>
+
+There is still an Xcode project — `platform/ios/` holds a thin host that links the Rust static
+library — but it's a shell you rarely touch: identity, version, icons, and permissions flow
+from `Day.toml` at build time. Opening it and pressing Run works (Xcode calls back into `day`
+for the Rust half), so Instruments and the debugger stay available.
+
+## Resources and localization
+
+<Compare lhs="SwiftUI">
+
+```swift
+// Assets.xcassets: wave.imageset (1x/2x/3x),
+// AccentColor, AppIcon…
+Image("wave")
+
+// Localizable.xcstrings:
+Text("unread-count \(unread)")
+
+// bundled data
+let url = Bundle.main.url(
+    forResource: "stations", withExtension: "json")!
+let data = try Data(contentsOf: url)
+```
+
+```rust
+// resource/images/wave.png + wave@2x.png + wave@3x.png
+image("wave")
+
+// resource/locales/en/app.ftl:
+//   unread_count = { $count ->
+//       [one] 1 unread
+//      *[other] { $count } unread
+//   }
+label(res::str::unread_count(unread))    // generated, compile-checked
+
+// resource/assets/stations.json — zero-copy view
+let data = day::resource("stations.json")?;
+```
+
+</Compare>
+
+On Apple targets, `resource/images/` is staged into a real asset catalog and compiled by
+`actool` — the same optimized `Assets.car` you'd get from Xcode — and fonts land in the bundle
+with the `UIAppFonts` plist entry written for you. Localization uses
+[Mozilla Fluent](https://projectfluent.org/) instead of String Catalogs: plural rules live in
+the message, `res::str::*` accessors are generated so a bad key is a compile error, and adding
+a language is adding a `resource/locales/<lang>/` directory. The locale is a signal — switching
+re-renders live, and RTL mirrors the layout. See [Resources](/docs/resources) and
+[Localization](/docs/localization).
+
+## Project structure and per-platform configuration
+
+```text
+field-notes/
+├── Cargo.toml            # package: name, version, dependencies
+├── Day.toml              # app: id, title, targets, window, signing
+├── src/
+│   ├── lib.rs            # the app: pieces, signals, routes
+│   └── main.rs           # desktop entry point
+├── resource/             # assets/ images/ fonts/ icons/ locales/
+├── dayscript/            # UI test flows
+├── platform/
+│   ├── ios/              # Xcode host (thin; no app logic)
+│   ├── android/          # Gradle host
+│   └── ohos/             # HarmonyOS host
+└── build/day/            # everything generated
+```
+
+Per-platform configuration is a `Day.toml` override, not a target's build settings pane — and
+it extends to platforms Xcode doesn't build for:
+
+```toml
+[app]
+id = "dev.example.fieldnotes"
+title = "Field Notes"
+
+[app.ios]
+title = "Field Notes Mobile"        # only iOS sees this
+
+[app.macos-appkit]
+id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
+```
+
+One macOS difference: SwiftUI on the Mac adapts iOS-shaped views; Day's macOS target is an
+AppKit app — `NSButton`, `NSSplitView` source lists, real menu bar items — because AppKit is
+what Day's macOS toolkit speaks natively.
+
+## Building and shipping
+
+| Task | SwiftUI | Day |
+|---|---|---|
+| run in dev | Xcode Run (⌘R) | `day launch -p macos-appkit` |
+| iterate | Previews / rebuild | `day relaunch --all-running` (no previews) |
+| macOS release | Archive → notarize → staple → DMG (your tooling) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
+| iOS release | Archive → Organizer / `xcodebuild -exportArchive` | `day pack -p ios-uikit` → `.ipa` (App Store Connect export) |
+| TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool — `day pack` stops at the artifact |
+| Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
+| UI tests | XCUITest | [dayscript](/docs/dayscript) — one YAML script drives every platform |
+
+Signing works headless and in CI: identities and keys are `${ENV_VAR}` references in
+`Day.toml`, `day sign --check` reports readiness without printing secrets, and a missing
+variable degrades that platform to a dev-signed artifact with a warning instead of failing the
+build. [Packaging](/docs/packaging) has the details.
+
+## Where to go next
+
+- [Getting started](/docs/getting-started) — install, scaffold, first launch.
+- [API tour](/docs/api-tour) — the whole authoring surface in one pass.
+- [Layout](/docs/layout) — the negotiation protocol, from the other side.
+- [Why Day](/docs/benefits) — the frank comparison, including when SwiftUI alone is enough.

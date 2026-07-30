@@ -457,6 +457,21 @@ mod imp {
         }
     }
 
+    /// A guarded NavDestination consumed its back (ArkTS onBackPressed) and asks Day's guard to
+    /// decide: emit `NavBack { already_popped: false }` (the native stack did NOT pop, unlike an
+    /// unguarded back's `day_arkui_nav_popped`).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_nav_back_requested() {
+        if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
+            emit(
+                NodeId(host_id),
+                Event::NavBack {
+                    already_popped: false,
+                },
+            );
+        }
+    }
+
     /// A destination's content area changed (vp): relayout that page in its real bounds. The
     /// FIRST report for a key is also the push-landed signal `ui_idle` waits on.
     #[unsafe(no_mangle)]
@@ -855,6 +870,9 @@ mod imp {
                             }
                             NavPatch::Title(t) => unsafe {
                                 ffi::day_ark_nav_set_title(cstr(t).as_ptr());
+                            },
+                            NavPatch::GuardTop(on) => unsafe {
+                                ffi::day_ark_nav_set_guard(*on as i32);
                             },
                         }
                     }
@@ -1307,6 +1325,9 @@ mod imp {
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::FileDialogs => Support::Native,
+                // Every pushed page is an ArkTS NavDestination with a native title bar
+                // (Index.ets) — content needn't repeat the title (docs/navigation.md).
+                Cap::NavHeader => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
                 _ => Support::Unsupported,

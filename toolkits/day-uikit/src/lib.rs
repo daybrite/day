@@ -56,6 +56,10 @@ mod imp {
         UITextField, UIView, UIViewAnimationOptions, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
+        UIBarPositioningDelegate, UINavigationBar, UINavigationBarDelegate, UINavigationController,
+        UINavigationItem,
+    };
+    use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
         UITapGestureRecognizer,
     };
@@ -528,7 +532,7 @@ mod imp {
     // -----------------------------------------------------------------------
 
     struct NavState {
-        nav: Retained<objc2_ui_kit::UINavigationController>,
+        nav: Retained<DayNavController>,
         host_node: NodeId,
         /// Our mirror of the intended VC stack (index 0 = root page).
         vcs: Vec<Retained<UIViewController>>,
@@ -604,6 +608,64 @@ mod imp {
             let v: Retained<Self> = unsafe { msg_send![super(this), init] };
             unsafe { v.setBackgroundColor(Some(&UIColor::systemBackgroundColor())) };
             v
+        }
+    }
+
+    struct NavControllerIvars {
+        host: std::cell::Cell<usize>,
+        guarded: std::cell::Cell<bool>,
+    }
+
+    // A UINavigationController subclass that intercepts the BACK BUTTON via its own bar-delegate
+    // `shouldPop` (docs/navigation.md). A nav controller IS its bar's delegate, so overriding
+    // the method here is the sanctioned way to veto a back-button pop. While `guarded`, we veto
+    // (return false) and emit `NavBack { already_popped: false }` so Rust's guard decides — the
+    // sync/async mismatch resolves because the native pop simply never happens; Rust performs it
+    // on `Proceed`. The swipe is a separate path (interactivePopGestureRecognizer), disabled in
+    // the GuardTop patch.
+    define_class!(
+        #[unsafe(super(UINavigationController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavController"]
+        #[ivars = NavControllerIvars]
+        struct DayNavController;
+
+        unsafe impl NSObjectProtocol for DayNavController {}
+        unsafe impl UIBarPositioningDelegate for DayNavController {}
+
+        unsafe impl UINavigationBarDelegate for DayNavController {
+            #[unsafe(method(navigationBar:shouldPopItem:))]
+            fn should_pop(&self, bar: &UINavigationBar, _item: &UINavigationItem) -> bool {
+                if self.ivars().guarded.get() {
+                    emit(
+                        NodeId(self.ivars().host.get() as u64),
+                        Event::NavBack {
+                            already_popped: false,
+                        },
+                    );
+                    // UIKit dims the back button after a vetoed pop; restore the bar's opacity on
+                    // the next runloop turn (the documented shouldPop cosmetic fix).
+                    let bar: Retained<UINavigationBar> = Retained::from(bar);
+                    modal_after_idle(move || {
+                        for v in unsafe { bar.subviews() }.iter() {
+                            unsafe { v.setAlpha(1.0) };
+                        }
+                    });
+                    false
+                } else {
+                    true
+                }
+            }
+        }
+    );
+
+    impl DayNavController {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavControllerIvars {
+                host: std::cell::Cell::new(host),
+                guarded: std::cell::Cell::new(false),
+            });
+            unsafe { msg_send![super(this), init] }
         }
     }
 
@@ -1151,6 +1213,23 @@ mod imp {
                 icons: RefCell::new(resolved),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// Data-driven rows changed (`NavMenuPatch::Items`): swap labels/icons in place.
+        fn set_items(&self, items: &[String], icons: &[Option<String>]) {
+            *self.ivars().items.borrow_mut() =
+                items.iter().map(|s| NSString::from_str(s)).collect();
+            *self.ivars().icons.borrow_mut() = icons
+                .iter()
+                .map(|ic| {
+                    let img = load_bundled_uiimage(ic.as_deref()?)?;
+                    Some(unsafe {
+                        img.imageWithRenderingMode(
+                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                        )
+                    })
+                })
+                .collect();
         }
     }
 
@@ -1825,6 +1904,9 @@ mod imp {
                 | Cap::FileDialogs
                 | Cap::Animation
                 | Cap::Cover
+                // Every page rides a UINavigationController, whose UINavigationBar names the
+                // destination — content needn't repeat the title (docs/navigation.md).
+                | Cap::NavHeader
                 | Cap::TextEditable
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck => Support::Native,
@@ -1856,7 +1938,7 @@ mod imp {
                 kinds::NAV => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     let _ = p;
-                    let nav = unsafe { objc2_ui_kit::UINavigationController::new(mtm) };
+                    let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
                     let root_vc = WINDOW
                         .with(|w| w.borrow().clone())
@@ -1868,6 +1950,7 @@ mod imp {
                         }
                     }
                     let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                    nav.ivars().host.set(ptr_of(&host));
                     let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
                     unsafe { nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
                     NAV_STATE.with(|m| {
@@ -2265,15 +2348,38 @@ mod imp {
                     }
                 }
                 kinds::TABS => {
-                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                    // Selection sync; the tab set itself is rebuilt in insert/remove
+                    // (setViewControllers), so Items only re-selects.
+                    let i = match patch.downcast_ref::<TabsPatch>() {
+                        Some(TabsPatch::Selected(i)) => Some(*i),
+                        Some(TabsPatch::Items { selected, .. }) => Some(*selected),
+                        None => None,
+                    };
+                    if let Some(i) = i {
                         let tabbar = TABS_STATE.with(|m| {
                             m.borrow()
                                 .get(&ptr_of(h))
-                                .and_then(|s| (*i < s.vcs.len()).then(|| s.tabbar.clone()))
+                                .and_then(|s| (i < s.vcs.len()).then(|| s.tabbar.clone()))
                         });
                         if let Some(tabbar) = tabbar {
-                            unsafe { tabbar.setSelectedIndex(*i) };
+                            unsafe { tabbar.setSelectedIndex(i) };
                         }
+                    }
+                }
+                // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
+                kinds::NAV_MENU => {
+                    if let Some(NavMenuPatch::Items { items, icons, .. }) =
+                        patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        NAV_MENUS.with(|m| {
+                            if let Some((data, n)) = m.borrow_mut().get_mut(&ptr_of(h)) {
+                                data.set_items(items, icons);
+                                *n = items.len();
+                                if let Some(tv) = h.downcast_ref::<objc2_ui_kit::UITableView>() {
+                                    unsafe { tv.reloadData() };
+                                }
+                            }
+                        });
                     }
                 }
                 kinds::COVER => {
@@ -2306,11 +2412,9 @@ mod imp {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
                         enum Act {
-                            Push(
-                                Retained<UIViewController>,
-                                Retained<objc2_ui_kit::UINavigationController>,
-                            ),
-                            Pop(Retained<objc2_ui_kit::UINavigationController>),
+                            Push(Retained<UIViewController>, Retained<DayNavController>),
+                            Pop(Retained<DayNavController>),
+                            Title(Retained<UIViewController>, String),
                             None,
                         }
                         let act = NAV_STATE.with(|m| {
@@ -2336,7 +2440,24 @@ mod imp {
                                         Act::Pop(state.nav.clone())
                                     }
                                 }
-                                NavPatch::Title(_) => Act::None,
+                                // Retitle the TOP page's controller — the navigation bar
+                                // mirrors the top item's title live.
+                                NavPatch::Title(t) => state
+                                    .vcs
+                                    .last()
+                                    .map(|vc| Act::Title(vc.clone(), t.clone()))
+                                    .unwrap_or(Act::None),
+                                // Arm the back guard: shouldPop vetoes the back button, and the
+                                // swipe gesture is disabled (docs/navigation.md).
+                                NavPatch::GuardTop(on) => {
+                                    state.nav.ivars().guarded.set(*on);
+                                    if let Some(g) =
+                                        unsafe { state.nav.interactivePopGestureRecognizer() }
+                                    {
+                                        g.setEnabled(!*on);
+                                    }
+                                    Act::None
+                                }
                             }
                         });
                         // Defer past any in-flight modal transition: a push/pop issued the
@@ -2349,6 +2470,9 @@ mod imp {
                             Act::Pop(nav) => modal_after_idle(move || {
                                 let _ = unsafe { nav.popViewControllerAnimated(true) };
                             }),
+                            Act::Title(vc, t) => unsafe {
+                                vc.setTitle(Some(&NSString::from_str(&t)));
+                            },
                             Act::None => {}
                         }
                     }

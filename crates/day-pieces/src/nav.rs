@@ -354,16 +354,147 @@ pub enum SelectorStyle {
     Sidebar,
 }
 
+/// Builds the page for a data-driven key (`&K` → piece) — a selector's `.destination` fallback
+/// or a stack's `.destination`.
+type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
+
+/// The flattened live rows a selector's dynamic blocks derive to: per-row key strings, typed
+/// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
+type DerivedRows<K> = (Vec<String>, Vec<K>, Vec<String>, Vec<Option<String>>);
+
 struct SelItem<K> {
     key: K,
     title: TextSource,
     /// Optional bundled-image name for the item's native icon (docs/navigation.md).
     icon: Option<String>,
-    build: Box<dyn Fn() -> AnyPiece>,
+    /// A static item carries its own page builder; a dynamic item (from `.items`) leaves this
+    /// `None` and its page is built by the selector's `.destination` fallback.
+    build: Option<Box<dyn Fn() -> AnyPiece>>,
 }
 
-/// A sidebar item resolved for the detail switcher: (encoded key, resolved title, lazy builder).
-type ResolvedItems = Rc<Vec<(String, String, Box<dyn Fn() -> AnyPiece>)>>;
+/// One data-driven selector item, returned by [`item`] inside a [`Selector::items`] mapper.
+pub struct NavItem<K = String> {
+    key: K,
+    title: TextSource,
+    icon: Option<String>,
+}
+
+/// A selector item for a data-driven list: `item(room.id, room.name).icon(res::images::room)`
+/// (docs/navigation.md). Used inside the `.items(signal, |t| …)` mapper; the page it selects is
+/// built by the selector's [`Selector::destination`].
+pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
+    NavItem {
+        key: key.into(),
+        title: title.into_text(),
+        icon: None,
+    }
+}
+
+impl<K> NavItem<K> {
+    /// A bundled-image name for the item's native icon (same convention as
+    /// [`Selector::item_icon`]).
+    pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
+        self.icon = Some(icon.into().as_str().to_owned());
+        self
+    }
+}
+
+/// A source of selector items: a fixed item, or a signal-driven block that re-derives its items
+/// when the signal changes (docs/navigation.md).
+enum ItemSource<K> {
+    Static(SelItem<K>),
+    /// Reads a signal (tracked) and maps its elements to items. Called to (re)derive the block.
+    Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
+}
+
+// A selector's item sources reduced to what both `build_sidebar` and `build_tabs` need: a
+// per-key page builder for STATIC items, the ordered metadata sources (statics + dynamic
+// blocks) that `derive` walks to produce the live row list, and the `.destination` fallback
+// for data-driven keys. `derive` is called untracked for the first build and tracked inside a
+// reactive effect that re-patches the native rows when a dynamic block's signal changes.
+enum MetaSource<K> {
+    Static(K, TextSource, Option<String>),
+    Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
+}
+
+struct SelItems<K> {
+    static_builders: std::collections::HashMap<String, Box<dyn Fn() -> AnyPiece>>,
+    meta: Rc<Vec<MetaSource<K>>>,
+    destination: Option<DestFn<K>>,
+    dynamic: bool,
+}
+
+impl<K: Route> SelItems<K> {
+    fn from_sources(sources: Vec<ItemSource<K>>, destination: Option<DestFn<K>>) -> Self {
+        let mut static_builders = std::collections::HashMap::new();
+        let mut meta = Vec::new();
+        let mut dynamic = false;
+        for src in sources {
+            match src {
+                ItemSource::Static(it) => {
+                    if let Some(b) = it.build {
+                        static_builders.insert(it.key.key(), b);
+                    }
+                    meta.push(MetaSource::Static(it.key, it.title, it.icon));
+                }
+                ItemSource::Dynamic(f) => {
+                    dynamic = true;
+                    meta.push(MetaSource::Dynamic(f));
+                }
+            }
+        }
+        SelItems {
+            static_builders,
+            meta: Rc::new(meta),
+            destination,
+            dynamic,
+        }
+    }
+
+    /// The flat live rows: (typed keys, resolved titles, icons). Reading a `Dynamic` block's
+    /// signal here subscribes the caller (the derive effect) to its changes.
+    fn derive(&self) -> (Vec<K>, Vec<String>, Vec<Option<String>>) {
+        let (mut keys, mut titles, mut icons) = (Vec::new(), Vec::new(), Vec::new());
+        for ms in self.meta.iter() {
+            match ms {
+                MetaSource::Static(k, t, i) => {
+                    keys.push(k.clone());
+                    titles.push(t.initial());
+                    icons.push(i.clone());
+                }
+                MetaSource::Dynamic(f) => {
+                    for it in f() {
+                        keys.push(it.key);
+                        titles.push(it.title.initial());
+                        icons.push(it.icon);
+                    }
+                }
+            }
+        }
+        (keys, titles, icons)
+    }
+
+    /// A static item's live title source (locale-reactive retitle); `None` for a data-driven
+    /// key, whose title is a resolved snapshot from the derived list.
+    fn static_title(&self, key: &str) -> Option<TextSource> {
+        self.meta.iter().find_map(|ms| match ms {
+            MetaSource::Static(k, t, _) if k.key() == key => Some(t.clone()),
+            _ => None,
+        })
+    }
+
+    /// Build a key's page: a static item's own builder, else the `.destination` fallback (data-
+    /// driven key), else a blank leaf (misconfigured — a dynamic item with no `.destination`).
+    fn build_page(&self, key: &K) -> AnyPiece {
+        if let Some(b) = self.static_builders.get(&key.key()) {
+            b()
+        } else if let Some(d) = &self.destination {
+            d(key)
+        } else {
+            piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No)).any()
+        }
+    }
+}
 
 /// A one-of-N selector whose active key is an app-owned signal (two-way, exactly like
 /// `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
@@ -383,7 +514,17 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     style: SelectorStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
-    items: Vec<SelItem<K>>,
+    sources: Vec<ItemSource<K>>,
+    /// Builds the page for a key with no static item (a data-driven item from `.items`).
+    destination: Option<DestFn<K>>,
+    /// Whether this selector contributes to the app route (deep links / dayscript). `false`
+    /// (`.local()`) for a selector used as a self-contained widget, so it does not add a segment
+    /// to `current_route` or intercept `navigate` (docs/navigation.md).
+    routed: bool,
+    /// The persistence key set by [`Selector::restore`]: the selected item's key is saved here on
+    /// every change and restored at build (unless a launch deep link is pending). `None` = not
+    /// persisted.
+    restore: Option<String>,
 }
 
 pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
@@ -392,7 +533,10 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
         style: SelectorStyle::Sidebar,
         title: TextSource::Static(String::new()),
         header: None,
-        items: Vec::new(),
+        sources: Vec::new(),
+        destination: None,
+        routed: true,
+        restore: None,
     }
 }
 
@@ -420,12 +564,12 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         title: impl IntoText<M>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
-        self.items.push(SelItem {
+        self.sources.push(ItemSource::Static(SelItem {
             key: key.into(),
             title: title.into_text(),
             icon: None,
-            build: Box::new(move || AnyPiece::new(build())),
-        });
+            build: Some(Box::new(move || AnyPiece::new(build()))),
+        }));
         self
     }
     /// Like [`item`](Self::item) but with a native icon: `icon` is a bundled-image name (typed
@@ -439,12 +583,67 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         icon: impl Into<day_spec::ImageName>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
-        self.items.push(SelItem {
+        self.sources.push(ItemSource::Static(SelItem {
             key: key.into(),
             title: title.into_text(),
             icon: Some(icon.into().as_str().to_owned()),
-            build: Box::new(move || AnyPiece::new(build())),
-        });
+            build: Some(Box::new(move || AnyPiece::new(build()))),
+        }));
+        self
+    }
+    /// A data-driven item block: `.items(rooms_signal, |r| item(r.id, r.name).icon(…))`
+    /// (docs/navigation.md). The block re-derives whenever the signal changes — rows are added
+    /// and removed on the native sidebar/tab widget, and if the selected key disappears the
+    /// selection resets (to `None` for an `Option` key). Static `.item`s and dynamic blocks may
+    /// be mixed; the final list is their declaration order. Pair with [`destination`] to build
+    /// the page for a data-driven key.
+    ///
+    /// [`destination`]: Self::destination
+    pub fn items<T: Clone + 'static>(
+        mut self,
+        items: impl Fn() -> Vec<T> + 'static,
+        map: impl Fn(&T) -> NavItem<K> + 'static,
+    ) -> Self {
+        // `items` is a TRACKED reader (a `Signal<Vec<T>>` via its `Fn()` deref, or a closure) —
+        // reading it inside the derive effect subscribes the selector to changes.
+        self.sources.push(ItemSource::Dynamic(Box::new(move || {
+            items()
+                .iter()
+                .map(|t| {
+                    let ni = map(t);
+                    SelItem {
+                        key: ni.key,
+                        title: ni.title,
+                        icon: ni.icon,
+                        build: None,
+                    }
+                })
+                .collect()
+        })));
+        self
+    }
+    /// Build the page for a data-driven key (one added by [`items`](Self::items) with no static
+    /// item). Mirrors [`Stack::destination`]; unused for a purely static selector.
+    pub fn destination<P: Piece>(mut self, build: impl Fn(&K) -> P + 'static) -> Self {
+        self.destination = Some(Rc::new(move |k| AnyPiece::new(build(k))));
+        self
+    }
+    /// Use this selector as a LOCAL widget: its selection is not part of the app route, so it
+    /// neither adds a segment to `current_route` nor intercepts `navigate`/deep links. Use it for
+    /// a tab strip or sidebar embedded inside a page that already has its own routing
+    /// (docs/navigation.md).
+    pub fn local(mut self) -> Self {
+        self.routed = false;
+        self
+    }
+    /// Remember the selected item across launches (docs/navigation.md). The selected key is saved
+    /// under `key` on every change and restored at build — so the app reopens on the tab/section
+    /// the user last had — unless a launch deep link is pending, which wins. Restore is a no-op
+    /// until the app installs a store (e.g. `day_part_prefs::install_nav_store`); a stale saved
+    /// key (its item no longer exists) is ignored. Works whether or not the selector is
+    /// [`routed`](Self::local).
+    pub fn restore(mut self, key: impl Into<String>) -> Self {
+        self.restore = Some(key.into());
         self
     }
 }
@@ -458,27 +657,57 @@ impl<K: Route, S: SignalRw<K>> Piece for Selector<S, K> {
     }
 }
 
+/// Apply a selector's `.restore` at build: seed `selection` from the key saved under `restore`,
+/// so the app reopens on the section/tab the user last chose. A pending launch deep link wins
+/// (skip). Only a saved key that parses AND is a current item is honored — plus the empty
+/// "deselected" key, for a sidebar's collapsed state — so a stale key left by an older build is
+/// ignored. A no-op when `restore` is unset or no [`NavStore`](day_core::NavStore) is installed.
+fn restore_selection<K: Route, S: SignalRw<K>>(
+    restore: &Option<String>,
+    selection: &S,
+    items: &[K],
+) {
+    if let Some(key) = restore.as_deref()
+        && !day_core::has_launch_deeplink()
+        && let Some(saved) = day_core::nav_store_load(key)
+        && let Some(k) = K::from_key(&saved)
+        && (saved.is_empty() || items.iter().any(|x| x.key() == saved))
+    {
+        selection.set_rw(k);
+    }
+}
+
+/// Persist a selector's selection under its `.restore` key on every change (docs/navigation.md).
+/// The binding lives in the current scope, so it stops with the surface. Consumes `restore`.
+fn persist_selection<K: Route, S: SignalRw<K>>(restore: Option<String>, selection: &S) {
+    if let Some(key) = restore {
+        let s = selection.clone();
+        bind(
+            move || s.get_rw().key(),
+            move |k: &String| day_core::nav_store_save(&key, k),
+        );
+    }
+}
+
 fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{TabsPageProps, TabsPatch, TabsProps};
     let selection = sel.selection;
-    let metas: Vec<(String, String)> = sel
-        .items
-        .iter()
-        .map(|it| (it.key.key(), it.title.initial()))
-        .collect();
-    let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
-    let icons: Vec<Option<String>> = sel.items.iter().map(|it| it.icon.clone()).collect();
-    let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
-    let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
+    let routed = sel.routed;
+    let restore = sel.restore;
+    let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
+    let (typed0, titles0, icons0) = day_reactive::untrack(|| items.derive());
+    // Restore the last-selected tab (before the initial native index is read).
+    restore_selection(&restore, &selection, &typed0);
+    let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0.clone()));
     let initial = selection.get_untracked_rw().key();
-    let initial_idx = keys.iter().position(|k| *k == initial).unwrap_or(0);
+    let initial_idx = typed0.iter().position(|k| k.key() == initial).unwrap_or(0);
 
     let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
     let host = cx.native(
         kinds::TABS,
         &TabsProps {
-            titles,
-            icons,
+            titles: titles0.clone(),
+            icons: icons0.clone(),
             selected: initial_idx,
         },
         Rc::new(NavLayout {
@@ -492,33 +721,50 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
         },
         Boundary::Yes,
     );
-    for (i, it) in sel.items.into_iter().enumerate() {
-        let page = tabs_page(
-            host,
-            &TabsPageProps {
-                title: metas[i].1.clone(),
-                icon: it.icon.clone(),
-            },
-            &sizes,
-        );
-        let content = (it.build)();
-        // Barrier: tabs are resident, not a push stack, so a stack inside a tab must not merge
-        // through this container into an outer nav host — it keeps its own (docs/navigation.md).
-        with_nav_host(None, || {
-            let mut pcx = BuildCx::new(page);
-            let _ = content.build(&mut pcx);
-        });
+    // Resident pages (tabs keep every page alive): (key string, page node, scope). A dynamic
+    // block reconciles this list against the derived keys.
+    let pages: Rc<RefCell<Vec<(String, RNode, Scope)>>> = Rc::default();
+    let tab_scope = Scope::current();
+    let build_tab_page = {
+        let (items_c, pages_c, sizes_c, tab_scope) =
+            (items.clone(), pages.clone(), sizes.clone(), tab_scope);
+        move |key: &K, title: String, icon: Option<String>| {
+            let page = tabs_page(host, &TabsPageProps { title, icon }, &sizes_c);
+            let scope = tab_scope.enter(Scope::child);
+            let content = items_c.build_page(key);
+            scope.enter(|| {
+                // Barrier: tabs are resident, not a push stack, so a stack inside a tab keeps
+                // its own container (docs/navigation.md).
+                with_nav_host(None, || {
+                    let mut pcx = BuildCx::new(page);
+                    let _ = content.build(&mut pcx);
+                });
+            });
+            pages_c.borrow_mut().push((key.key(), page, scope));
+        }
+    };
+    for (k, t, i) in typed0
+        .iter()
+        .zip(titles0.iter())
+        .zip(icons0.iter())
+        .map(|((a, b), c)| (a, b, c))
+    {
+        build_tab_page(k, t.clone(), i.clone());
     }
 
     // Two-way: signal → native selection (skip the echo of a native tap).
     let echo: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
     {
-        let (keys, echo, s) = (keys.clone(), echo.clone(), selection.clone());
+        let (typed_b, echo, s) = (typed.clone(), echo.clone(), selection.clone());
         bind_seeded(
             initial_idx,
             move || {
                 let cur = s.get_rw().key();
-                keys.iter().position(|k| *k == cur).unwrap_or(0)
+                typed_b
+                    .borrow()
+                    .iter()
+                    .position(|k| k.key() == cur)
+                    .unwrap_or(0)
             },
             move |idx: &usize| {
                 if echo.replace(None) == Some(*idx) {
@@ -530,13 +776,13 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
     }
     // native selection → signal
     {
-        let (typed, echo, s) = (typed.clone(), echo.clone(), selection.clone());
+        let (typed_n, echo, s) = (typed.clone(), echo.clone(), selection.clone());
         cx.on(host, move |ev| match ev {
             Event::SelectionChanged(i) if *i >= 0 => {
                 let idx = *i as usize;
-                if let Some(k) = typed.get(idx) {
+                if let Some(k) = typed_n.borrow().get(idx).cloned() {
                     echo.set(Some(idx));
-                    s.set_rw(k.clone());
+                    s.set_rw(k);
                 }
             }
             Event::Custom {
@@ -549,36 +795,95 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
             _ => {}
         });
     }
+    // Data-driven tabs (docs/navigation.md): reconcile the resident pages + native tab set when
+    // a dynamic block's signal changes. New keys get a page; gone keys are disposed.
+    if items.dynamic {
+        let (items_e, typed_e, pages_e, sel_e, build_tab_page) = (
+            items.clone(),
+            typed.clone(),
+            pages.clone(),
+            selection.clone(),
+            build_tab_page.clone(),
+        );
+        bind(
+            move || {
+                let (k, t, i) = items_e.derive();
+                (k.iter().map(|x| x.key()).collect::<Vec<_>>(), k, t, i)
+            },
+            move |(key_strs, keys, ts, ics): &DerivedRows<K>| {
+                // Drop pages whose key vanished (dispose scope + remove subtree).
+                pages_e.borrow_mut().retain(|(k, page, scope)| {
+                    if key_strs.contains(k) {
+                        true
+                    } else {
+                        scope.dispose();
+                        with_tree(|t| t.remove_subtree(*page));
+                        false
+                    }
+                });
+                // Append pages for new keys (in derived order — the host reorders via Items).
+                let have: std::collections::HashSet<String> =
+                    pages_e.borrow().iter().map(|(k, _, _)| k.clone()).collect();
+                for ((k, ks), (t, i)) in keys.iter().zip(key_strs).zip(ts.iter().zip(ics)) {
+                    if !have.contains(ks) {
+                        build_tab_page(k, t.clone(), i.clone());
+                    }
+                }
+                *typed_e.borrow_mut() = keys.clone();
+                let cur = sel_e.get_untracked_rw().key();
+                let selected = key_strs.iter().position(|k| k == &cur).unwrap_or(0);
+                with_tree(|t| {
+                    t.patch(
+                        host,
+                        Box::new(day_spec::props::TabsPatch::Items {
+                            titles: ts.clone(),
+                            icons: ics.clone(),
+                            selected,
+                        }),
+                        false,
+                    );
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+            },
+        );
+    }
+
     // string-route adapter (the typed key decodes at this boundary; app code stays typed)
-    let (ks_push, ts_push, s_push) = (keys.clone(), typed.clone(), selection.clone());
+    let (tp_push, s_push) = (typed.clone(), selection.clone());
     let s_cur = selection.clone();
-    let (ks_enter, ts_enter, s_enter) = (keys.clone(), typed.clone(), selection.clone());
+    let (tp_enter, s_enter) = (typed.clone(), selection.clone());
     let s_seg = selection.clone();
-    register_route_surface(
-        move |k| {
-            if let Some(i) = ks_push.iter().position(|x| x == k) {
-                s_push.set_rw(ts_push[i].clone());
-                true
-            } else {
-                false
-            }
-        },
-        |_| false,
-        move || s_cur.get_untracked_rw().key(),
-        // Absolute-path segment: same as push — a tab key is a declared key.
-        move |k| {
-            if let Some(i) = ks_enter.iter().position(|x| x == k) {
-                s_enter.set_rw(ts_enter[i].clone());
-                true
-            } else {
-                false
-            }
-        },
-        move || {
-            let k = s_seg.get_untracked_rw().key();
-            if k.is_empty() { Vec::new() } else { vec![k] }
-        },
-    );
+    let tpick =
+        |tp: &Rc<RefCell<Vec<K>>>, k: &str| tp.borrow().iter().find(|x| x.key() == k).cloned();
+    if routed {
+        register_route_surface(
+            move |k| {
+                if let Some(key) = tpick(&tp_push, k) {
+                    s_push.set_rw(key);
+                    true
+                } else {
+                    false
+                }
+            },
+            |_| false,
+            move || s_cur.get_untracked_rw().key(),
+            // Absolute-path segment: same as push — a tab key is a declared key.
+            move |k| {
+                if let Some(key) = tpick(&tp_enter, k) {
+                    s_enter.set_rw(key);
+                    true
+                } else {
+                    false
+                }
+            },
+            move || {
+                let k = s_seg.get_untracked_rw().key();
+                if k.is_empty() { Vec::new() } else { vec![k] }
+            },
+        );
+    }
+    persist_selection(restore, &selection);
     host
 }
 
@@ -586,23 +891,18 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     use day_spec::props::{NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavProps};
     let split = with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
     let selection = sel.selection;
+    let routed = sel.routed;
+    let restore = sel.restore;
     let title_s = sel.title.initial();
-    let metas: Vec<(String, String)> = sel
-        .items
-        .iter()
-        .map(|it| (it.key.key(), it.title.initial()))
-        .collect();
-    let keys: Rc<Vec<String>> = Rc::new(metas.iter().map(|(k, _)| k.clone()).collect());
-    let typed: Rc<Vec<K>> = Rc::new(sel.items.iter().map(|it| it.key.clone()).collect());
-    let titles: Vec<String> = metas.iter().map(|(_, t)| t.clone()).collect();
-    let icons: Vec<Option<String>> = sel.items.iter().map(|it| it.icon.clone()).collect();
-    let builders: ResolvedItems = Rc::new(
-        sel.items
-            .into_iter()
-            .enumerate()
-            .map(|(i, it)| (metas[i].0.clone(), metas[i].1.clone(), it.build))
-            .collect(),
-    );
+    let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
+    // The live row set is reactive: `typed` (index → key) and `titles` are shared mutable state
+    // the derive effect updates; the initial derive is untracked (the effect below owns the
+    // subscription).
+    let (typed0, titles0, icons0) = day_reactive::untrack(|| items.derive());
+    // Restore the last-selected section (before the detail's initial `show` runs).
+    restore_selection(&restore, &selection, &typed0);
+    let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0));
+    let titles: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(titles0));
 
     let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
     let host = cx.native(
@@ -645,19 +945,14 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     );
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     {
-        let (mh, ks, s, titles2, icons2) = (
-            menu_holder.clone(),
-            typed.clone(),
-            selection.clone(),
-            titles.clone(),
-            icons.clone(),
-        );
+        let (mh, ks, s) = (menu_holder.clone(), typed.clone(), selection.clone());
+        let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
         let menu_piece = piece_fn(move |mcx| {
             let node = mcx.native(
                 kinds::NAV_MENU,
                 &NavMenuProps {
-                    items: titles2,
-                    icons: icons2,
+                    items: titles_init,
+                    icons: icons_init,
                     selected: None,
                 },
                 Rc::new(LeafLayout),
@@ -671,7 +966,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             mh.set(Some(node));
             mcx.on(node, move |ev| {
                 if let Event::SelectionChanged(i) = ev
-                    && let Some(k) = ks.get(*i as usize)
+                    && let Some(k) = ks.borrow().get(*i as usize)
                 {
                     s.set_rw(k.clone());
                 }
@@ -707,11 +1002,12 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let current: Rc<RefCell<Option<(String, Scope, RNode)>>> = Rc::default();
     let nav_scope = Scope::current();
     let show = {
-        let (builders, current, sizes, keys, sync_menu, owners, host_cx, selection) = (
-            builders.clone(),
+        let (items, current, sizes, typed_s, titles_s, sync_menu, owners, host_cx, selection) = (
+            items.clone(),
             current.clone(),
             sizes.clone(),
-            keys.clone(),
+            typed.clone(),
+            titles.clone(),
             sync_menu.clone(),
             owners.clone(),
             host_cx.clone(),
@@ -740,14 +1036,20 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 sync_menu(None);
                 return;
             }
-            let Some((_, page_title, build)) = builders.iter().find(|(k, _, _)| k == key) else {
+            let idx = typed_s.borrow().iter().position(|k| k.key() == key);
+            let Some(idx) = idx else {
                 sync_menu(None);
                 return;
             };
+            let typed_key = typed_s.borrow()[idx].clone();
+            let title_now = titles_s.borrow()[idx].clone();
+            // A static item retitles on locale change (its TextSource); a data-driven key uses
+            // the resolved snapshot (its title tracks the items signal, not the locale).
+            let retitle = items.static_title(key);
             let page = nav_page(
                 host,
                 &NavPageProps {
-                    title: page_title.clone(),
+                    title: title_now.clone(),
                     sidebar: false,
                 },
                 &sizes,
@@ -764,7 +1066,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             };
             owners.borrow_mut().push(owner);
             let scope = nav_scope.enter(Scope::child);
-            let content = build();
+            let content = items.build_page(&typed_key);
             scope.enter(|| {
                 with_nav_host(Some(host_cx.clone()), || {
                     let mut c = BuildCx::new(page);
@@ -772,31 +1074,76 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 });
             });
             with_tree(|t| {
-                t.patch(
-                    host,
-                    Box::new(NavPatch::Pushed {
-                        title: page_title.clone(),
-                    }),
-                    false,
-                );
+                t.patch(host, Box::new(NavPatch::Pushed { title: title_now }), false);
                 t.mark_layout_dirty();
                 t.layout_if_needed();
             });
+            // Live retitle for a static item: its title SOURCE re-resolves on locale change and
+            // the host's native bar follows via `NavPatch::Title`. Scope-owned, dies with the page.
+            if let Some(rt) = retitle {
+                scope.enter(|| {
+                    rt.bind_to(host, |t| Box::new(NavPatch::Title(t)), false);
+                });
+            }
             *current.borrow_mut() = Some((key.to_string(), scope, page));
-            sync_menu(keys.iter().position(|k| k == key));
+            sync_menu(typed_s.borrow().iter().position(|k| k.key() == key));
         }
     };
 
     // Desktop split never shows an empty detail: default to the first item.
     if split
         && selection.get_untracked_rw().key().is_empty()
-        && let Some(k) = typed.first()
+        && let Some(k) = typed.borrow().first().cloned()
     {
-        selection.set_rw(k.clone());
+        selection.set_rw(k);
     }
     {
         let s = selection.clone();
         bind(move || s.get_rw().key(), move |key: &String| show(key));
+    }
+
+    // Data-driven items (docs/navigation.md): re-derive the row set when a dynamic block's
+    // signal changes, re-patch the native menu, and reset the selection if its item vanished.
+    if items.dynamic {
+        let (items_e, typed_e, titles_e, mh_e, sel_e) = (
+            items.clone(),
+            typed.clone(),
+            titles.clone(),
+            menu_holder.clone(),
+            selection.clone(),
+        );
+        bind(
+            move || {
+                // TRACKED derive: subscribes to every dynamic block's signal.
+                let (k, t, i) = items_e.derive();
+                (k.iter().map(|x| x.key()).collect::<Vec<_>>(), k, t, i)
+            },
+            move |(key_strs, keys, ts, ics): &DerivedRows<K>| {
+                *typed_e.borrow_mut() = keys.clone();
+                *titles_e.borrow_mut() = ts.clone();
+                // If the selected key is gone, reset (Option key → None); else keep it selected.
+                let cur = sel_e.get_untracked_rw().key();
+                let still = cur.is_empty() || key_strs.iter().any(|k| k == &cur);
+                if !still && let Some(root) = K::from_key("") {
+                    sel_e.set_rw(root);
+                }
+                let cur2 = sel_e.get_untracked_rw().key();
+                let selected = key_strs.iter().position(|k| k == &cur2);
+                if let Some(m) = mh_e.get() {
+                    with_tree(|t| {
+                        t.patch(
+                            m,
+                            Box::new(day_spec::props::NavMenuPatch::Items {
+                                items: ts.clone(),
+                                icons: ics.clone(),
+                                selected,
+                            }),
+                            false,
+                        );
+                    });
+                }
+            },
+        );
     }
 
     // Native back (mobile up-arrow / system back) → the topmost page's owner. With only this
@@ -824,53 +1171,61 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         });
     }
 
-    // string-route adapter over `selection` (typed keys decode at this boundary)
-    let (ks_push, ts_push, s_push) = (keys.clone(), typed.clone(), selection.clone());
+    // string-route adapter over `selection` (typed keys decode at this boundary). The live
+    // `typed` set is consulted per call, so a data-driven key routes as soon as its item exists.
+    let (tp_push, s_push) = (typed.clone(), selection.clone());
     let s_pop = selection.clone();
     let s_cur = selection.clone();
-    let (ks_enter, ts_enter, s_enter) = (keys.clone(), typed.clone(), selection.clone());
+    let (tp_enter, s_enter) = (typed.clone(), selection.clone());
     let s_seg = selection.clone();
-    register_route_surface(
-        move |k| {
-            if k.is_empty() {
-                if let Some(root) = K::from_key("") {
-                    s_push.set_rw(root);
+    let pick =
+        |tp: &Rc<RefCell<Vec<K>>>, k: &str| tp.borrow().iter().find(|x| x.key() == k).cloned();
+    let pick_push = pick;
+    let pick_enter = pick;
+    if routed {
+        register_route_surface(
+            move |k| {
+                if k.is_empty() {
+                    if let Some(root) = K::from_key("") {
+                        s_push.set_rw(root);
+                        true
+                    } else {
+                        false // no empty state (bare-enum key) — let the parent handle ""
+                    }
+                } else if let Some(key) = pick_push(&tp_push, k) {
+                    s_push.set_rw(key);
                     true
                 } else {
-                    false // no empty state (bare-enum key) — let the parent handle ""
+                    false
                 }
-            } else if let Some(i) = ks_push.iter().position(|x| x == k) {
-                s_push.set_rw(ts_push[i].clone());
-                true
-            } else {
-                false
-            }
-        },
-        move |_| {
-            if s_pop.get_untracked_rw().key().is_empty() {
-                false
-            } else if let Some(root) = K::from_key("") {
-                s_pop.set_rw(root);
-                true
-            } else {
-                false
-            }
-        },
-        move || s_cur.get_untracked_rw().key(),
-        // Absolute-path segment: a declared item key selects it (no "" — segments are non-empty).
-        move |k| {
-            if let Some(i) = ks_enter.iter().position(|x| x == k) {
-                s_enter.set_rw(ts_enter[i].clone());
-                true
-            } else {
-                false
-            }
-        },
-        move || {
-            let k = s_seg.get_untracked_rw().key();
-            if k.is_empty() { Vec::new() } else { vec![k] }
-        },
-    );
+            },
+            move |_| {
+                if s_pop.get_untracked_rw().key().is_empty() {
+                    false
+                } else if let Some(root) = K::from_key("") {
+                    s_pop.set_rw(root);
+                    true
+                } else {
+                    false
+                }
+            },
+            move || s_cur.get_untracked_rw().key(),
+            // Absolute-path segment: a declared item key selects it (no "" — segments are non-empty).
+            move |k| {
+                if let Some(key) = pick_enter(&tp_enter, k) {
+                    s_enter.set_rw(key);
+                    true
+                } else {
+                    false
+                }
+            },
+            move || {
+                let k = s_seg.get_untracked_rw().key();
+                if k.is_empty() { Vec::new() } else { vec![k] }
+            },
+        );
+    }
+    persist_selection(restore, &selection);
     host
 }
 
@@ -884,6 +1239,35 @@ struct StackEntry<K> {
     key: K,
     scope: Scope,
     page: RNode,
+}
+
+/// What a [`Stack::on_back`] guard returns for one back-like event (a native back gesture/button,
+/// or [`nav_back`]). Programmatic path writes are NOT guarded — the guard is a policy on the
+/// user's back affordance, matching Jetpack Compose's `BackHandler` (docs/navigation.md).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BackResponse {
+    /// Let the pop happen now.
+    Proceed,
+    /// Consume the back — the pop does NOT happen. Stash the [`BackRequest`] and call
+    /// [`BackRequest::proceed`] later (e.g. after a confirmation dialog) to perform the pop.
+    Handled,
+}
+
+/// The deferred pop handed to a [`Stack::on_back`] guard. Hold it, then call [`proceed`] to
+/// perform the back the guard consumed (the unsaved-changes → confirm → leave flow).
+///
+/// [`proceed`]: BackRequest::proceed
+#[derive(Clone)]
+pub struct BackRequest {
+    pop: Rc<dyn Fn()>,
+}
+
+impl BackRequest {
+    /// Perform the pop this back requested. Runs the same path pop a `Proceed` would have; safe
+    /// to call once (a second call after the page is gone is a no-op).
+    pub fn proceed(&self) {
+        (self.pop)();
+    }
 }
 
 /// A push/pop navigation stack whose contents are an app-owned `Signal<Vec<K>>` (the path
@@ -905,6 +1289,10 @@ pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
     title: TextSource,
     root: AnyPiece,
     destination: Rc<dyn Fn(&K) -> AnyPiece>,
+    on_back: Option<Rc<dyn Fn(BackRequest) -> BackResponse>>,
+    /// The persistence key set by [`Stack::restore`]: the path is saved here (its keys `/`-joined)
+    /// on every change and restored at build. `None` = not persisted.
+    restore: Option<String>,
 }
 
 pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
@@ -915,6 +1303,8 @@ pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<
         destination: Rc::new(|_| {
             piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No))
         }),
+        on_back: None,
+        restore: None,
     }
 }
 
@@ -928,6 +1318,27 @@ impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
         self.destination = Rc::new(move |k| AnyPiece::new(build(k)));
         self
     }
+    /// Intercept the back affordance (docs/navigation.md). The guard runs for every native back
+    /// gesture/button and [`nav_back`] while the stack is above its root; it returns
+    /// [`BackResponse::Proceed`] to pop now or [`BackResponse::Handled`] to consume the back
+    /// (stash the [`BackRequest`] and call [`BackRequest::proceed`] later). Programmatic path
+    /// writes are never guarded. While a guard is armed the toolkit stops auto-popping on a
+    /// native gesture and routes the back through Day instead (`NavPatch::GuardTop`).
+    pub fn on_back(mut self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
+        self.on_back = Some(Rc::new(guard));
+        self
+    }
+    /// Remember the pushed path across launches (docs/navigation.md). On every change the path's
+    /// keys are `/`-joined and saved under `key`; at build the saved path is parsed back (each
+    /// segment via [`Route::from_key`]) and restored — so the app reopens exactly where the user
+    /// left off, including after an Android process death — unless a launch deep link is pending,
+    /// which wins. Restore is a no-op until the app installs a store (e.g.
+    /// `day_part_prefs::install_nav_store`); a saved path with a segment that no longer parses is
+    /// ignored whole.
+    pub fn restore(mut self, key: impl Into<String>) -> Self {
+        self.restore = Some(key.into());
+        self
+    }
 }
 
 impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
@@ -938,8 +1349,28 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             title,
             root,
             destination: dest,
+            on_back,
+            restore,
         } = self;
         let title_s = title.initial();
+
+        // Restore the saved path before the reconcile binding runs, so its pages build on first
+        // pass. A launch deep link wins (skip). The whole path is parsed via `Route::from_key`;
+        // any segment that no longer parses discards the restore rather than building a partial
+        // stack (docs/navigation.md).
+        if let Some(key) = restore.as_deref()
+            && !day_core::has_launch_deeplink()
+            && let Some(saved) = day_core::nav_store_load(key)
+        {
+            let parsed: Option<Vec<K>> = if saved.is_empty() {
+                Some(Vec::new())
+            } else {
+                saved.split('/').map(K::from_key).collect()
+            };
+            if let Some(v) = parsed {
+                path.set_rw(v);
+            }
+        }
 
         // If we're built inside a page of an enclosing NAV host that presents as a push stack
         // (mobile, `split == false`), MERGE: push our pages onto that host instead of minting a
@@ -1013,17 +1444,56 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
 
         let nav_scope = Scope::current();
 
-        // This stack's back owner (one Rc shared by all its pages): bump the native-pop absorb
-        // counter when the toolkit already popped, then pop the path.
-        let stack_owner: PopOwner = {
-            let (p, native_popped) = (path.clone(), native_popped.clone());
-            Rc::new(move |already_popped: bool| {
-                if already_popped {
-                    native_popped.set(native_popped.get() + 1);
-                }
+        // The RAW pop: drop the top path segment (reconcile then pops the native page). The
+        // guard's `BackRequest::proceed` runs exactly this.
+        let raw_pop: Rc<dyn Fn()> = {
+            let p = path.clone();
+            Rc::new(move || {
                 let mut v = p.get_untracked_rw();
                 if v.pop().is_some() {
                     p.set_rw(v);
+                }
+            })
+        };
+        let depth = {
+            let p = path.clone();
+            move || p.get_untracked_rw().len()
+        };
+        // One back-like event (native gesture that Day owns, or `nav_back()`): consult the guard
+        // if one is armed and we're above the root, else pop. `Proceed` pops now; `Handled`
+        // consumes it (the app holds the `BackRequest`). Programmatic `path.set` never lands here.
+        let run_back: Rc<dyn Fn()> = {
+            let (raw_pop, depth, guard) = (raw_pop.clone(), depth.clone(), on_back.clone());
+            Rc::new(move || {
+                if depth() == 0 {
+                    return; // at root — nothing of ours to pop
+                }
+                match &guard {
+                    Some(g) => {
+                        let req = BackRequest {
+                            pop: raw_pop.clone(),
+                        };
+                        if g(req) == BackResponse::Proceed {
+                            raw_pop();
+                        }
+                    }
+                    None => raw_pop(),
+                }
+            })
+        };
+
+        // This stack's back owner (one Rc shared by all its pages): a native pop the toolkit
+        // ALREADY performed (an unguarded iOS swipe) is absorbed + synced without the guard; a
+        // back Day owns runs `run_back` so the guard decides.
+        let stack_owner: PopOwner = {
+            let (native_popped, raw_pop, run_back) =
+                (native_popped.clone(), raw_pop.clone(), run_back.clone());
+            Rc::new(move |already_popped: bool| {
+                if already_popped {
+                    native_popped.set(native_popped.get() + 1);
+                    raw_pop();
+                } else {
+                    run_back();
                 }
             })
         };
@@ -1031,6 +1501,10 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         // Reconcile the native stack to `want`: keep the common prefix, pop the rest, push
         // the new suffix. A pop the native already performed (iOS back) is not re-issued. Pages
         // and owners land on `host` (our own, or the enclosing one when merged).
+        // `true` once GuardTop(true) has been sent for the current depth, so we only re-emit on
+        // a real transition (arming/disarming native gesture handling is not free on every pop).
+        let guard_armed_sent = Rc::new(Cell::new(false));
+        let has_guard = on_back.is_some();
         let reconcile = {
             let (entries, sizes, dest, native_popped, owners, host_cx, stack_owner) = (
                 entries.clone(),
@@ -1041,6 +1515,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                 host_cx.clone(),
                 stack_owner.clone(),
             );
+            let guard_armed_sent = guard_armed_sent.clone();
             move |want: &Vec<K>| {
                 let common = {
                     let ents = entries.borrow();
@@ -1089,6 +1564,16 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                         page,
                     });
                 }
+                // Arm/disarm native gesture handling when the guarded-above-root state changes
+                // (docs/navigation.md). The host is our own container, or the enclosing one when
+                // merged — either way the native nav that owns the back gesture.
+                if has_guard {
+                    let armed = !entries.borrow().is_empty();
+                    if armed != guard_armed_sent.get() {
+                        guard_armed_sent.set(armed);
+                        with_tree(|t| t.patch(host, Box::new(NavPatch::GuardTop(armed)), false));
+                    }
+                }
                 with_tree(|t| {
                     t.mark_layout_dirty();
                     t.layout_if_needed();
@@ -1098,6 +1583,22 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         {
             let p = path.clone();
             bind(move || p.get_rw(), move |want: &Vec<K>| reconcile(want));
+        }
+
+        // Persist the path across launches when `.restore` is set: save the `/`-joined keys on
+        // every change (docs/navigation.md). Scope-owned, so it stops with the stack.
+        if let Some(key) = restore {
+            let p = path.clone();
+            bind(
+                move || {
+                    p.get_rw()
+                        .iter()
+                        .map(|k| k.key())
+                        .collect::<Vec<_>>()
+                        .join("/")
+                },
+                move |s: &String| day_core::nav_store_save(&key, s),
+            );
         }
 
         // Standalone: own the host's single NavBack dispatcher (→ topmost page's owner) and the
@@ -1164,7 +1665,6 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         // open-ended, a typed stack validates via `Route::from_key`, and an explicit `a/b/c`
         // path IS the stack's state. `pop` falls through once empty.
         let p_push = path.clone();
-        let p_pop = path.clone();
         let p_cur = path.clone();
         let p_enter = path.clone();
         let p_seg = path.clone();
@@ -1182,13 +1682,17 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     false
                 }
             },
-            move |_| {
-                let mut v = p_pop.get_untracked_rw();
-                if v.pop().is_some() {
-                    p_pop.set_rw(v);
+            {
+                // `nav_back()` is a back-like event, so it is GUARDED too (docs/navigation.md):
+                // run_back consults the guard. We "own" the back (return true, no fall-through)
+                // whenever we're above the root, whether the guard pops or consumes.
+                let (run_back, depth) = (run_back.clone(), depth.clone());
+                move |_| {
+                    if depth() == 0 {
+                        return false; // at root — let the parent handle back
+                    }
+                    run_back();
                     true
-                } else {
-                    false
                 }
             },
             move || {

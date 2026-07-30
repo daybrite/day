@@ -1,8 +1,8 @@
 # Async: futures without a runtime
 
 > **Status: implemented** (DESIGN.md §4.5, revised 2026-07). Day runs futures on its own
-> main-loop executor — `day::task` — with no async runtime: no tokio, no reactor, no thread
-> pool. The executor polls `!Send` futures on the UI thread; wakers re-poll through the same
+> main-loop executor — `day::task` — without an async runtime: nothing brings in tokio, and
+> there is no reactor or thread pool. The executor polls `!Send` futures on the UI thread; wakers re-poll through the same
 > `on_main` poster everything else rides. On top of it sit `present().await` (docs/dialogs.md),
 > `day_part_http::fetch_future` (docs/http.md), and `day::reactive::Resource` (below).
 

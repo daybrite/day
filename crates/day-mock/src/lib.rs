@@ -415,12 +415,35 @@ impl Toolkit for MockToolkit {
                     }
                 }
                 format!("textarea.patch {tp:?}")
-            } else if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
-                w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
-                format!("menu selected={sel:?}")
-            } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                w.value = *i as f64;
-                format!("tab selected={i}")
+            } else if let Some(p) = patch.downcast_ref::<NavMenuPatch>() {
+                match p {
+                    NavMenuPatch::Selected(sel) => {
+                        w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
+                        format!("menu selected={sel:?}")
+                    }
+                    // Data-driven rows: `text` mirrors the joined labels for tests to assert.
+                    NavMenuPatch::Items {
+                        items, selected, ..
+                    } => {
+                        w.text = items.join("|");
+                        w.value = selected.map(|i| i as f64).unwrap_or(-1.0);
+                        format!("menu items={items:?} selected={selected:?}")
+                    }
+                }
+            } else if let Some(p) = patch.downcast_ref::<TabsPatch>() {
+                match p {
+                    TabsPatch::Selected(i) => {
+                        w.value = *i as f64;
+                        format!("tab selected={i}")
+                    }
+                    TabsPatch::Items {
+                        titles, selected, ..
+                    } => {
+                        w.text = titles.join("|");
+                        w.value = *selected as f64;
+                        format!("tab items={titles:?} selected={selected}")
+                    }
+                }
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
                 match p {
                     NavPatch::Pushed { title } => {
@@ -431,6 +454,11 @@ impl Toolkit for MockToolkit {
                     NavPatch::Title(t) => {
                         w.text = t.clone();
                         format!("nav title={t:?}")
+                    }
+                    // Probe-visible: tests assert the armed flag round-trips.
+                    NavPatch::GuardTop(on) => {
+                        w.flag = *on;
+                        format!("nav guard={on}")
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {

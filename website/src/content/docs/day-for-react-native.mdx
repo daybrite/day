@@ -1,0 +1,476 @@
+---
+title: Day for React Native developers
+description: "A React Native-to-Day translation guide: components to Pieces, hooks to signals, package.json to Cargo + Day.toml, and Metro/Gradle/Xcode to day build — with side-by-side code."
+order: 5
+section: Coming from
+---
+
+import Compare from '../../components/Compare.astro';
+
+React Native and Day both render the platform's real widgets: an RN `<Button>` is a `UIButton`,
+and so is a Day `button()` on iOS. This guide maps the
+rest — components to Pieces, hooks to signals, npm to Cargo — and shows where the architectures
+differ.
+
+They differ in two places. The first is the runtime: React Native runs your JavaScript in a VM
+and talks to native views through JSI and a shadow tree; Day is ahead-of-time compiled Rust
+calling toolkit APIs directly, and layout is computed in the same process rather than in a
+separate shadow tree. The second is the
+update model: React re-renders components and reconciles; Day builds the tree once and re-runs
+only the closures that read a changed signal — there are no dependency arrays because
+dependencies are tracked automatically. And where RN targets iOS and Android with community
+forks for desktop, Day's eight targets (macOS, Windows, Linux GTK and Qt, iOS, Android,
+HarmonyOS, web) come from one repository.
+
+## React Native terms in Day
+
+| React Native | Day |
+|---|---|
+| function component | a plain function returning a Piece |
+| JSX | function calls and tuples |
+| `useState` | `Signal::new` |
+| `useMemo` | `Memo::new` (no dependency array) |
+| `useEffect` | `Effect::new` / `bind` / `watch` (no dependency array) |
+| re-render + reconciliation | no re-render; one binding patches one widget |
+| Context | `with_environment` / `use_context` |
+| Redux / Zustand / Jotai | signals in plain Rust — module statics, structs |
+| `<FlatList>` | `list` (recycling), `each` (keyed) |
+| React Navigation | `selector`, `stack`, and string routes |
+| `package.json` + Metro | `Cargo.toml` (package) + `Day.toml` (app manifest) |
+| `require('./logo.png')` | `image("logo")` from `resource/images/` |
+| i18next / react-intl | Fluent `.ftl` + generated `res::str` functions |
+| Turbo Modules / native components | [parts](/docs/parts) and [pieces](/docs/extending) |
+| Fast Refresh | none — `day relaunch` rebuilds and relaunches |
+| `eas build` / fastlane / Gradle + Xcode | `day pack -p <target>` |
+
+## The same counter in both
+
+<Compare lhs="React Native">
+
+```tsx
+import { useState } from 'react';
+import { View, Text, Button } from 'react-native';
+
+function Counter() {
+  const [count, setCount] = useState(0);
+  return (
+    <View style={{ gap: 12, padding: 16 }}>
+      <Text>{count} clicks</Text>
+      <Button title="+" onPress={() => setCount(c => c + 1)} />
+    </View>
+  );
+}
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+Both wire the tap the same way; what follows it differs. React re-runs `Counter`, builds new
+element
+trees, and diffs them against the shadow tree before committing to native views. Day re-runs the
+one closure inside `label` and calls one native setter. The function itself never runs again, so
+`memo()` and `useCallback` have no equivalent, and stale closures can't happen — a closure that
+reads a signal reads the current value.
+
+## Controlled components vs. two-way signals
+
+An RN `TextInput` is controlled by a `value`/`onChangeText` pair you wire by hand. Day's inputs
+take the signal itself; the two directions are built in, origin-tagged so there's no echo.
+
+<Compare lhs="React Native">
+
+```tsx
+const [name, setName] = useState('');
+const [volume, setVolume] = useState(40);
+const [subscribed, setSubscribed] = useState(false);
+
+<View style={{ gap: 12 }}>
+  <TextInput
+    value={name}
+    onChangeText={setName}
+    placeholder="Your name"
+  />
+  <Slider
+    value={volume}
+    maximumValue={100}
+    onValueChange={setVolume}
+  />
+  <Switch value={subscribed} onValueChange={setSubscribed} />
+</View>
+```
+
+```rust
+let name = Signal::new(String::new());
+let volume = Signal::new(40.0);
+let subscribed = Signal::new(false);
+
+column((
+    text_field(name).placeholder("Your name"),
+    slider(volume).range(0.0..=100.0),
+    toggle(subscribed),
+))
+.spacing(12.0)
+```
+
+</Compare>
+
+(`Slider` isn't in RN core anymore — it lives in `@react-native-community/slider`. Day ships
+sliders, toggles, progress, pickers, and a recycling list as built-ins — there's no
+split between "core" and "community" widgets.)
+
+## Lists
+
+`FlatList` maps to `list`: both virtualize, both want a key. Day's rows recycle real native
+cells (`UITableView`-style), and the key function is a required argument rather than an optional
+`keyExtractor` — reconciliation is always by identity.
+
+<Compare lhs="React Native">
+
+```tsx
+<FlatList
+  data={items}
+  keyExtractor={item => item.id}
+  renderItem={({ item }) => (
+    <Text style={styles.row}>{item.title}</Text>
+  )}
+/>
+```
+
+```rust
+list(
+    move || items.get(),
+    |item| item.id,
+    |slot: ItemSlot<Todo, u64>| {
+        label(move || slot.get().title).padding(8.0)
+    },
+)
+```
+
+</Compare>
+
+## Navigation
+
+React Navigation's stack keeps navigation state inside the navigator; you drive it through the
+imperative `navigation` prop. Day inverts that: the path is your signal, and the native
+container (`UINavigationController`, the Android back stack) is reconciled to it. The back
+gesture and hardware back button write pops into your state, not the other way around.
+
+<Compare lhs="React Native">
+
+```tsx
+const Stack = createNativeStackNavigator();
+
+<NavigationContainer linking={linking}>
+  <Stack.Navigator>
+    <Stack.Screen name="Home" component={HomeScreen} />
+    <Stack.Screen name="Album" component={AlbumScreen} />
+  </Stack.Navigator>
+</NavigationContainer>;
+
+// inside a screen:
+navigation.navigate('Album', { id: '42' });
+```
+
+```rust
+let path = Signal::new(Vec::<String>::new());
+
+stack(path, home_page())
+    .title("Home")
+    .destination(|key| album_page(key))
+
+// from anywhere — it's just state:
+navigate("album-42");
+current_route();          // Some("album-42")
+nav_back();
+```
+
+</Compare>
+
+Deep links need no separate `linking` config: the same route strings serve navigation, the
+`DAY_DEEPLINK` launch variable, and [dayscript](/docs/dayscript) test assertions. See
+[Navigation](/docs/navigation).
+
+## Styling and layout
+
+RN styles are flexbox via Yoga. Day also owns its layout engine, but with the
+proposal/negotiation protocol (parent proposes, child chooses) instead of flexbox — closer to
+SwiftUI than to CSS. The daily vocabulary translates directly:
+
+<Compare lhs="React Native">
+
+```tsx
+const styles = StyleSheet.create({
+  card: {
+    padding: 16,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  title: { fontSize: 22, fontWeight: '600' },
+});
+
+<View style={styles.card}>
+  <Text style={styles.title}>Plan</Text>
+  <Text>Pro</Text>
+</View>;
+```
+
+```rust
+column((
+    label("Plan").font(Font::Title),
+    label("Pro"),
+))
+.spacing(8.0)
+.align(HAlign::Leading)
+.padding(16.0)
+.background(Color::hex(0x1E293B))
+.corner_radius(12.0)
+```
+
+</Compare>
+
+There are two differences. `flex: 1` becomes `.grow()`, and containers don't stretch
+children by default — a column is as wide as its widest child. And fonts are semantic-first:
+`Font::Title` resolves to each platform's typography scale, so text sits correctly next to
+native controls without per-platform size tables. [Layout](/docs/layout) and
+[Styling](/docs/styling) cover both systems.
+
+## State management and async
+
+The hooks rules — call order, dependency arrays, exhaustive-deps lint — exist because React
+re-runs your function and must reattach state each time. Day's function runs once, so none of
+that machinery exists. Signals are created wherever you like, read anywhere, and dependencies
+are discovered by tracking the reads:
+
+```rust
+let items = Signal::new(Vec::<Item>::new());
+let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64>()));
+
+// No dependency array — this label re-runs exactly when `total`'s value changes:
+label(move || format!("{:.2} €", total.get()))
+```
+
+For app-wide state, skip the store library: signals in a module or struct are already
+observable from any Piece. Async looks like the `async`/`await` you know, with continuations on
+the UI thread so completions are plain writes:
+
+<Compare lhs="React Native">
+
+```tsx
+const [status, setStatus] = useState('');
+
+useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    const resp = await fetch(url);
+    const text = await resp.text();
+    if (!cancelled) setStatus(text);
+  })();
+  return () => { cancelled = true; };
+}, [url]);
+```
+
+```rust
+use day_part_http::{Request, fetch_future};
+
+let status = Signal::new(String::new());
+
+day::task(async move {
+    match fetch_future(Request::get(url)).await {
+        Ok(resp) => status.set(resp.text().into_owned()),
+        Err(e) => status.set(format!("error: {e}")),
+    }
+});
+```
+
+</Compare>
+
+The cancellation bookkeeping on the left is built in on the right: writes to a signal whose page
+was disposed are silent no-ops, and dropping the future cancels the request. HTTP goes through
+each platform's own networking stack ([`day-part-http`](/docs/parts)) — system proxies, VPN
+routing, and certificate stores apply, with no `fetch` polyfill in between.
+
+## Package configuration
+
+<Compare lhs="React Native">
+
+```jsonc
+// package.json
+{
+  "name": "field-notes",
+  "version": "1.2.0",
+  "dependencies": {
+    "react": "19.1.0",
+    "react-native": "0.81.0",
+    "@react-navigation/native": "^7.0.0",
+    "react-i18next": "^15.0.0"
+  }
+}
+// plus: metro.config.js, babel.config.js,
+// android/ and ios/ configs for anything native
+```
+
+```toml
+# Cargo.toml — the package
+[package]
+name = "field-notes"
+version = "1.2.0"
+edition = "2024"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+
+# Day.toml — the app manifest
+[app]
+id = "dev.example.fieldnotes"
+title = "Field Notes"
+build = 34
+targets = ["ios-uikit", "android-mdc", "macos-appkit"]
+```
+
+</Compare>
+
+Cargo resolves and builds everything, including packages with native halves; there is no
+separate bundler and no autolinking step. A package that needs platform code — the Turbo Module
+case — is a [part](/docs/parts) (headless capability) or a [piece](/docs/extending) (a widget):
+it declares its Swift, Java, or C++ in its own crate metadata, and `day build` folds that into
+the app's platform builds. Calls into it are ordinary Rust function calls compiled together with
+your app — no codegen'd specs, no serialization boundary.
+
+## Resources and localization
+
+Metro resolves `require('./logo.png')` at bundle time and picks `@2x`/`@3x` variants; Day stages
+`resource/images/` into each platform's native store (asset catalogs, `res/drawable-*`,
+GResource), and the platform picks the density. For Metro's can't-miss guarantee, use the
+generated constants — `image(res::images::wave)` — where a renamed or deleted file is a compile
+error.
+
+<Compare lhs="React Native">
+
+```tsx
+<Image source={require('./assets/wave.png')} />
+
+// i18next
+i18n.use(initReactI18next).init({
+  resources: { en: { translation: en }, fr: { translation: fr } },
+  lng: 'en',
+});
+const { t } = useTranslation();
+<Text>{t('unread', { count })}</Text>;
+```
+
+```rust
+image("wave")            // resource/images/wave.png + @2x/@3x
+
+// resource/locales/en/app.ftl:
+//   unread = { $count ->
+//       [one] 1 unread
+//      *[other] { $count } unread
+//   }
+res::locales::install();                 // registers every locale directory
+label(res::str::unread(count))           // generated, compile-checked
+```
+
+</Compare>
+
+`res::str::unread` is a function generated from the `.ftl` catalogs at build time — a missing
+key or wrong argument count fails the compile instead of rendering a placeholder at runtime.
+The locale is a signal: switching languages re-renders every string live, and RTL locales
+mirror the whole layout. See [Localization](/docs/localization) and
+[Resources](/docs/resources).
+
+## Project structure and per-platform configuration
+
+<Compare lhs="React Native">
+
+```text
+FieldNotes/
+├── package.json
+├── metro.config.js
+├── babel.config.js
+├── App.tsx
+├── src/
+├── android/          # Gradle project (yours to maintain)
+├── ios/              # Xcode project + Podfile
+└── node_modules/
+```
+
+```text
+field-notes/
+├── Cargo.toml
+├── Day.toml
+├── src/
+│   ├── lib.rs        # the app: pieces, signals, routes
+│   └── main.rs       # desktop entry point
+├── resource/         # assets/ images/ fonts/ icons/ locales/
+├── dayscript/        # UI test flows
+├── platform/
+│   ├── ios/          # Xcode host (no app logic)
+│   ├── android/      # Gradle host (no app logic)
+│   └── ohos/         # HarmonyOS host
+└── build/day/        # everything generated
+```
+
+</Compare>
+
+Both projects carry `android/` and `ios/` directories; the difference is what lives in them.
+Day's hosts are thin shells that load the Rust library — app-level configuration (id, title,
+version, window, permissions, signing) lives in `Day.toml`, with per-platform overrides instead
+of edits to the native projects:
+
+```toml
+[app]
+id = "dev.example.fieldnotes"
+title = "Field Notes"
+
+[app.ios]
+title = "Field Notes Mobile"        # only iOS sees this
+
+[app.macos-appkit]
+id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
+```
+
+That's the role `app.json` plays in Expo — except it covers all eight targets, desktop
+included, and there's no eject: the hosts are already in your repository, already minimal.
+
+## Building and shipping
+
+| Task | React Native | Day |
+|---|---|---|
+| run in dev | `npx react-native run-ios` / `run-android` | `day launch -p ios-uikit` / `-p android-mdc` |
+| apply changes | Fast Refresh | `day relaunch --all-running` |
+| Android store build | Gradle `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab` |
+| iOS store build | Xcode archive / fastlane / EAS | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
+| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` |
+| web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving real DOM elements |
+| environment check | `npx react-native doctor` | `day doctor` |
+
+You give up Fast Refresh and the npm ecosystem's size, and you write
+Rust instead of TypeScript. You get one compiled binary per platform with no JS engine to ship,
+one first-party repository covering desktop and mobile and web, UI tests that run the same
+script on every platform, and packaging that ends in signed artifacts instead of a handoff to
+fastlane. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
+a dev-signed build with a warning rather than failing. [Packaging](/docs/packaging) has the
+full table.
+
+## Where to go next
+
+- [Getting started](/docs/getting-started) — install, scaffold, first launch.
+- [API tour](/docs/api-tour) — the whole authoring surface in one pass.
+- [Reactivity](/docs/reactivity) — why there are no dependency arrays.
+- [Why Day](/docs/benefits) — the frank comparison, including when RN is the better fit.

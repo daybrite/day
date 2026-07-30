@@ -81,7 +81,9 @@ struct SplitNav {
     content_host: *mut c_void,
     menu_node: u64,
     sidebar_page: Option<(*mut c_void, NodeId)>,
-    detail_pages: Vec<(*mut c_void, NodeId)>,
+    /// (page, node, title) — the title is attached by `NavPatch::Pushed`/`Title` so a pop can
+    /// restore the PREVIOUS page's title into the NavigationView header (stack_sync).
+    detail_pages: Vec<(*mut c_void, NodeId, String)>,
     /// A push/pop stack (NavProps.split == false): no menu/sidebar, every page stacks in the
     /// content region, and the NavigationView back button appears once a page is pushed.
     is_stack: bool,
@@ -130,7 +132,7 @@ extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
         if region == 1 {
             s.sidebar_page.map(|(_, id)| id).into_iter().collect()
         } else {
-            s.detail_pages.iter().map(|(_, id)| *id).collect()
+            s.detail_pages.iter().map(|(_, id, _)| *id).collect()
         }
     });
     for id in reports {
@@ -154,12 +156,17 @@ fn stack_sync(host: *mut c_void) {
     NAV_STATE.with(|m| {
         if let Some(NavState::Split(s)) = m.borrow().get(&(host as usize)) {
             let last = s.detail_pages.len().saturating_sub(1);
-            for (i, (page, _)) in s.detail_pages.iter().enumerate() {
+            for (i, (page, _, _)) in s.detail_pages.iter().enumerate() {
                 unsafe { ffi::day_xaml_set_visible(*page, (i == last) as c_int) };
             }
             unsafe {
                 ffi::day_xaml_nav_set_back_visible(s.nav_view, (s.detail_pages.len() >= 2) as c_int)
             };
+            // Restore the (new) top page's title — without this a pop left the POPPED page's
+            // title in the NavigationView header until the next push.
+            if let Some((_, _, title)) = s.detail_pages.last() {
+                unsafe { ffi::day_xaml_nav_set_header(s.nav_view, cstr(title).as_ptr()) };
+            }
         }
     });
 }
@@ -714,6 +721,8 @@ impl Toolkit for Xaml {
             Cap::NavSplit => Support::Native,
             // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
             Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // A topmost child of the content Canvas — not a system modal (docs/cover.md).
+            Cap::Cover => Support::Emulated,
             // The NavigationView shows the current destination in its Header, so pages needn't
             // repeat their title in-content (docs/navigation.md).
             Cap::NavHeader => Support::Native,
@@ -789,6 +798,15 @@ impl Toolkit for Xaml {
                     let page = ffi::day_xaml_container_new();
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page as usize, id));
                     WinHandle(page)
+                }
+                // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
+                // it onto the window's content Canvas, appended last (= topmost), at the
+                // content size.
+                kinds::COVER => {
+                    let cover = ffi::day_xaml_container_new();
+                    ffi::day_xaml_set_visible(cover, 0);
+                    COVER_IDS.with(|m| m.borrow_mut().insert(cover as usize, id));
+                    WinHandle(cover)
                 }
                 kinds::NAV_MENU => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
@@ -1069,17 +1087,68 @@ impl Toolkit for Xaml {
                 // Split navs show the current destination in the NavigationView Header (the whole
                 // point of the Settings-like presentation); Pushed/Title carry that title. Two-pane
                 // navs need no native work — NavLayout re-places the pages.
+                // Emulated cover (docs/cover.md): present = re-home onto the content Canvas
+                // (appended last = topmost) with an opaque theme-background surface; dismiss =
+                // hide + report "cover-hidden" at once. No interactive dismissal here.
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        let node = COVER_IDS
+                            .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                            .unwrap_or(day_spec::WINDOW_NODE);
+                        match p {
+                            CoverPatch::Present { background, .. } => unsafe {
+                                match background {
+                                    Some(bg) => ffi::day_xaml_container_set_bg(h.0, argb(*bg)),
+                                    None => ffi::day_xaml_cover_ground(h.0),
+                                }
+                                let root = ffi::day_xaml_window_root(self.window);
+                                ffi::day_xaml_add_child(root, h.0);
+                                let size = LAST_WINDOW_SIZE.with(|c| c.get());
+                                ffi::day_xaml_set_geometry(
+                                    h.0,
+                                    0,
+                                    0,
+                                    size.width.round() as c_int,
+                                    size.height.round() as c_int,
+                                );
+                                ffi::day_xaml_set_visible(h.0, 1);
+                                COVERS.with(|c| c.borrow_mut().push((h.0, node)));
+                                emit(node, Event::FrameChanged(size));
+                            },
+                            CoverPatch::DismissDisabled(_) => {}
+                            CoverPatch::Dismiss => {
+                                unsafe { ffi::day_xaml_set_visible(h.0, 0) };
+                                COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+                                emit(node, Event::custom("cover-hidden", ""));
+                            }
+                        }
+                    }
+                }
                 kinds::NAV => {
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
                         let title = match np {
                             NavPatch::Pushed { title } => Some(title.as_str()),
                             NavPatch::Title(t) => Some(t.as_str()),
+                            // The pop's header restore happens in stack_sync (after the page
+                            // leaves detail_pages), where the new top's title is known.
                             NavPatch::Popped => None,
+                            // NavigationView BackRequested already routes back through Day
+                            // (never a native auto-pop), so nothing to suppress here.
+                            NavPatch::GuardTop(_) => None,
                         };
                         if let Some(title) = title {
-                            let nav = NAV_STATE.with(|m| match m.borrow().get(&(h.0 as usize)) {
-                                Some(NavState::Split(s)) => Some(s.nav_view),
-                                _ => None,
+                            let nav = NAV_STATE.with(|m| {
+                                let mut m = m.borrow_mut();
+                                match m.get_mut(&(h.0 as usize)) {
+                                    Some(NavState::Split(s)) => {
+                                        // Record on the top entry so a later pop can restore it.
+                                        if let Some(top) = s.detail_pages.last_mut() {
+                                            top.2 = title.to_string();
+                                        }
+                                        Some(s.nav_view)
+                                    }
+                                    _ => None,
+                                }
                             });
                             if let Some(nav) = nav {
                                 ffi::day_xaml_nav_set_header(nav, cstr(title).as_ptr());
@@ -1207,7 +1276,7 @@ impl Toolkit for Xaml {
             } else {
                 // Detail / stack page → nv.Content (day positions it by absolute frame).
                 unsafe { ffi::day_xaml_add_child(s.content_host, child.0) };
-                s.detail_pages.push((child.0, node));
+                s.detail_pages.push((child.0, node, String::new()));
                 NavInsert::Content {
                     node,
                     content_host: s.content_host,
@@ -1252,7 +1321,7 @@ impl Toolkit for Xaml {
             let Some(NavState::Split(s)) = m.get_mut(&(parent.0 as usize)) else {
                 return None;
             };
-            s.detail_pages.retain(|&(p, _)| p != child.0);
+            s.detail_pages.retain(|&(p, _, _)| p != child.0);
             SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(child.0 as usize)));
             unsafe { ffi::day_xaml_remove_child(s.content_host, child.0) };
             Some(s.is_stack)
@@ -1596,10 +1665,34 @@ fn image_uri(source: &str) -> String {
 extern "C" fn window_resized(w: c_int, h: c_int) {
     // Client rect is reported in pixels; day-xaml's v1 assumes a 100% scale factor
     // throughout (same convention as window creation).
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::WindowResized(Size::new(w as f64, h as f64)),
-    );
+    let size = Size::new(w as f64, h as f64);
+    LAST_WINDOW_SIZE.with(|c| c.set(size));
+    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+    // Presented emulated covers track the content area (docs/cover.md).
+    COVERS.with(|c| {
+        for (cover, node) in c.borrow().iter() {
+            unsafe {
+                ffi::day_xaml_set_geometry(
+                    *cover,
+                    0,
+                    0,
+                    size.width.round() as c_int,
+                    size.height.round() as c_int,
+                )
+            };
+            emit(*node, Event::FrameChanged(size));
+        }
+    });
+}
+
+thread_local! {
+    /// Last reported window content size (seeds cover frames at Present).
+    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
+        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+    /// Presented emulated covers: (element, NodeId).
+    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover element → NodeId (set at realize).
+    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
 }
 
 extern "C" fn run_posted(data: *mut c_void) {

@@ -554,9 +554,10 @@ pub enum Cap {
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
-    /// needn't repeat it in its own content. Today only the XAML backend answers `Native`
-    /// (the NavigationView header); UIKit and Android DO show a native bar title but still
-    /// answer `Unsupported`, so content-side titles render there too (docs/navigation.md).
+    /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
+    /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
+    /// title bars). The desktop custom back-headers (AppKit/Qt/web) show a title only in
+    /// stack mode, so those backends stay `Unsupported` (docs/navigation.md).
     NavHeader,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,
@@ -1426,6 +1427,13 @@ pub mod props {
         Popped,
         /// Current top-of-stack title changed.
         Title(String),
+        /// The top page has a back guard (`Stack::on_back`, docs/navigation.md): while `true`,
+        /// the toolkit must NOT auto-pop on a native back gesture/button — instead route it to
+        /// Day as `Event::NavBack { already_popped: false }` so the app's guard decides. On
+        /// backends whose back already routes through Day (AppKit/Qt/XAML/web custom headers)
+        /// this is a no-op; iOS disables the swipe, Android holds its callback, GTK sets the
+        /// page `can-pop=false`, ArkUI consumes `onBackPressed`.
+        GuardTop(bool),
     }
 
     /// One destination's native container. `sidebar` marks the split-mode sidebar pane.
@@ -1477,6 +1485,14 @@ pub mod props {
         /// Programmatic highlight sync — toolkits apply WITHOUT re-emitting
         /// SelectionChanged (the TextField from_native echo rule).
         Selected(Option<usize>),
+        /// The item set changed (data-driven `selector().items(signal, …)`): rebuild the rows
+        /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied WITHOUT
+        /// re-emitting SelectionChanged.
+        Items {
+            items: Vec<String>,
+            icons: Vec<Option<String>>,
+            selected: Option<usize>,
+        },
     }
 
     /// Native tabbed container (docs/tabs.md). `titles` are the tab labels in page order;
@@ -1496,6 +1512,14 @@ pub mod props {
         /// Programmatic selection sync — toolkits apply WITHOUT re-emitting SelectionChanged
         /// (the TextField from_native echo rule).
         Selected(usize),
+        /// The tab set changed (data-driven `selector().items(signal, …)`): the host reconciles
+        /// its native tab labels/icons to these; the day-pieces layer adds/removes the resident
+        /// pages to match (docs/navigation.md). `selected` is applied without re-emitting.
+        Items {
+            titles: Vec<String>,
+            icons: Vec<Option<String>>,
+            selected: usize,
+        },
     }
 
     /// One tab's content container. `title` is its tab label (read by the host on insert);

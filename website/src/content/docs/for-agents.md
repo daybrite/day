@@ -153,6 +153,7 @@ stack(path, home_view).destination(|key| detail_view(key));
 // push: path.update(|p| p.push("item-42".into()));  pop is written back by the native back button.
 
 navigate("settings");  nav_back();  current_route();   // string-route adapter (also deep links + dayscript)
+stack(path, root).on_back(|req| if dirty.get() { BackResponse::Handled } else { BackResponse::Proceed })  // intercept back
 ```
 
 **Text, fonts, color, accessibility**

@@ -569,10 +569,29 @@ fn emit_window(ev: Event) {
 }
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::WindowResized(Size::new(w as f64, h as f64)),
-    );
+    let size = Size::new(w as f64, h as f64);
+    LAST_WINDOW_SIZE.with(|c| c.set(size));
+    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+    // Presented emulated covers track the content area (docs/cover.md: the frame is
+    // native-owned while presented).
+    COVERS.with(|c| {
+        for (cover, node) in c.borrow().iter() {
+            unsafe {
+                ffi::day_qt_set_geometry(*cover, 0, 0, size.width as c_int, size.height as c_int)
+            };
+            emit(*node, Event::FrameChanged(size));
+        }
+    });
+}
+
+thread_local! {
+    /// The last reported window content size (seeds cover frames at Present).
+    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
+        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+    /// Presented emulated covers: (widget, NodeId).
+    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover widget → NodeId (set at realize).
+    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
 }
 
 thread_local! {
@@ -760,6 +779,8 @@ impl Toolkit for Qt {
             | Cap::FileDialogs
             | Cap::TextEditable
             | Cap::TextSelectable => Support::Native,
+            // A topmost child of the window content — not a system modal (docs/cover.md).
+            Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
         }
     }
@@ -827,6 +848,14 @@ impl Toolkit for Qt {
                     let page = QtHandle(ffi::day_qt_container_new());
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
                     page
+                }
+                // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
+                // it onto the window content, topmost, at the content size.
+                kinds::COVER => {
+                    let cover = QtHandle(ffi::day_qt_container_new());
+                    ffi::day_qt_set_visible(cover.0, 0);
+                    COVER_IDS.with(|m| m.borrow_mut().insert(cover.0 as usize, id));
+                    cover
                 }
                 kinds::TABS => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
@@ -1018,7 +1047,32 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::NAV_MENU => {
-                    if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
+                    if let Some(NavMenuPatch::Items {
+                        items,
+                        icons,
+                        selected,
+                    }) = patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        // Data-driven rows: rebuild the QListWidget from the new labels/icons
+                        // (the same shim call realize uses), then apply the selection.
+                        let joined = items.join("\u{1f}");
+                        let icons_joined = icons
+                            .iter()
+                            .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join("\u{1f}");
+                        ffi::day_qt_navlist_set_items(
+                            h.0,
+                            cstr(&joined).as_ptr(),
+                            cstr(&icons_joined).as_ptr(),
+                        );
+                        ffi::day_qt_navlist_set_selected(
+                            h.0,
+                            selected.map(|i| i as c_int).unwrap_or(-1),
+                        );
+                        NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(h.0 as usize, items.len()));
+                    } else if let Some(NavMenuPatch::Selected(sel)) =
+                        patch.downcast_ref::<NavMenuPatch>()
                     {
                         ffi::day_qt_navlist_set_selected(
                             h.0,
@@ -1027,12 +1081,56 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::TABS => {
-                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                    if let Some(TabsPatch::Items {
+                        titles, selected, ..
+                    }) = patch.downcast_ref::<TabsPatch>()
+                    {
+                        for (i, title) in titles.iter().enumerate() {
+                            ffi::day_qt_tabs_set_title(h.0, i as c_int, cstr(title).as_ptr());
+                        }
+                        ffi::day_qt_tabs_set_current(h.0, *selected as c_int);
+                    } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                         TABS_STATE.with(|m| {
                             if let Some(state) = m.borrow().get(&(h.0 as usize)) {
                                 ffi::day_qt_tabs_set_current(state.tabs, *i as c_int);
                             }
                         });
+                    }
+                }
+                // Emulated cover (docs/cover.md): present = re-home + raise + opaque default
+                // surface (palette Window color); dismiss = hide + report "cover-hidden" at
+                // once. No interactive dismissal exists on this backend.
+                kinds::COVER => {
+                    if let Some(p) = patch.downcast_ref::<CoverPatch>() {
+                        let node = COVER_IDS
+                            .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                            .unwrap_or(day_spec::WINDOW_NODE);
+                        match p {
+                            CoverPatch::Present { background, .. } => {
+                                if let Some(bg) = background {
+                                    ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a);
+                                }
+                                ffi::day_qt_add_child(self.window, h.0);
+                                ffi::day_qt_cover_top(h.0);
+                                let size = LAST_WINDOW_SIZE.with(|c| c.get());
+                                ffi::day_qt_set_geometry(
+                                    h.0,
+                                    0,
+                                    0,
+                                    size.width as c_int,
+                                    size.height as c_int,
+                                );
+                                ffi::day_qt_set_visible(h.0, 1);
+                                COVERS.with(|c| c.borrow_mut().push((h.0, node)));
+                                emit(node, Event::FrameChanged(size));
+                            }
+                            CoverPatch::DismissDisabled(_) => {}
+                            CoverPatch::Dismiss => {
+                                ffi::day_qt_set_visible(h.0, 0);
+                                COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+                                emit(node, Event::custom("cover-hidden", ""));
+                            }
+                        }
                     }
                 }
                 kinds::NAV => {
@@ -1076,6 +1174,9 @@ impl Toolkit for Qt {
                                         *last = t.clone();
                                     }
                                 }
+                                // Custom back header → always NavBack{already_popped:false};
+                                // no native auto-pop to suppress (docs/navigation.md).
+                                NavPatch::GuardTop(_) => {}
                             }
                         });
                         // Header visibility follows the depth AFTER the pop completes (the
@@ -1290,6 +1391,18 @@ impl Toolkit for Qt {
                 state.pages.retain(|(p, _)| p.0 != child.0);
             }
         });
+        // Data-driven tabs: drop the page's tab (removeTab keeps the widget; Day disposes it).
+        let is_tab = TABS_STATE.with(|m| {
+            if let Some(state) = m.borrow_mut().get_mut(&(parent.0 as usize)) {
+                state.pages.retain(|(p, _)| p.0 != child.0);
+                true
+            } else {
+                false
+            }
+        });
+        if is_tab {
+            unsafe { ffi::day_qt_tabs_remove_page(parent.0, child.0) };
+        }
         unsafe { ffi::day_qt_remove_child(child.0) };
     }
 

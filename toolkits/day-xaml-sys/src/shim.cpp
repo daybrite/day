@@ -1168,6 +1168,26 @@ void day_xaml_container_set_bg(void* h, unsigned int argb) {
         ensure_bg_rect(c).Fill(WUXM::SolidColorBrush(color_argb(argb)));
 }
 
+// Emulated fullscreen cover (docs/cover.md): give the cover an OPAQUE page-background surface
+// (the same grounding as the window root) so it occludes the content beneath it.
+void day_xaml_cover_ground(void* h) {
+    auto c = elem(h).try_as<WUXC::Canvas>();
+    if (!c) return;
+    auto rect = ensure_bg_rect(c);
+    auto res = WUX::Application::Current().Resources();
+    auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
+    if (res.HasKey(key)) {
+        if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+            rect.Fill(brush);
+            return;
+        }
+    }
+    bool dark = g_forced_theme == 2 ||
+        (g_forced_theme == 0 &&
+         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
+    rect.Fill(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+}
+
 // SurfaceRole::SectionCard: the grouped-card fill from the theme resources — resolved per the
 // APP theme (a DAY_THEME force is applied app-wide, so this tracks it). Fallback where the
 // resource set predates the card brush: a translucent neutral, which reads correctly over

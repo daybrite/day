@@ -174,7 +174,7 @@ A `Setter` checks liveness on arrival — if the target scope was disposed while
 the write drops silently. That's the behavior you want when a download finishes after its page
 was dismissed.
 
-The tradeoff is stated plainly: this model makes single-threaded UI code simple and makes the
+This model makes single-threaded UI code simple and makes the
 compiler enforce the threading rule, but there's no shared-state shortcut. Anything computed off
 the main thread comes back through a `Setter` or `on_main`, the same way it would with
 `DispatchQueue.main.async` or a `Handler` — Day gives it a type instead of a convention.

@@ -45,7 +45,8 @@ is all a user needs.
 - **`GtkVideo` needs a GStreamer media backend** in the GTK build. Distro packages ship one;
   Homebrew's gtk4 does not, so the media piece shows GTK's own "no media backend" error on
   `macos-gtk`.
-- **No `cover()`, no Lottie, no map** on this backend — each renders its placeholder.
+- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+  a topmost window-sized child (no transition, programmatic dismissal only).
 - **The combo box uses `GtkComboBoxText`**, deprecated in GTK 4.10 but kept deliberately: no
   editable replacement exists yet.
 - **A `progress` node picks its widget at realize time** — `progress(f)` becomes a `GtkProgressBar`

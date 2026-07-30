@@ -368,3 +368,8 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation-duration: 0.01ms !important; }
 }
+
+/* Emulated fullscreen cover (docs/cover.md): hidden until presented; occludes the page with
+   the theme background unless the app sets its own color. */
+.day-cover { display: none; position: fixed; inset: 0; z-index: 100; background: var(--day-bg); }
+.day-cover.open { display: block; }

@@ -32,7 +32,7 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.tabs` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.tabs_page` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.list` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day.cover` | · | ✓ | · | · | · | ✓ | ✓ | · |
+| `day.cover` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## External pieces
 
@@ -66,11 +66,11 @@ An app branches on this rather than on the target name.
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | – | N | N | N | – | – | – |
 | `NavSplit` | N | – | N | N | N | – | – | ? |
-| `NavHeader` | – | – | – | – | N | – | – | – |
+| `NavHeader` | – | N | – | – | N | N | N | – |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | – |
 | `Animation` | N | N | – | – | – | N | – | N |
-| `Cover` | – | N | – | – | – | N | E | – |
+| `Cover` | E | N | E | E | E | N | E | E |
 | `TextEditable` | N | N | N | N | – | N | – | N |
 | `TextSelectable` | N | N | – | N | – | N | – | N |
 | `TextSpellCheck` | N | N | – | – | – | N | – | N |

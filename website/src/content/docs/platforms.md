@@ -61,7 +61,7 @@ Apple credentials. Physical-device debugging workflows are still young compared 
 Material Components widgets over JNI, with a checked-in Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
 with the right ABI. Known rough edges: accessibility annotations are partial
-([details](/docs/accessibility#current-limits-plainly)), and process-death restoration is a cold
+([details](/docs/accessibility#current-limits)), and process-death restoration is a cold
 start unless your app persists its own state.
 
 ### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/platforms/linux-gtk), [Qt](/docs/platforms/linux-qt)

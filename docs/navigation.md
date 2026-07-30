@@ -57,6 +57,81 @@ top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode
 data, so deep-linking is "parse the URL into a path and `set` it," and the stack is unit-testable
 without the framework.
 
+## Data-driven items (`selector().items`)
+
+`selector` items can come from a signal, so a sidebar or tab set grows and shrinks with your data
+(a rooms list, open documents). Static `.item`s and dynamic `.items` blocks mix; pair `.items`
+with `.destination` to build the page for a data-driven key (like `stack`).
+
+```rust
+let tabs = Signal::new(vec!["general".to_string(), "random".to_string()]);
+selector(current)
+    .style(SelectorStyle::Tabs)
+    .items(move || tabs.get(), |k: &String| item(k.clone(), k.clone()))
+    .destination(|k: &String| room_page(k))
+```
+
+The row set re-derives whenever a block's signal changes: rows are added/removed on the native
+widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
+`item(key, title).icon(name)` is the row spec. A selector used as a self-contained widget inside a
+page that already routes should call `.local()` so it does not add a segment to `current_route` or
+intercept `navigate`.
+
+**A data-driven item is a label + optional icon** — the native sidebar/tab row. It is NOT an
+arbitrary rich row (an avatar + preview + badge); a master list that needs those is a `list`, and
+combining a rich master list with native master-detail push is a separate, not-yet-built feature.
+
+**Backend support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
+`linux-qt`, and `web-dom` (and their host variants) — verified in the showcase walkthrough. The
+`ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/XAML
+tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
+still shows). The item logic is backend-independent and covered by
+`mock_e2e::selector_data_driven_items_reconcile`.
+
+## Back interception (`on_back`)
+
+`Stack::on_back` intercepts the user's back affordance — a native gesture/button, or `nav_back()`
+— to run a policy before the pop. It does NOT run for a programmatic `path.set` (a write is not a
+back), matching Jetpack Compose's `BackHandler`.
+
+```rust
+let dirty = Signal::new(false);
+stack(path, home_view)
+    .destination(|k| detail_view(k))
+    .on_back(move |req| {
+        if dirty.get() {
+            // confirm asynchronously, then perform the deferred pop on "yes"
+            day::task(async move {
+                if confirm("Discard changes?").await {
+                    dirty.set(false);
+                    req.proceed();          // performs the pop the guard consumed
+                }
+            });
+            BackResponse::Handled           // consume this back
+        } else {
+            BackResponse::Proceed           // normal pop
+        }
+    });
+```
+
+The guard returns `Proceed` (pop now) or `Handled` (consume; the pop does not happen). A `Handled`
+guard may hold the `BackRequest` and call `proceed()` later — the unsaved-changes → confirm → leave
+flow. `proceed()` performs exactly the pop `Proceed` would have.
+
+While a guard is armed above the root, Day tells the toolkit to stop auto-popping on a native
+gesture and route the back through Day instead (`NavPatch::GuardTop`). What that means per backend:
+
+| backend | native-gesture arming while guarded |
+|---|---|
+| iOS (UIKit) | swipe disabled; the back **button** is vetoed via a `UINavigationController` subclass's `navigationBar:shouldPopItem:`, which emits the back to Day |
+| Android | a higher-priority `OnBackPressedCallback` routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
+| HarmonyOS (ArkUI) | the top `NavDestination`'s `onBackPressed` consumes the native back and defers to Day |
+| GTK | the top `AdwNavigationPage` sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
+| macOS / Qt / XAML / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
+
+The guard's LOGIC (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
+and covered by `mock_e2e::stack_on_back_guard_intercepts_and_defers`.
+
 ## Routes: the string-route adapter (deep links & dayscript)
 
 Each mounted surface registers a small adapter over its own signal, so a string route can
@@ -90,10 +165,11 @@ state instead.
 
 - `nav_back()`: pops the innermost surface, falling through when it is already at its root.
 - `current_route()`: the **full** path — every mounted surface's contribution, outermost to
-  innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting navigation
-  across launches is two lines: save `current_route()` on the way out (day-part-prefs works),
-  `navigate(&saved)` after the first mount on the way back. dayscript's `assert_route` compares
-  against the same full path.
+  innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
+  route by hand is two lines: save `current_route()` on the way out (day-part-prefs works),
+  `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
+  (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
+  full path.
 - Startup deep links (`DAY_DEEPLINK`) and Android warm links (`Custom("deeplink")`) route the
   same way. On hosts with no process environment the platform entry records the launch route
   with `day_core::set_launch_deeplink` instead — web-dom seeds it from the page's URL hash
@@ -103,8 +179,8 @@ state instead.
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
   `Event::RouteRequested` and navigates. Other backends inherit the no-op default.
 
-Because each surface owns its own signal, nesting needs no extra machinery: a `selector(Tabs)` or
-a `stack` inside a `selector(Sidebar)` section just works. There is no global navigation controller
+Because each surface owns its own signal, a `selector(Tabs)` or a `stack` nests inside a
+`selector(Sidebar)` section with no extra wiring. There is no global navigation controller
 to arbitrate, only this string adapter for addressing.
 
 **Ordering caveat**: relative dispatch and the full route walk the registry in mount order,
@@ -116,6 +192,39 @@ absolute routes (or drive the signals directly) in such layouts.
 routes against the declared keys in your sources — `.item("key", …)` call sites and
 `routes! { … => "key" }` blocks: a route whose first segment nothing declares is reported
 (`day::lint::unknown-route`) rather than failing silently at runtime.
+
+## Restoring state across launches (`.restore`)
+
+When you want a surface to simply reopen where the user left it, mark it with `.restore(key)`
+instead of wiring `current_route()` by hand:
+
+```rust
+selector(section).restore("nav.section")   // reopens on the last-viewed section
+stack(path, home).restore("mail.path")     // rebuilds the pushed path
+```
+
+The selected key — or the stack's `/`-joined path — is saved under `key` on every change and read
+back at build. A pending launch deep link **wins**: a `DAY_DEEPLINK` (or a `set_launch_deeplink`
+hint) routes one turn after mount, so `.restore` steps aside and the link decides where the app
+opens. A saved value that no longer fits — a selector key whose item is gone, a stack segment that
+no longer parses — is ignored rather than restoring a broken state.
+
+`.restore` reads and writes through a store the app installs once at startup; nothing persists
+until you install one:
+
+```rust
+fn main() {
+    day_part_prefs::install_nav_store();   // before the UI mounts
+    // …
+}
+```
+
+The prefs store is disk-backed, so restore also survives an **Android process death** — the OS
+reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no
+store installed, `.restore` is a silent no-op, so the same code compiles and runs on a target
+where you don't want persistence: the Showcase installs the store on web only, where a reload is
+routine, and starts fresh on native. To back `.restore` with your own storage, implement
+`day_core::NavStore` and hand it to `day_core::set_nav_store`.
 
 ## Typed routes
 

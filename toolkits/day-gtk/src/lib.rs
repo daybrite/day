@@ -594,6 +594,28 @@ fn gtk_animation(
 /// dark-mode sidebar. Every RGB pixel is recolored to the foreground; the source ALPHA is kept as
 /// the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage` or `None`
 /// if the name doesn't resolve / the file can't be decoded.
+/// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
+/// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
+fn fill_nav_menu(listbox: &gtk4::ListBox, items: &[String], icons: &[Option<String>]) {
+    for (i, item) in items.iter().enumerate() {
+        let label = gtk4::Label::new(Some(item));
+        label.set_halign(gtk4::Align::Start);
+        let icon = icons
+            .get(i)
+            .and_then(|o| o.as_deref())
+            .and_then(tinted_sidebar_icon);
+        if let Some(image) = icon {
+            let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            image.set_margin_start(2);
+            row.append(&image);
+            row.append(&label);
+            listbox.append(&row);
+        } else {
+            listbox.append(&label);
+        }
+    }
+}
+
 fn tinted_sidebar_icon(name: &str) -> Option<gtk4::Image> {
     let path = day_spec::resource::resolve_image_file(name)?;
     // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template PNGs
@@ -1222,6 +1244,8 @@ impl Toolkit for Gtk {
             Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs | Cap::TextEditable => {
                 Support::Native
             }
+            // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
+            Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
         }
     }
@@ -1319,6 +1343,17 @@ impl Toolkit for Gtk {
                 NAV_PAGE_TITLES.with(|m| m.borrow_mut().insert(key, title));
                 page
             }
+            // Emulated fullscreen cover (docs/cover.md): parked hidden; CoverPatch::Present
+            // re-homes it onto the window's root Fixed, topmost, sized to the content area.
+            kinds::COVER => {
+                let cover = gtk4::Fixed::new();
+                cover.set_visible(false);
+                COVER_IDS.with(|m| {
+                    m.borrow_mut()
+                        .insert(widget_key(&cover.clone().upcast()), id)
+                });
+                cover.upcast()
+            }
             kinds::TABS => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 // Adwaita segmented switcher: a `.linked` row of grouped toggle buttons above an
@@ -1367,27 +1402,7 @@ impl Toolkit for Gtk {
                 // The standard GNOME sidebar treatment.
                 listbox.add_css_class("navigation-sidebar");
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
-                for (i, item) in p.items.iter().enumerate() {
-                    let label = gtk4::Label::new(Some(item));
-                    label.set_halign(gtk4::Align::Start);
-                    // An OPTIONAL bundled template icon to the LEFT of the title (docs: NavMenuProps
-                    // `icons`). Rows without an icon (or an unresolved name) stay label-only, so the
-                    // About/other rows still render when some icon is missing.
-                    let icon = p
-                        .icons
-                        .get(i)
-                        .and_then(|o| o.as_deref())
-                        .and_then(tinted_sidebar_icon);
-                    if let Some(image) = icon {
-                        let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-                        image.set_margin_start(2);
-                        row.append(&image);
-                        row.append(&label);
-                        listbox.append(&row);
-                    } else {
-                        listbox.append(&label);
-                    }
-                }
+                fill_nav_menu(&listbox, &p.items, &p.icons);
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 {
                     let suppress = suppress.clone();
@@ -1617,6 +1632,57 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            // Emulated cover (docs/cover.md): present = re-home onto the window's root Fixed
+            // at the content size, topmost; dismiss = hide + report "cover-hidden" at once (no
+            // transition on this tier). No interactive dismissal exists on this backend.
+            kinds::COVER => {
+                if let (Some(p), Ok(cover)) = (
+                    patch.downcast_ref::<CoverPatch>(),
+                    h.clone().downcast::<gtk4::Fixed>(),
+                ) {
+                    let node = COVER_IDS
+                        .with(|m| m.borrow().get(&widget_key(h)).copied())
+                        .unwrap_or(day_spec::WINDOW_NODE);
+                    match p {
+                        CoverPatch::Present { background, .. } => {
+                            // Occlude the window: an explicit color via the surface provider,
+                            // else Adwaita's `background` class (the theme window background).
+                            match background {
+                                Some(_) => apply_surface(h, *background, 0.0, false),
+                                None => cover.add_css_class("background"),
+                            }
+                            if let Some(parent) = cover.parent()
+                                && let Ok(old) = parent.downcast::<gtk4::Fixed>()
+                            {
+                                old.remove(&cover);
+                            }
+                            if let Some(root) = self.window_fixed.as_ref() {
+                                root.put(&cover, 0.0, 0.0);
+                                let size = Size::new(root.width() as f64, root.height() as f64);
+                                cover.set_size_request(size.width as i32, size.height as i32);
+                                cover.set_visible(true);
+                                COVERS.with(|c| {
+                                    c.borrow_mut().push((cover.clone(), node));
+                                });
+                                emit(node, Event::FrameChanged(size));
+                            }
+                        }
+                        CoverPatch::DismissDisabled(_) => {}
+                        CoverPatch::Dismiss => {
+                            cover.set_visible(false);
+                            if let Some(parent) = cover.parent()
+                                && let Ok(old) = parent.downcast::<gtk4::Fixed>()
+                            {
+                                old.remove(&cover);
+                            }
+                            COVERS.with(|c| {
+                                c.borrow_mut().retain(|(w, _)| w != &cover);
+                            });
+                            emit(node, Event::custom("cover-hidden", ""));
+                        }
+                    }
+                }
+            }
             kinds::CONTAINER => {
                 if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
                 {
@@ -1624,7 +1690,34 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::NAV_MENU => {
-                if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>() {
+                if let Some(NavMenuPatch::Items {
+                    items,
+                    icons,
+                    selected,
+                }) = patch.downcast_ref::<NavMenuPatch>()
+                {
+                    NAV_MENUS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let Some(state) = m.get_mut(&widget_key(h)) else {
+                            return;
+                        };
+                        state.suppress.set(true);
+                        while let Some(row) = state.listbox.first_child() {
+                            state.listbox.remove(&row);
+                        }
+                        fill_nav_menu(&state.listbox, items, icons);
+                        state.rows = items.len();
+                        match selected {
+                            Some(i) => state
+                                .listbox
+                                .select_row(state.listbox.row_at_index(*i as i32).as_ref()),
+                            None => state.listbox.unselect_all(),
+                        }
+                        state.suppress.set(false);
+                    });
+                } else if let Some(NavMenuPatch::Selected(sel)) =
+                    patch.downcast_ref::<NavMenuPatch>()
+                {
                     NAV_MENUS.with(|m| {
                         let m = m.borrow();
                         let Some(state) = m.get(&widget_key(h)) else {
@@ -1642,7 +1735,29 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::TABS => {
-                if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
+                if let Some(TabsPatch::Items {
+                    titles, selected, ..
+                }) = patch.downcast_ref::<TabsPatch>()
+                {
+                    TABS_STATE.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&widget_key(h)) else {
+                            return;
+                        };
+                        // Pages were added/removed via insert/remove; sync toggle labels + select.
+                        for (toggle, title) in state.toggles.iter().zip(titles) {
+                            toggle.set_label(title);
+                        }
+                        if let Some(toggle) = state.toggles.get(*selected)
+                            && let Some((w, _)) = state.pages.get(*selected)
+                        {
+                            state.suppress.set(true);
+                            toggle.set_active(true);
+                            state.stack.set_visible_child(w);
+                            state.suppress.set(false);
+                        }
+                    });
+                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                     TABS_STATE.with(|m| {
                         if let Some(state) = m.borrow().get(&widget_key(h))
                             && let Some(toggle) = state.toggles.get(*i)
@@ -1669,6 +1784,16 @@ impl Toolkit for Gtk {
                             state.suppress.set(true);
                             nv.pop();
                             state.suppress.set(false);
+                        }
+                        // Back guard (docs/navigation.md): AdwNavigationView has no pre-pop veto
+                        // signal, so a guarded top page sets `can-pop = false` — the swipe/Escape
+                        // back is disabled, and the app drives the back through its own control
+                        // (which routes to the GUARDED nav_back()). The guard still runs; it just
+                        // isn't reachable by gesture here.
+                        if let NavPatch::GuardTop(on) = p
+                            && let Some((_, _, page)) = state.pages.last()
+                        {
+                            page.set_can_pop(!on);
                         }
                     });
                 }
@@ -1946,6 +2071,26 @@ impl Toolkit for Gtk {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
+        // Data-driven tabs: drop the page from the stack + its toggle from the switcher.
+        let host_key = widget_key(parent);
+        let tabs_handled = TABS_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&host_key) else {
+                return false;
+            };
+            let ck = widget_key(child);
+            if let Some(pos) = state.pages.iter().position(|(w, _)| widget_key(w) == ck) {
+                state.pages.remove(pos);
+                let toggle = state.toggles.remove(pos);
+                state.switcher.remove(&toggle);
+                state.stack.remove(child);
+            }
+            true
+        });
+        if tabs_handled {
+            gtk4::glib::idle_add_local_once(move || tabs_sync(host_key));
+            return;
+        }
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&widget_key(parent)) else {
@@ -2688,17 +2833,31 @@ thread_local! {
 /// first allocated (`report_content_size` reads the real height thereafter).
 const HEADER_H: f64 = 47.0;
 
+thread_local! {
+    /// Presented emulated covers: (cover widget, its NodeId). `report_content_size` re-sizes
+    /// each on window resize and re-reports FrameChanged (the frame is native-owned while
+    /// presented — docs/cover.md).
+    static COVERS: RefCell<Vec<(gtk4::Fixed, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms).
+    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+}
+
 /// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
 fn report_content_size(w: &adw::ApplicationWindow, header: &adw::HeaderBar) {
     let hb = header.height();
     let hb = if hb > 0 { hb as f64 } else { HEADER_H };
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::WindowResized(Size::new(
-            w.default_width() as f64,
-            (w.default_height() as f64 - hb).max(0.0),
-        )),
+    let size = Size::new(
+        w.default_width() as f64,
+        (w.default_height() as f64 - hb).max(0.0),
     );
+    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+    // Presented covers track the content area (their frame is native-owned).
+    COVERS.with(|c| {
+        for (cover, node) in c.borrow().iter() {
+            cover.set_size_request(size.width as i32, size.height as i32);
+            emit(*node, Event::FrameChanged(size));
+        }
+    });
 }
 
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set
