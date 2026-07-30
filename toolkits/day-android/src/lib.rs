@@ -1065,24 +1065,7 @@ mod imp {
     /// stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at ERROR, so
     /// it surfaces even before the redirect installs. Deduped per kind so it doesn't spam the log.
     fn warn_missing_renderer(kind: PieceKind) {
-        static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
-            std::sync::Mutex::new(None);
-        let Ok(mut guard) = SEEN.lock() else { return };
-        if guard
-            .get_or_insert_with(std::collections::HashSet::new)
-            .insert(kind)
-        {
-            let msg = format!(
-                "day: no renderer for piece kind \"{kind}\" on widget (android) \
-                 — is the piece's widget feature enabled? (rendering a placeholder)"
-            );
-            eprintln!("{msg}");
-            if let Ok(c) = std::ffi::CString::new(msg) {
-                // SAFETY: liblog is linked (see the extern block above); `Day` + the message are
-                // valid NUL-terminated C strings for the duration of the call.
-                unsafe { __android_log_write(ANDROID_LOG_ERROR, c"Day".as_ptr(), c.as_ptr()) };
-            }
-        }
+        day_spec::placeholder::report(kind, "android");
     }
 
     impl Toolkit for Android {
@@ -1768,7 +1751,11 @@ mod imp {
                             &[JValue::Object(h.0.as_obj())],
                         );
                     }
-                    _ => {}
+                    // Not implemented: RowSizeInvalidated (the adapter re-measures on the next
+                    // notifyDataSetChanged) and Selected (no programmatic selection sync yet).
+                    Some(ListPatch::RowSizeInvalidated(_))
+                    | Some(ListPatch::Selected(_))
+                    | None => {}
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {

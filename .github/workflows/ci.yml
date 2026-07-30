@@ -77,6 +77,14 @@ jobs:
         run: |
           scripts/ci/duty-matrix.sh
           git diff --exit-code docs/duty-matrix.md
+      # docs/coverage-matrix.md is the same contract for the piece VOCABULARY: which kinds each
+      # backend realizes, which piece ships which arm, and what every Cap answers. Adding a
+      # renderer without regenerating it is drift; the walkthrough's assert_no_placeholders
+      # allow-lists are the runtime half of the same fact.
+      - name: Coverage-matrix drift check
+        run: |
+          scripts/ci/coverage-matrix.sh
+          git diff --exit-code docs/coverage-matrix.md
       # The Android cross-check lint gates HERE (the android-mdc job is continue-on-error
       # for an emulator flake, so a lint failure there would not fail the workflow). The headless
       # parts named below have no toolkit feature, and parts are NOT in default-members, so a bare

@@ -90,6 +90,15 @@ pub enum Step {
         id: String,
         value: serde_json::Value,
     },
+    /// Fail if any piece kind rendered a `⟨kind⟩` placeholder — i.e. the backend had no renderer
+    /// for it. Placeholders are invisible to every other assertion (the app still renders, the
+    /// screenshot still looks plausible), so this is the only step that catches a missing or
+    /// silently-dropped renderer. `allow` lists the kinds a target is expected to lack, which
+    /// makes the script itself the per-target gap ledger; anything outside it is a failure.
+    AssertNoPlaceholders {
+        #[serde(default)]
+        allow: Vec<String>,
+    },
     Screenshot {
         name: String,
     },
@@ -467,6 +476,25 @@ fn exec(step: Step) -> Reply {
                 } else {
                     Err(Reply::fail(
                         format!("{id:?}: expected {expected:?}, found {actual:?}"),
+                        true,
+                    ))
+                }
+            }
+            Step::AssertNoPlaceholders { allow } => {
+                let unexpected: Vec<&str> = day_spec::placeholder::seen()
+                    .into_iter()
+                    .filter(|k| !allow.iter().any(|a| a == k))
+                    .collect();
+                if unexpected.is_empty() {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!(
+                            "rendered a placeholder for {} — no renderer on this backend. Enable \
+                             the piece's feature for this toolkit, or add the kind to `allow:` if \
+                             the gap is intended.",
+                            unexpected.join(", ")
+                        ),
                         true,
                     ))
                 }

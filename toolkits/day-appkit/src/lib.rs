@@ -1514,18 +1514,7 @@ fn appkit_timing(a: &AnimSpec) -> (f64, Retained<CAMediaTimingFunction>) {
 /// (Tier A.2 derives it automatically under `day build`; a bare `cargo` build may miss it). Deduped
 /// per kind so a placeholder rendered every frame doesn't spam the log.
 fn warn_missing_renderer(kind: PieceKind) {
-    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
-        std::sync::Mutex::new(None);
-    let Ok(mut guard) = SEEN.lock() else { return };
-    if guard
-        .get_or_insert_with(std::collections::HashSet::new)
-        .insert(kind)
-    {
-        eprintln!(
-            "day: no renderer for piece kind \"{kind}\" on appkit \
-             — is the piece's appkit feature enabled? (rendering a placeholder)"
-        );
-    }
+    day_spec::placeholder::report(kind, "appkit");
 }
 
 impl Toolkit for AppKit {
@@ -2219,7 +2208,9 @@ impl Toolkit for AppKit {
                         }
                     });
                 }
-                _ => {}
+                // NSTableView has no per-row invalidation seam here: a row keeps its height
+                // until the next Reload. `None` = a patch for another kind's enum.
+                Some(ListPatch::RowSizeInvalidated(_)) | None => {}
             },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {

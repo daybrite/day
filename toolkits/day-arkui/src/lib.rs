@@ -527,18 +527,7 @@ mod imp {
     /// back to a placeholder (an empty stack node). A missing renderer usually means the piece's
     /// `arkui` feature wasn't enabled. Deduped per kind so it doesn't spam the log.
     fn warn_missing_renderer(kind: PieceKind) {
-        static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
-            std::sync::Mutex::new(None);
-        let Ok(mut guard) = SEEN.lock() else { return };
-        if guard
-            .get_or_insert_with(std::collections::HashSet::new)
-            .insert(kind)
-        {
-            eprintln!(
-                "day: no renderer for piece kind \"{kind}\" on arkui \
-                 — is the piece's arkui feature enabled? (rendering a placeholder)"
-            );
-        }
+        day_spec::placeholder::report(kind, "arkui");
     }
 
     impl Toolkit for ArkUi {
@@ -997,9 +986,20 @@ mod imp {
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) => unsafe { ffi::day_ark_list_reload(h.0) },
                     Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
-                    _ => {}
+                    // RowSizeInvalidated / Selected: the node adapter re-measures rows itself and
+                    // ArkUI's list exposes no programmatic selection — nothing to forward.
+                    Some(ListPatch::RowSizeInvalidated(_))
+                    | Some(ListPatch::Selected(_))
+                    | None => {}
                 },
-                _ => {}
+                // An external piece's own arkui renderer, if one registered for this kind. Without
+                // this, every registered piece realized correctly and then ignored every patch —
+                // realize and measure consulted the registry but update did not.
+                _ => {
+                    if let Some(update) = self.registry.get(kind).map(|r| r.update) {
+                        update(self, h, patch);
+                    }
+                }
             }
         }
 

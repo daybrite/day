@@ -1209,18 +1209,7 @@ fn content_of(parent: &Handle) -> Handle {
 /// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
 /// every frame doesn't spam the log.
 fn warn_missing_renderer(kind: PieceKind) {
-    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<&'static str>>> =
-        std::sync::Mutex::new(None);
-    let Ok(mut guard) = SEEN.lock() else { return };
-    if guard
-        .get_or_insert_with(std::collections::HashSet::new)
-        .insert(kind)
-    {
-        eprintln!(
-            "day: no renderer for piece kind \"{kind}\" on gtk \
-             — is the piece's gtk feature enabled? (rendering a placeholder)"
-        );
-    }
+    day_spec::placeholder::report(kind, "gtk");
 }
 
 impl Toolkit for Gtk {
@@ -1788,7 +1777,9 @@ impl Toolkit for Gtk {
                         });
                     }
                 }
-                _ => {}
+                // Not implemented: RowSizeInvalidated (GtkListView re-measures its own rows on
+                // the next factory bind) and Selected (no programmatic selection sync yet).
+                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Selected(_)) | None => {}
             },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {

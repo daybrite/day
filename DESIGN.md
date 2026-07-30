@@ -47,6 +47,7 @@ the architecture-level view and the rationale.
 | native recycling lists | docs/list.md | [§10](#10-native-list-integration) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | docs/scroll.md | [§7.6](#76-scroll) |
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | docs/duty-matrix.md | [§8.1](#81-the-toolkit-trait) |
+| Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | docs/coverage-matrix.md | [§8.2](#82-the-open-renderer-registry) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
@@ -3078,6 +3079,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_presented` | `title?` | a native modal is up (docs/dialogs.md) |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
+| `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated docs/coverage-matrix.md is its static twin |
 | `screenshot` | name | waits for `ui_idle` (native transitions settled) |
 | `pause` | `secs` | demos only |
 | `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests (docs/break.md) |
@@ -3091,7 +3093,10 @@ implemented** — scripts scroll explicitly and the walkthrough is written accor
 Any step may carry `skip_on: [<target-or-toolkit>, …]` (2026-07): the RUNNER drops it on the
 named targets before sending, so one script drives every platform while staying honest about
 genuinely absent capabilities (the showcase walkthrough skips its file-picker and
-loopback-HTTP steps on `web-dom` — docs/web.md).
+loopback-HTTP steps on `web-dom` — docs/web.md). Its mirror `only_on: [...]` (2026-07) runs a step
+ONLY on the named targets, for a step whose expectation is per-target — the walkthrough's
+`assert_no_placeholders` allow-lists differ sharply between, say, `macos-appkit` (none) and
+`web-dom` (six).
 
 ---
 

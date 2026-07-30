@@ -71,6 +71,48 @@ pub mod kinds {
     pub const COVER: &str = "day.cover";
 }
 
+/// Placeholder leaves: the one hole in Day's rendering that is invisible to a screenshot.
+///
+/// When a backend has no renderer for a kind it realizes a visible `⟨kind⟩` label rather than
+/// failing — the right runtime behaviour, but it means a missing renderer LOOKS like a rendered
+/// app: the walkthrough passes, and the gallery's validator (which counts distinct colours) sees
+/// nothing wrong. That is how a stale `skip_on:` survived in the showcase walkthrough after the
+/// renderer it skipped had actually landed.
+///
+/// So every backend reports here instead of keeping its own warn-once set. The table is process-
+/// wide and append-only, which gives dayscript's `assert_no_placeholders` something to assert on
+/// (`crates/day-script`) — a placeholder becomes a test failure instead of a silent gap.
+pub mod placeholder {
+    use super::PieceKind;
+    use std::collections::BTreeSet;
+    use std::sync::{Mutex, OnceLock};
+
+    fn table() -> &'static Mutex<BTreeSet<PieceKind>> {
+        static TABLE: OnceLock<Mutex<BTreeSet<PieceKind>>> = OnceLock::new();
+        TABLE.get_or_init(|| Mutex::new(BTreeSet::new()))
+    }
+
+    /// Record that `toolkit` had no renderer for `kind` and warn — once per kind, however many
+    /// nodes of it are realized. Call from a backend's `realize` fallback arm.
+    pub fn report(kind: PieceKind, toolkit: &str) {
+        let Ok(mut seen) = table().lock() else { return };
+        if seen.insert(kind) {
+            eprintln!(
+                "day: no renderer for piece kind \"{kind}\" on {toolkit} — is the piece's \
+                 {toolkit} feature enabled? (rendering a placeholder)"
+            );
+        }
+    }
+
+    /// Every kind that has rendered a placeholder in this process, sorted. Empty is the goal.
+    pub fn seen() -> Vec<PieceKind> {
+        table()
+            .lock()
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default()
+    }
+}
+
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u64);

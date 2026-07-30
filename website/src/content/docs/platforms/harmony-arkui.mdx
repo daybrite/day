@@ -45,10 +45,6 @@ partially. Concretely:
 - **Most external pieces have no ArkUI arm** — web view, media, map, Lottie, search field, combo
   box, activity indicator, remote image all render a placeholder. The date/time pickers and
   pull-to-refresh **do** have native arms.
-- **Externally-registered pieces don't receive updates.** Realize and measure consult the piece
-  registry, but the update path does not, so a native piece renders correctly and then ignores
-  later patches. This is a bug rather than a design decision, and it affects the date/time pickers
-  and pull-to-refresh.
 - **All three picker styles collapse to one control** — menu, segmented and inline all become
   `ARKUI_NODE_TEXT_PICKER`.
 - **Layout is measured for very few kinds.** Labels, buttons and the text area ask ArkUI to

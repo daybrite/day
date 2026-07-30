@@ -54,7 +54,7 @@ keys instead of literal strings, so the same script passes in every language.
 | Waiting | `wait_for` (an id appears), `pause` |
 | Acting | `tap`, `input`, `set_value`, `toggle`, `select`, `focus` |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused` |
+| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused`, `assert_no_placeholders` |
 | Dialogs | `assert_presented`, `respond` |
 | Evidence | `screenshot`, `a11y_audit` |
 

@@ -403,9 +403,23 @@ pub fn run_scripts(
                     continue;
                 }
             }
+            // `only_on:` — skip_on's mirror, for a step whose expectations are per-target (an
+            // `assert_no_placeholders` allow-list differs sharply between, say, appkit and
+            // web-dom, so the script carries one step per target group).
+            if let Some(onlys) = step.get("only_on").and_then(|v| v.as_array()) {
+                let hit = onlys
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|s| s == target.name || s == target.toolkit);
+                if !hit {
+                    eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {})", target.name);
+                    continue;
+                }
+            }
             let mut step = step;
             if let Some(map) = step.as_object_mut() {
                 map.remove("skip_on");
+                map.remove("only_on");
             }
             let req = serde_json::json!({"token": token, "step": step});
             let mut line = serde_json::to_string(&req).unwrap();

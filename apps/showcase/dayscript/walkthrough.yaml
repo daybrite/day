@@ -484,3 +484,36 @@ flow:
   - assert_text: { id: loc-current, text: "fr" }
   - tap: { id: locale-reset }
   - screenshot: localization
+
+  # Every page has now been visited, so every piece kind this app uses has been realized. A kind
+  # with no renderer on this backend rendered a `⟨kind⟩` placeholder — which no other assertion can
+  # see, because the app still draws and the screenshot still looks plausible. `allow:` is this
+  # file's per-target gap ledger; anything outside it fails the run, so a piece losing its renderer
+  # (or a toolkit feature silently not being enabled) surfaces here first.
+  #
+  # The empty list below is the point: on seven targets the showcase should render ZERO
+  # placeholders. Lists marked (measured) came from running this step with `allow: []`; the others
+  # are read from the piece crates' backend arms and will be corrected by the first CI run that
+  # disagrees — the failure names the kind.
+  - assert_no_placeholders:
+      only_on: [macos-appkit, android-mdc, linux-gtk, linux-qt, macos-qt, windows-qt, windows-xaml]
+      allow: []
+  # iOS has no native combo-box control, so the piece ships no uikit arm; the showcase renders an
+  # explanatory note beside the placeholder (apps/showcase/src/pages/controls.rs).
+  - assert_no_placeholders:
+      only_on: [ios-uikit]
+      allow: [day.piece.combobox]
+  # WebKitGTK is Linux-only, so the webview piece's gtk arm is compiled out on the macOS and
+  # Windows GTK development combos. (measured on macos-gtk)
+  - assert_no_placeholders:
+      only_on: [macos-gtk, windows-gtk]
+      allow: [day.piece.webview]
+  - assert_no_placeholders:
+      only_on: [harmony-arkui]
+      allow: [day.piece.activity, day.piece.combobox, day.piece.media, day.piece.searchfield,
+              day.piece.webview]
+  # (measured on web-dom) — media() landed as a <video>, so it is deliberately NOT listed here.
+  - assert_no_placeholders:
+      only_on: [web-dom]
+      allow: [day.piece.activity, day.piece.combobox, day.piece.datepicker, day.piece.searchfield,
+              day.piece.timepicker, day.piece.webview]

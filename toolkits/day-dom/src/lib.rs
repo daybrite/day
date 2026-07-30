@@ -680,9 +680,12 @@ impl Toolkit for Dom {
                     remember(h.0, id);
                     return h;
                 }
+                // `warn` reaches the browser console; `report` records it for
+                // dayscript's assert_no_placeholders (eprintln goes nowhere on wasm).
                 warn(&format!(
                     "day: no renderer for piece kind \"{other}\" on web-dom (rendering a placeholder)"
                 ));
+                day_spec::placeholder::report(other, "web-dom");
                 let el = unsafe { day_dom_create(EL_LABEL) };
                 text(el, &format!("⟨{other}⟩"));
                 class(el, "placeholder", true);
