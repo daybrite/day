@@ -183,6 +183,14 @@ Because each surface owns its own signal, a `selector(Tabs)` or a `stack` nests 
 `selector(Sidebar)` section with no extra wiring. There is no global navigation controller
 to arbitrate, only this string adapter for addressing.
 
+**Sibling one-of-N surfaces need `.local()`.** Every routed surface contributes to the full
+route, so *two* `selector`/tabs at the **same level** — a filter tab strip beside a main tab bar —
+both feed `current_route()`: you get `section/mainKey/filterKey`, and `navigate("filterKey")` is
+ambiguous. Mark all but the primary one `.local()`; it then drives its own signal without touching
+the route. A selector nested one level *deeper* (a `Tabs` inside a `Sidebar` section) is the
+opposite case and should stay routed — that cascade is the whole point of nesting. In debug builds,
+two routed one-of-N surfaces at the same level log a warning naming this fix.
+
 **Ordering caveat**: relative dispatch and the full route walk the registry in mount order,
 which equals nesting depth for a single active chain. Two *sibling* surfaces mounted at once
 (two independent stacks visible in one window) are ordered by mount time, not focus — prefer

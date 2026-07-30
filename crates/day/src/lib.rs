@@ -469,7 +469,7 @@ pub mod web {
             day_core::set_launch_deeplink(&route);
         }
         if let Some(token) = day_dom::dayscript_token() {
-            day_script::web_init(token, |line| day_dom::script_send(line));
+            day_script::web_init(token, day_dom::script_send);
         }
         crate::launch(
             crate::WindowOptions {

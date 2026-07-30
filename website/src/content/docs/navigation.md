@@ -75,8 +75,14 @@ selector(current)
 
 Rows are added and removed on the native widget as the signal changes; if the selected item
 disappears the selection resets. A data-driven item is a label plus an optional icon (the native
-row) — for a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list). Mark a
-selector `.local()` when it is a widget inside an already-routing page.
+row) — for a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list).
+
+Mark a selector `.local()` when it is a *second* one-of-N control inside an already-routing page (a
+filter strip beside the main tabs). Two routed selectors at the same level both feed
+`current_route()`, so you'd get `section/main/filter` and `navigate` would be ambiguous — `.local()`
+keeps the secondary one out of the route. A selector nested one level deeper (a `Tabs` inside a
+`Sidebar` section) should stay routed; that cascade is intended. Debug builds warn when two routed
+one-of-N surfaces share a level.
 
 ## Intercepting back
 

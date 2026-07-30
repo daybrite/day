@@ -339,6 +339,52 @@ fn register_route_surface(
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
 }
 
+thread_local! {
+    /// How many routed one-of-N surfaces (`selector`/tabs) are live at each nesting depth. Two at
+    /// the same depth are siblings whose keys both flow into `current_route()` — the case that
+    /// wants `.local()` (docs/navigation.md). Used only to warn; never changes behavior.
+    static ROUTED_ONE_OF_N: RefCell<std::collections::HashMap<usize, usize>> =
+        RefCell::new(std::collections::HashMap::new());
+}
+
+/// Note a routed selector/tabs at the current nav depth and, in debug builds, warn if it is a
+/// sibling of another routed one-of-N surface — the `.local()` footgun (docs/navigation.md). The
+/// count is decremented when the surface's scope disposes, so switching sections doesn't leak.
+/// A stack is exempt (its whole path is one surface's contribution; sibling stacks are a
+/// deliberate, documented layout), as is a cover (its segment is empty unless presented).
+fn note_routed_one_of_n(kind: &str) {
+    let depth = NAV_HOST_CX.with(|s| s.borrow().len());
+    let count = ROUTED_ONE_OF_N.with(|m| {
+        let mut m = m.borrow_mut();
+        let c = m.entry(depth).or_insert(0);
+        *c += 1;
+        *c
+    });
+    if count > 1 {
+        warn_sibling_selectors(kind);
+    }
+    Scope::current().on_cleanup(move || {
+        ROUTED_ONE_OF_N.with(|m| {
+            if let Some(c) = m.borrow_mut().get_mut(&depth) {
+                *c = c.saturating_sub(1);
+            }
+        });
+    });
+}
+
+#[cfg(debug_assertions)]
+fn warn_sibling_selectors(kind: &str) {
+    eprintln!(
+        "day: two routed one-of-N surfaces ({kind}) are mounted at the same navigation level. \
+         Their keys both flow into current_route(), so you'll see `section/childA/childB` and \
+         `navigate(\"child\")` is ambiguous. Mark all but the primary one `.local()` \
+         (docs/navigation.md)."
+    );
+}
+
+#[cfg(not(debug_assertions))]
+fn warn_sibling_selectors(_kind: &str) {}
+
 // ===========================================================================
 // Selector — one-of-N, bound to a Signal<String> of the active key.
 // ===========================================================================
@@ -629,9 +675,15 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         self
     }
     /// Use this selector as a LOCAL widget: its selection is not part of the app route, so it
-    /// neither adds a segment to `current_route` nor intercepts `navigate`/deep links. Use it for
-    /// a tab strip or sidebar embedded inside a page that already has its own routing
-    /// (docs/navigation.md).
+    /// neither adds a segment to `current_route` nor intercepts `navigate`/deep links.
+    ///
+    /// Reach for this when a page **already routes** and you embed a *second* one-of-N control in
+    /// it (a filter tab strip, a secondary sidebar). Two routing selectors at the same level both
+    /// feed `current_route()`, so you'd get `section/childA/childB` and `navigate("childB")` would
+    /// be ambiguous — mark all but the primary one `.local()`. A selector nested one level *deeper*
+    /// (a `Tabs` inside a `Sidebar` section) is a different case and should stay routed: that
+    /// cascade is the point. In debug builds, two routed one-of-N surfaces at the same level log a
+    /// warning naming this fix (docs/navigation.md).
     pub fn local(mut self) -> Self {
         self.routed = false;
         self
@@ -857,6 +909,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
     let tpick =
         |tp: &Rc<RefCell<Vec<K>>>, k: &str| tp.borrow().iter().find(|x| x.key() == k).cloned();
     if routed {
+        note_routed_one_of_n("tabs");
         register_route_surface(
             move |k| {
                 if let Some(key) = tpick(&tp_push, k) {
@@ -1183,6 +1236,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let pick_push = pick;
     let pick_enter = pick;
     if routed {
+        note_routed_one_of_n("sidebar");
         register_route_surface(
             move |k| {
                 if k.is_empty() {
@@ -1355,18 +1409,17 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         let title_s = title.initial();
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
-        // pass. A launch deep link wins (skip). The whole path is parsed via `Route::from_key`;
-        // any segment that no longer parses discards the restore rather than building a partial
-        // stack (docs/navigation.md).
+        // pass. A launch deep link wins (skip). The path is decoded from the SAME percent-encoded
+        // wire format the rest of nav uses (`parse_route`), so a key that itself contains `/` (or
+        // `?`, `%`) round-trips instead of splitting into two. The whole path is parsed via
+        // `Route::from_key`; any segment that no longer parses discards the restore rather than
+        // building a partial stack (docs/navigation.md).
         if let Some(key) = restore.as_deref()
             && !day_core::has_launch_deeplink()
             && let Some(saved) = day_core::nav_store_load(key)
         {
-            let parsed: Option<Vec<K>> = if saved.is_empty() {
-                Some(Vec::new())
-            } else {
-                saved.split('/').map(K::from_key).collect()
-            };
+            let (segments, _) = day_core::parse_route(&saved);
+            let parsed: Option<Vec<K>> = segments.iter().map(|s| K::from_key(s)).collect();
             if let Some(v) = parsed {
                 path.set_rw(v);
             }
@@ -1585,17 +1638,16 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             bind(move || p.get_rw(), move |want: &Vec<K>| reconcile(want));
         }
 
-        // Persist the path across launches when `.restore` is set: save the `/`-joined keys on
-        // every change (docs/navigation.md). Scope-owned, so it stops with the stack.
+        // Persist the path across launches when `.restore` is set: save the keys in the same
+        // percent-encoded wire format `parse_route` reads back (`encode_route`), so a key
+        // containing `/` survives the round-trip (docs/navigation.md). Scope-owned, so it stops
+        // with the stack.
         if let Some(key) = restore {
             let p = path.clone();
             bind(
                 move || {
-                    p.get_rw()
-                        .iter()
-                        .map(|k| k.key())
-                        .collect::<Vec<_>>()
-                        .join("/")
+                    let keys: Vec<String> = p.get_rw().iter().map(|k| k.key()).collect();
+                    day_core::encode_route(&keys, &[])
                 },
                 move |s: &String| day_core::nav_store_save(&key, s),
             );

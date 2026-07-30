@@ -1096,7 +1096,7 @@ impl Toolkit for Xaml {
                             .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                             .unwrap_or(day_spec::WINDOW_NODE);
                         match p {
-                            CoverPatch::Present { background, .. } => unsafe {
+                            CoverPatch::Present { background, .. } => {
                                 match background {
                                     Some(bg) => ffi::day_xaml_container_set_bg(h.0, argb(*bg)),
                                     None => ffi::day_xaml_cover_ground(h.0),
@@ -1114,10 +1114,10 @@ impl Toolkit for Xaml {
                                 ffi::day_xaml_set_visible(h.0, 1);
                                 COVERS.with(|c| c.borrow_mut().push((h.0, node)));
                                 emit(node, Event::FrameChanged(size));
-                            },
+                            }
                             CoverPatch::DismissDisabled(_) => {}
                             CoverPatch::Dismiss => {
-                                unsafe { ffi::day_xaml_set_visible(h.0, 0) };
+                                ffi::day_xaml_set_visible(h.0, 0);
                                 COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
                                 emit(node, Event::custom("cover-hidden", ""));
                             }

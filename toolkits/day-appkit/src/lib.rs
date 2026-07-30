@@ -2090,11 +2090,11 @@ impl Toolkit for AppKit {
                         }) => TAB_STATE.with(|m| {
                             if let Some(state) = m.borrow().get(&ptr_of(h)) {
                                 let items = unsafe { tabview.tabViewItems() };
-                                for i in 0..items.count().min(titles.len()) {
+                                // Enumerate the titles (the value we apply); `i` only indexes the
+                                // separate `items` array, so this isn't a needless range loop.
+                                for (i, title) in titles.iter().enumerate().take(items.count()) {
                                     unsafe {
-                                        items
-                                            .objectAtIndex(i)
-                                            .setLabel(&NSString::from_str(&titles[i]));
+                                        items.objectAtIndex(i).setLabel(&NSString::from_str(title));
                                     }
                                 }
                                 state.delegate.ivars().suppress.set(true);

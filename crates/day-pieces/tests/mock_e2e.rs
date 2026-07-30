@@ -2967,6 +2967,50 @@ fn stack_restore_reopens_saved_path_and_persists() {
 }
 
 #[test]
+fn stack_restore_round_trips_a_key_containing_a_slash() {
+    // A `String` stack key that itself contains the path separator must survive persist→restore:
+    // it is percent-encoded on the way out (like the rest of nav), not split into two segments.
+    let store = install_store(&[]);
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        stack(path, label("home"))
+            .destination(|k| label(format!("d:{k}")))
+            .restore("np.stack")
+            .any()
+    });
+    flush_sync();
+    // Push ONE key that contains '/'.
+    batch(|| path.set(vec!["a/b".to_string()]));
+    flush_sync();
+    let saved = store.0.borrow().get("np.stack").cloned().unwrap();
+    assert!(
+        !saved.contains('/'),
+        "the slash must be percent-encoded, got {saved:?}"
+    );
+
+    // A fresh launch restores the SAME single key — one pushed page, not two.
+    let path2 = Signal::new(Vec::<String>::new());
+    let probe2 = boot(move || {
+        stack(path2, label("home"))
+            .destination(|k| label(format!("d:{k}")))
+            .restore("np.stack")
+            .any()
+    });
+    flush_sync();
+    assert_eq!(
+        path2.get_untracked(),
+        vec!["a/b".to_string()],
+        "one key restored"
+    );
+    assert_eq!(
+        probe2.find_by_kind("day.nav_page").len(),
+        2,
+        "root + one pushed page (not split into two)"
+    );
+    let _ = probe;
+}
+
+#[test]
 fn restore_yields_to_launch_deeplink() {
     // A launch deep link outranks restored state: the saved tab is ignored and the deep link wins.
     install_store(&[("day.nav.dl", "three")]);
@@ -2987,4 +3031,70 @@ fn restore_yields_to_launch_deeplink() {
         "deep link wins"
     );
     assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 1.0);
+}
+
+// --- .local() and the sibling-collision footgun (docs/navigation.md) ------------------------
+
+#[test]
+fn local_selector_stays_out_of_the_route() {
+    // Two one-of-N surfaces at the SAME level: the second is `.local()`, so only the first
+    // contributes to current_route() and `navigate` addresses the first. This is the fix for the
+    // sibling collision the debug warning flags.
+    let a = Signal::new("a1".to_string());
+    let b = Signal::new("b1".to_string());
+    let probe = boot(move || {
+        column((
+            selector(a)
+                .style(SelectorStyle::Tabs)
+                .item("a1", "A1", || label("a1"))
+                .item("a2", "A2", || label("a2")),
+            selector(b)
+                .style(SelectorStyle::Tabs)
+                .local()
+                .item("b1", "B1", || label("b1"))
+                .item("b2", "B2", || label("b2")),
+        ))
+        .any()
+    });
+    flush_sync();
+    // Only the routed selector's key is in the route.
+    assert_eq!(day_core::current_route().as_deref(), Some("a1"));
+    // `navigate` addresses the routed one; the local one is untouched by it.
+    assert!(navigate("a2"));
+    flush_sync();
+    assert_eq!(a.get_untracked(), "a2");
+    assert_eq!(
+        b.get_untracked(),
+        "b1",
+        "the .local() selector is not routable"
+    );
+    let _ = probe;
+}
+
+#[test]
+fn two_routed_siblings_concatenate_into_the_route() {
+    // Documents WHY `.local()` exists: two routed one-of-N surfaces at one level both feed
+    // current_route(), so you get a concatenated `a1/b1`. (In a debug build this also emits the
+    // sibling warning; behavior is unchanged either way.)
+    let a = Signal::new("a1".to_string());
+    let b = Signal::new("b1".to_string());
+    let _probe = boot(move || {
+        column((
+            selector(a)
+                .style(SelectorStyle::Tabs)
+                .item("a1", "A1", || label("a1"))
+                .item("a2", "A2", || label("a2")),
+            selector(b)
+                .style(SelectorStyle::Tabs)
+                .item("b1", "B1", || label("b1"))
+                .item("b2", "B2", || label("b2")),
+        ))
+        .any()
+    });
+    flush_sync();
+    let route = day_core::current_route().unwrap_or_default();
+    assert!(
+        route.contains("a1") && route.contains("b1") && route.contains('/'),
+        "both routed siblings concatenate, got {route:?}"
+    );
 }
