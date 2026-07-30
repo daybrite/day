@@ -222,6 +222,12 @@ thread_local! {
     static FRAME_CB: RefCell<Option<FrameCb>> = const { RefCell::new(None) };
     static SPLIT_MODE: Cell<bool> = const { Cell::new(true) };
     static DARK: Cell<bool> = const { Cell::new(false) };
+    /// The latest viewport size (updated on resize, seeded at launch). A `cover` fills the
+    /// viewport (`position:fixed; inset:0`), so presenting it seeds its frame from here
+    /// SYNCHRONOUSLY — without waiting for the async ResizeObserver, whose gap otherwise leaves
+    /// RTL content laid out at width 0 (i.e. off-screen to the left) until the observer fires
+    /// (docs/cover.md).
+    static LAST_VIEWPORT: Cell<Size> = const { Cell::new(Size::new(0.0, 0.0)) };
     /// True until the first `set_route` — the launch reflection replaces the history entry.
     static FIRST_ROUTE: Cell<bool> = const { Cell::new(true) };
     /// The showcase's `select:`-driven pickers: segmented/radio groups keep their option
@@ -858,6 +864,16 @@ impl Toolkit for Dom {
                             }
                             unsafe { day_dom_insert(1, el, u32::MAX) };
                             class(el, "open", true);
+                            // Seed the frame SYNCHRONOUSLY from the cached viewport (the cover is
+                            // fixed/inset:0, so that IS its size). Without this, the content lays
+                            // out at width 0 until the async ResizeObserver fires — invisible in
+                            // LTR's top-left but off-screen to the LEFT under RTL (docs/cover.md).
+                            if let Some(node) = node_of(el) {
+                                let vp = LAST_VIEWPORT.with(|v| v.get());
+                                if vp.width > 0.0 && vp.height > 0.0 {
+                                    emit(node, Event::FrameChanged(vp));
+                                }
+                            }
                         }
                         CoverPatch::DismissDisabled(_) => {}
                         CoverPatch::Dismiss => {
@@ -1240,6 +1256,7 @@ impl Platform for Dom {
         unsafe { day_dom_set_title(options.title.as_ptr(), options.title.len()) };
         let w: f64 = env("vw").parse().unwrap_or(1000.0);
         let h: f64 = env("vh").parse().unwrap_or(700.0);
+        LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
         SPLIT_MODE.with(|c| c.set(w >= 700.0));
         DARK.with(|d| d.set(env("dark") == "1"));
         // Root container: the shim pre-registers the `#day-root` element under this id.
@@ -1846,6 +1863,7 @@ pub extern "C" fn day_dom_frame(ts: f64) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_resized(w: f64, h: f64) {
+    LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
     emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
 }
 
