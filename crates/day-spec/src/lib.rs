@@ -202,7 +202,7 @@ pub mod bridge {
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 19] = [
+        pub const ALL: [BridgeKind; 20] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -222,6 +222,7 @@ pub mod bridge {
             BridgeKind::FocusChanged,
             BridgeKind::Submitted,
             BridgeKind::WindowResized,
+            BridgeKind::SafeArea,
         ];
     }
 

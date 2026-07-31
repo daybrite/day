@@ -55,6 +55,7 @@ mod bridge_kinds_parity {
             ("K_FOCUS_CHANGED", BridgeKind::FocusChanged),
             ("K_SUBMITTED", BridgeKind::Submitted),
             ("K_WINDOW_RESIZED", BridgeKind::WindowResized),
+            ("K_SAFE_AREA", BridgeKind::SafeArea),
         ];
         assert_eq!(
             found.len(),
