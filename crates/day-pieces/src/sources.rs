@@ -35,6 +35,15 @@ impl TextSource {
             TextSource::Dyn(f) => day_reactive::untrack(|| f()),
         }
     }
+    /// Resolve the current text, TRACKED: inside a reactive computation this subscribes to
+    /// whatever the source reads — a `Signal`, or the locale behind a localized string. The
+    /// selector derive effects rely on this so native rows retitle on locale change.
+    pub(crate) fn resolve(&self) -> String {
+        match self {
+            TextSource::Static(s) => s.clone(),
+            TextSource::Dyn(f) => f(),
+        }
+    }
     /// Install the text binding for a realized node (no-op for static text).
     pub(crate) fn bind_to(
         self,

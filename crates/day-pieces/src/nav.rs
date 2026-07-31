@@ -478,14 +478,12 @@ struct SelItems<K> {
     static_builders: std::collections::HashMap<String, Box<dyn Fn() -> AnyPiece>>,
     meta: Rc<Vec<MetaSource<K>>>,
     destination: Option<DestFn<K>>,
-    dynamic: bool,
 }
 
 impl<K: Route> SelItems<K> {
     fn from_sources(sources: Vec<ItemSource<K>>, destination: Option<DestFn<K>>) -> Self {
         let mut static_builders = std::collections::HashMap::new();
         let mut meta = Vec::new();
-        let mut dynamic = false;
         for src in sources {
             match src {
                 ItemSource::Static(it) => {
@@ -495,7 +493,6 @@ impl<K: Route> SelItems<K> {
                     meta.push(MetaSource::Static(it.key, it.title, it.icon, it.immersive));
                 }
                 ItemSource::Dynamic(f) => {
-                    dynamic = true;
                     meta.push(MetaSource::Dynamic(f));
                 }
             }
@@ -504,25 +501,26 @@ impl<K: Route> SelItems<K> {
             static_builders,
             meta: Rc::new(meta),
             destination,
-            dynamic,
         }
     }
 
-    /// The flat live rows: (typed keys, resolved titles, icons). Reading a `Dynamic` block's
-    /// signal here subscribes the caller (the derive effect) to its changes.
+    /// The flat live rows: (typed keys, resolved titles, icons). TRACKED on purpose: reading
+    /// a `Dynamic` block's signal subscribes the caller (the derive effect) to row changes,
+    /// and resolving each title through [`TextSource::resolve`] subscribes it to the locale —
+    /// `set_locale` re-runs the effect and the native rows retitle (docs/navigation.md).
     fn derive(&self) -> (Vec<K>, Vec<String>, Vec<Option<String>>) {
         let (mut keys, mut titles, mut icons) = (Vec::new(), Vec::new(), Vec::new());
         for ms in self.meta.iter() {
             match ms {
                 MetaSource::Static(k, t, i, _) => {
                     keys.push(k.clone());
-                    titles.push(t.initial());
+                    titles.push(t.resolve());
                     icons.push(i.clone());
                 }
                 MetaSource::Dynamic(f) => {
                     for it in f() {
                         keys.push(it.key);
-                        titles.push(it.title.initial());
+                        titles.push(it.title.resolve());
                         icons.push(it.icon);
                     }
                 }
@@ -884,9 +882,12 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
             _ => {}
         });
     }
-    // Data-driven tabs (docs/navigation.md): reconcile the resident pages + native tab set when
-    // a dynamic block's signal changes. New keys get a page; gone keys are disposed.
-    if items.dynamic {
+    // Reconcile the resident pages + native tab set when a dynamic block's signal changes
+    // (docs/navigation.md) — new keys get a page, gone keys are disposed — and when the
+    // locale changes (tracked title resolution): same keys, new titles, one Items re-patch.
+    // Installed unconditionally: a fully static selector's derive subscribes to nothing and
+    // this effect simply never re-fires.
+    {
         let (items_e, typed_e, pages_e, sel_e, build_tab_page) = (
             items.clone(),
             typed.clone(),
@@ -1199,9 +1200,11 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         bind(move || s.get_rw().key(), move |key: &String| show(key));
     }
 
-    // Data-driven items (docs/navigation.md): re-derive the row set when a dynamic block's
-    // signal changes, re-patch the native menu, and reset the selection if its item vanished.
-    if items.dynamic {
+    // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
+    // reset the selection if its item vanished) and when the locale changes (tracked title
+    // resolution — same keys, new titles). Installed unconditionally: a fully static
+    // selector's derive subscribes to nothing and this effect simply never re-fires.
+    {
         let (items_e, typed_e, titles_e, mh_e, sel_e) = (
             items.clone(),
             typed.clone(),

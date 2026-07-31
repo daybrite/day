@@ -82,6 +82,8 @@ selector(current)
 
 The row set re-derives whenever a block's signal changes: rows are added/removed on the native
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
+The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
+rows in place — static `.item`s included.
 `item(key, title).icon(name)` is the row spec, and `.immersive()` on it marks that row's pushed
 page immersive-chrome, same as the static form above. A selector used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or

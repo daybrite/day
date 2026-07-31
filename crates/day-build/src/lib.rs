@@ -1207,7 +1207,10 @@ mod tests {
         let keys: Vec<_> = plan.strings.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["hello", "oops"]);
         let code = render(&plan);
-        assert_eq!(code.matches("(\"en\", ").count(), 1);
+        // The two files concatenate into a single `("en", concat!(…))` CATALOG entry. Match the
+        // concat!-tagged form specifically: the ALL language-picker array carries its own
+        // `("en", "en")` pair, so a bare `("en", ` count would see both.
+        assert_eq!(code.matches("(\"en\", concat!(").count(), 1);
         assert!(code.contains("concat!(include_str!("), "{code}");
         std::fs::remove_dir_all(&root).ok();
     }
