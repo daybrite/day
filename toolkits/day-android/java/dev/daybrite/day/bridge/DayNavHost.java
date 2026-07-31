@@ -72,6 +72,8 @@ public class DayNavHost extends LinearLayout {
     private final String prefix;
     private final ArrayList<PageFragment> frags = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
+    /** Per-pushed-page immersive-chrome flags, parallel to `titles` (the root is standard). */
+    private final ArrayList<Boolean> immersives = new ArrayList<>();
     /** Back-stack entries of ours the listener has already accounted for. */
     private int knownEntries;
     /** Pops the native side already performed — absorb the answering Popped patch. */
@@ -119,15 +121,6 @@ public class DayNavHost extends LinearLayout {
             // floats transparent above it — page content runs under the status bar and
             // toolbar, padding itself by day::safe_area(). The app bar carries the status-bar
             // inset as top padding so the title row sits below the system chrome.
-            // A protection scrim, not plain transparency: the floating chrome (status icons,
-            // back arrow, title) is white, which vanishes over light pages. A 40%-black to
-            // transparent fade keeps it legible everywhere and reads as intentional over the
-            // dark pages where it is barely visible.
-            android.graphics.drawable.GradientDrawable scrim =
-                    new android.graphics.drawable.GradientDrawable(
-                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                            new int[] { 0x66000000, 0x00000000 });
-            appBar.setBackground(scrim);
             appBar.setElevation(0f);
             toolbar.setBackgroundColor(android.graphics.Color.TRANSPARENT);
             appBar.setPadding(0, DayActivity.statusInsetPx, 0, 0);
@@ -164,6 +157,7 @@ public class DayNavHost extends LinearLayout {
             }
         });
         active = this;
+        syncChrome();
     }
 
     /** Our entries on the shared back stack (several hosts may nest in one activity). */
@@ -192,6 +186,7 @@ public class DayNavHost extends LinearLayout {
         while (knownEntries > now) {
             knownEntries--;
             if (!titles.isEmpty()) titles.remove(titles.size() - 1);
+            if (!immersives.isEmpty()) immersives.remove(immersives.size() - 1);
             if (pendingPops > 0) {
                 pendingPops--;
             } else {
@@ -245,6 +240,27 @@ public class DayNavHost extends LinearLayout {
     private void syncChrome() {
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
         showUpArrow(!titles.isEmpty());
+        // Edge-to-edge mode: per-page chrome (docs/navigation.md). An immersive page keeps the
+        // floating scrim bar over full-bleed content; the root and unmarked pages get a solid
+        // colorPrimary bar, which also backs the status-bar area (the app bar carries the
+        // status inset as padding), keeping white chrome legible over light pages.
+        if (DayActivity.edgeToEdge) {
+            boolean topImmersive =
+                    !immersives.isEmpty() && immersives.get(immersives.size() - 1);
+            if (topImmersive) {
+                appBar.setBackground(new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[] { 0x66000000, 0x00000000 }));
+            } else {
+                android.util.TypedValue tv = new android.util.TypedValue();
+                int color = 0xFF0B57D0;
+                if (getContext().getTheme().resolveAttribute(
+                        androidx.appcompat.R.attr.colorPrimary, tv, true)) {
+                    color = tv.data;
+                }
+                appBar.setBackgroundColor(color);
+            }
+        }
     }
 
     /** Register the Rust-owned page view. The root page becomes a fragment immediately; a
@@ -271,7 +287,7 @@ public class DayNavHost extends LinearLayout {
      *  played by popBackStack and seeked live by the system under a predictive back gesture.
      *  (replace, not show/hide: fragment predictive back seeks lifecycle operations; the
      *  covered page detaches and its fragment re-serves the retained view on return.) */
-    void push(String title) {
+    void push(String title, boolean immersive) {
         int n = frags.size();
         if (n < 2) return;
         PageFragment top = frags.get(n - 1);
@@ -284,6 +300,7 @@ public class DayNavHost extends LinearLayout {
         prev.setExitTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
         prev.setReenterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
         titles.add(title);
+        immersives.add(immersive);
         fm.beginTransaction().setReorderingAllowed(true)
                 .replace(containerId, top)
                 .addToBackStack(prefix + titles.size())

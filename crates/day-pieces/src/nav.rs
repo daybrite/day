@@ -413,6 +413,9 @@ struct SelItem<K> {
     title: TextSource,
     /// Optional bundled-image name for the item's native icon (docs/navigation.md).
     icon: Option<String>,
+    /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
+    /// backends with an immersive nav mode; standard opaque bar otherwise.
+    immersive: bool,
     /// A static item carries its own page builder; a dynamic item (from `.items`) leaves this
     /// `None` and its page is built by the selector's `.destination` fallback.
     build: Option<Box<dyn Fn() -> AnyPiece>>,
@@ -459,7 +462,7 @@ enum ItemSource<K> {
 // for data-driven keys. `derive` is called untracked for the first build and tracked inside a
 // reactive effect that re-patches the native rows when a dynamic block's signal changes.
 enum MetaSource<K> {
-    Static(K, TextSource, Option<String>),
+    Static(K, TextSource, Option<String>, bool),
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
 }
 
@@ -481,7 +484,7 @@ impl<K: Route> SelItems<K> {
                     if let Some(b) = it.build {
                         static_builders.insert(it.key.key(), b);
                     }
-                    meta.push(MetaSource::Static(it.key, it.title, it.icon));
+                    meta.push(MetaSource::Static(it.key, it.title, it.icon, it.immersive));
                 }
                 ItemSource::Dynamic(f) => {
                     dynamic = true;
@@ -503,7 +506,7 @@ impl<K: Route> SelItems<K> {
         let (mut keys, mut titles, mut icons) = (Vec::new(), Vec::new(), Vec::new());
         for ms in self.meta.iter() {
             match ms {
-                MetaSource::Static(k, t, i) => {
+                MetaSource::Static(k, t, i, _) => {
                     keys.push(k.clone());
                     titles.push(t.initial());
                     icons.push(i.clone());
@@ -520,11 +523,19 @@ impl<K: Route> SelItems<K> {
         (keys, titles, icons)
     }
 
+    /// A static item's immersive-chrome flag (docs/navigation.md); a data-driven key is
+    /// always standard chrome.
+    fn immersive_of(&self, key: &str) -> bool {
+        self.meta.iter().any(|ms| {
+            matches!(ms, MetaSource::Static(k, _, _, true) if k.key() == key)
+        })
+    }
+
     /// A static item's live title source (locale-reactive retitle); `None` for a data-driven
     /// key, whose title is a resolved snapshot from the derived list.
     fn static_title(&self, key: &str) -> Option<TextSource> {
         self.meta.iter().find_map(|ms| match ms {
-            MetaSource::Static(k, t, _) if k.key() == key => Some(t.clone()),
+            MetaSource::Static(k, t, _, _) if k.key() == key => Some(t.clone()),
             _ => None,
         })
     }
@@ -614,6 +625,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             key: key.into(),
             title: title.into_text(),
             icon: None,
+            immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
         }));
         self
@@ -633,8 +645,20 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             key: key.into(),
             title: title.into_text(),
             icon: Some(icon.into().as_str().to_owned()),
+            immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
         }));
+        self
+    }
+    /// Mark the LAST-added `.item`/`.item_icon` destination as an immersive-chrome page
+    /// (docs/navigation.md): on backends with an immersive nav mode (android edge-to-edge
+    /// today) its pushed page keeps the floating transparent bar over full-bleed content;
+    /// unmarked pages get the standard opaque bar. A no-op on every other backend, and on a
+    /// data-driven `.items` block (declare those standard).
+    pub fn immersive(mut self) -> Self {
+        if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
+            item.immersive = true;
+        }
         self
     }
     /// A data-driven item block: `.items(rooms_signal, |r| item(r.id, r.name).icon(…))`
@@ -661,6 +685,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
                         key: ni.key,
                         title: ni.title,
                         icon: ni.icon,
+                        immersive: false,
                         build: None,
                     }
                 })
@@ -1127,7 +1152,14 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 });
             });
             with_tree(|t| {
-                t.patch(host, Box::new(NavPatch::Pushed { title: title_now }), false);
+                t.patch(
+                    host,
+                    Box::new(NavPatch::Pushed {
+                        title: title_now,
+                        immersive: items.immersive_of(&typed_key.key()),
+                    }),
+                    false,
+                );
                 t.mark_layout_dirty();
                 t.layout_if_needed();
             });
@@ -1609,7 +1641,18 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                             let _ = content.build(&mut c);
                         });
                     });
-                    with_tree(|t| t.patch(host, Box::new(NavPatch::Pushed { title }), false));
+                    with_tree(|t| {
+                        // Stack destinations are standard chrome in v1; the immersive flag is a
+                        // selector-item concept today (docs/navigation.md).
+                        t.patch(
+                            host,
+                            Box::new(NavPatch::Pushed {
+                                title,
+                                immersive: false,
+                            }),
+                            false,
+                        )
+                    });
                     owners.borrow_mut().push(stack_owner.clone());
                     entries.borrow_mut().push(StackEntry {
                         key: key.clone(),
