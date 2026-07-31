@@ -1419,9 +1419,11 @@ jobs:
   # the day-dom host page, assembled by `day build` into a fully static dist/. The website job
   # publishes it at /showcase/web-dom/, so the gallery's "live web build" link opens the real
   # app straight from GitHub Pages (no server component). Then the SAME walkthrough script the
-  # native combos run drives the page in headless WebKit (scripts/ci/webdom-driver.mjs is the
-  # DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
-  # WebSocket bridge) and uploads gallery screenshots like every other combo.
+  # native combos run drives the page in headless CHROMIUM (scripts/ci/webdom-driver.mjs is
+  # the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
+  # WebSocket bridge) and uploads gallery screenshots like every other combo. Chromium, not
+  # WebKit, because Playwright's Linux WebKit (the WPE port) ships no OPFS and day-part-fs is
+  # OPFS-only (docs/fs.md); the sensors step below stays on WebKit, which it works fine on.
   # ---------------------------------------------------------------------------
   web-dom:
     name: web-dom (showcase dist + walkthrough)
@@ -1453,17 +1455,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends imagemagick fonts-noto-cjk
-      - name: Install the walkthrough browser (Playwright WebKit)
+      - name: Install the walkthrough browsers (Playwright Chromium + WebKit)
         run: |
           mkdir -p "$RUNNER_TEMP/webdriver" && cd "$RUNNER_TEMP/webdriver"
           npm init -y >/dev/null
           npm install playwright >/dev/null
-          npx playwright install --with-deps webkit
+          npx playwright install --with-deps chromium webkit
       - name: Walkthrough (web-dom × light/dark × en/fr/ar/zh-CN)
         working-directory: apps/showcase
         env:
           DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
+          # Linux WebKit has no OPFS — the fs steps need Chromium (see the job comment).
+          DAY_WEB_DRIVER_BROWSER: chromium
         run: |
           for TH in $WALKTHROUGH_THEMES; do
             for LOC in $WALKTHROUGH_LOCALES; do

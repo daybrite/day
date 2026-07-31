@@ -205,7 +205,16 @@ impl Layout for PassThrough {
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
             let s = cx.measure_child(c, Proposal::exact(bounds.size));
-            cx.place_child(c, Rect::from_size(s));
+            // Layout-transparent in BOTH passes: space the parent granted flows through to
+            // the child, so a grow stretch survives a chain of wrappers (the grid-cell card
+            // case — a background container must fill the cell, not re-hug its content). A
+            // child that measures LARGER than the grant keeps its size: tight-space overflow
+            // stays visible rather than compressing.
+            let size = Size::new(
+                s.width.max(bounds.size.width),
+                s.height.max(bounds.size.height),
+            );
+            cx.place_child(c, Rect::from_size(size));
         }
     }
 }
@@ -859,11 +868,17 @@ impl Layout for PaddingLayout {
         if let Some(&c) = children.first() {
             let inner = bounds.inset_by(self.insets);
             let s = cx.measure_child(c, Proposal::exact(inner.size));
+            // Like PassThrough: granted space flows through (minus the insets); a child
+            // measuring larger keeps its overflow.
+            let size = Size::new(
+                s.width.max(inner.size.width),
+                s.height.max(inner.size.height),
+            );
             cx.place_child(
                 c,
                 Rect {
                     origin: inner.origin,
-                    size: s,
+                    size,
                 },
             );
         }

@@ -1,7 +1,12 @@
 // The DAY_WEB_DRIVER browser for scripted web-dom runs (docs/web.md): day-cli spawns this as
 //   node scripts/ci/webdom-driver.mjs <url> <control-port>
-// It opens the page in headless WebKit (Playwright) and serves the driver control protocol on
-// the control port: GET /screenshot → PNG of the page, GET /quit → close and exit.
+// It opens the page headless (Playwright) and serves the driver control protocol on the
+// control port: GET /screenshot → PNG of the page, GET /quit → close and exit.
+//
+// The engine comes from DAY_WEB_DRIVER_BROWSER (webkit | chromium | firefox), default WebKit.
+// Linux CI sets chromium: Playwright's Linux WebKit (the WPE port) ships no OPFS at all, so
+// day-part-fs — OPFS-only by design (docs/fs.md) — can only be exercised there under
+// Chromium; macOS WebKit has OPFS and stays the local default.
 //
 // Playwright is resolved from DAY_WEB_DRIVER_PLAYWRIGHT (a directory whose node_modules holds
 // it), else from the working directory — it is a CI/dev dependency, deliberately not vendored.
@@ -17,18 +22,21 @@ if (!url || !controlPort) {
   process.exit(2);
 }
 
-let webkit;
+const browserName = process.env.DAY_WEB_DRIVER_BROWSER || 'webkit';
+let browserType;
 const roots = [process.env.DAY_WEB_DRIVER_PLAYWRIGHT, process.cwd()].filter(Boolean);
 for (const root of roots) {
   try {
-    webkit = createRequire(path.join(root, 'resolve-anchor.js'))('playwright').webkit;
+    browserType = createRequire(path.join(root, 'resolve-anchor.js'))('playwright')[browserName];
     break;
   } catch {
     /* try the next root */
   }
 }
-if (!webkit) {
-  console.error(`webdom-driver: playwright not found under: ${roots.join(', ')}`);
+if (!browserType) {
+  console.error(
+    `webdom-driver: playwright (${browserName}) not found under: ${roots.join(', ')}`,
+  );
   process.exit(3);
 }
 
@@ -46,7 +54,7 @@ const dropProfile = () => {
 };
 // Match the showcase's desktop window (1000×720) at 2× — the same pixel density the native
 // macOS gallery captures have.
-const context = await webkit.launchPersistentContext(profile, {
+const context = await browserType.launchPersistentContext(profile, {
   viewport: { width: 1000, height: 720 },
   deviceScaleFactor: 2,
 });

@@ -117,13 +117,15 @@ every platform. Differences from native, all internal:
   sleeping (one thread, no `Instant`); replies arrive when the step settles.
 - The in-page `screenshot` step reports unsupported (a DOM cannot rasterize itself), so the
   runner captures through the **`DAY_WEB_DRIVER`** browser instead: set it to a command line
-  (e.g. `node scripts/ci/webdom-driver.mjs`, headless WebKit via Playwright) and `day` spawns
-  it as `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and
-  `GET /quit` on the control port. The bundled driver opens a throwaway PERSISTENT profile
+  (e.g. `node scripts/ci/webdom-driver.mjs`, headless Playwright) and `day` spawns it as
+  `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
+  the control port. The bundled driver opens a throwaway PERSISTENT profile
   (`launchPersistentContext`), not Playwright's default ephemeral context — WebKit gives an
-  ephemeral session no OPFS backing, and day-part-fs is OPFS-only (docs/fs.md). Without a
-  driver, scripted runs fail at the first screenshot; interactive `day launch` never needs
-  one.
+  ephemeral session no OPFS backing, and day-part-fs is OPFS-only (docs/fs.md). Its engine
+  comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
+  has OPFS and is the local default, but Playwright's LINUX WebKit (the WPE port) ships no
+  OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
+  runs fail at the first screenshot; interactive `day launch` never needs one.
 - Steps for capabilities the web lacks (the native file pickers) carry
   `skip_on: [web-dom]` in the walkthrough — the runner drops them for this target
   (DESIGN.md Appendix C). The HTTP demo runs unskipped: the dev server answers the

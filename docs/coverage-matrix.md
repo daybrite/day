@@ -67,6 +67,7 @@ An app branches on this rather than on the target name.
 | `Snapshot` | N | – | N | N | N | – | – | – |
 | `NavSplit` | N | – | N | N | N | – | – | ? |
 | `NavHeader` | – | N | – | – | N | N | N | – |
+| `Appearance` | N | N | N | – | – | – | – | N |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | – |
 | `Animation` | N | N | – | – | – | N | – | N |
