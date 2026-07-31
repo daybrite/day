@@ -103,6 +103,9 @@ unsafe extern "C" {
     /// until the socket is open and drops the line when scripting is not armed).
     fn day_dom_script_send(ptr: *const u8, len: usize);
     fn day_dom_env(key: *const u8, kl: usize, out: *mut u8, cap: usize) -> usize;
+    /// Apply an appearance override on the page: 0 light, 1 dark, 2 follow the browser's
+    /// `prefers-color-scheme`. Returns the effective mode (0/1) after applying.
+    fn day_dom_set_dark(mode: u32) -> u32;
     fn day_dom_warn(ptr: *const u8, len: usize);
 }
 
@@ -500,7 +503,7 @@ impl Toolkit for Dom {
                     Support::Unsupported
                 }
             }
-            Cap::Dialogs | Cap::Animation => Support::Native,
+            Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).
@@ -1271,6 +1274,16 @@ impl Toolkit for Dom {
 
     fn dark_mode(&mut self) -> bool {
         DARK.with(|d| d.get())
+    }
+
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        let mode = match dark {
+            Some(false) => 0,
+            Some(true) => 1,
+            None => 2,
+        };
+        let effective = unsafe { day_dom_set_dark(mode) };
+        DARK.with(|d| d.set(effective == 1));
     }
 
     fn adopt(&mut self, raw: day_spec::RawHandle) -> DomHandle {

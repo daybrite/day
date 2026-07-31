@@ -1237,13 +1237,30 @@ fn warn_missing_renderer(kind: PieceKind) {
 impl Toolkit for Gtk {
     type Handle = Handle;
 
+    fn dark_mode(&mut self) -> bool {
+        // libadwaita's StyleManager already folds together the system preference, the
+        // DAY_THEME startup force, and any set_appearance override.
+        adw::StyleManager::default().is_dark()
+    }
+
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        adw::StyleManager::default().set_color_scheme(match dark {
+            Some(true) => adw::ColorScheme::ForceDark,
+            Some(false) => adw::ColorScheme::ForceLight,
+            None => adw::ColorScheme::Default,
+        });
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
-            Cap::Snapshot | Cap::NavSplit | Cap::Dialogs | Cap::FileDialogs | Cap::TextEditable => {
-                Support::Native
-            }
+            Cap::Snapshot
+            | Cap::NavSplit
+            | Cap::Dialogs
+            | Cap::FileDialogs
+            | Cap::TextEditable
+            | Cap::Appearance => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,

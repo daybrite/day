@@ -13,6 +13,7 @@
 //!     pub const pacifico: FontFamily = FontFamily::from_static("Pacifico"); }
 //! pub mod locales { pub const DEFAULT: &str = "en";
 //!     pub const CATALOG: &[(&str, &str)] = &[("en", include_str!("…/en/app.ftl")), …];
+//!     pub const ALL: &[(&str, &str)] = &[("en", "English"), …];  // tag + self-name
 //!     pub fn install() { day::install_locales(DEFAULT, CATALOG) } }
 //! ```
 //!
@@ -703,12 +704,49 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
     }
     s.push_str("    ];\n\n");
     s.push_str(
+        "    /// Every bundled locale as `(tag, display name)`, for language pickers. The name\n\
+     \x20   /// is the catalog's own `language_name` message (each language naming itself), and\n\
+     \x20   /// falls back to the tag when a catalog does not carry one (docs/localization.md).\n\
+     \x20   pub const ALL: &[(&str, &str)] = &[\n",
+    );
+    for l in locales {
+        s.push_str(&format!(
+            "        ({:?}, {:?}),\n",
+            l.locale,
+            language_name(l).unwrap_or_else(|| l.locale.clone())
+        ));
+    }
+    s.push_str("    ];\n\n");
+    s.push_str(
         "    /// Register [`CATALOG`] under [`DEFAULT`] — call once, before the first localized\n\
      \x20   /// string is read (the top of the app's `root()`). For a different fallback:\n\
      \x20   /// `day::install_locales(\"fr\", res::locales::CATALOG)`.\n\
      \x20   pub fn install() {\n        day::install_locales(DEFAULT, CATALOG);\n    }\n",
     );
     s.push_str("}\n\n");
+}
+
+/// A locale's self-name: the value of the `language_name` message in its catalog, read at
+/// build time. A line scan, not a Fluent parse — the convention is a single-line literal
+/// message (`language_name = Français`), and anything fancier falls back to the tag.
+fn language_name(l: &LocaleEntry) -> Option<String> {
+    for path in &l.sources {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("language_name") {
+                let value = value.trim_start();
+                if let Some(value) = value.strip_prefix('=') {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Render the `str` bucket: one `pub fn` per localization key whose signature carries the message's

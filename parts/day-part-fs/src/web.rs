@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------------
 // The web (web-dom): the browser's Origin Private File System through the day-dom shim — an
 // origin-scoped real file hierarchy, surviving reloads like localStorage but sized for data.
-// The shim falls back to an IndexedDB path→bytes store when OPFS is absent or
-// environment-broken (headless WebKit); the taxonomy below is identical either way.
+// OPFS only, no fallback store: a context without it (a pre-OPFS browser, or a
+// private-browsing/ephemeral session, which WebKit gives no storage backing) answers
+// `Unsupported` or `Io` rather than silently landing files somewhere else. Scripted runs use
+// a persistent browser profile (scripts/ci/webdom-driver.mjs) so CI exercises real OPFS.
 // The bridge is the day-part-http callback-id pattern: `day_dom_fs_start` carries the
 // operation out under a numeric id; the shim awaits the OPFS promises and re-enters wasm
 // EXACTLY once per id through the exports below. Blocking entry points cannot exist on the
@@ -152,7 +154,7 @@ pub extern "C" fn day_fs_done(id: u32, ptr: *mut u8, len: usize) {
 }
 
 /// Failure completion. `kind` indexes the web taxonomy (shim.js mirrors it): 1 `NotFound`,
-/// 2 `Unsupported` (no OPFS in this browser), else `Io` with the provider's message.
+/// 2 `Unsupported` (no OPFS in this context), else `Io` with the provider's message.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_fs_failed(id: u32, kind: u32, msg_ptr: *mut u8, msg_len: usize) {
     let msg = String::from_utf8_lossy(&take_buf(msg_ptr, msg_len)).into_owned();

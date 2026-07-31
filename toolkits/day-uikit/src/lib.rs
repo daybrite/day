@@ -1909,7 +1909,8 @@ mod imp {
                 | Cap::NavHeader
                 | Cap::TextEditable
                 | Cap::TextSelectable
-                | Cap::TextSpellCheck => Support::Native,
+                | Cap::TextSpellCheck
+                | Cap::Appearance => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -3189,6 +3190,19 @@ mod imp {
             for vc in covers {
                 unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
             }
+        }
+
+        fn set_appearance(&mut self, dark: Option<bool>) {
+            WINDOW.with(|w| {
+                if let Some(window) = w.borrow().as_ref() {
+                    let style = match dark {
+                        Some(true) => objc2_ui_kit::UIUserInterfaceStyle::Dark,
+                        Some(false) => objc2_ui_kit::UIUserInterfaceStyle::Light,
+                        None => objc2_ui_kit::UIUserInterfaceStyle::Unspecified,
+                    };
+                    unsafe { window.setOverrideUserInterfaceStyle(style) };
+                }
+            });
         }
 
         fn dark_mode(&mut self) -> bool {

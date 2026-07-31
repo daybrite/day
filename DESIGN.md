@@ -1117,8 +1117,8 @@ pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
-    // NativeSymbols, Snapshot, NavSplit, NavHeader, Dialogs, FileDialogs, Animation, Cover,
-    // TextEditable, TextSelectable, TextSpellCheck)
+    // NativeSymbols, Snapshot, NavSplit, NavHeader, Appearance, Dialogs, FileDialogs,
+    // Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1165,6 +1165,7 @@ pub trait Toolkit: Sized + 'static {
     fn open_url(&mut self, url: &str) {}   // system browser/handler for the `link` piece (§5.3)
     fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
     fn dark_mode(&mut self) -> bool {}     // current appearance, for app-painted opaque surfaces
+    fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
 
     // pillars
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13

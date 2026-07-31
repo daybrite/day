@@ -20,7 +20,8 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{
-    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, sleep, task,
+    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_appearance, sleep,
+    task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data

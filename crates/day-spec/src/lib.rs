@@ -563,6 +563,10 @@ pub enum Cap {
     /// title bars). The desktop custom back-headers (AppKit/Qt/web) show a title only in
     /// stack mode, so those backends stay `Unsupported` (docs/navigation.md).
     NavHeader,
+    /// The toolkit applies a runtime appearance override (`set_appearance`): native widgets
+    /// restyle in place and `dark_mode` answers the override. Probe before showing a theme
+    /// picker — on `Unsupported` backends the call is ignored.
+    Appearance,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,
     /// The toolkit can present native open/save file pickers (docs/files.md).
@@ -1955,6 +1959,13 @@ pub trait Toolkit: Sized + 'static {
     fn dark_mode(&mut self) -> bool {
         std::env::var("DAY_THEME").ok().as_deref() == Some("dark")
     }
+
+    /// App-level appearance override: `Some(true)` forces dark, `Some(false)` forces light,
+    /// `None` returns to following the system. Backends restyle their native widgets in
+    /// place and answer the override from [`dark_mode`](Self::dark_mode); app-painted
+    /// surfaces pick it up on their next rebuild. `Cap::Appearance` reports whether the
+    /// backend honors this; the default ignores the call.
+    fn set_appearance(&mut self, _dark: Option<bool>) {}
 
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}

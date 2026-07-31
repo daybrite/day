@@ -1528,6 +1528,31 @@ fn warn_missing_renderer(kind: PieceKind) {
 impl Toolkit for AppKit {
     type Handle = Handle;
 
+    fn dark_mode(&mut self) -> bool {
+        // The app's EFFECTIVE appearance — one source for the system setting, the DAY_THEME
+        // launch force (applied as an NSApp override at startup), and a set_appearance call.
+        let app = NSApplication::sharedApplication(self.mtm());
+        app.effectiveAppearance()
+            .name()
+            .to_string()
+            .contains("Dark")
+    }
+
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        let app = NSApplication::sharedApplication(self.mtm());
+        let appearance = dark.and_then(|d| {
+            objc2_app_kit::NSAppearance::appearanceNamed(unsafe {
+                if d {
+                    objc2_app_kit::NSAppearanceNameDarkAqua
+                } else {
+                    objc2_app_kit::NSAppearanceNameAqua
+                }
+            })
+        });
+        // `None` clears the override — back to the system appearance.
+        unsafe { app.setAppearance(appearance.as_deref()) };
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot
@@ -1539,7 +1564,8 @@ impl Toolkit for AppKit {
             // NSTextView natively honors all three text-area attributes.
             | Cap::TextEditable
             | Cap::TextSelectable
-            | Cap::TextSpellCheck => Support::Native,
+            | Cap::TextSpellCheck
+            | Cap::Appearance => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
             Cap::Cover => Support::Emulated,

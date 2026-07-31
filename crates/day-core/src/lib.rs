@@ -419,6 +419,14 @@ pub fn dark_mode() -> bool {
     tree::with_tree(|t| t.dark_mode())
 }
 
+/// Override the app's appearance: `Some(true)` dark, `Some(false)` light, `None` follow the
+/// system again. On backends reporting `Cap::Appearance` the native widgets restyle in place
+/// and [`dark_mode`] answers the override; app-painted surfaces pick it up on their next
+/// rebuild. Other backends ignore the call — probe before offering a theme picker.
+pub fn set_appearance(dark: Option<bool>) {
+    tree::with_tree(|t| t.set_appearance(dark))
+}
+
 #[cfg(test)]
 mod posted_panic_tests {
     /// A panic inside a posted main-thread task must be CONTAINED (logged + runtime reset), never

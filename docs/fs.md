@@ -2,10 +2,9 @@
 
 > **Status: implemented** as `day-part-fs` (in `parts/`), a headless day-ecosystem crate with no
 > UI Piece: private per-app file storage with one API on every target. Native targets read and
-> write real files under an app-data root; web-dom stores files in the browser's Origin Private
-> File System (OPFS) through the day-dom shim, with an IndexedDB fallback where OPFS is
-> absent or broken (headless WebKit). Exercised by the showcase's Platform services
-> page and its walkthrough on every target.
+> write real files under an app-data root; web-dom stores files in the browser's Origin
+> Private File System (OPFS) through the day-dom shim. Exercised by the showcase's Platform
+> services page and its walkthrough on every target.
 
 Where [day-part-prefs](prefs.md) is a small key/value store for settings, this crate is for
 *data*: documents, caches, exports — anything file-shaped. Both persist per app and survive
@@ -48,7 +47,7 @@ The contract points:
 | macOS / iOS | `~/Library/Application Support/day/day-fs/` (the iOS sandbox `HOME` makes this the app container) |
 | Linux | `$XDG_DATA_HOME/day/day-fs/` (else `~/.local/share/day/day-fs/`) |
 | Windows | `%APPDATA%\day\day-fs\` |
-| web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports); a path → bytes IndexedDB store when OPFS is absent or environment-broken — the switch happens at most once per session and is `console.warn`ed, never silent |
+| web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the ONLY store: a context without it — a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing — answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
 | anything else | `FsError::Unsupported` |
 
 `DAY_DATA_DIR` wins everywhere when set — the mobile hosts export it (DayActivity on Android,
@@ -57,7 +56,7 @@ EntryAbility on OHOS), and tests set it to a scratch directory.
 ## Error taxonomy
 
 `NotFound`, `BadPath`, `Io(message)`, `Unsupported`. The web tier collapses provider detail
-into `Io`, except `NotFoundError` → `NotFound` and a browser without OPFS → `Unsupported`.
+into `Io`, except `NotFoundError` → `NotFound` and a context without OPFS → `Unsupported`.
 
 ## What it shows about the extension system
 

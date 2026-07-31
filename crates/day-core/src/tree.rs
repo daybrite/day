@@ -447,6 +447,8 @@ pub trait TreeOps {
     fn node_exists(&self, node: RNode) -> bool;
     /// Whether the platform renders in dark appearance (see `Toolkit::dark_mode`).
     fn dark_mode(&mut self) -> bool;
+    /// Apply an app-level appearance override (see `Toolkit::set_appearance`).
+    fn set_appearance(&mut self, dark: Option<bool>);
     fn on_event(&mut self, node: RNode, h: EventHandler);
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
@@ -578,6 +580,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn open_url(&mut self, url: &str) {
         self.toolkit.open_url(url);
+    }
+
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        self.toolkit.set_appearance(dark);
     }
 
     fn defer_system_gestures(&mut self, edges: day_spec::Edges) {

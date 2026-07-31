@@ -29,6 +29,11 @@ resource/locales/ar/app.ftl         res::locales::install()
   `install_locales("fr", res::locales::CATALOG)`.
 - **Several `.ftl` files in one locale directory** (`app.ftl`, `errors.ftl`, …) concatenate into
   that locale's bundle, so a large catalog can be split by area.
+- **`ALL`** lists every bundled locale as `(tag, display name)` — the data a language picker
+  needs. The display name is the catalog's own `language_name` message (each language naming
+  itself: `language_name = Français`), read at build time; a catalog without one falls back to
+  its tag. Switch at runtime with `day::set_locale(tag)` — strings re-resolve live, but layout
+  direction is fixed at launch, so an LTR↔RTL change fully applies on the next start.
 - The directory is a build input (`cargo:rerun-if-changed`), so a new, renamed, or deleted locale
   reaches the next build without a `cargo clean`.
 
