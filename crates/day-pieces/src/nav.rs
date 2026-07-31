@@ -426,6 +426,7 @@ pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
     icon: Option<String>,
+    immersive: bool,
 }
 
 /// A selector item for a data-driven list: `item(room.id, room.name).icon(res::images::room)`
@@ -436,6 +437,7 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
         key: key.into(),
         title: title.into_text(),
         icon: None,
+        immersive: false,
     }
 }
 
@@ -444,6 +446,12 @@ impl<K> NavItem<K> {
     /// [`Selector::item_icon`]).
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.icon = Some(icon.into().as_str().to_owned());
+        self
+    }
+    /// Mark this item's pushed page immersive-chrome (docs/navigation.md) — the data-driven
+    /// counterpart of [`Selector::immersive`].
+    pub fn immersive(mut self) -> Self {
+        self.immersive = true;
         self
     }
 }
@@ -523,12 +531,16 @@ impl<K: Route> SelItems<K> {
         (keys, titles, icons)
     }
 
-    /// A static item's immersive-chrome flag (docs/navigation.md); a data-driven key is
-    /// always standard chrome.
+    /// An item's immersive-chrome flag (docs/navigation.md). A data-driven key checks its
+    /// block's current rows UNTRACKED — chrome is resolved at push time, not a dependency of
+    /// the push (a tracked read here would re-run the selection effect on every list change).
     fn immersive_of(&self, key: &str) -> bool {
-        self.meta
-            .iter()
-            .any(|ms| matches!(ms, MetaSource::Static(k, _, _, true) if k.key() == key))
+        self.meta.iter().any(|ms| match ms {
+            MetaSource::Static(k, _, _, imm) => *imm && k.key() == key,
+            MetaSource::Dynamic(f) => {
+                day_reactive::untrack(|| f().iter().any(|it| it.immersive && it.key.key() == key))
+            }
+        })
     }
 
     /// A static item's live title source (locale-reactive retitle); `None` for a data-driven
@@ -653,8 +665,8 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     /// Mark the LAST-added `.item`/`.item_icon` destination as an immersive-chrome page
     /// (docs/navigation.md): on backends with an immersive nav mode (android edge-to-edge
     /// today) its pushed page keeps the floating transparent bar over full-bleed content;
-    /// unmarked pages get the standard opaque bar. A no-op on every other backend, and on a
-    /// data-driven `.items` block (declare those standard).
+    /// unmarked pages get the standard opaque bar. A no-op on every other backend. For a
+    /// data-driven `.items` block, mark individual rows with [`NavItem::immersive`] instead.
     pub fn immersive(mut self) -> Self {
         if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
             item.immersive = true;
@@ -685,7 +697,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
                         key: ni.key,
                         title: ni.title,
                         icon: ni.icon,
-                        immersive: false,
+                        immersive: ni.immersive,
                         build: None,
                     }
                 })

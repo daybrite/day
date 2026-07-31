@@ -121,6 +121,15 @@ fn class(el: u32, c: &str, on: bool) {
 fn warn(msg: &str) {
     unsafe { day_dom_warn(msg.as_ptr(), msg.len()) };
 }
+/// Read a host "environment" value (query params / navigator facts) as an app-facing
+/// environment lookup: `day launch --env K=V` lands in the page URL's query string and is
+/// read back here (docs/web.md). Empty/absent answers `None`. The page-fact keys (`vw`,
+/// `vh`, `dpr`, `dark`, `locales`, `route`) are reserved by the shim.
+pub fn host_env(key: &str) -> Option<String> {
+    let v = env(key);
+    if v.is_empty() { None } else { Some(v) }
+}
+
 /// Read a host "environment" value (query params / navigator facts) into a String.
 fn env(key: &str) -> String {
     let mut buf = vec![0u8; 512];

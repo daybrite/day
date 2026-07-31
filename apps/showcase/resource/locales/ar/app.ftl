@@ -581,3 +581,13 @@ stack_discard_ok = تجاهل
 tab_dynamic_title = علامات تبويب مبنية على البيانات
 tab_dynamic_add = إضافة علامة تبويب
 tab_dynamic_remove = إزالة علامة تبويب
+
+# تخزين الملفات المحلي (صفحة الخدمات، docs/fs.md).
+storage_title = الملفات المحلية
+storage_caption = يخزّن day-part-fs ملفات خاصة بالتطبيق على كل منصة — ملفات حقيقية محليًا وOPFS في المتصفح.
+storage_placeholder = نص للتخزين
+storage_save = حفظ الملف
+storage_load = تحميل
+storage_delete = حذف
+storage_files_label = الملفات المخزنة
+storage_idle = لا شيء مخزّن بعد

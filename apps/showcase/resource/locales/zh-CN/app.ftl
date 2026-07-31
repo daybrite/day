@@ -569,3 +569,13 @@ stack_discard_ok = 放弃
 tab_dynamic_title = 数据驱动的标签页
 tab_dynamic_add = 添加标签页
 tab_dynamic_remove = 移除标签页
+
+# 本地文件存储（服务页，docs/fs.md）。
+storage_title = 本地文件
+storage_caption = day-part-fs 在每个平台上存储应用私有文件——原生端为真实文件，浏览器中为 OPFS。
+storage_placeholder = 要存储的文本
+storage_save = 保存文件
+storage_load = 加载
+storage_delete = 删除
+storage_files_label = 已存文件
+storage_idle = 尚未存储任何内容

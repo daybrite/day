@@ -18,6 +18,7 @@ pub(crate) fn services_page() -> AnyPiece {
             prefs_section(),
             haptics_section(),
             files_section(),
+            storage_section(),
         ))
         .any(),
     )
@@ -489,4 +490,85 @@ fn url_check_field() -> impl Piece {
     // Leading, like the section's other rows — the default centered alignment floated the
     // Check button and readout as islands mid-card on every platform.
     .align(HAlign::Leading)
+}
+
+/// App-local file storage (docs/fs.md): day-part-fs write/read/list/remove through the async
+/// futures, so the SAME code runs on every target — real files natively, OPFS in the browser.
+/// Statuses are raw on purpose (walkthrough-asserted, identical across locales).
+fn storage_section() -> impl Piece {
+    const FILE: &str = "demo/showcase-note.txt";
+    let note = Signal::new(String::new());
+    let status = Signal::new(crate::res::str::storage_idle().format());
+    let files = Signal::new("\u{2014}".to_string());
+
+    // Re-list the demo directory after every operation ("\u{2014}" = nothing stored).
+    let refresh = move || {
+        day::task(async move {
+            match day_part_fs::list_future("demo").await {
+                Ok(names) if names.is_empty() => files.set("\u{2014}".into()),
+                Ok(names) => files.set(names.join(", ")),
+                Err(e) => files.set(format!("error: {e}")),
+            }
+        });
+    };
+    refresh();
+
+    section((
+        label(crate::res::str::storage_caption()).font(Font::Footnote),
+        text_field(note)
+            .placeholder(crate::res::str::storage_placeholder())
+            .id("fs-note"),
+        row((
+            button(crate::res::str::storage_save())
+                .bordered()
+                .action(move || {
+                    let data = note.get_untracked().into_bytes();
+                    day::task(async move {
+                        let text = match day_part_fs::write_future(FILE, data).await {
+                            Ok(()) => "saved".to_string(),
+                            Err(e) => format!("error: {e}"),
+                        };
+                        status.set(text);
+                        refresh();
+                    });
+                })
+                .id("fs-save"),
+            button(crate::res::str::storage_load())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let text = match day_part_fs::read_future(FILE).await {
+                            Ok(bytes) => {
+                                format!("loaded:{}", String::from_utf8_lossy(&bytes))
+                            }
+                            Err(e) => format!("error: {e}"),
+                        };
+                        status.set(text);
+                    });
+                })
+                .id("fs-load"),
+            button(crate::res::str::storage_delete())
+                .bordered()
+                .action(move || {
+                    day::task(async move {
+                        let text = match day_part_fs::remove_future(FILE).await {
+                            Ok(()) => "deleted".to_string(),
+                            Err(e) => format!("error: {e}"),
+                        };
+                        status.set(text);
+                        refresh();
+                    });
+                })
+                .id("fs-delete"),
+            label(move || status.get()).id("fs-status"),
+        ))
+        .spacing(8.0),
+        labeled(
+            crate::res::str::storage_files_label(),
+            label(move || files.get())
+                .font(Font::Footnote)
+                .id("fs-list"),
+        ),
+    ))
+    .title(crate::res::str::storage_title())
 }

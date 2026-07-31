@@ -93,6 +93,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 }
             }
         }
+        // The app's private files directory, for day-part-fs (docs/fs.md): the part roots its
+        // storage at DAY_DATA_DIR when a host provides one.
+        blob.append("DAY_DATA_DIR=").append(getFilesDir().getAbsolutePath()).append('\n');
         // Cold-start deep link (docs/navigation.md): the launch URI's host+path is the route.
         android.net.Uri data = getIntent().getData();
         if (data != null) {

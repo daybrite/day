@@ -65,7 +65,7 @@ the architecture-level view and the rationale.
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md, docs/fs.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -203,7 +203,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location, app-local files — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
 | **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
@@ -701,7 +701,7 @@ and `.any()`.
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
 `remote_image`) and headless services under `parts/` (battery, network, sensors,
-clipboard, prefs, haptics, deviceinfo, http) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
+clipboard, prefs, haptics, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -1910,8 +1910,9 @@ Two package kinds share the mechanism:
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, docs/sensors.md), clipboard, prefs, haptics, deviceinfo,
   http (requests through the platform HTTP stack, docs/http.md), permissions (the OS consent system
-  plus the build-time declarations each platform requires, docs/permissions.md) and location
-  (docs/location.md). Same registration and metadata machinery, no widget.
+  plus the build-time declarations each platform requires, docs/permissions.md), location
+  (docs/location.md), and fs (app-local file storage, docs/fs.md). Same registration and
+  metadata machinery, no widget.
 
 ### §15.2 Package layout and aggregation
 
@@ -2178,7 +2179,9 @@ it never fails the pack; `day sign --check` reports readiness without printing a
 Build (+ sign where the destination requires) + install + run + stream logs, per target, in
 parallel: desktop runs the binary/bundle; ios via `simctl` with `log stream`; android via
 `adb install` / `am start` with pid-scoped logcat; ohos via `hdc`. `--locale` moves the whole
-app's locale; `--env` passes app environment; each `--script` runs via the embedded engine
+app's locale; `--env` passes app environment (on web-dom as page query parameters, read back
+through `day::env` — a browser sandbox has no process environment, docs/web.md); each
+`--script` runs via the embedded engine
 ([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
 `--keep-alive` keeps the session drivable via `day drive` afterwards.
 

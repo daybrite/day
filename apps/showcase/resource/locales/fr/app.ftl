@@ -574,3 +574,13 @@ stack_discard_ok = Abandonner
 tab_dynamic_title = Onglets pilotés par les données
 tab_dynamic_add = Ajouter un onglet
 tab_dynamic_remove = Retirer un onglet
+
+# Stockage de fichiers local (page services, docs/fs.md).
+storage_title = Fichiers locaux
+storage_caption = Le module day-part-fs stocke des fichiers privés de l'app sur chaque cible — de vrais fichiers en natif, OPFS dans le navigateur.
+storage_placeholder = Texte à stocker
+storage_save = Enregistrer le fichier
+storage_load = Charger
+storage_delete = Supprimer
+storage_files_label = Fichiers stockés
+storage_idle = Rien d'enregistré pour l'instant

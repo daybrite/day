@@ -214,4 +214,8 @@ and [§20](../DESIGN.md#20-continuous-integration)). To preview that page locall
 dist with `scripts/website.sh webdom`, then `scripts/website.sh dev`.
 
 Query parameters the host page reads: `theme=light|dark` (else the OS preference),
-`locale=<bcp47>` (else the browser languages).
+`locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`
+— a browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
+as `?K=V` (percent-encoded) and `day::env("K")` reads it back through the shim. The shim's
+page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`) and the reserved `theme`,
+`locale`, and `dayscript` names shadow same-named app keys — avoid those as env names.

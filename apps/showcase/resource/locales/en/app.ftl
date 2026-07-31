@@ -574,3 +574,13 @@ stack_discard_ok = Discard
 tab_dynamic_title = Data-driven tabs
 tab_dynamic_add = Add tab
 tab_dynamic_remove = Remove tab
+
+# App-local file storage (services page, docs/fs.md).
+storage_title = Local files
+storage_caption = The day-part-fs part stores app-private files on every target — real files natively, OPFS in the browser.
+storage_placeholder = Text to store
+storage_save = Save file
+storage_load = Load
+storage_delete = Delete
+storage_files_label = Stored files
+storage_idle = Nothing stored yet

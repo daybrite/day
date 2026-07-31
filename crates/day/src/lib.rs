@@ -33,6 +33,21 @@ pub mod reactive {
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
+
+/// An app-environment value, portably: the process environment on native targets, the page
+/// URL's query string on web-dom (where a browser sandbox has no process environment —
+/// `day launch --env K=V` forwards each pair as a query parameter, docs/web.md). Prefer this
+/// over `std::env::var` for anything a `--env` flag should be able to set on every target.
+pub fn env(key: &str) -> Option<String> {
+    #[cfg(all(target_arch = "wasm32", feature = "dom"))]
+    {
+        day_dom::host_env(key)
+    }
+    #[cfg(not(all(target_arch = "wasm32", feature = "dom")))]
+    {
+        std::env::var(key).ok()
+    }
+}
 // Same reason: the generated `res::locales::install()` names `day::install_locales` (§18.5).
 pub use day_fluent::install as install_locales;
 // Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a

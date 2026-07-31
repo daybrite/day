@@ -1,0 +1,20 @@
+[package]
+name = "day-part-fs"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): app-local file storage with one API on every
+# target (docs/fs.md). Native targets read and write real files under a per-platform app-data
+# directory (DAY_DATA_DIR from the mobile hosts, else the OS convention); web-dom stores files
+# in the browser's Origin Private File System through the day-dom shim. Paths are RELATIVE and
+# sandboxed to that root — no absolute paths, no `..`. Platform selection is by
+# `#[cfg(target_arch)]` (storage is an OS concern, not a widget-toolkit one), so there are no
+# backend features. The blocking calls return Unsupported on web (one thread, no blocking
+# waits — the day-part-http rule); the async calls work everywhere.
+
+[dependencies]

@@ -44,9 +44,9 @@ chrome and page lifetime (tabs keep every page resident; the sidebar builds the 
 `.item(…).immersive()` marks the LAST-added destination as an immersive-chrome page: on
 backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
-get the standard opaque bar. Every other backend ignores the flag, as does a data-driven
-`.items` block. Pair it with `day::safe_area()` (docs/layout.md): the immersive page paints its
-background unpadded and pads its content by the reported insets.
+get the standard opaque bar. Every other backend ignores the flag. Pair it with
+`day::safe_area()` (docs/layout.md): the immersive page paints its background unpadded and pads
+its content by the reported insets.
 
 ## `stack` — push/pop with a value path
 
@@ -82,7 +82,8 @@ selector(current)
 
 The row set re-derives whenever a block's signal changes: rows are added/removed on the native
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
-`item(key, title).icon(name)` is the row spec. A selector used as a self-contained widget inside a
+`item(key, title).icon(name)` is the row spec, and `.immersive()` on it marks that row's pushed
+page immersive-chrome, same as the static form above. A selector used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 

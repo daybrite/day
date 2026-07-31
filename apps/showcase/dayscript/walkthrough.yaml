@@ -267,6 +267,17 @@ flow:
   # so the walkthrough only checks its presence.
   - assert_visible: { id: http-url }
   - assert_visible: { id: http-check }
+  # App-local file storage (docs/fs.md): day-part-fs through the async futures — the same
+  # steps on every target, including web-dom (OPFS). Statuses are raw, identical per locale.
+  - input: { id: fs-note, text: "day-fs-demo" }
+  - tap: { id: fs-save }
+  - assert_text: { id: fs-status, text: "saved" }
+  - assert_text: { id: fs-list, text: "showcase-note.txt" }
+  - tap: { id: fs-load }
+  - assert_text: { id: fs-status, text: "loaded:day-fs-demo" }
+  - tap: { id: fs-delete }
+  - assert_text: { id: fs-status, text: "deleted" }
+  - assert_text: { id: fs-list, text: "—" }
 
   # Native tabs (docs/tabs.md): a selector(Tabs) bound to a signal. Tab keys are routes, so
   # navigate/assert_route select the active tab; the inner selector reports the innermost route.

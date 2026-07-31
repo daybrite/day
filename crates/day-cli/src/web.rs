@@ -120,10 +120,26 @@ pub fn build_web(
     })
 }
 
+/// Percent-encode a query key/value: keep unreserved characters (RFC 3986), escape the rest —
+/// `URLSearchParams` on the page decodes them back.
+fn query_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// Serve the assembled `dist/` on a loopback port and open a browser at it. The returned
 /// handle runs the accept loop; `day launch` stays in the foreground (Ctrl-C stops the
 /// server). `--locale` and a `DAY_THEME` env ride as query parameters (`?locale=`,
-/// `?theme=`); the session's dayscript invitation rides as `?dayscript=<token>`, and the
+/// `?theme=`), and every other `--env` pair as `?<key>=<value>` for `day::env` to read back;
+/// the session's dayscript invitation rides as `?dayscript=<token>`, and the
 /// server bridges the page's `/dayscript` WebSocket to the plain TCP protocol the runner
 /// speaks on `DAYSCRIPT_PORT` — `--script` and `day drive` work unchanged (docs/web.md).
 pub fn launch_web(
@@ -153,24 +169,22 @@ pub fn launch_web(
     if let Some(token) = env_of("DAYSCRIPT_TOKEN") {
         params.push(format!("dayscript={token}"));
     }
+    // Every other `--env` pair travels as its own query parameter: a browser sandbox has no
+    // process environment, so the page URL is the delivery channel and `day::env` reads it
+    // back through the shim's `day_dom_env` (docs/web.md). DAYSCRIPT_PORT stays host-side,
+    // and DAYSCRIPT_TOKEN/DAY_THEME already travel under their reserved names above.
+    for (k, v) in &spec.envs {
+        if k == "DAYSCRIPT_PORT" || k == "DAYSCRIPT_TOKEN" || k == "DAY_THEME" {
+            continue;
+        }
+        params.push(format!("{}={}", query_escape(k), query_escape(v)));
+    }
     let mut url = format!("http://127.0.0.1:{port}/");
     if !params.is_empty() {
         url.push('?');
         url.push_str(&params.join("&"));
     }
     status("Serving", &format!("{} → {url}", dist.display()));
-    // DAYSCRIPT_* and DAY_THEME travel as query parameters above; other envs cannot reach a
-    // browser sandbox — warn so a `--env`-dependent run fails loudly, not mysteriously.
-    if spec
-        .envs
-        .iter()
-        .any(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN" && k != "DAY_THEME")
-    {
-        status(
-            "Warning",
-            "`--env` does not reach the web sandbox (no process environment in a browser)",
-        );
-    }
     let _ = &project.root; // identity/env vars are baked into the wasm at build time
     if let Some(script_port) = env_of("DAYSCRIPT_PORT").and_then(|p| p.parse::<u16>().ok()) {
         start_runner_bridge(script_port)?;

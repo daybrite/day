@@ -455,6 +455,55 @@ const env = {
   },
   day_dom_http_abort(id) { httpInflight.get(id)?.abort(); },
 
+  // App-local files (docs/fs.md): the browser arm of day-part-fs. Primary store: the Origin
+  // Private File System — a real origin-scoped file hierarchy. Fallback: an IndexedDB
+  // key/value of path → bytes, used when OPFS is absent or environment-broken (headless
+  // WebKit throws UnknownError on every OPFS op); the switch is announced once via
+  // console.warn and never triggered by an ordinary NotFound. One operation per request id
+  // (op: 0 read, 1 write, 2 remove, 3 list); the completion re-enters wasm EXACTLY once:
+  // day_fs_done (bytes; list joins names with \u001f, directories carrying a trailing
+  // slash) or day_fs_failed (kind 1 NotFound, 2 no-storage, 0 everything else). Request
+  // buffers are COPIED out before the first await.
+  day_dom_fs_start(id, op, p, pl, d, dl) {
+    const path = str(p, pl);
+    const data = new Uint8Array(wasm.memory.buffer, d, dl).slice();
+    const fail = (kind, msg) => {
+      const bytes = utf8enc.encode(msg);
+      const mp = bytes.length ? wasm.day_fs_alloc(bytes.length) : 0;
+      if (bytes.length) mem().set(bytes, mp);
+      wasm.day_fs_failed(id, kind, mp, bytes.length);
+    };
+    const done = (bytes) => {
+      const bp = bytes.length ? wasm.day_fs_alloc(bytes.length) : 0;
+      if (bytes.length) mem().set(bytes, bp);
+      wasm.day_fs_done(id, bp, bytes.length);
+    };
+    (async () => {
+      try {
+        if (!fsUseIdb && navigator.storage && navigator.storage.getDirectory) {
+          try {
+            done(await fsOpfs(op, path, data));
+            return;
+          } catch (e) {
+            if (e && e.name === 'NotFoundError') { fail(1, ''); return; }
+            // Environment-level failure (UnknownError, NotSupportedError, SecurityError…):
+            // switch this session to the IndexedDB fallback and retry there.
+            console.warn('day-fs: OPFS unavailable (' + ((e && e.name) || e) + ') — falling back to IndexedDB');
+            fsUseIdb = true;
+          }
+        } else if (!fsUseIdb) {
+          console.warn('day-fs: no OPFS in this browser — using the IndexedDB fallback');
+          fsUseIdb = true;
+        }
+        done(await fsIdb(op, path, data));
+      } catch (e) {
+        if (e === 'notfound') fail(1, '');
+        else if (!self.indexedDB) fail(2, '');
+        else fail(0, String((e && e.message) || e));
+      }
+    })();
+  },
+
   day_dom_script_send(ptr, len) {
     const line = str(ptr, len);
     if (!scriptWs) return; // scripting not armed — nothing is listening
@@ -490,6 +539,106 @@ const env = {
 
 function selectAmong(group, idx) {
   [...group.children].forEach((b, i) => b.classList.toggle('selected', i === idx));
+}
+
+// ---- day-part-fs stores (see day_dom_fs_start) --------------------------------------------
+
+/** Once true, every fs op rides IndexedDB for the rest of the session (mixed stores would
+ *  split the hierarchy; the flip happens at most once, before any file exists). */
+let fsUseIdb = false;
+
+/** The OPFS half: resolve `path` under the origin's private root and run `op`. */
+async function fsOpfs(op, path, data) {
+  const root = await navigator.storage.getDirectory();
+  const segs = path === '' ? [] : path.split('/');
+  const walk = async (upTo, create) => {
+    let dir = root;
+    for (let i = 0; i < upTo; i++) dir = await dir.getDirectoryHandle(segs[i], { create });
+    return dir;
+  };
+  if (op === 0) { // read
+    const dir = await walk(segs.length - 1, false);
+    const f = await (await dir.getFileHandle(segs[segs.length - 1])).getFile();
+    return new Uint8Array(await f.arrayBuffer());
+  }
+  if (op === 1) { // write
+    const dir = await walk(segs.length - 1, true);
+    const fh = await dir.getFileHandle(segs[segs.length - 1], { create: true });
+    const w = await fh.createWritable();
+    await w.write(data);
+    await w.close();
+    return new Uint8Array(0);
+  }
+  if (op === 2) { // remove (a file, or an empty directory)
+    const dir = await walk(segs.length - 1, false);
+    await dir.removeEntry(segs[segs.length - 1]);
+    return new Uint8Array(0);
+  }
+  // list ('' = the root); a missing directory lists as empty (the first-run state).
+  let dir;
+  try {
+    dir = await walk(segs.length, false);
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') return new Uint8Array(0);
+    throw e;
+  }
+  const names = [];
+  for await (const [name, handle] of dir.entries()) {
+    names.push(handle.kind === 'directory' ? name + '/' : name);
+  }
+  names.sort();
+  return utf8enc.encode(names.join('\u001f'));
+}
+
+let fsIdbDb = null;
+function fsIdbOpen() {
+  if (fsIdbDb) return fsIdbDb;
+  fsIdbDb = new Promise((resolve, reject) => {
+    const req = indexedDB.open('day-fs', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('files');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return fsIdbDb;
+}
+
+/** The IndexedDB half: a flat path → Uint8Array store; directories are implied by keys.
+ *  Rejects with the string 'notfound' where OPFS would throw NotFoundError. */
+async function fsIdb(op, path, data) {
+  const db = await fsIdbOpen();
+  const run = (mode, fn) => new Promise((resolve, reject) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  if (op === 0) {
+    const v = await run('readonly', (st) => st.get(path));
+    if (v === undefined) throw 'notfound';
+    return new Uint8Array(v);
+  }
+  if (op === 1) {
+    await run('readwrite', (st) => st.put(data, path));
+    return new Uint8Array(0);
+  }
+  if (op === 2) {
+    const v = await run('readonly', (st) => st.get(path));
+    if (v === undefined) throw 'notfound';
+    await run('readwrite', (st) => st.delete(path));
+    return new Uint8Array(0);
+  }
+  // list: derive the entries directly under `path` from the flat key set.
+  const keys = await run('readonly', (st) => st.getAllKeys());
+  const prefix = path === '' ? '' : path + '/';
+  const names = new Set();
+  for (const k of keys) {
+    if (!k.startsWith(prefix)) continue;
+    const rest = k.slice(prefix.length);
+    const slash = rest.indexOf('/');
+    names.add(slash === -1 ? rest : rest.slice(0, slash + 1));
+  }
+  return utf8enc.encode([...names].sort().join('\u001f'));
 }
 
 // Deliver a day-part-http failure: kind per the taxonomy on day_dom_http_start above.
