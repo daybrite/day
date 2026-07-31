@@ -58,6 +58,22 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // keep the window edge-to-edge on every version, then consume the system-bar insets
         // ourselves — hold the root in a wrapper and set the root's margins to the status/navigation
         // -bar (and display-cutout) insets, keeping all Day content inside the safe area.
+        // Immersive opt-in (docs/layout.md): <meta-data dev.daybrite.day.EDGE_TO_EDGE> in the
+        // app manifest. The window's top goes edge-to-edge — the status bar turns transparent
+        // (light icons) and Day content runs beneath it, padding itself by day::safe_area().
+        // Bottom and sides stay margin-clamped as before.
+        try {
+            android.os.Bundle md = getPackageManager().getApplicationInfo(
+                    getPackageName(), android.content.pm.PackageManager.GET_META_DATA).metaData;
+            edgeToEdge = md != null && md.getBoolean("dev.daybrite.day.EDGE_TO_EDGE", false);
+        } catch (Exception e) {
+            edgeToEdge = false;
+        }
+        if (edgeToEdge) {
+            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
+            new androidx.core.view.WindowInsetsControllerCompat(
+                    getWindow(), getWindow().getDecorView()).setAppearanceLightStatusBars(false);
+        }
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         final android.widget.FrameLayout wrapper = new android.widget.FrameLayout(this);
         wrapper.addView(root, new android.widget.FrameLayout.LayoutParams(
@@ -82,7 +98,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         if (data != null) {
             blob.append("DAY_DEEPLINK=").append(uriRoute(data)).append('\n');
         }
-        final String envBlob = blob.toString();
+        final String envBlobBase = blob.toString();
         final DayActivity self = this;
         // The insets listener does exactly one job: keep the root's margins equal to the
         // system-bar (+ cutout) insets. Everything downstream is size-driven — no launch or
@@ -104,13 +120,19 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 int bottom = Math.max(bars.bottom, ime.bottom);
                 android.widget.FrameLayout.LayoutParams lp =
                         (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
-                if (lp.leftMargin != bars.left || lp.topMargin != bars.top
+                int top = edgeToEdge ? 0 : bars.top;
+                statusInsetPx = bars.top;
+                if (lp.leftMargin != bars.left || lp.topMargin != top
                         || lp.rightMargin != bars.right || lp.bottomMargin != bottom) {
                     lp.leftMargin = bars.left;
-                    lp.topMargin = bars.top;
+                    lp.topMargin = top;
                     lp.rightMargin = bars.right;
                     lp.bottomMargin = bottom;
                     root.setLayoutParams(lp);
+                }
+                if (edgeToEdge) {
+                    DayNavHost.onStatusInset(statusInsetPx);
+                    reportTopInset();
                 }
                 return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
@@ -123,11 +145,26 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // of a launch-time snapshot.
         final Runnable start = new Runnable() {
             public void run() {
+                // Composed HERE, not in onCreate: by the first laid-out size the inset pass has
+                // run, so the seed (DAY_SAFE_AREA_TOP, points) carries the real status-bar
+                // height plus the standard app-bar height. Live K_SAFE_AREA reports keep the
+                // value exact afterwards.
+                String envBlob = envBlobBase;
+                if (edgeToEdge) {
+                    android.util.TypedValue tv = new android.util.TypedValue();
+                    int bar = 0;
+                    if (getTheme().resolveAttribute(android.R.attr.actionBarSize, tv, true)) {
+                        bar = android.util.TypedValue.complexToDimensionPixelSize(tv.data, dm);
+                    }
+                    envBlob = envBlob + "DAY_SAFE_AREA_TOP="
+                            + ((statusInsetPx + bar) / dm.density) + "\n";
+                }
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
                         autodrive, locale, envBlob);
                 // Native is ready now (docs/lifecycle.md). onStart/onResume already ran before this
                 // post, so their events were dropped — synthesize the current active state.
                 DayBridge.started = true;
+                reportTopInset(); // deliver the initial safe area now that native listens
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
             }
         };
@@ -142,6 +179,20 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 }
             }
         };
+    }
+
+    /** Edge-to-edge opt-in (manifest meta-data) — see onCreate. */
+    static boolean edgeToEdge;
+    /** The current status-bar inset in px (edge-to-edge mode stashes it for the safe area). */
+    static int statusInsetPx;
+
+    /** Edge-to-edge mode: report the top chrome (status bar + any immersive nav app bar) to
+     *  Rust as the app-visible safe area (K_SAFE_AREA, px; docs/layout.md). Bottom and sides
+     *  remain margin-clamped, so they report zero. No-op before nativeStart. */
+    static void reportTopInset() {
+        if (!edgeToEdge || !DayBridge.started) return;
+        int top = statusInsetPx + DayNavHost.immersiveTopExtraPx();
+        DayBridge.nativeOnEvent(0, DayBridge.K_SAFE_AREA, 0, top + ",0,0,0");
     }
 
     /** Whether the Activity is currently resumed (foreground + interactive). */

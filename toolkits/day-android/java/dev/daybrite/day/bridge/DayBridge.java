@@ -79,6 +79,7 @@ public final class DayBridge {
     public static final int K_FOCUS_CHANGED = 16;
     public static final int K_SUBMITTED = 17;
     public static final int K_WINDOW_RESIZED = 18;
+    public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
     public static native void nativeDoFrame(long token, long frameTimeNanos);
@@ -741,6 +742,19 @@ public final class DayBridge {
     public static View makeNavMenu(final long id, String joinedItems, String joinedIcons) {
         android.widget.LinearLayout list = new android.widget.LinearLayout(ctx);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        // Immersive mode (docs/layout.md): the page runs under the transparent status bar and
+        // floating app bar — start the rows below them. The list lives inside its own
+        // ScrollView, so the padding scrolls away naturally.
+        if (DayActivity.edgeToEdge) {
+            android.util.TypedValue abs = new android.util.TypedValue();
+            int bar = 0;
+            if (ctx.getTheme().resolveAttribute(android.R.attr.actionBarSize, abs, true)) {
+                bar = android.util.TypedValue.complexToDimensionPixelSize(
+                        abs.data, ctx.getResources().getDisplayMetrics());
+            }
+            list.setPadding(0, DayActivity.statusInsetPx + bar, 0, 0);
+            list.setClipToPadding(false);
+        }
         String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
         android.util.TypedValue tv = new android.util.TypedValue();
         ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);

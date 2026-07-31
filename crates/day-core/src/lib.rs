@@ -52,6 +52,49 @@ pub fn layout_direction() -> day_geometry::LayoutDirection {
     })
 }
 
+thread_local! {
+    /// The window's safe-area insets (points) — see [`safe_area`]. ROOT-scoped: backends write
+    /// it from native inset callbacks that can fire while transient scopes are current.
+    static SAFE_AREA: std::cell::OnceCell<day_reactive::Signal<day_geometry::Insets>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn safe_area_signal() -> day_reactive::Signal<day_geometry::Insets> {
+    SAFE_AREA.with(|c| {
+        *c.get_or_init(|| {
+            // Seeded from the launch environment so a page built during startup — before the
+            // backend's first live report lands — already sees the right top inset (the same
+            // lazy-env pattern as `layout_direction`/DAY_LOCALE). Points, not px.
+            let initial = std::env::var("DAY_SAFE_AREA_TOP")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .map(|top| day_geometry::Insets {
+                    top,
+                    ..Default::default()
+                })
+                .unwrap_or_default();
+            day_reactive::Scope::root().enter(|| day_reactive::Signal::global(initial))
+        })
+    })
+}
+
+/// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to
+/// the safe area natively (the default everywhere); nonzero only where a backend runs the root
+/// edge-to-edge — today day-android's opt-in immersive mode (docs/layout.md, the android
+/// platform page). Compose it yourself where a background should run under the system bars:
+/// paint the background unpadded, pad the content by these insets. The read is tracked, but
+/// layout attributes like `.padding` capture the value at build time — a mid-run inset change
+/// (rotation) does not re-pad already-built pages.
+pub fn safe_area() -> day_geometry::Insets {
+    safe_area_signal().get()
+}
+
+/// Backend-facing: report the window's safe-area insets (points). Call from the native inset
+/// pass whenever the value changes; apps observe it through [`safe_area`].
+pub fn set_safe_area(insets: day_geometry::Insets) {
+    safe_area_signal().set(insets);
+}
+
 /// Override the layout direction (normally from `install_locales`). Must be called before the
 /// first layout pass to take effect everywhere.
 pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {

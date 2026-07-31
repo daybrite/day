@@ -729,6 +729,7 @@ mod imp {
     const K_FOCUS_CHANGED: i32 = bridge::BridgeKind::FocusChanged as i32;
     const K_SUBMITTED: i32 = bridge::BridgeKind::Submitted as i32;
     const K_WINDOW_RESIZED: i32 = bridge::BridgeKind::WindowResized as i32;
+    const K_SAFE_AREA: i32 = bridge::BridgeKind::SafeArea as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table.
@@ -840,6 +841,23 @@ mod imp {
             // inset pass, the soft keyboard, rotation, or a system-bar change. Routed to the
             // root as a window resize so Day relayouts; same rail as appkit's windowDidResize.
             // (18: the first free kind — 15 already carries file-picker answers.)
+            // Safe-area report (edge-to-edge mode, docs/layout.md): update the global insets
+            // signal; apps read `day::safe_area()`. Not an Event — nothing to route to a node.
+            K_SAFE_AREA => {
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
+                if p.len() < 4 {
+                    return;
+                }
+                let d = DENSITY.with(|x| x.get());
+                day_core::set_safe_area(day_spec::Insets {
+                    top: p[0] / d,
+                    bottom: p[1] / d,
+                    leading: p[2] / d,
+                    trailing: p[3] / d,
+                });
+                return;
+            }
             K_WINDOW_RESIZED => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();

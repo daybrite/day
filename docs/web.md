@@ -162,7 +162,42 @@ the host. The only reason `day launch` runs a server at all is that browsers ref
 instantiate wasm from `file:` URLs; any static host works, including GitHub Pages. The shim
 prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
 back to a buffered instantiate on hosts that serve wasm as something else, so a plain
-directory listing on a dumb server still boots.
+directory listing on a dumb server still boots. Every asset reference in the dist is
+**relative** (`day.css`, `./shim.js`, `app.wasm`, `assets/…`), so it serves correctly from a
+subpath — a project-Pages URL like `https://<user>.github.io/<repo>/` — with no `<base>` tag.
+
+### Deploy to GitHub Pages
+
+The [`daybrite/actions`](https://github.com/daybrite/actions) companion repo's reusable
+`build-day-app` workflow can also publish the web-dom build to the calling repo's own Pages site
+(e.g. Day-Skies → `https://day-skies.github.io/Day-Skies/`) — set `deploy-web: true` with `web-dom`
+among the `targets`, so the one workflow that builds and packages every platform also deploys the
+web build. Add this to the app repo and enable Settings → Pages → Source = "GitHub Actions":
+
+```yaml
+# .github/workflows/ci.yml
+name: ci
+on:
+  push: { branches: ["**"], tags: ["v[0-9]+.[0-9]+.[0-9]+*"] }
+  workflow_dispatch:
+permissions:            # reusable workflows run with the CALLER's permissions
+  contents: write       # release-asset upload on tag builds
+  pages: write          # web-dom → GitHub Pages
+  id-token: write       # actions/deploy-pages authenticates the upload with an OIDC token
+jobs:
+  app:
+    uses: daybrite/actions/.github/workflows/build-day-app.yml@main   # pin @<tag> to match your day dep
+    secrets: inherit
+    with:
+      targets: macos-appkit, ios-uikit, android-mdc, web-dom
+      deploy-web: true    # publish the web-dom build to GitHub Pages
+```
+
+The web deploy reuses the release-profile dist the build already produced (no second build) and
+hands it to `actions/upload-pages-artifact` + `actions/deploy-pages`. No secrets are needed — the
+deploy authenticates with the workflow's own OIDC token, which is why `id-token: write` is
+required. By default it publishes on every push to the default branch; pass
+`web-deploy-tag-pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'` to publish only on version tags instead.
 
 Beyond static files, the dev server answers two dynamic paths: `/dayscript` (the WebSocket
 bridge above) and **`/day-http-ok`** — a method-echo endpoint for HTTP demos whose native

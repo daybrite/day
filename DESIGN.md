@@ -2612,7 +2612,7 @@ Docs are two-layer by design: `docs/*.md` in this repo is normative per subsyste
 cited from source comments); `website/` is the curated public site (Astro) — guides (overview,
 api-tour, reactivity, layout, dayscript, packaging, …) plus the internal reference, which
 **symlinks** `docs/*.md` under `/docs/internal/…` so it can never drift. A companion repo,
-`daybrite/actions`, publishes the reusable GitHub workflow external Day apps build with.
+`daybrite/actions`, publishes the reusable GitHub workflows external Day apps build and deploy with.
 
 ---
 
@@ -2620,9 +2620,14 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
-> carries the whole pipeline, plus `install.yml` (scheduled end-user install checks) in this
-> repo and the **`daybrite/actions`** companion repo (a reusable `build-day-app.yml` matrix
-> workflow + a scaffold-validation workflow) for external Day apps.
+> carries the whole pipeline, plus `install.yml` (scheduled end-user install checks) in this repo.
+> External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
+> `build-day-app.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
+> tag, and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
+> app repo's own GitHub Pages (reusing the dist it already built; relative-path so a project-Pages
+> subpath works; a `web-deploy-tag-pattern` input gates publish-on-tag vs publish-on-main;
+> docs/web.md), plus a scaffold-validation workflow. The Gradle/AGP legs use the runner's DEFAULT
+> preinstalled JDK (Day accepts 17+; the old "pin 21" was an AGP-8-era quirk).
 
 `ci.yml`, in order:
 

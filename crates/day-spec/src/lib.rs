@@ -194,6 +194,10 @@ pub mod bridge {
         /// Root size change; `text` = `"w,h"` in px. Routed to `WINDOW_NODE` as a window
         /// resize (the rail rotation, late inset passes, and the soft keyboard ride).
         WindowResized = 18,
+        /// Safe-area report from an edge-to-edge backend; `text` =
+        /// `"top,bottom,leading,trailing"` in px (Rust divides by density and feeds
+        /// `day_core::set_safe_area`). Node id ignored; no `Event` is emitted.
+        SafeArea = 19,
     }
 
     impl BridgeKind {

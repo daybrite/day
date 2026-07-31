@@ -19,7 +19,7 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, sleep, task};
+pub use day_core::{AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, sleep, task};
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
 /// loading — namespaced because the prelude's `Resource` is the ASSET handle above, a different
@@ -101,6 +101,9 @@ pub mod prelude {
     // Toolkit capability probe (docs): lets app/piece content adapt to the backend, e.g. skip a
     // title the native nav already shows (`Cap::NavHeader`). `capability(cap) -> Support`.
     pub use day_core::capability;
+    // Safe-area insets (docs/layout.md): zero everywhere except edge-to-edge backends — pad
+    // content by it where a background runs under the system bars.
+    pub use day_core::safe_area;
     pub use day_spec::{Cap, Support};
     // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
     // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.

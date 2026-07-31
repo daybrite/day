@@ -41,10 +41,28 @@ public class DayNavHost extends LinearLayout {
 
     /** v1: nav is app-root only, so a single active host suffices (deep-link routing). */
     static DayNavHost active;
+
+    /** Immersive mode: the extra top chrome the floating app bar adds (px; 0 when stacked). */
+    static int immersiveTopExtraPx() {
+        DayNavHost h = active;
+        if (h == null || !DayActivity.edgeToEdge) return 0;
+        // The app bar's height already includes its status-inset padding — report only the
+        // chrome BELOW the status bar, which the activity adds separately.
+        return Math.max(0, h.appBar.getHeight() - DayActivity.statusInsetPx);
+    }
+
+    /** Edge-to-edge inset pass: keep the floating app bar's title row below the status bar. */
+    static void onStatusInset(int px) {
+        DayNavHost h = active;
+        if (h != null && DayActivity.edgeToEdge && h.appBar.getPaddingTop() != px) {
+            h.appBar.setPadding(0, px, 0, 0);
+        }
+    }
     /** page view → its host, for removePage routing even after the view is detached. */
     static final WeakHashMap<View, DayNavHost> pageHosts = new WeakHashMap<>();
 
     final MaterialToolbar toolbar;
+    final AppBarLayout appBar;
     final FrameLayout pages;
     final long hostNode;
     String rootTitle; // not final: NavPatch::Title retitles the root live
@@ -88,16 +106,48 @@ public class DayNavHost extends LinearLayout {
                 }
             }
         });
-        AppBarLayout appBar = new AppBarLayout(ctx);
+        appBar = new AppBarLayout(ctx);
         appBar.addView(toolbar, new AppBarLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        addView(appBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         pages = new FrameLayout(ctx);
         containerId = View.generateViewId();
         pages.setId(containerId);
-        addView(pages, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        if (DayActivity.edgeToEdge) {
+            // Immersive (docs/layout.md): the page container fills the host and the app bar
+            // floats transparent above it — page content runs under the status bar and
+            // toolbar, padding itself by day::safe_area(). The app bar carries the status-bar
+            // inset as top padding so the title row sits below the system chrome.
+            // A protection scrim, not plain transparency: the floating chrome (status icons,
+            // back arrow, title) is white, which vanishes over light pages. A 40%-black to
+            // transparent fade keeps it legible everywhere and reads as intentional over the
+            // dark pages where it is barely visible.
+            android.graphics.drawable.GradientDrawable scrim =
+                    new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                            new int[] { 0x66000000, 0x00000000 });
+            appBar.setBackground(scrim);
+            appBar.setElevation(0f);
+            toolbar.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            appBar.setPadding(0, DayActivity.statusInsetPx, 0, 0);
+            appBar.addOnLayoutChangeListener(new OnLayoutChangeListener() {
+                @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                        int ol, int ot, int or, int ob) {
+                    if ((b - t) != (ob - ot)) DayActivity.reportTopInset();
+                }
+            });
+            FrameLayout overlay = new FrameLayout(ctx);
+            overlay.addView(pages, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            overlay.addView(appBar, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            addView(overlay, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        } else {
+            addView(appBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            addView(pages, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        }
 
         fm = ((FragmentActivity) ctx).getSupportFragmentManager();
         fm.addOnBackStackChangedListener(new FragmentManager.OnBackStackChangedListener() {

@@ -82,12 +82,8 @@ jobs:
         if: ${{ matrix.combo == 'ios-uikit' }}
         run: rustup target add aarch64-apple-ios-sim
 
-      - name: Android JDK
-        if: ${{ matrix.combo == 'android-mdc' }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
+      # No setup-java: the runner's preinstalled default JDK (17+) builds fine — Day accepts 17+
+      # and Gradle 9.6 runs on 17…26 (the old "must be 21" restriction was an AGP-8-era quirk).
       - name: Android cross targets + NDK env
         if: ${{ matrix.combo == 'android-mdc' }}
         run: |

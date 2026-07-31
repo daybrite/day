@@ -1,8 +1,9 @@
 # CI (DESIGN.md §20.1) — per-OS jobs, patterns lifted from pane's per-OS matrix and hop's
-# screenshot pipeline. Banked toolchain knowledge encoded here from day one: JDK pinned to 21
-# (never newer — the AGP jdk-image transform breaks), rustup toolchains for cross-std,
-# GSK_RENDERER=cairo for headless GTK (set by `day launch` itself), `--locked` everywhere,
-# emulator boot handled by the runner action's polling.
+# screenshot pipeline. Banked toolchain knowledge encoded here from day one: the Gradle/AGP
+# builds use the runner's DEFAULT preinstalled JDK (Day accepts 17+; Gradle 9.6 runs on 17…26 —
+# the old "pin 21, never newer" rule was an AGP-8-era jdk-image-transform quirk that no longer
+# holds), rustup toolchains for cross-std, GSK_RENDERER=cairo for headless GTK (set by `day
+# launch` itself), `--locked` everywhere, emulator boot handled by the runner action's polling.
 name: ci
 
 on:
@@ -804,10 +805,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
+      # No setup-java — Gradle runs on the runner's default preinstalled JDK (Day accepts 17+;
+      # Gradle 9.6 supports 17…26). setup-gradle pins the Gradle version; the JDK is the runner's.
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.6.1"
