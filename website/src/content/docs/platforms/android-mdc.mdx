@@ -34,6 +34,11 @@ day pack -p android-mdc           # release-signed .apk + .aab
 
 ## Caveats and special considerations
 
+- **Immersive top chrome is an opt-in.** A `dev.daybrite.day.EDGE_TO_EDGE` `<meta-data>` entry
+  in the app manifest makes the status bar transparent and floats the nav bar over full-bleed
+  pages; selector items marked [`.immersive()`](/docs/navigation) keep the floating scrim bar,
+  other pages get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
+  ([Layout](/docs/layout)). Without the opt-in, everything renders below the bars as before.
 - **Accessibility annotations are partial** — see [the current limits](/docs/accessibility#current-limits).
 - **Process death is a cold start** unless your app persists its own state. Day does not restore a
   navigation stack for you.

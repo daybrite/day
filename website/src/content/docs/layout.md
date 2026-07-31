@@ -119,7 +119,9 @@ create no native widget, so nesting them is cheap.
   the lesson learned.) The window relayouts on native resize and never auto-shrinks on you.
 - **Safe areas and keyboards** (mobile): the root applies safe-area insets as padding by default;
   a root-level `scroll` converts them to content insets and slides the focused field above the
-  keyboard.
+  keyboard. Backends with an edge-to-edge mode (Android's immersive opt-in) stop clamping the
+  top and report the insets through `day::safe_area()` instead — paint a background unpadded
+  and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
   `Layout` implementations are written direction-naive with leading/trailing coordinates, and the
   backends set the native per-view direction so text, cursors, and assistive technology agree

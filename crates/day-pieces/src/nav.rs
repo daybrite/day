@@ -526,9 +526,9 @@ impl<K: Route> SelItems<K> {
     /// A static item's immersive-chrome flag (docs/navigation.md); a data-driven key is
     /// always standard chrome.
     fn immersive_of(&self, key: &str) -> bool {
-        self.meta.iter().any(|ms| {
-            matches!(ms, MetaSource::Static(k, _, _, true) if k.key() == key)
-        })
+        self.meta
+            .iter()
+            .any(|ms| matches!(ms, MetaSource::Static(k, _, _, true) if k.key() == key))
     }
 
     /// A static item's live title source (locale-reactive retitle); `None` for a data-driven

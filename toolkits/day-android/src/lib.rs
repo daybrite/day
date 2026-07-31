@@ -1566,7 +1566,7 @@ mod imp {
                                     &[
                                         JValue::Object(h.0.as_obj()),
                                         JValue::Object(&s),
-                                        JValue::Bool((*immersive).into()),
+                                        JValue::Bool(*immersive),
                                     ],
                                 );
                             }),

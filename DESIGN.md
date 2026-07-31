@@ -1257,6 +1257,11 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > The numeric event-kind wire table for the trampoline backends (Android JNI, ArkUI C-FFI)
 > lives in `day_spec::bridge::BridgeKind`; the Java/C++ constants mirror it and parity tests
 > hold them together (2026-07 — after a kind collision silently swallowed the resize rail).
+> Additions since: `BridgeKind::SafeArea = 19` (2026-07) feeds `day_core::set_safe_area` from an
+> edge-to-edge backend — px insets in `text`, no `Event` emitted — and `NavPatch::Pushed` gained
+> an `immersive: bool` (the selector item's `.immersive()` flag; day-android flips the pushed
+> page between the floating-scrim and opaque bars, other backends ignore it). docs/layout.md and
+> docs/navigation.md are normative.
 
 ```rust
 pub enum Event {

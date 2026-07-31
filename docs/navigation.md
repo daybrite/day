@@ -39,6 +39,15 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 is the old `nav()`. They are one primitive, a selection-bound switcher, differing only in
 chrome and page lifetime (tabs keep every page resident; the sidebar builds the selected detail).
 
+### Immersive items (`.immersive()`)
+
+`.item(…).immersive()` marks the LAST-added destination as an immersive-chrome page: on
+backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
+keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
+get the standard opaque bar. Every other backend ignores the flag, as does a data-driven
+`.items` block. Pair it with `day::safe_area()` (docs/layout.md): the immersive page paints its
+background unpadded and pads its content by the reported insets.
+
 ## `stack` — push/pop with a value path
 
 ```rust
