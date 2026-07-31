@@ -111,7 +111,7 @@ enum Cmd {
     /// Check the development environment, grouped by toolkit
     Doctor {
         /// Focus a toolkit (repeatable): its checks become errors + print setup help.
-        /// One of: appkit, uikit, gtk, qt, xaml, android, harmonyos.
+        /// One of: appkit, uikit, gtk, qt, xaml, android, harmonyos, dom.
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },

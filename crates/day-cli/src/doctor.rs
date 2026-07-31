@@ -107,38 +107,26 @@ fn have_any_rust_target(triples: &[&str]) -> Option<String> {
     triples.iter().find_map(|t| have_rust_target(t))
 }
 
-/// Locate a JDK 21 (Android's AGP needs 21 exactly — 22+ breaks the jdk-image transform). Checks,
-/// in order: the shared `day_toolchain::jdk21_home()` lookup (`$JAVA_HOME`, macOS's java_home
-/// registry, Homebrew — the SAME resolution the gradle builds use, so doctor diagnoses what the
-/// build will actually run), then `java` on PATH. Accepts a JDK whose major version is 21, parsed
-/// robustly from `java -version` (which prints `openjdk version "21.0.8" …` — or bare `"21"` for
-/// some builds — to stderr).
-fn have_jdk21() -> Option<String> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(home) = day_toolchain::jdk21_home() {
-        candidates.push(home.join("bin").join("java"));
+/// The JDK the Gradle build will use, if it's a version AGP accepts (17 or newer — AGP 9's
+/// minimum). Resolves via `day_toolchain::jdk_home()` — the SAME `$JAVA_HOME`-first resolution the
+/// gradle builds use, so doctor diagnoses what the build will actually run. Because the build
+/// TRUSTS `$JAVA_HOME`, a `$JAVA_HOME` pointing at a too-old JDK is a real miss even when a newer
+/// one is installed elsewhere. The major version is parsed from `java -version` (which prints
+/// `openjdk version "26.0.1" …` — or bare `"21"` — to stderr).
+fn have_jdk() -> Option<String> {
+    let java = day_toolchain::jdk_home()?.join("bin").join("java");
+    let out = Command::new(&java).arg("-version").output().ok()?;
+    if !out.status.success() {
+        return None;
     }
-    if let Some(p) = which("java") {
-        candidates.push(p);
-    }
-    for java in candidates {
-        let Ok(out) = Command::new(&java).arg("-version").output() else {
-            continue;
-        };
-        if !out.status.success() {
-            continue;
-        }
-        // Split the (stderr) version banner on whitespace and quotes; accept a `21` / `21.x` token.
-        let text = String::from_utf8_lossy(&out.stderr);
-        let is21 = text
-            .split(|c: char| c.is_whitespace() || c == '"')
-            .filter_map(|t| t.strip_prefix("21"))
-            .any(|rest| rest.is_empty() || rest.starts_with('.'));
-        if is21 {
-            return Some(text.lines().next().unwrap_or("").trim().to_string());
-        }
-    }
-    None
+    let text = String::from_utf8_lossy(&out.stderr);
+    // Major version = the first whitespace/quote-delimited token whose leading `N.` or bare `N`
+    // parses (`"26.0.1"` → 26, `"21"` → 21). Modern JDKs report the feature version directly.
+    let major = text
+        .split(|c: char| c.is_whitespace() || c == '"')
+        .filter(|t| !t.is_empty())
+        .find_map(|t| t.split(['.', '-', '_']).next()?.parse::<u32>().ok())?;
+    (major >= 17).then(|| text.lines().next().unwrap_or("").trim().to_string())
 }
 
 /// Resolve `bin` on PATH (like the shell would); `Some(path)` if found. `bin` may carry `.exe`; on
@@ -379,7 +367,7 @@ fn android_group() -> Group {
     let adb = sdk.join("platform-tools/adb");
     Group {
         id: "android",
-        label: "Android · android.widget",
+        label: "Android · Material",
         hosts: &["any"],
         probes: vec![
             Probe::new(
@@ -395,7 +383,7 @@ fn android_group() -> Group {
             Probe::new(
                 "rust-android",
                 have_any_rust_target(&["aarch64-linux-android", "x86_64-linux-android"]),
-                "rustup target add aarch64-linux-android (or x86_64-linux-android for the emulator)",
+                "rustup target add aarch64-linux-android (arm64 device/emulator) or x86_64-linux-android (x86_64 emulator)",
             ),
             Probe::new(
                 "cargo-ndk",
@@ -403,9 +391,9 @@ fn android_group() -> Group {
                 "cargo install cargo-ndk",
             ),
             Probe::new(
-                "jdk21",
-                have_jdk21(),
-                "install JDK 21 (`brew install openjdk@21`); newer JDKs break the AGP jdk-image transform",
+                "jdk",
+                have_jdk(),
+                "install JDK 17 or newer and point JAVA_HOME at it (`brew install openjdk@21`); the Gradle build uses $JAVA_HOME",
             ),
             Probe::new(
                 "device",
@@ -422,19 +410,22 @@ fn android_group() -> Group {
                             )
                         })
                     }),
-                "start an emulator (`day android emulator launch`) or attach a device",
+                "start an emulator (`emulator -avd <name>`, or Android Studio's Device Manager) or attach a device",
             )
             .soft(),
         ],
-        setup: "Android (android.widget) cross-compiles the app to a JNI .so and runs it in a Gradle\n\
-                app. Install:\n\
+        setup: "Android (Material Components) cross-compiles the app to a JNI .so and runs it in a\n\
+                Gradle app. Install:\n\
                 • the Android SDK — set ANDROID_HOME (or ANDROID_SDK_ROOT); Android Studio installs it\n\
                   at the platform default (~/Library/Android/sdk on macOS; docs/environment.md) otherwise\n\
                 • an NDK — via `sdkmanager --install 'ndk;<ver>'`; set ANDROID_NDK_HOME to override\n\
                 • the Android Rust target — `rustup target add aarch64-linux-android`\n\
                 • `cargo install cargo-ndk`\n\
-                • JDK 21 — `brew install openjdk@21` (JDK 22+ breaks the AGP jdk-image transform)\n\
-                A booted emulator or attached device is needed only to launch, not to build.",
+                • JDK 17 or newer — `brew install openjdk@21` (AGP 9's minimum is 17; the Gradle\n\
+                  build uses $JAVA_HOME, so set it if `java` on PATH is older)\n\
+                A booted emulator or attached device is needed only to launch, not to build. Create\n\
+                an AVD in Android Studio's Device Manager (or `avdmanager create avd`) and start it\n\
+                with `emulator -avd <name>` — `day` has no Android-emulator command of its own.",
     }
 }
 
@@ -489,7 +480,25 @@ fn harmonyos_group() -> Group {
                   x86_64-unknown-linux-ohos`\n\
                 • hvigor + ohpm — from the OpenHarmony command-line-tools (bundled with DevEco Studio);\n\
                   put their bin/ on PATH. These package the .hap and are not part of the public SDK.\n\
-                An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build.",
+                An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build —\n\
+                start the bundled Oniro emulator with `day ohos emulator launch`.",
+    }
+}
+
+fn dom_group() -> Group {
+    Group {
+        id: "dom",
+        label: "Web · DOM",
+        hosts: &["any"],
+        probes: vec![Probe::new(
+            "rust-wasm",
+            have_rust_target("wasm32-unknown-unknown"),
+            "rustup target add wasm32-unknown-unknown",
+        )],
+        setup: "web-dom (docs/web.md) compiles the app's lib crate to WebAssembly and pairs it with\n\
+                the host page embedded in the CLI — the only toolchain requirement is the Rust\n\
+                target: `rustup target add wasm32-unknown-unknown`. `day build -p web-dom` writes a\n\
+                self-contained static dist/; `day launch -p web-dom` serves it and opens a browser.",
     }
 }
 
@@ -504,6 +513,7 @@ fn all_groups() -> Vec<Group> {
         xaml_group(),
         android_group(),
         harmonyos_group(),
+        dom_group(),
     ]
 }
 

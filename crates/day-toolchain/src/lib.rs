@@ -178,19 +178,23 @@ pub fn android_sdk_dir() -> PathBuf {
     }
 }
 
-/// A JDK 21 home for Gradle (AGP needs 21 exactly — newer JDKs break the jdk-image transform).
+/// A JDK home for the Gradle/AGP build. AGP 9's minimum is JDK 17, and Gradle must support the
+/// exact version — Gradle 9.6 runs on 17…26 (verified: the day scaffold builds on 17, 21 and 26
+/// alike, so the old "21 exactly / 22+ breaks the jdk-image transform" restriction was an AGP-8-era
+/// carryover and no longer holds).
 ///
 /// Overrides: `JAVA_HOME` (trusted as-is — Gradle's own contract). Fallbacks: macOS's
-/// `/usr/libexec/java_home -v 21` registry, then Homebrew's `openjdk@21` keg (both Apple-Silicon
-/// and Intel prefixes). Callers export the result as `JAVA_HOME` for the Gradle child process.
-pub fn jdk21_home() -> Option<PathBuf> {
+/// `/usr/libexec/java_home -v 17+` registry (the newest install ≥ 17), then a Homebrew `openjdk`
+/// keg — the unversioned latest first, then pinned 17+ kegs (both Apple-Silicon and Intel
+/// prefixes). Callers export the result as `JAVA_HOME` for the Gradle child process.
+pub fn jdk_home() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("JAVA_HOME") {
         return Some(PathBuf::from(v));
     }
     if cfg!(target_os = "macos") {
         // The canonical macOS JDK registry (also finds Temurin/Zulu installs, not just brew).
         if let Ok(out) = std::process::Command::new("/usr/libexec/java_home")
-            .args(["-v", "21"])
+            .args(["-v", "17+"])
             .output()
             && out.status.success()
         {
@@ -199,10 +203,13 @@ pub fn jdk21_home() -> Option<PathBuf> {
                 return Some(p);
             }
         }
-        for prefix in ["/opt/homebrew", "/usr/local"] {
-            let p = PathBuf::from(prefix).join("opt/openjdk@21");
-            if p.join("bin/java").exists() {
-                return Some(p);
+        // Newest keg first: the unversioned `openjdk` is Homebrew's current, then LTS/common pins.
+        for keg in ["openjdk", "openjdk@21", "openjdk@17"] {
+            for prefix in ["/opt/homebrew", "/usr/local"] {
+                let p = PathBuf::from(prefix).join("opt").join(keg);
+                if p.join("bin/java").exists() {
+                    return Some(p);
+                }
             }
         }
     }

@@ -205,7 +205,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
 | **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
-| **Toolkit** | A native widget system: UIKit, android.widget, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
+| **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`toolkits/day-appkit`, `toolkits/day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
@@ -2098,8 +2098,8 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
   with shared pre-flight (project discovery, Day.toml parse, doctor-lite checks relevant to the
   command).
 - **Workflows/doctor:** per-target `Workflow` objects (`applicable? functional? missing?`) power
-  both `day doctor` and actionable failures ("`android-mdc` needs: ANDROID_HOME, JDK 17/21 —
-  found JDK 26 (known-broken with AGP; see day doctor)"). This bakes in the toolchain knowledge
+  both `day doctor` and actionable failures ("`android-mdc` needs: ANDROID_HOME, JDK 17+ —
+  none found; see day doctor"). This bakes in the toolchain knowledge
   this workspace accumulated (JDK-26/Robolectric-class problems, rustup-vs-homebrew Rust for cross-std,
   cargo-ndk, `aarch64-apple-ios-sim` on Apple Silicon).
 - **Plumbing tier:** stable, documented, hidden-from-default-help subcommands invoked by build

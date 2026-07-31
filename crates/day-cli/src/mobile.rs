@@ -802,10 +802,11 @@ pub fn build_android(
         .env("DAY_PROJECT_ROOT", &project.root)
         .env("DAY_PROFILE", profile)
         .args([task, "-q", "--console=plain"]);
-    // Gradle 9 + AGP 9 need JDK 17–21 (newer JDKs break the AGP jdk-image transform). Respect
-    // the caller's JAVA_HOME (CI pins 21 via setup-java); default to Homebrew's 21 when unset.
+    // AGP 9's minimum is JDK 17, and Gradle 9.6 runs on 17…26 (the scaffold builds on all of them).
+    // Respect the caller's JAVA_HOME (CI pins one via setup-java); default to a discovered 17+ JDK
+    // when unset.
     if std::env::var_os("JAVA_HOME").is_none()
-        && let Some(jdk) = day_toolchain::jdk21_home()
+        && let Some(jdk) = day_toolchain::jdk_home()
     {
         cmd.env("JAVA_HOME", jdk);
     }

@@ -89,7 +89,7 @@ pub fn pack(
             .env("DAY_PROFILE", &opts.profile)
             .args(["bundleRelease", "-q", "--console=plain"]);
         if std::env::var_os("JAVA_HOME").is_none()
-            && let Some(jdk) = day_toolchain::jdk21_home()
+            && let Some(jdk) = day_toolchain::jdk_home()
         {
             cmd.env("JAVA_HOME", jdk);
         }
