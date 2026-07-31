@@ -205,16 +205,29 @@ impl Layout for PassThrough {
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
             let s = cx.measure_child(c, Proposal::exact(bounds.size));
-            // Layout-transparent in BOTH passes: space the parent granted flows through to
-            // the child, so a grow stretch survives a chain of wrappers (the grid-cell card
-            // case — a background container must fill the cell, not re-hug its content). A
-            // child that measures LARGER than the grant keeps its size: tight-space overflow
-            // stays visible rather than compressing.
-            let size = Size::new(
-                s.width.max(bounds.size.width),
-                s.height.max(bounds.size.height),
-            );
-            cx.place_child(c, Rect::from_size(size));
+            cx.place_child(c, Rect::from_size(s));
+        }
+    }
+}
+
+/// Paint/clip wrapper (`.background`, `.corner_radius`, the animatable layers): like
+/// [`PassThrough`] for measurement, but the GRANTED rect flows to the child verbatim at place
+/// time — these containers exist to paint or clip the area the parent granted, so a grow
+/// stretch above them must reach the painted surface (the grid-cell card case) instead of
+/// being re-hugged at every wrapper. Under a parent that places at measured size — every
+/// stack, grid rigid cell, and overlay — bounds equal the measure and nothing changes.
+pub struct FillThrough;
+
+impl Layout for FillThrough {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        match children.first() {
+            Some(&c) => cx.measure_child(c, p),
+            None => Size::ZERO,
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            cx.place_child(c, Rect::from_size(bounds.size));
         }
     }
 }
@@ -868,17 +881,11 @@ impl Layout for PaddingLayout {
         if let Some(&c) = children.first() {
             let inner = bounds.inset_by(self.insets);
             let s = cx.measure_child(c, Proposal::exact(inner.size));
-            // Like PassThrough: granted space flows through (minus the insets); a child
-            // measuring larger keeps its overflow.
-            let size = Size::new(
-                s.width.max(inner.size.width),
-                s.height.max(inner.size.height),
-            );
             cx.place_child(
                 c,
                 Rect {
                     origin: inner.origin,
-                    size,
+                    size: s,
                 },
             );
         }

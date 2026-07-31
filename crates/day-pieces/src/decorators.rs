@@ -102,7 +102,8 @@ impl NativeRef {
 
 /// A transparent native layer node (`CONTAINER`, no fill/clip/corner) used by the animatable
 /// modifiers (`.opacity`/`.transform`/`.animation`) to carry a per-node opacity, transform, or
-/// implicit animation. Layout-transparent (`PassThrough`), so it never affects sizing.
+/// implicit animation. Layout-transparent (`FillThrough`), so it never affects sizing and a
+/// granted stretch flows through to what it paints.
 fn layer_node(cx: &mut BuildCx) -> RNode {
     cx.native(
         kinds::CONTAINER,
@@ -112,7 +113,7 @@ fn layer_node(cx: &mut BuildCx) -> RNode {
             clips: false,
             role: None,
         },
-        Rc::new(PassThrough),
+        Rc::new(FillThrough),
         Flex::default(),
         Boundary::No,
     )
@@ -367,7 +368,7 @@ pub trait Decorate: Piece + Sized {
                     clips: false,
                     role: None,
                 },
-                Rc::new(PassThrough),
+                Rc::new(FillThrough),
                 Flex::default(),
                 Boundary::No,
             );
@@ -402,7 +403,7 @@ pub trait Decorate: Piece + Sized {
                     clips: true,
                     role: None,
                 },
-                Rc::new(PassThrough),
+                Rc::new(FillThrough),
                 Flex::default(),
                 Boundary::No,
             );

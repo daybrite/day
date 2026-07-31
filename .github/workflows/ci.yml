@@ -265,7 +265,7 @@ jobs:
           fi
       - name: Download the day CLI artifacts (all six os/arch builds)
         if: ${{ env.IS_TAG == 'true' }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: day-*
           path: cli-artifacts
@@ -285,7 +285,7 @@ jobs:
           ruby -c dist/day.rb
       - name: Download the app packages (the per-combo jobs' pack steps)
         if: ${{ env.IS_TAG == 'true' }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: showcase-dist-*
           path: dist
@@ -395,7 +395,7 @@ jobs:
         if: ${{ matrix.toolkit == 'appkit' && !startsWith(github.ref, 'refs/tags/') }}
         run: cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -538,7 +538,7 @@ jobs:
           cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \
             --no-default-features --features uikit
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -687,7 +687,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: cargo clippy --locked -p showcase --no-default-features --features ${{ matrix.toolkit }} --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -830,7 +830,7 @@ jobs:
           rustup target add x86_64-linux-android aarch64-linux-android
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -986,7 +986,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
       - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/ohos-clt
           key: ohos-clt-${{ env.CLT_VERSION }}
@@ -1027,7 +1027,7 @@ jobs:
         # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
         run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -1061,7 +1061,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils
       - name: Cache the Oniro emulator image
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/oniro-emulator/v6.1
           key: oniro-emulator-v6.1-oniro_emulator.zip
@@ -1191,7 +1191,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: cargo clippy --locked -p day-part-battery --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -1320,7 +1320,7 @@ jobs:
       - name: Test host-portable crates
         run: cargo test --locked
       - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: day-cli
@@ -1428,7 +1428,7 @@ jobs:
   web-dom:
     name: web-dom (showcase dist + walkthrough)
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
-    needs: [fmt, msrv]
+    needs: [linux-day]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -1436,9 +1436,26 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # Reuse the day CLI linux-day already built (like every other combo) instead of a from-source
+      # `cargo run -p day-cli`. The wasm32 toolchain above is still required: `day build` shells out
+      # to `cargo rustc --target wasm32-unknown-unknown` on this runner to compile the app.
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v8
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        shell: bash
+        run: |
+          # The artifact holds exactly the one binary (day); take its absolute path so every step
+          # can invoke it as $DAY_BIN regardless of working directory.
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "day CLI: $BIN"
       - name: Build the showcase web-dom dist (release)
         working-directory: apps/showcase
-        run: cargo run --locked -p day-cli -- build --platform web-dom --profile release
+        run: $DAY_BIN build --platform web-dom --profile release
       - name: Upload the web-dom dist
         uses: actions/upload-artifact@v7
         with:
@@ -1473,7 +1490,7 @@ jobs:
             for LOC in $WALKTHROUGH_LOCALES; do
               VAR=$TH; EXTRA=""
               if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              cargo run --locked -q -p day-cli -- launch -p web-dom --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
+              $DAY_BIN launch -p web-dom --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
       # Headless WebKit has no motion hardware, so the walkthrough above can only prove the
@@ -1486,7 +1503,7 @@ jobs:
         env:
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
         run: |
-          cargo run --locked -q -p day-cli -- launch -p web-dom --keep-alive >"$RUNNER_TEMP/weblaunch.log" 2>&1 &
+          $DAY_BIN launch -p web-dom --keep-alive >"$RUNNER_TEMP/weblaunch.log" 2>&1 &
           for _ in $(seq 1 90); do
             URL=$(grep -o 'http://127.0.0.1:[0-9]*' "$RUNNER_TEMP/weblaunch.log" 2>/dev/null | head -1)
             [ -n "$URL" ] && break
@@ -1535,7 +1552,7 @@ jobs:
         # Each screenshot job uploads `screenshots-<combo>`; grab them all into
         # website/artifacts/screenshots-<combo>/… where the assembly expects them.
         # continue-on-error: a run where no platform produced screenshots still deploys.
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: screenshots-*
@@ -1544,7 +1561,7 @@ jobs:
         # The per-combo `day pack` outputs, for the /showcase/ downloads page — the build's
         # assembly (scripts/assemble-downloads.mjs) copies them into the site with sizes and
         # SHA-256 checksums. Missing packages degrade to per-card placeholders.
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           pattern: showcase-dist-*
@@ -1558,7 +1575,7 @@ jobs:
         # Drop the api-docs job's rustdoc bundle into the built site at /api (linked from /docs/api).
         # continue-on-error: a run where the doc build failed still deploys — the API pages 404 until
         # the next green run rather than blocking the whole site (matches the gallery's resilience).
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: api-docs
@@ -1568,7 +1585,7 @@ jobs:
         # built site so /showcase/web-dom/ serves the real app. continue-on-error: a run
         # without the artifact still deploys — the page 404s until the next green run
         # (matches the gallery/API resilience; linkcheck skips links into the bundle).
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: webdom-showcase
