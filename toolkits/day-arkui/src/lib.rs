@@ -817,7 +817,7 @@ mod imp {
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
-                            NavPatch::Pushed { title } => {
+                            NavPatch::Pushed { title, .. } => {
                                 // The just-attached LAST page child becomes a NavDestination:
                                 // detach it from the host Stack and mount it into the fresh
                                 // NodeContent the ArkTS push callback returns.

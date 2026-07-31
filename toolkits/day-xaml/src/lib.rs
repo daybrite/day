@@ -1127,7 +1127,7 @@ impl Toolkit for Xaml {
                 kinds::NAV => {
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
                         let title = match np {
-                            NavPatch::Pushed { title } => Some(title.as_str()),
+                            NavPatch::Pushed { title, .. } => Some(title.as_str()),
                             NavPatch::Title(t) => Some(t.as_str()),
                             // The pop's header restore happens in stack_sync (after the page
                             // leaves detail_pages), where the new top's title is known.

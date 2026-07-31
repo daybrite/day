@@ -2164,7 +2164,7 @@ impl Toolkit for AppKit {
                             return;
                         };
                         match p {
-                            NavPatch::Pushed { title } => {
+                            NavPatch::Pushed { title, .. } => {
                                 // Only the new top detail page stays visible.
                                 let last = state.pages.len().saturating_sub(1);
                                 for (i, page) in state.pages.iter().enumerate() {

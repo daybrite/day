@@ -1439,7 +1439,7 @@ fn nav_patch(el: u32, p: &NavPatch) {
         let mut m = m.borrow_mut();
         let Some(state) = m.get_mut(&el) else { return };
         match p {
-            NavPatch::Pushed { title } => {
+            NavPatch::Pushed { title, .. } => {
                 state.titles.push(title.clone());
                 let last = state.pages.len().saturating_sub(1);
                 for (i, page) in state.pages.iter().enumerate() {

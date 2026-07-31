@@ -446,7 +446,7 @@ impl Toolkit for MockToolkit {
                 }
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
                 match p {
-                    NavPatch::Pushed { title } => {
+                    NavPatch::Pushed { title, .. } => {
                         w.text = title.clone();
                         format!("nav pushed title={title:?}")
                     }

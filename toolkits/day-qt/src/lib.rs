@@ -1148,7 +1148,7 @@ impl Toolkit for Qt {
                                 &state.pages[..]
                             };
                             match p {
-                                NavPatch::Pushed { title } => {
+                                NavPatch::Pushed { title, .. } => {
                                     let last = detail.len().saturating_sub(1);
                                     for (i, (page, _)) in detail.iter().enumerate() {
                                         ffi::day_qt_set_visible(page.0, (i == last) as _);

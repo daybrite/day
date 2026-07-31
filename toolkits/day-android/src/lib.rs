@@ -1557,13 +1557,17 @@ mod imp {
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
-                            NavPatch::Pushed { title } => with_env(|env| {
+                            NavPatch::Pushed { title, immersive } => with_env(|env| {
                                 let s = jstr(env, title);
                                 let _ = env.dcall_static(
                                     BRIDGE,
                                     "navPush",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
+                                    "(Landroid/view/View;Ljava/lang/String;Z)V",
+                                    &[
+                                        JValue::Object(h.0.as_obj()),
+                                        JValue::Object(&s),
+                                        JValue::Bool((*immersive).into()),
+                                    ],
                                 );
                             }),
                             NavPatch::Popped => call_void(

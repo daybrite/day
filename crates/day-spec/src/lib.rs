@@ -1425,8 +1425,11 @@ pub mod props {
     /// the toolkit animates its native presentation accordingly.
     #[derive(Clone, Debug, PartialEq)]
     pub enum NavPatch {
-        /// The just-attached last page child became the top of the stack.
-        Pushed { title: String },
+        /// The just-attached last page child became the top of the stack. `immersive` marks a
+        /// page that keeps the floating transparent chrome on backends with an immersive nav
+        /// mode (day-android edge-to-edge today; ignored elsewhere) — unmarked pages get the
+        /// standard opaque bar.
+        Pushed { title: String, immersive: bool },
         /// The top page is about to be removed; present its predecessor.
         Popped,
         /// Current top-of-stack title changed.
