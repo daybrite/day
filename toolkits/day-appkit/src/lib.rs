@@ -924,6 +924,9 @@ struct ListIvars {
     multi: std::cell::Cell<bool>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
+    /// The row-token order this table currently displays — the baseline `permutation_moves`
+    /// diffs a Reload against (docs/list.md: a same-set reorder animates as row moves).
+    tokens: RefCell<Vec<u64>>,
 }
 
 define_class!(
@@ -1051,6 +1054,15 @@ define_class!(
                     .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
                 let Some(mv) = mv else { return false };
                 mv(from, accepted);
+                // Keep the displayed-order cache in step (the commit's echo skips the Reload
+                // that would otherwise refresh it — see `permutation_moves`).
+                {
+                    let mut toks = self.ivars().tokens.borrow_mut();
+                    if from < toks.len() && accepted < toks.len() {
+                        let t = toks.remove(from);
+                        toks.insert(accepted, t);
+                    }
+                }
                 unsafe { tv.moveRowAtIndex_toIndex(from as isize, accepted as isize) };
                 true
             };
@@ -1124,8 +1136,43 @@ impl DayListData {
             selectable: std::cell::Cell::new(selectable),
             multi: std::cell::Cell::new(multi),
             suppress: std::cell::Cell::new(false),
+            tokens: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// If this Reload is the SAME row set in a new order, the incremental `moveRowAtIndex`
+    /// steps (each `(from, to)` interpreted against the already-moved rows, NSTableView's
+    /// semantics) that transform the displayed order into the new one — and `None` for
+    /// anything else (insert/remove/content change/no change), which reloads flat. Always
+    /// refreshes the displayed-order cache.
+    fn permutation_moves(&self) -> Option<Vec<(usize, usize)>> {
+        let source = self.ivars().source.borrow();
+        let source = source.as_ref()?;
+        let n = (source.len)();
+        let new: Vec<u64> = (0..n).map(|i| (source.token_at)(i)).collect();
+        let old = std::mem::replace(&mut *self.ivars().tokens.borrow_mut(), new.clone());
+        if old.len() != n || n == 0 || old == new {
+            return None;
+        }
+        let (mut so, mut sn) = (old.clone(), new.clone());
+        so.sort_unstable();
+        sn.sort_unstable();
+        if so != sn {
+            return None;
+        }
+        let mut work = old;
+        let mut moves = Vec::new();
+        for i in 0..n {
+            if work[i] == new[i] {
+                continue;
+            }
+            let j = (i + 1..n).find(|&j| work[j] == new[i])?;
+            let t = work.remove(j);
+            work.insert(i, t);
+            moves.push((j, i));
+        }
+        Some(moves)
     }
 
     /// The dragged row + current row count for an in-flight LOCAL reorder drag — `None` when the
@@ -2531,10 +2578,24 @@ impl Toolkit for AppKit {
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                 Some(ListPatch::Reload) => {
                     LIST_STATE.with(|m| {
-                        if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
+                        if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
+                            // A reload whose rows are the SAME set in a new order (a shuffle,
+                            // a programmatic sort) animates as native row moves instead of a
+                            // blink — `moveRowAtIndex` batch, the same animation a drag commit
+                            // gets. Anything else (insert/remove/content change) reloads flat.
                             // reloadData queries numberOfRows synchronously (snapshot only, no
-                            // tree) and defers viewForRow, so this is safe inside with_tree.
-                            unsafe { table.reloadData() };
+                            // tree) and defers viewForRow, so both paths are safe in with_tree.
+                            if let Some(moves) = data.permutation_moves() {
+                                unsafe {
+                                    table.beginUpdates();
+                                    for (from, to) in moves {
+                                        table.moveRowAtIndex_toIndex(from as isize, to as isize);
+                                    }
+                                    table.endUpdates();
+                                }
+                            } else {
+                                unsafe { table.reloadData() };
+                            }
                         }
                     });
                     // Realize the visible rows on the next main-loop turn, outside this borrow.
@@ -2542,6 +2603,24 @@ impl Toolkit for AppKit {
                     // draw pass — NSTableView would first realize these rows inside a snapshot's
                     // `cacheDisplayInRect`, where `bind_row` must skip the held borrow and the
                     // table would cache permanently blank cells.
+                    post_realize_visible_rows(ptr_of(h));
+                }
+                Some(ListPatch::ScrollToRow(row)) => {
+                    // Same deferral discipline as ScrollToEnd: the scroll tiles target rows
+                    // synchronously, which must happen outside this `with_tree` borrow.
+                    let (key, row) = (ptr_of(h), *row);
+                    <AppKit as Platform>::post(Box::new(move || {
+                        LIST_STATE.with(|m| {
+                            if let Some((table, _)) = m.borrow().get(&key) {
+                                let rows = unsafe { table.numberOfRows() };
+                                if rows > 0 {
+                                    unsafe {
+                                        table.scrollRowToVisible((row as isize).min(rows - 1))
+                                    };
+                                }
+                            }
+                        });
+                    }));
                     post_realize_visible_rows(ptr_of(h));
                 }
                 Some(ListPatch::ScrollToEnd) => {

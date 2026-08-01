@@ -223,6 +223,23 @@ fn schedule_list_scroll_end(host_key: usize) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
+/// Scroll the emulated list so `row` is at the top of the viewport (docs/list.md), on the next
+/// event-loop turn — the same deferral as `schedule_list_scroll_end`.
+fn schedule_list_scroll_row(host_key: usize, row: usize) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let target = LIST_STATE.with(|m| {
+            m.borrow()
+                .get(&host_key)
+                .map(|st| (st.host, (row as f64 * st.row_height.max(1.0)) as c_int))
+        });
+        if let Some((host, y)) = target {
+            unsafe { ffi::day_qt_scroll_to_y(host, y) };
+        }
+    });
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_qt_post(run_posted, data) };
+}
+
 fn list_populate(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: grow the cell pool + snapshot what we need.
     let Some((host, rowh, source, cells, n, width)) = LIST_STATE.with(|m| {
@@ -1327,6 +1344,9 @@ impl Toolkit for Qt {
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+                    Some(ListPatch::ScrollToRow(row)) => {
+                        schedule_list_scroll_row(h.0 as usize, *row)
+                    }
                     Some(ListPatch::Selected(rows)) => {
                         // Programmatic selection sync (empty = clear): repaint, no re-emit.
                         LIST_STATE.with(|m| {

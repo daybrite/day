@@ -534,6 +534,13 @@ void day_qt_scroll_to_bottom(void *w) {
     if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(sb->maximum());
 }
 
+// Scroll a QScrollArea host to an absolute vertical offset (px, clamped by the bar).
+void day_qt_scroll_to_y(void *w, int y) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(y);
+}
+
 // --- tree / geometry ---
 // Emulated fullscreen cover (docs/cover.md): bring the re-homed cover to the front, and give it
 // an OPAQUE default surface (the palette Window color) so it occludes the page under it.

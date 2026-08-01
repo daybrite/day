@@ -28,6 +28,10 @@
 #include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
 
 #include <winrt/base.h>
+// DataPackage/RequestedOperation for list drag-to-reorder (docs/list.md): the projection's
+// consume definitions live here — without this, any method call on DataPackage trips C3779
+// ("a function that returns 'auto' cannot be used before it is defined").
+#include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Streams.h>

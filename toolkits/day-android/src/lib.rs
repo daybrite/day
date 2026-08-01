@@ -1825,11 +1825,18 @@ mod imp {
                         );
                     }
                     Some(ListPatch::ScrollToEnd) => {
-                        // Posts smoothScrollToPosition(count-1) on the ListView (no-op if empty).
+                        // Posts smoothScrollToPosition(count-1) on the RecyclerView (no-op if empty).
                         call_void(
                             "listScrollToEnd",
                             "(Landroid/view/View;)V",
                             &[JValue::Object(h.0.as_obj())],
+                        );
+                    }
+                    Some(ListPatch::ScrollToRow(row)) => {
+                        call_void(
+                            "listScrollToRow",
+                            "(Landroid/view/View;I)V",
+                            &[JValue::Object(h.0.as_obj()), JValue::Int(*row as i32)],
                         );
                     }
                     // Not implemented: RowSizeInvalidated (the adapter re-measures on the next

@@ -143,6 +143,19 @@ honor `multi_select` and `ListPatch::Selected`. The remaining toolkits report si
 selection (`SelectionChanged`) and ignore the multi flag and the programmatic sync — the
 one-element `on_selection` contract still holds there.
 
+## Programmatic scrolling
+
+`.scroll_to_end(Trigger)` follows the last row (above); `.scroll_to_row(Signal<Option<usize>>)`
+jumps to any row — set the signal to `Some(row)` and the native list scrolls it into view,
+realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
+row rail's counterpart to `scroll(...).scroll_target(...)`. Backends without a native
+scroll-to-index (GTK ≤ 4.10, Qt, XAML, web) position by uniform row pitch — prefer
+`RowHeight::Uniform` when jumping programmatically there.
+
+A Reload whose rows are the SAME set in a new order (a shuffle, a programmatic sort) animates
+as native row moves on AppKit (`moveRowAtIndex` batch — the same animation a drag commit gets);
+other backends apply it instantly. Inserts, removals, and content changes always reload flat.
+
 ## Drag-to-reorder
 
 ```rust

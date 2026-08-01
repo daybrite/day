@@ -1609,6 +1609,9 @@ pub mod props {
         /// Imperatively scroll the native list so its LAST row is fully visible (a chat timeline
         /// sticking to the newest message). No-op when the list is empty (docs/list.md).
         ScrollToEnd,
+        /// Imperatively scroll the native list so this row is visible, realizing it if needed
+        /// (docs/list.md). Clamped to the row count; no-op when the list is empty.
+        ScrollToRow(usize),
         /// Programmatic selection sync (row indices; empty = clear) — toolkits apply WITHOUT
         /// re-emitting a selection event, like every other programmatic sync.
         Selected(Vec<usize>),

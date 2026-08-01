@@ -556,6 +556,8 @@ pub trait TreeOps {
     fn list_reload(&mut self, node: RNode);
     /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
     fn list_scroll_to_end(&mut self, node: RNode);
+    /// Imperatively scroll the native list so row `row` is visible (clamped; no-op if empty).
+    fn list_scroll_to_row(&mut self, node: RNode, row: usize);
     /// Programmatically sync the list's selected rows (empty = clear). The toolkit applies
     /// without re-emitting a selection event.
     fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>);
@@ -1204,6 +1206,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 &handle,
                 kinds::LIST,
                 &day_spec::props::ListPatch::ScrollToEnd as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn list_scroll_to_row(&mut self, node: RNode, row: usize) {
+        let len = self.lists.get(&node).map(|s| (s.driver.len)()).unwrap_or(0);
+        if len == 0 {
+            return;
+        }
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::ScrollToRow(row.min(len - 1)) as &dyn Any,
                 None,
             );
         }

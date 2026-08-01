@@ -87,6 +87,8 @@ list_selection = { $count ->
 list_clear_selection = Effacer la sélection
 list_reorder_hint = Glissez les lignes pour les réordonner ; la première ligne est épinglée
 list_order = Premières lignes : { $rows }
+list_shuffle = Mélanger
+list_reset = Réinitialiser
 
 webview_url_hint = Saisir une URL
 webview_go = Aller
@@ -430,12 +432,9 @@ http_res_label = Ressource
 http_res_refetch = Recharger
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
-nav_scrolling = Défilement
-scrolling_caption = Défilement programmatique : un Signal amène la zone de défilement à un bord, une position ou un élément précis.
 scroll_to_top = Aller en haut
 scroll_to_bottom = Aller en bas
 scroll_to_item = Aller à l'élément 100
-scrolling_item = Élément { $n }
 
 # Grid page (docs/grid.md) — grid/grid_row from basics to a stress test.
 nav_grid = Grille

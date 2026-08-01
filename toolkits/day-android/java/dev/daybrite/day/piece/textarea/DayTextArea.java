@@ -10,7 +10,9 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 
 import dev.daybrite.day.bridge.DayBridge;
@@ -21,7 +23,8 @@ public final class DayTextArea {
     // built-in text field. `maxLines == 0` means unbounded (grow with content, never scroll).
     public static View makeTextArea(final long id, String placeholder, String initial,
                                     int minLines, int maxLines,
-                                    boolean editable, boolean selectable, boolean spell) {
+                                    boolean editable, boolean selectable, boolean spell,
+                                    boolean submitOnEnter) {
         EditText e = new EditText(DayBridge.ctx);
         e.setGravity(Gravity.TOP | Gravity.START);
         e.setHorizontallyScrolling(false);
@@ -41,6 +44,23 @@ public final class DayTextArea {
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
         });
         applyAttrs(e, editable, selectable, spell);
+        if (submitOnEnter) {
+            // Soft keyboard: show a Send action instead of the newline return key
+            // (setRawInputType keeps multi-line editing while imeOptions selects the key).
+            // Hardware Enter without Shift submits too; Shift+Enter inserts the newline.
+            e.setImeOptions(EditorInfo.IME_ACTION_SEND);
+            e.setRawInputType(e.getInputType());
+            e.setOnEditorActionListener((v, actionId, ev) -> {
+                boolean action = actionId == EditorInfo.IME_ACTION_SEND;
+                boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && ev.getAction() == KeyEvent.ACTION_DOWN && !ev.isShiftPressed();
+                if (action || enter) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_SUBMITTED, 0, null);
+                    return true;
+                }
+                return false;
+            });
+        }
         return e;
     }
 

@@ -91,6 +91,8 @@ list_selection = { $count ->
 list_clear_selection = مسح التحديد
 list_reorder_hint = اسحب الصفوف لإعادة ترتيبها؛ الصف الأول مثبّت
 list_order = الصفوف الأولى: { $rows }
+list_shuffle = خلط
+list_reset = إعادة الضبط
 
 webview_url_hint = أدخل عنوان URL
 webview_go = انتقال
@@ -437,12 +439,9 @@ http_res_label = المورد
 http_res_refetch = إعادة الجلب
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
-nav_scrolling = التمرير
-scrolling_caption = تمرير برمجي: إشارة Signal تنقل منطقة التمرير إلى حافة أو موضع أو عنصر بعينه.
 scroll_to_top = التمرير إلى الأعلى
 scroll_to_bottom = التمرير إلى الأسفل
 scroll_to_item = التمرير إلى العنصر 100
-scrolling_item = العنصر { $n }
 
 # Grid page (docs/grid.md) — grid/grid_row from basics to a stress test.
 nav_grid = الشبكة

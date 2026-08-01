@@ -32,7 +32,7 @@ day drive -p macos-appkit --steps-json \
 ```
 
 Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"op": …}`):
-`navigate`, `nav_back`, `tap`, `input`, `set_value`, `toggle`, `select`, `focus`, `wait_for`,
+`navigate`, `nav_back`, `tap`, `input`, `submit`, `set_value`, `toggle`, `select`, `focus`, `wait_for`,
 `wait_idle`, `assert_visible`, `assert_text`, `assert_value`, `assert_focused`,
 `assert_no_placeholders`,
 `assert_route`, `assert_presented`, `respond`, `a11y_audit`, `pause`, `screenshot`. Output: one JSON object

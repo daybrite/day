@@ -114,6 +114,8 @@ unsafe extern "C" {
     pub fn day_ark_list_reload(node: *mut c_void);
     /// Scroll the list so its last row is fully visible (docs/list.md).
     pub fn day_ark_list_scroll_to_end(node: *mut c_void);
+    /// Scroll the list so row `index` is visible (clamped by ArkUI; docs/list.md).
+    pub fn day_ark_list_scroll_to_row(node: *mut c_void, index: u32);
     /// Style a NAV_MENU / tab-bar row: full width, `height_vp` tall, left-aligned padded text.
     pub fn day_ark_style_row(node: *mut c_void, height_vp: f64);
 

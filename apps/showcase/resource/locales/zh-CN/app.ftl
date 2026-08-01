@@ -83,6 +83,8 @@ list_selection = { $count ->
 list_clear_selection = 清除选择
 list_reorder_hint = 拖动行以重新排序；第一行已固定
 list_order = 前几行：{ $rows }
+list_shuffle = 打乱顺序
+list_reset = 重置
 
 webview_url_hint = 输入网址
 webview_go = 前往
@@ -425,12 +427,9 @@ http_res_label = 资源
 http_res_refetch = 重新获取
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
-nav_scrolling = 滚动
-scrolling_caption = 编程式滚动：通过 Signal 将滚动区域移到边缘、指定位置或特定条目。
 scroll_to_top = 滚动到顶部
 scroll_to_bottom = 滚动到底部
 scroll_to_item = 滚动到第 100 项
-scrolling_item = 第 { $n } 项
 
 # Grid page (docs/grid.md) — grid/grid_row from basics to a stress test.
 nav_grid = 网格

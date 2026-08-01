@@ -61,7 +61,12 @@ pub(crate) fn tabs_page() -> AnyPiece {
                     crate::res::str::tab_two(),
                     crate::res::str::tab_two_body(),
                     "tab-two-content",
-                    details_extra(),
+                    // The data-driven tab demo lives INSIDE this pane — two nested tab views:
+                    // the outer typed tabs, and a dynamic string-keyed set within Details.
+                    column((details_extra(), dynamic_tabs_demo()))
+                        .spacing(12.0)
+                        .align(HAlign::Leading)
+                        .any(),
                 )
             },
         )
@@ -80,10 +85,7 @@ pub(crate) fn tabs_page() -> AnyPiece {
         )
         .id("demo-tabs")
         .any();
-    column((dynamic_tabs_demo(), divider(), main))
-        .spacing(12.0)
-        .grow()
-        .any()
+    column((main,)).grow().any()
 }
 
 /// Data-driven tabs (docs/navigation.md): the tab set comes from a signal, so the Add/Remove

@@ -74,7 +74,10 @@ pub(crate) fn refresh_page() -> AnyPiece {
                     },
                 ),))
                 .align(HAlign::Leading),
-            ),
+            )
+            // The walkthrough exercises the dayscript `scroll_to` edge/offset forms here (the
+            // one plain, id-addressable `scroll` piece in the app).
+            .id("refresh-scroll"),
         )
         .id("feed-refresh"),
     ))

@@ -1460,7 +1460,9 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > NODE_ON_DROP), the WinRT drag pipeline over XAML's still-emulated list (a real-ListView
 > migration via ContainerContentChanging remains a candidate follow-up), and a pointer-tracked
 > emulation on web-dom. Recycled-row ids gained the reactive `.id_of` decorator (a build-time
-> keyed id goes stale when a cell rebinds).
+> keyed id goes stale when a cell rebinds). **Programmatic row scrolling** followed
+> (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
+> same-set/new-order Reload animates as native row moves on AppKit (docs/list.md).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -3110,6 +3112,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `wait_idle` | — | flush the reactive drain |
 | `tap` | `id`, `repeat?` | delivers `Pressed` AND a gesture `Tap` at the node's centre |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
+| `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |

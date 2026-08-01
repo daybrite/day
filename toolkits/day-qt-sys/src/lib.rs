@@ -104,6 +104,7 @@ unsafe extern "C" {
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
     pub fn day_qt_scroll_to_bottom(w: *mut c_void);
+    pub fn day_qt_scroll_to_y(w: *mut c_void, y: c_int);
     pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);

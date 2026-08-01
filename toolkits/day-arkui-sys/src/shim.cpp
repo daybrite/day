@@ -1279,6 +1279,20 @@ void day_ark_list_scroll_to_end(void* node) {
     g_api->setAttribute((ArkUI_NodeHandle)node, NODE_LIST_SCROLL_TO_INDEX, &item);
 }
 
+// Scroll the list so row `index` is visible (docs/list.md), realizing it if needed.
+void day_ark_list_scroll_to_row(void* node, uint32_t index) {
+    auto it = g_lists.find(node);
+    if (it == g_lists.end()) return;
+    int32_t n = (int32_t)OH_ArkUI_NodeAdapter_GetTotalNodeCount(it->second->adapter);
+    if (n <= 0) return;
+    ArkUI_NumberValue v[1];
+    v[0].i32 = (int32_t)index < n ? (int32_t)index : n - 1;
+    ArkUI_AttributeItem item{};
+    item.value = v;
+    item.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)node, NODE_LIST_SCROLL_TO_INDEX, &item);
+}
+
 // A NAV_MENU / tab-bar row: full width, fixed height, left-aligned text with padding.
 // Flex-grow within a Row/Column (the menu label grows so the chevron hugs the trailing edge).
 void day_ark_set_flex_grow(void* n, double g) {

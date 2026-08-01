@@ -264,6 +264,7 @@ pub struct List<T: 'static, K: 'static> {
     multi_select: bool,
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     scroll_to_end: Option<day_reactive::Trigger>,
+    scroll_to_row: Option<Signal<Option<usize>>>,
     stick_to_bottom: bool,
     reorderable: bool,
     on_reorder: Option<Rc<dyn Fn(usize, usize)>>,
@@ -308,6 +309,7 @@ where
         multi_select: false,
         selected_rows: None,
         scroll_to_end: None,
+        scroll_to_row: None,
         stick_to_bottom: false,
         reorderable: false,
         on_reorder: None,
@@ -362,6 +364,15 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
     /// `scroll_to_end` from your own logic instead. Off by default.
     pub fn stick_to_bottom(mut self, on: bool) -> Self {
         self.stick_to_bottom = on;
+        self
+    }
+
+    /// Programmatic scroll-to-row (docs/list.md): set the signal to `Some(row)` and the native
+    /// list scrolls that row into view, realizing it if it was virtualized away — the row rail's
+    /// counterpart to `scroll(...).scroll_target(...)`. The signal is left as written; setting
+    /// the same row again re-fires.
+    pub fn scroll_to_row(mut self, sig: Signal<Option<usize>>) -> Self {
+        self.scroll_to_row = Some(sig);
         self
     }
 
@@ -596,6 +607,20 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
             watch(
                 move || trigger.track(),
                 move |_: &(), _| list_scroll_to_end(node),
+            );
+        }
+
+        // Programmatic scroll-to-row: every `Some(row)` write scrolls that row into view
+        // (`watch` fires per write — repeats of the same row re-fire; the initial build never
+        // scrolls).
+        if let Some(sig) = self.scroll_to_row {
+            watch(
+                move || sig.get(),
+                move |row: &Option<usize>, _| {
+                    if let Some(row) = row {
+                        list_scroll_to_row(node, *row);
+                    }
+                },
             );
         }
 

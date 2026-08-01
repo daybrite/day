@@ -24,7 +24,7 @@ pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
     BuiltRow, ListDriver, ListReorderDriver, install_list, list_reload, list_scroll_to_end,
-    list_set_selected, list_try_reorder,
+    list_scroll_to_row, list_set_selected, list_try_reorder,
 };
 pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;

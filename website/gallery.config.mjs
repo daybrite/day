@@ -97,7 +97,7 @@ export const suites = [
       { id: 'stack-detail', label: 'Navigation stack', source: 'apps/showcase/src/pages/stack.rs' },
       { id: 'list', label: 'Native list', source: 'apps/showcase/src/pages/list.rs' },
       { id: 'refresh', label: 'Pull to refresh', source: 'apps/showcase/src/pages/refresh.rs' },
-      { id: 'scrolling', label: 'Programmatic scrolling', source: 'apps/showcase/src/pages/scrolling.rs' },
+      { id: 'list-item-100', label: 'Programmatic scrolling', source: 'apps/showcase/src/pages/list.rs' },
       { id: 'media', label: 'Media playback', source: 'apps/showcase/src/pages/media.rs' },
       { id: 'resources', label: 'Bundled resources', source: 'apps/showcase/src/pages/resources.rs' },
       { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },

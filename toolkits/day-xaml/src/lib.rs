@@ -254,6 +254,28 @@ fn schedule_list_scroll_end(host_key: usize) {
     unsafe { ffi::day_xaml_post(run_posted, data) };
 }
 
+/// Scroll the emulated list so row `row` sits at the top of the viewport (docs/list.md), on the
+/// next loop turn — the same deferral as `schedule_list_scroll_end`.
+fn schedule_list_scroll_row(host_key: usize, row: usize) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let target = LIST_STATE.with(|m| {
+            let m = m.borrow();
+            let st = m.get(&host_key)?;
+            let rowh = st.row_height.max(1.0);
+            Some((
+                st.host,
+                (row as f64 * rowh).round() as c_int,
+                rowh.round() as c_int,
+            ))
+        });
+        if let Some((host, y, rowh)) = target {
+            unsafe { ffi::day_xaml_scroll_to(host, y, rowh, 1) };
+        }
+    });
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_xaml_post(run_posted, data) };
+}
+
 fn list_scroll_end(host_key: usize) {
     // The list host is a ScrollViewer; make the last row's band [y, y+rowh] visible (its content
     // Canvas is `rows * rowh` tall). Reuses the general scroll seam — no new XAML shim.
@@ -1137,6 +1159,9 @@ impl Toolkit for Xaml {
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+                    Some(ListPatch::ScrollToRow(row)) => {
+                        schedule_list_scroll_row(h.0 as usize, *row)
+                    }
                     // Not implemented: RowSizeInvalidated (pooled cells re-measure on the next
                     // populate) and Selected (no programmatic selection sync yet).
                     Some(ListPatch::RowSizeInvalidated(_))

@@ -2038,6 +2038,27 @@ impl Toolkit for Gtk {
                         });
                     }
                 }
+                Some(ListPatch::ScrollToRow(row)) => {
+                    // Same v4_10 route: position the adjustment at the row's offset (uniform
+                    // pitch — the extent/count give the effective row height; docs/list.md notes
+                    // the Automatic-height approximation). Deferred like ScrollToEnd.
+                    if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
+                        let adj = sw.vadjustment();
+                        let n = LIST_STATE.with(|m| {
+                            m.borrow()
+                                .get(&widget_key(h))
+                                .map(|e| e.model.n_items() as f64)
+                                .unwrap_or(0.0)
+                        });
+                        let row = *row as f64;
+                        gtk4::glib::idle_add_local_once(move || {
+                            if n > 0.0 {
+                                let y = (adj.upper() / n) * row;
+                                adj.set_value(y.min(adj.upper() - adj.page_size()));
+                            }
+                        });
+                    }
+                }
                 // Not implemented: RowSizeInvalidated (GtkListView re-measures its own rows on
                 // the next factory bind) and Selected (no programmatic selection sync yet).
                 Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Selected(_)) | None => {}

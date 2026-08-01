@@ -250,6 +250,19 @@ public final class DayBridge {
             ((RecyclerView) v).getAdapter().notifyDataSetChanged();
         }
     }
+    /** Scroll the list so row `row` is visible (docs/list.md), realizing it if needed. Posted
+     *  like listScrollToEnd; clamped to the count; no-op when empty. */
+    public static void listScrollToRow(View v, final int row) {
+        if (!(v instanceof RecyclerView)) return;
+        final RecyclerView rv = (RecyclerView) v;
+        rv.post(new Runnable() {
+            public void run() {
+                RecyclerView.Adapter<?> a = rv.getAdapter();
+                int n = (a == null) ? 0 : a.getItemCount();
+                if (n > 0) rv.scrollToPosition(Math.min(row, n - 1));
+            }
+        });
+    }
     /** Scroll the list so its last row is fully visible (a chat sticking to the newest message).
      *  Posted so it runs after any pending notifyDataSetChanged relayout; no-op when empty. */
     public static void listScrollToEnd(View v) {

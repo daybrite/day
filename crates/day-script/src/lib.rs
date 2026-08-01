@@ -55,6 +55,11 @@ pub enum Step {
         #[serde(default)]
         repeat: Option<u32>,
     },
+    /// Deliver `Event::Submitted` to the element — the scripted stand-in for the platform's
+    /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
+    Submit {
+        id: String,
+    },
     Input {
         id: String,
         #[serde(default)]
@@ -455,6 +460,7 @@ fn exec(step: Step) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
+            Step::Submit { id } => emit(&id, Event::Submitted).map(|()| Reply::ok()),
             Step::Input {
                 id,
                 text,

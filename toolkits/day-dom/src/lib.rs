@@ -1575,6 +1575,15 @@ fn list_patch(el: u32, p: &ListPatch) {
         ListPatch::Reload => post_local(move || list_populate(el)),
         ListPatch::RowSizeInvalidated(_) => {}
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
+        ListPatch::ScrollToRow(row) => {
+            let y = LISTS.with(|m| {
+                m.borrow()
+                    .get(&el)
+                    .map(|st| *row as f64 * st.row_height)
+                    .unwrap_or(0.0)
+            });
+            unsafe { day_dom_scroll_to(el, 0.0, y, 1) };
+        }
         ListPatch::Selected(rows) => {
             LISTS.with(|m| {
                 if let Some(st) = m.borrow_mut().get_mut(&el) {

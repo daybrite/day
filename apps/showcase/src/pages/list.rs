@@ -14,10 +14,14 @@ use crate::widgets::heading;
 /// full selection lives in an app signal summarized above the list (with ranges compressed,
 /// "4-10"), and Clear Selection syncs an empty selection back into the native list.
 pub(crate) fn list_page() -> AnyPiece {
-    // A real Vec of row numbers (not a derived range): drag-to-reorder rotates it, and the
-    // refresh paths append to it — the order is app-owned state, like any reorderable list.
+    // A real Vec of row numbers (not a derived range): drag-to-reorder rotates it, shuffle
+    // permutes it, and the refresh paths append to it — the order is app-owned state.
     let rows: Signal<Vec<i64>> = Signal::new((1..=500).collect());
     let refreshing = Signal::new(false);
+    // Programmatic scrolling (docs/list.md): a row-jump signal + an end trigger drive the
+    // native list — the row rail's counterpart to `scroll(...).scroll_target(...)`.
+    let jump_row: Signal<Option<usize>> = Signal::new(None);
+    let jump_end = Trigger::new();
     // The selected ROW NUMBERS (1-based, matching the row labels), fed from the native list's
     // selection reports; single-selection toolkits contribute one-element sets.
     let selected: Signal<BTreeSet<i64>> = Signal::new(BTreeSet::new());
@@ -69,6 +73,33 @@ pub(crate) fn list_page() -> AnyPiece {
         .spacing(8.0),
         label(move || crate::res::str::list_caption(rows.get().len() as i64).format())
             .id("list-caption"),
+        // Programmatic scrolling + order controls, merged from the old Scrolling page: the
+        // buttons drive the RECYCLING list (scroll-to-row realizes virtualized rows), and
+        // Shuffle/Reset permute the backing Vec — animated as native row moves where the
+        // toolkit supports it (docs/list.md).
+        row((
+            button(crate::res::str::scroll_to_top())
+                .bordered()
+                .action(move || jump_row.set(Some(0)))
+                .id("list-scroll-top"),
+            button(crate::res::str::scroll_to_item())
+                .bordered()
+                .action(move || jump_row.set(Some(99)))
+                .id("list-scroll-item"),
+            button(crate::res::str::scroll_to_bottom())
+                .bordered()
+                .action(move || jump_end.notify())
+                .id("list-scroll-bottom"),
+            button(crate::res::str::list_shuffle())
+                .bordered()
+                .action(move || rows.update(|v| shuffle(v)))
+                .id("list-shuffle"),
+            button(crate::res::str::list_reset())
+                .bordered()
+                .action(move || rows.update(|v| v.sort_unstable()))
+                .id("list-reset"),
+        ))
+        .spacing(8.0),
         // Drag-to-reorder (docs/list.md): the hint names the pinned-row guard, and the order
         // readout makes the committed order assertable (dayscript `reorder` steps check it).
         label(crate::res::str::list_reorder_hint())
@@ -97,7 +128,17 @@ pub(crate) fn list_page() -> AnyPiece {
                 move || rows.get(),
                 |n: &i64| *n,
                 |row: ItemSlot<i64, i64>| {
+                    // Row 100 wears the warm accent so "Scroll to item 100" visibly lands on
+                    // it; the rest keep the theme-neutral slate the old Scrolling page used
+                    // (reactive, so recycled cells restyle as they rebind).
                     label(move || crate::res::str::list_row(row.get()).format())
+                        .color(move || {
+                            if row.get() == 100 {
+                                crate::palette::CORAL
+                            } else {
+                                crate::palette::SLATE
+                            }
+                        })
                         .padding(Insets::symmetric(12.0, 8.0))
                         .id_keyed("list-row", row.key())
                 },
@@ -116,6 +157,8 @@ pub(crate) fn list_page() -> AnyPiece {
                     .filter_map(|n| v.iter().position(|r| r == n))
                     .collect()
             })
+            .scroll_to_row(jump_row)
+            .scroll_to_end(jump_end)
             // Native drag-to-reorder, with a guard demo: the first row is pinned — it cannot be
             // dragged, and a drop aimed at its slot lands just below it instead (Retarget).
             .reorderable(true)
@@ -142,6 +185,23 @@ pub(crate) fn list_page() -> AnyPiece {
     .align(HAlign::Leading)
     .padding(16.0)
     .any()
+}
+
+/// Fisher–Yates over a hand-rolled xorshift64 (no rand dependency; the seed is fixed and
+/// advances per call, so the sequence is deterministic per launch — CI-friendly — while
+/// successive shuffles differ).
+fn shuffle(v: &mut [i64]) {
+    thread_local! {
+        static SEED: std::cell::Cell<u64> = const { std::cell::Cell::new(0x9E37_79B9_7F4A_7C15) };
+    }
+    let mut s = SEED.with(|c| c.get());
+    for i in (1..v.len()).rev() {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        v.swap(i, (s % (i as u64 + 1)) as usize);
+    }
+    SEED.with(|c| c.set(s));
 }
 
 /// Compress sorted row numbers into the display value: runs of three or more become a range

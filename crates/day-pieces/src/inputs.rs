@@ -165,9 +165,10 @@ impl TextArea {
     }
 
     /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline — the chat-composer
-    /// contract. Shift+Enter still inserts a line break where the platform can distinguish the
-    /// two (desktop toolkits and the web; mobile soft keyboards submit on their return/send key).
-    /// The bound `text` signal is already up to date when `f` runs.
+    /// contract. Shift+Enter still inserts a line break on the desktop toolkits; Android's soft
+    /// keyboard shows a Send action; iOS's return key submits. Backends without the intercept
+    /// (web-dom today) keep inserting newlines, so pair this with a visible send button. The
+    /// bound `text` signal is already up to date when `f` runs.
     pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
         self.on_submit = Some(Rc::new(f));
         self

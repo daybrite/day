@@ -90,6 +90,12 @@ pub fn list_scroll_to_end(node: RNode) {
     with_tree(|t| t.list_scroll_to_end(node));
 }
 
+/// Imperatively scroll the native list so row `row` is visible (docs/list.md), realizing it if
+/// needed. Clamped to the row count; a no-op while the list is empty. Call with no borrow held.
+pub fn list_scroll_to_row(node: RNode, row: usize) {
+    with_tree(|t| t.list_scroll_to_row(node, row));
+}
+
 /// Programmatically sync the list's selected rows (empty = clear selection). Applied by the
 /// toolkit without re-emitting a selection event. Call with no borrow held.
 pub fn list_set_selected(node: RNode, rows: Vec<usize>) {

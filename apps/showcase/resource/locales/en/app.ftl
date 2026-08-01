@@ -87,6 +87,8 @@ list_selection = { $count ->
 list_clear_selection = Clear Selection
 list_reorder_hint = Drag rows to reorder; the first row is pinned
 list_order = First rows: { $rows }
+list_shuffle = Shuffle
+list_reset = Reset
 
 webview_url_hint = Enter a URL
 webview_go = Go
@@ -430,12 +432,9 @@ http_res_label = Resource
 http_res_refetch = Refetch
 
 # Scrolling page (docs/scroll.md) — programmatic scroll targets.
-nav_scrolling = Scrolling
-scrolling_caption = Programmatic scrolling: a Signal drives the scroll piece to an edge, an offset, or a specific item.
 scroll_to_top = Scroll to top
 scroll_to_bottom = Scroll to bottom
 scroll_to_item = Scroll to item 100
-scrolling_item = Item { $n }
 
 # Grid page (docs/grid.md) — grid/grid_row from basics to a stress test.
 nav_grid = Grid

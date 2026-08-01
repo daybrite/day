@@ -27,7 +27,7 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
             .dcall_static(
                 TA_CLASS,
                 "makeTextArea",
-                "(JLjava/lang/String;Ljava/lang/String;IIZZZ)Landroid/view/View;",
+                "(JLjava/lang/String;Ljava/lang/String;IIZZZZ)Landroid/view/View;",
                 &[
                     JValue::Long(id.0 as i64),
                     JValue::Object(&ph),
@@ -37,6 +37,7 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
                     JValue::Bool(p.editable),
                     JValue::Bool(p.selectable),
                     JValue::Bool(p.spellcheck),
+                    JValue::Bool(p.submit_on_enter),
                 ],
             )
             .expect("DayTextArea.makeTextArea")
