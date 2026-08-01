@@ -1307,15 +1307,19 @@ pub fn invalidate_size(node: RNode) {
     });
 }
 
-/// Like `with_tree`, but returns `None` instead of panicking when the tree is already borrowed.
-/// A snapshot (`TreeOps::snapshot`) holds the borrow while the backend draws the window
-/// synchronously, and that draw can re-enter Day through a native callback — e.g. a lazy
-/// list's `viewForRow`/`connect_bind`/`cellForRow` firing during `cacheDisplayInRect`. Such a
-/// callback uses this and simply skips its work when re-entrant; the next real layout rebinds.
+/// Like `with_tree`, but returns `None` instead of panicking when the tree can't be entered:
+/// already borrowed, or not installed yet. A snapshot (`TreeOps::snapshot`) holds the borrow
+/// while the backend draws the window synchronously, and that draw can re-enter Day through a
+/// native callback — e.g. a lazy list's `viewForRow`/`connect_bind`/`cellForRow` firing during
+/// `cacheDisplayInRect`. And platform style callbacks can fire before `install_tree` — e.g.
+/// GTK's StyleManager emits a `dark` notify while `startup` applies a forced `DAY_THEME`
+/// scheme, before `activate` mounts the tree; a panic there unwinds into a C signal trampoline
+/// and aborts the process. Such callbacks use this and simply skip their work; the next real
+/// layout (or the signal's first post-mount read) catches up.
 pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
     let r = TREE.with(|t| {
         let mut opt = t.try_borrow_mut().ok()?;
-        let ops = opt.as_mut().expect("day: no tree installed on this thread");
+        let ops = opt.as_mut()?;
         Some(f(ops.as_mut()))
     });
     if r.is_some() && PUMP_PENDING.replace(false) {

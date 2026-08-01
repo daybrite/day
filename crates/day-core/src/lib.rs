@@ -454,8 +454,13 @@ fn dark_signal() -> day_reactive::Signal<bool> {
 /// style-manager change), and [`set_appearance`] calls it after applying an override — so
 /// closures reading `dark_mode()` recolor live instead of going stale until a rebuild.
 pub fn note_appearance_changed() {
-    let d = tree::with_tree(|t| t.dark_mode());
-    dark_signal().set(d);
+    // May fire before the tree is installed (GTK's StyleManager emits `dark` notifies while
+    // `startup` applies a forced DAY_THEME scheme; AppKit's observer dispatches async): no
+    // tree means no palette closures exist yet, and the signal seeds from the tree on first
+    // use — skip rather than panic inside a native callback.
+    if let Some(d) = tree::try_with_tree(|t| t.dark_mode()) {
+        dark_signal().set(d);
+    }
 }
 
 /// Deliver synthetic TYPING to a text control (the dayscript `input` step and the autodrive
