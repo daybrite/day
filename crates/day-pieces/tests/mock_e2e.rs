@@ -1250,6 +1250,55 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
     assert_eq!(labels[1].1.text, "d");
 }
 
+// Teardown (docs/list.md): a list going away takes its bound rows with it — the row subtrees
+// hang off the cells, OUTSIDE the node tree, so nothing else would collect them. But the cells
+// themselves are the native host's, only borrowed through `adopt` (§15.3): the host frees its own
+// pool, so day must NOT release them too. It did briefly, and the second delete corrupted the
+// heap on the raw-pointer backends — the xaml showcase walkthrough died leaving the list page.
+#[test]
+fn list_teardown_releases_row_content_but_never_the_adopted_cells() {
+    let shown = Signal::new(true);
+    let probe = boot(move || when(move || shown.get(), five_item_list));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    let (cell_a, cell_b) = (MockHandle(9001), MockHandle(9002));
+    probe.list_bind(host, 0, cell_a);
+    probe.list_bind(host, 1, cell_b);
+    let rows: Vec<MockHandle> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(h, _)| *h)
+        .collect();
+    assert_eq!(rows.len(), 2, "two cells bound");
+
+    probe.clear_log();
+    batch(|| shown.set(false));
+    flush_sync();
+    let log = probe.log();
+
+    // No zombie rows: the cells' subtrees went with the list.
+    assert_eq!(
+        probe.find_by_kind("day.label").len(),
+        0,
+        "row nodes are gone: {log:?}"
+    );
+    for r in rows {
+        assert!(
+            log.contains(&format!("release #{}", r.0)),
+            "row content #{} released: {log:?}",
+            r.0
+        );
+    }
+    // The cells are the host's — releasing them here would be a double free.
+    for cell in [cell_a, cell_b] {
+        assert!(
+            !log.contains(&format!("release #{}", cell.0)),
+            "adopted cell #{} must be left to the list host: {log:?}",
+            cell.0
+        );
+    }
+}
+
 #[test]
 fn list_reports_selection_by_key() {
     let picks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));

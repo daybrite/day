@@ -375,7 +375,14 @@ impl<B: Toolkit> Tree<B> {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
             }
             if let Some(h) = data.handle {
-                self.release_queue.push(h);
+                // …but a cell anchor's handle is NOT day's to free: it is the native list host's
+                // own cell, borrowed through `adopt` (§15.3), and the host frees its cell pool
+                // when IT is released. Queueing it here deletes it a second time — heap
+                // corruption on the raw-pointer backends (xaml/qt). Dropping the handle still
+                // balances whatever `adopt` retained (AppKit/UIKit/GTK/Android refcounts).
+                if data.kind != kinds::LIST_CELL {
+                    self.release_queue.push(h);
+                }
             }
             stack.extend(data.children);
         }

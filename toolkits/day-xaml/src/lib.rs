@@ -1292,9 +1292,12 @@ impl Toolkit for Xaml {
             NAV_HOST_BY_ID.with(|m| m.borrow_mut().retain(|_, v| *v != s.nav_view));
             unsafe { ffi::day_xaml_delete(s.content_host) };
         }
-        // day-core never releases the adopted cell handles (their anchors are detached), so the
-        // list host owns cell + content cleanup.
+        // day-core never releases the adopted cell handles (docs/list.md: they are the host's own
+        // cells, handed out through `adopt`), so the list host owns cell + content cleanup.
         if let Some(st) = LIST_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            // …and the node→host mapping the reorder callbacks resolve through, or a later list
+            // that lands on this freed address answers drags aimed at the dead one.
+            LIST_BY_NODE.with(|m| m.borrow_mut().remove(&st.node));
             for cell in st.cells {
                 unsafe { ffi::day_xaml_delete(cell) };
             }
