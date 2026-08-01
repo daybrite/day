@@ -57,10 +57,6 @@ members = [
     "crates/day-lite",
     "crates/day-break",
 ]
-# apps/matrix is its OWN workspace (it pulls the heavy matrix-rust-sdk tree — ~400 crates — which must
-# NOT bloat this workspace's lockfile or per-backend CI). It depends on day crates + the general pieces
-# by relative path. See apps/matrix/DESIGN.md.
-exclude = ["apps/matrix"]
 # Host-portable crates built/tested by a bare `cargo test`. Backend and app crates join as they land.
 default-members = [
     "crates/day-fluent",

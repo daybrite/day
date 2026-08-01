@@ -23,8 +23,9 @@ contract for every `day-*` crate and the recommended shape for apps:
 4. **Foreign runtimes are quarantined in app-private crates.** A dependency that demands tokio
    (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
    results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
-   main thread. `apps/matrix/matrix-core` is the reference (its bridge rule is documented at
-   the top of its lib.rs). No `day-*` crate depends on an async runtime.
+   main thread. The Day-Matrix app's `matrix-core` crate (a standalone Day app) is the
+   reference — its bridge rule is documented at the top of its lib.rs. No `day-*` crate
+   depends on an async runtime.
 5. **`Setter` and `on_main` remain the only cross-thread doors** (DESIGN §3.3). Completion
    callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
    futures on `day::task` don't need them.

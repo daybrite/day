@@ -102,7 +102,7 @@ reason to look elsewhere — better to know now than in week two.
   (per-platform styling, capability flags) instead of hiding it; where a platform lacks a
   control, the backend composes one from primitives.
 - **Not finished.** Day is young. The core model is stable and exercised by a real
-  [Matrix chat client](https://github.com/daybrite/day/tree/main/apps/matrix) running on five
+  Matrix chat client (Day-Matrix, a standalone Day app) running on five
   targets, but APIs still move and some designed features aren't built yet. The docs mark those
   explicitly rather than describing the roadmap as the present.
 

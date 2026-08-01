@@ -436,7 +436,11 @@ fn exec(step: Step) -> Reply {
                     Some(k) => format_key(&k, args),
                     None => text.unwrap_or_default(),
                 };
-                emit(&id, Event::TextChanged(value))?;
+                // Paint-then-event via the shared synthesizer (day-core): the widget must
+                // SHOW the typed text, not only deliver it to the app's signal.
+                let node = find(&id)?;
+                day_core::synthesize_text(node, value);
+                day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
             Step::SetValue { id, value } => {

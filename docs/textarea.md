@@ -78,7 +78,7 @@ selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
 ## Verification
 
-The Matrix app's composer (`apps/matrix/src/lib.rs`) is the shipped consumer. A mock-backend test
+The Day-Matrix app's composer (a standalone Day app) is the shipped consumer. A mock-backend test
 (`crates/day-pieces/tests/mock_e2e.rs` `picker_and_text_area_are_built_in`) asserts the two-way binding
 round-trips.
 

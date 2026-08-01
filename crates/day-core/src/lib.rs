@@ -400,9 +400,12 @@ fn autodrive(spec: &str) {
             }
             continue;
         }
+        if let (Some("text"), Some(v)) = (parts.get(1).copied(), parts.get(2).copied()) {
+            synthesize_text(node, v.to_string());
+            continue;
+        }
         let ev = match (parts.get(1).copied(), parts.get(2).copied()) {
             (Some("press"), _) => Event::Pressed,
-            (Some("text"), Some(v)) => Event::TextChanged(v.to_string()),
             (Some("toggle"), Some(v)) => Event::ToggleChanged(v == "true"),
             (Some("value"), Some(v)) => Event::ValueChanged(v.parse().unwrap_or(0.0)),
             (Some("select"), Some(v)) => Event::SelectionChanged(v.parse().unwrap_or(-1)),
@@ -417,6 +420,33 @@ fn autodrive(spec: &str) {
 /// default text colors already follow.
 pub fn dark_mode() -> bool {
     tree::with_tree(|t| t.dark_mode())
+}
+
+/// Deliver synthetic TYPING to a text control (the dayscript `input` step and the autodrive
+/// string commands both route here): paint the widget via the ordinary app-write patch, then
+/// enqueue the `TextChanged` event. Both halves are needed — when a real user types, the text
+/// is already in the native field by the time its change event fires, so the two-way
+/// binding's echo guard deliberately suppresses the write-back (§4.4); a synthesized event
+/// alone would drive the app's signal while the widget kept showing its old text.
+pub fn synthesize_text(node: RNode, text: String) {
+    tree::with_tree(|t| match t.node_kind(node) {
+        Some(day_spec::kinds::TEXT_FIELD) => t.patch(
+            node,
+            Box::new(day_spec::props::TextFieldPatch::Text {
+                text: text.clone(),
+                from_native: false,
+            }),
+            false,
+        ),
+        Some(day_spec::kinds::TEXT_AREA) => t.patch(
+            node,
+            Box::new(day_spec::props::TextAreaPatch::SetText(text.clone())),
+            false,
+        ),
+        // Other kinds (external pieces like the combobox) own their display.
+        _ => {}
+    });
+    tree::enqueue_event(tree::rnode_to_id(node), day_spec::Event::TextChanged(text));
 }
 
 /// Override the app's appearance: `Some(true)` dark, `Some(false)` light, `None` follow the
