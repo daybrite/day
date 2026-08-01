@@ -36,8 +36,11 @@ bind straight to native attributes.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
 4. **Give every interactive/asserted Piece a stable `.id("…")`.** Tests, dayscript, and deep links
    address Pieces by id. No id ⇒ not scriptable.
-5. **Localize user-facing text with `tr("key")`** and Fluent files; don't hard-code display strings in
-   shipped apps (the showcase uses literals only for its own demo labels).
+5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
+   per key — `res::str::my_key()`, parameters become typed arguments — so a missing key or
+   wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Don't
+   hard-code display strings in shipped apps (the showcase uses literals only for its own demo
+   labels). Provider data (tickers, product names) stays verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
    them.
 7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -p <target>`
@@ -78,7 +81,9 @@ height = 640
 - **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-mdc`, `linux-gtk`, `linux-qt`, `windows-xaml`, `windows-gtk`, `windows-qt`.
+  `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-xaml`, `windows-gtk`,
+  `windows-qt`, `web-dom` (wasm in a browser; no process environment — pass runtime flags with
+  `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
 
 ## Canonical patterns (copy these)
 
@@ -89,7 +94,12 @@ use day::prelude::*;
 
 fn main() {
     day::launch(
-        WindowOptions { title: "My App".into(), size: Size::new(480.0, 640.0), min_size: None },
+        WindowOptions {
+            title: "My App".into(),
+            size: Size::new(480.0, 640.0),
+            // WindowOptions grows fields over time — always spread the default.
+            ..Default::default()
+        },
         root,
     );
 }
@@ -131,8 +141,14 @@ column((
 when(move || !name.with(|s| s.is_empty()),
      move || label(move || format!("Hi, {}", name.get())))
 
-// `each` builds one child per item and reconciles by key (each row keeps its own state):
-each(move || items.get(), |it| it.id.clone(), |it| label(it.title).id_keyed("row", it.id))
+// `each` builds one child per item and reconciles by key (each row keeps its own state).
+// The row builder receives an ItemSlot (a Copy handle), NOT the item: read fields through it
+// so recycled rows update when the backing item changes.
+each(
+    move || items.get(),
+    |it| it.id.clone(),
+    |slot| label(move || slot.field(|it| it.title.clone())).id_keyed("row", slot.key()),
+)
 ```
 
 **Navigation (a projection of an app-owned Signal; you own the state)**
@@ -185,11 +201,11 @@ combo_box(items, text).id("combo")
 |---|---|
 | static / reactive text | `label("x")` / `label(move || …)` |
 | button | `button("x").action(\|\| …)` |
-| text input | `text_field(sig)` · secure: `secure_field(sig)` |
-| number input | `slider(sig).range(a..=b)` · `stepper(sig)` |
+| text input | `text_field(sig)` · multiline: `text_area(sig)` |
+| number input | `slider(sig).range(a..=b)` |
 | boolean | `toggle(sig)` |
 | choice | `picker(opts, sig)` · editable: external `combo_box(opts, text_sig)` |
-| vertical / horizontal / z-stack | `column((…))` / `row((…))` / `stack_z((…))` |
+| vertical / horizontal / z-stack | `column((…))` / `row((…))` / `zstack((…))` |
 | scroll · spacer · divider | `scroll(child)` · `spacer()` · `divider()` |
 | conditional · list | `when(cond, view)` · `each(items, key, row)` |
 | progress · busy | `progress(frac)` · `spinner()` |
@@ -206,7 +222,7 @@ day new app <name> --toolkit <t1,t2>  # scaffold an app (bare `day new` = intera
 day build   -p <target>               # compile
 day launch  -p <target>               # build + run (streams stdout/stderr)
 day launch  -p <target> --script s.yaml   # build + run + drive/assert
-day pack    -p <target>               # installable artifact (.app.zip / .apk / .dmg)
+day pack    -p <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
 day relaunch --all-running            # stop + rebuild + relaunch — "apply my changes"
@@ -228,8 +244,14 @@ flow:
   - assert_text: { id: counter, text: "1 clicks" }
   - navigate: { route: settings }
   - assert_route: { route: settings }
+  - pause: { secs: 1.0 }        # NOT `pause: 1s` — a mapping with float secs (or a bare int)
   - screenshot: settings
 ```
+
+For apps with network data, ship a deterministic mock behind a `day launch --env MY_MOCK=1`
+flag (read it with `day::env`, which also works on web-dom) and write the walkthrough against
+the mock's exact values. Keep the mock's arithmetic integer-derived — transcendentals can
+round differently across platforms and break cross-target `assert_text` on formatted numbers.
 
 ## Driving a running app (`day drive` / MCP)
 

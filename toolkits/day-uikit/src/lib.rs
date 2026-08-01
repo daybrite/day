@@ -699,36 +699,58 @@ mod imp {
                 // pops set expect_pop; what passes both tests without it is the user's back
                 // button / swipe.
                 let host = self.ivars().host.get();
-                let (emit_back, node) = NAV_STATE.with(|m| {
+                let suspicious = NAV_STATE.with(|m| {
                     let mut m = m.borrow_mut();
                     let Some(state) = m.get_mut(&host) else {
-                        return (false, NodeId(0));
+                        return false;
                     };
                     let native = unsafe { nav.viewControllers() }.count();
                     let prev = state.last_native.replace(native);
                     if native < prev && native < state.vcs.len() {
-                        if state.expect_pop.replace(false) {
-                            (false, NodeId(0))
-                        } else {
-                            // A user back (swipe / back button): sync the mirror now (Day's remove()
-                            // will find it gone) and record that Day's answering NavPatch::Popped
-                            // must be ABSORBED — the native stack has already popped.
+                        // A day-initiated pop announces itself; consume the flag here.
+                        !state.expect_pop.replace(false)
+                    } else {
+                        false
+                    }
+                });
+                if !suspicious {
+                    return;
+                }
+                // A pop-shaped didShow with no day-initiated pop in flight is PROBABLY the
+                // user's back button/swipe — but interleaved sibling transitions (day pops one
+                // detail and pushes the next while the pop is still animating) deliver a LATE
+                // duplicate pop-didShow after the push, and treating that as a user back tears
+                // down the just-pushed page. Only a pop that PERSISTS one runloop turn is a
+                // user pop: re-check on the next main-queue turn, when the interleaved
+                // transition has settled and `viewControllers` reports the real stack.
+                dispatch2::DispatchQueue::main().exec_async(move || {
+                    let (emit_back, node) = NAV_STATE.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let Some(state) = m.get_mut(&host) else {
+                            return (false, NodeId(0));
+                        };
+                        let native = unsafe { state.nav.viewControllers() }.count();
+                        state.last_native.set(native);
+                        if native < state.vcs.len() {
+                            // Still popped after settling: a real user back. Sync the mirror
+                            // (Day's remove() will find it gone) and record that Day's
+                            // answering NavPatch::Popped must be ABSORBED.
                             state.vcs.truncate(native);
                             state.native_pops.set(state.native_pops.get() + 1);
                             (true, state.host_node)
+                        } else {
+                            (false, NodeId(0))
                         }
-                    } else {
-                        (false, NodeId(0))
+                    });
+                    if emit_back {
+                        emit(
+                            node,
+                            Event::NavBack {
+                                already_popped: true,
+                            },
+                        );
                     }
                 });
-                if emit_back {
-                    emit(
-                        node,
-                        Event::NavBack {
-                            already_popped: true,
-                        },
-                    );
-                }
             }
         }
     );
@@ -2465,12 +2487,18 @@ mod imp {
                         // instant a (scripted) dialog dismissal starts races the dismissal
                         // transition and wedges the navigation controller.
                         match act {
-                            Act::Push(vc, nav) => modal_after_idle(move || unsafe {
-                                nav.pushViewController_animated(&vc, true)
-                            }),
-                            Act::Pop(nav) => modal_after_idle(move || {
-                                let _ = unsafe { nav.popViewControllerAnimated(true) };
-                            }),
+                            Act::Push(vc, nav) => {
+                                note_ui_transition();
+                                modal_after_idle(move || unsafe {
+                                    nav.pushViewController_animated(&vc, true)
+                                });
+                            }
+                            Act::Pop(nav) => {
+                                note_ui_transition();
+                                modal_after_idle(move || {
+                                    let _ = unsafe { nav.popViewControllerAnimated(true) };
+                                });
+                            }
                             Act::Title(vc, t) => unsafe {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
                             },
@@ -3222,7 +3250,17 @@ mod imp {
         fn ui_idle(&mut self) -> bool {
             let active = MODAL_BUSY.get()
                 || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
-                || topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some());
+                || topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some())
+                // A nav push/pop animates on its UINavigationController, which topmost_vc()
+                // (presented modals only) never reaches — so without this a scripted screenshot
+                // taken right after `navigate` catches the outgoing page (or a mid-slide frame),
+                // the way the iOS gallery captures did. Any registered nav host with a live
+                // transition coordinator counts as still-settling.
+                || NAV_STATE.with(|m| {
+                    m.borrow()
+                        .values()
+                        .any(|s| s.nav.transitionCoordinator().is_some())
+                });
             if active {
                 UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
                 return false;
@@ -3306,6 +3344,15 @@ mod imp {
     }
 
     /// Run `f` now if no modal transition is in flight or queued, else queue it behind them.
+    /// Mark the transition clock the instant a nav push/pop is REQUESTED. `pushViewController`
+    /// sets up its transition coordinator on a later run-loop turn, so `ui_idle`'s coordinator
+    /// check has a brief blind window right after the request; stamping here keeps `ui_idle` false
+    /// across it (the 250ms settle margin), so a screenshot issued immediately after `navigate`
+    /// never captures the outgoing page before the incoming one has begun to slide in.
+    fn note_ui_transition() {
+        UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+    }
+
     fn modal_after_idle(f: impl FnOnce() + 'static) {
         let idle = !MODAL_BUSY.get() && MODAL_QUEUE.with(|q| q.borrow().is_empty());
         if idle {

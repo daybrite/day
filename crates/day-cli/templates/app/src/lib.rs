@@ -51,3 +51,4 @@ pub fn root() -> AnyPiece {
 day::ios_main!("{{title}}", root);
 day::android_main!(root);
 day::arkui_main!(root);
+day::web_main!("{{title}}", root);
