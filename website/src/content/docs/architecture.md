@@ -56,8 +56,8 @@ to the backend's concrete function.
 
 The costs of this choice are the ones you'd guess: n targets mean n compilations (CI budgets
 around it; your laptop builds one at a time), and there's no single "universal Linux binary" that
-picks GTK or Qt at runtime. The benefit is that the per-widget overhead of the framework is
-approximately a function call, and dead-code elimination works on whole toolkits.
+picks GTK or Qt at runtime. The benefit is that a widget update compiles to a direct call into the one
+linked backend, with no dispatch layer between, and dead-code elimination works on whole toolkits.
 
 The same idea extends to piece renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
@@ -107,9 +107,8 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
 
 The shims are deliberately boring: create widget, set property, forward event. All policy —
-layout, reactivity, when to update what — lives on the Rust side of the seam, which keeps each
-new backend's surface area small and auditable. This "one thin shim per toolkit" pattern is
-inherited from the systems Day descends from, where it carried six backends in production.
+layout, reactivity, when to update what — lives on the shared Rust side, which keeps each
+new backend's surface area small and auditable.
 
 ## Where the CLI fits
 
@@ -117,6 +116,6 @@ inherited from the systems Day descends from, where it carried six backends in p
 (`day new`), orchestration (`build`/`launch` across targets in parallel, streaming prefixed
 logs), diagnosis (`doctor`, with per-toolkit probes and fix-it text), validation (`lint`),
 distribution (`pack`, `sign`), and the plumbing subcommands the platform builds call back into.
-It's built in the flutter_tools mold — services behind injectable traits for testability, a
-stable JSON event stream for machines (`--format json`), documented exit codes — because CI
-systems and AI agents are first-class users of the tool, not afterthoughts.
+It's built in the flutter_tools mold: services behind injectable traits for testability, a
+stable JSON event stream (`--format json`), and documented exit codes, so scripts and CI
+consume the same interface people do.

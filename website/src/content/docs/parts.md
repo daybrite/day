@@ -12,8 +12,8 @@ differently.
 
 Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
 platform code runs because each function's body dispatches on `#[cfg(target_os)]` — IOKit on
-macOS, `BatteryManager` over JNI on Android, sysfs on Linux, Win32 on Windows. There's no plugin
-registry, no runtime lookup, no capability negotiation. Just Rust.
+macOS, `BatteryManager` over JNI on Android, sysfs on Linux, Win32 on Windows. There is no
+plugin registry or runtime lookup; the target selects the implementation at compile time.
 
 ## The catalog
 
@@ -66,7 +66,7 @@ column((
 Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a
 denied clipboard read reports `None`, and your UI decides what that means. Check each part's
 reference page for the per-platform support matrix — not every capability exists everywhere, and
-the docs say so per function rather than pretending uniformity.
+each function's reference lists per-platform support rather than implying uniform coverage.
 
 ## Writing your own
 

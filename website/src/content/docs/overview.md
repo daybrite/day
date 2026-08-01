@@ -46,8 +46,8 @@ toolkits are bad at sharing:
   ([Layout](/docs/layout));
 - **fine-grained reactivity** that builds the widget tree once and binds state directly to
   native attributes, with no virtual tree and no diffing ([Reactivity](/docs/reactivity));
-- **localization** (Fluent), **accessibility**, and **scripting** designed in from the start
-  rather than bolted on ([the four pillars](/docs/benefits#the-four-pillars));
+- **localization** (Fluent), **accessibility**, and **scripting** designed into the core from
+  the start ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
 - a **CLI** that builds, runs, tests, and [packages](/docs/packaging) for every target from one
   machine.
 

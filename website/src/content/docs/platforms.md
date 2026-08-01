@@ -13,7 +13,7 @@ exercised by real applications, and it gets updated when reality changes.
 
 | Target | Builds in CI | Runs full UI walkthrough in CI | Packaging | Notes |
 |---|---|---|---|---|
-| `macos-appkit` | ✓ | ✓ | `.dmg` | The most exercised target |
+| `macos-appkit` | ✓ | ✓ | `.dmg` | Runs the full CI walkthrough and a shipping Matrix client |
 | `linux-gtk` | ✓ | ✓ (headless X) | `.flatpak` | |
 | `linux-qt` | ✓ | ✓ (offscreen) | `.flatpak` | Strongest Linux accessibility bridge |
 | `ios-uikit` | ✓ | ✓ (Simulator) | `.ipa` | Development is Simulator-first; `day pack` builds a device `.ipa` — signed with `signing.ios` config, otherwise unsigned (`-unsigned.ipa`, for sideloading or your own signing) |
@@ -34,9 +34,9 @@ Beyond CI, the strongest evidence for the first five rows is a real application:
 client (login, encrypted rooms, live timeline, media) built on Day runs its full checklist on
 `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator), and `android-mdc`.
 
-The GTK/Qt-on-macOS/Windows combos deserve a plain statement: they exist because having five
-desktop toolkits runnable on one development machine is enormously useful, and because some teams
-standardize on Qt across Linux and Windows. They are not first-class shipping targets —
+The GTK/Qt-on-macOS/Windows combos exist so one development machine can run five desktop
+toolkits, and because some teams standardize on Qt across Linux and Windows. They are not
+supported shipping targets —
 packaging for them is deliberately deferred, and `macos-gtk`/`windows-gtk` have no accessibility
 tree.
 

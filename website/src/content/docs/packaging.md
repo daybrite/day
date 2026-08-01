@@ -70,7 +70,7 @@ profile = "${DAY_OHOS_PROFILE}"
 `day sign --check` reports each platform's readiness (env vars set, key files present) without
 echoing a single secret value.
 
-## Signing tiers — degrade loudly, never fail silently
+## Signing tiers
 
 Every artifact carries a tier: **release**, **dev-signed**, or **unsigned**. When a `${VAR}` is
 unset — a laptop without the release keys, a fork PR without repository secrets — `day pack`

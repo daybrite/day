@@ -10,12 +10,11 @@ import Compare from '../../components/Compare.astro';
 This page maps Flutter's vocabulary onto Day's, shows the same code in both, and covers the
 four places the workflow differs: state, packages, resources, and builds.
 
-**Flutter draws its own widgets; Day doesn't.** Flutter ships a renderer (Impeller/Skia) and
-repaints every pixel, so your app looks identical everywhere. Day creates each platform's real
-widgets — `NSButton` on macOS, a Material button on Android, GTK, Qt, WinUI, and ArkUI widgets
-elsewhere — so your app looks native everywhere instead. Flutter gives you pixel control; Day
-gives you platform fidelity. [Why Day](/docs/benefits) lists what each approach costs and when
-Flutter is the better pick.
+**Flutter draws its own widgets; Day uses the platform's.** Flutter ships a renderer
+(Impeller/Skia) and repaints every pixel, so your app looks identical everywhere. Day creates
+each platform's real widgets — `NSButton` on macOS, a Material button on Android, GTK, Qt,
+WinUI, and ArkUI widgets elsewhere — so your app looks native everywhere instead.
+[Why Day](/docs/benefits) lists what each approach costs and when Flutter is the better pick.
 
 ## Flutter terms in Day
 
@@ -491,8 +490,8 @@ platform's own tools, and writes an installable artifact plus checksum to `build
 | doctor | `flutter doctor` | `day doctor` |
 
 Day has no hot reload. A change is a Rust rebuild —
-incremental and usually seconds, but not sub-second stateful patching, and losing that is real
-if you live in it. The replacement loop is `day relaunch` to apply changes, plus
+incremental, a few seconds on a warm build — but not sub-second stateful patching, and losing
+that is real if you live in it. The replacement loop is `day relaunch` to apply changes, plus
 [dayscript](/docs/dayscript) to script the app to the screen you're iterating on instead of
 clicking back to it.
 

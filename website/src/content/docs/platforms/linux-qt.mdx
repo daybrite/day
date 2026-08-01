@@ -8,8 +8,9 @@ section: Platforms
 import PlatformShots from '../../../components/PlatformShots.astro';
 
 `linux-qt` renders Qt 6 Widgets through a small compiled C++ shim. It's the toolkit beneath KDE
-Plasma, it has the strongest cross-OS accessibility bridge of Day's backends, and it is portable
-enough to also be a development target on macOS and Windows.
+Plasma, its `QAccessible` layer bridges to the native accessibility API on every OS (no other Day
+backend does that today), and it is portable enough to also be a development target on macOS and
+Windows.
 
 <PlatformShots platform="linux-qt" shots={["home", "controls", "canvas", "tabs-one"]} />
 

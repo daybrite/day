@@ -154,11 +154,10 @@ pub fn root() -> AnyPiece {
         .header(sidebar_header)
         // Reopen on the last-viewed section (web only — see the install_nav_store note above).
         .restore("nav.section")
-        // Ordered as a story, opened by the app's own face: About first (it is also the
-        // desktop split's default detail — the split selects the FIRST item when nothing is
-        // chosen), then author content (controls, text, drawing), put it in collections and
-        // navigate it, embed rich views, then reach the platform around the app — with the
-        // meta pages (resources, tweaks, crash reporting) closing the list.
+        // ALPHABETICAL by the US-English display title — keep it that way when adding a
+        // page (including the cfg'd Map rebinding below, which holds its slot). About is
+        // both alphabetically first and the desktop split's default detail (the split
+        // selects the FIRST item when nothing is chosen).
         .item_icon(
             Section::About,
             crate::res::str::nav_about(),
@@ -166,40 +165,10 @@ pub fn root() -> AnyPiece {
             about_page,
         )
         .item_icon(
-            Section::Controls,
-            crate::res::str::nav_controls(),
-            res::images::nav_controls,
-            controls_page,
-        )
-        .item_icon(
-            Section::Dates,
-            crate::res::str::nav_dates(),
-            res::images::nav_dates,
-            dates_page,
-        )
-        .item_icon(
-            Section::Focus,
-            crate::res::str::nav_focus(),
-            res::images::nav_focus,
-            focus_page,
-        )
-        .item_icon(
-            Section::Text,
-            crate::res::str::nav_text(),
-            res::images::nav_text,
-            text_page,
-        )
-        .item_icon(
-            Section::TextAreas,
-            crate::res::str::nav_textareas(),
-            res::images::nav_textareas,
-            text_areas_page,
-        )
-        .item_icon(
-            Section::Localization,
-            crate::res::str::nav_localization(),
-            res::images::nav_localization,
-            localization_page,
+            Section::Animation,
+            crate::res::str::nav_animation(),
+            res::images::nav_animation,
+            animation_page,
         )
         .item_icon(
             Section::Canvas,
@@ -208,10 +177,34 @@ pub fn root() -> AnyPiece {
             canvas_page,
         )
         .item_icon(
-            Section::Animation,
-            crate::res::str::nav_animation(),
-            res::images::nav_animation,
-            animation_page,
+            Section::Controls,
+            crate::res::str::nav_controls(),
+            res::images::nav_controls,
+            controls_page,
+        )
+        .item_icon(
+            Section::CrashReporting,
+            crate::res::str::nav_crash(),
+            res::images::nav_crash,
+            crash_page,
+        )
+        .item_icon(
+            Section::Dates,
+            crate::res::str::nav_dates(),
+            res::images::nav_dates,
+            dates_page,
+        )
+        .item_icon(
+            Section::System,
+            crate::res::str::nav_system(),
+            res::images::nav_system,
+            system_page,
+        )
+        .item_icon(
+            Section::Focus,
+            crate::res::str::nav_focus(),
+            res::images::nav_focus,
+            focus_page,
         )
         .item_icon(
             Section::Grid,
@@ -226,40 +219,25 @@ pub fn root() -> AnyPiece {
             list_page,
         )
         .item_icon(
-            Section::Refresh,
-            crate::res::str::nav_refresh(),
-            res::images::nav_refresh,
-            refresh_page,
-        )
-        .item_icon(
-            Section::Scrolling,
-            crate::res::str::nav_scrolling(),
-            res::images::nav_scrolling,
-            scrolling_page,
-        )
-        .item_icon(
-            Section::Tabs,
-            crate::res::str::nav_tabs(),
-            res::images::nav_tabs,
-            tabs_page,
-        )
-        .item_icon(
-            Section::Stack,
-            crate::res::str::nav_stack(),
-            res::images::nav_stack,
-            stack_page,
-        )
+            Section::Localization,
+            crate::res::str::nav_localization(),
+            res::images::nav_localization,
+            localization_page,
+        );
+    // Map is Apple-only (docs/map.md) — a cfg'd rebinding keeps it in its alphabetical slot.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let nav = nav.item_icon(
+        Section::Map,
+        crate::res::str::nav_map(),
+        res::images::nav_map,
+        map_page,
+    );
+    let nav = nav
         .item_icon(
             Section::Media,
             crate::res::str::nav_media(),
             res::images::nav_media,
             media_page,
-        )
-        .item_icon(
-            Section::WebView,
-            crate::res::str::nav_webview(),
-            res::images::nav_webview,
-            webview_page,
         )
         .item_icon(
             Section::Menus,
@@ -268,16 +246,16 @@ pub fn root() -> AnyPiece {
             menus_page,
         )
         .item_icon(
-            Section::System,
-            crate::res::str::nav_system(),
-            res::images::nav_system,
-            system_page,
-        )
-        .item_icon(
             Section::Services,
             crate::res::str::nav_services(),
             res::images::nav_services,
             services_page,
+        )
+        .item_icon(
+            Section::Refresh,
+            crate::res::str::nav_refresh(),
+            res::images::nav_refresh,
+            refresh_page,
         )
         .item_icon(
             Section::Resources,
@@ -286,25 +264,47 @@ pub fn root() -> AnyPiece {
             resources_page,
         )
         .item_icon(
+            Section::Scrolling,
+            crate::res::str::nav_scrolling(),
+            res::images::nav_scrolling,
+            scrolling_page,
+        )
+        .item_icon(
+            Section::Stack,
+            crate::res::str::nav_stack(),
+            res::images::nav_stack,
+            stack_page,
+        )
+        .item_icon(
+            Section::Tabs,
+            crate::res::str::nav_tabs(),
+            res::images::nav_tabs,
+            tabs_page,
+        )
+        .item_icon(
+            Section::Text,
+            crate::res::str::nav_text(),
+            res::images::nav_text,
+            text_page,
+        )
+        .item_icon(
+            Section::TextAreas,
+            crate::res::str::nav_textareas(),
+            res::images::nav_textareas,
+            text_areas_page,
+        )
+        .item_icon(
             Section::Tweaks,
             crate::res::str::nav_tweaks(),
             res::images::nav_tweaks,
             tweaks_page,
         )
         .item_icon(
-            Section::CrashReporting,
-            crate::res::str::nav_crash(),
-            res::images::nav_crash,
-            crash_page,
+            Section::WebView,
+            crate::res::str::nav_webview(),
+            res::images::nav_webview,
+            webview_page,
         );
-    // A native MapKit map — Apple platforms only (docs/map.md).
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let nav = nav.item_icon(
-        Section::Map,
-        crate::res::str::nav_map(),
-        res::images::nav_map,
-        map_page,
-    );
     nav.id("nav")
 }
 

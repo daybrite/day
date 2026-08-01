@@ -48,7 +48,7 @@ device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
   a crash on a tester's phone.
 - **No combo box.** `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box
   control; it renders as a placeholder. Use `picker().menu()`.
-- **No `day pack` menu bar.** iOS has no persistent menu bar, so `set_app_menu` is a no-op;
+- **No menu bar.** iOS has no persistent menu bar, so `set_app_menu` is a no-op;
   context menus work (`UIContextMenuInteraction`).
 - **Window screenshots** aren't implemented in-process — the walkthrough uses
   `simctl io booted screenshot` instead.

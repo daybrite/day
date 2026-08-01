@@ -45,7 +45,7 @@ behavior that a hand-rolled `text_field` would not.
 
 To set expectations: you will implement `make`/`update`/`measure` once per toolkit, and each
 one speaks that toolkit's native API. The rest of this tutorial is about making that as mechanical as
-possible, and [step 6](#6-the-llm-workflow) is about handing most of the typing to an LLM.
+possible, and [step 6](#6-generating-the-backend-bodies) shows how to delegate most of the typing.
 
 ## 2. The architecture
 
@@ -531,11 +531,11 @@ Day does not fail silently. The backend logs a once-per-kind warning and renders
 placeholder in its place (`warn_missing_renderer` in each toolkit crate); in debug builds the §8.2
 registration check panics first. A half-finished piece degrades noisily instead of vanishing.
 
-## 6. The LLM workflow
+## 6. Generating the backend bodies
 
 Writing the same widget in Objective-C, C++, Java, and C++/WinRT is the tedious core of a native
-piece. It is also the kind of narrow, well-specified translation that LLMs are good at, so lean
-into that.
+piece. It is also a narrow, well-specified translation task — the kind a code generator or an
+LLM handles well, once the contract is fixed.
 
 Make the boundary crisp first, then delegate each backend body:
 

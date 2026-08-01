@@ -1,11 +1,11 @@
 ---
-title: Getting started with DayAI
+title: AI-assisted development
 description: "Build a Day app with Claude Code from the terminal: scaffold, add a weather page by prompt, script it with dayscript, and put the whole loop in GitHub CI."
 order: 24
 section: Guides
 ---
 
-Day treats an AI agent as a first-class developer: every launch embeds the
+Day treats an AI agent as a full developer: every launch embeds the
 [dayscript](/docs/dayscript) engine, and the `day` CLI exposes it as MCP tools an agent can
 call — build, relaunch, tap, type, assert, screenshot. The agent doesn't guess whether its
 change worked; it drives the running app and looks at the pixels, on every platform you target.

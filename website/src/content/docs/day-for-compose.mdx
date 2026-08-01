@@ -84,8 +84,8 @@ fn counter() -> AnyPiece {
 
 There's no `remember` because the function isn't re-executed — state doesn't need rescuing
 from re-execution. The label's closure is the only code that runs on a tap, and it ends in one
-native `setText`. The habits Compose teaches around recomposition — hoisting to limit scope,
-stability, skippability — have no Day equivalent because there's no recomposition to manage.
+native `setText`. The habits Compose teaches around recomposition (hoisting state, stability
+annotations, skippability) have no Day equivalent, because there is no recomposition to manage.
 [Reactivity](/docs/reactivity) covers the model, including its cost: *you* mark what's dynamic
 (a closure makes text live; a bare value doesn't).
 
@@ -172,7 +172,7 @@ recycled slot rather than per composition.
 
 `NavController` owns a back stack you push routes onto. Day turns that inside out: the back
 stack is your `Signal<Vec<String>>`, and the platform container — the androidx Fragment back
-stack on Android, with predictive back on 15+ — is reconciled to it.
+stack on Android, with predictive back (opt-in on 13/14, default on 15) — is reconciled to it.
 
 <Compare lhs="Compose">
 
@@ -213,7 +213,7 @@ platform's idiom — tabs on phones, a sidebar split view on desktop. See
 
 ## Modifiers and layout
 
-The chain reads the same; the algorithm differs. Compose measures with constraints flowing
+The chain reads the same, but the algorithm differs. Compose measures with constraints flowing
 down; Day uses the SwiftUI-style proposal protocol (parent proposes, child chooses), with text
 measured by the platform's own engine. Day for `Modifier.weight(1f)` is `.grow()`, and
 containers don't stretch children by default.

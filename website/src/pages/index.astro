@@ -90,34 +90,43 @@ selector(section)
     .item("home",     "Home",     home_page)
     .item("settings", "Settings", settings_page)`;
 
+// Feature-card icons are Google Material Symbols (Rounded), Apache 2.0 —
+// https://fonts.google.com/icons — inlined as path data (viewBox 0 -960 960 960).
+// Each card tints its icon with an accent from the site palette.
 const features = [
   {
-    icon: '◉',
+    icon: 'm438-452-58-57q-11-11-27.5-11T324-508q-11 11-11 28t11 28l86 86q12 12 28 12t28-12l170-170q12-12 11.5-28T636-592q-12-12-28.5-12.5T579-593L438-452ZM326-90l-58-98-110-24q-15-3-24-15.5t-7-27.5l11-113-75-86q-10-11-10-26t10-26l75-86-11-113q-2-15 7-27.5t24-15.5l110-24 58-98q8-13 22-17.5t28 1.5l104 44 104-44q14-6 28-1.5t22 17.5l58 98 110 24q15 3 24 15.5t7 27.5l-11 113 75 86q10 11 10 26t-10 26l-75 86 11 113q2 15-7 27.5T802-212l-110 24-58 98q-8 13-22 17.5T584-74l-104-44-104 44q-14 6-28 1.5T326-90Zm52-72 102-44 104 44 56-96 110-26-10-112 74-84-74-86 10-112-110-24-58-96-102 44-104-44-56 96-110 24 10 112-74 86 74 84-10 114 110 24 58 96Zm102-318Z',
+    color: 'var(--pf-android-mdc)',
     title: 'Apps your users recognize',
     body: 'Every control is the platform’s own — a real Mac button on macOS, real Material on Android. Text, scrolling, shortcuts, and dark mode behave the way each platform’s users already expect, and keep improving with OS updates you never have to ship.',
   },
   {
-    icon: '↯',
+    icon: 'm422-232 207-248H469l29-227-185 267h139l-30 208Zm-62-128H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Zm111-110Z',
+    color: 'var(--sun)',
     title: 'No browser, no bundled engine',
     body: 'Day apps are small native binaries that talk directly to the operating system. There is no embedded browser to patch and no rendering engine to carry, so apps start in milliseconds, install in megabytes, and leave less to patch.',
   },
   {
-    icon: '⬢',
+    icon: 'M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z',
+    color: 'var(--brand)',
     title: 'One codebase, one team',
     body: 'Six operating systems and the web from a single Rust program. A feature lands once and ships everywhere at the same time — instead of three implementations drifting apart across three teams and three schedules.',
   },
   {
-    icon: '✦',
+    icon: 'M423.5-743.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5ZM360-120v-480q-49-4-99-11t-98-18q-17-4-27.5-19t-5.5-32q5-17 21-25t34-4q70 15 145.5 22t149.5 7q74 0 149.5-7T775-709q18-4 34 4t21 25q5 17-5.5 32T797-629q-48 11-98 18t-99 11v480q0 17-11.5 28.5T560-80q-17 0-28.5-11.5T520-120v-200h-80v200q0 17-11.5 28.5T400-80q-17 0-28.5-11.5T360-120Z',
+    color: 'var(--pf-macos-appkit)',
     title: 'Accessibility & localization, built in',
     body: 'Screen-reader support rides each platform’s own accessibility tree, and every user-facing string flows through Mozilla Fluent localization. The groundwork for accessibility requirements and new markets is in the framework, not on your backlog.',
   },
   {
-    icon: '◱',
+    icon: 'M160-120q-33 0-56.5-23.5T80-200v-560q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v560q0 33-23.5 56.5T800-120H160Zm0-80h640v-560H160v560Zm200-80q17 0 28.5-11.5T400-320q0-17-11.5-28.5T360-360H240q-17 0-28.5 11.5T200-320q0 17 11.5 28.5T240-280h120Zm222-193-29-29q-12-12-28-11.5T497-501q-11 12-11.5 28t11.5 28l57 57q12 12 28 12t28-12l142-142q12-12 12-28t-12-28q-12-12-28.5-12T695-586L582-473Zm-222 33q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520H240q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440h120Zm0-160q17 0 28.5-11.5T400-640q0-17-11.5-28.5T360-680H240q-17 0-28.5 11.5T200-640q0 17 11.5 28.5T240-600h120ZM160-200v-560 560Z',
+    color: 'var(--pf-linux-qt)',
     title: 'Tested on every platform, every change',
     body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
   },
   {
-    icon: '⌘',
+    icon: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Zm187-200-76-76q-12-12-11.5-28t12.5-28q12-11 28-11.5t28 11.5l104 104q12 12 12 28t-12 28L328-308q-11 11-27.5 11.5T272-308q-11-11-11-28t11-28l75-76Zm173 160q-17 0-28.5-11.5T480-320q0-17 11.5-28.5T520-360h160q17 0 28.5 11.5T720-320q0 17-11.5 28.5T680-280H520Z',
+    color: 'var(--pf-web-dom)',
     title: 'One CLI for the whole pipeline',
     body: 'One command line creates, runs, tests, and packages signed installers for every platform — dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, built for CI and AI-assisted development alike.',
   },
@@ -226,6 +235,34 @@ const compare = [
     </div>
   </section>
 
+  <!-- FEATURES -->
+  <section class="section features">
+    <div class="container">
+      <p class="eyebrow">Why Day</p>
+      <h2 class="sec-title">Native quality <span class="grad-text">and</span> a single codebase.</h2>
+      <p class="lead">
+        Cross-platform tools usually make you choose between apps that feel native and a codebase
+        you only write once. Day keeps both.
+      </p>
+      <div class="feat-grid">
+        {features.map((f) => (
+          <div class="card feat">
+            <h3>
+              <svg
+                class="feat-ic"
+                viewBox="0 -960 960 960"
+                aria-hidden="true"
+                style={`color: ${f.color}`}
+              ><path fill="currentColor" d={f.icon} /></svg>
+              {f.title}
+            </h3>
+            <p>{f.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
   <!-- AI + CI -->
   <section class="section ai-ci">
     <div class="container">
@@ -254,29 +291,8 @@ const compare = [
         </li>
       </ul>
       <div class="hero-cta">
-        <a class="btn btn-primary" href={url('docs/day-ai')}>Getting started with DayAI →</a>
+        <a class="btn btn-primary" href={url('docs/ai')}>AI-assisted development →</a>
         <a class="btn btn-ghost" href={url('docs/dayscript')}>Testing with dayscript →</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- FEATURES -->
-  <section class="section features">
-    <div class="container">
-      <p class="eyebrow">Why Day</p>
-      <h2 class="sec-title">Native quality <span class="grad-text">and</span> a single codebase.</h2>
-      <p class="lead">
-        Cross-platform tools usually make you choose between apps that feel native and a codebase
-        you only write once. Day keeps both, and the docs say what that costs.
-      </p>
-      <div class="feat-grid">
-        {features.map((f) => (
-          <div class="card feat">
-            <div class="feat-icon" aria-hidden="true">{f.icon}</div>
-            <h3>{f.title}</h3>
-            <p>{f.body}</p>
-          </div>
-        ))}
       </div>
     </div>
   </section>
@@ -297,9 +313,7 @@ const compare = [
       </div>
       <p class="lead cmp-close">
         Day keeps the platform's own components <em>and</em> the single codebase. It has real limits
-        too — no hot reload, a young ecosystem, deliberate constraints on pixel-level branding — and
-        the documentation states them plainly, including the cases where a different choice is right
-        for you.
+        too: no hot reload, a young ecosystem, and deliberate constraints on pixel-level branding.
       </p>
       <a class="btn btn-ghost" href={url('docs/benefits')}>Read the comparison →</a>
     </div>
@@ -377,19 +391,11 @@ const compare = [
      the palette — settling just before the next advance. Before the first slide (or with no
      carousel manifest) it rests on the brand blue. */
   .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
-  /* "under the sun" in a warm amber gradient — a nod to the Ember Dawn mark. Guarded like
-     `.grad-text` (global.css): the gradient clip is applied only where the browser can clip a
-     background to the text, so engines that can't fall back to a solid amber instead of a bar. */
+  /* "under the sun" in solid amber — a nod to the Ember Dawn mark. Deliberately not a
+     gradient clip: one accent color keeps the headline from reading as a template hero. */
   .sun-text {
     color: var(--sun);
     white-space: nowrap;
-  }
-  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
-    .sun-text {
-      background-image: linear-gradient(100deg, var(--sun) 0%, var(--sun-2) 100%);
-      -webkit-background-clip: text; background-clip: text;
-      -webkit-text-fill-color: transparent; color: transparent;
-    }
   }
   .hero-lead { margin: 0 0 28px; }
   .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -452,12 +458,9 @@ const compare = [
   .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr)); gap: 18px; margin-top: 34px; }
   .feat { transition: border-color 0.15s ease, transform 0.12s ease; }
   .feat:hover { border-color: var(--border); transform: translateY(-3px); }
-  .feat-icon {
-    width: 42px; height: 42px; display: grid; place-items: center;
-    border-radius: 11px; margin-bottom: 14px; font-size: 1.15rem;
-    background: rgba(106, 164, 255, 0.12); color: var(--brand);
-  }
-  .feat h3 { margin: 0 0 8px; font-size: 1.12rem; }
+  .feat h3 { margin: 0 0 8px; font-size: 1.12rem; display: flex; align-items: center; gap: 10px; }
+  /* Material Symbol, tinted per card (the inline style sets `color`; the path fills currentColor). */
+  .feat-ic { width: 22px; height: 22px; flex: none; }
   .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 
   /* COMPARE */

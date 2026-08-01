@@ -8,8 +8,8 @@ section: Extend
 Most Day widgets you build won't need a single line of platform code. They are
 **composite pieces**: new widgets assembled from primitives Day already ships. A composite
 piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it
-to an app as a plain dependency and it runs on all twelve targets (AppKit, UIKit, Android, GTK, Qt,
-XAML), because every leaf it composes is already a native control on each one.
+to an app as a plain dependency and it runs on every Day target, because every leaf it composes
+is already a native control on each one.
 
 In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
@@ -76,12 +76,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-day-pieces = "0.1"    # the primitives + the prelude (row, canvas, Decorate, …)
-day-core = "0.1"      # Piece / BuildCx / RNode / AnyPiece
-day-reactive = "0.1"  # Signal (also re-exported through day-pieces' prelude)
+# The framework crates come from git until they're on crates.io (`day new piece` writes this).
+day-pieces = { git = "https://github.com/daybrite/day.git" }   # primitives + prelude (row, canvas, Decorate, …)
+day-core = { git = "https://github.com/daybrite/day.git" }     # Piece / BuildCx / RNode / AnyPiece
+day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re-exported through day-pieces' prelude)
 
 # Note what is not here: no [features], no dep:day-appkit / day-gtk / day-android,
-# no build.rs. That absence is the composition-first payoff.
+# no build.rs. A composed piece needs no per-toolkit code at all.
 ```
 
 > In the Day workspace these are `{ workspace = true }` instead of a version. Either way, contrast
@@ -232,10 +233,11 @@ The app depends on `day-piece-rating` like any crate. There is no feature to ena
 platform block, and no conditional compilation:
 
 ```toml
-# the app's Cargo.toml
+# the app's Cargo.toml (the framework crates come from git until they're on crates.io —
+# `day new app` writes this form for you)
 [dependencies]
-day = "0.1"
-day-piece-rating = "0.1"   # a plain dependency, nothing else to wire
+day = { git = "https://github.com/daybrite/day.git" }
+day-piece-rating = { path = "../day-piece-rating" }   # a plain dependency, nothing else to wire
 ```
 
 Then use it like a built-in piece, bound to your own `Signal`:
@@ -290,6 +292,6 @@ let the native leaves do the platform work. The same idea covers most of a desig
 - **Themed subtrees** flow through `with_environment(value, || …)` and are read back with
   `environment::<T>()`, with no prop drilling and no backend code.
 
-Every one of these is composite: pure Rust with no cargo features, working on all twelve targets the
+Every one of these is composite: pure Rust with no cargo features, working on every target the
 day you publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you
 need a native control Day does not already wrap.

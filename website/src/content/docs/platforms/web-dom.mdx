@@ -9,8 +9,8 @@ import PlatformShots from '../../../components/PlatformShots.astro';
 
 `web-dom` compiles your app to WebAssembly and drives **real DOM elements** — a `<button>` is the
 browser's button, `<dialog>` its modal, `<input type="range">` its slider. There is no canvas
-renderer and no reimplemented widget set. No wasm-bindgen, no bundler, no npm: the output is a
-plain ES module plus a `.wasm` file.
+renderer and no reimplemented widget set. It needs no wasm-bindgen, bundler, or npm step; the
+output is a plain ES module plus a `.wasm` file.
 
 <PlatformShots platform="web-dom" shots={["home", "controls", "canvas", "text"]} />
 

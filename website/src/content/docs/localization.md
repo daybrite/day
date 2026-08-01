@@ -7,9 +7,9 @@ section: Guides
 
 Day localizes with [Mozilla Fluent](https://projectfluent.org/) — a message format built for the
 grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
-reorder everything. Localization is one of Day's four pillars, which in practice means it isn't
-optional plumbing: the locale is a reactive signal, every built-in string mechanism goes through
-it, and the test tooling understands it.
+reorder everything. Localization is designed into Day's core rather than added on top: the
+locale is a reactive signal, every built-in string mechanism goes through it, and the test
+tooling understands it.
 
 ## Files and setup
 

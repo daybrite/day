@@ -5,7 +5,7 @@ order: 22
 section: Guides
 ---
 
-Accessibility is where Day's native-widget premise pays off most directly. A Day button is a real
+A Day button is a real
 `NSButton`, a real Material button, a real `GtkButton` — so VoiceOver, TalkBack, Narrator, and
 Orca already know how to focus it, name its role, and activate it. You start from the platform's
 baseline instead of from zero, which is the opposite of the situation in renderer-based
@@ -60,7 +60,7 @@ platform mapping is uneven:
 dayscript is unaffected by this table — it resolves ids inside the app, uniformly everywhere.
 The table matters only when pointing external tooling (Appium, UIA scrapers) at a Day app.
 
-## Verifying, not trusting
+## Auditing the native tree
 
 Setting an attribute and the platform *exposing* it are different things, so Day includes an
 audit step that reads the native accessibility tree back and diffs it against what your code
@@ -83,8 +83,8 @@ backends that can't yet read their native tree (Android, GTK) skip rather than f
   platform-native target for real users.
 - **Android annotations are partial** — labels and values map today (`contentDescription`, state
   description); role and hint refinement is still open, and audit read-back isn't implemented.
-- **Qt has the strongest cross-OS story** (its `QAccessible` layer bridges to the native
-  accessibility API on every OS), which makes `linux-qt` a reasonable choice when Linux
+- **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** — no other
+  Day backend does that today — which makes `linux-qt` a reasonable choice when Linux
   accessibility is a hard requirement.
 - **Reactive values**: an a11y `value` set at build time is a snapshot; live values (a slider
   announcing as it moves) work through the control's native behavior, but custom reactive a11y

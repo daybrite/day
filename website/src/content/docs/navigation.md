@@ -57,7 +57,7 @@ Underneath, `stack` uses the platform's navigation machinery — `UINavigationCo
 iOS, the androidx Fragment back stack on Android — so you get the iOS edge-swipe back gesture
 and Android's back button without writing either. On Android 14+ the back gesture is fully
 **predictive**: the system seeks the actual pop transition under your finger — the page
-follows, springs back if you let go early, completes on commit (on Android 13/14 the OS gates
+tracks it and either completes the pop or springs back when you release (on Android 13/14 the OS gates
 this behind Developer options → "Predictive back animations"; Android 15 enables it by
 default). On desktop, pushed pages get an in-window back header — a chevron and title above
 the page on macOS and Qt, libadwaita's own header on GTK.

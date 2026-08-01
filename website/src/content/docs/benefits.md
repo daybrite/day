@@ -44,11 +44,13 @@ toolkit backend per binary, so there's no runtime abstraction layer either. Bina
 Rust binaries linking system libraries — no bundled engine, no bundled browser.
 
 **One language for everything.** UI, state, logic, tests, and build tooling are Rust. There's no
-FFI seam between your view layer and your data layer, no separate template language, and the
+FFI boundary between your view layer and your data layer, no separate template language, and the
 borrow checker applies to your UI code the same way it applies to everything else. Whether that's
 a benefit depends entirely on your team — see the costs below.
 
-**Four pillars designed in, not bolted on.** These compose: localized strings are reactive, so
+### Localized, accessible, scriptable, extensible
+
+These four compose: localized strings are reactive, so
 locale switches update a running app; accessibility identifiers double as automation ids; one
 dayscript walkthrough, run per-locale, is simultaneously an end-to-end test, an accessibility
 audit, and a screenshot generator. This composition is the part of Day that's hard to retrofit

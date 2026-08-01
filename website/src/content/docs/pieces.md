@@ -45,8 +45,8 @@ Two things in that signature shape everything else about Day:
 Your Piece functions run once, at mount time. Everything dynamic afterward flows through
 [signals](/docs/reactivity), which are bound to individual native attributes during that single
 build. This is the core trade Day makes: you give up "re-run the view function and let the
-framework figure it out", and in exchange there is no virtual tree, no diffing, and no
-re-execution of your UI code at runtime. The [reactivity page](/docs/reactivity) covers what that
+framework figure it out", and in exchange there is no virtual tree or diffing, and your UI code
+doesn't re-run at runtime. The [reactivity page](/docs/reactivity) covers what that
 means in practice, including the costs.
 
 ## Composing trees

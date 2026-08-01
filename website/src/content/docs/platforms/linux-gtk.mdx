@@ -34,8 +34,8 @@ whole set.
 day pack -p linux-gtk        # single-file .flatpak
 ```
 
-The flatpak runtime supplies GTK itself (`org.gnome.Platform`), so bundles stay app-sized —
-usually a couple of megabytes rather than a hundred. `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak`
+The flatpak runtime supplies GTK itself (`org.gnome.Platform`), so the bundle carries your app
+and its assets, not the toolkit. `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak`
 is all a user needs.
 
 ## Caveats and special considerations

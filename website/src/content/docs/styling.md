@@ -5,15 +5,14 @@ order: 14
 section: Concepts
 ---
 
-Styling in Day starts from an unusual premise: the platform draws the widgets. A Day button on
-macOS is an `NSButton` with AppKit's chrome; on Android it's a Material button. That's the point
-of the framework — and it means styling has a different shape than in a renderer, where you draw
-every pixel.
+In Day the platform draws the widgets: a Day button on macOS is an `NSButton` with AppKit's
+chrome; on Android it's a Material button. So styling works differently than in a renderer,
+where you control every pixel.
 
-The short version: **you style content and space; the platform styles controls.** Fonts, text
+**You style content and space; the platform styles controls.** Fonts, text
 color, padding, backgrounds, corner radii, and everything you draw in a `canvas` are yours.
 Button chrome, focus rings, slider tracks, scrollbar appearance, selection highlights — those
-belong to the platform, and Day deliberately doesn't paper over them.
+belong to the platform, and Day leaves them there rather than reimplementing them.
 
 ## Text
 
@@ -111,8 +110,8 @@ presentation — and these map to native variants, not custom drawing.
 
 There is no portable API to recolor a slider track, restyle a scrollbar, or reshape a checkbox.
 If a property can't be honored by a toolkit, Day logs it once in debug rather than silently
-approximating it with custom drawing. That's a real constraint, and it's the flip side of every
-Day control behaving — and evolving with the OS — exactly like a native one.
+approximating it with custom drawing. That constraint is the flip side of every Day control
+behaving, and updating with the OS, exactly like a native one.
 
 When a *specific platform* offers the knob you want — an AppKit bezel style, XAML tick marks —
 [tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit, without leaving the

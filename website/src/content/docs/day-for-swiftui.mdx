@@ -74,7 +74,7 @@ fn counter() -> AnyPiece {
 
 </Compare>
 
-The structure is nearly identical; the runtime behavior isn't. SwiftUI re-evaluates `body` when
+The structure is nearly identical, but the runtime behavior differs. SwiftUI re-evaluates `body` when
 `count` changes and diffs the result; Day re-runs only the label's closure and sets one native
 string. The distinction you notice day to day is that *you* mark what's dynamic — a closure
 makes text live, a bare value doesn't. In exchange, an update's cost is proportional to what
@@ -201,8 +201,8 @@ navigate("album-42");
 `NSSplitView` source list on macOS, and the platform's own idiom elsewhere (a pushing list on
 phones, libadwaita's split view on GTK). On top of the signals sits a thin route layer:
 `navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
-navigation, state restoration, and deep links with one set of strings — the role
-`onOpenURL` and scene restoration play, unified. See [Navigation](/docs/navigation).
+navigation, state restoration, and deep links with one set of strings — the job
+`onOpenURL` and scene restoration do separately. See [Navigation](/docs/navigation).
 
 ## Modifiers, fonts, and the layout protocol
 
@@ -242,8 +242,7 @@ typography scale — on Apple targets, the same text styles you use today. One g
 SwiftUI's semantic *colors* (`Color.primary`, automatic dark-mode adaptation for your own
 colors) don't have a Day equivalent yet. Native widget chrome follows the system appearance on
 its own, but hardcoded custom colors are yours to switch per appearance for now.
-[Styling](/docs/styling) states the limits precisely, including what deliberately can't be
-restyled.
+[Styling](/docs/styling) lists what you can and can't restyle.
 
 ## Concurrency
 

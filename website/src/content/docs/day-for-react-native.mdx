@@ -19,7 +19,7 @@ separate shadow tree. The second is the
 update model: React re-renders components and reconciles; Day builds the tree once and re-runs
 only the closures that read a changed signal — there are no dependency arrays because
 dependencies are tracked automatically. And where RN targets iOS and Android with community
-forks for desktop, Day's eight targets (macOS, Windows, Linux GTK and Qt, iOS, Android,
+forks for desktop, Day's eight primary targets (macOS, Windows, Linux GTK and Qt, iOS, Android,
 HarmonyOS, web) come from one repository.
 
 ## React Native terms in Day
@@ -445,7 +445,7 @@ title = "Field Notes Mobile"        # only iOS sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-That's the role `app.json` plays in Expo — except it covers all eight targets, desktop
+That's the role `app.json` plays in Expo — except it covers all eight primary targets, desktop
 included, and there's no eject: the hosts are already in your repository, already minimal.
 
 ## Building and shipping
@@ -461,10 +461,9 @@ included, and there's no eject: the hosts are already in your repository, alread
 | environment check | `npx react-native doctor` | `day doctor` |
 
 You give up Fast Refresh and the npm ecosystem's size, and you write
-Rust instead of TypeScript. You get one compiled binary per platform with no JS engine to ship,
-one first-party repository covering desktop and mobile and web, UI tests that run the same
-script on every platform, and packaging that ends in signed artifacts instead of a handoff to
-fastlane. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
+Rust instead of TypeScript. You ship one compiled binary per platform, with no bundled JS
+engine. One repository covers mobile, desktop, and web; UI tests run the same script everywhere;
+packaging produces signed artifacts directly rather than handing off to fastlane. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
 a dev-signed build with a warning rather than failing. [Packaging](/docs/packaging) has the
 full table.
 

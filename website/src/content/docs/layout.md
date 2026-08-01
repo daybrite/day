@@ -62,9 +62,8 @@ label wraps exactly where the platform would wrap it, in every script and locale
 The cost is that measurement is a real call into the toolkit, and on Android it's a JNI
 round-trip. Negotiation multiplies these probes, so Day carries a **measure cache** per node,
 keyed by the quantized proposal, and bounds the distinct proposals a parent may probe per child
-per pass. The cache isn't an optimization bolted on later — the design assumes it, and the mock
-toolkit's tests assert measure-call counts so a regression in "fine-grained" is a failing test,
-not a slow app.
+per pass. The design assumes the cache: the mock toolkit's tests assert measure-call counts, so
+a caching regression fails tests.
 
 ## Incremental relayout
 
@@ -90,7 +89,7 @@ doesn't move anything costs one native `set_text` and zero frame updates.
 Why boundaries and not "stop wherever the size didn't change"? Because inside a negotiated stack,
 one child's new size changes its *siblings'* proposals — you can only prune safely from a node
 whose own proposal is stable. This is the subtlest part of Day's layout engine, and it's pinned
-down by mock-toolkit golden tests rather than by hope.
+down by mock-toolkit golden tests.
 
 ## The modifier vocabulary
 

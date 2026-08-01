@@ -65,13 +65,4 @@ export const site = {
   description:
     'Day is a framework for Rust app development that builds for Android, iOS, HarmonyOS, Windows, macOS, Linux, and the web using each platform’s native interface components, so your product looks and works the way users of each platform expect.',
   repo: 'https://github.com/daybrite/day',
-  targets: [
-    'macOS · AppKit',
-    'iOS · UIKit',
-    'Android · Material Design Components',
-    'Linux · GTK 4',
-    'Linux · Qt 6',
-    'Windows · XAML (XAML Islands)',
-    'macOS/Windows · GTK & Qt',
-  ],
 };

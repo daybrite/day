@@ -5,10 +5,11 @@ order: 51
 section: Under the hood
 ---
 
-[Architecture](/docs/architecture) drew the map; this page follows the traffic. It traces a
+[Architecture](/docs/architecture) covered the structure; this page follows a widget through the
+running system. It traces a
 widget from `build` to pixels, a click from the native event to your closure, and a signal write
-back out to the screen. None of this is required reading to *use* Day, but it makes the
-framework predictable in the way only a mechanism you can picture is.
+back out to the screen. None of this is required reading to *use* Day, but once you can picture
+the mechanism, the framework's behavior is predictable.
 
 ## The realized tree
 
@@ -29,7 +30,7 @@ The `handle` is whatever the backend wants it to be — a retained `NSView` poin
 JNI `GlobalRef` on Android, an opaque C++ pointer on Qt. `day-core` never looks inside it; it
 only hands it back to the toolkit.
 
-Note what the tree *doesn't* have: a shadow copy for diffing. This tree is the only tree.
+The tree has no shadow copy for diffing; it is the only representation of the UI that Day keeps.
 
 ## Mounting
 
@@ -148,7 +149,7 @@ assert!(probe.measure_calls() <= 6);                // relayout stayed on the la
 
 Those assertions are the interesting part: the framework's core promises — one click, one native
 mutation; bounded measure calls per layout pass — are written down as golden tests over the op
-log, so "fine-grained" is enforced by CI rather than by folklore. Your own component tests run the same way: no simulator, no display server, milliseconds per test.
+log, so the fine-grained guarantee is checked in CI. Your own component tests run the same way: no simulator, no display server, milliseconds per test.
 
 ## Teardown
 

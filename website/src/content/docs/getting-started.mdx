@@ -7,20 +7,19 @@ section: Start here
 
 import InstallCommand from '../../components/InstallCommand.astro';
 
-This page takes you from nothing to a running app — and then to an AI agent modifying that app
-and showing you screenshots to prove it worked. It presumes [VS Code](https://code.visualstudio.com);
-everything also works from a bare terminal, and the CLI-only path is noted as we go. Expect a few
-minutes, most of which is the first compile.
+This page takes you from nothing to a running app: install the CLI, scaffold a project, run it,
+and make your first change. It presumes [VS Code](https://code.visualstudio.com); everything also
+works from a bare terminal, and the CLI-only path is noted as we go. Expect a few minutes, most
+of which is the first compile.
 
 ## 1. Install the day CLI
 
-Day isn't published to crates.io yet, so you install the `day` CLI from the repository with
-Cargo, pinned to the latest release tag:
+The `day` CLI is on crates.io:
 
 <InstallCommand />
 
-`--tag` builds the latest released version rather than whatever `main` is mid-flight, and
-`--locked` uses the exact dependency versions that release was tested with. Check it worked:
+The framework crates themselves aren't on crates.io yet — the scaffold pins them as git
+dependencies to the matching release, so you never manage that by hand. Check the install worked:
 
 ```bash
 day --version
@@ -42,7 +41,7 @@ day doctor --toolkit android     # focus one toolkit; misses become errors with 
 | `linux-qt` | Qt 6 dev packages (`apt install qt6-base-dev pkg-config`) |
 | `windows-xaml` | Visual Studio C++ Build Tools, MSVC Rust toolchain |
 | `ios-uikit` | Xcode + an iOS Simulator |
-| `android-mdc` | Android SDK + NDK, JDK 21, `cargo-ndk`, an emulator or device |
+| `android-mdc` | Android SDK + NDK, JDK 17 or newer, `cargo-ndk`, an emulator or device |
 | `harmony-arkui` | OpenHarmony SDK + command-line tools |
 | `web-dom` | `rustup target add wasm32-unknown-unknown` — nothing else |
 
@@ -102,12 +101,13 @@ build. Compile errors land in the Problems panel with clickable locations.
 
 Terminal equivalent: `day launch -p macos-appkit`.
 
-## 5. Let an agent do the work
+## 5. Drive it from VS Code's agent mode
 
-This is where Day is different. Every launch embeds a **dayscript engine** — a loopback
-automation channel — and the Day extension exposes it to VS Code's agent mode through ten MCP
-tools (`day.mcp.enabled`, on by default): agents can build, launch, relaunch, **tap and type in
-the running app, and take screenshots they can actually see**, on every platform you target.
+Every launch embeds a **dayscript engine** — a loopback automation channel — and the Day
+extension exposes it to VS Code's agent mode through ten MCP tools (`day.mcp.enabled`, on by
+default): an agent can build, launch, relaunch, tap and type in the running app, and take
+screenshots it can actually see, on every platform you target.
+[AI-assisted development](/docs/ai) walks the same loop from a plain terminal.
 
 Open the Chat view (**⌃⌘I**), switch to **Agent** mode, and try prompts like:
 

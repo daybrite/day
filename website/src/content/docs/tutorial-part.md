@@ -521,7 +521,7 @@ fn status_does_not_panic() {
 }
 ```
 
-## 6. A practical note: let an LLM draft the language-specific shims
+## 6. Drafting the native shims
 
 Covering six platforms sounds daunting because it means writing Objective-C, Java, and Win32 C
 interop on top of Rust. In practice the hardest part is knowing which API to call. Once you do,

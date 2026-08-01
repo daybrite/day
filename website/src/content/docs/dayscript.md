@@ -11,9 +11,9 @@ captures screenshots — identically on macOS, iOS, Android, Linux, Windows, and
 because it addresses your UI by the stable ids you gave your Pieces, not by pixels or platform
 selectors.
 
-If you've used Maestro for mobile testing, the shape is familiar. The difference is that the
-engine is compiled into your app and executes steps as real Day events, which makes the same
-script portable across all targets and makes waits deterministic instead of sleep-based.
+It resembles Maestro, with one structural difference: the engine is compiled into your app and
+executes steps as real Day events, which makes the same script portable across all targets and
+makes waits deterministic instead of sleep-based.
 
 ## A script
 
@@ -94,7 +94,7 @@ The same scripts serve several jobs:
 - **Iteration.** With no hot reload, `--script goto-settings.yaml` after each relaunch puts you
   back on the screen you're editing. Cheap and surprisingly effective.
 - **Accessibility audits.** The `a11y_audit` step diffs the native accessibility tree against
-  your declarations ([details](/docs/accessibility#verifying-not-trusting)).
+  your declarations ([details](/docs/accessibility#auditing-the-native-tree)).
 - **Agent verification.** AI coding agents use dayscript to check their own work — write a
   change, run a script, read the assertions ([for agents](/docs/for-agents)).
 
