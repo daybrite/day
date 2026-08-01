@@ -1583,8 +1583,39 @@ mod imp {
                         apply_surface(h, *c, 0.0, false);
                     }
                 }
-                // Mobile selection is transient (rows ripple, then push) — nothing to sync.
-                kinds::NAV_MENU => {}
+                kinds::NAV_MENU => {
+                    match patch.downcast_ref::<NavMenuPatch>() {
+                        // A data-driven `.items(signal, …)` block re-derived: rebuild the native
+                        // rows so each click listener reports its CURRENT index — stale rows
+                        // shift every selection after a removed item by one and drop the last
+                        // row's selection entirely.
+                        Some(NavMenuPatch::Items { items, icons, .. }) => {
+                            let joined = items.join("\u{1f}");
+                            let joined_icons = icons
+                                .iter()
+                                .map(|o| o.clone().unwrap_or_default())
+                                .collect::<Vec<_>>()
+                                .join("\u{1f}");
+                            with_env(|env| {
+                                let s = jstr(env, &joined);
+                                let si = jstr(env, &joined_icons);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "updateNavMenu",
+                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                                    &[
+                                        JValue::Object(h.0.as_obj()),
+                                        JValue::Object(&s),
+                                        JValue::Object(&si),
+                                    ],
+                                );
+                            });
+                        }
+                        // Mobile selection is transient (rows ripple, then push) — no highlight
+                        // to sync.
+                        Some(NavMenuPatch::Selected(_)) | None => {}
+                    }
+                }
                 kinds::TABS => {
                     if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
                         call_void(

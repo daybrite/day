@@ -810,6 +810,34 @@ public final class DayBridge {
             list.setPadding(0, DayActivity.statusInsetPx + bar, 0, 0);
             list.setClipToPadding(false);
         }
+        fillNavMenu(id, list, joinedItems, joinedIcons);
+        // The nav menu can have more items than fit on screen (the showcase sidebar has ~20), so it
+        // must scroll — wrap the row column in a vertical ScrollView (fillViewport so it still fills
+        // when short).
+        ScrollView sv = new ScrollView(ctx);
+        sv.setFillViewport(true);
+        sv.setTag(id); // updateNavMenu re-reads it when rebuilding rows
+        sv.addView(list, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return sv;
+    }
+
+    /** The item set changed (day's NavMenuPatch::Items — a data-driven `selector().items(…)`
+     *  block re-derived): rebuild every row so each click listener carries its CURRENT index.
+     *  Reusing stale rows after a removal shifts every later selection by one and drops the
+     *  last row's selection entirely. */
+    public static void updateNavMenu(View v, String joinedItems, String joinedIcons) {
+        ScrollView sv = (ScrollView) v;
+        long id = (Long) sv.getTag();
+        android.widget.LinearLayout list = (android.widget.LinearLayout) sv.getChildAt(0);
+        list.removeAllViews();
+        fillNavMenu(id, list, joinedItems, joinedIcons);
+    }
+
+    /** Build one tappable row per item into `list` (ripple, 48dp, optional tinted leading icon —
+     *  the Material navigation-drawer idiom). Each row reports its index on click. */
+    private static void fillNavMenu(final long id, android.widget.LinearLayout list,
+            String joinedItems, String joinedIcons) {
         String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
         android.util.TypedValue tv = new android.util.TypedValue();
         ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
@@ -846,14 +874,6 @@ public final class DayBridge {
             list.addView(row, new android.widget.LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
-        // The nav menu can have more items than fit on screen (the showcase sidebar has ~20), so it
-        // must scroll — wrap the row column in a vertical ScrollView (fillViewport so it still fills
-        // when short).
-        ScrollView sv = new ScrollView(ctx);
-        sv.setFillViewport(true);
-        sv.addView(list, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return sv;
     }
 
     // --- imperative presentation (docs/dialogs.md) ---

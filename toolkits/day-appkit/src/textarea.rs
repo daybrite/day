@@ -139,6 +139,9 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     let scroll = NSScrollView::new(mtm);
     scroll.setDrawsBackground(false);
     scroll.setHasVerticalScroller(true);
+    // Overlay scrollers, like every day scroll view — a legacy scroller would narrow the
+    // editor under the "always show scroll bars" system setting.
+    scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
     scroll.setHasHorizontalScroller(false);
 
     let tv = NSTextView::new(mtm);

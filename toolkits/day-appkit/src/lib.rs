@@ -912,6 +912,34 @@ fn post_realize_visible_rows(key: usize) {
     }));
 }
 
+define_class!(
+    #[unsafe(super(objc2_app_kit::NSTableRowView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayListRowView"]
+    struct DayListRowView;
+
+    impl DayListRowView {
+        // NSTableRowView insets its cell views ~6pt per side even in the FullWidth table
+        // style, while day lays row content out at the LIST's full frame width — the inset
+        // shifted every row right and clipped the trailing edge of its content. Pin day
+        // cells back to the row's full bounds after the standard layout.
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            let _: () = unsafe { msg_send![super(self), layout] };
+            let b = self.bounds();
+            for sub in self.subviews().iter() {
+                let is_cell = sub
+                    .identifier()
+                    .map(|i| i.to_string() == "day.cell")
+                    .unwrap_or(false);
+                if is_cell {
+                    unsafe { sub.setFrame(b) };
+                }
+            }
+        }
+    }
+);
+
 // DayListData — NSTableView data-source + delegate for the recycling list (docs/list.md, §10)
 // ---------------------------------------------------------------------------
 
@@ -1097,6 +1125,18 @@ define_class!(
             Some(cell)
         }
 
+        #[unsafe(method_id(tableView:rowViewForRow:))]
+        fn row_view_for_row(
+            &self,
+            _tv: &NSTableView,
+            _row: isize,
+        ) -> Option<Retained<objc2_app_kit::NSTableRowView>> {
+            // Our row view pins day cells to the full row bounds (see DayListRowView).
+            let rv: Retained<DayListRowView> =
+                unsafe { msg_send![DayListRowView::alloc(self.mtm()), init] };
+            Some(Retained::into_super(rv))
+        }
+
         #[unsafe(method(tableViewSelectionDidChange:))]
         fn selection_did_change(&self, notification: &NSNotification) {
             if self.ivars().suppress.get() || !self.ivars().selectable.get() {
@@ -1146,7 +1186,13 @@ impl DayListData {
     /// semantics) that transform the displayed order into the new one — and `None` for
     /// anything else (insert/remove/content change/no change), which reloads flat. Always
     /// refreshes the displayed-order cache.
-    fn permutation_moves(&self) -> Option<Vec<(usize, usize)>> {
+    ///
+    /// Every row that changes position must have a REALIZED row view (`table`): moving a
+    /// viewless row (its old position sat outside the viewport, so it was never bound)
+    /// animates nothing and leaves the row unbound at its new position — its content, and any
+    /// element ids inside it, would simply not exist. Such a reorder returns `None` and
+    /// reloads flat, which realizes and binds the row at its new position.
+    fn permutation_moves(&self, table: &NSTableView) -> Option<Vec<(usize, usize)>> {
         let source = self.ivars().source.borrow();
         let source = source.as_ref()?;
         let n = (source.len)();
@@ -1160,6 +1206,13 @@ impl DayListData {
         sn.sort_unstable();
         if so != sn {
             return None;
+        }
+        for i in 0..n {
+            if old[i] != new[i]
+                && unsafe { table.rowViewAtRow_makeIfNecessary(i as isize, false) }.is_none()
+            {
+                return None;
+            }
         }
         let mut work = old;
         let mut moves = Vec::new();
@@ -1824,6 +1877,12 @@ impl Toolkit for AppKit {
                     sv.setHasVerticalScroller(!horizontal);
                     sv.setHasHorizontalScroller(horizontal);
                     sv.setDrawsBackground(false);
+                    // Overlay scrollers ALWAYS: day lays content out at the scroll's full frame
+                    // width, and a legacy scroller (the "always show scroll bars" system
+                    // setting, or a mouse attached) would reserve ~15pt and clip trailing
+                    // content. Overlay floats above content instead — and matches the GTK/Qt
+                    // backends.
+                    sv.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
                 }
                 let doc = DayFlipped::new(mtm);
                 unsafe { sv.setDocumentView(Some(doc.as_ref())) };
@@ -2127,6 +2186,10 @@ impl Toolkit for AppKit {
                 unsafe {
                     scroll.setDrawsBackground(false);
                     scroll.setHasVerticalScroller(true);
+                    // Overlay scrollers ALWAYS — a legacy scroller would reserve ~15pt and
+                    // clip the trailing edge of rows laid out at the full frame width (see
+                    // the SCROLL realize).
+                    scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
                     scroll.setDocumentView(Some(&outline));
                 }
                 let view = view_of(scroll);
@@ -2159,6 +2222,14 @@ impl Toolkit for AppKit {
                     }
                     table.addTableColumn(&col);
                     table.setHeaderView(None);
+                    // Full-width cells: the default "automatic" style (macOS 11+) insets cell
+                    // views ~14pt per side, clipping day row content laid out at the host's
+                    // full frame width (a trailing button loses its right edge).
+                    table.setStyle(objc2_app_kit::NSTableViewStyle::FullWidth);
+                    // ...and the default intercell spacing (3pt × 2pt) shaves the column the
+                    // same way — the last few points of a trailing control. Day rows own all
+                    // of their spacing.
+                    table.setIntercellSpacing(NSSize::new(0.0, 0.0));
                     table.setColumnAutoresizingStyle(
                         objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
                     );
@@ -2203,6 +2274,10 @@ impl Toolkit for AppKit {
                 unsafe {
                     scroll.setDrawsBackground(false);
                     scroll.setHasVerticalScroller(true);
+                    // Overlay scrollers ALWAYS — a legacy scroller would reserve ~15pt and
+                    // clip the trailing edge of rows laid out at the full frame width (see
+                    // the SCROLL realize).
+                    scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
                     scroll.setDocumentView(Some(&table));
                 }
                 let view = view_of(scroll);
@@ -2585,7 +2660,7 @@ impl Toolkit for AppKit {
                             // gets. Anything else (insert/remove/content change) reloads flat.
                             // reloadData queries numberOfRows synchronously (snapshot only, no
                             // tree) and defers viewForRow, so both paths are safe in with_tree.
-                            if let Some(moves) = data.permutation_moves() {
+                            if let Some(moves) = data.permutation_moves(table) {
                                 unsafe {
                                     table.beginUpdates();
                                     for (from, to) in moves {

@@ -360,6 +360,11 @@ impl<B: Toolkit> Tree<B> {
             if let Some(list) = self.lists.remove(&n) {
                 for (_, cell) in list.cells {
                     cell.scope.dispose();
+                    // The cell's day subtree lives OUTSIDE the node tree (anchored to a
+                    // native cell, not a LIST child): remove it with the list, or its nodes
+                    // linger as zombies — stale element ids that hijack `find_by_id`, and
+                    // handlers whose captured signals are disposed so every press no-ops.
+                    stack.push(cell.anchor);
                 }
             }
             let Some(data) = self.nodes.remove(n) else {
@@ -552,6 +557,9 @@ pub trait TreeOps {
     );
     /// Lay the row out inside its cell bounds (row content width × the RowHeight).
     fn list_layout_cell(&mut self, node: RNode, key: usize);
+    /// The physical-cell keys of every bound cell of the list at `node` (for a bulk re-layout
+    /// after the list's own width changed).
+    fn list_cell_keys(&self, node: RNode) -> Vec<usize>;
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
     /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
@@ -1182,6 +1190,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             Point::ZERO,
             true,
         );
+    }
+
+    fn list_cell_keys(&self, node: RNode) -> Vec<usize> {
+        self.lists
+            .get(&node)
+            .map(|s| s.cells.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     fn list_reload(&mut self, node: RNode) {

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use day_spec::*;
 
-use crate::tree::{Flex, RNode, Tree};
+use crate::tree::{Flex, RNode, Tree, TreeOps};
 
 /// Open layout protocol (§7.2). `children` are the node's direct children; group nodes
 /// (`when`/`each` anchors) are layout-transparent — stacks expand them inline.
@@ -176,8 +176,27 @@ pub(crate) fn place_node<B: Toolkit>(
     } else {
         abs.origin
     };
+    // A LIST whose width changes re-lays its bound cells in THIS pass: the native table
+    // resizes the physical cell views, but each cell's day content keeps the old width's
+    // placement until laid out again (a trailing control would sit clipped after a
+    // narrowing). Synchronous on purpose — interactive live-resize runs inside a native
+    // tracking loop where deferred main-thread work may not drain until the drag ends.
+    let relayout_cells = tree
+        .node(node)
+        .map(|n| {
+            n.kind == day_spec::kinds::LIST
+                && n.last_native_frame
+                    .map(|f| (f.size.width - abs.size.width).abs() > 0.25)
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false);
     if let Some(n) = tree.node_mut(node) {
         n.last_native_frame = Some(abs);
+    }
+    if relayout_cells {
+        for key in tree.list_cell_keys(node) {
+            tree.list_layout_cell(node, key);
+        }
     }
     let mut cx = EngineCx {
         tree,
