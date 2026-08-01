@@ -160,8 +160,14 @@ Keys are namespaced `day-*`. The catalog covers the strings Day emits itself:
 | Purpose | Keys |
 |---|---|
 | Dialog buttons | `day-ok` `day-cancel` `day-yes` `day-no` `day-done` `day-save` `day-close` `day-delete` |
-| Menu commands (`MenuRole`) | `day-cut` `day-copy` `day-paste` `day-select-all` `day-undo` `day-redo` `day-about` `day-quit` `day-preferences` `day-minimize` `day-fullscreen` |
+| Menu commands (`MenuRole`) | `day-cut` `day-copy` `day-paste` `day-select-all` `day-undo` `day-redo` `day-about` `day-quit` `day-preferences` `day-minimize` `day-fullscreen` `day-new-window` |
 | App-name commands | `day-about-app` (`About {$app}`), `day-quit-app` (`Quit {$app}`), `day-edit` |
+| Window management (docs/windows.md) | `day-window` `day-zoom` `day-bring-all-front` |
+| Settings pieces (day-piece-settings) | `day-settings-language` `day-settings-theme` `day-theme-light` `day-theme-dark` `day-theme-system` |
+
+The catalog ships en, fr, es, de, ja, zh, and ar (Arabic joined with the windows work — the
+showcase/sample-app `ar` CI variants localize the core strings instead of falling back to
+English).
 
 Concretely:
 

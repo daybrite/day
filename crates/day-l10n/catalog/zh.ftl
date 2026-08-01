@@ -23,3 +23,14 @@ day-fullscreen = 进入全屏幕
 day-edit = 编辑
 day-about-app = 关于{$app}
 day-quit-app = 退出{$app}
+
+day-window = 窗口
+day-new-window = 新建窗口
+day-zoom = 缩放
+day-bring-all-front = 前置全部窗口
+
+day-settings-language = 语言
+day-settings-theme = 外观
+day-theme-light = 浅色
+day-theme-dark = 深色
+day-theme-system = 跟随系统

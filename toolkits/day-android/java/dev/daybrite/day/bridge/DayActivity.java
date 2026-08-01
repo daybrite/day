@@ -203,7 +203,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
     // Activity lifecycle → day lifecycle phases (docs/lifecycle.md). Codes match day_spec::Lifecycle.
     @Override protected void onStart() { super.onStart(); DayBridge.lifecycle(4); }   // WillEnterForeground
-    @Override protected void onResume() { super.onResume(); resumed = true; DayBridge.lifecycle(2); } // DidBecomeActive
+    @Override protected void onResume() {
+        super.onResume();
+        // The top-resumed activity provides the widget-creation Context (docs/windows.md).
+        DayBridge.ctx = this;
+        resumed = true;
+        DayBridge.lifecycle(2); // DidBecomeActive
+    }
     @Override protected void onPause() { DayBridge.lifecycle(3); resumed = false; super.onPause(); }   // WillResignActive
     @Override protected void onStop() { DayBridge.lifecycle(5); super.onStop(); }     // DidEnterBackground
 

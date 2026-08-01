@@ -24,6 +24,13 @@ pub use day_core::{
     task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
+// Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
+// chrome, and the preferences/new-window registrations behind the auto menu items.
+pub use day_core::{
+    WindowHandle, focused_window, open_preferences, open_window, register_new_window,
+    register_preferences, register_preferences_with, window_by_key,
+};
+pub use day_spec::WindowKind;
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
 /// loading — namespaced because the prelude's `Resource` is the ASSET handle above, a different
 /// type that predates the async one.
@@ -308,6 +315,27 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeStartWindow<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
+            root: $crate::android::jni::objects::JObject<'local>,
+            node: $crate::android::jni::sys::jlong,
+            _density: $crate::android::jni::sys::jfloat,
+            w: $crate::android::jni::sys::jint,
+            h: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            let mut ok = false;
+            let _ = env
+                .with_env(|env| {
+                    ok = $crate::android::window_started(env, root, node, w, h);
+                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
+                })
+                .into_outcome();
+            ok as $crate::android::jni::sys::jboolean
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeOnEvent<'local>(
             mut env: $crate::android::jni::EnvUnowned<'local>,
             _class: $crate::android::jni::objects::JClass<'local>,
@@ -404,7 +432,7 @@ pub mod android {
     pub use day_android::jni;
     pub use day_android::{
         dispatch_event, list_bind, list_can_drop, list_len, list_move, read_jstring, run_frame,
-        run_posted,
+        run_posted, window_started,
     };
 
     #[allow(clippy::too_many_arguments)]

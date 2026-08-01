@@ -486,7 +486,6 @@ anim_duration_ms = { $ms } ms
 
 # Barre de menus + menu contextuel
 menu_file = Fichier
-menu_new = Nouveau
 menu_open = Ouvrir…
 menu_open_recent = Ouvrir récent
 menu_clear_menu = Effacer le menu
@@ -585,3 +584,6 @@ storage_load = Charger
 storage_delete = Supprimer
 storage_files_label = Fichiers stockés
 storage_idle = Rien d'enregistré pour l'instant
+
+prefs_window_title = Préférences
+prefs_window_caption = Le thème et la langue s'appliquent à toutes les fenêtres et sont conservés entre les lancements.

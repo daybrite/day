@@ -48,3 +48,8 @@ implement them, and this table proves it.
 | `on_resume` | · | · | · | · | · | · | · | · | · | ✓ |
 | `on_memory_warning` | · | · | · | · | · | · | · | · | · | ✓ |
 | `adopt` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `open_window` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
+| `close_window` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
+| `focus_window` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
+| `set_window_title` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
+| `snapshot_window_of` | · | ✓ | · | ✓ | ✓ | · | · | · | · | ✓ |

@@ -367,9 +367,17 @@ fn progress_ticks(fraction: f64) -> c_int {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Qt>];
 
+/// A live secondary window (docs/windows.md): the day root node id, the DayWindow, and
+/// its inner content widget (the adopted handle).
+struct QtWin {
+    win: *mut c_void,
+    content: *mut c_void,
+}
+
 pub struct Qt {
     registry: Registry<Qt>,
     window: *mut c_void,
+    secondary: Vec<QtWin>,
 }
 
 impl Qt {
@@ -382,7 +390,18 @@ impl Qt {
         Qt {
             registry,
             window: std::ptr::null_mut(),
+            secondary: Vec::new(),
         }
+    }
+
+    /// The dialog parent (docs/windows.md): the ACTIVE Day window at present time,
+    /// primary as the fallback.
+    fn present_parent(&self) -> *mut c_void {
+        self.secondary
+            .iter()
+            .find(|w| unsafe { ffi::day_qt_window_is_active(w.win) } != 0)
+            .map(|w| w.win)
+            .unwrap_or(self.window)
     }
 }
 
@@ -630,6 +649,20 @@ fn emit_window(ev: Event) {
     }
 }
 
+// Secondary-window event trampolines (docs/windows.md): the shim keys them by day node id.
+extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
+    emit(
+        day_spec::NodeId(node),
+        Event::WindowResized(Size::new(w as f64, h as f64)),
+    );
+}
+extern "C" fn win_closed(node: u64) {
+    emit(day_spec::NodeId(node), Event::WindowClosed);
+}
+extern "C" fn win_focused(node: u64, active: c_int) {
+    emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
+}
+
 extern "C" fn window_resized(w: c_int, h: c_int) {
     let size = Size::new(w as f64, h as f64);
     LAST_WINDOW_SIZE.with(|c| c.set(size));
@@ -747,6 +780,7 @@ fn qt_role_label(role: day_spec::MenuRole) -> &'static str {
         Minimize => "Minimize",
         CloseWindow => "Close",
         Fullscreen => "Enter Full Screen",
+        NewWindow => "New Window",
     }
 }
 
@@ -764,6 +798,7 @@ fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
         CloseWindow => "Ctrl+W",
         Minimize => "Ctrl+M",
         Preferences => "Ctrl+,",
+        NewWindow => "Ctrl+N",
         Delete | About | Fullscreen => return None,
     })
 }
@@ -784,7 +819,31 @@ fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                 enabled,
                 role,
             } => {
-                if let Some(role) = role {
+                // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
+                // dispatches the day action, with the role only supplying label/shortcut
+                // defaults — the auto Preferences item and `MenuRole::NewWindow` arrive
+                // this way. Routing them through the role-only path dropped the dispatch
+                // id, leaving visible-but-dead items (the macos-qt bug).
+                if *id != 0 {
+                    let text = match role {
+                        Some(r) if label.is_empty() => qt_role_label(*r).to_string(),
+                        _ => label.clone(),
+                    };
+                    let sc = shortcut
+                        .as_ref()
+                        .map(qt_shortcut)
+                        .or_else(|| role.and_then(|r| qt_role_shortcut(r).map(str::to_string)))
+                        .unwrap_or_default();
+                    unsafe {
+                        ffi::day_qt_menu_add_action(
+                            menu,
+                            cstr(&text).as_ptr(),
+                            *id,
+                            cstr(&sc).as_ptr(),
+                            *enabled as c_int,
+                        )
+                    };
+                } else if let Some(role) = role {
                     let text = if label.is_empty() {
                         qt_role_label(*role).to_string()
                     } else {
@@ -801,17 +860,6 @@ fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                             cstr(&text).as_ptr(),
                             *role as c_int,
                             cstr(&sc).as_ptr(),
-                        )
-                    };
-                } else {
-                    let sc = shortcut.as_ref().map(qt_shortcut).unwrap_or_default();
-                    unsafe {
-                        ffi::day_qt_menu_add_action(
-                            menu,
-                            cstr(label).as_ptr(),
-                            *id,
-                            cstr(&sc).as_ptr(),
-                            *enabled as c_int,
                         )
                     };
                 }
@@ -842,7 +890,9 @@ impl Toolkit for Qt {
             | Cap::TextEditable
             | Cap::TextSelectable
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
-            | Cap::ListReorder => Support::Native,
+            | Cap::ListReorder
+            // Real DayWindows on the shared QApplication (docs/windows.md).
+            | Cap::MultiWindow => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -1371,6 +1421,17 @@ impl Toolkit for Qt {
     }
 
     fn release(&mut self, h: QtHandle) {
+        // A released window content = that window is gone (docs/windows.md teardown):
+        // NOW destroy the whole DayWindow (deleteLater — after this event dispatch), never
+        // before, so day's child-widget releases can't touch freed memory.
+        self.secondary.retain(|w| {
+            if w.content == h.0 {
+                unsafe { ffi::day_qt_window_destroy(w.win) };
+                false
+            } else {
+                true
+            }
+        });
         let key = h.0 as usize;
         if let Some(entry) = LIST_STATE.with(|m| m.borrow_mut().remove(&key)) {
             LIST_BY_NODE.with(|m| {
@@ -1620,6 +1681,7 @@ impl Toolkit for Qt {
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
         use day_spec::present::PresentSpec;
+        let parent = self.present_parent();
         match spec {
             PresentSpec::Dialog { .. } => unsafe {
                 ffi::day_qt_present_dialog(
@@ -1628,7 +1690,7 @@ impl Toolkit for Qt {
                     cstr(spec.message().unwrap_or("")).as_ptr(),
                     cstr(&spec.buttons_joined()).as_ptr(),
                     cstr(&spec.roles_joined()).as_ptr(),
-                    self.window,
+                    parent,
                 )
             },
             PresentSpec::Prompt {
@@ -1646,7 +1708,7 @@ impl Toolkit for Qt {
                     cstr(initial).as_ptr(),
                     cstr(ok).as_ptr(),
                     cstr(cancel).as_ptr(),
-                    self.window,
+                    parent,
                 )
             },
             PresentSpec::OpenFile { .. } => unsafe {
@@ -1654,7 +1716,7 @@ impl Toolkit for Qt {
                     req,
                     cstr(spec.title()).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
-                    self.window,
+                    parent,
                 )
             },
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
@@ -1664,7 +1726,7 @@ impl Toolkit for Qt {
                     cstr(spec.title()).as_ptr(),
                     cstr(suggested_name).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
-                    self.window,
+                    parent,
                 )
             },
         }
@@ -1777,16 +1839,67 @@ impl Toolkit for Qt {
         if self.window.is_null() {
             return Err("no window".into());
         }
-        let path = std::env::temp_dir().join(format!("day-qt-snap-{}.png", std::process::id()));
-        let cpath = cstr(path.to_str().unwrap_or("/tmp/day-qt-snap.png"));
-        let rc = unsafe { ffi::day_qt_snapshot_png(self.window, cpath.as_ptr()) };
-        if rc != 0 {
-            return Err("grab failed".into());
-        }
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_file(&path);
-        Ok(bytes)
+        snapshot_qt_widget(self.window)
     }
+
+    fn snapshot_window_of(&mut self, host: &QtHandle) -> Result<Vec<u8>, String> {
+        snapshot_qt_widget(host.0)
+    }
+
+    fn open_window(
+        &mut self,
+        id: NodeId,
+        options: &WindowOptions,
+        kind: day_spec::WindowKind,
+    ) -> day_spec::WindowOpenReply<QtHandle> {
+        let fixed = (kind == day_spec::WindowKind::Preferences) as c_int;
+        let win = unsafe {
+            ffi::day_qt_window_new2(
+                cstr(&options.title).as_ptr(),
+                options.size.width as c_int,
+                options.size.height as c_int,
+                id.0,
+                fixed,
+            )
+        };
+        unsafe { ffi::day_qt_window_show(win) };
+        let content = unsafe { ffi::day_qt_window_content(win) };
+        self.secondary.push(QtWin { win, content });
+        day_spec::WindowOpenReply::Open(QtHandle(content))
+    }
+
+    fn close_window(&mut self, host: &QtHandle) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            // closeEvent confirms with WindowClosed; the window HIDES — destruction is
+            // anchored to day-core releasing the content handle (`release`, below).
+            unsafe { ffi::day_qt_window_close(w.win) };
+        }
+    }
+
+    fn focus_window(&mut self, host: &QtHandle) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            unsafe { ffi::day_qt_window_raise(w.win) };
+        }
+    }
+
+    fn set_window_title(&mut self, host: &QtHandle, title: &str) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            unsafe { ffi::day_qt_window_set_title(w.win, cstr(title).as_ptr()) };
+        }
+    }
+}
+
+/// Grab any widget to PNG through the shim (the dayscript screenshot seam).
+fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
+    let path = std::env::temp_dir().join(format!("day-qt-snap-{}.png", std::process::id()));
+    let cpath = cstr(path.to_str().unwrap_or("/tmp/day-qt-snap.png"));
+    let rc = unsafe { ffi::day_qt_snapshot_png(widget, cpath.as_ptr()) };
+    if rc != 0 {
+        return Err("grab failed".into());
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&path);
+    Ok(bytes)
 }
 
 extern "C" fn run_posted(data: *mut c_void) {
@@ -1838,6 +1951,7 @@ impl Platform for Qt {
             ffi::day_qt_set_lifecycle_cb(on_lifecycle);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
+            ffi::day_qt_set_window_events_cb(win_resized, win_closed, win_focused);
             ffi::day_qt_window_show(window);
             ffi::day_qt_app_run(app);
         }

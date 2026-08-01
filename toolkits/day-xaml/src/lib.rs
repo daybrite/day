@@ -416,9 +416,17 @@ fn progress_ticks(fraction: f64) -> c_int {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Xaml>];
 
+/// A live secondary window (docs/windows.md): the shim's SecWindow plus the day content
+/// root the tree adopted.
+struct XamlWin {
+    win: *mut c_void,
+    content: *mut c_void,
+}
+
 pub struct Xaml {
     registry: Registry<Xaml>,
     window: *mut c_void,
+    secondary: Vec<XamlWin>,
 }
 
 impl Xaml {
@@ -437,6 +445,7 @@ impl Xaml {
         Xaml {
             registry,
             window: std::ptr::null_mut(),
+            secondary: Vec::new(),
         }
     }
 }
@@ -794,6 +803,8 @@ impl Toolkit for Xaml {
             // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
             // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
             Cap::ListReorder => Support::Native,
+            // A second Win32 host + its own XAML island per window (docs/windows.md).
+            Cap::MultiWindow => Support::Native,
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
@@ -1280,6 +1291,16 @@ impl Toolkit for Xaml {
     }
 
     fn release(&mut self, h: WinHandle) {
+        // A released window content = that window is gone (docs/windows.md teardown): NOW
+        // destroy the whole secondary window, never before (child releases come first).
+        self.secondary.retain(|w| {
+            if w.content == h.0 {
+                unsafe { ffi::day_xaml_window_destroy2(w.win) };
+                false
+            } else {
+                true
+            }
+        });
         let key = h.0 as usize;
         TABS_STATE.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
@@ -1712,6 +1733,52 @@ impl Toolkit for Xaml {
         };
     }
 
+    fn open_window(
+        &mut self,
+        id: NodeId,
+        options: &WindowOptions,
+        kind: day_spec::WindowKind,
+    ) -> day_spec::WindowOpenReply<WinHandle> {
+        let fixed = (kind == day_spec::WindowKind::Preferences) as c_int;
+        let win = unsafe {
+            ffi::day_xaml_window_new2(
+                cstr(&options.title).as_ptr(),
+                options.size.width as c_int,
+                options.size.height as c_int,
+                id.0,
+                fixed,
+            )
+        };
+        if win.is_null() {
+            return day_spec::WindowOpenReply::Unsupported;
+        }
+        let content = unsafe { ffi::day_xaml_window_content2(win) };
+        self.secondary.push(XamlWin { win, content });
+        day_spec::WindowOpenReply::Open(WinHandle(content))
+    }
+
+    fn close_window(&mut self, host: &WinHandle) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            unsafe { ffi::day_xaml_window_close2(w.win) };
+        }
+    }
+
+    fn focus_window(&mut self, host: &WinHandle) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            unsafe { ffi::day_xaml_window_raise2(w.win) };
+        }
+    }
+
+    fn set_window_title(&mut self, host: &WinHandle, title: &str) {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            unsafe { ffi::day_xaml_window_set_title2(w.win, cstr(title).as_ptr()) };
+        }
+    }
+
+    // `snapshot_window_of` keeps the default (primary capture): a per-SecWindow
+    // RenderTargetBitmap is a follow-up — dayscript `window:` screenshots on xaml show the
+    // primary meanwhile (docs/windows.md).
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());
@@ -1763,6 +1830,21 @@ fn image_uri(source: &str) -> String {
         Some(p) => p.to_string_lossy().into_owned(),
         None => String::new(),
     }
+}
+
+// Secondary-window event trampolines (docs/windows.md); px == points (the v1 100%-scale
+// convention, same as `window_resized`).
+extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
+    emit(
+        day_spec::NodeId(node),
+        Event::WindowResized(Size::new(w as f64, h as f64)),
+    );
+}
+extern "C" fn win_closed(node: u64) {
+    emit(day_spec::NodeId(node), Event::WindowClosed);
+}
+extern "C" fn win_focused(node: u64, active: c_int) {
+    emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
 }
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
@@ -1889,6 +1971,7 @@ impl Platform for Xaml {
             let root = ffi::day_xaml_window_root(win);
             ready(self, WinHandle(root), options.size);
             ffi::day_xaml_window_on_resize(win, window_resized);
+            ffi::day_xaml_set_window_events_cb(win_resized, win_closed, win_focused);
             ffi::day_xaml_window_show(win);
             ffi::day_xaml_run(win);
         }

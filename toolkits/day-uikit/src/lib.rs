@@ -53,7 +53,7 @@ mod imp {
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
         UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIModalPresentationStyle,
-        UIProgressView, UIRectEdge, UIScreen, UIScrollView, UISlider, UISwitch, UITextBorderStyle,
+        UIProgressView, UIRectEdge, UIScrollView, UISlider, UISwitch, UITextBorderStyle,
         UITextField, UIView, UIViewAnimationOptions, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
@@ -114,7 +114,139 @@ mod imp {
         #[allow(clippy::type_complexity)]
         static FRAME: RefCell<(Option<Retained<CADisplayLink>>, Option<Box<dyn FnOnce(f64)>>)> =
             RefCell::new((None, None));
+        /// Connected scenes' windowing state (docs/windows.md). The PRIMARY scene also
+        /// mirrors into WINDOW/ROOT_VIEW/ROOT_BASE_FRAME above (every single-window code
+        /// path keeps reading those); secondary day windows are registry-only.
+        static SCENES: RefCell<Vec<SceneEntry>> = const { RefCell::new(Vec::new()) };
+        /// Secondary opens in flight: the day root node ids handed to
+        /// `requestSceneSessionActivation`, awaiting their scene's willConnect.
+        static PENDING_WINDOWS: RefCell<Vec<(NodeId, String)>> = const { RefCell::new(Vec::new()) };
+        /// App-level lifecycle debounce across scenes: whether any scene was
+        /// foreground-active / any scene was foregrounded at the last recompute.
+        static ANY_SCENE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+        static ANY_SCENE_FOREGROUND: Cell<bool> = const { Cell::new(false) };
     }
+
+    /// One connected scene's windowing state.
+    struct SceneEntry {
+        window: Retained<UIWindow>,
+        root_view: Retained<UIView>,
+        base_frame: Cell<CGRect>,
+        /// `None` = the primary scene; `Some` = a secondary day window's root node.
+        node: Option<NodeId>,
+    }
+
+    /// The KEY window's scene entry applied to `f` — keyboard avoidance and modal
+    /// presentation act on whichever Day window is key; primary statics are the fallback.
+    fn with_key_scene<R>(f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        SCENES.with(|s| {
+            let scenes = s.borrow();
+            let key = scenes
+                .iter()
+                .find(|e| e.window.isKeyWindow())
+                .or_else(|| scenes.iter().find(|e| e.node.is_none()));
+            key.map(f)
+        })
+    }
+
+    /// The root node id the keyboard/resize rail should report against for the key window:
+    /// a secondary's own root, or `WINDOW_NODE` for the primary.
+    fn key_scene_target(entry: &SceneEntry) -> NodeId {
+        entry.node.unwrap_or(WINDOW_NODE)
+    }
+
+    /// Build one Day window into `scene`: UIWindow + DayRootVC + DayHolderView + the
+    /// safe-area-inset day root — the construction `didFinishLaunching` used to own,
+    /// factored so every scene (primary and secondary) gets identical chrome.
+    fn build_scene_window(
+        mtm: MainThreadMarker,
+        scene: &objc2_ui_kit::UIWindowScene,
+    ) -> (Retained<UIWindow>, Retained<UIView>, CGRect) {
+        let bounds = scene.screen().bounds();
+        let window = unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene) };
+        let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
+        let holder = DayHolderView::new(mtm);
+        unsafe { holder.setFrame(bounds) };
+        let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+        // RTL locales (docs/localization): force the semantic content attribute on the
+        // window AND the day content roots — see the module docs.
+        if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+            let rtl = objc2_ui_kit::UISemanticContentAttribute::ForceRightToLeft;
+            window.setSemanticContentAttribute(rtl);
+            holder.setSemanticContentAttribute(rtl);
+            root_view.setSemanticContentAttribute(rtl);
+        }
+        // DAY_THEME=light|dark forces the interface style window-wide (themed CI runs).
+        if let Ok(theme) = std::env::var("DAY_THEME") {
+            let style = match theme.as_str() {
+                "dark" => Some(objc2_ui_kit::UIUserInterfaceStyle::Dark),
+                "light" => Some(objc2_ui_kit::UIUserInterfaceStyle::Light),
+                _ => None,
+            };
+            if let Some(style) = style {
+                unsafe { window.setOverrideUserInterfaceStyle(style) };
+            }
+        }
+        unsafe {
+            holder.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+            holder.addSubview(&root_view);
+            vc.setView(Some(&holder));
+            window.setRootViewController(Some(&vc));
+            window.makeKeyAndVisible();
+        }
+        // Safe area as root padding (§7.7): valid once the window is key.
+        let insets = unsafe { window.safeAreaInsets() };
+        let inner = CGRect::new(
+            CGPoint::new(insets.left, insets.top),
+            CGSize::new(
+                bounds.size.width - insets.left - insets.right,
+                bounds.size.height - insets.top - insets.bottom,
+            ),
+        );
+        unsafe { root_view.setFrame(inner) };
+        (window, root_view, inner)
+    }
+
+    /// Recompute the app-level lifecycle from ALL scenes (docs/windows.md): scene phases
+    /// replace the app-delegate callbacks under the scene lifecycle, and focus moving
+    /// between two Day windows must not read as an app-level resign/become (the same
+    /// debounce day-gtk applies). Emits only on a real transition.
+    fn note_scene_lifecycle_changed(mtm: MainThreadMarker) {
+        use objc2_ui_kit::UISceneActivationState as S;
+        let app = UIApplication::sharedApplication(mtm);
+        let mut any_active = false;
+        let mut any_foreground = false;
+        for scene in unsafe { app.connectedScenes() } {
+            match unsafe { scene.activationState() } {
+                S::ForegroundActive => {
+                    any_active = true;
+                    any_foreground = true;
+                }
+                S::ForegroundInactive => any_foreground = true,
+                _ => {}
+            }
+        }
+        if ANY_SCENE_FOREGROUND.with(|c| c.replace(any_foreground)) != any_foreground {
+            let phase = if any_foreground {
+                day_spec::Lifecycle::WillEnterForeground
+            } else {
+                day_spec::Lifecycle::DidEnterBackground
+            };
+            emit(WINDOW_NODE, Event::Lifecycle(phase));
+        }
+        if ANY_SCENE_ACTIVE.with(|c| c.replace(any_active)) != any_active {
+            let phase = if any_active {
+                day_spec::Lifecycle::DidBecomeActive
+            } else {
+                day_spec::Lifecycle::WillResignActive
+            };
+            emit(WINDOW_NODE, Event::Lifecycle(phase));
+        }
+    }
+
+    /// The activity type a secondary-window scene request carries; its userInfo holds the
+    /// day root node id under `day.node` (docs/windows.md).
+    const DAY_WINDOW_ACTIVITY: &str = "dev.daybrite.day.window";
 
     /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
     /// (keyboard avoidance, docs/focus.md). Runs a turn AFTER the keyboard-driven root resize
@@ -405,6 +537,7 @@ mod imp {
             Minimize => "Minimize",
             CloseWindow => "Close",
             Fullscreen => "Full Screen",
+            NewWindow => "New Window",
         }
     }
 
@@ -2048,6 +2181,16 @@ mod imp {
                 // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
                 | Cap::ListReorder
                 | Cap::Appearance => Support::Native,
+                // Real UIScenes on iPad (docs/windows.md); iPhone shows one scene, so the
+                // cover fallback is the honest answer there.
+                Cap::MultiWindow => {
+                    let app = UIApplication::sharedApplication(mtm());
+                    if unsafe { app.supportsMultipleScenes() } {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
                 _ => Support::Unsupported,
             }
         }
@@ -2813,6 +2956,9 @@ mod imp {
         }
 
         fn release(&mut self, h: Handle) {
+            // Backstop for a released window root whose scene never disconnected
+            // (docs/windows.md — disconnect normally prunes first).
+            SCENES.with(|s| s.borrow_mut().retain(|e| !std::ptr::eq(&*e.root_view, &*h)));
             TARGETS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -3167,6 +3313,105 @@ mod imp {
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             Err("use `simctl io booted screenshot` (device-level capture) on ios-uikit".into())
+        }
+
+        fn open_window(
+            &mut self,
+            id: NodeId,
+            options: &day_spec::WindowOptions,
+            kind: day_spec::WindowKind,
+        ) -> day_spec::WindowOpenReply<Handle> {
+            let m = mtm();
+            let app = UIApplication::sharedApplication(m);
+            // iPhone (single visible scene) — and the Preferences kind everywhere on
+            // mobile, where settings are modal, not a detached window (docs/windows.md).
+            if !unsafe { app.supportsMultipleScenes() } || kind == day_spec::WindowKind::Preferences
+            {
+                return day_spec::WindowOpenReply::Unsupported;
+            }
+            // Ask UIKit for a new scene; its willConnect completes the open through
+            // `finish_window_open` (the Pending path).
+            use objc2::AnyThread as _;
+            let activity = unsafe {
+                objc2_foundation::NSUserActivity::initWithActivityType(
+                    objc2_foundation::NSUserActivity::alloc(),
+                    &NSString::from_str(DAY_WINDOW_ACTIVITY),
+                )
+            };
+            let key = NSString::from_str("day.node");
+            let num = objc2_foundation::NSNumber::new_u64(id.0);
+            let obj: Retained<AnyObject> = num.into_super().into_super().into();
+            let dict: Retained<objc2_foundation::NSDictionary<NSString, AnyObject>> =
+                objc2_foundation::NSDictionary::from_retained_objects(&[&*key], &[obj]);
+            // The API takes the untyped dictionary; the typed one IS that object.
+            let untyped =
+                unsafe { &*(Retained::as_ptr(&dict) as *const objc2_foundation::NSDictionary) };
+            unsafe { activity.addUserInfoEntriesFromDictionary(untyped) };
+            // The non-deprecated activateSceneSessionForRequest: needs iOS 17; this form
+            // covers the whole deployment range.
+            #[allow(deprecated)]
+            unsafe {
+                app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                    None,
+                    Some(&activity),
+                    None,
+                    None,
+                );
+            }
+            PENDING_WINDOWS.with(|p| p.borrow_mut().push((id, options.title.clone())));
+            day_spec::WindowOpenReply::Pending
+        }
+
+        fn close_window(&mut self, host: &Handle) {
+            let m = mtm();
+            let session = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                    .map(|ws| unsafe { ws.session() })
+            });
+            if let Some(session) = session {
+                request_scene_destruction(m, &session);
+            }
+        }
+
+        fn focus_window(&mut self, host: &Handle) {
+            let m = mtm();
+            let app = UIApplication::sharedApplication(m);
+            let session = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                    .map(|ws| unsafe { ws.session() })
+            });
+            if let Some(session) = session {
+                // See open_window: the deprecated form covers pre-iOS-17 deployment.
+                #[allow(deprecated)]
+                unsafe {
+                    app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                        Some(&session),
+                        None,
+                        None,
+                        None,
+                    );
+                }
+            }
+        }
+
+        fn set_window_title(&mut self, host: &Handle, title: &str) {
+            // Shown in the iPad app switcher / multitasking UI.
+            SCENES.with(|s| {
+                if let Some(ws) = s
+                    .borrow()
+                    .iter()
+                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .and_then(|e| e.window.windowScene())
+                {
+                    unsafe { ws.setTitle(Some(&NSString::from_str(title))) };
+                }
+            });
         }
 
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -3778,69 +4023,14 @@ mod imp {
                 WINDOW.with(|w| *w.borrow_mut() = retained);
             }
 
-            // Classic (pre-UIScene) window setup: fine for Day's single-window shell.
-            #[allow(deprecated)]
+            // Scene-based lifecycle (docs/windows.md): the window is built by
+            // DaySceneDelegate when the (primary) scene connects; launching only arms the
+            // app-level observers that stay app-scoped under scenes.
             #[unsafe(method(application:didFinishLaunchingWithOptions:))]
             fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
-                let mtm = MainThreadMarker::new().unwrap();
-                let bounds = UIScreen::mainScreen(mtm).bounds();
-                let window = unsafe { UIWindow::initWithFrame(UIWindow::alloc(mtm), bounds) };
-                // A DayRootVC (not a plain UIViewController) so `defers_system_gestures`
-                // reaches the window root's screen-edge override (docs/cover.md).
-                let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
-                // A DayHolderView (not a plain UIView): its layout pass is the rotation /
-                // size-change rail that re-pins the day root and emits WindowResized.
-                let holder = DayHolderView::new(mtm);
-                unsafe { holder.setFrame(bounds) };
-                let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
-                // RTL locales (docs/localization): force the semantic content attribute on
-                // the window AND the day content roots — descendants left at `.unspecified`
-                // resolve their effective direction through the hierarchy, so native controls
-                // (slider fill), the nav bar (back chevron side), and system transitions
-                // mirror; Day's own frames mirror in the layout engine.
-                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
-                    let rtl = objc2_ui_kit::UISemanticContentAttribute::ForceRightToLeft;
-                    window.setSemanticContentAttribute(rtl);
-                    holder.setSemanticContentAttribute(rtl);
-                    root_view.setSemanticContentAttribute(rtl);
-                }
-                // DAY_THEME=light|dark forces the interface style window-wide (themed CI
-                // screenshot runs; `day launch --env` reaches the sim app's environment);
-                // unset ⇒ follow the system.
-                if let Ok(theme) = std::env::var("DAY_THEME") {
-                    let style = match theme.as_str() {
-                        "dark" => Some(objc2_ui_kit::UIUserInterfaceStyle::Dark),
-                        "light" => Some(objc2_ui_kit::UIUserInterfaceStyle::Light),
-                        _ => None,
-                    };
-                    if let Some(style) = style {
-                        unsafe { window.setOverrideUserInterfaceStyle(style) };
-                    }
-                }
-                unsafe {
-                    holder.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
-                    holder.addSubview(&root_view);
-                    vc.setView(Some(&holder));
-                    window.setRootViewController(Some(&vc));
-                    window.makeKeyAndVisible();
-                }
-                WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
-
-                // Safe area as root padding (§7.7 MVP): valid once the window is key.
-                let insets = unsafe { window.safeAreaInsets() };
-                let inner = CGRect::new(
-                    CGPoint::new(insets.left, insets.top),
-                    CGSize::new(
-                        bounds.size.width - insets.left - insets.right,
-                        bounds.size.height - insets.top - insets.bottom,
-                    ),
-                );
-                unsafe { root_view.setFrame(inner) };
-                ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
-                ROOT_BASE_FRAME.with(|f| f.set(inner));
-                // Keyboard avoidance (docs/focus.md): shrink the root to the keyboard's top and
-                // let the WindowResized rail relayout Day — the same shape as Android's
-                // IME-inset margins. WillChangeFrame covers show, hide, and height changes.
+                // Keyboard avoidance (docs/focus.md): one app-level observer; the handler
+                // resolves the KEY window's scene, so it follows whichever Day window the
+                // field lives in. WillChangeFrame covers show, hide, and height changes.
                 unsafe {
                     objc2_foundation::NSNotificationCenter::defaultCenter()
                         .addObserver_selector_name_object(
@@ -3850,13 +4040,27 @@ mod imp {
                             None,
                         )
                 };
-
-                let (backend, _options, ready) = PENDING
-                    .with(|p| p.borrow_mut().take())
-                    .expect("day-uikit: run() not called");
-                let size = Size::new(inner.size.width, inner.size.height);
-                ready(backend, view_of(root_view), size);
                 true
+            }
+
+            // Every connecting scene — the primary at launch, each secondary day window
+            // (docs/windows.md), and any system-restored session — runs DaySceneDelegate.
+            #[unsafe(method_id(application:configurationForConnectingSceneSession:options:))]
+            fn configuration_for_scene(
+                &self,
+                _app: &UIApplication,
+                session: &objc2_ui_kit::UISceneSession,
+                _options: &objc2_ui_kit::UISceneConnectionOptions,
+            ) -> Retained<objc2_ui_kit::UISceneConfiguration> {
+                use objc2::ClassType as _;
+                let role = unsafe { session.role() };
+                let config = objc2_ui_kit::UISceneConfiguration::configurationWithName_sessionRole(
+                    None,
+                    &role,
+                    self.mtm(),
+                );
+                unsafe { config.setDelegateClass(Some(DaySceneDelegate::class())) };
+                config
             }
 
             // Custom-scheme deep link (docs/navigation.md): route = URL host + path,
@@ -3883,35 +4087,10 @@ mod imp {
                 }
             }
 
-            // Lifecycle (docs/lifecycle.md): the full iOS app lifecycle, mapped 1:1 to day phases.
-            #[unsafe(method(applicationDidBecomeActive:))]
-            fn did_become_active(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::DidBecomeActive),
-                );
-            }
-            #[unsafe(method(applicationWillResignActive:))]
-            fn will_resign_active(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::WillResignActive),
-                );
-            }
-            #[unsafe(method(applicationWillEnterForeground:))]
-            fn will_enter_foreground(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::WillEnterForeground),
-                );
-            }
-            #[unsafe(method(applicationDidEnterBackground:))]
-            fn did_enter_background(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::DidEnterBackground),
-                );
-            }
+            // Lifecycle (docs/lifecycle.md): under the scene lifecycle the activation and
+            // foreground phases are SCENE events — DaySceneDelegate derives the app-level
+            // day phases from all scenes (debounced, docs/windows.md). Memory warnings and
+            // termination stay app-scoped and keep arriving here.
             #[unsafe(method(applicationDidReceiveMemoryWarning:))]
             fn did_receive_memory_warning(&self, _app: &UIApplication) {
                 emit(
@@ -3935,7 +4114,11 @@ mod imp {
             /// (screen coords), tell Day the root resized, then reveal the focused field.
             #[unsafe(method(keyboardWillChange:))]
             fn keyboard_will_change(&self, notification: &objc2_foundation::NSNotification) {
-                let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
+                // The KEY window's scene (docs/windows.md): the keyboard belongs to
+                // whichever Day window holds the focused field.
+                let Some((root, base, target)) = with_key_scene(|e| {
+                    (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
+                }) else {
                     return;
                 };
                 let Some(info) = (unsafe { notification.userInfo() }) else {
@@ -3949,7 +4132,6 @@ mod imp {
                 };
                 use objc2_ui_kit::NSValueUIGeometryExtensions;
                 let kb = unsafe { val.CGRectValue() };
-                let base = ROOT_BASE_FRAME.with(|f| f.get());
                 // The holder fills the window, so the root's frame is in window == screen
                 // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
                 let base_bottom = base.origin.y + base.size.height;
@@ -3962,7 +4144,7 @@ mod imp {
                 if unsafe { root.frame() }.size.height != new_h {
                     unsafe { root.setFrame(f) };
                     emit(
-                        WINDOW_NODE,
+                        target,
                         Event::WindowResized(Size::new(f.size.width, f.size.height)),
                     );
                 }
@@ -3972,6 +4154,168 @@ mod imp {
             }
         }
     );
+
+    // -----------------------------------------------------------------------------------
+    // DaySceneDelegate — every scene's window lifecycle (docs/windows.md). The PRIMARY
+    // scene (the one consuming the parked `run` payload) mounts the day tree exactly as
+    // the pre-scene app delegate did; a SECONDARY scene completes a pending
+    // `day::open_window` through `finish_window_open`, or — when the record is gone or the
+    // session is a stale restoration — asks the system to destroy itself.
+    // -----------------------------------------------------------------------------------
+
+    use objc2_ui_kit::UISceneDelegate;
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySceneDelegate"]
+        #[ivars = ()]
+        struct DaySceneDelegate;
+
+        unsafe impl NSObjectProtocol for DaySceneDelegate {}
+
+        unsafe impl UISceneDelegate for DaySceneDelegate {
+            #[unsafe(method(scene:willConnectToSession:options:))]
+            fn scene_will_connect(
+                &self,
+                scene: &objc2_ui_kit::UIScene,
+                session: &objc2_ui_kit::UISceneSession,
+                options: &objc2_ui_kit::UISceneConnectionOptions,
+            ) {
+                let mtm = self.mtm();
+                let Some(win_scene) = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>() else {
+                    return;
+                };
+                // Secondary day window? The request's NSUserActivity names the root node.
+                let node = scene_activity_node(options);
+                if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
+                    // The primary scene: build the window and mount the day tree.
+                    let (window, root_view, inner) = build_scene_window(mtm, win_scene);
+                    WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
+                    ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
+                    ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    SCENES.with(|s| {
+                        s.borrow_mut().push(SceneEntry {
+                            window,
+                            root_view: root_view.clone(),
+                            base_frame: Cell::new(inner),
+                            node: None,
+                        })
+                    });
+                    let (backend, _options, ready) = PENDING
+                        .with(|p| p.borrow_mut().take())
+                        .expect("day-uikit: run() not called");
+                    let size = Size::new(inner.size.width, inner.size.height);
+                    ready(backend, view_of(root_view), size);
+                    return;
+                }
+                let Some(node) = node else {
+                    // A restored session from a previous run: nothing to mount behind it.
+                    request_scene_destruction(mtm, session);
+                    return;
+                };
+                PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
+                let (window, root_view, inner) = build_scene_window(mtm, win_scene);
+                let size = Size::new(inner.size.width, inner.size.height);
+                let raw =
+                    Retained::as_ptr(&root_view) as *mut std::ffi::c_void as day_spec::RawHandle;
+                SCENES.with(|s| {
+                    s.borrow_mut().push(SceneEntry {
+                        window,
+                        root_view: root_view.clone(),
+                        base_frame: Cell::new(inner),
+                        node: Some(node),
+                    })
+                });
+                // Keep the adopted root alive for the entry's lifetime; the tree holds the
+                // other retain through `Toolkit::adopt`.
+                if !day_core::finish_window_open(node, raw, size) {
+                    // Closed before the scene connected — drop the scene again.
+                    SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                    request_scene_destruction(mtm, session);
+                }
+            }
+
+            #[unsafe(method(sceneDidDisconnect:))]
+            fn scene_did_disconnect(&self, scene: &objc2_ui_kit::UIScene) {
+                let mtm = self.mtm();
+                if let Some(node) = scene_entry_node_for(scene) {
+                    SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                    // The platform committed the close (app-switcher swipe or our
+                    // destruction request): day-core tears the subtree down on receipt.
+                    emit(node, Event::WindowClosed);
+                }
+                note_scene_lifecycle_changed(mtm);
+            }
+
+            #[unsafe(method(sceneDidBecomeActive:))]
+            fn scene_did_become_active(&self, scene: &objc2_ui_kit::UIScene) {
+                let mtm = self.mtm();
+                if let Some(node) = scene_entry_node_for(scene) {
+                    emit(node, Event::WindowFocused(true));
+                }
+                note_scene_lifecycle_changed(mtm);
+            }
+
+            #[unsafe(method(sceneWillResignActive:))]
+            fn scene_will_resign_active(&self, scene: &objc2_ui_kit::UIScene) {
+                let mtm = self.mtm();
+                if let Some(node) = scene_entry_node_for(scene) {
+                    emit(node, Event::WindowFocused(false));
+                }
+                note_scene_lifecycle_changed(mtm);
+            }
+
+            #[unsafe(method(sceneWillEnterForeground:))]
+            fn scene_will_enter_foreground(&self, _scene: &objc2_ui_kit::UIScene) {
+                note_scene_lifecycle_changed(self.mtm());
+            }
+
+            #[unsafe(method(sceneDidEnterBackground:))]
+            fn scene_did_enter_background(&self, _scene: &objc2_ui_kit::UIScene) {
+                note_scene_lifecycle_changed(self.mtm());
+            }
+        }
+    );
+
+    /// The day root node a secondary-scene connection carries (`DAY_WINDOW_ACTIVITY`
+    /// userActivity, `day.node` userInfo), if any.
+    fn scene_activity_node(options: &objc2_ui_kit::UISceneConnectionOptions) -> Option<NodeId> {
+        for activity in unsafe { options.userActivities() } {
+            if unsafe { activity.activityType() }.to_string() == DAY_WINDOW_ACTIVITY
+                && let Some(info) = unsafe { activity.userInfo() }
+                && let Some(num) = info
+                    .objectForKey(&*objc2_foundation::NSString::from_str("day.node"))
+                    .and_then(|o| o.downcast::<objc2_foundation::NSNumber>().ok())
+            {
+                return Some(NodeId(num.as_u64()));
+            }
+        }
+        None
+    }
+
+    /// The registry node of the scene owning this window, if it is a secondary day window.
+    fn scene_entry_node_for(scene: &objc2_ui_kit::UIScene) -> Option<NodeId> {
+        let win_scene = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>()?;
+        SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .find(|e| {
+                    e.window
+                        .windowScene()
+                        .is_some_and(|ws| std::ptr::eq(&*ws, win_scene))
+                })
+                .and_then(|e| e.node)
+        })
+    }
+
+    /// Ask the system to drop a scene session (no undo UI, no animation preference).
+    fn request_scene_destruction(mtm: MainThreadMarker, session: &objc2_ui_kit::UISceneSession) {
+        let app = UIApplication::sharedApplication(mtm);
+        unsafe {
+            app.requestSceneSessionDestruction_options_errorHandler(session, None, None);
+        }
+    }
 
     /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md), including the background,
     /// foreground, and memory-warning phases desktops lack. `const` for `day::require_lifecycle!`.

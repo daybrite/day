@@ -57,6 +57,22 @@ pub struct MockWidget {
     pub last_anim: Option<AnimSpec>,
 }
 
+/// A secondary window opened through the `open_window` duty (docs/windows.md) —
+/// probe-visible for the seam tests.
+#[derive(Clone, Debug)]
+pub struct MockWindow {
+    /// The content-container widget handle.
+    pub handle: u64,
+    /// The window root's spec-boundary id (events emit to it).
+    pub node: NodeId,
+    pub title: String,
+    pub size: Size,
+    /// `"normal"` | `"preferences"`.
+    pub kind: String,
+    pub open: bool,
+    pub focused: bool,
+}
+
 #[derive(Default)]
 pub struct MockState {
     next: u64,
@@ -72,6 +88,15 @@ pub struct MockState {
     pub app_menu: Vec<String>,
     /// Context menus by widget handle (docs/menus.md) — item titles per handle.
     pub context_menus: HashMap<u64, Vec<String>>,
+    /// Secondary windows (docs/windows.md), in open order — probe-visible.
+    pub windows: Vec<MockWindow>,
+    /// `open_window` answers `Unsupported` (the cover-fallback test harness).
+    pub no_multi_window: bool,
+    /// `open_window` answers `Pending` (the async-completion test harness); the test
+    /// finishes the open through [`MockProbe::complete_window`].
+    pub pending_windows: bool,
+    /// Parked `Pending` opens: (node, title, kind).
+    pub pending_opens: Vec<(NodeId, String, String)>,
 }
 
 impl MockState {
@@ -226,6 +251,80 @@ impl MockProbe {
         }
     }
 
+    // --- secondary windows (docs/windows.md) -------------------------------------------
+
+    /// The secondary windows opened so far (closed ones stay listed with `open: false`).
+    pub fn windows(&self) -> Vec<MockWindow> {
+        self.state.borrow().windows.clone()
+    }
+
+    /// Make `open_window` answer `Unsupported` — the cover-fallback test harness.
+    pub fn set_no_multi_window(&self, v: bool) {
+        self.state.borrow_mut().no_multi_window = v;
+    }
+
+    /// Make `open_window` answer `Pending` — the async-completion test harness. Finish an
+    /// open with [`Self::complete_window`] + `day_core::finish_window_open`.
+    pub fn set_pending_windows(&self, v: bool) {
+        self.state.borrow_mut().pending_windows = v;
+    }
+
+    /// Materialize the parked `Pending` open for `node`: registers the content-container
+    /// widget + window record (as the native side finishing creation would) and returns
+    /// the raw handle to pass to `day_core::finish_window_open`. `None` = no such pending
+    /// open.
+    pub fn complete_window(&self, node: NodeId, size: Size) -> Option<day_spec::RawHandle> {
+        let mut s = self.state.borrow_mut();
+        let i = s.pending_opens.iter().position(|(n, _, _)| *n == node)?;
+        let (node, title, kind) = s.pending_opens.remove(i);
+        s.next += 1;
+        let h = s.next;
+        s.widgets.insert(
+            h,
+            MockWidget {
+                kind: kinds::CONTAINER,
+                node: node.0,
+                enabled: true,
+                ..Default::default()
+            },
+        );
+        s.windows.push(MockWindow {
+            handle: h,
+            node,
+            title,
+            size,
+            kind,
+            open: true,
+            focused: false,
+        });
+        s.log(format!("window_ready #{h} {}", fmt_size(size)));
+        Some(h as day_spec::RawHandle)
+    }
+
+    /// Resize a secondary window (as a native drag would): updates the record and reports
+    /// `WindowResized` to the window's root.
+    pub fn resize_window(&self, node: NodeId, size: Size) {
+        {
+            let mut s = self.state.borrow_mut();
+            if let Some(w) = s.windows.iter_mut().find(|w| w.node == node) {
+                w.size = size;
+            }
+        }
+        self.emit(node, Event::WindowResized(size));
+    }
+
+    /// Close a secondary window from the native side (the title-bar path): marks it closed
+    /// and reports `WindowClosed` to the window's root.
+    pub fn close_window_natively(&self, node: NodeId) {
+        {
+            let mut s = self.state.borrow_mut();
+            if let Some(w) = s.windows.iter_mut().find(|w| w.node == node) {
+                w.open = false;
+            }
+        }
+        self.emit(node, Event::WindowClosed);
+    }
+
     /// The current op-log length — pair with [`Self::log_since`] to scope assertions.
     pub fn log_len(&self) -> usize {
         self.state.borrow().log.len()
@@ -274,6 +373,14 @@ impl Toolkit for MockToolkit {
             Cap::Cover => Support::Native,
             // The probe drives the whole guard → commit reorder seam (`list_can_move`/`list_move`).
             Cap::ListReorder => Support::Native,
+            // Real (recorded) windows unless the test opted into the cover-fallback tier.
+            Cap::MultiWindow => {
+                if self.state.borrow().no_multi_window {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
             _ => Support::Unsupported,
         }
     }
@@ -794,6 +901,115 @@ impl Toolkit for MockToolkit {
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Ok(vec![0x89, b'P', b'N', b'G'])
+    }
+
+    fn open_window(
+        &mut self,
+        id: NodeId,
+        options: &day_spec::WindowOptions,
+        kind: day_spec::WindowKind,
+    ) -> day_spec::WindowOpenReply<MockHandle> {
+        let kind_s = match kind {
+            day_spec::WindowKind::Normal => "normal",
+            day_spec::WindowKind::Preferences => "preferences",
+        };
+        let mut s = self.state.borrow_mut();
+        if s.no_multi_window {
+            s.log(format!("open_window unsupported kind={kind_s}"));
+            return day_spec::WindowOpenReply::Unsupported;
+        }
+        if s.pending_windows {
+            s.log(format!("open_window pending {:?} kind={kind_s}", id.0));
+            s.pending_opens
+                .push((id, options.title.clone(), kind_s.into()));
+            return day_spec::WindowOpenReply::Pending;
+        }
+        s.next += 1;
+        let h = s.next;
+        s.widgets.insert(
+            h,
+            MockWidget {
+                kind: kinds::CONTAINER,
+                node: id.0,
+                enabled: true,
+                ..Default::default()
+            },
+        );
+        s.windows.push(MockWindow {
+            handle: h,
+            node: id,
+            title: options.title.clone(),
+            size: options.size,
+            kind: kind_s.into(),
+            open: true,
+            focused: false,
+        });
+        s.log(format!(
+            "open_window #{h} {:?} {} kind={kind_s}",
+            options.title,
+            fmt_size(options.size)
+        ));
+        day_spec::WindowOpenReply::Open(MockHandle(h))
+    }
+
+    fn close_window(&mut self, host: &MockHandle) {
+        // Model the native round-trip: mark closed, then confirm through the sink with
+        // `WindowClosed` — day-core tears down when the (queued) event drains.
+        let mut s = self.state.borrow_mut();
+        let Some(w) = s.windows.iter_mut().find(|w| w.handle == host.0 && w.open) else {
+            return;
+        };
+        w.open = false;
+        let node = w.node;
+        s.log(format!("close_window #{}", host.0));
+        let sink = s.sink.take();
+        drop(s);
+        if let Some(sink) = sink {
+            sink(node, Event::WindowClosed);
+            self.state.borrow_mut().sink.get_or_insert(sink);
+        }
+    }
+
+    fn focus_window(&mut self, host: &MockHandle) {
+        let mut s = self.state.borrow_mut();
+        let Some(node) = s
+            .windows
+            .iter()
+            .find(|w| w.handle == host.0 && w.open)
+            .map(|w| w.node)
+        else {
+            return;
+        };
+        let prev = s.windows.iter().find(|w| w.focused).map(|w| w.node);
+        for w in s.windows.iter_mut() {
+            w.focused = w.handle == host.0;
+        }
+        s.log(format!("focus_window #{}", host.0));
+        let sink = s.sink.take();
+        drop(s);
+        if let Some(sink) = sink {
+            if let Some(p) = prev
+                && p != node
+            {
+                sink(p, Event::WindowFocused(false));
+            }
+            sink(node, Event::WindowFocused(true));
+            self.state.borrow_mut().sink.get_or_insert(sink);
+        }
+    }
+
+    fn set_window_title(&mut self, host: &MockHandle, title: &str) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.windows.iter_mut().find(|w| w.handle == host.0) {
+            w.title = title.to_string();
+        }
+        s.log(format!("set_window_title #{} {title:?}", host.0));
+    }
+
+    fn snapshot_window_of(&mut self, host: &MockHandle) -> Result<Vec<u8>, String> {
+        // Distinguishable from the primary snapshot so the dayscript `window:` routing is
+        // assertable.
+        Ok(vec![0x89, b'P', b'N', b'G', host.0 as u8])
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {

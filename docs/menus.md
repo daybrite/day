@@ -114,7 +114,10 @@ replaces the previous app menu. Where each backend puts it:
 
 - **AppKit**: the system menu bar. Day prepends the standard **App menu** (About/Quit) automatically,
   so your `sub_menu`s start at *File*.
-- **GTK**: a `GtkPopoverMenuBar` at the top of the window; accelerators registered on the `GtkApplication`.
+- **GTK**: a `GtkPopoverMenuBar` at the top of the window; accelerators registered on the
+  `GtkApplication`. On macOS the model goes to `gtk_application_set_menubar` instead — GTK's quartz
+  backend renders it in the system menu bar, and the stock GTK app menu's *Settings…* item enables
+  through an `app.preferences` action wired to the Preferences dispatch id.
 - **Qt**: a `QMenuBar` (the native global bar on macOS-qt).
 - **Android**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
 - **XAML**: a `MenuBar` docked at the top of the window.
@@ -140,3 +143,35 @@ just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 - **Separators** render as dividers everywhere; on Android they become menu-group boundaries (dividers
   on API 28+).
 - A `context_menu(vec![])` (empty) or a later reconfigure detaches/replaces the menu on the Piece.
+
+## Runtime language changes — `app_menu_reactive`
+
+`app_menu(vec)` resolves labels once, in the install-time locale. An app whose language can
+change at runtime (a preferences language picker, docs/windows.md) installs with
+`app_menu_reactive(builder)` instead: the builder re-runs whenever a locale-tracked read
+inside it changes (`menu_role` labels, `res::str` titles, `day::tr` — all read the locale
+signal), re-lowering and re-installing the whole bar in the new language. Replacement drops
+the previous install's action closures; context menus share the dispatch map and are
+untouched, and the durable Preferences/New Window dispatch ids always survive.
+
+## The auto Preferences item + the Window menu (docs/windows.md)
+
+`day::register_preferences*` enables a Settings…/Preferences item with the platform
+shortcut (⌘, / Ctrl+comma) with zero menu code: day-core injects it into an installed
+menu's first submenu when absent (an app-placed `menu_role(MenuRole::Preferences)` is
+rewired instead — an explicit `.action` always wins), and the backend default menus carry
+it too. macOS hoists the item into the App menu under About, its standard home, and also
+auto-installs the standard Window menu (Minimize ⌘M / Zoom / Bring All to Front,
+registered as `windowsMenu` so AppKit appends the open-window list and tab commands) unless
+the app's model owns `MenuRole::Minimize`. `MenuRole::NewWindow` lowers to the
+`register_new_window` builder (⌘N/Ctrl+N; disabled when unregistered).
+
+## Driving menus from dayscript
+
+`menu: { item: "Save" }` invokes a unique app-menu action by exact label;
+`menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable
+— app keys and the `day-*` role keys both work, so the auto Preferences item is
+`key: day-preferences`, with or without an installed app menu). `path: [File]`
+disambiguates by ancestor submenu labels. The step dispatches the registered day action
+directly — toolkit-uniform, no native menu automation — so role-only items that run a
+native selector (Cut, Quit, …) are not invokable this way.

@@ -1,0 +1,18 @@
+name: showcase-windows-theme
+description: The preferences theme flip recoloring every window live (docs/windows.md) —
+  needs Cap::Appearance (appkit/gtk; qt runs windows.yaml only). Ends back on System so
+  later runs and CI variants stay deterministic.
+flow:
+  - wait_for: { id: home-title }
+  - menu: { key: day-preferences }
+  - wait_for: { id: prefs-title }
+  - assert_visible: { id: theme-picker }
+
+  # Dark applies app-wide, live — the prefs window AND the primary recolor.
+  - select: { id: theme-picker, index: 1 }
+  - pause: 0.3
+  - screenshot: { name: prefs-dark, window: day.preferences }
+  - screenshot: primary-dark
+  # Back to System (prefs hygiene).
+  - select: { id: theme-picker, index: 2 }
+  - close_window: { window: day.preferences }

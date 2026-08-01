@@ -31,6 +31,7 @@ const CORE_CATALOG: &[(&str, &str)] = &[
     ("de", include_str!("../catalog/de.ftl")),
     ("ja", include_str!("../catalog/ja.ftl")),
     ("zh", include_str!("../catalog/zh.ftl")),
+    ("ar", include_str!("../catalog/ar.ftl")),
 ];
 
 struct State {

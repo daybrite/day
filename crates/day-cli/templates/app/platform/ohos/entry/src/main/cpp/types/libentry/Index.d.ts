@@ -47,3 +47,16 @@ export const navPopped: (key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
 export const navBackRequested: () => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
+
+// Secondary day windows (docs/windows.md). The registered `open` launches a multiton
+// DayWindowAbility (the day node id + title as want parameters); `close` terminates one.
+// The ability page completes an open with `windowStart` (false = closed before connecting)
+// and reports lifecycle through `windowResized` / `windowFocused` / `windowClosed`.
+export const registerWindows: (
+  open: (node: number, title: string) => void,
+  close: (node: number) => void
+) => void;
+export const windowStart: (content: Object, node: number, widthVp: number, heightVp: number) => boolean;
+export const windowResized: (node: number, widthVp: number, heightVp: number) => void;
+export const windowFocused: (node: number, active: number) => void;
+export const windowClosed: (node: number) => void;

@@ -1086,6 +1086,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-settings"
+version = "0.1.1"
+dependencies = [
+ "day-core",
+ "day-fluent",
+ "day-part-prefs",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+]
+
+[[package]]
 name = "day-piece-webview"
 version = "0.1.1"
 dependencies = [
@@ -4345,6 +4357,7 @@ dependencies = [
  "day-piece-pullrefresh",
  "day-piece-rating",
  "day-piece-searchfield",
+ "day-piece-settings",
  "day-piece-webview",
  "day-tweak-button-bezel",
  "day-tweak-slider-tickmarks",

@@ -39,6 +39,18 @@
             "actions": ["action.system.home"]
           }
         ]
+      },
+      {
+        // Secondary day windows (docs/windows.md): one multiton instance per open window.
+        "name": "DayWindowAbility",
+        "srcEntry": "./ets/entryability/DayWindowAbility.ets",
+        "description": "Day secondary window",
+        "icon": "$media:startIcon",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "launchType": "multiton",
+        "exported": false
       }
     ]
   }

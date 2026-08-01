@@ -98,11 +98,31 @@ pub struct NodeData<H> {
 /// An event handler registered on a realized node.
 pub type EventHandler = Rc<dyn Fn(&Event)>;
 
+/// `TreeOps::open_window_root`'s answer — the tree-level face of
+/// [`day_spec::WindowOpenReply`], carrying the adopted (or parked) root node.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowRootReply {
+    /// The native window exists; `root` is its adopted boundary root, laid out already.
+    Open(RNode),
+    /// Native creation is in flight; `root` is parked (no handle, no layout) until
+    /// `TreeOps::adopt_window_root` completes it.
+    Pending(RNode),
+    /// The toolkit cannot open windows — fall back to the cover tier.
+    Unsupported,
+}
+
+/// One realized window: an adopted boundary root plus the content size it lays out at.
+/// `windows[0]` is the primary (the `ready` root container); later entries are secondary
+/// windows opened through `open_window_root` (docs/windows.md).
+struct WindowEntry {
+    root: RNode,
+    size: Size,
+}
+
 pub struct Tree<B: Toolkit> {
     pub toolkit: B,
     nodes: SlotMap<RNode, NodeData<B::Handle>>,
-    root: RNode,
-    window_size: Size,
+    windows: Vec<WindowEntry>,
     layout_dirty: bool,
     handlers: HashMap<RNode, Vec<EventHandler>>,
     release_queue: Vec<B::Handle>,
@@ -137,8 +157,10 @@ impl<B: Toolkit> Tree<B> {
         Tree {
             toolkit,
             nodes,
-            root,
-            window_size,
+            windows: vec![WindowEntry {
+                root,
+                size: window_size,
+            }],
             layout_dirty: true,
             handlers: HashMap::new(),
             release_queue: Vec::new(),
@@ -171,7 +193,7 @@ impl<B: Toolkit> Tree<B> {
     }
 
     pub fn root(&self) -> RNode {
-        self.root
+        self.windows[0].root
     }
 
     pub(crate) fn node(&self, n: RNode) -> Option<&NodeData<B::Handle>> {
@@ -209,7 +231,9 @@ impl<B: Toolkit> Tree<B> {
     fn native_ancestor(&self, mut n: RNode) -> RNode {
         loop {
             let Some(node) = self.nodes.get(n) else {
-                return self.root;
+                // Stale node: fall back to the primary window's root (benign — the caller
+                // is about to no-op against it).
+                return self.windows[0].root;
             };
             if node.handle.is_some() {
                 return n;
@@ -350,8 +374,20 @@ impl<B: Toolkit> Tree<B> {
                 self.toolkit.remove(&anc_handle, &h);
             }
         }
-        // Collect the whole subtree.
-        let mut stack = vec![node];
+        self.collect_and_release(node);
+        if parent.is_null() {
+            self.layout_dirty = true;
+        } else {
+            self.mark_needs_measure_impl(parent);
+        }
+    }
+
+    /// Remove `start` and its whole day subtree from the node table: dispose list-cell
+    /// scopes, drop handler entries, queue every handle for release, decrement the
+    /// implicit-animation count. Shared by [`Self::remove_subtree_impl`] and
+    /// `remove_window_root` so the bookkeeping cannot drift between them.
+    fn collect_and_release(&mut self, start: RNode) {
+        let mut stack = vec![start];
         while let Some(n) = stack.pop() {
             // A LIST node's per-cell row subtrees live in scopes owned by the list machinery
             // (not the node tree): dispose them with the node, or their bindings — e.g. a
@@ -386,11 +422,6 @@ impl<B: Toolkit> Tree<B> {
             }
             stack.extend(data.children);
         }
-        if parent.is_null() {
-            self.layout_dirty = true;
-        } else {
-            self.mark_needs_measure_impl(parent);
-        }
     }
 
     fn mark_needs_measure_impl(&mut self, node: RNode) {
@@ -407,11 +438,14 @@ impl<B: Toolkit> Tree<B> {
     }
 
     fn layout_now(&mut self) {
-        let root = self.root;
-        let size = self.window_size;
-        let p = Proposal::exact(size);
-        crate::layout::measure_node(self, root, p);
-        crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
+        // Every window lays out independently at its own size; the release queue drains
+        // once, after all of them (a released handle may be referenced by no window).
+        for i in 0..self.windows.len() {
+            let (root, size) = (self.windows[i].root, self.windows[i].size);
+            let p = Proposal::exact(size);
+            crate::layout::measure_node(self, root, p);
+            crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
+        }
         let queue = std::mem::take(&mut self.release_queue);
         for h in queue {
             self.toolkit.release(h);
@@ -530,6 +564,43 @@ pub trait TreeOps {
     /// Whether native transitions have settled (see `Toolkit::ui_idle`).
     fn ui_idle(&mut self) -> bool;
     fn root_node(&self) -> RNode;
+
+    // --- secondary windows (docs/windows.md) -------------------------------------------
+
+    /// Open a native window and adopt its content container as an additional boundary
+    /// root. Inserts the root record, asks `Toolkit::open_window`, and answers per the
+    /// toolkit's reply: `Open(root)` = live now (handle installed, window entry pushed),
+    /// `Pending(root)` = native creation is in flight (the record is parked without a
+    /// handle until [`Self::adopt_window_root`]), `Unsupported` = the placeholder was
+    /// removed again — present the content as a cover instead.
+    fn open_window_root(&mut self, options: &WindowOptions, kind: WindowKind) -> WindowRootReply;
+    /// Complete a `Pending` open: adopt `raw` as the window's content container, install
+    /// it on the parked root, and start laying out at `size`. `false` = the root is gone
+    /// (closed before completion) — the caller should drop the native window again.
+    fn adopt_window_root(&mut self, root: RNode, raw: day_spec::RawHandle, size: Size) -> bool;
+    /// Remove an (already childless) window root: bookkeeping + handle release + window
+    /// entry removal. Never the primary. Idempotent; also valid for a parked Pending root.
+    fn remove_window_root(&mut self, root: RNode);
+    /// A secondary window's content size changed (its `WindowResized` handler).
+    fn set_root_size(&mut self, root: RNode, s: Size);
+    /// Register an EXTRA layout root: a node that stays attached in the tree (native
+    /// re-homing needs the parent link) but lays out independently at its own reported
+    /// size — the cover-fallback surface (docs/windows.md). The primary root's PassThrough
+    /// layout only descends into its first child, so a second top-level surface must drive
+    /// its own layout entry. `set_root_size` resizes it; drop it before subtree removal.
+    fn add_extra_layout_root(&mut self, node: RNode, size: Size);
+    /// Unregister an extra layout root (the entry only — the node itself is removed by the
+    /// ordinary `remove_subtree`).
+    fn drop_extra_layout_root(&mut self, node: RNode);
+    /// Ask the platform to close the window whose root is `root` (async — the platform
+    /// confirms with `Event::WindowClosed`).
+    fn close_native_window(&mut self, root: RNode);
+    /// Bring the window whose root is `root` to front and make it key.
+    fn focus_native_window(&mut self, root: RNode);
+    /// Retitle the window whose root is `root`.
+    fn set_native_window_title(&mut self, root: RNode, title: &str);
+    /// Snapshot the window whose root is `root` (the primary answers `snapshot`).
+    fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String>;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
     /// Does the running backend deliver this lifecycle phase (docs/lifecycle.md)?
@@ -709,6 +780,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn remove_subtree(&mut self, node: RNode) {
+        // Window roots have no native parent to detach from — they go through
+        // `remove_window_root` (docs/windows.md), never here.
+        debug_assert!(
+            !self.windows.iter().any(|w| w.root == node),
+            "remove_subtree called with a window root"
+        );
         self.remove_subtree_impl(node);
     }
 
@@ -1037,9 +1114,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_window_size(&mut self, s: Size) {
-        if s != self.window_size {
-            self.window_size = s;
-            let root = self.root;
+        // The PRIMARY window (WINDOW_NODE routing); secondary windows resize through
+        // `set_root_size` with their own root.
+        if s != self.windows[0].size {
+            self.windows[0].size = s;
+            let root = self.windows[0].root;
             self.mark_needs_measure_impl(root);
         }
     }
@@ -1110,7 +1189,122 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn root_node(&self) -> RNode {
-        self.root
+        self.windows[0].root
+    }
+
+    fn open_window_root(&mut self, options: &WindowOptions, kind: WindowKind) -> WindowRootReply {
+        // The same "wrap an externally-owned handle" record as the primary root and the
+        // list cell anchors; the handle arrives now (desktop) or at adoption (mobile).
+        let root = self.nodes.insert(NodeData {
+            kind: kinds::CONTAINER,
+            handle: None,
+            parent: RNode::null(),
+            children: Vec::new(),
+            layout: Rc::new(PassThrough),
+            flex: Flex::default(),
+            scope: Scope::root(),
+            id: None,
+            a11y: Default::default(),
+            cache: Vec::new(),
+            probe: NodeProbe::default(),
+            needs_measure: true,
+            last_native_frame: None,
+            scroll_content: None,
+            implicit_anim: None,
+            is_boundary: true,
+        });
+        match self.toolkit.open_window(rnode_to_id(root), options, kind) {
+            day_spec::WindowOpenReply::Open(h) => {
+                self.nodes[root].handle = Some(h);
+                self.windows.push(WindowEntry {
+                    root,
+                    size: options.size,
+                });
+                self.layout_dirty = true;
+                WindowRootReply::Open(root)
+            }
+            day_spec::WindowOpenReply::Pending => WindowRootReply::Pending(root),
+            day_spec::WindowOpenReply::Unsupported => {
+                self.nodes.remove(root);
+                WindowRootReply::Unsupported
+            }
+        }
+    }
+
+    fn adopt_window_root(&mut self, root: RNode, raw: day_spec::RawHandle, size: Size) -> bool {
+        let Some(node) = self.nodes.get_mut(root) else {
+            return false; // closed before the native side finished — caller drops the window
+        };
+        let handle = self.toolkit.adopt(raw);
+        node.handle = Some(handle);
+        node.needs_measure = true;
+        self.windows.push(WindowEntry { root, size });
+        self.layout_dirty = true;
+        true
+    }
+
+    fn remove_window_root(&mut self, root: RNode) {
+        debug_assert!(
+            self.windows.first().map(|w| w.root) != Some(root),
+            "remove_window_root called with the primary root"
+        );
+        self.windows.retain(|w| w.root != root);
+        // No native detach: a window root has no native parent — the platform window is
+        // already closed (or the backend releases it with the content handle).
+        self.collect_and_release(root);
+        self.layout_dirty = true;
+    }
+
+    fn set_root_size(&mut self, root: RNode, s: Size) {
+        if let Some(w) = self.windows.iter_mut().find(|w| w.root == root)
+            && w.size != s
+        {
+            w.size = s;
+            self.mark_needs_measure_impl(root);
+        }
+    }
+
+    fn add_extra_layout_root(&mut self, node: RNode, size: Size) {
+        if !self.windows.iter().any(|w| w.root == node) {
+            self.windows.push(WindowEntry { root: node, size });
+            self.layout_dirty = true;
+        }
+    }
+
+    fn drop_extra_layout_root(&mut self, node: RNode) {
+        debug_assert!(
+            self.windows.first().map(|w| w.root) != Some(node),
+            "drop_extra_layout_root called with the primary root"
+        );
+        self.windows.retain(|w| w.root != node);
+    }
+
+    fn close_native_window(&mut self, root: RNode) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.close_window(&h);
+        }
+    }
+
+    fn focus_native_window(&mut self, root: RNode) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.focus_window(&h);
+        }
+    }
+
+    fn set_native_window_title(&mut self, root: RNode, title: &str) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_window_title(&h, title);
+        }
+    }
+
+    fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String> {
+        if self.windows[0].root == root {
+            return self.toolkit.snapshot_window();
+        }
+        match self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            Some(h) => self.toolkit.snapshot_window_of(&h),
+            None => Err("window is gone".into()),
+        }
     }
 
     fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver) {
@@ -1182,7 +1376,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             .get(node)
             .and_then(|n| n.last_native_frame)
             .map(|f| f.size.width)
-            .unwrap_or(self.window_size.width);
+            .unwrap_or(self.windows[0].size.width);
         let height = match row_height {
             day_spec::props::RowHeight::Uniform(h) => h,
             day_spec::props::RowHeight::Automatic => {
@@ -1283,6 +1477,7 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
 /// Reset the thread-local tree + queues (tests).
 pub fn uninstall_tree() {
     crate::nav::clear_controllers();
+    crate::windows::reset_windows();
     TREE.with(|t| *t.borrow_mut() = None);
     EVENTS.with(|e| e.borrow_mut().clear());
     PUMP_PENDING.set(false);

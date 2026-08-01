@@ -1,0 +1,21 @@
+[package]
+name = "day-piece-settings"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A COMPOSE piece (DESIGN §8): the shared appearance + language settings rows every app's
+# preferences surface needs — persisted through day-part-prefs, applied live through
+# day-core's appearance/locale seams. Pure composition: NO native code, NO cargo features.
+
+[dependencies]
+day-pieces = { workspace = true }
+day-core = { workspace = true }
+day-spec = { workspace = true }
+day-reactive = { workspace = true }
+day-fluent = { workspace = true }
+day-part-prefs = { workspace = true }

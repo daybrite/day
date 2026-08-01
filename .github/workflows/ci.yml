@@ -446,6 +446,18 @@ jobs:
               $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
             done
           done
+      # Secondary windows (docs/windows.md): New Window + the preferences singleton on
+      # every native-tier desktop combo; the theme-flip leg additionally needs
+      # Cap::Appearance (qt has none). The walkthrough's preferences leg covers the
+      # cover-fallback tier elsewhere.
+      - name: Windows (${{ matrix.combo }})
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        working-directory: apps/showcase
+        run: |
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/windows.yaml --skip-build
+          if [ "${{ matrix.toolkit }}" != qt ]; then
+            $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/windows-theme.yaml --skip-build
+          fi
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
       # combo (headless Linux has no system clipboard — see dayscript/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
@@ -1425,7 +1437,7 @@ jobs:
   # OPFS-only (docs/fs.md); the sensors step below stays on WebKit, which it works fine on.
   # ---------------------------------------------------------------------------
   web-dom:
-    name: web-dom (showcase dist + walkthrough)
+    name: web-dom
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
     needs: [linux-day]
     runs-on: ubuntu-latest

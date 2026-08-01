@@ -493,7 +493,6 @@ anim_duration_ms = { $ms } مللي ثانية
 
 # شريط القوائم وقائمة السياق
 menu_file = ملف
-menu_new = جديد
 menu_open = فتح…
 menu_open_recent = فتح الأخيرة
 menu_clear_menu = مسح القائمة
@@ -592,3 +591,6 @@ storage_load = تحميل
 storage_delete = حذف
 storage_files_label = الملفات المخزنة
 storage_idle = لا شيء مخزّن بعد
+
+prefs_window_title = الإعدادات
+prefs_window_caption = يُطبَّق المظهر واللغة على كل النوافذ ويُحفظان بين عمليات التشغيل.

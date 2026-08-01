@@ -486,7 +486,6 @@ anim_duration_ms = { $ms } ms
 
 # Menu bar + context menu items (menus page)
 menu_file = File
-menu_new = New
 menu_open = Open…
 menu_open_recent = Open Recent
 menu_clear_menu = Clear Menu
@@ -585,3 +584,7 @@ storage_load = Load
 storage_delete = Delete
 storage_files_label = Stored files
 storage_idle = Nothing stored yet
+
+# --- Preferences window (docs/windows.md) ---
+prefs_window_title = Preferences
+prefs_window_caption = Theme and language apply to every window and persist across launches.

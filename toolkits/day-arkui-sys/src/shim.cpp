@@ -1403,6 +1403,137 @@ static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ---- secondary windows (docs/windows.md) -----------------------------------
+// ArkTS registers the multiton-ability launchers: `registerWindows(open, close)` where
+// `open` = `(node: number, title: string) => void` (startAbility on DayWindowAbility with
+// the node/title as want parameters) and `close` = `(node: number) => void`
+// (terminateSelf on that instance's context). The window ability's page completes the
+// open through `windowStart(nodeContent, node, w, h)`, and reports its lifecycle through
+// `windowClosed(node)` / `windowFocused(node, active)`.
+static napi_ref g_open_window = nullptr;
+static napi_ref g_close_window = nullptr;
+
+static napi_value RegisterWindows(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (g_open_window) { napi_delete_reference(env, g_open_window); g_open_window = nullptr; }
+    if (g_close_window) { napi_delete_reference(env, g_close_window); g_close_window = nullptr; }
+    if (argc > 0 && argv[0]) napi_create_reference(env, argv[0], 1, &g_open_window);
+    if (argc > 1 && argv[1]) napi_create_reference(env, argv[1], 1, &g_close_window);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// Rust-facing diagnostic logging: Rust stderr never reaches hilog, so day-arkui routes
+// its framework diagnostics through the app log channel here.
+extern "C" void day_ark_log(const char* msg) {
+    OH_LOG_Print(LOG_APP, LOG_WARN, 0xDA11, "day", "%{public}s", msg ? msg : "");
+}
+
+// Rust-facing: whether the ArkTS host registered the window launchers (drives
+// Cap::MultiWindow — an older host degrades to the cover fallback gracefully).
+extern "C" int day_ark_has_windows(void) { return g_env && g_open_window ? 1 : 0; }
+
+// Rust-facing: launch a secondary day window. 1 = the request went out (the ability's
+// page completes the open); 0 = no launcher registered.
+extern "C" int day_ark_open_window(unsigned long long node, const char* title) {
+    if (!g_env || !g_open_window) return 0;
+    napi_value cb = nullptr, undef = nullptr;
+    napi_get_reference_value(g_env, g_open_window, &cb);
+    if (!cb) return 0;
+    napi_get_undefined(g_env, &undef);
+    napi_value args[2];
+    napi_create_double(g_env, static_cast<double>(node), &args[0]);
+    napi_create_string_utf8(g_env, title ? title : "", NAPI_AUTO_LENGTH, &args[1]);
+    napi_value ignored = nullptr;
+    napi_call_function(g_env, undef, cb, 2, args, &ignored);
+    return 1;
+}
+
+// Rust-facing: close a secondary window's ability instance.
+extern "C" void day_ark_close_window(unsigned long long node) {
+    if (!g_env || !g_close_window) return;
+    napi_value cb = nullptr, undef = nullptr;
+    napi_get_reference_value(g_env, g_close_window, &cb);
+    if (!cb) return;
+    napi_get_undefined(g_env, &undef);
+    napi_value arg;
+    napi_create_double(g_env, static_cast<double>(node), &arg);
+    napi_value ignored = nullptr;
+    napi_call_function(g_env, undef, cb, 1, &arg, &ignored);
+}
+
+extern "C" int day_arkui_window_start(unsigned long long node, void* content,
+                                      double w_vp, double h_vp);
+extern "C" void day_arkui_window_resized(unsigned long long node, double w_vp, double h_vp);
+extern "C" void day_arkui_window_closed(unsigned long long node);
+extern "C" void day_arkui_window_focused(unsigned long long node, int active);
+
+// The window ability's page hands its NodeContent + day node id here: `windowStart(
+// nodeContent, node, w, h)` → true when the pending open completed (false = closed before
+// connecting; the page's ability terminates itself).
+static napi_value DayWindowStart(napi_env env, napi_callback_info info) {
+    size_t argc = 4;
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    ArkUI_NodeContentHandle content = nullptr;
+    OH_ArkUI_GetNodeContentFromNapiValue(env, argv[0], &content);
+    double node = 0, w = 0, h = 0;
+    napi_get_value_double(env, argv[1], &node);
+    napi_get_value_double(env, argv[2], &w);
+    napi_get_value_double(env, argv[3], &h);
+    int ok = day_arkui_window_start(static_cast<unsigned long long>(node), content, w, h);
+    napi_value out;
+    napi_get_boolean(env, ok != 0, &out);
+    return out;
+}
+
+// `windowResized(node, w, h)` — the secondary window's content area changed (vp).
+static napi_value DayWindowResized(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double node = 0, w = 0, h = 0;
+    napi_get_value_double(env, argv[0], &node);
+    napi_get_value_double(env, argv[1], &w);
+    napi_get_value_double(env, argv[2], &h);
+    day_arkui_window_resized(static_cast<unsigned long long>(node), w, h);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// `windowClosed(node)` — the ability instance is going away (back, swipe, terminateSelf).
+static napi_value DayWindowClosed(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double node = 0;
+    napi_get_value_double(env, argv[0], &node);
+    day_arkui_window_closed(static_cast<unsigned long long>(node));
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// `windowFocused(node, active)` — foreground/background transitions.
+static napi_value DayWindowFocused(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double node = 0, active = 0;
+    napi_get_value_double(env, argv[0], &node);
+    napi_get_value_double(env, argv[1], &active);
+    day_arkui_window_focused(static_cast<unsigned long long>(node), active != 0 ? 1 : 0);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
 // ArkTS registers its URL opener: `registerOpenUrl(cb)`, `cb` = `(url: string) => void`
 // (typically `context.startAbility({ action: 'ohos.want.action.viewData', uri: url })`).
 static napi_value RegisterOpenUrl(napi_env env, napi_callback_info info) {
@@ -1579,6 +1710,16 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "registerFilePicker", fn);
     napi_create_function(env, "registerOpenUrl", NAPI_AUTO_LENGTH, RegisterOpenUrl, nullptr, &fn);
     napi_set_named_property(env, exports, "registerOpenUrl", fn);
+    napi_create_function(env, "registerWindows", NAPI_AUTO_LENGTH, RegisterWindows, nullptr, &fn);
+    napi_set_named_property(env, exports, "registerWindows", fn);
+    napi_create_function(env, "windowStart", NAPI_AUTO_LENGTH, DayWindowStart, nullptr, &fn);
+    napi_set_named_property(env, exports, "windowStart", fn);
+    napi_create_function(env, "windowResized", NAPI_AUTO_LENGTH, DayWindowResized, nullptr, &fn);
+    napi_set_named_property(env, exports, "windowResized", fn);
+    napi_create_function(env, "windowClosed", NAPI_AUTO_LENGTH, DayWindowClosed, nullptr, &fn);
+    napi_set_named_property(env, exports, "windowClosed", fn);
+    napi_create_function(env, "windowFocused", NAPI_AUTO_LENGTH, DayWindowFocused, nullptr, &fn);
+    napi_set_named_property(env, exports, "windowFocused", fn);
     napi_create_function(env, "onFileResult", NAPI_AUTO_LENGTH, OnFileResult, nullptr, &fn);
     napi_set_named_property(env, exports, "onFileResult", fn);
     napi_create_function(env, "registerResourceManager", NAPI_AUTO_LENGTH, RegisterResourceManager,

@@ -30,3 +30,16 @@ day-fullscreen = Enter Full Screen
 day-edit = Edit
 day-about-app = About {$app}
 day-quit-app = Quit {$app}
+
+# Window management (docs/windows.md — the Window menu, New Window, tab commands)
+day-window = Window
+day-new-window = New Window
+day-zoom = Zoom
+day-bring-all-front = Bring All to Front
+
+# Settings pieces (docs/windows.md — day-piece-settings)
+day-settings-language = Language
+day-settings-theme = Appearance
+day-theme-light = Light
+day-theme-dark = Dark
+day-theme-system = System

@@ -10,6 +10,25 @@ unsafe extern "C" {
     pub fn day_qt_window_new(title: *const c_char, w: c_int, h: c_int) -> *mut c_void;
     pub fn day_qt_window_show(win: *mut c_void);
     pub fn day_qt_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
+    // Secondary windows (docs/windows.md): per-window event callbacks keyed by day node id.
+    pub fn day_qt_set_window_events_cb(
+        resized: extern "C" fn(u64, c_int, c_int),
+        closed: extern "C" fn(u64),
+        focused: extern "C" fn(u64, c_int),
+    );
+    pub fn day_qt_window_new2(
+        title: *const c_char,
+        w: c_int,
+        h: c_int,
+        node: u64,
+        fixed: c_int,
+    ) -> *mut c_void;
+    pub fn day_qt_window_content(win: *mut c_void) -> *mut c_void;
+    pub fn day_qt_window_close(win: *mut c_void);
+    pub fn day_qt_window_raise(win: *mut c_void);
+    pub fn day_qt_window_set_title(win: *mut c_void, title: *const c_char);
+    pub fn day_qt_window_destroy(win: *mut c_void);
+    pub fn day_qt_window_is_active(win: *mut c_void) -> c_int;
     pub fn day_qt_container_new() -> *mut c_void;
     pub fn day_qt_app_set_rtl();
     pub fn day_qt_open_url(url: *const c_char);

@@ -93,6 +93,21 @@ pub enum Step {
         from: usize,
         to: usize,
     },
+    /// Invoke an app-menu item programmatically (docs/menus.md): match a unique `Action`
+    /// leaf in the installed app-menu model by exact `item` label, or by `key` — a Fluent
+    /// key resolved in the run's locale (locale-portable; a standard-role item also
+    /// matches its role's core-catalog key, so the auto Preferences item is
+    /// `key: day-preferences`). `path` disambiguates with ancestor submenu labels (suffix
+    /// match). Items that run a native selector instead of a day action (role items with
+    /// id 0) are not invokable this way.
+    Menu {
+        #[serde(default)]
+        item: Option<String>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        path: Option<Vec<String>>,
+    },
     AssertVisible {
         id: String,
     },
@@ -118,8 +133,23 @@ pub enum Step {
         #[serde(default)]
         allow: Vec<String>,
     },
+    /// Close the secondary window opened under `window` (`day::open_window`'s key —
+    /// the preferences window is `day.preferences`), through the same async confirm →
+    /// teardown path a title-bar close takes (docs/windows.md; on the cover-fallback tier
+    /// this dismisses the cover). An already-closed window is a success (closing is
+    /// idempotent).
+    CloseWindow {
+        window: String,
+    },
     Screenshot {
         name: String,
+        /// Capture the secondary window opened under this key (`day::open_window`'s `key`)
+        /// instead of the primary (docs/windows.md). On the cover-fallback tier the key
+        /// resolves to the primary window, whose fullscreen cover IS the content — same
+        /// pixels, no special case. A missing key fails retryably (the window may still be
+        /// opening).
+        #[serde(default)]
+        window: Option<String>,
     },
     Pause {
         secs: f64,
@@ -391,6 +421,82 @@ fn run_on_main(step: Step) -> Reply {
 
 /// Resolve a Fluent key (+ JSON args) in the current locale — the shared engine for the
 /// `key:`-flavored script fields (assert_text, input).
+/// Walk the app-menu model for `Action` leaves matching the `menu:` step's target: by
+/// exact label, or — when the step used `key:` — by the role's core-catalog key (the
+/// injected Preferences item carries an empty label; its role is its identity). `path`
+/// filters by ancestor submenu labels (suffix match). Returns `(id, enabled, trail)`.
+fn find_menu_actions(
+    items: &[day_spec::MenuItem],
+    target_label: &str,
+    target_key: Option<&str>,
+    path: &[String],
+) -> Vec<(u64, bool, Vec<String>)> {
+    // Mirrors day-pieces' role_catalog_key (docs/menus.md) — the stable `day-*` key set.
+    fn role_key(role: day_spec::MenuRole) -> &'static str {
+        use day_spec::MenuRole as R;
+        match role {
+            R::Cut => "day-cut",
+            R::Copy => "day-copy",
+            R::Paste => "day-paste",
+            R::SelectAll => "day-select-all",
+            R::Undo => "day-undo",
+            R::Redo => "day-redo",
+            R::Delete => "day-delete",
+            R::About => "day-about",
+            R::Quit => "day-quit",
+            R::Preferences => "day-preferences",
+            R::Minimize => "day-minimize",
+            R::CloseWindow => "day-close",
+            R::Fullscreen => "day-fullscreen",
+            R::NewWindow => "day-new-window",
+        }
+    }
+    fn walk(
+        items: &[day_spec::MenuItem],
+        trail: &mut Vec<String>,
+        target_label: &str,
+        target_key: Option<&str>,
+        path: &[String],
+        out: &mut Vec<(u64, bool, Vec<String>)>,
+    ) {
+        for it in items {
+            match it {
+                day_spec::MenuItem::Action {
+                    id,
+                    label,
+                    enabled,
+                    role,
+                    ..
+                } => {
+                    let by_label = !label.is_empty() && label == target_label;
+                    let by_key = target_key.is_some_and(|k| role.is_some_and(|r| role_key(r) == k));
+                    let path_ok =
+                        path.is_empty() || (path.len() <= trail.len() && trail.ends_with(path));
+                    if (by_label || by_key) && path_ok {
+                        out.push((*id, *enabled, trail.clone()));
+                    }
+                }
+                day_spec::MenuItem::Submenu { label, items } => {
+                    trail.push(label.clone());
+                    walk(items, trail, target_label, target_key, path, out);
+                    trail.pop();
+                }
+                day_spec::MenuItem::Separator => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(
+        items,
+        &mut Vec::new(),
+        target_label,
+        target_key,
+        path,
+        &mut out,
+    );
+    out
+}
+
 fn format_key(key: &str, args: Option<BTreeMap<String, serde_json::Value>>) -> String {
     let mut lt = day_fluent::tr(key);
     for (name, v) in args.unwrap_or_default() {
@@ -502,6 +608,76 @@ fn exec(step: Step) -> Reply {
                     // waiting — surface it to the runner immediately.
                     Err(e) => Err(Reply::fail(
                         format!("reorder {id:?} {from}->{to}: {e}"),
+                        false,
+                    )),
+                }
+            }
+            Step::Menu { item, key, path } => {
+                let target_label = match (&item, &key) {
+                    (Some(l), _) => l.clone(),
+                    (None, Some(k)) => format_key(k, None),
+                    (None, None) => {
+                        return Err(Reply::fail("menu: needs `item:` or `key:`", false));
+                    }
+                };
+                let matches = find_menu_actions(
+                    &day_core::menu::app_menu_model(),
+                    &target_label,
+                    key.as_deref(),
+                    path.as_deref().unwrap_or(&[]),
+                );
+                // The AUTO items (docs/windows.md) exist even when the app never installed a
+                // menu (the backend's default menu carries them): resolve their keys straight
+                // to the registered dispatch actions when the model has no entry.
+                let auto_id = match (matches.is_empty(), key.as_deref()) {
+                    (true, Some("day-preferences")) => {
+                        Some(day_core::windows::preferences_action_id())
+                    }
+                    (true, Some("day-new-window")) => {
+                        Some(day_core::windows::new_window_action_id())
+                    }
+                    _ => None,
+                };
+                if let Some(id) = auto_id
+                    && id != 0
+                {
+                    day_core::dispatch_menu_action(id);
+                    day_reactive::flush_sync();
+                    return Ok(Reply::ok());
+                }
+                match matches.as_slice() {
+                    [] => Err(Reply::fail(
+                        // Retryable: the (reactive) app menu may not have installed yet.
+                        format!("menu: no item {target_label:?}"),
+                        true,
+                    )),
+                    [(id, enabled, _)] => {
+                        if *id == 0 {
+                            Err(Reply::fail(
+                                format!(
+                                    "menu: {target_label:?} runs a native selector (no day \
+                                     action) — not invokable from dayscript"
+                                ),
+                                false,
+                            ))
+                        } else if !enabled {
+                            Err(Reply::fail(
+                                format!("menu: {target_label:?} is disabled"),
+                                false,
+                            ))
+                        } else {
+                            day_core::dispatch_menu_action(*id);
+                            day_reactive::flush_sync();
+                            Ok(Reply::ok())
+                        }
+                    }
+                    many => Err(Reply::fail(
+                        format!(
+                            "menu: {target_label:?} is ambiguous — disambiguate with path: {:?}",
+                            many.iter()
+                                .map(|(_, _, p)| p.join(" ▸ "))
+                                .collect::<Vec<_>>()
+                        ),
                         false,
                     )),
                 }
@@ -632,13 +808,28 @@ fn exec(step: Step) -> Reply {
                     ))
                 }
             }
-            Step::Screenshot { .. } => {
+            Step::CloseWindow { window } => {
+                if let Some(handle) = day_core::window_by_key(&window) {
+                    handle.close();
+                }
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Screenshot { window, .. } => {
                 // Wait (retryable, bounded by the step timeout) for native transitions to
                 // settle so the capture never shows a half-dismissed dialog or mid-push page.
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
                 }
-                let png = with_tree(|t| t.snapshot());
+                let png = match window.as_deref() {
+                    Some(key) => match day_core::windows::window_root_by_key(key) {
+                        Some(root) => with_tree(|t| t.snapshot_of(root)),
+                        // Retryable: the window may still be opening (a Pending native
+                        // creation, or the opening tap's turn not yet drained).
+                        None => return Err(Reply::fail(format!("no window {key:?}"), true)),
+                    },
+                    None => with_tree(|t| t.snapshot()),
+                };
                 match png {
                     Ok(bytes) => Ok(Reply {
                         ok: true,

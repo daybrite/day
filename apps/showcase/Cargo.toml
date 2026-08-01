@@ -68,6 +68,7 @@ day-piece-webview = { workspace = true }
 day-piece-media = { workspace = true }
 day-part-haptics = { workspace = true }
 day-part-prefs = { workspace = true }
+day-piece-settings = { workspace = true }
 day-part-deviceinfo = { workspace = true }
 day-part-http = { workspace = true }
 day-part-fs = { workspace = true }

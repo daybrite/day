@@ -112,6 +112,12 @@ mod imp {
         /// A cover's CURRENT native parent (the tree slot it was parked in, or the window
         /// root while presented) — presenting re-homes it, so removals must target this.
         static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+        /// Covers currently PRESENTED (topped on the window root). Separate from
+        /// COVER_PARENTS — that records the parked tree slot, which on the cover-fallback
+        /// tier (docs/windows.md) is the root itself, so parent-comparison cannot stand in
+        /// for presented-ness.
+        static COVER_PRESENTED: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
         /// The window root Stack + its size, KEPT for the app's lifetime (unlike [`ROOT`],
         /// which `run` consumes) — covers re-home onto it while presented.
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
@@ -296,6 +302,64 @@ mod imp {
         }
         ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
         ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
+    }
+
+    thread_local! {
+        /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
+        /// pointer) — the multiton DayWindowAbility instances' content.
+        static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// A secondary DayWindowAbility's page connected (the shim's `windowStart` export):
+    /// mount a Stack into ITS NodeContent and complete the pending open (docs/windows.md).
+    /// 0 = closed before connecting — the ability terminates itself.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is the ability page's NodeContent
+    pub extern "C" fn day_arkui_window_start(
+        node: u64,
+        content: *mut c_void,
+        w_vp: f64,
+        h_vp: f64,
+    ) -> c_int {
+        let root = new_node(K_STACK);
+        unsafe {
+            ffi::day_ark_set_frame(root.0, 0.0, 0.0, w_vp, h_vp);
+            ffi::day_ark_content_add(content, root.0);
+        }
+        SECONDARY.with(|s| s.borrow_mut().push((node, root.0 as usize)));
+        let ok = day_core::finish_window_open(
+            day_spec::NodeId(node),
+            root.0 as day_spec::RawHandle,
+            Size::new(w_vp, h_vp),
+        );
+        if !ok {
+            SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node));
+            unsafe { ffi::day_ark_node_dispose(root.0) };
+        }
+        ok as c_int
+    }
+
+    /// The secondary window's content area changed (freeform resize, rotation) — vp.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_window_resized(node: u64, w_vp: f64, h_vp: f64) {
+        emit(
+            day_spec::NodeId(node),
+            Event::WindowResized(Size::new(w_vp, h_vp)),
+        );
+    }
+
+    /// The ability instance is going away (back, recents swipe, terminateSelf) — confirm
+    /// to day-core, which tears the window's subtree down.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_window_closed(node: u64) {
+        SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node));
+        emit(day_spec::NodeId(node), Event::WindowClosed);
+    }
+
+    /// Foreground/background transitions of a secondary ability instance.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_window_focused(node: u64, active: c_int) {
+        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
     }
 
     /// The native event callback the shim invokes. Kind numbers are
@@ -931,21 +995,26 @@ mod imp {
                                     return;
                                 };
                                 let key = h.0 as usize;
-                                let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
-                                if prev == Some(root) {
+                                if COVER_PRESENTED.with(|s| s.borrow().contains(&key)) {
                                     return; // already presented
                                 }
+                                let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
                                 unsafe {
                                     ffi::day_ark_set_bg_color(h.0, bg);
                                     // Detach from the tree slot it was parked in, then top the
-                                    // window root at full bounds.
-                                    if let Some(p) = prev {
-                                        ffi::day_ark_remove_child(p as *mut _, h.0);
+                                    // window root at full bounds. The cover-fallback tier
+                                    // (docs/windows.md) parks covers directly UNDER the root —
+                                    // a same-parent re-add is rejected by ArkUI, so detach from
+                                    // the root too (a no-op when parked elsewhere).
+                                    match prev {
+                                        Some(p) => ffi::day_ark_remove_child(p as *mut _, h.0),
+                                        None => ffi::day_ark_remove_child(root as *mut _, h.0),
                                     }
                                     ffi::day_ark_add_child(root as *mut _, h.0);
                                     ffi::day_ark_set_frame(h.0, 0.0, 0.0, w, hgt);
                                 }
                                 COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
+                                COVER_PRESENTED.with(|s| s.borrow_mut().insert(key));
                                 // Report the content size OUTSIDE this tree borrow.
                                 post_emit(node, Event::FrameChanged(Size::new(w, hgt)));
                             }
@@ -953,6 +1022,12 @@ mod imp {
                             CoverPatch::DismissDisabled(_) => {}
                             CoverPatch::Dismiss => {
                                 let key = h.0 as usize;
+                                if !COVER_PRESENTED.with(|s| s.borrow_mut().remove(&key)) {
+                                    // Never presented (or already dismissed) — still answer
+                                    // the hide confirmation so the piece can dispose.
+                                    post_emit(node, Event::custom("cover-hidden", ""));
+                                    return;
+                                }
                                 let cur = COVER_PARENTS.with(|m| m.borrow_mut().remove(&key));
                                 if let Some(p) = cur {
                                     unsafe { ffi::day_ark_remove_child(p as *mut _, h.0) };
@@ -1374,7 +1449,50 @@ mod imp {
                 Cap::ListReorder => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
+                // Multiton DayWindowAbility instances (docs/windows.md) — Native only when
+                // the ArkTS host registered the launchers; an older host degrades to the
+                // cover fallback.
+                Cap::MultiWindow => {
+                    if unsafe { ffi::day_ark_has_windows() } != 0 {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
                 _ => Support::Unsupported,
+            }
+        }
+
+        fn open_window(
+            &mut self,
+            id: NodeId,
+            options: &day_spec::WindowOptions,
+            kind: day_spec::WindowKind,
+        ) -> day_spec::WindowOpenReply<AHandle> {
+            // Preferences stay modal on mobile (docs/windows.md); Normal windows become
+            // multiton ability instances (their own task cards; freeform on tablets).
+            if kind == day_spec::WindowKind::Preferences {
+                return day_spec::WindowOpenReply::Unsupported;
+            }
+            let Ok(title) = std::ffi::CString::new(options.title.as_str()) else {
+                return day_spec::WindowOpenReply::Unsupported;
+            };
+            if unsafe { ffi::day_ark_open_window(id.0, title.as_ptr()) } != 0 {
+                day_spec::WindowOpenReply::Pending
+            } else {
+                day_spec::WindowOpenReply::Unsupported
+            }
+        }
+
+        fn close_window(&mut self, host: &AHandle) {
+            let node = SECONDARY.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|(_, ptr)| *ptr == host.0 as usize)
+                    .map(|(n, _)| *n)
+            });
+            if let Some(node) = node {
+                unsafe { ffi::day_ark_close_window(node) };
             }
         }
     }

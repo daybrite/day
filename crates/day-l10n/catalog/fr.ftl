@@ -23,3 +23,14 @@ day-fullscreen = Activer le mode plein écran
 day-edit = Édition
 day-about-app = À propos de {$app}
 day-quit-app = Quitter {$app}
+
+day-window = Fenêtre
+day-new-window = Nouvelle fenêtre
+day-zoom = Réduire/agrandir
+day-bring-all-front = Tout ramener au premier plan
+
+day-settings-language = Langue
+day-settings-theme = Apparence
+day-theme-light = Clair
+day-theme-dark = Sombre
+day-theme-system = Système

@@ -76,3 +76,4 @@ An app branches on this rather than on the target name.
 | `TextEditable` | N | N | N | N | – | N | – | N |
 | `TextSelectable` | N | N | – | N | – | N | – | N |
 | `TextSpellCheck` | N | N | – | – | – | N | – | N |
+| `MultiWindow` | N | – | N | N | N | N | ? | – |

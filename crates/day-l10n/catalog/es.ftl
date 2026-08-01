@@ -23,3 +23,14 @@ day-fullscreen = Entrar en pantalla completa
 day-edit = Edición
 day-about-app = Acerca de {$app}
 day-quit-app = Salir de {$app}
+
+day-window = Ventana
+day-new-window = Nueva ventana
+day-zoom = Zoom
+day-bring-all-front = Traer todo al frente
+
+day-settings-language = Idioma
+day-settings-theme = Apariencia
+day-theme-light = Claro
+day-theme-dark = Oscuro
+day-theme-system = Sistema

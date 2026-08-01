@@ -12,6 +12,11 @@ use std::os::raw::{c_char, c_int, c_void};
 unsafe extern "C" {
     /// One-time setup: resolve the ArkUI NodeAPI + register the global event receiver.
     pub fn day_ark_init();
+    pub fn day_ark_log(msg: *const std::ffi::c_char);
+    // Secondary windows (docs/windows.md): the ArkTS-registered multiton launchers.
+    pub fn day_ark_has_windows() -> c_int;
+    pub fn day_ark_open_window(node: u64, title: *const std::ffi::c_char) -> c_int;
+    pub fn day_ark_close_window(node: u64);
 
     /// Create a node for a day kind (0=stack 1=text 2=button 3=text_input 4=toggle 5=slider
     /// 6=scroll 7=column 8=loading_progress 9=image). Returns an opaque `ArkUI_NodeHandle`.

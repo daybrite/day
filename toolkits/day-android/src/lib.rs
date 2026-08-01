@@ -744,6 +744,48 @@ mod imp {
         }
     }
 
+    thread_local! {
+        /// Secondary DayWindowActivity roots (docs/windows.md): (day node, the root's
+        /// global ref — kept alive alongside the tree's own adopted ref).
+        static SECONDARY: RefCell<Vec<(u64, Gref)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// A secondary DayWindowActivity's first laid-out root (the `nativeStartWindow` JNI
+    /// export lands here): adopt it as the parked day window's content
+    /// (docs/windows.md). `false` ⇒ the window was closed before the activity finished
+    /// connecting — the activity finishes itself.
+    pub fn window_started(env: &mut Env, root: JObject, node: i64, w: i32, h: i32) -> bool {
+        let d = DENSITY.with(|x| x.get());
+        let Ok(gref) = env.new_global_ref(&root) else {
+            return false;
+        };
+        let gref = std::sync::Arc::new(gref);
+        let raw = gref.as_obj().as_raw() as day_spec::RawHandle;
+        SECONDARY.with(|s| s.borrow_mut().push((node as u64, gref)));
+        let ok = day_core::finish_window_open(
+            day_spec::NodeId(node as u64),
+            raw,
+            Size::new(w as f64 / d, h as f64 / d),
+        );
+        if !ok {
+            SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node as u64));
+        }
+        ok
+    }
+
+    /// The day node of the secondary window whose adopted content is `host`, if any.
+    fn secondary_node_of(env: &mut Env, host: &AHandle) -> Option<u64> {
+        SECONDARY.with(|s| {
+            s.borrow()
+                .iter()
+                .find(|(_, gref)| {
+                    env.is_same_object(host.0.as_obj(), gref.as_obj())
+                        .unwrap_or(false)
+                })
+                .map(|(n, _)| *n)
+        })
+    }
+
     // The wire table (day_spec::bridge) as const match patterns — the Java side's K_* constants
     // mirror these, and day-android's parity test holds the two files together.
     const K_PRESSED: i32 = bridge::BridgeKind::Pressed as i32;
@@ -766,6 +808,8 @@ mod imp {
     const K_SUBMITTED: i32 = bridge::BridgeKind::Submitted as i32;
     const K_WINDOW_RESIZED: i32 = bridge::BridgeKind::WindowResized as i32;
     const K_SAFE_AREA: i32 = bridge::BridgeKind::SafeArea as i32;
+    const K_WINDOW_CLOSED: i32 = bridge::BridgeKind::WindowClosed as i32;
+    const K_WINDOW_FOCUSED: i32 = bridge::BridgeKind::WindowFocused as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table.
@@ -901,12 +945,19 @@ mod imp {
                     return;
                 }
                 let d = DENSITY.with(|x| x.get());
-                emit(
-                    day_spec::WINDOW_NODE,
-                    Event::WindowResized(Size::new(p[0] / d, p[1] / d)),
-                );
+                // id 0 = the primary activity (WINDOW_NODE); a secondary DayWindowActivity
+                // reports against its own day root (docs/windows.md).
+                let target = if id == 0 {
+                    day_spec::WINDOW_NODE
+                } else {
+                    day_spec::NodeId(id as u64)
+                };
+                emit(target, Event::WindowResized(Size::new(p[0] / d, p[1] / d)));
                 return;
             }
+            // Secondary-window lifecycle (docs/windows.md): the id is the window's root.
+            K_WINDOW_CLOSED => Event::WindowClosed,
+            K_WINDOW_FOCUSED => Event::WindowFocused(num != 0.0),
             // Focus pair + IME submit action (docs/focus.md).
             K_FOCUS_CHANGED => Event::FocusChanged(num != 0.0),
             K_SUBMITTED => Event::Submitted,
@@ -1013,6 +1064,7 @@ mod imp {
             Minimize => "Minimize",
             CloseWindow => "Close",
             Fullscreen => "Full Screen",
+            NewWindow => "New Window",
         }
     }
 
@@ -1140,7 +1192,10 @@ mod imp {
                 | Cap::TextSpellCheck
                 // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
                 // incremental swaps — the platform's own reorder (docs/list.md).
-                | Cap::ListReorder => Support::Native,
+                | Cap::ListReorder
+                // Document-style DayWindowActivity instances (docs/windows.md): separate
+                // recents entries; side-by-side in split-screen/freeform/desktop windowing.
+                | Cap::MultiWindow => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1885,6 +1940,16 @@ mod imp {
         }
 
         fn release(&mut self, h: AHandle) {
+            // A released window root drops its SECONDARY record (docs/windows.md teardown;
+            // the activity itself already finished or is finishing).
+            with_env(|env| {
+                SECONDARY.with(|s| {
+                    s.borrow_mut().retain(|(_, gref)| {
+                        !env.is_same_object(h.0.as_obj(), gref.as_obj())
+                            .unwrap_or(false)
+                    })
+                });
+            });
             let key = h.0.as_obj().as_raw() as usize;
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 LIST_SOURCES.with(|m| {
@@ -2173,6 +2238,84 @@ mod imp {
                     env.new_global_ref(&obj).expect("adopt: global ref"),
                 ))
             })
+        }
+
+        fn open_window(
+            &mut self,
+            id: NodeId,
+            options: &day_spec::WindowOptions,
+            kind: day_spec::WindowKind,
+        ) -> day_spec::WindowOpenReply<AHandle> {
+            // Preferences stay modal on mobile (docs/windows.md) — the cover fallback is
+            // the platform settings idiom; Normal windows become document activities.
+            if kind == day_spec::WindowKind::Preferences {
+                return day_spec::WindowOpenReply::Unsupported;
+            }
+            let ok = with_env(|env| {
+                let Ok(title) = env.new_string(&options.title) else {
+                    return false;
+                };
+                env.dcall_static(
+                    BRIDGE,
+                    "openWindow",
+                    "(JLjava/lang/String;)V",
+                    &[
+                        JValue::Long(id.0 as i64),
+                        JValue::Object(&JObject::from(title)),
+                    ],
+                )
+                .is_ok()
+            });
+            if ok {
+                day_spec::WindowOpenReply::Pending
+            } else {
+                day_spec::WindowOpenReply::Unsupported
+            }
+        }
+
+        fn close_window(&mut self, host: &AHandle) {
+            with_env(|env| {
+                if let Some(node) = secondary_node_of(env, host) {
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "closeWindow",
+                        "(J)V",
+                        &[JValue::Long(node as i64)],
+                    );
+                }
+            });
+        }
+
+        fn focus_window(&mut self, host: &AHandle) {
+            with_env(|env| {
+                if let Some(node) = secondary_node_of(env, host) {
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "focusWindow",
+                        "(J)V",
+                        &[JValue::Long(node as i64)],
+                    );
+                }
+            });
+        }
+
+        fn set_window_title(&mut self, host: &AHandle, title: &str) {
+            with_env(|env| {
+                if let Some(node) = secondary_node_of(env, host) {
+                    let Ok(jtitle) = env.new_string(title) else {
+                        return;
+                    };
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "setWindowTitle",
+                        "(JLjava/lang/String;)V",
+                        &[
+                            JValue::Long(node as i64),
+                            JValue::Object(&JObject::from(jtitle)),
+                        ],
+                    );
+                }
+            });
         }
 
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {

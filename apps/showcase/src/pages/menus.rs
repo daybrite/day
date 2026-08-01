@@ -16,14 +16,20 @@ fn menu_log() -> Signal<String> {
 /// The application menu bar (native NSMenu / GtkPopoverMenuBar / QMenuBar; app-bar overflow on Android;
 /// UIMenuBuilder on iPadOS). Custom items carry keyboard shortcuts and update the shared `menu_log`;
 /// the Edit menu uses standard roles so Cut/Copy/Paste target the focused control natively.
+/// Installed REACTIVELY (docs/menus.md): the builder's localized reads re-run on a runtime
+/// language change (the Preferences window's language picker), rebuilding the whole bar in
+/// the new language.
 pub(crate) fn install_app_menu() {
+    app_menu_reactive(build_app_menu);
+}
+
+fn build_app_menu() -> Vec<MenuEntry> {
     let log = |what: String| move || menu_log().set(what.clone());
-    // Localized menu names, resolved once at install (the locale is fixed for the run). The
-    // MENU_LOG readout composes from the SAME strings so it always matches the visible menus;
-    // `menu_role` items are localized by the OS itself. `report.pdf`/`budget.xlsx` are fixture
-    // FILENAMES (data, not prose) and stay raw.
+    // Localized menu names, resolved per install (the reactive builder re-resolves them on a
+    // locale change). The MENU_LOG readout composes from the SAME strings so it always
+    // matches the visible menus; `menu_role` items are localized by the OS itself.
+    // `report.pdf`/`budget.xlsx` are fixture FILENAMES (data, not prose) and stay raw.
     let file = crate::res::str::menu_file().format();
-    let new_item = crate::res::str::menu_new().format();
     let open = crate::res::str::menu_open().format();
     let recent = crate::res::str::menu_open_recent().format();
     let clear = crate::res::str::menu_clear_menu().format();
@@ -32,13 +38,14 @@ pub(crate) fn install_app_menu() {
     let view = crate::res::str::menu_view().format();
     let reload = crate::res::str::menu_reload().format();
     let actual_size = crate::res::str::menu_actual_size().format();
-    app_menu(vec![
+    vec![
         sub_menu(
             file.clone(),
             vec![
-                menu_item(new_item.clone())
-                    .key("n")
-                    .action(log(format!("{file} ▸ {new_item}"))),
+                // File ▸ New Window (⌘N; also the macOS tab-bar "+"): opens another
+                // showcase shell through the `register_new_window` builder
+                // (docs/windows.md); lowers disabled where no builder is registered.
+                menu_role(MenuRole::NewWindow),
                 menu_item(open.clone())
                     .key("o")
                     .action(log(format!("{file} ▸ {open}"))),
@@ -93,7 +100,7 @@ pub(crate) fn install_app_menu() {
                 menu_role(MenuRole::Fullscreen),
             ],
         ),
-    ]);
+    ]
 }
 
 /// Menus & dialogs — the app's transient native surfaces in one place: the menu bar and

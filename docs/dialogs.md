@@ -102,8 +102,10 @@ main loop keeps running and dayscript stays live while a modal is up.
 - **Native integration pickers** (contacts / photos / share): same present→result model with
   richer result payloads and `Cap`-gated fallbacks; designed here, implemented after the dialog
   family lands. (File open/save pickers have landed; see [files.md](./files.md).)
-- **New windows**: need a multi-`Tree` refactor (thread-local tree keyed by window) and
-  are desktop-only (`Cap::MultiWindow`); explicitly out of this pass.
+- **New windows**: SHIPPED since (docs/windows.md) — and the sketch above aged: the
+  implementation kept ONE tree with multiple adopted roots (no tree-per-window refactor),
+  and non-desktop backends degrade to a fullscreen cover instead of missing out. Dialogs
+  now attach to the key window at present time.
 - **Task/scope binding**: v1 tasks run at the root scope; cancelling an in-flight dialog
   when its owning subtree is disposed is a later refinement (signal writes to disposed
   scopes are already no-ops, so it's safe meanwhile).

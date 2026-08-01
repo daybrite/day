@@ -72,6 +72,7 @@ the architecture-level view and the rationale.
 | web — the `web-dom` backend (wasm32 + DOM) | docs/web.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | docs/break.md | [§8.5](#85-panics-and-crashes) |
+| secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback | docs/windows.md | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
 | API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
@@ -1196,10 +1197,25 @@ pub trait Platform: Toolkit {
 ```
 
 One deliberate simplification against the original design: the `AppCx`/`create_window`
-multi-window seam was **not** built — `day::launch(root)` + `WindowOptions` (title, size,
-min-size from `Day.toml [window]`) is the whole windowing surface, and dialogs/menus arrived as
-their own duties instead of flowing through window creation. Multi-window remains future,
-additive work.
+multi-window seam was **not** built for v1 — `day::launch(root)` + `WindowOptions` stayed the
+whole windowing surface, and dialogs/menus arrived as their own duties instead of flowing
+through window creation.
+
+> [!NOTE]
+> Revised 2026-08: **secondary windows shipped** (docs/windows.md) as the evolution policy
+> below prescribes — five defaulted `Toolkit` duties (`open_window` answering
+> `WindowOpenReply::{Open, Pending, Unsupported}`, `close_window`, `focus_window`,
+> `set_window_title`, `snapshot_window_of`), `Cap::MultiWindow`, and
+> `Event::{WindowClosed, WindowFocused}` on the window's root node. The tree stayed
+> SINGULAR: a second window's content container is adopted as an additional boundary root
+> (multi-ROOT, not the once-sketched tree-per-window), so `with_tree`, `find_by_id`, and
+> dayscript work across windows unchanged. `day::open_window(key, …)` is the app API
+> (open-or-focus singletons), `day::register_preferences*`/`open_preferences` the settings
+> paradigm behind the auto Settings…/⌘, menu item, `register_new_window` the File ▸ New
+> Window / macOS tab-bar "+" builder. Native on the desktop backends AND the
+> mobile ones — iPad UIScenes (day-uikit runs the scene lifecycle), Android document-style
+> activity instances, OHOS multiton ability instances; iPhone, the Preferences kind on
+> mobile, and web present the content as a fullscreen cover in the primary window.
 
 **Evolution policy (held in practice):** every duty added after the freeze ships with a default
 no-op/`Unsupported` body — gestures, focus, lists, menus, presentation, lifecycle, `read_a11y`,
@@ -3117,6 +3133,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam (docs/list.md); a guard denial fails the step, non-retryably |
+| `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu) — docs/menus.md |
+| `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path (docs/windows.md); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root (docs/navigation.md) |
@@ -3130,7 +3148,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated docs/coverage-matrix.md is its static twin |
-| `screenshot` | name | waits for `ui_idle` (native transitions settled) |
+| `screenshot` | name, `window?` | waits for `ui_idle`; `window` captures the secondary window opened under that key (docs/windows.md) |
 | `pause` | `secs` | demos only |
 | `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests (docs/break.md) |
 

@@ -341,6 +341,7 @@ fn gtk_role_label(role: day_spec::MenuRole) -> &'static str {
         R::Minimize => "Minimize",
         R::CloseWindow => "Close",
         R::Fullscreen => "Full Screen",
+        R::NewWindow => "New Window",
     }
 }
 
@@ -363,6 +364,10 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
         "Return" | "Enter" => "Return".to_string(),
         "Delete" | "Backspace" => "Delete".to_string(),
         "Space" => "space".to_string(),
+        // Punctuation must be spelled by keysym name — GTK rejects the literal
+        // ("Unable to parse accelerator '<Primary>,'").
+        "," => "comma".to_string(),
+        "." => "period".to_string(),
         k if k.chars().count() == 1 => k.to_lowercase(),
         k => k.to_string(),
     };
@@ -405,8 +410,13 @@ fn build_gio_menu(
                         emit(day_spec::WINDOW_NODE, Event::MenuAction(aid));
                     });
                     group.add_action(&action);
-                    let mi =
-                        gtk4::gio::MenuItem::new(Some(label), Some(&format!("daymenu.{name}")));
+                    // An id+role item with no label (the auto Preferences item) reads from
+                    // the role table — verbatim "" rendered an invisible blank entry.
+                    let lbl = match role {
+                        Some(r) if label.is_empty() => gtk_role_label(*r),
+                        _ => label.as_str(),
+                    };
+                    let mi = gtk4::gio::MenuItem::new(Some(lbl), Some(&format!("daymenu.{name}")));
                     if let Some(sc) = shortcut {
                         mi.set_attribute_value("accel", Some(&accel_string(sc).to_variant()));
                     }
@@ -448,6 +458,33 @@ fn set_menu_accels(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
             _ => {}
         }
     }
+}
+
+/// Register the conventional `app.preferences` GAction when the lowered model carries a
+/// Preferences item. On macOS this is what enables the stock "Preferences…" entry GTK's
+/// quartz backend places in the global app menu; on GNOME it matches the shell convention.
+fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
+    use day_spec::MenuItem as MI;
+    use gtk4::prelude::*;
+    fn find_prefs_id(items: &[day_spec::MenuItem]) -> Option<u64> {
+        items.iter().find_map(|item| match item {
+            MI::Submenu { items, .. } => find_prefs_id(items),
+            MI::Action { id, role, .. }
+                if *id != 0 && *role == Some(day_spec::MenuRole::Preferences) =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+    }
+    let Some(id) = find_prefs_id(items) else {
+        return;
+    };
+    let action = gtk4::gio::SimpleAction::new("preferences", None);
+    action.connect_activate(move |_, _| {
+        emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+    });
+    app.add_action(&action);
 }
 
 // ---------------------------------------------------------------------------
@@ -890,11 +927,26 @@ fn tabs_sync(host_key: usize) {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Gtk>];
 
+/// A live secondary window (docs/windows.md).
+struct GtkWin {
+    window: adw::ApplicationWindow,
+    fixed: gtk4::Fixed,
+}
+
 pub struct Gtk {
     registry: Registry<Gtk>,
     window_fixed: Option<gtk4::Fixed>,
+    /// The application, retained so `open_window` can create windows after activate.
+    app: Option<adw::Application>,
+    secondary: Vec<GtkWin>,
     /// The app menu bar, if installed — kept so a re-`set_app_menu` can replace it.
+    /// In-window presentation (Linux/Windows); macOS renders the model in the GLOBAL
+    /// menu bar instead (`set_menubar` — the quartz backend maps it natively).
     menu_bar: Option<gtk4::PopoverMenuBar>,
+    /// The current app-menu action group, inserted on EVERY Day window ("daymenu."
+    /// resolves against the focused window, so the macOS global menubar keeps working
+    /// while a secondary window is key).
+    menu_group: Option<gtk4::gio::SimpleActionGroup>,
 }
 
 impl Gtk {
@@ -907,7 +959,10 @@ impl Gtk {
         Gtk {
             registry,
             window_fixed: None,
+            app: None,
+            secondary: Vec::new(),
             menu_bar: None,
+            menu_group: None,
         }
     }
 }
@@ -1270,6 +1325,8 @@ impl Toolkit for Gtk {
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
             | Cap::ListReorder
+            // Real AdwApplicationWindows on the shared GtkApplication (docs/windows.md).
+            | Cap::MultiWindow
             | Cap::Appearance => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -2072,6 +2129,17 @@ impl Toolkit for Gtk {
     }
 
     fn release(&mut self, h: Handle) {
+        // A released window content = that window is gone (docs/windows.md teardown):
+        // drop the record, destroying a straggler window (a programmatic-close's window is
+        // already closed; destroy on it is a no-op).
+        self.secondary.retain(|w| {
+            if w.fixed.upcast_ref::<gtk4::Widget>() == &h {
+                w.window.destroy();
+                false
+            } else {
+                true
+            }
+        });
         let key = widget_key(&h);
         GTK_ANIMS.with(|m| {
             m.borrow_mut().remove(&key);
@@ -2631,30 +2699,54 @@ impl Toolkit for Gtk {
     }
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
-        let Some(app) = self
+        let Some(window) = self
             .window_fixed
             .as_ref()
             .and_then(|f| f.root())
             .and_then(|r| r.downcast::<gtk4::Window>().ok())
-            .and_then(|w| w.application())
         else {
+            return;
+        };
+        let Some(app) = window.application() else {
             return;
         };
         let group = gtk4::gio::SimpleActionGroup::new();
         let model = build_gio_menu(items, &group);
-        // Actions live under the "daymenu" prefix on the window; accelerators are set on the app.
-        if let Some(win) = app.active_window() {
-            win.insert_action_group("daymenu", Some(&group));
+        // Actions live under the "daymenu" prefix on EVERY Day window (menu activations —
+        // in-window bar or macOS global bar — resolve against the FOCUSED window);
+        // accelerators on the app. NOT `active_window()`: that is None before the first
+        // present, which silently left every item action-less at startup.
+        window.insert_action_group("daymenu", Some(&group));
+        for w in &self.secondary {
+            w.window.insert_action_group("daymenu", Some(&group));
         }
+        self.menu_group = Some(group);
         set_menu_accels(&app, items);
-        // The Adwaita window is Window → AdwToolbarView[ AdwHeaderBar, ScrolledWindow[ fixed ] ].
-        // The app menu bar is another top bar of the toolbar view, sitting under the header.
-        let toolbar = self
-            .window_fixed
-            .as_ref()
-            .and_then(|f| f.parent()) // ScrolledWindow (the sizing wrapper)
-            .and_then(|w| w.parent()) // AdwToolbarView
-            .and_then(|w| w.downcast::<adw::ToolbarView>().ok());
+        register_app_prefs_action(&app, items);
+        if cfg!(target_os = "macos") {
+            // macOS: the quartz backend renders the menubar model in the GLOBAL menu bar —
+            // where a Mac user actually looks (an in-window widget bar reads as broken
+            // there). GTK's stock app menu also carries a Preferences… item that enables
+            // through the `app.preferences` action registered above.
+            app.set_menubar(Some(&model));
+            return;
+        }
+        // Linux/Windows: an in-window PopoverMenuBar under the header bar. The Adwaita
+        // window is Window → AdwToolbarView[ AdwHeaderBar, ScrolledWindow[ Viewport[
+        // fixed ] ] ] — the ScrolledWindow auto-wraps the (non-scrollable) GtkFixed in a
+        // Viewport, so a fixed two-parent hop lands on the ScrolledWindow and the
+        // ToolbarView downcast fails (the bar was never attached at all). Walk ancestors
+        // until the ToolbarView instead.
+        let mut cur = self.window_fixed.as_ref().and_then(|f| f.parent());
+        let toolbar = loop {
+            match cur {
+                Some(w) => match w.clone().downcast::<adw::ToolbarView>() {
+                    Ok(t) => break Some(t),
+                    Err(_) => cur = w.parent(),
+                },
+                None => break None,
+            }
+        };
         let Some(toolbar) = toolbar else { return };
         // Replace any previously-installed bar (set_app_menu may be called again).
         if let Some(old) = self.menu_bar.take() {
@@ -2720,21 +2812,85 @@ impl Toolkit for Gtk {
         // screenshot step polls it (retryable, from the socket thread) so the main loop runs
         // FREELY between polls until the pending layout/draw has actually happened.
         let fixed = self.window_fixed.as_ref().ok_or("no window")?;
-        let widget: &gtk4::Widget = fixed.upcast_ref();
-        let w = widget.width() as f64;
-        let h = widget.height() as f64;
-        if w <= 0.0 || h <= 0.0 {
-            return Err("zero-size window".into());
+        snapshot_widget(fixed.upcast_ref())
+    }
+
+    fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
+        snapshot_widget(host)
+    }
+
+    fn open_window(
+        &mut self,
+        id: NodeId,
+        options: &WindowOptions,
+        kind: day_spec::WindowKind,
+    ) -> day_spec::WindowOpenReply<Handle> {
+        // Always present at call time: open_window runs after `ready`, which runs inside
+        // `activate` (AdwApplicationWindow::new only asserts GTK-initialized + main thread).
+        let Some(app) = self.app.clone() else {
+            return day_spec::WindowOpenReply::Unsupported;
+        };
+        let (window, fixed, _header) =
+            build_day_window(&app, &options.title, options.size, Some(id));
+        if kind == day_spec::WindowKind::Preferences {
+            window.set_resizable(false);
         }
-        use gtk4::gdk::prelude::PaintableExt;
-        let paintable = gtk4::WidgetPaintable::new(Some(widget));
-        let snapshot = gtk4::Snapshot::new();
-        paintable.snapshot(&snapshot, w, h);
-        let node = snapshot.to_node().ok_or("empty render node")?;
-        let native = widget.native().ok_or("no native")?;
-        let renderer = native.renderer().ok_or("no renderer")?;
-        let texture = renderer.render_texture(&node, None);
-        Ok(texture.save_to_png_bytes().to_vec())
+        window.connect_close_request(move |_| {
+            // Confirm to day-core, which tears down on a DEFERRED hop (never inside this
+            // close frame); GTK proceeds with the destroy — the widgets stay alive as
+            // Rust refs until day-core releases them.
+            emit(id, Event::WindowClosed);
+            gtk4::glib::Propagation::Proceed
+        });
+        {
+            let app = app.clone();
+            window.connect_is_active_notify(move |w| {
+                emit(id, Event::WindowFocused(w.is_active()));
+                note_activation_changed(&app);
+            });
+        }
+        // The app-menu actions resolve against the FOCUSED window (macOS global bar and
+        // accelerators both) — without the group, menu items go dead while this window
+        // is key.
+        if let Some(group) = &self.menu_group {
+            window.insert_action_group("daymenu", Some(group));
+        }
+        window.present();
+        self.secondary.push(GtkWin {
+            window,
+            fixed: fixed.clone(),
+        });
+        day_spec::WindowOpenReply::Open(fixed.upcast())
+    }
+
+    fn close_window(&mut self, host: &Handle) {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
+        {
+            w.window.close();
+        }
+    }
+
+    fn focus_window(&mut self, host: &Handle) {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
+        {
+            w.window.present();
+        }
+    }
+
+    fn set_window_title(&mut self, host: &Handle, title: &str) {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
+        {
+            w.window.set_title(Some(title));
+        }
     }
 
     /// Screenshot settling (see `snapshot_window`): GTK lays out and draws on the NEXT
@@ -2779,7 +2935,14 @@ impl Toolkit for Gtk {
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
         use day_spec::present::{ButtonRole, PresentResult, PresentSpec};
         // AdwDialog presents relative to any widget inside its AdwApplicationWindow.
-        let parent = self.window_fixed.clone();
+        // Dialogs attach to the ACTIVE Day window at present time (docs/windows.md);
+        // primary is the fallback.
+        let parent = self
+            .secondary
+            .iter()
+            .find(|w| w.window.is_active())
+            .map(|w| w.fixed.clone())
+            .or_else(|| self.window_fixed.clone());
         match spec {
             PresentSpec::Dialog {
                 title,
@@ -3007,19 +3170,126 @@ thread_local! {
 }
 
 /// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
-fn report_content_size(w: &adw::ApplicationWindow, header: &adw::HeaderBar) {
+/// `target`: `None` = the primary window (`WINDOW_NODE` + the cover follow-along);
+/// `Some(node)` = a secondary window's root (docs/windows.md).
+fn report_content_size(
+    w: &adw::ApplicationWindow,
+    header: &adw::HeaderBar,
+    target: Option<NodeId>,
+) {
     let hb = header.height();
     let hb = if hb > 0 { hb as f64 } else { HEADER_H };
     let size = Size::new(
         w.default_width() as f64,
         (w.default_height() as f64 - hb).max(0.0),
     );
-    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
-    // Presented covers track the content area (their frame is native-owned).
-    COVERS.with(|c| {
-        for (cover, node) in c.borrow().iter() {
-            cover.set_size_request(size.width as i32, size.height as i32);
-            emit(*node, Event::FrameChanged(size));
+    match target {
+        Some(node) => emit(node, Event::WindowResized(size)),
+        None => {
+            emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+            // Presented covers track the content area (their frame is native-owned).
+            COVERS.with(|c| {
+                for (cover, node) in c.borrow().iter() {
+                    cover.set_size_request(size.width as i32, size.height as i32);
+                    emit(*node, Event::FrameChanged(size));
+                }
+            });
+        }
+    }
+}
+
+/// Render a widget subtree to PNG (the dayscript screenshot seam — see `snapshot_window`
+/// for why no main-loop iteration may happen here).
+fn snapshot_widget(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
+    let w = widget.width() as f64;
+    let h = widget.height() as f64;
+    if w <= 0.0 || h <= 0.0 {
+        return Err("zero-size window".into());
+    }
+    use gtk4::gdk::prelude::PaintableExt;
+    let paintable = gtk4::WidgetPaintable::new(Some(widget));
+    let snapshot = gtk4::Snapshot::new();
+    paintable.snapshot(&snapshot, w, h);
+    let node = snapshot.to_node().ok_or("empty render node")?;
+    let native = widget.native().ok_or("no native")?;
+    let renderer = native.renderer().ok_or("no renderer")?;
+    let texture = renderer.render_texture(&node, None);
+    Ok(texture.save_to_png_bytes().to_vec())
+}
+
+/// Build one Day window: AdwApplicationWindow + ToolbarView/HeaderBar chrome + the
+/// External-policy scroll wrapper + the GtkFixed content (docs/windows.md; see the wrapper
+/// comments in `Platform::run` — factored so `open_window` builds identical chrome).
+/// Wires the resize notifies to `target` (`None` = primary).
+fn build_day_window(
+    app: &adw::Application,
+    title: &str,
+    size: Size,
+    target: Option<NodeId>,
+) -> (adw::ApplicationWindow, gtk4::Fixed, adw::HeaderBar) {
+    let window = adw::ApplicationWindow::new(app);
+    window.set_title(Some(title));
+    window.set_default_size(size.width as i32, size.height as i32);
+    let fixed = gtk4::Fixed::new();
+    // A GtkFixed reports its children's bounding box as its MINIMUM size, which would pin
+    // the window at the content size. A scroll wrapper with External policy breaks that
+    // propagation (no scrollbars are ever shown — Day sizes the content on every resize).
+    let wrapper = gtk4::ScrolledWindow::new();
+    wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
+    wrapper.set_child(Some(&fixed));
+    // The wrapper exists ONLY to break min-size propagation — it must never actually
+    // scroll. If any child's native minimum exceeds the window, a wheel would otherwise
+    // pan the whole UI; pin both axes.
+    for adj in [wrapper.hadjustment(), wrapper.vadjustment()] {
+        adj.connect_value_changed(|a| {
+            if a.value() != 0.0 {
+                a.set_value(0.0);
+            }
+        });
+    }
+    // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies an
+    // AdwHeaderBar (window controls, drag handle, and the window title) above Day's
+    // content — the standard Adwaita window structure, and the AdwDialog host that
+    // AdwAlertDialog needs.
+    let header = adw::HeaderBar::new();
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&wrapper));
+    window.set_content(Some(&toolbar));
+    // GTK4 keeps default-width/height tracking the live size of a resizable window — the
+    // only public resize signal it offers.
+    {
+        let header = header.clone();
+        window.connect_default_width_notify(move |w| report_content_size(w, &header, target));
+    }
+    {
+        let header = header.clone();
+        window.connect_default_height_notify(move |w| report_content_size(w, &header, target));
+    }
+    (window, fixed, header)
+}
+
+thread_local! {
+    /// Whether ANY Day window was active at the last activation check — the app-level
+    /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
+    /// emit a resign/become pair.
+    static ANY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Recompute "is any Day window active" on an idle (letting a focus handoff between two
+/// Day windows settle) and emit the app-level lifecycle transition only on a real change.
+fn note_activation_changed(app: &adw::Application) {
+    let app = app.clone();
+    gtk4::glib::idle_add_local_once(move || {
+        use gtk4::prelude::GtkWindowExt as _;
+        let any = app.windows().iter().any(|w| w.is_active());
+        if ANY_ACTIVE.with(|c| c.replace(any)) != any {
+            let phase = if any {
+                day_spec::Lifecycle::DidBecomeActive
+            } else {
+                day_spec::Lifecycle::WillResignActive
+            };
+            emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
         }
     });
 }
@@ -3125,39 +3395,23 @@ impl Platform for Gtk {
             let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                 return;
             };
-            let window = adw::ApplicationWindow::new(app);
+            let (window, fixed, _header) =
+                build_day_window(app, &options.title, options.size, None);
             check_bundled_fonts(&window);
-            window.set_title(Some(&options.title));
-            window.set_default_size(options.size.width as i32, options.size.height as i32);
             apply_app_icon(&window);
-            let fixed = gtk4::Fixed::new();
-            // A GtkFixed reports its children's bounding box as its MINIMUM size, which
-            // would pin the window at the content size. A scroll wrapper with External
-            // policy breaks that propagation (no scrollbars are ever shown — Day sizes
-            // the content to the window on every resize).
-            let wrapper = gtk4::ScrolledWindow::new();
-            wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-            wrapper.set_child(Some(&fixed));
-            // The wrapper exists ONLY to break min-size propagation — it must never actually
-            // scroll (Day sizes the content to the window). If any child's native minimum
-            // exceeds the window, a wheel would otherwise pan the whole UI; pin both axes.
-            for adj in [wrapper.hadjustment(), wrapper.vadjustment()] {
-                adj.connect_value_changed(|a| {
-                    if a.value() != 0.0 {
-                        a.set_value(0.0);
-                    }
+            backend.window_fixed = Some(fixed.clone());
+            backend.app = Some(app.clone());
+            // Closing the PRIMARY window quits the app, taking secondary windows with it
+            // (docs/windows.md close policy) — GApplication would otherwise stay alive
+            // while a secondary exists. `quit()` routes through `shutdown` → WillTerminate
+            // like every other quit path.
+            {
+                let app = app.clone();
+                window.connect_close_request(move |_| {
+                    app.quit();
+                    gtk4::glib::Propagation::Proceed
                 });
             }
-            // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies
-            // an AdwHeaderBar (window controls, drag handle, and the window title) above Day's
-            // content — the standard Adwaita window structure, and the AdwDialog host that
-            // AdwAlertDialog needs.
-            let header = adw::HeaderBar::new();
-            let toolbar = adw::ToolbarView::new();
-            toolbar.add_top_bar(&header);
-            toolbar.set_content(Some(&wrapper));
-            window.set_content(Some(&toolbar));
-            backend.window_fixed = Some(fixed.clone());
             // Day's content area is the window height minus the header bar; estimate it until
             // the header is allocated (report_content_size reads the real height thereafter).
             ready(
@@ -3168,25 +3422,12 @@ impl Platform for Gtk {
                     (options.size.height - HEADER_H).max(0.0),
                 ),
             );
-            // GTK4 keeps default-width/height tracking the live size of a resizable window —
-            // the only public resize signal it offers.
+            // Lifecycle activation (docs/lifecycle.md): debounced across ALL Day windows —
+            // focus moving between two Day windows is not an app-level resign/become.
             {
-                let header = header.clone();
-                window.connect_default_width_notify(move |w| report_content_size(w, &header));
+                let app = app.clone();
+                window.connect_is_active_notify(move |_| note_activation_changed(&app));
             }
-            {
-                let header = header.clone();
-                window.connect_default_height_notify(move |w| report_content_size(w, &header));
-            }
-            // Lifecycle activation (docs/lifecycle.md): the window's focus tracks foreground/active.
-            window.connect_is_active_notify(|w| {
-                let phase = if w.is_active() {
-                    day_spec::Lifecycle::DidBecomeActive
-                } else {
-                    day_spec::Lifecycle::WillResignActive
-                };
-                emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
-            });
             window.present();
         });
         app.run_with_args::<&str>(&[]);

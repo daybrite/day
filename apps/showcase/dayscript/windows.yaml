@@ -1,0 +1,24 @@
+name: showcase-windows
+description: Desktop secondary windows (docs/windows.md) — File ▸ New Window via the
+  NewWindow role action, the preferences singleton, close/teardown. Runs on every desktop
+  combo with native Cap::MultiWindow; the theme-flip leg lives in windows-theme.yaml
+  (Cap::Appearance-gated — qt has no runtime appearance override). Dayscript ids resolve
+  tree-globally, so steps need no window scoping — only screenshots name their window.
+flow:
+  - wait_for: { id: home-title }
+
+  # A second, independent showcase shell (the tab-bar "+" runs the same action).
+  - menu: { key: day-new-window }
+  - wait_idle:
+  - pause: 0.5
+  - screenshot: two-windows
+
+  # The preferences singleton: reopening focuses instead of duplicating.
+  - menu: { key: day-preferences }
+  - wait_for: { id: prefs-title }
+  - menu: { key: day-preferences }
+  - assert_visible: { id: language-picker }
+  - screenshot: { name: prefs-window, window: day.preferences }
+  - close_window: { window: day.preferences }
+  - pause: 0.3
+  - screenshot: after-close

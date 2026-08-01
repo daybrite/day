@@ -122,14 +122,35 @@ pub fn root() -> AnyPiece {
     // Every locale under `resource/locales/` (en, fr, ar, zh-CN), embedded and registered by the
     // generated catalog (§18.5) — adding a language is a new directory, nothing to edit here.
     res::locales::install();
-    // Top-level navigation is a NavigationSplitView (docs/navigation.md): a `selector` bound
-    // to an app-owned `Signal<Option<Section>>` of the active section (`None` = the collapsed
-    // mobile list). Desktop shows sidebar + detail (an AdwNavigationSplitView on GTK); mobile
-    // collapses to a list that pushes the detail.
+    // Persisted theme/language overrides (docs/windows.md; the launch env wins — CI variant
+    // loops with DAY_THEME/--locale stay deterministic).
+    day_piece_settings::apply_startup("showcase.theme", "showcase.locale");
+    // The Preferences window (Settings…/⌘, on macOS; primary+`,` elsewhere; a fullscreen
+    // cover on backends without windows) and File ▸ New Window / the macOS tab-bar "+"
+    // (docs/windows.md). Registered before the menu so its items lower live.
+    day::register_preferences_with(
+        day::WindowOptions {
+            title: crate::res::str::prefs_window_title().format(),
+            size: Size::new(520.0, 420.0),
+            min_size: None,
+            app_name: None,
+        },
+        pages::preferences_window,
+    );
+    day::register_new_window(|| window_root(false));
     install_app_menu();
     // Lifecycle handlers (docs/lifecycle.md). On mobile this is the registration point; on desktop
     // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
     install_lifecycle_handlers();
+    window_root(true)
+}
+
+/// One showcase shell — the primary window's content, and (via `register_new_window`) each
+/// File ▸ New Window's. Every call creates its own section signal, so windows navigate
+/// independently; app-global state (menu log, lifecycle log, controls prefs) is shared.
+/// Only the PRIMARY shell joins the route namespace — secondary windows are `.local()`
+/// (docs/navigation.md), so `navigate()`/dayscript keep driving the primary unambiguously.
+fn window_root(primary: bool) -> AnyPiece {
     // Remember the last-opened section across launches (docs/navigation.md). Web only, matching
     // this app's prefs policy (controls.rs): a browser reload is normal life on the web, so the
     // store is installed there and the top-level selector's `.restore` persists the section;
@@ -298,6 +319,7 @@ pub fn root() -> AnyPiece {
             res::images::nav_webview,
             webview_page,
         );
+    let nav = if primary { nav } else { nav.local() };
     nav.id("nav")
 }
 

@@ -174,6 +174,20 @@ flow:
   - assert_presented: {}
   - respond: { button: 1 }
   - assert_text: { id: modal-result, text: "sheet-1" }
+  # The `menu:` step drives an app-menu action by localized key, toolkit-uniform
+  # (docs/menus.md) — no native menu automation involved.
+  - menu: { key: menu_open }
+
+  # Preferences (docs/windows.md): the registered Settings…/⌘, action opens the singleton
+  # preferences window — a real OS window on desktop, a fullscreen cover where the backend
+  # has no secondary windows; the SAME ids resolve either way. The language picker is
+  # universal; the theme picker is Cap::Appearance-gated and asserted in the desktop
+  # windows script instead. Close runs the async confirm → teardown path.
+  - menu: { key: day-preferences }
+  - wait_for: { id: prefs-title }
+  - assert_visible: { id: language-picker }
+  - screenshot: { name: preferences, window: day.preferences }
+  - close_window: { window: day.preferences }
 
   # Device & sensors: the headless device-state parts in one form. The battery preview slider +
   # charging toggle drive a deterministic state (65% + bolt) for the screenshot, then a low

@@ -55,6 +55,48 @@ public final class DayBridge {
     public static native void nativeStart(View root, float density, int w, int h,
                                           String autodrive, String locale, String envBlob);
     public static native void nativeOnEvent(long id, int kind, double num, String str);
+    /** A secondary DayWindowActivity's first laid-out root (docs/windows.md): completes the
+     *  pending day::open_window. Returns false when the window was closed before connecting. */
+    public static native boolean nativeStartWindow(View root, long node, float density,
+            int w, int h);
+
+    /** Launch a secondary day window (docs/windows.md): a document-style DayWindowActivity
+     *  carrying the day node id + title. Rust calls this from the open_window duty. */
+    public static void openWindow(long node, String title) {
+        android.content.Context c = ctx;
+        if (c == null) return;
+        android.content.Intent i = new android.content.Intent(c, DayWindowActivity.class);
+        i.putExtra("day.node", node);
+        i.putExtra("day.title", title);
+        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                | android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                | android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        c.startActivity(i);
+    }
+
+    /** Close a secondary window (docs/windows.md): finish its activity; onDestroy confirms. */
+    public static void closeWindow(long node) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a != null) a.finish();
+    }
+
+    /** Bring a secondary window's task to the front. */
+    public static void focusWindow(long node) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a == null) return;
+        android.app.ActivityManager am = (android.app.ActivityManager)
+                a.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+        if (am != null) am.moveTaskToFront(a.getTaskId(), 0);
+    }
+
+    /** Retitle a secondary window (label + recents card). */
+    public static void setWindowTitle(long node, String title) {
+        DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
+        if (a != null) {
+            a.setTitle(title);
+            a.setTaskDescription(new android.app.ActivityManager.TaskDescription(title));
+        }
+    }
 
     // --- event kinds -----------------------------------------------------------
     // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
@@ -79,6 +121,8 @@ public final class DayBridge {
     public static final int K_FOCUS_CHANGED = 16;
     public static final int K_SUBMITTED = 17;
     public static final int K_WINDOW_RESIZED = 18;
+    public static final int K_WINDOW_CLOSED = 20;
+    public static final int K_WINDOW_FOCUSED = 21;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */

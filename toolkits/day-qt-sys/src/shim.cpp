@@ -3,6 +3,7 @@
 // posting. Only connects to existing Qt signals via lambdas — no moc required.
 
 #include <QApplication>
+#include <QWindow>
 #include <QStyleHints>
 #include <QBuffer>
 #include <QByteArray>
@@ -79,6 +80,11 @@ void *day_qt_app_new(const char *app_name) {
         s_arg0[sizeof(s_arg0) - 1] = '\0';
     }
     auto *app = new QApplication(s_argc, s_argv);
+    // Quit is DELIBERATE (the primary window's closeEvent / role Quit / ⌘Q): the default
+    // quit-on-last-window-closed would misfire once secondary windows exist
+    // (docs/windows.md — closing the last secondary must not exit, closing the primary
+    // must exit even while secondaries are open).
+    QApplication::setQuitOnLastWindowClosed(false);
     QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
     // DAY_THEME=light|dark forces the color scheme (themed CI screenshot runs and local theme
     // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+; on older
@@ -136,6 +142,20 @@ void *day_qt_app_new(const char *app_name) {
 }
 void day_qt_app_run(void *app) { static_cast<QApplication *>(app)->exec(); }
 
+// Per-window event callbacks for SECONDARY windows (docs/windows.md), keyed by the day
+// node id each window carries. Registered once at run(); the primary keeps its dedicated
+// `resize_cb` and quit-on-close semantics.
+static void (*g_win_resized)(unsigned long long, int, int) = nullptr;
+static void (*g_win_closed)(unsigned long long) = nullptr;
+static void (*g_win_focused)(unsigned long long, int) = nullptr;
+void day_qt_set_window_events_cb(void (*resized)(unsigned long long, int, int),
+                                 void (*closed)(unsigned long long),
+                                 void (*focused)(unsigned long long, int)) {
+    g_win_resized = resized;
+    g_win_closed = closed;
+    g_win_focused = focused;
+}
+
 // Resizable top-level that reports size changes back to day (docs §7.7). Day's tree mounts
 // into the inner `content` widget, NOT the window itself: on platforms where the QMenuBar is
 // an in-window bar (Linux/Windows — macOS uses the global bar), the bar owns a strip at the
@@ -145,6 +165,9 @@ public:
     void (*resize_cb)(int, int) = nullptr;
     QWidget *content = nullptr;
     QMenuBar *menubar = nullptr;
+    // Nonzero = a SECONDARY window's day root node id: events route to the g_win_*
+    // callbacks and close hides (Rust owns destruction — docs/windows.md).
+    unsigned long long node = 0;
 
     // The in-window menu bar height (0 when absent or when the platform uses a global bar).
     int menuHeight() const {
@@ -156,12 +179,33 @@ public:
         if (menubar && mh > 0) menubar->setGeometry(0, 0, width(), mh);
         if (content) content->setGeometry(0, mh, width(), height() - mh);
         if (resize_cb) resize_cb(width(), height() - mh);
+        if (node && g_win_resized) g_win_resized(node, width(), height() - mh);
     }
 
 protected:
     void resizeEvent(QResizeEvent *e) override {
         QWidget::resizeEvent(e);
         relayoutChrome();
+    }
+    void closeEvent(QCloseEvent *e) override {
+        if (node) {
+            // Confirm to day (teardown is deferred there); the window HIDES — no
+            // WA_DeleteOnClose, Rust drives destruction when day releases the content, so
+            // child-widget release order stays sound.
+            if (g_win_closed) g_win_closed(node);
+            e->accept();
+        } else {
+            // Primary close quits, taking secondary windows with it (docs/windows.md) —
+            // explicit, because quitOnLastWindowClosed is off (a secondary outliving the
+            // primary must not keep the app alive).
+            QWidget::closeEvent(e);
+            QCoreApplication::quit();
+        }
+    }
+    void changeEvent(QEvent *e) override {
+        QWidget::changeEvent(e);
+        if (node && e->type() == QEvent::ActivationChange && g_win_focused)
+            g_win_focused(node, isActiveWindow() ? 1 : 0);
     }
 };
 
@@ -178,6 +222,30 @@ void day_qt_window_on_resize(void *win, void (*cb)(int, int)) {
     static_cast<DayWindow *>(win)->resize_cb = cb;
 }
 void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
+
+// A SECONDARY window (docs/windows.md): carries its day node id; `fixed` pins the size
+// (the Preferences-window convention).
+void *day_qt_window_new2(const char *title, int w, int h, unsigned long long node, int fixed) {
+    auto *win = static_cast<DayWindow *>(day_qt_window_new(title, w, h));
+    win->node = node;
+    if (fixed) win->setFixedSize(w, h);
+    return win;
+}
+void *day_qt_window_content(void *win) { return static_cast<DayWindow *>(win)->content; }
+void day_qt_window_close(void *win) { static_cast<QWidget *>(win)->close(); }
+void day_qt_window_raise(void *win) {
+    auto *w = static_cast<QWidget *>(win);
+    w->show();
+    w->raise();
+    w->activateWindow();
+}
+void day_qt_window_set_title(void *win, const char *title) {
+    static_cast<QWidget *>(win)->setWindowTitle(QString::fromUtf8(title));
+}
+void day_qt_window_destroy(void *win) { static_cast<QWidget *>(win)->deleteLater(); }
+int day_qt_window_is_active(void *win) {
+    return static_cast<QWidget *>(win)->isActiveWindow() ? 1 : 0;
+}
 
 void *day_qt_container_new() { return new QWidget(); }
 
@@ -1520,6 +1588,36 @@ void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
     });
 }
 
+// The top-level window a window-scoped menu role (Close/Minimize/Fullscreen) targets.
+// Layered because each Qt-side answer goes stale in a state the macOS global menu bar can
+// reach: focusWidget() is null whenever no child widget holds keyboard focus, and after a
+// secondary window closes (hides) and the app is re-activated from outside, activeWindow()
+// AND focusWidget() are BOTH null while AppKit considers the primary key. So: Qt's answer
+// if it names a visible window, else the platform's key window mapped back to its widget,
+// else — when exactly one candidate remains — that window. Never a hidden one: close() on
+// an already-hidden window is a silent no-op, which is how "File ▸ Close does nothing"
+// looked to the user.
+static QWidget *day_qt_role_target() {
+    if (QWidget *w = QApplication::activeWindow()) {
+        if (w->isVisible()) return w;
+    }
+    if (QWidget *f = QApplication::focusWidget()) {
+        QWidget *t = f->window();
+        if (t->isVisible()) return t;
+    }
+    if (QWindow *fw = QGuiApplication::focusWindow()) {
+        for (QWidget *tl : QApplication::topLevelWidgets())
+            if (tl->windowHandle() == fw && tl->isVisible()) return tl;
+    }
+    QWidget *only = nullptr;
+    for (QWidget *tl : QApplication::topLevelWidgets()) {
+        if (!tl->isVisible() || tl->windowType() != Qt::Window) continue;
+        if (only) return nullptr; // two candidates and no focus info — refuse to guess
+        only = tl;
+    }
+    return only;
+}
+
 // role codes match day_spec::MenuRole order.
 void day_qt_menu_add_role(void *menu, const char *label, int role, const char *shortcut) {
     QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
@@ -1540,20 +1638,19 @@ void day_qt_menu_add_role(void *menu, const char *label, int role, const char *s
         case 9: a->setMenuRole(QAction::PreferencesRole); break;
         case 10:
             QObject::connect(a, &QAction::triggered, []() {
-                if (QWidget *w = QApplication::focusWidget()) w->window()->showMinimized();
+                if (QWidget *w = day_qt_role_target()) w->showMinimized();
             });
             break;
         case 11:
             QObject::connect(a, &QAction::triggered, []() {
-                if (QWidget *w = QApplication::focusWidget()) w->window()->close();
+                if (QWidget *w = day_qt_role_target()) w->close();
             });
             break;
         case 12:
             QObject::connect(a, &QAction::triggered, []() {
-                if (QWidget *w = QApplication::focusWidget()) {
-                    QWidget *top = w->window();
-                    if (top->isFullScreen()) top->showNormal();
-                    else top->showFullScreen();
+                if (QWidget *w = day_qt_role_target()) {
+                    if (w->isFullScreen()) w->showNormal();
+                    else w->showFullScreen();
                 }
             });
             break;

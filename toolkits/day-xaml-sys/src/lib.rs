@@ -17,6 +17,24 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_xaml_window_root(win: *mut c_void) -> *mut c_void;
     pub fn day_xaml_window_show(win: *mut c_void);
+    // Secondary windows (docs/windows.md): per-window event callbacks keyed by day node id.
+    pub fn day_xaml_set_window_events_cb(
+        resized: extern "C" fn(u64, c_int, c_int),
+        closed: extern "C" fn(u64),
+        focused: extern "C" fn(u64, c_int),
+    );
+    pub fn day_xaml_window_new2(
+        title: *const c_char,
+        w: c_int,
+        h: c_int,
+        node: u64,
+        fixed: c_int,
+    ) -> *mut c_void;
+    pub fn day_xaml_window_content2(win: *mut c_void) -> *mut c_void;
+    pub fn day_xaml_window_close2(win: *mut c_void);
+    pub fn day_xaml_window_raise2(win: *mut c_void);
+    pub fn day_xaml_window_set_title2(win: *mut c_void, title: *const c_char);
+    pub fn day_xaml_window_destroy2(win: *mut c_void);
     /// Top-level host HWND of the (single, v1) app window — for a piece that needs the window handle
     /// behind the XAML island. The WebView2 web view passes it as the composition controller's
     /// parentWindow (DPI / IME / input association) while rendering windowless into the XAML tree.

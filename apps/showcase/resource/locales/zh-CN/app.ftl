@@ -481,7 +481,6 @@ anim_duration_ms = { $ms } 毫秒
 
 # 菜单栏与上下文菜单
 menu_file = 文件
-menu_new = 新建
 menu_open = 打开…
 menu_open_recent = 最近打开
 menu_clear_menu = 清除菜单
@@ -580,3 +579,6 @@ storage_load = 加载
 storage_delete = 删除
 storage_files_label = 已存文件
 storage_idle = 尚未存储任何内容
+
+prefs_window_title = 偏好设置
+prefs_window_caption = 主题和语言应用于所有窗口，并在启动之间保留。

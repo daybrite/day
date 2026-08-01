@@ -88,3 +88,15 @@ through `[package.metadata.day.android]` (with no permission this time, since pr
 none), which `day build` folds into the app's Gradle build without touching any core day crate. On
 every other platform it is fully day-independent (pure FFI on Apple, pure `std` file I/O on desktop).
 See docs/extending.md.
+
+## Settings pieces + the env-wins rule (docs/windows.md)
+
+`pieces/day-piece-settings` packages the theme/language settings rows every app was
+hand-rolling — `appearance_picker`/`language_picker`/`settings_sections` persist through
+this part and apply live. Its `apply_startup(theme_key, locale_key)` applies persisted
+overrides at boot with the **env-wins rule**: when `DAY_THEME` or `DAY_LOCALE` is set (a
+`day launch --env`/`--locale` run, every themed CI variant), the persisted value is NOT
+re-applied — the launch override stays deterministic no matter what an earlier run stored.
+Live picker changes still apply and persist after boot. Local-run hygiene when testing
+persistence by hand: unbundled macOS binaries store under the process-name defaults domain
+(`defaults delete <name>` clears it — a plist delete alone won't, cfprefsd caches).

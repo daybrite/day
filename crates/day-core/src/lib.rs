@@ -13,6 +13,7 @@ mod nav;
 mod present;
 pub mod shield;
 mod tree;
+pub mod windows;
 
 pub use anim::{current_anim, with_animation};
 pub use build::*;
@@ -34,6 +35,11 @@ pub use day_spec::resource::{
     AssetName, FontFamily, ImageName, Resource, ResourceOpener, resource, set_resource_opener,
 };
 pub use tree::*;
+pub use windows::{
+    WindowHandle, finish_window_open, focused_window, open_new_window, open_preferences,
+    open_window, register_new_window, register_preferences, register_preferences_with,
+    window_by_key,
+};
 
 /// The app-wide layout direction (docs/localization): mirrors every horizontal placement in
 /// the place pass when [`day_geometry::LayoutDirection::Rtl`]. Resolved lazily from the

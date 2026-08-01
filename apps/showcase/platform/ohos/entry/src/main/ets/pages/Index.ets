@@ -15,6 +15,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
+import DayWindowAbility from '../entryability/DayWindowAbility';
 
 @Entry
 @Component
@@ -100,6 +101,25 @@ struct Index {
         console.error(`day: openUrl failed: ${err.code} ${err.message}`);
       });
     });
+
+    // Secondary day windows (docs/windows.md): each open_window becomes a multiton
+    // DayWindowAbility instance (its own task card; freeform on tablets), carrying the
+    // day root node id + title as want parameters.
+    nativeEntry.registerWindows(
+      (node: number, title: string): void => {
+        const want: Want = {
+          bundleName: ctx.abilityInfo.bundleName,
+          abilityName: 'DayWindowAbility',
+          parameters: { dayNode: node, dayTitle: title }
+        };
+        ctx.startAbility(want).catch((err: BusinessError) => {
+          console.error(`day: openWindow failed: ${err.code} ${err.message}`);
+        });
+      },
+      (node: number): void => {
+        DayWindowAbility.terminate(node);
+      }
+    );
   }
 
   // Day → ArkTS file picker. mode 0 = open (copy the pick into app cache, hand back a readable

@@ -108,6 +108,7 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
         R::Minimize => "day-minimize",
         R::CloseWindow => "day-close",
         R::Fullscreen => "day-fullscreen",
+        R::NewWindow => "day-new-window",
     }
 }
 
@@ -126,7 +127,26 @@ pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
                     items: lower_menu(children),
                 }
             } else {
-                let id = e.action.map(day_core::register_menu_action).unwrap_or(0);
+                let mut id = e.action.map(day_core::register_menu_action).unwrap_or(0);
+                let mut enabled = e.enabled;
+                let mut shortcut = e.shortcut;
+                // Window roles have no native selector on any platform: an action-less item
+                // lowers to the registered day dispatcher (docs/windows.md) — live when the
+                // app registered a builder/preferences piece, disabled otherwise.
+                if id == 0 {
+                    match e.role {
+                        Some(day_spec::MenuRole::NewWindow) => {
+                            id = day_core::windows::new_window_action_id();
+                            enabled = enabled && id != 0;
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("n")));
+                        }
+                        Some(day_spec::MenuRole::Preferences) => {
+                            id = day_core::windows::preferences_action_id();
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::new(",")));
+                        }
+                        _ => {}
+                    }
+                }
                 let label = match (e.label.is_empty(), e.role) {
                     (true, Some(role)) => day_l10n::t(role_catalog_key(role)),
                     _ => e.label,
@@ -134,8 +154,8 @@ pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
                 day_spec::MenuItem::Action {
                     id,
                     label,
-                    shortcut: e.shortcut,
-                    enabled: e.enabled,
+                    shortcut,
+                    enabled,
                     role: e.role,
                 }
             }
@@ -146,6 +166,31 @@ pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
 /// Install the application menu — the native menu bar on desktop, the app-bar overflow on Android, the
 /// UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(...)`s (the
 /// menu-bar menus). Call at startup or whenever the menu changes; it replaces any previous app menu.
+///
+/// Labels resolve ONCE, in the install-time locale; an app whose language can change at
+/// runtime (a preferences language picker) should use [`app_menu_reactive`] instead.
 pub fn app_menu(menus: Vec<MenuEntry>) {
     day_core::set_app_menu(lower_menu(menus));
+}
+
+/// [`app_menu`] that re-lowers and re-installs whenever a locale-tracked read inside the
+/// builder changes — `menu_role` labels, `res::str` titles, and `day::tr` all read the
+/// locale signal, so a runtime language switch rebuilds the menu in the new language
+/// (docs/menus.md). Replacement drops the previous install's action closures (context
+/// menus are unaffected). The binding lives in a root-owned scope: install once, at startup.
+pub fn app_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
+    let scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
+    scope.enter(|| {
+        day_reactive::bind(
+            move || {
+                // Track the locale even when the builder itself has no localized reads,
+                // so role-label fallbacks still refresh.
+                let _ = day_l10n::locale().get();
+                lower_menu(builder())
+            },
+            |items: &Vec<day_spec::MenuItem>| {
+                day_core::set_app_menu(items.clone());
+            },
+        );
+    });
 }

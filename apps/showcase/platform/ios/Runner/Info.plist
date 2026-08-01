@@ -47,5 +47,10 @@
 	<string>Show your coordinates live on the Device &amp; sensors page.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Show live accelerometer, gyroscope and magnetometer traces on the Device &amp; sensors page.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

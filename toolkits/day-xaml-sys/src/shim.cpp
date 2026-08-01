@@ -610,6 +610,164 @@ void day_xaml_window_show(void* win) {
     UpdateWindow(app->host);
 }
 
+// --- secondary windows (docs/windows.md) --------------------------------------------------
+// Each is its own Win32 host + DesktopWindowXamlSource island (multiple islands per thread
+// are supported) carrying a day root Canvas. Events route to per-window callbacks keyed by
+// the day node id; close HIDES (Rust drives destruction when day releases the content).
+// Known v1 limit: the primary's message loop PreTranslateMessage targets the primary
+// island only, so keyboard accelerators inside secondary islands may be degraded.
+
+struct SecWindow {
+    HWND host{};
+    HWND island{};
+    WUXH::DesktopWindowXamlSource source{ nullptr };
+    WUXC::Canvas root{ nullptr };
+    unsigned long long node = 0;
+};
+static std::map<HWND, SecWindow*> g_sec_windows;
+static void (*g_win_resized)(unsigned long long, int, int) = nullptr;
+static void (*g_win_closed)(unsigned long long) = nullptr;
+static void (*g_win_focused)(unsigned long long, int) = nullptr;
+
+void day_xaml_set_window_events_cb(void (*resized)(unsigned long long, int, int),
+                                   void (*closed)(unsigned long long),
+                                   void (*focused)(unsigned long long, int)) {
+    g_win_resized = resized;
+    g_win_closed = closed;
+    g_win_focused = focused;
+}
+
+static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    auto it = g_sec_windows.find(hwnd);
+    SecWindow* sw = it == g_sec_windows.end() ? nullptr : it->second;
+    switch (msg) {
+    case WM_SIZE:
+        if (sw && sw->island) {
+            RECT rc; GetClientRect(hwnd, &rc);
+            SetWindowPos(sw->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+            if (g_win_resized) g_win_resized(sw->node, rc.right, rc.bottom);
+        }
+        return 0;
+    case WM_ACTIVATE:
+        if (sw && g_win_focused) g_win_focused(sw->node, LOWORD(wp) != WA_INACTIVE ? 1 : 0);
+        break;
+    case WM_CLOSE:
+        // Confirm to day (its teardown is deferred); HIDE — no destroy here, no
+        // lifecycle-terminate, no PostQuitMessage (those are primary-only semantics).
+        if (sw && g_win_closed) g_win_closed(sw->node);
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void* day_xaml_window_new2(const char* title, int w, int h,
+                           unsigned long long node, int fixed) try {
+    bool app_dark = g_forced_theme == 2 ||
+        (g_forced_theme == 0 &&
+         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = SecWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"day_xaml_win2";
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = app_dark ? reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH))
+                                    : reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        RegisterClassW(&wc);
+        registered = true;
+    }
+    DWORD style = WS_OVERLAPPEDWINDOW;
+    if (fixed) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+    RECT r{ 0, 0, w, h };
+    AdjustWindowRect(&r, style, FALSE);
+    HWND host = CreateWindowExW(0, L"day_xaml_win2", hs(title).c_str(), style,
+                                CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
+                                r.bottom - r.top, nullptr, nullptr,
+                                GetModuleHandleW(nullptr), nullptr);
+    if (!host) return nullptr;
+
+    WUXH::DesktopWindowXamlSource source;
+    auto interop = source.as<::IDesktopWindowXamlSourceNative>();
+    interop->AttachToWindow(host);
+    HWND island = nullptr;
+    interop->get_WindowHandle(&island);
+    RECT rc; GetClientRect(host, &rc);
+    SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+    {
+        BOOL dark_titlebar = app_dark ? TRUE : FALSE;
+        DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_titlebar,
+                              sizeof(dark_titlebar));
+    }
+    WUXC::Canvas root;
+    switch (g_forced_theme) {
+        case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
+        case 1: root.RequestedTheme(WUX::ElementTheme::Light); break;
+    }
+    source.Content(root);
+    // Solid neutral ground matching the scheme (the primary's themed-brush path needs the
+    // unforced system lookup; a solid is correct in both cases and keeps this path simple).
+    root.Background(WUXM::SolidColorBrush(
+        color_argb(app_dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+
+    // Load the island before day builds (see day_xaml_window_new: unloaded templated
+    // controls measure to 0). Bounded pump.
+    ShowWindow(host, SW_SHOWNORMAL);
+    UpdateWindow(host);
+    auto loaded = std::make_shared<bool>(false);
+    auto token = root.Loaded([loaded](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+        *loaded = true;
+    });
+    {
+        MSG msg{};
+        ULONGLONG start = GetTickCount64();
+        while (!*loaded && GetTickCount64() - start < 2000) {
+            if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            } else {
+                Sleep(1);
+            }
+        }
+    }
+    root.Loaded(token);
+
+    auto sw = new SecWindow();
+    sw->host = host;
+    sw->island = island;
+    sw->source = source;
+    sw->root = root;
+    sw->node = node;
+    g_sec_windows[host] = sw;
+    return sw;
+} catch (...) {
+    std::fprintf(stderr, "day-xaml: secondary window init failed\n");
+    std::fflush(stderr);
+    return nullptr;
+}
+
+void* day_xaml_window_content2(void* win) {
+    return boxh(static_cast<SecWindow*>(win)->root);
+}
+void day_xaml_window_close2(void* win) {
+    PostMessageW(static_cast<SecWindow*>(win)->host, WM_CLOSE, 0, 0);
+}
+void day_xaml_window_raise2(void* win) {
+    HWND h = static_cast<SecWindow*>(win)->host;
+    ShowWindow(h, SW_SHOWNORMAL);
+    SetForegroundWindow(h);
+}
+void day_xaml_window_set_title2(void* win, const char* title) {
+    SetWindowTextW(static_cast<SecWindow*>(win)->host, hs(title).c_str());
+}
+void day_xaml_window_destroy2(void* win) {
+    auto sw = static_cast<SecWindow*>(win);
+    g_sec_windows.erase(sw->host);
+    DestroyWindow(sw->host);
+    delete sw;
+}
+
 // App icon (§18.2): title-bar + taskbar icon for the unbundled Win32 host window, loaded from the
 // multi-size .ico that `day launch` resolves from the project's icons/windows/ (DAY_APP_ICON).
 void day_xaml_set_app_icon(void* win, const char* ico_path) {

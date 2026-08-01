@@ -1492,10 +1492,15 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
 }
 
 // ---------------------------------------------------------------------------
-// DayWinDelegate — resize + close
+// DayWinDelegate — resize + close + key tracking, per window
 // ---------------------------------------------------------------------------
 
-struct WinIvars;
+/// `node`: the day window-root id this delegate's window reports to. `None` = the PRIMARY
+/// window — resize goes to `WINDOW_NODE` and close terminates the app; a secondary window
+/// (docs/windows.md) reports to its own root and close tears down just that window.
+struct WinIvars {
+    node: Option<NodeId>,
+}
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -1514,8 +1519,9 @@ define_class!(
                 && let Some(content) = win.contentView()
             {
                 let b = content.bounds();
+                let target = self.ivars().node.unwrap_or(WINDOW_NODE);
                 emit(
-                    WINDOW_NODE,
+                    target,
                     Event::WindowResized(Size::new(b.size.width, b.size.height)),
                 );
             }
@@ -1523,15 +1529,48 @@ define_class!(
 
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
-            let app = NSApplication::sharedApplication(self.mtm());
-            unsafe { app.terminate(None) };
+            match self.ivars().node {
+                // Secondary window: confirm the close to day-core, which tears the
+                // subtree down on a DEFERRED hop (never inside this AppKit close frame).
+                Some(node) => emit(node, Event::WindowClosed),
+                // Primary window: closing it quits, taking secondaries with it
+                // (docs/windows.md close policy).
+                None => {
+                    let app = NSApplication::sharedApplication(self.mtm());
+                    unsafe { app.terminate(None) };
+                }
+            }
+        }
+
+        #[unsafe(method(windowDidBecomeKey:))]
+        fn window_did_become_key(&self, _notification: &NSNotification) {
+            if let Some(node) = self.ivars().node {
+                emit(node, Event::WindowFocused(true));
+            }
+        }
+
+        #[unsafe(method(windowDidResignKey:))]
+        fn window_did_resign_key(&self, _notification: &NSNotification) {
+            if let Some(node) = self.ivars().node {
+                emit(node, Event::WindowFocused(false));
+            }
+        }
+    }
+
+    // The tab bar's "+" button walks the responder chain (window → delegate) for
+    // `newWindowForTab:` — present only when the app registered a new-window builder
+    // (otherwise automatic tabbing is off and no "+" exists).
+    impl DayWinDelegate {
+        #[unsafe(method(newWindowForTab:))]
+        fn new_window_for_tab(&self, _sender: Option<&NSObject>) {
+            let _ = day_core::windows::open_new_window();
         }
     }
 );
 
 impl DayWinDelegate {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(WinIvars);
+    fn new(mtm: MainThreadMarker, node: Option<NodeId>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(WinIvars { node });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -1544,11 +1583,22 @@ impl DayWinDelegate {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<AppKit>];
 
+/// A live secondary window (docs/windows.md). The delegate is RETAINED here —
+/// `setDelegate:` holds it weakly, and unlike the primary's (kept alive because `run`
+/// never returns) a secondary's delegate would die at the end of `open_window` otherwise.
+struct SecondaryWin {
+    window: Retained<NSWindow>,
+    #[allow(dead_code)] // held for lifetime only; AppKit talks to it via the weak delegate ref
+    delegate: Retained<DayWinDelegate>,
+    content: Handle,
+}
+
 pub struct AppKit {
     mtm: MainThreadMarker,
     registry: Registry<AppKit>,
     window: Option<Retained<NSWindow>>,
     content: Option<Handle>,
+    secondary: Vec<SecondaryWin>,
     app_name: String,
 }
 
@@ -1564,6 +1614,7 @@ impl AppKit {
             registry,
             window: None,
             content: None,
+            secondary: Vec::new(),
             app_name: "Day".into(),
         }
     }
@@ -1571,6 +1622,55 @@ impl AppKit {
     /// Public helper for external renderers.
     pub fn mtm(&self) -> MainThreadMarker {
         self.mtm
+    }
+
+    /// Build a Day window: titled + closable (Preferences kind drops resize/minimize and
+    /// disallows tabbing per macOS convention; Normal windows share the `day.normal`
+    /// tabbing group), a flipped content view, and a per-window delegate (`node`: `None` =
+    /// primary). The window is NOT released-when-closed — Rust's `Retained` owns it, and
+    /// the AppKit default would double-release under us on close.
+    fn make_window(
+        &self,
+        title: &str,
+        size: Size,
+        min_size: Option<Size>,
+        prefs_style: bool,
+        node: Option<NodeId>,
+    ) -> (Retained<NSWindow>, Retained<DayWinDelegate>, Handle) {
+        let mtm = self.mtm;
+        let content_rect =
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(size.width, size.height));
+        let mut style = NSWindowStyleMask::Titled | NSWindowStyleMask::Closable;
+        if !prefs_style {
+            style |= NSWindowStyleMask::Miniaturizable | NSWindowStyleMask::Resizable;
+        }
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                content_rect,
+                style,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        unsafe { window.setReleasedWhenClosed(false) };
+        window.setTitle(&NSString::from_str(title));
+        if let Some(min) = min_size {
+            unsafe { window.setContentMinSize(NSSize::new(min.width, min.height)) };
+        }
+        if prefs_style {
+            window.setTabbingMode(objc2_app_kit::NSWindowTabbingMode::Disallowed);
+        } else {
+            // Same-kind Day windows group as native tabs (System Settings "prefer tabs",
+            // View ▸ Show Tab Bar, Merge All Windows) — meaningful once a second Normal
+            // window can exist; inert while automatic tabbing is globally off (see `run`).
+            unsafe { window.setTabbingIdentifier(&NSString::from_str("day.normal")) };
+        }
+        let delegate = DayWinDelegate::new(mtm, node);
+        window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        let content = view_of(DayFlipped::new(mtm));
+        window.setContentView(Some(&content));
+        (window, delegate, content)
     }
 }
 
@@ -1845,6 +1945,8 @@ impl Toolkit for AppKit {
             | Cap::TextSpellCheck
             // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
             | Cap::ListReorder
+            // Real NSWindows with native tabbing + the Windows menu (docs/windows.md).
+            | Cap::MultiWindow
             | Cap::Appearance => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
@@ -2597,10 +2699,9 @@ impl Toolkit for AppKit {
                                     layer.setBackgroundColor(Some(&color.CGColor()));
                                 }
                             }
-                            let app = NSApplication::sharedApplication(self.mtm());
-                            if let Some(content) =
-                                app.windows().firstObject().and_then(|w| w.contentView())
-                            {
+                            // The PRIMARY window's content, specifically — firstObject()
+                            // is arbitrary once secondary windows exist (docs/windows.md).
+                            if let Some(content) = primary_content() {
                                 unsafe {
                                     page.removeFromSuperview();
                                     content.addSubview(&page);
@@ -2751,6 +2852,17 @@ impl Toolkit for AppKit {
     }
 
     fn release(&mut self, h: Handle) {
+        // A released window content = that window is gone (docs/windows.md teardown):
+        // drop the SecondaryWin — closing a straggler NSWindow — and its delegate with it.
+        // (A re-fired windowWillClose emits to a torn-down node: dropped, harmless.)
+        self.secondary.retain(|w| {
+            if ptr_of(&w.content) == ptr_of(&h) {
+                w.window.close();
+                false
+            } else {
+                true
+            }
+        });
         TARGETS.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
@@ -3114,34 +3226,40 @@ impl Toolkit for AppKit {
         let mtm = self.mtm;
         let app = NSApplication::sharedApplication(mtm);
         let menubar = NSMenu::new(mtm);
+        // The Preferences item's standard macOS home is the App menu, under About — hoist
+        // it out of wherever the model carries it (day-core injects it into File for the
+        // other desktops, docs/windows.md).
+        let mut items = items.to_vec();
+        let prefs = extract_preferences(&mut items);
         // macOS mandates a leading app menu (shown as the app name); provide the standard one so the
         // app's `app_menu(...)` supplies only the rest (File/Edit/View/…), staying convention-native.
         let app_item = NSMenuItem::new(mtm);
-        let app_menu = build_ns_menu(
-            mtm,
-            &self.app_name,
-            &[
-                day_spec::MenuItem::Action {
-                    id: 0,
-                    label: about_label(&self.app_name),
-                    shortcut: None,
-                    enabled: true,
-                    role: Some(day_spec::MenuRole::About),
-                },
-                day_spec::MenuItem::Separator,
-                day_spec::MenuItem::Action {
-                    id: 0,
-                    label: quit_label(&self.app_name),
-                    shortcut: None,
-                    enabled: true,
-                    role: Some(day_spec::MenuRole::Quit),
-                },
-            ],
-        );
+        let mut app_menu_items = vec![
+            day_spec::MenuItem::Action {
+                id: 0,
+                label: about_label(&self.app_name),
+                shortcut: None,
+                enabled: true,
+                role: Some(day_spec::MenuRole::About),
+            },
+            day_spec::MenuItem::Separator,
+        ];
+        if let Some(p) = prefs {
+            app_menu_items.push(p);
+            app_menu_items.push(day_spec::MenuItem::Separator);
+        }
+        app_menu_items.push(day_spec::MenuItem::Action {
+            id: 0,
+            label: quit_label(&self.app_name),
+            shortcut: None,
+            enabled: true,
+            role: Some(day_spec::MenuRole::Quit),
+        });
+        let app_menu = build_ns_menu(mtm, &self.app_name, &app_menu_items);
         app_item.setSubmenu(Some(&app_menu));
         menubar.addItem(&app_item);
         // Each top-level entry becomes a menu-bar menu.
-        for item in items {
+        for item in &items {
             match item {
                 day_spec::MenuItem::Submenu { label, items } => {
                     let sub = build_ns_menu(mtm, label, items);
@@ -3158,6 +3276,11 @@ impl Toolkit for AppKit {
                     menubar.addItem(&it);
                 }
             }
+        }
+        // The Window menu (docs/windows.md): auto-installed unless the app's model owns
+        // `MenuRole::Minimize` (then the app is composing its own window management).
+        if !model_has_role(&items, day_spec::MenuRole::Minimize) {
+            install_windows_menu(mtm, &app, &menubar);
         }
         app.setMainMenu(Some(&menubar));
     }
@@ -3276,35 +3399,89 @@ impl Toolkit for AppKit {
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         let content = self.content.as_ref().ok_or("no window content")?;
-        let bounds = content.bounds();
-        let rep = unsafe { content.bitmapImageRepForCachingDisplayInRect(bounds) }
-            .ok_or("no bitmap rep")?;
-        // Day containers are transparent (the window server paints the backdrop), so pre-fill
-        // the rep with the window background — resolved for the window's light/dark appearance —
-        // before compositing the view hierarchy over it (§14).
-        let ctx = NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)
-            .ok_or("no graphics context")?;
-        NSGraphicsContext::saveGraphicsState_class();
-        NSGraphicsContext::setCurrentContext(Some(&ctx));
-        content
-            .effectiveAppearance()
-            .performAsCurrentDrawingAppearance(&block2::StackBlock::new(|| unsafe {
-                NSColor::windowBackgroundColor().setFill();
-                objc2_app_kit::NSRectFill(bounds);
-            }));
-        NSGraphicsContext::restoreGraphicsState_class();
-        unsafe { content.cacheDisplayInRect_toBitmapImageRep(bounds, &rep) };
-        let data = unsafe {
-            rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+        snapshot_view(content)
+    }
+
+    fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
+        snapshot_view(host)
+    }
+
+    fn open_window(
+        &mut self,
+        id: NodeId,
+        options: &WindowOptions,
+        kind: day_spec::WindowKind,
+    ) -> day_spec::WindowOpenReply<Handle> {
+        let prefs = kind == day_spec::WindowKind::Preferences;
+        let (window, delegate, content) = self.make_window(
+            &options.title,
+            options.size,
+            options.min_size,
+            prefs,
+            Some(id),
+        );
+        window.center();
+        window.makeKeyAndOrderFront(None);
+        // Same macOS 26 quirk as the primary (`run`): a window ordered front before its
+        // first turn drops pre-run layer displays — nudge every layer once.
+        mark_tree_needs_display(&content);
+        self.secondary.push(SecondaryWin {
+            window,
+            delegate,
+            content: content.clone(),
+        });
+        day_spec::WindowOpenReply::Open(content)
+    }
+
+    fn close_window(&mut self, host: &Handle) {
+        // `close()` runs the full native path — windowWillClose → `WindowClosed` →
+        // day-core teardown — so programmatic and title-bar closes are one code path.
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| ptr_of(&w.content) == ptr_of(host))
+        {
+            w.window.close();
         }
-        .ok_or("png encode failed")?;
-        Ok(data.to_vec())
+    }
+
+    fn focus_window(&mut self, host: &Handle) {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| ptr_of(&w.content) == ptr_of(host))
+        {
+            w.window.makeKeyAndOrderFront(None);
+        }
+    }
+
+    fn set_window_title(&mut self, host: &Handle, title: &str) {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| ptr_of(&w.content) == ptr_of(host))
+        {
+            w.window.setTitle(&NSString::from_str(title));
+        }
     }
 
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {
         use present::PresentSpec;
         let mtm = self.mtm;
-        let Some(window) = self.window.clone() else {
+        // Sheets attach to the KEY window at present time (docs/windows.md) — a dialog
+        // raised from a secondary/preferences window belongs on it; primary is the
+        // fallback when no DAY window is key (a system panel may hold key status).
+        let app = NSApplication::sharedApplication(mtm);
+        let key = app.keyWindow().filter(|k| {
+            self.window
+                .as_deref()
+                .is_some_and(|w| std::ptr::eq(w, &**k))
+                || self
+                    .secondary
+                    .iter()
+                    .any(|s| std::ptr::eq(&*s.window, &**k))
+        });
+        let Some(window) = key.or_else(|| self.window.clone()) else {
             emit(
                 WINDOW_NODE,
                 Event::PresentResult {
@@ -3574,24 +3751,8 @@ impl Platform for AppKit {
         install_lifecycle_observers();
         install_appearance_observer();
 
-        let content_rect = NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(options.size.width, options.size.height),
-        );
-        let style = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
-        let window = unsafe {
-            NSWindow::initWithContentRect_styleMask_backing_defer(
-                NSWindow::alloc(mtm),
-                content_rect,
-                style,
-                NSBackingStoreType::Buffered,
-                false,
-            )
-        };
-        window.setTitle(&NSString::from_str(&options.title));
+        let (window, delegate, content) =
+            self.make_window(&options.title, options.size, options.min_size, false, None);
         // Optional window-appearance override (opt-in via env). An app with a fixed light/dark
         // palette sets `DAY_APPEARANCE=light|dark` so native controls (list, fields, editor) match
         // its own colors instead of following the system appearance. Unset = follow the system.
@@ -3605,23 +3766,26 @@ impl Platform for AppKit {
         {
             window.setAppearance(Some(&appearance));
         }
-        if let Some(min) = options.min_size {
-            unsafe { window.setContentMinSize(NSSize::new(min.width, min.height)) };
-        }
-        let delegate = DayWinDelegate::new(mtm);
-        window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-
-        let content = view_of(DayFlipped::new(mtm));
-        window.setContentView(Some(&content));
+        // The primary delegate lives for the process (this frame never returns); secondary
+        // delegates are retained in `self.secondary`.
+        std::mem::forget(delegate);
 
         self.window = Some(window.clone());
         self.content = Some(content.clone());
+        PRIMARY_CONTENT.with(|c| *c.borrow_mut() = Some(content.clone()));
 
         ready(
             self,
             content,
             Size::new(options.size.width, options.size.height),
         );
+
+        // `ready` ran the app's root() — registrations are in. Without a new-window
+        // builder only one Normal window can ever exist: turn automatic tabbing off so no
+        // tab bar, "+" button, or dead tab menu items appear (docs/windows.md).
+        if day_core::windows::new_window_action_id() == 0 {
+            unsafe { NSWindow::setAllowsAutomaticWindowTabbing(false, mtm) };
+        }
 
         window.center();
         window.makeKeyAndOrderFront(None);
@@ -3637,11 +3801,8 @@ impl Platform for AppKit {
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(2000));
                 Self::post(Box::new(|| {
-                    let mtm = MainThreadMarker::new().unwrap();
-                    let app = NSApplication::sharedApplication(mtm);
-                    if let Some(win) = app.windows().firstObject()
-                        && let Some(content) = win.contentView()
-                    {
+                    // The primary's content specifically (docs/windows.md).
+                    if let Some(content) = primary_content() {
                         let desc: Retained<NSString> =
                             unsafe { msg_send![&*content, _subtreeDescription] };
                         eprintln!("{desc}");
@@ -3649,8 +3810,6 @@ impl Platform for AppKit {
                 }));
             });
         }
-        // Keep the delegate alive for the app lifetime.
-        std::mem::forget(delegate);
         app.run();
     }
 
@@ -3662,6 +3821,35 @@ impl Platform for AppKit {
         // M6: NSLocale preferredLanguages.
         Vec::new()
     }
+}
+
+/// Capture a window content view as PNG (the dayscript screenshot seam, §14): offscreen
+/// `cacheDisplayInRect` over a window-background pre-fill resolved for the view's
+/// light/dark appearance.
+fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
+    let bounds = content.bounds();
+    let rep =
+        unsafe { content.bitmapImageRepForCachingDisplayInRect(bounds) }.ok_or("no bitmap rep")?;
+    // Day containers are transparent (the window server paints the backdrop), so pre-fill
+    // the rep with the window background — resolved for the window's light/dark appearance —
+    // before compositing the view hierarchy over it (§14).
+    let ctx =
+        NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep).ok_or("no graphics context")?;
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&ctx));
+    content
+        .effectiveAppearance()
+        .performAsCurrentDrawingAppearance(&block2::StackBlock::new(|| unsafe {
+            NSColor::windowBackgroundColor().setFill();
+            objc2_app_kit::NSRectFill(bounds);
+        }));
+    NSGraphicsContext::restoreGraphicsState_class();
+    unsafe { content.cacheDisplayInRect_toBitmapImageRep(bounds, &rep) };
+    let data = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }
+    .ok_or("png encode failed")?;
+    Ok(data.to_vec())
 }
 
 /// Recursively mark a view tree as needing display (startup first-frame fix, see `run`).
@@ -3752,6 +3940,25 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
 
     let app_item = NSMenuItem::new(mtm);
     let app_menu = NSMenu::new(mtm);
+    // Settings…/⌘, when the app registered a preferences piece (docs/windows.md) — this is
+    // the no-`app_menu` path, so apps get the standard item with zero menu code.
+    let prefs_id = day_core::windows::preferences_action_id();
+    if prefs_id != 0 {
+        let settings = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(&format!("{}…", day_l10n::t("day-preferences"))),
+                Some(sel!(fire:)),
+                &NSString::from_str(","),
+            )
+        };
+        let target = menu_target(mtm);
+        let tobj: &objc2::runtime::AnyObject = target.as_ref();
+        unsafe { settings.setTarget(Some(tobj)) };
+        settings.setTag(prefs_id as isize);
+        app_menu.addItem(&settings);
+        app_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    }
     let quit = unsafe {
         NSMenuItem::initWithTitle_action_keyEquivalent(
             NSMenuItem::alloc(mtm),
@@ -3792,7 +3999,76 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     edit_item.setSubmenu(Some(&edit_menu));
     menubar.addItem(&edit_item);
 
+    install_windows_menu(mtm, app, &menubar);
+
     app.setMainMenu(Some(&menubar));
+}
+
+/// The standard Window menu (docs/windows.md): Minimize ⌘M / Zoom / Bring All to Front,
+/// registered as `NSApp.windowsMenu` — AppKit then appends the open-window list and, with
+/// tabbing live, the tab commands (Show Next/Previous Tab, Merge All Windows) itself. All
+/// selectors are nil-targeted (responder chain), so they act on the key window.
+fn install_windows_menu(mtm: MainThreadMarker, app: &NSApplication, menubar: &NSMenu) {
+    let menu = unsafe {
+        NSMenu::initWithTitle(
+            NSMenu::alloc(mtm),
+            &NSString::from_str(&day_l10n::t("day-window")),
+        )
+    };
+    let add = |key: &str, action: objc2::runtime::Sel, accel: &str| {
+        let item = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(&day_l10n::t(key)),
+                Some(action),
+                &NSString::from_str(accel),
+            )
+        };
+        menu.addItem(&item);
+    };
+    add("day-minimize", sel!(performMiniaturize:), "m");
+    add("day-zoom", sel!(performZoom:), "");
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    add("day-bring-all-front", sel!(arrangeInFront:), "");
+    let item = NSMenuItem::new(mtm);
+    item.setTitle(&NSString::from_str(&day_l10n::t("day-window")));
+    item.setSubmenu(Some(&menu));
+    menubar.addItem(&item);
+    unsafe { app.setWindowsMenu(Some(&menu)) };
+}
+
+/// Remove and return the first `role(Preferences)` action from the model (searching
+/// top-level submenus), trimming a separator left dangling at the submenu tail.
+fn extract_preferences(items: &mut [day_spec::MenuItem]) -> Option<day_spec::MenuItem> {
+    for it in items.iter_mut() {
+        if let day_spec::MenuItem::Submenu { items, .. } = it
+            && let Some(i) = items.iter().position(|m| {
+                matches!(
+                    m,
+                    day_spec::MenuItem::Action {
+                        role: Some(day_spec::MenuRole::Preferences),
+                        ..
+                    }
+                )
+            })
+        {
+            let item = items.remove(i);
+            while matches!(items.last(), Some(day_spec::MenuItem::Separator)) {
+                items.pop();
+            }
+            return Some(item);
+        }
+    }
+    None
+}
+
+/// Whether any action in the model (recursively) carries `role`.
+fn model_has_role(items: &[day_spec::MenuItem], role: day_spec::MenuRole) -> bool {
+    items.iter().any(|it| match it {
+        day_spec::MenuItem::Action { role: r, .. } => *r == Some(role),
+        day_spec::MenuItem::Submenu { items, .. } => model_has_role(items, role),
+        day_spec::MenuItem::Separator => false,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -3824,6 +4100,16 @@ thread_local! {
     // NSMenuItem does NOT retain its target — keep one shared target alive for the app's lifetime.
     static MENU_TARGET: std::cell::RefCell<Option<Retained<DayMenuTarget>>> =
         const { std::cell::RefCell::new(None) };
+    /// The PRIMARY window's content view, for call sites without backend access that must
+    /// address the main window specifically (cover re-homing, DAY_DUMP). With secondary
+    /// windows open, `app.windows().firstObject()` is arbitrary (docs/windows.md).
+    static PRIMARY_CONTENT: std::cell::RefCell<Option<Retained<NSView>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The primary window's content view (set once in `run`).
+fn primary_content() -> Option<Retained<NSView>> {
+    PRIMARY_CONTENT.with(|c| c.borrow().clone())
 }
 
 fn menu_target(mtm: MainThreadMarker) -> Retained<DayMenuTarget> {
@@ -3903,6 +4189,9 @@ fn role_spec(
             Some(sel!(toggleFullScreen:)),
             Some(S::new("f").control()),
         ),
+        // No native selector (docs/windows.md): the item dispatches the registered
+        // new-window action through the ordinary custom-item path (`fire:`).
+        R::NewWindow => ("New Window", None, Some(S::new("n"))),
     }
 }
 

@@ -198,11 +198,15 @@ pub mod bridge {
         /// `"top,bottom,leading,trailing"` in px (Rust divides by density and feeds
         /// `day_core::set_safe_area`). Node id ignored; no `Event` is emitted.
         SafeArea = 19,
+        /// A secondary window closed (docs/windows.md); the node id is the window's root.
+        WindowClosed = 20,
+        /// A secondary window's key/active state changed; `num` != 0 ⇒ focused.
+        WindowFocused = 21,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 20] = [
+        pub const ALL: [BridgeKind; 22] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -223,6 +227,8 @@ pub mod bridge {
             BridgeKind::Submitted,
             BridgeKind::WindowResized,
             BridgeKind::SafeArea,
+            BridgeKind::WindowClosed,
+            BridgeKind::WindowFocused,
         ];
     }
 
@@ -310,6 +316,16 @@ pub enum Event {
     /// The app moved through a lifecycle phase (docs/lifecycle.md). Backends emit this from the
     /// native app/activity delegate; day-core routes it to the app's `on_lifecycle` handlers.
     Lifecycle(Lifecycle),
+    /// A secondary native window closed — the title-bar close, a platform gesture (an
+    /// app-switcher swipe, an activity finish), or `Toolkit::close_window` — emitted on the
+    /// WINDOW'S ROOT node after the platform committed the close. day-core disposes the
+    /// window's subtree on receipt, so native and programmatic closes share one teardown
+    /// path (docs/windows.md). Never emitted for the primary window (its close terminates
+    /// the app).
+    WindowClosed,
+    /// A secondary window's key/active state changed — emitted on the window's root node.
+    /// day-core tracks the focused window with it (dialog parenting, dayscript targeting).
+    WindowFocused(bool),
 }
 
 impl Event {
@@ -492,6 +508,10 @@ pub enum MenuRole {
     Minimize,
     CloseWindow,
     Fullscreen,
+    /// File ▸ New Window (docs/windows.md): opens another window through the builder the
+    /// app registered with `day::register_new_window`. No platform has a native selector
+    /// for it, so the item lowers to the registered dispatch action (disabled when none).
+    NewWindow,
 }
 
 /// One entry in a menu (recursive — a `Submenu` nests).
@@ -611,6 +631,15 @@ pub enum Cap {
     /// The toolkit's `text_area` has built-in spell-check/autocorrect (`TextAreaProps::spellcheck`).
     /// `Unsupported` where the toolkit ships none (GTK, Qt, ArkUI).
     TextSpellCheck,
+    /// The toolkit can open additional native OS windows (`Toolkit::open_window`,
+    /// docs/windows.md). `Native` on the desktop backends and on mobile backends whose
+    /// platform has a real secondary-window surface (iPad scenes, Android document
+    /// activities, OHOS multiton abilities). On `Unsupported` backends
+    /// `day_core::open_window` still works — the content presents as a fullscreen cover in
+    /// the primary window instead. Probe it to adapt chrome: an `Unsupported` tier has no
+    /// native title bar or close button, so window content should carry its own close
+    /// affordance.
+    MultiWindow,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2013,6 +2042,70 @@ pub trait Toolkit: Sized + 'static {
     fn adopt(&mut self, _raw: RawHandle) -> Self::Handle {
         unimplemented!("this toolkit does not adopt foreign handles yet")
     }
+
+    // secondary windows (docs/windows.md)
+
+    /// Open a native OS window per `options` + `kind`: create and show the window, wire ITS
+    /// events to `id` — `WindowResized` (content size, points), `WindowClosed` (after the
+    /// native close), `WindowFocused` (key/active changes) — and answer with its CONTENT
+    /// container handle, the same contract as the `ready` root container. Backends whose
+    /// window creation is asynchronous (a scene, an activity, an ability) answer
+    /// [`WindowOpenReply::Pending`] and complete later through
+    /// `day_core::finish_window_open(id, raw, size)` (the [`Toolkit::adopt`] seam).
+    /// The default answers `Unsupported` — day-core then presents the content as a
+    /// fullscreen cover in the primary window instead.
+    fn open_window(
+        &mut self,
+        _id: NodeId,
+        _options: &WindowOptions,
+        _kind: WindowKind,
+    ) -> WindowOpenReply<Self::Handle> {
+        WindowOpenReply::Unsupported
+    }
+
+    /// Close the native window whose CONTENT container is `host` (a handle `open_window`
+    /// produced). Asynchronous: the platform confirms with `Event::WindowClosed` on the
+    /// window's root node, and day-core tears the subtree down THEN. Idempotent; unknown
+    /// hosts are ignored. Never called with the primary window's container.
+    fn close_window(&mut self, _host: &Self::Handle) {}
+
+    /// Bring the window whose CONTENT container is `host` to front and make it key/active —
+    /// the focus half of open-or-focus singleton windows. Default no-op.
+    fn focus_window(&mut self, _host: &Self::Handle) {}
+
+    /// Retitle the window whose CONTENT container is `host`. Default no-op.
+    fn set_window_title(&mut self, _host: &Self::Handle, _title: &str) {}
+
+    /// Snapshot the window whose CONTENT container is `host` (the dayscript `screenshot`
+    /// step's `window:` target). The default answers the primary snapshot, so backends that
+    /// never open windows stay correct without changes.
+    fn snapshot_window_of(&mut self, _host: &Self::Handle) -> Result<Vec<u8>, String> {
+        self.snapshot_window()
+    }
+}
+
+/// What a secondary window IS, so backends can apply platform conventions (docs/windows.md).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowKind {
+    /// A regular document/tool window: resizable, miniaturizable, platform-default tabbing.
+    Normal,
+    /// A settings/preferences window: singleton by convention; macOS disallows window
+    /// tabbing and drops the resize/minimize chrome, mobile presents it modally. Pairs with
+    /// day-core's key-singleton reopen (`open_window` with a key).
+    Preferences,
+}
+
+/// A backend's answer to [`Toolkit::open_window`] (docs/windows.md).
+pub enum WindowOpenReply<H> {
+    /// The window exists now; here is its content container (desktop backends).
+    Open(H),
+    /// Native creation started but completes asynchronously (a scene, an activity, an
+    /// ability); the backend will call `day_core::finish_window_open` when the content
+    /// container exists. day-core parks the window record until then.
+    Pending,
+    /// This toolkit cannot open windows (`Cap::MultiWindow` = `Unsupported`); day-core
+    /// falls back to presenting the content as a fullscreen cover in the primary window.
+    Unsupported,
 }
 
 #[derive(Clone, Debug)]

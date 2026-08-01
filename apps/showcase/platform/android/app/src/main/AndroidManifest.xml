@@ -30,5 +30,12 @@
                 <data android:scheme="dayshowcase" />
             </intent-filter>
         </activity>
+        <!-- Secondary day windows (docs/windows.md): document-style instances, one per
+             open window — their own recents entries; side-by-side in split-screen/freeform. -->
+        <activity
+            android:name="dev.daybrite.day.bridge.DayWindowActivity"
+            android:exported="false"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize" />
     </application>
 </manifest>

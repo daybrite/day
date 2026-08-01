@@ -3355,3 +3355,418 @@ fn two_routed_siblings_concatenate_into_the_route() {
         "both routed siblings concatenate, got {route:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Secondary windows (docs/windows.md): the open/close/focus seam, the async
+// (Pending) completion path, and the cover fallback tier.
+// ---------------------------------------------------------------------------
+
+fn win_options(title: &str, w: f64, h: f64) -> WindowOptions {
+    WindowOptions {
+        title: title.into(),
+        size: Size::new(w, h),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn open_window_builds_and_lays_out_at_its_own_size() {
+    let probe = boot(|| label("main").any());
+    let handle = day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || column((label("in window").id("w2-label"),)).grow().any(),
+    );
+    flush_sync();
+
+    assert!(handle.is_open());
+    let wins = probe.windows();
+    assert_eq!(wins.len(), 1);
+    assert_eq!(wins[0].title, "second");
+    assert_eq!(wins[0].kind, "normal");
+    assert!(wins[0].open);
+    assert!(
+        probe.log().iter().any(|l| l.starts_with("open_window #")),
+        "open_window duty not called: {:?}",
+        probe.log()
+    );
+    // The window's content lays out at ITS size, not the primary's 400×600.
+    assert!(
+        probe
+            .find_by_kind("day.container")
+            .iter()
+            .any(|(_, w)| w.frame.size == Size::new(300.0, 200.0)),
+        "no container laid out at the window size"
+    );
+}
+
+#[test]
+fn cross_window_find_and_tap_by_id() {
+    let clicks = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(0i64));
+    let probe = boot(move || label(move || format!("clicks {}", clicks.get())).any());
+    day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        move || {
+            button("press")
+                .action(move || clicks.set(clicks.get() + 1))
+                .id("w2-btn")
+                .any()
+        },
+    );
+    flush_sync();
+
+    // The one tree spans windows: the id resolves without any window scoping.
+    assert!(day_core::with_tree(|t| t.find_by_id("w2-btn")).is_some());
+    let btn = node_id(&probe, "day.button", 0);
+    probe.emit(btn, Event::Pressed);
+    flush_sync();
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t == "clicks 1"),
+        "primary-window label did not react to the secondary-window press: {texts:?}"
+    );
+}
+
+#[test]
+fn window_resize_relayouts_only_that_window() {
+    let probe = boot(|| column((label("main"),)).grow().any());
+    day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || column((label("w2"),)).grow().any(),
+    );
+    flush_sync();
+    let node = probe.windows()[0].node;
+
+    let mark = probe.log_len();
+    probe.resize_window(node, Size::new(350.0, 250.0));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.container")
+            .iter()
+            .any(|(_, w)| w.frame.size == Size::new(350.0, 250.0)),
+        "window content did not relayout to the new size"
+    );
+    // The primary's content kept its 400×600 frame — no cross-window relayout ops.
+    assert!(
+        probe
+            .find_by_kind("day.container")
+            .iter()
+            .any(|(_, w)| w.frame.size == Size::new(400.0, 600.0)),
+        "primary content frame disturbed by a secondary resize"
+    );
+    let since = probe.log_since(mark);
+    assert!(
+        !since.iter().any(|l| l.contains("main")),
+        "primary widgets were touched by a secondary-window resize: {since:?}"
+    );
+}
+
+#[test]
+fn programmatic_close_round_trips_and_tears_down() {
+    let probe = boot(|| label("main").any());
+    let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
+    let handle = day_core::open_window(
+        Some("second"),
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("in window").id("w2-label").any(),
+    );
+    handle.on_close(move || closed.set(true));
+    flush_sync();
+    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_some());
+
+    handle.close();
+    flush_sync();
+
+    assert!(
+        probe.log().iter().any(|l| l.starts_with("close_window #")),
+        "close_window duty not called"
+    );
+    assert!(!handle.is_open());
+    assert!(day_core::window_by_key("second").is_none());
+    // Leak canary: the window's content is gone from the widget table and the tree.
+    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_none());
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "in window"),
+        "window content leaked past close"
+    );
+    assert!(closed.get_untracked(), "on_close did not run");
+    // Idempotent: a second close is a no-op.
+    let mark = probe.log_len();
+    handle.close();
+    flush_sync();
+    assert_eq!(probe.log_since(mark), Vec::<String>::new());
+}
+
+#[test]
+fn native_close_tears_down_and_fires_on_close() {
+    let probe = boot(|| label("main").any());
+    let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
+    let handle = day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("in window").id("w2-label").any(),
+    );
+    handle.on_close(move || closed.set(true));
+    flush_sync();
+
+    // The title-bar path: the platform reports the close; day-core tears down on receipt.
+    probe.close_window_natively(probe.windows()[0].node);
+    flush_sync();
+    assert!(!handle.is_open());
+    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_none());
+    assert!(closed.get_untracked(), "on_close did not run");
+}
+
+#[test]
+fn singleton_key_opens_once_and_refocuses() {
+    let probe = boot(|| label("main").any());
+    let first = day_core::open_window(
+        Some("prefs"),
+        win_options("Settings", 520.0, 640.0),
+        day_spec::WindowKind::Preferences,
+        || label("prefs body").any(),
+    );
+    flush_sync();
+    let mark = probe.log_len();
+    let second = day_core::open_window(
+        Some("prefs"),
+        win_options("Settings", 520.0, 640.0),
+        day_spec::WindowKind::Preferences,
+        || label("SHOULD NOT BUILD").any(),
+    );
+    flush_sync();
+
+    assert_eq!(probe.windows().len(), 1, "singleton key opened twice");
+    assert_eq!(probe.windows()[0].kind, "preferences");
+    assert!(first.is_open() && second.is_open());
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.starts_with("focus_window #")),
+        "reopen did not focus the existing window"
+    );
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "SHOULD NOT BUILD"),
+        "singleton reopen ran the builder"
+    );
+    assert!(probe.windows()[0].focused);
+    assert!(day_core::focused_window().is_some());
+}
+
+#[test]
+fn set_title_reaches_the_backend() {
+    let probe = boot(|| label("main").any());
+    let handle = day_core::open_window(
+        None,
+        win_options("before", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("w2").any(),
+    );
+    flush_sync();
+    handle.set_title("after");
+    assert_eq!(probe.windows()[0].title, "after");
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("set_window_title #") && l.contains("\"after\"")),
+        "set_window_title duty not called"
+    );
+}
+
+#[test]
+fn fallback_presents_as_cover_and_close_dismisses() {
+    let probe = boot(|| label("main").any());
+    probe.set_no_multi_window(true);
+    assert_eq!(
+        day_core::capability(day_spec::Cap::MultiWindow),
+        day_spec::Support::Unsupported
+    );
+
+    let handle = day_core::open_window(
+        Some("prefs"),
+        win_options("Settings", 520.0, 640.0),
+        day_spec::WindowKind::Preferences,
+        || label("prefs body").id("prefs-label").any(),
+    );
+    flush_sync();
+
+    // No native window — a COVER presented in the primary instead.
+    assert!(probe.windows().is_empty());
+    let covers = probe.find_by_kind("day.cover");
+    assert_eq!(covers.len(), 1, "no cover realized for the fallback tier");
+    assert!(covers[0].1.flag, "cover not presented");
+    assert!(
+        probe.log().iter().any(|l| l.contains("cover present")),
+        "no present patch: {:?}",
+        probe.log()
+    );
+    // The native surface reports its size; the content lays out inside it.
+    let cover_node = NodeId(covers[0].1.node);
+    probe.emit(cover_node, Event::FrameChanged(Size::new(400.0, 600.0)));
+    flush_sync();
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    // And LAID OUT at the reported size — the primary root's PassThrough never descends
+    // into a second child, so the fallback surface must drive its own layout entry (the
+    // regression the first iOS run caught: content present but frameless).
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "prefs body" && w.frame.size.width > 0.0),
+        "cover-fallback content not laid out"
+    );
+    // The singleton key still holds on this tier.
+    assert!(day_core::window_by_key("prefs").is_some());
+
+    handle.close();
+    flush_sync();
+    assert!(
+        probe.log().iter().any(|l| l.ends_with("cover dismiss")),
+        "close did not dismiss the cover"
+    );
+    // Content survives until the hide transition confirms…
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    probe.emit(cover_node, Event::custom("cover-hidden", ""));
+    flush_sync();
+    // …then everything goes.
+    assert!(!handle.is_open());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_none());
+    assert!(day_core::window_by_key("prefs").is_none());
+}
+
+#[test]
+fn pending_open_completes_and_builds() {
+    let probe = boot(|| label("main").any());
+    probe.set_pending_windows(true);
+    let handle = day_core::open_window(
+        Some("detail"),
+        win_options("Detail", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("detail body").id("detail-label").any(),
+    );
+    flush_sync();
+
+    // Parked: record exists, nothing built, no live window yet.
+    assert!(handle.is_open());
+    assert!(probe.windows().is_empty());
+    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_none());
+
+    // The native side finishes creation (the scene/activity/ability connecting).
+    let node = day_core::windows::window_node_id(&handle);
+    let raw = probe
+        .complete_window(node, Size::new(300.0, 200.0))
+        .expect("no pending open recorded");
+    assert!(day_core::finish_window_open(
+        node,
+        raw,
+        Size::new(300.0, 200.0)
+    ));
+    flush_sync();
+
+    assert_eq!(probe.windows().len(), 1);
+    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_some());
+    // The parked title applied at completion.
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("set_window_title #") && l.contains("\"Detail\"")),
+        "parked title not applied at completion"
+    );
+}
+
+#[test]
+fn pending_close_before_completion_cancels() {
+    let probe = boot(|| label("main").any());
+    probe.set_pending_windows(true);
+    let handle = day_core::open_window(
+        None,
+        win_options("Detail", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("detail body").id("detail-label").any(),
+    );
+    flush_sync();
+    handle.close();
+    flush_sync();
+    assert!(!handle.is_open());
+
+    // The native side finishes anyway — completion must answer false so the backend
+    // drops the window it just created.
+    let node = day_core::windows::window_node_id(&handle);
+    let raw = probe
+        .complete_window(node, Size::new(300.0, 200.0))
+        .expect("no pending open recorded");
+    assert!(!day_core::finish_window_open(
+        node,
+        raw,
+        Size::new(300.0, 200.0)
+    ));
+    flush_sync();
+    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_none());
+}
+
+#[test]
+fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
+    let probe = boot(|| label("main").any());
+    // App menu installed BEFORE registration — the retained-model re-forward self-heals.
+    app_menu(vec![sub_menu("File", vec![menu_item("Save").key("s")])]);
+    day_core::register_preferences(|| label("prefs body").id("prefs-label").any());
+    flush_sync();
+
+    // The injection appended a live Preferences item to the File menu.
+    let model = day_core::menu::app_menu_model();
+    let found = {
+        fn find_prefs(items: &[day_spec::MenuItem]) -> Option<u64> {
+            items.iter().find_map(|it| match it {
+                day_spec::MenuItem::Action { id, role, .. }
+                    if *role == Some(day_spec::MenuRole::Preferences) =>
+                {
+                    Some(*id)
+                }
+                day_spec::MenuItem::Submenu { items, .. } => find_prefs(items),
+                _ => None,
+            })
+        }
+        find_prefs(&model)
+    };
+    let prefs_id = found.expect("no Preferences item injected");
+    assert_ne!(prefs_id, 0, "injected item is inert");
+
+    // Dispatching the action opens the singleton preferences window…
+    day_core::dispatch_menu_action(prefs_id);
+    flush_sync();
+    assert_eq!(probe.windows().len(), 1);
+    assert_eq!(probe.windows()[0].kind, "preferences");
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    // …and dispatching again focuses instead of duplicating.
+    day_core::dispatch_menu_action(prefs_id);
+    flush_sync();
+    assert_eq!(probe.windows().len(), 1);
+    assert!(
+        probe.log().iter().any(|l| l.starts_with("focus_window #")),
+        "second open did not focus"
+    );
+    // open_preferences() is the same path for a toolbar gear.
+    assert!(day_core::open_preferences());
+    assert_eq!(probe.windows().len(), 1);
+}

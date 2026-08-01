@@ -23,3 +23,14 @@ day-fullscreen = フルスクリーンにする
 day-edit = 編集
 day-about-app = {$app}について
 day-quit-app = {$app}を終了
+
+day-window = ウィンドウ
+day-new-window = 新規ウィンドウ
+day-zoom = 拡大/縮小
+day-bring-all-front = すべてを手前に移動
+
+day-settings-language = 言語
+day-settings-theme = 外観
+day-theme-light = ライト
+day-theme-dark = ダーク
+day-theme-system = システム
