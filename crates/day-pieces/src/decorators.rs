@@ -130,6 +130,23 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Reactive element id — the id for rows inside a recycling [`list`](crate::list). A plain
+    /// [`id`](Self::id) is assigned once at build, but a recycled cell REBINDS to different
+    /// items over its life (and drag-to-reorder rebinds eagerly), so a static item-derived id
+    /// keeps naming the first-bound item. This variant re-registers whenever the closure's
+    /// value changes — read your `ItemSlot` inside it:
+    /// `.id_of(move || format!("row-remove-{}", slot.key()))`.
+    fn id_of(self, id: impl Fn() -> String + 'static) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            day_reactive::bind(id, move |s: &String| {
+                let s = s.clone();
+                with_tree(|t| t.set_id(n, s));
+            });
+            n
+        })
+    }
+
     /// Keyed id for collection items: rendered `prefix:key` (§5.5).
     fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> AnyPiece {
         let id = format!("{prefix}:{key}");
@@ -186,6 +203,22 @@ pub trait Decorate: Piece + Sized {
         piece_fn(move |cx| {
             let w = cx.layout_only(
                 Rc::new(PaddingLayout { insets }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                let _ = self.build(cx);
+            });
+            w
+        })
+    }
+
+    /// Cap this piece's width at `max` points: the child is never PROPOSED more, so text
+    /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
+    fn max_width(self, max: f64) -> AnyPiece {
+        piece_fn(move |cx| {
+            let w = cx.layout_only(
+                Rc::new(MaxWidthLayout { max }),
                 Flex::default(),
                 Boundary::No,
             );

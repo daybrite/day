@@ -543,6 +543,25 @@ pub struct ListSource {
     pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
     /// The native cell left the viewport — Day may drop per-cell bookkeeping (optional).
     pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
+    /// Drag-to-reorder seam, present when `ListProps::reorderable` (docs/list.md). `None` on
+    /// non-reorderable lists — backends must not enable their drag machinery without it.
+    pub reorder: Option<ListReorder>,
+}
+
+/// The synchronous drag-to-reorder half of [`ListSource`] (docs/list.md). Both closures follow
+/// `bind_row`'s discipline: called on the UI thread from inside native drag callbacks, outside
+/// any day-core borrow, and they run to completion synchronously.
+#[derive(Clone)]
+pub struct ListReorder {
+    /// May row `from` drop at row `to`? Called from the native validate/hover hook so the
+    /// affordance (gap, insertion mark, forbidden cursor) reflects the app's answer live.
+    /// Returns the ACCEPTED target index — `to` itself to allow, another index to retarget the
+    /// drop, or `-1` to deny.
+    pub can_move: std::rc::Rc<dyn Fn(usize, usize) -> i64>,
+    /// Commit: row `from` dropped at row `to` (an index `can_move` accepted). Rotates Day's row
+    /// snapshot BEFORE returning — so `len`/`token_at`/`bind_row` reflect the new order while the
+    /// native move animates — and defers the app's own callback to the next event drain.
+    pub move_row: std::rc::Rc<dyn Fn(usize, usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -552,6 +571,11 @@ pub struct ListSource {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
     ListRecycling,
+    /// The toolkit realizes `ListProps::reorderable` as drag-to-reorder rows — `Native` when the
+    /// platform's own mechanism drives it (NSTableView drag/drop, UITableView drag delegates,
+    /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
+    /// list renders normally but rows cannot be dragged (docs/list.md).
+    ListReorder,
     Lottie,
     NativeSymbols,
     Snapshot,
@@ -1332,6 +1356,10 @@ pub mod props {
         pub selectable: bool,
         /// Whether spell-check / autocorrect highlighting is on. Default `true`.
         pub spellcheck: bool,
+        /// Plain Enter emits `Event::Submitted` instead of inserting a newline (Shift+Enter
+        /// still inserts one where the platform can distinguish). Chat composers. Default
+        /// `false`.
+        pub submit_on_enter: bool,
     }
 
     impl Default for TextAreaProps {
@@ -1344,6 +1372,7 @@ pub mod props {
                 editable: true,
                 selectable: true,
                 spellcheck: true,
+                submit_on_enter: false,
             }
         }
     }
@@ -1565,6 +1594,10 @@ pub mod props {
         /// `Event::SelectionSet`; single-selection backends keep reporting
         /// `Event::SelectionChanged` and treat this as `selectable`.
         pub multi_select: bool,
+        /// Whether rows can be drag-reordered. The toolkit enables its native drag machinery and
+        /// drives the `ListSource::reorder` seam (validate via `can_move`, commit via `move_row`);
+        /// probe `Cap::ListReorder` for per-backend support (docs/list.md).
+        pub reorderable: bool,
     }
 
     #[derive(Clone, Debug, PartialEq)]

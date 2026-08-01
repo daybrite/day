@@ -65,6 +65,23 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
     layout.set_text("Ag");
     let line_h = layout.pixel_size().1 as f64;
 
+    // Submit-on-enter: claim a plain Return/Enter press as `Event::Submitted`; Shift+Return
+    // falls through to the buffer as a line break. CAPTURE phase, so the press never reaches
+    // the GtkTextView's own key handling.
+    if p.submit_on_enter {
+        let keys = gtk4::EventControllerKey::new();
+        keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        keys.connect_key_pressed(move |_, keyval, _, state| {
+            let enter = matches!(keyval, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter);
+            if enter && !state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+                crate::emit(id, Event::Submitted);
+                return gtk4::glib::Propagation::Stop;
+            }
+            gtk4::glib::Propagation::Proceed
+        });
+        textview.add_controller(keys);
+    }
+
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroll.set_hexpand(true);

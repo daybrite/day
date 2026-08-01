@@ -371,6 +371,30 @@ macro_rules! android_main {
                 })
                 .into_outcome();
         }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListCanDrop(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+            from: $crate::android::jni::sys::jint,
+            to: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::list_can_drop(host_id, from, to) as $crate::android::jni::sys::jboolean
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListMove(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+            from: $crate::android::jni::sys::jint,
+            to: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::list_move(host_id, from, to) as $crate::android::jni::sys::jboolean
+        }
     };
 }
 
@@ -379,7 +403,8 @@ macro_rules! android_main {
 pub mod android {
     pub use day_android::jni;
     pub use day_android::{
-        dispatch_event, list_bind, list_len, read_jstring, run_frame, run_posted,
+        dispatch_event, list_bind, list_can_drop, list_len, list_move, read_jstring, run_frame,
+        run_posted,
     };
 
     #[allow(clippy::too_many_arguments)]

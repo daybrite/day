@@ -32,6 +32,8 @@ struct TAIvars {
     node: NodeId,
     // The placeholder overlay, held so textDidChange: can toggle it as the user types.
     placeholder: Retained<NSTextField>,
+    // Plain Enter emits `Event::Submitted` instead of a newline (Shift+Enter still breaks).
+    submit_on_enter: bool,
 }
 
 define_class!(
@@ -57,6 +59,30 @@ define_class!(
             }
         }
     }
+
+    impl TATarget {
+        // Submit-on-enter: claim `insertNewline:` (plain Return) as a submit; Shift+Return
+        // falls through to the standard line break. Runs after `textDidChange:` for the
+        // preceding keystrokes, so the app's bound text signal is already current.
+        #[unsafe(method(textView:doCommandBySelector:))]
+        fn do_command(&self, _tv: &NSTextView, sel: objc2::runtime::Sel) -> objc2::runtime::Bool {
+            if !self.ivars().submit_on_enter || sel != objc2::sel!(insertNewline:) {
+                return objc2::runtime::Bool::NO;
+            }
+            let shift = objc2_app_kit::NSApplication::sharedApplication(self.mtm())
+                .currentEvent()
+                .map(|e| {
+                    e.modifierFlags()
+                        .contains(objc2_app_kit::NSEventModifierFlags::Shift)
+                })
+                .unwrap_or(false);
+            if shift {
+                return objc2::runtime::Bool::NO;
+            }
+            crate::emit(self.ivars().node, Event::Submitted);
+            objc2::runtime::Bool::YES
+        }
+    }
 );
 
 impl TATarget {
@@ -64,8 +90,13 @@ impl TATarget {
         mtm: MainThreadMarker,
         node: NodeId,
         placeholder: Retained<NSTextField>,
+        submit_on_enter: bool,
     ) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(TAIvars { node, placeholder });
+        let this = Self::alloc(mtm).set_ivars(TAIvars {
+            node,
+            placeholder,
+            submit_on_enter,
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -143,7 +174,7 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     ph.setHidden(!p.text.is_empty());
     tv.addSubview(<NSTextField as AsRef<NSView>>::as_ref(&ph));
 
-    let target = TATarget::new(mtm, id, ph.clone());
+    let target = TATarget::new(mtm, id, ph.clone(), p.submit_on_enter);
     tv.setDelegate(Some(ProtocolObject::from_ref(&*target)));
     scroll.setDocumentView(Some(&tv));
 

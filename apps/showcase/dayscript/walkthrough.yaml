@@ -388,6 +388,15 @@ flow:
   - toggle: { id: list-refresh, value: true }
   - pause: 2
   - assert_text: { id: list-caption, key: list_caption, args: { count: 600 } }
+  # Drag-to-reorder (docs/list.md): the `reorder` step drives the same guard → commit path a
+  # native drag takes. The order readout shows the first five row numbers. Row 2 (index 1) drops
+  # at index 4; then a drop AIMED at the pinned first slot lands at index 1 instead — the
+  # guard's Retarget verdict, observable in the readout (index 0 never changes).
+  - assert_text: { id: list-order, key: list_order, args: { rows: "1,2,3,4,5" } }
+  - reorder: { id: demo-list, from: 1, to: 4 }
+  - assert_text: { id: list-order, key: list_order, args: { rows: "1,3,4,5,2" } }
+  - reorder: { id: demo-list, from: 2, to: 0 }
+  - assert_text: { id: list-order, key: list_order, args: { rows: "1,4,3,5,2" } }
 
   # Pull-to-refresh (docs/pullrefresh.md): an EXTERNAL piece — and the reference CONTAINER piece —
   # native (UIRefreshControl / SwipeRefreshLayout / ArkUI Refresh) or emulated (overlay spinner +

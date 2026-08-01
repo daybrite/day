@@ -70,6 +70,9 @@ unsafe extern "C" {
     fn day_dom_width(el: u32) -> f64;
     fn day_dom_scroll_to(el: u32, x: f64, y: f64, animated: u32);
     fn day_dom_scroll_edge(el: u32, edge: u32, animated: u32);
+    /// Arm the shim's pointer-drag reorder on a list host (docs/list.md): the drag calls back
+    /// into `day_dom_list_can_move`/`day_dom_list_move` synchronously.
+    fn day_dom_list_reorder(el: u32);
     fn day_dom_scroll_offset(el: u32, out: *mut f64);
     fn day_dom_scroll_content(el: u32, w: f64, h: f64);
     fn day_dom_focus(el: u32, focused: u32);
@@ -506,6 +509,8 @@ impl Toolkit for Dom {
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
+            // Pointer-tracked drag with a CSS gap — the browser has no native list reorder.
+            Cap::ListReorder => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -707,6 +712,9 @@ impl Toolkit for Dom {
                 let p = props.downcast_ref::<ListProps>().unwrap();
                 let host = unsafe { day_dom_create(EL_SCROLL) };
                 class(host, "day-list", true);
+                if p.reorderable {
+                    unsafe { day_dom_list_reorder(host) };
+                }
                 let content = unsafe { day_dom_create(EL_DIV) };
                 unsafe { day_dom_insert(host, content, 0) };
                 let row_height = match p.row_height {
@@ -1829,6 +1837,47 @@ fn take_string(ptr: *mut u8, len: usize) -> String {
     // SAFETY: the shim wrote exactly `len` bytes into a `day_dom_alloc(len)` allocation.
     let v = unsafe { Vec::from_raw_parts(ptr, len, len) };
     String::from_utf8_lossy(&v).into_owned()
+}
+
+/// The reorder guard's verdict for a hovered drop, called synchronously by the shim's drag
+/// handler (docs/list.md): the ACCEPTED target index, or -1 to deny (also when out of bounds or
+/// the list has no reorder seam). The Rc is cloned out first, so the app's guard runs with no
+/// `LISTS` borrow held.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_can_move(host: u32, from: u32, to: u32) -> i32 {
+    let r = LISTS.with(|m| {
+        m.borrow()
+            .get(&host)
+            .and_then(|st| st.source.as_ref().map(|s| ((s.len)(), s.reorder.clone())))
+    });
+    let Some((len, Some(r))) = r else { return -1 };
+    let (from, to) = (from as usize, to as usize);
+    if from >= len || to >= len {
+        return -1;
+    }
+    ((r.can_move)(from, to) as i32).min(len.saturating_sub(1) as i32)
+}
+
+/// Commit a drop the guard accepts: rotate Day's snapshot (deferring the app callback), then
+/// reposition + rebind the pooled cells to the new order. Returns 1 on commit, 0 on deny.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_move(host: u32, from: u32, to: u32) -> u32 {
+    let accepted = day_dom_list_can_move(host, from, to);
+    if accepted < 0 {
+        return 0;
+    }
+    let r = LISTS.with(|m| {
+        m.borrow()
+            .get(&host)
+            .and_then(|st| st.source.as_ref().and_then(|s| s.reorder.clone()))
+    });
+    let Some(r) = r else { return 0 };
+    if accepted as u32 != from {
+        (r.move_row)(from as usize, accepted as usize);
+    }
+    // Re-bind every pooled cell in the rotated order (the emulated "move animation").
+    post_local(move || list_populate(host));
+    1
 }
 
 #[unsafe(no_mangle)]

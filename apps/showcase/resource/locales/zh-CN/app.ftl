@@ -81,6 +81,8 @@ list_selection = { $count ->
    *[other] 已选行：{ $rows }
 }
 list_clear_selection = 清除选择
+list_reorder_hint = 拖动行以重新排序；第一行已固定
+list_order = 前几行：{ $rows }
 
 webview_url_hint = 输入网址
 webview_go = 前往

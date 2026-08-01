@@ -103,6 +103,7 @@ struct ListEntry {
     node: u64,
     selectable: bool,
     multi: bool,
+    reorderable: bool,
     selected: std::collections::BTreeSet<usize>,
     anchor: Option<usize>,
 }
@@ -160,6 +161,47 @@ extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
     }
 }
 
+/// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
+/// shim's drag-move filter: the accepted target index, or -1. The reorder Rc is cloned out of
+/// `LIST_STATE` before the app's guard runs, so no borrow is held.
+extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return -1;
+    };
+    let r = LIST_STATE.with(|m| {
+        m.borrow().get(&host_key).and_then(|st| {
+            let s = st.source.borrow().clone()?;
+            Some(((s.len)(), s.reorder))
+        })
+    });
+    let Some((len, Some(r))) = r else { return -1 };
+    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+    if from >= len {
+        return -1;
+    }
+    let to = to.min(len - 1);
+    ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+}
+
+/// Commit a drop the shim's filter accepted: rotate Day's snapshot through the sync seam
+/// (deferring the app callback) and re-bind the cells in the new order.
+extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return;
+    };
+    let r = LIST_STATE.with(|m| {
+        m.borrow()
+            .get(&host_key)
+            .and_then(|st| st.source.borrow().clone()?.reorder)
+    });
+    let Some(r) = r else { return };
+    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+    if from != to {
+        (r.move_row)(from, to);
+        schedule_list_populate(host_key);
+    }
+}
+
 /// Populate/refresh a list's cells on the next event-loop turn — NOT inline: a reload runs inside
 /// a `with_tree` borrow, and `bind_row` re-enters `with_tree`, which would panic.
 fn schedule_list_populate(host_key: usize) {
@@ -209,6 +251,9 @@ fn list_populate(host_key: usize) {
                         on_list_row_click,
                     )
                 };
+            }
+            if st.reorderable {
+                unsafe { ffi::day_qt_cell_drag(cell, st.node, st.cells.len() as c_int) };
             }
             st.cells.push(cell);
         }
@@ -778,7 +823,9 @@ impl Toolkit for Qt {
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::TextEditable
-            | Cap::TextSelectable => Support::Native,
+            | Cap::TextSelectable
+            // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
+            | Cap::ListReorder => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -996,6 +1043,20 @@ impl Toolkit for Qt {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
                     };
+                    if p.reorderable {
+                        // Native QDrag reorder (docs/list.md): the content widget accepts
+                        // day-row drops; verdict + commit call back into the seam above.
+                        let content = ffi::day_qt_scroll_content(host);
+                        if !content.is_null() {
+                            ffi::day_qt_list_enable_reorder(
+                                content,
+                                id.0,
+                                row_height as c_int,
+                                on_list_can_move,
+                                on_list_move,
+                            );
+                        }
+                    }
                     LIST_STATE.with(|m| {
                         m.borrow_mut().insert(
                             host as usize,
@@ -1008,6 +1069,7 @@ impl Toolkit for Qt {
                                 node: id.0,
                                 selectable: p.selectable,
                                 multi: p.multi_select,
+                                reorderable: p.reorderable,
                                 selected: Default::default(),
                                 anchor: None,
                             },

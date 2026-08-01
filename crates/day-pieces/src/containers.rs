@@ -301,8 +301,14 @@ impl<P: Piece> Piece for Scroll<P> {
                 move || sig.get(),
                 move |now, _| {
                     if let Some(t) = now.clone() {
-                        day_core::with_tree(|tr| {
-                            tr.scroll_to_target(node, &t, true);
+                        // Deferred one main-loop turn: this watch runs inside the reactive
+                        // flush, BEFORE the turn-end layout that resizes the scroll content —
+                        // an edge target (Bottom/Trailing) computed now would land on the
+                        // stale content size.
+                        day_reactive::on_main(move || {
+                            day_core::with_tree(|tr| {
+                                tr.scroll_to_target(node, &t, true);
+                            });
                         });
                         sig.set(None); // consumed — ready for the next command
                     }

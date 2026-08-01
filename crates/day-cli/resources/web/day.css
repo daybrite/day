@@ -376,6 +376,21 @@ body {
 .day-scroll.day-list .day-cell { cursor: default; user-select: none; }
 .day-scroll.day-list .day-cell.selected { background: var(--day-selected-row); }
 .day-scroll.day-list .day-cell:not(.selected):hover { background: var(--day-control-bg); }
+/* Drag-to-reorder (docs/list.md): the shim lifts the pressed cell and slides a gap under it;
+   the other cells animate their shift, the dragged one tracks the pointer directly. */
+.day-list.day-reorder .day-cell { transition: transform 0.16s ease; touch-action: pan-y; }
+.day-list.day-reorder .day-cell.day-drag {
+  transition: none;
+  position: relative;
+  z-index: 3;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  opacity: 0.95;
+  cursor: grabbing;
+}
+.day-list.day-reorder.day-no-drop, .day-list.day-reorder.day-no-drop .day-cell { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .day-list.day-reorder .day-cell { transition: none; }
+}
 
 /* Dialogs (docs/dialogs.md) ----------------------------------------------- */
 

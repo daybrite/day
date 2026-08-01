@@ -834,6 +834,13 @@ struct ListEntry {
 thread_local! {
     /// LIST scrolled-window key → its model + source holder.
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// Physical cell (GtkFixed ptr) → the row it is currently bound to, for drag-to-reorder:
+    /// a cell's row changes on every recycle, so the DragSource reads it at drag time.
+    static LIST_CELL_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+    /// The in-flight reorder drag: (list scrolled-window key, source row). One drag exists at a
+    /// time and day lists only accept their OWN rows, so a thread-local carries what GTK's
+    /// value-based content would only hand back asynchronously.
+    static DRAG_FROM: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
 }
 
 /// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
@@ -1260,6 +1267,9 @@ impl Toolkit for Gtk {
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::TextEditable
+            // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
+            // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
+            | Cap::ListReorder
             | Cap::Appearance => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -1560,12 +1570,47 @@ impl Toolkit for Gtk {
                 let p = props.downcast_ref::<ListProps>().unwrap();
                 let model = gtk4::StringList::new(&[]);
                 let factory = gtk4::SignalListItemFactory::new();
-                factory.connect_setup(|_, item| {
-                    if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
-                        // Each physical cell is a GtkFixed; Day fills it via bind_row.
-                        let cell = gtk4::Fixed::new();
-                        cell.set_overflow(gtk4::Overflow::Visible);
-                        li.set_child(Some(&cell));
+                // The reorder DragSource needs the host list's key, which doesn't exist until
+                // the ScrolledWindow below is created — carry it through a shared cell.
+                let host_key: Rc<std::cell::Cell<usize>> = Rc::new(std::cell::Cell::new(0));
+                let reorderable = p.reorderable;
+                factory.connect_setup({
+                    let host_key = host_key.clone();
+                    move |_, item| {
+                        if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
+                            // Each physical cell is a GtkFixed; Day fills it via bind_row.
+                            let cell = gtk4::Fixed::new();
+                            cell.set_overflow(gtk4::Overflow::Visible);
+                            if reorderable {
+                                // Native GTK drag (docs/list.md): the drag carries the row it
+                                // left from; the icon is the row itself (a WidgetPaintable).
+                                let drag = gtk4::DragSource::new();
+                                drag.set_actions(gtk4::gdk::DragAction::MOVE);
+                                drag.connect_prepare({
+                                    let cell = cell.clone();
+                                    let host_key = host_key.clone();
+                                    move |ds, x, y| {
+                                        let row = LIST_CELL_ROWS.with(|m| {
+                                            m.borrow().get(&(cell.as_ptr() as usize)).copied()
+                                        })?;
+                                        DRAG_FROM.with(|d| d.set(Some((host_key.get(), row))));
+                                        ds.set_icon(
+                                            Some(&gtk4::WidgetPaintable::new(Some(&cell))),
+                                            x as i32,
+                                            y as i32,
+                                        );
+                                        Some(gtk4::gdk::ContentProvider::for_value(
+                                            &(row as u64).to_value(),
+                                        ))
+                                    }
+                                });
+                                drag.connect_drag_end(|_, _, _| {
+                                    DRAG_FROM.with(|d| d.set(None));
+                                });
+                                cell.add_controller(drag);
+                            }
+                            li.set_child(Some(&cell));
+                        }
                     }
                 });
                 let source: Rc<RefCell<Option<ListSource>>> = Rc::new(RefCell::new(None));
@@ -1579,6 +1624,8 @@ impl Toolkit for Gtk {
                         if let Some(cell) = li.child()
                             && let Some(src) = source.borrow().as_ref()
                         {
+                            LIST_CELL_ROWS
+                                .with(|m| m.borrow_mut().insert(cell.as_ptr() as usize, pos));
                             (src.bind_row)(pos, cell.as_ptr() as RawHandle);
                         }
                     }
@@ -1604,7 +1651,79 @@ impl Toolkit for Gtk {
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&listview));
                 sw.set_vexpand(true);
+                let vadj = sw.vadjustment();
                 let host: Handle = sw.upcast();
+                host_key.set(widget_key(&host));
+                if p.reorderable {
+                    // The drop half (docs/list.md): every hovered slot is vetted through the
+                    // app's guard — a denied slot answers no action, so GTK shows the forbidden
+                    // cursor live; the drop commits through the sync seam and re-binds.
+                    let row_h = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        // Automatic rows have no fixed pitch; approximate with the default row
+                        // request (documented docs/list.md limitation on GTK).
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let slot_at = {
+                        let source = source.clone();
+                        move |y: f64| {
+                            let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+                            if n == 0 {
+                                return None;
+                            }
+                            let abs = y + vadj.value();
+                            Some(((abs / row_h) as usize).min(n - 1))
+                        }
+                    };
+                    let key = widget_key(&host);
+                    let verdict = {
+                        let source = source.clone();
+                        let slot_at = slot_at.clone();
+                        move |y: f64| -> Option<usize> {
+                            let (from_key, from) = DRAG_FROM.with(|d| d.get())?;
+                            if from_key != key {
+                                return None; // a drag from some other list — never accepted
+                            }
+                            let slot = slot_at(y)?;
+                            let r = source.borrow().as_ref().and_then(|s| s.reorder.clone())?;
+                            let accepted = (r.can_move)(from, slot);
+                            (accepted >= 0).then_some(accepted as usize)
+                        }
+                    };
+                    let dt = gtk4::DropTarget::new(
+                        gtk4::glib::types::Type::U64,
+                        gtk4::gdk::DragAction::MOVE,
+                    );
+                    dt.connect_motion({
+                        let verdict = verdict.clone();
+                        move |_, _x, y| match verdict(y) {
+                            Some(_) => gtk4::gdk::DragAction::MOVE,
+                            None => gtk4::gdk::DragAction::empty(),
+                        }
+                    });
+                    dt.connect_drop({
+                        let source = source.clone();
+                        let model = model.clone();
+                        move |_, _value, _x, y| {
+                            let Some((_, from)) = DRAG_FROM.with(|d| d.get()) else {
+                                return false;
+                            };
+                            let Some(accepted) = verdict(y) else {
+                                return false;
+                            };
+                            if accepted != from
+                                && let Some(r) =
+                                    source.borrow().as_ref().and_then(|s| s.reorder.clone())
+                            {
+                                (r.move_row)(from, accepted);
+                                // Re-bind the visible cells in the new order (same count).
+                                schedule_list_resize(model.clone(), source.clone());
+                            }
+                            true
+                        }
+                    });
+                    listview.add_controller(dt);
+                }
                 LIST_STATE.with(|m| {
                     m.borrow_mut()
                         .insert(widget_key(&host), ListEntry { model, source })
@@ -2918,6 +3037,12 @@ impl Platform for Gtk {
         // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
         // is initialized (StyleManager::default() needs adw_init).
         app.connect_startup(|_| {
+            // Follow the SYSTEM appearance while running: libadwaita's StyleManager flips
+            // `dark` on desktop theme switches — refresh day-core's reactive dark-mode
+            // signal so palette closures recolor live.
+            adw::StyleManager::default().connect_dark_notify(|_| {
+                day_core::note_appearance_changed();
+            });
             if let Ok(theme) = std::env::var("DAY_THEME") {
                 let scheme = match theme.as_str() {
                     "dark" => Some(adw::ColorScheme::ForceDark),

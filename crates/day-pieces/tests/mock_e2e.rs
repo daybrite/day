@@ -1270,6 +1270,189 @@ fn list_reports_selection_by_key() {
     assert_eq!(picks.borrow().as_slice(), ["b".to_string()]);
 }
 
+// ---------------------------------------------------------------------------
+// Drag-to-reorder (docs/list.md): the probe drives the same sync guard → commit seam a native
+// backend does, so these assert the whole path — guard verdicts, snapshot rotation before any
+// rebind, the deferred app callback, and the echo skip (no redundant reload after the commit).
+// ---------------------------------------------------------------------------
+
+/// A reorderable five-row list whose app-side data lives in `order` (mirrored out for asserts)
+/// and whose committed moves are recorded in `moves`.
+fn reorderable_list(
+    moves: std::rc::Rc<std::cell::RefCell<Vec<(usize, usize)>>>,
+    order: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    guard: Option<fn(usize, usize) -> Reorder>,
+) -> AnyPiece {
+    let items = Signal::new(order.borrow().clone());
+    let mut l = list(
+        move || items.get(),
+        |s: &String| s.clone(),
+        |row: ItemSlot<String, String>| label(move || row.get()),
+    )
+    .row_height(RowHeight::Uniform(20.0))
+    .reorderable(true)
+    .on_reorder(move |from, to| {
+        moves.borrow_mut().push((from, to));
+        items.update(|v| {
+            let it = v.remove(from);
+            v.insert(to, it);
+        });
+        *order.borrow_mut() = items.get_untracked();
+    });
+    if let Some(g) = guard {
+        l = l.reorder_guard(g);
+    }
+    l.any()
+}
+
+fn seed() -> Vec<String> {
+    ["a", "b", "c", "d", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+fn reload_count(probe: &MockProbe) -> usize {
+    probe
+        .log()
+        .iter()
+        .filter(|l| l.contains("list reload"))
+        .count()
+}
+
+#[test]
+fn list_reorder_commits_rotates_and_defers_callback() {
+    let moves = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (m, o) = (moves.clone(), order.clone());
+    let probe = boot(move || reorderable_list(m, o, None));
+    let host = probe.find_by_kind("day.list")[0].0;
+    assert_eq!(
+        reload_count(&probe),
+        1,
+        "one reload from the initial refresh"
+    );
+
+    // No guard: every move is accepted where proposed.
+    assert_eq!(probe.list_can_move(host, 0, 2), 2);
+
+    // A native drop: commit 0 -> 2. The app callback runs (deferred), the data follows, and the
+    // echo of that data change must NOT re-reload the already-moved native rows.
+    assert!(probe.list_move(host, 0, 2));
+    assert_eq!(moves.borrow().as_slice(), [(0, 2)]);
+    assert_eq!(
+        order.borrow().as_slice(),
+        [
+            "b".to_string(),
+            "c".into(),
+            "a".into(),
+            "d".into(),
+            "e".into()
+        ]
+    );
+    assert_eq!(reload_count(&probe), 1, "the commit echo skips the reload");
+
+    // The rotated snapshot serves any bind that arrives after the drop.
+    probe.list_bind(host, 0, MockHandle(9101));
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels[0].1.text, "b");
+}
+
+#[test]
+fn list_reorder_denied_by_guard_and_unsupported_without_optin() {
+    let moves = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (m, o) = (moves.clone(), order.clone());
+    let probe = boot(move || reorderable_list(m, o, Some(|_, _| Reorder::Deny)));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    assert_eq!(probe.list_can_move(host, 1, 3), -1);
+    assert!(!probe.list_move(host, 1, 3));
+    assert!(
+        moves.borrow().is_empty(),
+        "a denied move never reaches the app"
+    );
+    assert_eq!(order.borrow().as_slice(), seed().as_slice());
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("list move denied 1->3"))
+    );
+
+    // A list that never opted in has no reorder seam at all.
+    let probe = boot(five_item_list);
+    let host = probe.find_by_kind("day.list")[0].0;
+    assert_eq!(probe.list_can_move(host, 0, 1), i64::MIN);
+    assert!(!probe.list_move(host, 0, 1));
+}
+
+#[test]
+fn list_reorder_guard_retargets_the_drop() {
+    let moves = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (m, o) = (moves.clone(), order.clone());
+    // Every drop lands at row 0, wherever it was proposed (the "pinned target" pattern).
+    let probe = boot(move || reorderable_list(m, o, Some(|_, _| Reorder::Retarget(0))));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    assert_eq!(
+        probe.list_can_move(host, 2, 4),
+        0,
+        "the guard retargets 4 -> 0"
+    );
+    assert!(probe.list_move(host, 2, 4));
+    assert_eq!(
+        moves.borrow().as_slice(),
+        [(2, 0)],
+        "the app sees the ACCEPTED target"
+    );
+    assert_eq!(
+        order.borrow().as_slice(),
+        [
+            "c".to_string(),
+            "a".into(),
+            "b".into(),
+            "d".into(),
+            "e".into()
+        ]
+    );
+}
+
+#[test]
+fn list_try_reorder_drives_the_scripted_path() {
+    let moves = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (m, o) = (moves.clone(), order.clone());
+    let probe = boot(move || {
+        reorderable_list(
+            m,
+            o,
+            Some(|from, _| {
+                if from == 0 {
+                    Reorder::Deny
+                } else {
+                    Reorder::Allow
+                }
+            }),
+        )
+    });
+    let node = day_core::id_to_rnode(node_id(&probe, "day.list", 0));
+
+    // The dayscript path: guard consulted, committed, and — with no native animation — reloaded.
+    assert_eq!(day_core::list_try_reorder(node, 1, 4), Ok(4));
+    assert_eq!(moves.borrow().as_slice(), [(1, 4)]);
+    assert_eq!(
+        reload_count(&probe),
+        2,
+        "initial + the scripted reorder's reload"
+    );
+
+    // Denied and out-of-bounds report errors the runner can surface.
+    assert!(day_core::list_try_reorder(node, 0, 2).is_err());
+    assert!(day_core::list_try_reorder(node, 1, 99).is_err());
+}
+
 // Imperative scroll-to-end (chat "stick to bottom"): a `Trigger` drives a `ListPatch::ScrollToEnd`
 // that the mock records via the LIST host's `flag`. (Real backends scroll the native list.)
 #[test]

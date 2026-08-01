@@ -24,6 +24,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_textarea_set_text(w: *mut c_void, text: *const c_char);
+    fn day_textarea_set_submit(w: *mut c_void, id: u64, cb: extern "C" fn(u64));
     fn day_textarea_set_attrs(w: *mut c_void, editable: i32, selectable: i32);
     fn day_textarea_set_read_only(w: *mut c_void, read_only: i32);
     fn day_textarea_set_selectable(w: *mut c_void, selectable: i32);
@@ -40,6 +41,10 @@ unsafe extern "C" {
 thread_local! {
     // The line band per handle — `measure` gets no props, so remember min/max lines from `make`.
     static DIMS: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
+}
+
+extern "C" fn on_submit(id: u64) {
+    crate::emit(NodeId(id), Event::Submitted);
 }
 
 extern "C" fn on_text(id: u64, text: *const c_char) {
@@ -68,6 +73,9 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
     };
     // Qt has no spell-check; editable + selectable are applied together (they interact).
     unsafe { day_textarea_set_attrs(ptr, p.editable as i32, p.selectable as i32) };
+    if p.submit_on_enter {
+        unsafe { day_textarea_set_submit(ptr, id.0, on_submit) };
+    }
     DIMS.with(|m| {
         m.borrow_mut()
             .insert(ptr as usize, (p.min_lines, p.max_lines))

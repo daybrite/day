@@ -32,6 +32,8 @@ struct TAIvars {
     node: NodeId,
     // The placeholder overlay, held so textViewDidChange: can toggle it as the user types.
     placeholder: Retained<UILabel>,
+    // Return emits `Event::Submitted` instead of a newline (pastes with newlines pass through).
+    submit_on_enter: bool,
 }
 
 define_class!(
@@ -51,12 +53,38 @@ define_class!(
             self.ivars().placeholder.setHidden(!s.is_empty());
             crate::emit(self.ivars().node, Event::TextChanged(s));
         }
+
+        // Submit-on-enter: claim exactly the keyboard's Return keystroke (`text == "\n"`) as a
+        // submit; multi-character insertions (pastes) keep their newlines. iOS keyboards have no
+        // Shift+Return distinction, so Return always submits when the flag is on.
+        #[unsafe(method(textView:shouldChangeTextInRange:replacementText:))]
+        fn should_change_text(
+            &self,
+            _tv: &UITextView,
+            _range: objc2_foundation::NSRange,
+            text: &objc2_foundation::NSString,
+        ) -> objc2::runtime::Bool {
+            if self.ivars().submit_on_enter && text.to_string() == "\n" {
+                crate::emit(self.ivars().node, Event::Submitted);
+                return objc2::runtime::Bool::NO;
+            }
+            objc2::runtime::Bool::YES
+        }
     }
 );
 
 impl TATarget {
-    fn new(mtm: MainThreadMarker, node: NodeId, placeholder: Retained<UILabel>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(TAIvars { node, placeholder });
+    fn new(
+        mtm: MainThreadMarker,
+        node: NodeId,
+        placeholder: Retained<UILabel>,
+        submit_on_enter: bool,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(TAIvars {
+            node,
+            placeholder,
+            submit_on_enter,
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -139,7 +167,7 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
     ph.setHidden(!p.text.is_empty());
     tv.addSubview(<UILabel as AsRef<UIView>>::as_ref(&ph));
 
-    let target = TATarget::new(mtm, id, ph.clone());
+    let target = TATarget::new(mtm, id, ph.clone(), p.submit_on_enter);
     unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
 
     let ns: Retained<UIView> = Retained::from(<UITextView as AsRef<UIView>>::as_ref(&tv));

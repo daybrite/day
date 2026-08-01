@@ -142,3 +142,52 @@ list: per-cell press filter, palette-highlight treatment, ctrl/cmd toggles, shif
 honor `multi_select` and `ListPatch::Selected`. The remaining toolkits report single
 selection (`SelectionChanged`) and ignore the multi flag and the programmatic sync — the
 one-element `on_selection` contract still holds there.
+
+## Drag-to-reorder
+
+```rust
+list(items, key, row)
+    .reorderable(true)
+    .on_reorder(|from, to| { /* rotate the backing Vec + persist */ })
+    .reorder_guard(|from, to| Reorder::Allow)   // optional: Deny / Retarget(i)
+```
+
+`reorderable` turns on the platform's own drag mechanism; probe `Cap::ListReorder` for support.
+`on_reorder` is the commit: row `from` landed at row `to` — apply the identical rotation to the
+backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if the order should
+survive a relaunch. It runs at the next event drain, never inside the native drop callback.
+
+`reorder_guard` vets every proposed drop **synchronously, while the drag is live** — the native
+affordance (the macOS gap, the no-drop cursor) reflects the answer before the user releases.
+`Deny` refuses the drop (the row springs back); `Retarget(i)` accepts it at a different index —
+the "pinned rows" pattern (the Showcase pins its first row this way). Keep the guard pure: it
+runs inside the platform's drag callback, so read state and return — no UI mutation.
+
+The seam is the reorder half of `ListSource` (`ListSource::reorder`, present only when
+`.reorderable()`): `can_move(from, proposed) -> accepted-index-or--1` for the live verdict, and
+`move_row(from, to)` for the commit — which rotates Day's row snapshot **before returning**, so
+`len`/`token_at`/`bind_row` answer in the new order while the native move animates, and defers
+the app's `on_reorder` through the event queue. When the app's own data change echoes back with
+exactly the committed token order, the piece skips the redundant `Reload` (no post-drop flicker).
+
+The dayscript step `reorder: { id, from, to }` drives the same guard → commit path without a
+native gesture (a guard denial fails the step, non-retryably) — how CI asserts reordering on
+every target.
+
+Per-backend affordances:
+
+| Backend | Mechanism | Affordance | Guard |
+|---|---|---|---|
+| AppKit | `NSTableView` drag pipeline (pasteboard row, `validateDrop`/`acceptDrop`) | the `.gap` placeholder opens where the drop would land | live (validate retargets/denies) |
+| UIKit | drag delegate + `moveRow`/`targetIndexPathForMove` | long-press lift + gap, no editing mode | live (target-for-move) |
+| Android | `ItemTouchHelper` on the RecyclerView | long-press lift, elevation, incremental swaps | live per swap; `Retarget` reads as deny (the helper can't relocate the gap) |
+| GTK 4 | `DragSource`/`DropTarget` (native DnD framework) | row snapshot as drag icon; forbidden cursor on deny (no insertion line yet) | live (motion) |
+| Qt | `QDrag` over the emulated list | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
+| XAML | WinRT `CanDrag`/`DragOver`/`Drop` over the emulated list | system drag visuals + live no-drop cursor | live (DragOver) |
+| ArkUI | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
+| web-dom | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
+| mock | `MockProbe::list_can_move` / `list_move` | op log | live |
+
+Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
+lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI — prefer
+`Uniform` heights for reorderable lists there.

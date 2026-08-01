@@ -20,6 +20,7 @@ use objc2::{
 };
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
+use objc2_app_kit::NSDraggingInfo as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
@@ -890,6 +891,27 @@ impl DayNavMenuData {
 }
 
 // ---------------------------------------------------------------------------
+/// Force the table's visible rows to exist on the NEXT main-loop turn — outside any `with_tree`
+/// borrow, so `bind_row` may build them. `layoutSubtreeIfNeeded` is not enough: an occluded
+/// window's table skips row tiling entirely, so `viewAtColumn:row:makeIfNecessary:` is the only
+/// reliable way to realize rows without a draw pass (§10; see the Reload patch for why).
+fn post_realize_visible_rows(key: usize) {
+    <AppKit as Platform>::post(Box::new(move || {
+        LIST_STATE.with(|m| {
+            if let Some((table, _)) = m.borrow().get(&key) {
+                let range = unsafe { table.rowsInRect(table.visibleRect()) };
+                for row in range.location..range.location + range.length {
+                    let _ =
+                        unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
+                }
+            }
+        });
+        // The builds above queued their styling effects; drain them now — outside the pump, no
+        // event may arrive for a while (idle app), and a snapshot would capture bare rows.
+        day_core::pump_events();
+    }));
+}
+
 // DayListData — NSTableView data-source + delegate for the recycling list (docs/list.md, §10)
 // ---------------------------------------------------------------------------
 
@@ -925,6 +947,114 @@ define_class!(
                 .as_ref()
                 .map(|s| (s.len)() as isize)
                 .unwrap_or(0)
+        }
+
+        // --- drag-to-reorder (docs/list.md): NSTableView's native drag pipeline. The dragged
+        // row rides the pasteboard as a private-typed string; `validateDrop` consults the app's
+        // guard live (the `.gap` feedback style opens the placeholder gap only where the guard
+        // allows), and `acceptDrop` commits through the sync seam, then animates the native move.
+
+        #[unsafe(method_id(tableView:pasteboardWriterForRow:))]
+        fn pasteboard_writer_for_row(
+            &self,
+            _tv: &NSTableView,
+            row: isize,
+        ) -> Option<Retained<ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>>> {
+            // (Closure body: define_class converts only the TAIL expression, so early `return`s
+            // must not escape the method itself.)
+            let make = || {
+                // Only reorderable lists write drag items — no seam, no drag.
+                let reorderable = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| s.reorder.is_some());
+                if !reorderable || row < 0 {
+                    return None;
+                }
+                let item = objc2_app_kit::NSPasteboardItem::new();
+                unsafe {
+                    item.setString_forType(
+                        &NSString::from_str(&row.to_string()),
+                        &NSString::from_str(DAY_ROW_PASTEBOARD_TYPE),
+                    );
+                }
+                Some(ProtocolObject::from_retained(item))
+            };
+            make()
+        }
+
+        #[unsafe(method(tableView:validateDrop:proposedRow:proposedDropOperation:))]
+        fn validate_drop(
+            &self,
+            tv: &NSTableView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            row: isize,
+            _op: objc2_app_kit::NSTableViewDropOperation,
+        ) -> objc2_app_kit::NSDragOperation {
+            let Some((from, len)) = self.drag_context(tv, info) else {
+                return objc2_app_kit::NSDragOperation::None;
+            };
+            // Normalize to an ABOVE insertion point (the gap style's semantics), convert to the
+            // post-removal target index, and ask the guard.
+            let ins = row.clamp(0, len as isize) as usize;
+            let to = insertion_to_target(from, ins, len);
+            let accepted = self.can_move(from, to);
+            if accepted < 0 {
+                return objc2_app_kit::NSDragOperation::None;
+            }
+            let accepted = (accepted as usize).min(len.saturating_sub(1));
+            if accepted != to {
+                // The guard retargeted: move the gap to where the drop would actually land.
+                unsafe {
+                    tv.setDropRow_dropOperation(
+                        target_to_insertion(from, accepted) as isize,
+                        objc2_app_kit::NSTableViewDropOperation::Above,
+                    );
+                }
+            }
+            objc2_app_kit::NSDragOperation::Move
+        }
+
+        #[unsafe(method(tableView:acceptDrop:row:dropOperation:))]
+        fn accept_drop(
+            &self,
+            tv: &NSTableView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            row: isize,
+            _op: objc2_app_kit::NSTableViewDropOperation,
+        ) -> bool {
+            // (Closure body: early `return`s must not escape the define_class method itself.)
+            let drop = || {
+                let Some((from, len)) = self.drag_context(tv, info) else {
+                    return false;
+                };
+                let ins = row.clamp(0, len as isize) as usize;
+                let to = insertion_to_target(from, ins, len);
+                let accepted = self.can_move(from, to);
+                if accepted < 0 {
+                    return false;
+                }
+                let accepted = (accepted as usize).min(len.saturating_sub(1));
+                if accepted == from {
+                    return true; // dropped back home — nothing to commit
+                }
+                // Commit through the sync seam (rotates Day's snapshot, defers the app
+                // callback), THEN animate the native move — the data source already answers in
+                // the new order.
+                let mv = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
+                let Some(mv) = mv else { return false };
+                mv(from, accepted);
+                unsafe { tv.moveRowAtIndex_toIndex(from as isize, accepted as isize) };
+                true
+            };
+            drop()
         }
     }
 
@@ -997,6 +1127,54 @@ impl DayListData {
         });
         unsafe { msg_send![super(this), init] }
     }
+
+    /// The dragged row + current row count for an in-flight LOCAL reorder drag — `None` when the
+    /// drag came from anywhere but this table (day never accepts foreign drops into a list) or
+    /// the pasteboard doesn't carry the day row type.
+    fn drag_context(
+        &self,
+        tv: &NSTableView,
+        info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+    ) -> Option<(usize, usize)> {
+        let src = unsafe { info.draggingSource() }?;
+        if Retained::as_ptr(&src) as *const std::ffi::c_void
+            != tv as *const NSTableView as *const std::ffi::c_void
+        {
+            return None;
+        }
+        let pb = unsafe { info.draggingPasteboard() };
+        let from = unsafe { pb.stringForType(&NSString::from_str(DAY_ROW_PASTEBOARD_TYPE)) }?
+            .to_string()
+            .parse::<usize>()
+            .ok()?;
+        let len = self.ivars().source.borrow().as_ref().map(|s| (s.len)())?;
+        (from < len).then_some((from, len))
+    }
+
+    /// The guard's verdict for `from -> to` (accepted index, or -1), through the sync seam.
+    fn can_move(&self, from: usize, to: usize) -> i64 {
+        self.ivars()
+            .source
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.reorder.as_ref().map(|r| (r.can_move)(from, to)))
+            .unwrap_or(-1)
+    }
+}
+
+/// The private pasteboard type carrying a dragged day list row's index (local reorder only).
+const DAY_ROW_PASTEBOARD_TYPE: &str = "dev.daybrite.day.row";
+
+/// An NSTableView drop lands at an INSERTION point (`row` with `.Above` semantics, 0..=len);
+/// day's seam speaks post-removal target indices. Dropping `from` at insertion `ins`:
+fn insertion_to_target(from: usize, ins: usize, len: usize) -> usize {
+    let to = if ins > from { ins - 1 } else { ins };
+    to.min(len.saturating_sub(1))
+}
+
+/// The inverse, for retargeting the drop gap: where the gap sits for a post-removal target.
+fn target_to_insertion(from: usize, to: usize) -> usize {
+    if to > from { to + 1 } else { to }
 }
 
 /// A realized LIST's scroll view ptr → (table, data source) for attach_list / update / measure.
@@ -1565,6 +1743,8 @@ impl Toolkit for AppKit {
             | Cap::TextEditable
             | Cap::TextSelectable
             | Cap::TextSpellCheck
+            // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
+            | Cap::ListReorder
             | Cap::Appearance => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
@@ -1944,8 +2124,33 @@ impl Toolkit for AppKit {
                             objc2_app_kit::NSTableViewSelectionHighlightStyle::None,
                         );
                     }
+                    // Transparent: day panes own their backgrounds — the stock
+                    // controlBackgroundColor would paint an appearance-colored slab that
+                    // fights a themed app (visible whenever rows don't fill the viewport).
+                    table.setBackgroundColor(&objc2_app_kit::NSColor::clearColor());
                     table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    if p.reorderable {
+                        // Native drag-to-reorder (docs/list.md): rows drag within this table
+                        // only (move locally, nothing leaves the app), and the drop target shows
+                        // macOS's temporary placeholder GAP while the drag is over the table.
+                        table.registerForDraggedTypes(
+                            &objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
+                                DAY_ROW_PASTEBOARD_TYPE,
+                            )]),
+                        );
+                        table.setDraggingSourceOperationMask_forLocal(
+                            objc2_app_kit::NSDragOperation::Move,
+                            true,
+                        );
+                        table.setDraggingSourceOperationMask_forLocal(
+                            objc2_app_kit::NSDragOperation::None,
+                            false,
+                        );
+                        table.setDraggingDestinationFeedbackStyle(
+                            objc2_app_kit::NSTableViewDraggingDestinationFeedbackStyle::Gap,
+                        );
+                    }
                 }
                 let scroll = unsafe { NSScrollView::new(mtm) };
                 unsafe {
@@ -2332,16 +2537,31 @@ impl Toolkit for AppKit {
                             unsafe { table.reloadData() };
                         }
                     });
+                    // Realize the visible rows on the next main-loop turn, outside this borrow.
+                    // An occluded window (locked screen, covered, headless CI) gets no normal
+                    // draw pass — NSTableView would first realize these rows inside a snapshot's
+                    // `cacheDisplayInRect`, where `bind_row` must skip the held borrow and the
+                    // table would cache permanently blank cells.
+                    post_realize_visible_rows(ptr_of(h));
                 }
                 Some(ListPatch::ScrollToEnd) => {
-                    LIST_STATE.with(|m| {
-                        if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
-                            let rows = unsafe { table.numberOfRows() };
-                            if rows > 0 {
-                                unsafe { table.scrollRowToVisible(rows - 1) };
+                    // Deferred to the next main-loop turn: an actual scroll forces NSTableView
+                    // to tile (realize) the target rows SYNCHRONOUSLY, and this patch arrives
+                    // inside a `with_tree` borrow where `bind_row` must skip — the table would
+                    // cache blank cells for every newly exposed row (see Reload above).
+                    let key = ptr_of(h);
+                    <AppKit as Platform>::post(Box::new(move || {
+                        LIST_STATE.with(|m| {
+                            if let Some((table, _)) = m.borrow().get(&key) {
+                                let rows = unsafe { table.numberOfRows() };
+                                if rows > 0 {
+                                    unsafe { table.scrollRowToVisible(rows - 1) };
+                                }
                             }
-                        }
-                    });
+                        });
+                    }));
+                    // ...and realize whatever the scroll exposed, still outside the borrow.
+                    post_realize_visible_rows(ptr_of(h));
                 }
                 Some(ListPatch::Selected(rows)) => {
                     // Programmatic selection sync (empty = clear) — suppressed, so the
@@ -3198,6 +3418,7 @@ impl Platform for AppKit {
         install_main_menu(mtm, &app, &self.app_name);
         // App activation / termination → day lifecycle events (docs/lifecycle.md).
         install_lifecycle_observers();
+        install_appearance_observer();
 
         let content_rect = NSRect::new(
             NSPoint::new(0.0, 0.0),
@@ -3303,6 +3524,24 @@ fn mark_tree_needs_display(view: &NSView) {
 /// `Toolkit::supports_lifecycle` default (which also returns `is_universal`).
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
     phase.is_universal()
+}
+
+/// Follow the SYSTEM appearance while the app runs: macOS posts the distributed
+/// "AppleInterfaceThemeChangedNotification" on a theme switch, and AppKit updates
+/// `effectiveAppearance` just after — so re-read on the next main-queue turn and refresh
+/// day-core's reactive dark-mode signal (palette closures recolor live instead of going
+/// stale until the next rebuild). The token is leaked to observe for the app's lifetime.
+fn install_appearance_observer() {
+    use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSString};
+    let center = unsafe { NSDistributedNotificationCenter::defaultCenter() };
+    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        dispatch2::DispatchQueue::main().exec_async(day_core::note_appearance_changed);
+    });
+    let name = NSString::from_str("AppleInterfaceThemeChangedNotification");
+    let token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(&name), None, None, &block)
+    };
+    std::mem::forget(token);
 }
 
 /// Bridge the NSApplication activation/termination notifications to day lifecycle events

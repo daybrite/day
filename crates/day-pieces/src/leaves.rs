@@ -21,7 +21,7 @@ pub struct Label {
     pub(crate) font: Font,
     pub(crate) weight: Option<day_spec::FontWeight>,
     pub(crate) italic: bool,
-    pub(crate) color: Option<day_spec::Color>,
+    pub(crate) color: Option<Reactive<day_spec::Color>>,
 }
 
 pub fn label<M>(text: impl IntoText<M>) -> Label {
@@ -55,8 +55,10 @@ impl Label {
         self.italic = true;
         self
     }
-    pub fn color(mut self, c: day_spec::Color) -> Self {
-        self.color = Some(c);
+    /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color` — a reactive
+    /// source recolors the native label when it changes (theme systems ride this).
+    pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
+        self.color = Some(c.into_reactive());
         self
     }
 }
@@ -73,13 +75,22 @@ impl Piece for Label {
                     weight: self.weight,
                     italic: self.italic,
                 },
-                color: self.color,
+                color: self.color.as_ref().map(|c| c.get_untracked()),
                 wraps: true,
             },
             Flex::default(),
         );
         self.text
             .bind_to(node, |t| Box::new(LabelPatch::Text(t)), true);
+        // A reactive color recolors in place; a constant was applied once at realize.
+        if let Some(Reactive::Dyn(f)) = self.color {
+            bind(
+                move || f(),
+                move |c: &day_spec::Color| {
+                    with_tree(|t| t.patch(node, Box::new(LabelPatch::Color(Some(*c))), false));
+                },
+            );
+        }
         node
     }
 }
@@ -191,7 +202,7 @@ impl Button {
             font: Font::Body,
             weight: None,
             italic: false,
-            color: s.label_color(),
+            color: s.label_color().map(Reactive::Const),
         };
         let styled = s.body(lbl.any());
         match action {

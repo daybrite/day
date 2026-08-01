@@ -14,7 +14,9 @@ use crate::widgets::heading;
 /// full selection lives in an app signal summarized above the list (with ranges compressed,
 /// "4-10"), and Clear Selection syncs an empty selection back into the native list.
 pub(crate) fn list_page() -> AnyPiece {
-    let count = Signal::new(500i64);
+    // A real Vec of row numbers (not a derived range): drag-to-reorder rotates it, and the
+    // refresh paths append to it — the order is app-owned state, like any reorderable list.
+    let rows: Signal<Vec<i64>> = Signal::new((1..=500).collect());
     let refreshing = Signal::new(false);
     // The selected ROW NUMBERS (1-based, matching the row labels), fed from the native list's
     // selection reports; single-selection toolkits contribute one-element sets.
@@ -22,12 +24,26 @@ pub(crate) fn list_page() -> AnyPiece {
     // The one reload path for every begin (pull, toggle, programmatic): a timed task on the
     // main-loop executor (`day::sleep`, docs/async.md) stands in for the network — the same
     // code on every platform, including the single-threaded web backend.
+    // The target row total. The async refresh below bumps it through a `Setter` (Send), and this
+    // watch appends the new rows — reorder-safe, because appending never disturbs the order.
+    let total = Signal::new(500i64);
+    watch(
+        move || total.get(),
+        move |t, _| {
+            rows.update(|v| {
+                let next = v.iter().copied().max().unwrap_or(0);
+                if *t > next {
+                    v.extend(next + 1..=*t);
+                }
+            });
+        },
+    );
     watch(
         move || refreshing.get(),
         move |now, _| {
             if *now {
-                let next = count.get_untracked() + 100;
-                let grow = count.setter();
+                let next = total.get_untracked() + 100;
+                let grow = total.setter();
                 let done = refreshing.setter();
                 day::task(async move {
                     day::sleep(900).await;
@@ -47,11 +63,23 @@ pub(crate) fn list_page() -> AnyPiece {
                 .id("list-clear"),
             button(crate::res::str::list_add())
                 .prominent()
-                .action(move || count.update(|c| *c += 100))
+                .action(move || total.update(|c| *c += 100))
                 .id("list-add"),
         ))
         .spacing(8.0),
-        label(crate::res::str::list_caption(count)).id("list-caption"),
+        label(move || crate::res::str::list_caption(rows.get().len() as i64).format())
+            .id("list-caption"),
+        // Drag-to-reorder (docs/list.md): the hint names the pinned-row guard, and the order
+        // readout makes the committed order assertable (dayscript `reorder` steps check it).
+        label(crate::res::str::list_reorder_hint())
+            .font(Font::Footnote)
+            .id("list-reorder-hint"),
+        label(move || {
+            let first: Vec<String> = rows.get().iter().take(5).map(|n| n.to_string()).collect();
+            crate::res::str::list_order(first.join(",")).format()
+        })
+        .font(Font::Footnote)
+        .id("list-order"),
         // The live selection summary: pluralized per locale, runs compressed ("4-10").
         label(move || {
             let sel = selected.get();
@@ -66,7 +94,7 @@ pub(crate) fn list_page() -> AnyPiece {
         pull_to_refresh(
             refreshing,
             list(
-                move || (1..=count.get()).collect::<Vec<i64>>(),
+                move || rows.get(),
                 |n: &i64| *n,
                 |row: ItemSlot<i64, i64>| {
                     label(move || crate::res::str::list_row(row.get()).format())
@@ -79,13 +107,32 @@ pub(crate) fn list_page() -> AnyPiece {
             // Keys ARE the row numbers, so the selection set is the report itself.
             .on_selection(move |keys: Vec<i64>| selected.set(keys.into_iter().collect()))
             // Two-way: app-state changes (Clear Selection) sync into the native list —
-            // indices are 0-based rows.
+            // indices are the rows' CURRENT positions (reorder can move them).
             .selected_rows(move || {
+                let v = rows.get();
                 selected
                     .get()
                     .iter()
-                    .map(|n| (*n - 1).max(0) as usize)
+                    .filter_map(|n| v.iter().position(|r| r == n))
                     .collect()
+            })
+            // Native drag-to-reorder, with a guard demo: the first row is pinned — it cannot be
+            // dragged, and a drop aimed at its slot lands just below it instead (Retarget).
+            .reorderable(true)
+            .reorder_guard(|from, to| {
+                if from == 0 {
+                    Reorder::Deny
+                } else if to == 0 {
+                    Reorder::Retarget(1)
+                } else {
+                    Reorder::Allow
+                }
+            })
+            .on_reorder(move |from, to| {
+                rows.update(|v| {
+                    let it = v.remove(from);
+                    v.insert(to, it);
+                });
             })
             .id("demo-list"),
         )

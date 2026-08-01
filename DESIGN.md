@@ -1451,6 +1451,16 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > host pulls `len`/`bind_row` through the `ListSource`, and the mock/walkthrough tests assert
 > recycled cells rebind with a slot write, not a rebuild. Qt's emulated recycling shipped as
 > designed (DP-19). The `rw`/`.on_edit` two-way projections did not ship ([§5.4](#54-keyed-collections-each)).
+> **Drag-to-reorder shipped** (2026-08): `ListProps::reorderable` + the `ListSource::reorder`
+> sync seam (`can_move` guard verdict / `move_row` commit), the piece API
+> (`.reorderable/.on_reorder/.reorder_guard`), `Cap::ListReorder`, and the dayscript `reorder`
+> step — native mechanisms on AppKit (`.gap` drop style), UIKit (drag delegates), Android
+> (ItemTouchHelper on the list, which **migrated from framework ListView to RecyclerView** in
+> the same change), GTK (DragSource/DropTarget), Qt (QDrag), ArkUI (SetNodeDraggable +
+> NODE_ON_DROP), the WinRT drag pipeline over XAML's still-emulated list (a real-ListView
+> migration via ContainerContentChanging remains a candidate follow-up), and a pointer-tracked
+> emulation on web-dom. Recycled-row ids gained the reactive `.id_of` decorator (a build-time
+> keyed id goes stale when a cell rebinds).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -3096,13 +3106,14 @@ well-written scripts; `pause` exists for demos and settle-time.
 
 | step | fields | notes |
 |---|---|---|
-| `wait_for` | `id` | until the element has a visible frame |
+| `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain |
 | `tap` | `id`, `repeat?` | delivers `Pressed` AND a gesture `Tap` at the node's centre |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `set_value` | `id`, `value` | sliders et al. |
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |
+| `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam (docs/list.md); a guard denial fails the step, non-retryably |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root (docs/navigation.md) |

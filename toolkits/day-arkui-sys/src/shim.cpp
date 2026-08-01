@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <arkui/drag_and_drop.h>
 #include <arkui/native_gesture.h>
 #include <arkui/native_interface.h>
 #include <arkui/native_interface_focus.h>
@@ -78,6 +79,10 @@ extern "C" void day_arkui_set_cache_dir(const char* path);
 // into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
 extern "C" uint32_t day_arkui_list_count(uint64_t host_id);
 extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell);
+// Drag-to-reorder (docs/list.md): the guard's verdict (accepted index or -1) and the commit,
+// both synchronous Rust exports like day_arkui_list_count.
+extern "C" int32_t day_arkui_list_can_move(uint64_t host_id, uint32_t from, uint32_t to);
+extern "C" uint32_t day_arkui_list_move(uint64_t host_id, uint32_t from, uint32_t to);
 
 // The ArkTS-registered file-picker callback (docs/files.md): `(req, mode, name, src, filters)`.
 // Held as a napi_ref because HarmonyOS file pickers live in the ArkTS @kit.CoreFileKit layer,
@@ -139,6 +144,10 @@ static void drain_async(uv_async_t*) {
 }
 
 // ---- native event receiver → Rust ------------------------------------------
+// List drag-to-reorder handlers (docs/list.md), defined with the list state below.
+static void day_list_on_drag_start(ArkUI_NodeEvent* ev);
+static void day_list_on_drop(ArkUI_NodeEvent* ev);
+
 static void event_receiver(ArkUI_NodeEvent* ev) {
     if (!ev) return;
     uint64_t id = (uint64_t)(uintptr_t)OH_ArkUI_NodeEvent_GetUserData(ev);
@@ -146,6 +155,14 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
     switch (t) {
         case NODE_ON_CLICK:
             day_arkui_on_event(id, DAY_K_PRESSED, 0.0, "");
+            break;
+        // Drag-to-reorder (docs/list.md) — the list state lives later in this file, so the
+        // arms defer to forward-declared handlers.
+        case NODE_ON_DRAG_START:
+            day_list_on_drag_start(ev);
+            break;
+        case NODE_ON_DROP:
+            day_list_on_drop(ev);
             break;
         case NODE_TEXT_INPUT_ON_CHANGE: {
             auto* s = OH_ArkUI_NodeEvent_GetStringAsyncEvent(ev);
@@ -1107,8 +1124,71 @@ struct DayList {
     uint64_t host_id;
     float row_h; // px; 0 = content-sized
     std::vector<ArkUI_NodeHandle> pool;
+    // Drag-to-reorder (docs/list.md): whether rows drag, the list node (for geometry), and each
+    // live cell's currently-bound row (cells recycle, so the row is re-recorded on every bind).
+    bool reorderable;
+    ArkUI_NodeHandle list_node;
+    std::map<ArkUI_NodeHandle, int> rows;
 };
 static std::map<void*, DayList*> g_lists; // list node → its adapter binding
+
+// The in-flight reorder drag (one at a time; day lists accept only their OWN rows).
+static DayList* g_drag_list = nullptr;
+static int g_drag_from = -1;
+
+// The slot under a drag event's touch point, in the list's row grid.
+static int day_list_drag_slot(DayList* dl, ArkUI_DragEvent* de) {
+    if (!dl || dl->row_h <= 0) return -1;
+    ArkUI_IntOffset pos{};
+    OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(dl->list_node, &pos);
+    float y = OH_ArkUI_DragEvent_GetTouchPointYToWindow(de) - (float)pos.y;
+    // Add the list's scroll offset (vp → px) so the slot is content-absolute.
+    const ArkUI_AttributeItem* got = g_api->getAttribute(dl->list_node, NODE_SCROLL_OFFSET);
+    if (got && got->size >= 2) y += got->value[1].f32 * g_density;
+    int n = (int)OH_ArkUI_NodeAdapter_GetTotalNodeCount(dl->adapter);
+    if (n <= 0) return -1;
+    int slot = (int)(y / dl->row_h);
+    return slot < 0 ? 0 : (slot >= n ? n - 1 : slot);
+}
+
+// A row lifted (docs/list.md): the node is a pooled LIST_ITEM — find its list + currently-bound
+// row (the maps are small: one entry per live cell).
+static void day_list_on_drag_start(ArkUI_NodeEvent* ev) {
+    ArkUI_NodeHandle n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+    for (auto& entry : g_lists) {
+        DayList* dl = entry.second;
+        auto it = dl->rows.find(n);
+        if (it != dl->rows.end()) {
+            g_drag_list = dl;
+            g_drag_from = it->second;
+            break;
+        }
+    }
+}
+
+// A drop over the list node: vet through the app's guard and commit through the sync seam; a
+// denied drop reports FAILED so ArkUI's native spring-back carries the affordance.
+static void day_list_on_drop(ArkUI_NodeEvent* ev) {
+    ArkUI_NodeHandle n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+    ArkUI_DragEvent* de = OH_ArkUI_NodeEvent_GetDragEvent(ev);
+    auto found = g_lists.find((void*)n);
+    DayList* dl = (found != g_lists.end()) ? found->second : nullptr;
+    if (!de || !dl || dl != g_drag_list || g_drag_from < 0) return;
+    int from = g_drag_from;
+    g_drag_list = nullptr;
+    g_drag_from = -1;
+    int slot = day_list_drag_slot(dl, de);
+    int accepted = slot < 0 ? -1 : day_arkui_list_can_move(dl->host_id, from, slot);
+    if (accepted >= 0) {
+        if (accepted != from) {
+            day_arkui_list_move(dl->host_id, (uint32_t)from, (uint32_t)accepted);
+            OH_ArkUI_NodeAdapter_ReloadAllItems(dl->adapter);
+        }
+        OH_ArkUI_DragEvent_SetDragResult(de, ARKUI_DRAG_RESULT_SUCCESSFUL);
+    } else {
+        OH_ArkUI_DragEvent_SetDragResult(de, ARKUI_DRAG_RESULT_FAILED);
+    }
+}
 
 static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
     auto* dl = (DayList*)OH_ArkUI_NodeAdapterEvent_GetUserData(ev);
@@ -1131,7 +1211,14 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
                     set_f32(inner, NODE_HEIGHT, dl->row_h / g_density);
                 }
                 g_api->addChild(cell, inner);
+                if (dl->reorderable) {
+                    // Long-press lifts the row with ArkUI's own drag preview; the drop lands on
+                    // the LIST node's NODE_ON_DROP (registered in day_ark_list_init).
+                    OH_ArkUI_SetNodeDraggable(cell, true);
+                    g_api->registerNodeEvent(cell, NODE_ON_DRAG_START, 0, nullptr);
+                }
             }
+            if (dl->reorderable) dl->rows[cell] = (int)idx;
             ArkUI_NodeHandle inner = g_api->getChildAt(cell, 0);
             day_arkui_list_bind(dl->host_id, idx, inner); // build (fresh) or rebind (recycled)
             OH_ArkUI_NodeAdapterEvent_SetItem(ev, cell);
@@ -1148,15 +1235,26 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
     }
 }
 
-void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp) {
+void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t reorderable) {
     if (!g_api || !node) return;
-    DayList* dl = new DayList{OH_ArkUI_NodeAdapter_Create(), host_id,
-                              (float)(row_h_vp * g_density), {}};
+    DayList* dl = new DayList{OH_ArkUI_NodeAdapter_Create(),
+                              host_id,
+                              (float)(row_h_vp * g_density),
+                              {},
+                              reorderable != 0,
+                              (ArkUI_NodeHandle)node,
+                              {}};
     OH_ArkUI_NodeAdapter_RegisterEventReceiver(dl->adapter, dl, list_adapter_receiver);
     g_lists[node] = dl;
     ArkUI_AttributeItem it{};
     it.object = dl->adapter;
     g_api->setAttribute((ArkUI_NodeHandle)node, NODE_LIST_NODE_ADAPTER, &it);
+    if (dl->reorderable) {
+        // Accept day-row drops anywhere over the list; the verdict comes from the app's guard
+        // at drop time (day_arkui_list_can_move).
+        OH_ArkUI_AllowNodeAllDropDataTypes((ArkUI_NodeHandle)node);
+        g_api->registerNodeEvent((ArkUI_NodeHandle)node, NODE_ON_DROP, 0, nullptr);
+    }
 }
 
 // Re-query the row count (the adapter re-fetches its visible cells).

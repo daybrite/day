@@ -442,6 +442,41 @@ mod imp {
         }
     }
 
+    /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
+    /// ItemTouchHelper's canDropOver. ItemTouchHelper cannot relocate the gap, so a Retarget
+    /// verdict (accepted != proposed) reads as a deny for that hover. The source is cloned out
+    /// before the guard runs — no thread-local borrow held.
+    pub fn list_can_drop(host_id: i64, from: i32, to: i32) -> bool {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(source) = source else { return false };
+        let Some(r) = source.reorder.as_ref() else {
+            return false;
+        };
+        let len = (source.len)();
+        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+        if from >= len || to >= len {
+            return false;
+        }
+        (r.can_move)(from, to) == to as i64
+    }
+
+    /// Commit one incremental ItemTouchHelper swap through the sync seam (rotates day's
+    /// snapshot, defers the app callback). Returns whether the swap was accepted.
+    pub fn list_move(host_id: i64, from: i32, to: i32) -> bool {
+        if !list_can_drop(host_id, from, to) {
+            return false;
+        }
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(r) = source.and_then(|s| s.reorder) else {
+            return false;
+        };
+        let (from, to) = (from as usize, to as usize);
+        if from != to {
+            (r.move_row)(from, to);
+        }
+        true
+    }
+
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
     #[derive(Clone)]
@@ -1102,7 +1137,10 @@ mod imp {
                 | Cap::NavHeader
                 | Cap::TextEditable
                 | Cap::TextSelectable
-                | Cap::TextSpellCheck => Support::Native,
+                | Cap::TextSpellCheck
+                // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
+                // incremental swaps — the platform's own reorder (docs/list.md).
+                | Cap::ListReorder => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -1279,11 +1317,12 @@ mod imp {
                         AHandle(make_view(
                             env,
                             "makeList",
-                            "(JIZ)Landroid/view/View;",
+                            "(JIZZ)Landroid/view/View;",
                             &[
                                 JValue::Long(id.0 as i64),
                                 JValue::Int((rowh * d).round() as i32),
                                 JValue::Bool(p.selectable),
+                                JValue::Bool(p.reorderable),
                             ],
                         ))
                     });

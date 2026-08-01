@@ -172,6 +172,49 @@ impl MockProbe {
         }
     }
 
+    /// Consult the list's reorder guard the way a native validate hook would: the accepted
+    /// target index, or -1 when the guard denies. `i64::MIN` when the list has no reorder seam
+    /// (not `.reorderable()`).
+    pub fn list_can_move(&self, host: MockHandle, from: usize, to: usize) -> i64 {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.reorder.as_ref().map(|r| r.can_move.clone()));
+        f.map(|f| f(from, to)).unwrap_or(i64::MIN)
+    }
+
+    /// Simulate a native drop: consult the guard, commit on accept (rotating Day's snapshot and
+    /// deferring the app's `on_reorder`, exactly as a native backend would). Returns whether the
+    /// move committed. (Reorder Rcs are cloned out before the call, like [`Self::list_bind`].)
+    pub fn list_move(&self, host: MockHandle, from: usize, to: usize) -> bool {
+        let r = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.reorder.clone());
+        let Some(r) = r else {
+            self.state
+                .borrow_mut()
+                .log(format!("list move unsupported {from}->{to}"));
+            return false;
+        };
+        let accepted = (r.can_move)(from, to);
+        if accepted < 0 {
+            self.state
+                .borrow_mut()
+                .log(format!("list move denied {from}->{to}"));
+            return false;
+        }
+        (r.move_row)(from, accepted as usize);
+        self.state
+            .borrow_mut()
+            .log(format!("list move {from}->{accepted}"));
+        true
+    }
+
     /// Inject a native event through the real sink (as the toolkit trampoline would).
     pub fn emit(&self, node: NodeId, event: Event) {
         let sink = self.state.borrow_mut().sink.take();
@@ -229,6 +272,8 @@ impl Toolkit for MockToolkit {
             // Covers "present" by recording the patch (probe-visible); tests emit the
             // FrameChanged size report themselves, as the native surface would.
             Cap::Cover => Support::Native,
+            // The probe drives the whole guard → commit reorder seam (`list_can_move`/`list_move`).
+            Cap::ListReorder => Support::Native,
             _ => Support::Unsupported,
         }
     }

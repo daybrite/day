@@ -89,6 +89,8 @@ list_selection = { $count ->
    *[other] الصفوف المحددة: { $rows }
 }
 list_clear_selection = مسح التحديد
+list_reorder_hint = اسحب الصفوف لإعادة ترتيبها؛ الصف الأول مثبّت
+list_order = الصفوف الأولى: { $rows }
 
 webview_url_hint = أدخل عنوان URL
 webview_go = انتقال

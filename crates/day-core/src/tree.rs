@@ -559,6 +559,9 @@ pub trait TreeOps {
     /// Programmatically sync the list's selected rows (empty = clear). The toolkit applies
     /// without re-emitting a selection event.
     fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>);
+    /// The list's driver, for the guard → commit path `list_try_reorder` runs outside the
+    /// borrow (`None` when `node` hosts no list).
+    fn list_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::list::ListDriver>>;
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -1215,6 +1218,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 None,
             );
         }
+    }
+
+    fn list_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::list::ListDriver>> {
+        self.lists.get(&node).map(|s| s.driver.clone())
     }
 }
 

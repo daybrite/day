@@ -7,6 +7,7 @@
 // linked by day-qt-sys.
 
 #include <QFontMetricsF>
+#include <QKeyEvent>
 #include <QPlainTextEdit>
 #include <QString>
 #include <QTextDocument>
@@ -15,12 +16,27 @@
 
 class DayTextArea : public QPlainTextEdit {
 public:
+    // Submit-on-enter (day's TextAreaProps::submit_on_enter): armed via day_textarea_set_submit.
+    uint64_t submitId = 0;
+    void (*submitCb)(uint64_t) = nullptr;
+
     void setTextGuarded(const QString &t) {
         if (toPlainText() != t) {
             blockSignals(true); // programmatic ⇒ no textChanged echo
             setPlainText(t);
             blockSignals(false);
         }
+    }
+
+protected:
+    // A plain Return/Enter submits instead of inserting a newline; Shift+Return still breaks.
+    void keyPressEvent(QKeyEvent *e) override {
+        if (submitCb && (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) &&
+            !(e->modifiers() & Qt::ShiftModifier)) {
+            submitCb(submitId);
+            return;
+        }
+        QPlainTextEdit::keyPressEvent(e);
     }
 };
 
@@ -44,6 +60,13 @@ void *day_textarea_new(const char *placeholder, const char *initial, uint64_t id
 
 void day_textarea_set_text(void *w, const char *text) {
     static_cast<DayTextArea *>(w)->setTextGuarded(QString::fromUtf8(text));
+}
+
+// Arm submit-on-enter: `cb(id)` fires on a plain Return/Enter press (the newline is claimed).
+void day_textarea_set_submit(void *ptr, uint64_t id, void (*cb)(uint64_t)) {
+    DayTextArea *w = static_cast<DayTextArea *>(ptr);
+    w->submitId = id;
+    w->submitCb = cb;
 }
 
 // editable / selectable. Qt has no built-in spell-check (Cap::TextSpellCheck = Unsupported), so

@@ -187,6 +187,55 @@ struct ListEntry {
     /// Last host width a populate ran at, so `set_frame` only repopulates on a real width change
     /// (a populate's own child `set_frame`s must not schedule another, or it loops forever).
     last_width: c_int,
+    /// Drag-to-reorder (docs/list.md): whether new cells get the WinRT drag armed.
+    reorderable: bool,
+    node: u64,
+}
+
+thread_local! {
+    /// List NODE id → host key, so the reorder callbacks (which carry the node) find their entry.
+    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+}
+
+/// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
+/// shim's DragOver handler: the accepted target index, or -1. The source is cloned out before
+/// the app's guard runs — no thread-local borrow held.
+extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return -1;
+    };
+    let r = LIST_STATE.with(|m| {
+        m.borrow().get(&host_key).and_then(|st| {
+            let s = st.source.borrow().clone()?;
+            Some(((s.len)(), s.reorder))
+        })
+    });
+    let Some((len, Some(r))) = r else { return -1 };
+    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+    if from >= len {
+        return -1;
+    }
+    let to = to.min(len - 1);
+    ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+}
+
+/// Commit a drop the shim accepted: rotate day's snapshot through the sync seam (deferring the
+/// app callback) and re-bind the cells in the new order.
+extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return;
+    };
+    let r = LIST_STATE.with(|m| {
+        m.borrow()
+            .get(&host_key)
+            .and_then(|st| st.source.borrow().clone()?.reorder)
+    });
+    let Some(r) = r else { return };
+    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+    if from != to {
+        (r.move_row)(from, to);
+        schedule_list_populate(host_key);
+    }
 }
 
 /// Populate/refresh a list's cells on the next loop turn — NOT inline: a reload runs inside a
@@ -236,6 +285,10 @@ fn list_populate(host_key: usize) {
         while st.cells.len() < n {
             let cell = unsafe { ffi::day_xaml_container_new() };
             unsafe { ffi::day_xaml_add_child(st.content, cell) };
+            if st.reorderable {
+                // Cell index == row for the cell's whole life (docs/list.md).
+                unsafe { ffi::day_xaml_cell_drag(cell, st.node, st.cells.len() as c_int) };
+            }
             st.cells.push(cell);
         }
         st.last_width = width;
@@ -716,6 +769,9 @@ impl Toolkit for Xaml {
         match cap {
             Cap::Snapshot => Support::Native,
             Cap::ListRecycling => Support::Emulated,
+            // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
+            // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
+            Cap::ListReorder => Support::Native,
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
@@ -915,6 +971,17 @@ impl Toolkit for Xaml {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
                     };
+                    if p.reorderable && !content.is_null() {
+                        // WinRT drag reorder (docs/list.md): drops on the content Canvas route
+                        // through the seam callbacks above.
+                        ffi::day_xaml_list_enable_reorder(
+                            content,
+                            id.0,
+                            row_height as c_int,
+                            on_list_can_move,
+                            on_list_move,
+                        );
+                    }
                     LIST_STATE.with(|m| {
                         m.borrow_mut().insert(
                             host as usize,
@@ -925,9 +992,12 @@ impl Toolkit for Xaml {
                                 source: Rc::new(RefCell::new(None)),
                                 cells: Vec::new(),
                                 last_width: -1,
+                                reorderable: p.reorderable,
+                                node: id.0,
                             },
                         )
                     });
+                    LIST_BY_NODE.with(|m| m.borrow_mut().insert(id.0, host as usize));
                     WinHandle(host)
                 }
                 kinds::PROGRESS => {

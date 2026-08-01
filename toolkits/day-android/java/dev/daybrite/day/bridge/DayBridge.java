@@ -18,10 +18,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.AbsListView;
 import android.widget.AdapterView;
-import android.widget.BaseAdapter;
-import android.widget.ListView;
+import androidx.recyclerview.widget.ItemTouchHelper;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ProgressBar;
@@ -86,6 +86,11 @@ public final class DayBridge {
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);
+    /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto —
+     *  a Retarget verdict reads as deny here, since ItemTouchHelper can't relocate the gap.) */
+    public static native boolean nativeListCanDrop(long hostId, int from, int to);
+    /** Commit one incremental drag swap through day's seam; false = refused, don't move. */
+    public static native boolean nativeListMove(long hostId, int from, int to);
 
     /** Cross-thread → main-thread door for day's scheduler/Setter (§3.3). */
     public static void postMain(final long token) {
@@ -174,50 +179,87 @@ public final class DayBridge {
         }
     }
 
-    /** A native recycling list (docs/list.md): a framework ListView whose BaseAdapter reuses
-     *  DayFixed cell views (convertView) and lets day fill each via nativeListBind. */
-    public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable) {
-        final ListView lv = new ListView(ctx);
-        lv.setDivider(null);
-        lv.setDividerHeight(0);
-        lv.setAdapter(new BaseAdapter() {
-            public int getCount() { return nativeListLen(hostId); }
-            public Object getItem(int p) { return null; }
-            public long getItemId(int p) { return p; }
-            public View getView(int position, View convertView, ViewGroup parent) {
-                DayFixed cell = (convertView instanceof DayFixed) ? (DayFixed) convertView : null;
-                if (cell == null) {
-                    cell = new DayFixed(ctx);
-                    cell.setLayoutParams(new AbsListView.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+    /** A ViewHolder wrapping one DayFixed cell (docs/list.md). */
+    static final class DayCellHolder extends RecyclerView.ViewHolder {
+        DayCellHolder(DayFixed cell) { super(cell); }
+    }
+
+    /** A native recycling list (docs/list.md): a RecyclerView — the platform's recycling
+     *  widget — whose adapter reuses DayFixed cells, day filling each via nativeListBind.
+     *  With `reorderable`, an ItemTouchHelper drives the native drag-to-reorder (long-press
+     *  lift, elevation, incremental row swaps): every hover is vetted synchronously through
+     *  nativeListCanDrop (the app's guard) and each swap commits through nativeListMove. */
+    public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable,
+                                final boolean reorderable) {
+        final RecyclerView rv = new RecyclerView(ctx);
+        rv.setLayoutManager(new LinearLayoutManager(ctx));
+        rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
+            public int getItemCount() { return nativeListLen(hostId); }
+            public DayCellHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+                DayFixed cell = new DayFixed(ctx);
+                cell.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+                return new DayCellHolder(cell);
+            }
+            public void onBindViewHolder(DayCellHolder h, int position) {
+                nativeListBind(hostId, position, h.itemView);
+                if (selectable) {
+                    h.itemView.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) {
+                            int pos = h.getBindingAdapterPosition();
+                            if (pos != RecyclerView.NO_POSITION) {
+                                nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, ""); // kind 4
+                            }
+                        }
+                    });
                 }
-                nativeListBind(hostId, position, cell);
-                return cell;
             }
         });
-        if (selectable) {
-            lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-                public void onItemClick(AdapterView<?> p, View v, int pos, long rowId) {
-                    nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, ""); // kind 4 = select
+        if (reorderable) {
+            new ItemTouchHelper(new ItemTouchHelper.Callback() {
+                public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
+                    return makeMovementFlags(ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0);
                 }
-            });
+                @Override public boolean isLongPressDragEnabled() { return true; }
+                @Override public boolean canDropOver(RecyclerView r, RecyclerView.ViewHolder cur,
+                                                     RecyclerView.ViewHolder target) {
+                    int from = cur.getBindingAdapterPosition();
+                    int to = target.getBindingAdapterPosition();
+                    return from != RecyclerView.NO_POSITION && to != RecyclerView.NO_POSITION
+                        && nativeListCanDrop(hostId, from, to);
+                }
+                public boolean onMove(RecyclerView r, RecyclerView.ViewHolder vh,
+                                      RecyclerView.ViewHolder target) {
+                    // ItemTouchHelper commits INCREMENTALLY — one adjacent swap per callback
+                    // while the row is dragged — so each step goes through the seam.
+                    int from = vh.getBindingAdapterPosition();
+                    int to = target.getBindingAdapterPosition();
+                    if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false;
+                    if (!nativeListMove(hostId, from, to)) return false;
+                    RecyclerView.Adapter<?> a = r.getAdapter();
+                    if (a != null) a.notifyItemMoved(from, to);
+                    return true;
+                }
+                public void onSwiped(RecyclerView.ViewHolder vh, int direction) {}
+            }).attachToRecyclerView(rv);
         }
-        return lv;
+        return rv;
     }
-    public static void listReload(View lv) {
-        if (lv instanceof ListView && ((ListView) lv).getAdapter() instanceof BaseAdapter) {
-            ((BaseAdapter) ((ListView) lv).getAdapter()).notifyDataSetChanged();
+    public static void listReload(View v) {
+        if (v instanceof RecyclerView && ((RecyclerView) v).getAdapter() != null) {
+            ((RecyclerView) v).getAdapter().notifyDataSetChanged();
         }
     }
     /** Scroll the list so its last row is fully visible (a chat sticking to the newest message).
      *  Posted so it runs after any pending notifyDataSetChanged relayout; no-op when empty. */
     public static void listScrollToEnd(View v) {
-        if (!(v instanceof ListView)) return;
-        final ListView lv = (ListView) v;
-        lv.post(new Runnable() {
+        if (!(v instanceof RecyclerView)) return;
+        final RecyclerView rv = (RecyclerView) v;
+        rv.post(new Runnable() {
             public void run() {
-                int n = lv.getCount();
-                if (n > 0) lv.smoothScrollToPosition(n - 1);
+                RecyclerView.Adapter<?> a = rv.getAdapter();
+                int n = (a == null) ? 0 : a.getItemCount();
+                if (n > 0) rv.smoothScrollToPosition(n - 1);
             }
         });
     }

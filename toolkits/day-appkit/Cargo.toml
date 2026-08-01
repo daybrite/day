@@ -23,7 +23,7 @@ dispatch2 = "0.3"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
 objc2-foundation = { version = "0.3", features = [
-    "NSString", "NSGeometry", "NSNotification", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
+    "NSString", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
 objc2-app-kit = { version = "0.3", features = [
@@ -38,4 +38,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSProgressIndicator", "NSTabView", "NSTabViewItem",
     "NSSavePanel", "NSOpenPanel", "NSPanel", "NSWorkspace",
     "NSAnimationContext",
+    # List drag-to-reorder (docs/list.md): the NSTableView drag data-source methods and the
+    # pasteboard writer that carries the dragged row index.
+    "NSDragging", "NSDraggingSession", "NSDraggingItem", "NSPasteboard", "NSPasteboardItem",
 ] }

@@ -62,6 +62,7 @@ An app branches on this rather than on the target name.
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|
 | `ListRecycling` | – | – | – | – | E | – | – | E |
+| `ListReorder` | N | N | N | N | N | N | N | E |
 | `Lottie` | – | – | – | – | – | – | – | – |
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | – | N | N | N | – | – | – |

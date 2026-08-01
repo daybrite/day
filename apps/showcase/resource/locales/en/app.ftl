@@ -85,6 +85,8 @@ list_selection = { $count ->
    *[other] Selected rows: { $rows }
 }
 list_clear_selection = Clear Selection
+list_reorder_hint = Drag rows to reorder; the first row is pinned
+list_order = First rows: { $rows }
 
 webview_url_hint = Enter a URL
 webview_go = Go

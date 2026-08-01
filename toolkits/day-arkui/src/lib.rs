@@ -421,6 +421,38 @@ mod imp {
         }
     }
 
+    /// The reorder guard's verdict for a hovered drop (docs/list.md): the accepted target index,
+    /// or -1. Called synchronously from the shim's NODE_ON_DROP handler; the source is cloned
+    /// out before the app's guard runs, so no thread-local borrow is held.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_can_move(host_id: u64, from: u32, to: u32) -> i32 {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(source) = source else { return -1 };
+        let Some(r) = source.reorder.as_ref() else {
+            return -1;
+        };
+        let len = (source.len)();
+        let (from, to) = (from as usize, to as usize);
+        if from >= len || to >= len {
+            return -1;
+        }
+        ((r.can_move)(from, to) as i32).min(len.saturating_sub(1) as i32)
+    }
+
+    /// Commit an accepted drop through the sync seam (rotates day's snapshot, defers the app
+    /// callback); the shim reloads the adapter afterwards. Returns 1 on commit.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_move(host_id: u64, from: u32, to: u32) -> u32 {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(r) = source.and_then(|s| s.reorder) else {
+            return 0;
+        };
+        if from != to {
+            (r.move_row)(from as usize, to as usize);
+        }
+        1
+    }
+
     /// A NavDestination disappeared on the ArkTS side (docs/navigation.md). For a pop DAY
     /// initiated (NavPatch::Popped) this is just the acknowledgement; for a NATIVE back
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
@@ -791,7 +823,7 @@ mod imp {
                     };
                     let n = new_node(K_LIST);
                     LIST_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
-                    unsafe { ffi::day_ark_list_init(n.0, id.0, row_h) };
+                    unsafe { ffi::day_ark_list_init(n.0, id.0, row_h, p.reorderable as u32) };
                     n
                 }
                 _ => {
@@ -1334,6 +1366,9 @@ mod imp {
                 // Every pushed page is an ArkTS NavDestination with a native title bar
                 // (Index.ets) — content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
+                // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
+                // with the system preview; a denied drop springs back natively (docs/list.md).
+                Cap::ListReorder => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
                 _ => Support::Unsupported,

@@ -25,6 +25,19 @@ pub struct ListDriver {
     /// Build row `index` into `anchor`. Uses `BuildCx` internally, so it MUST be called with no
     /// `with_tree` borrow held. Returns the row's scope + a rebind writer.
     pub build: Box<dyn Fn(usize, RNode) -> BuiltRow>,
+    /// Drag-to-reorder half, present when the piece is `.reorderable()` (docs/list.md).
+    pub reorder: Option<ListReorderDriver>,
+}
+
+/// The reorder closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
+/// [`day_spec::ListReorder`] by [`make_source`]; also driven directly by
+/// [`list_try_reorder`] (the dayscript `reorder` step and the mock probe).
+pub struct ListReorderDriver {
+    /// Consult the app's guard: returns the accepted target index, or -1 to deny.
+    pub can_move: Box<dyn Fn(usize, usize) -> i64>,
+    /// Commit an accepted move: rotates the piece's snapshot + tokens synchronously and defers
+    /// the app's `on_reorder` callback to the next event drain.
+    pub moved: Box<dyn Fn(usize, usize)>,
 }
 
 /// A freshly built row: its `Scope` (owns the row's reactive graph) and a rebind writer that
@@ -83,10 +96,38 @@ pub fn list_set_selected(node: RNode, rows: Vec<usize>) {
     with_tree(|t| t.list_set_selected(node, rows));
 }
 
+/// Programmatically reorder a list row through the same guard → commit path a native drag takes
+/// (docs/list.md): consult the piece's guard (which may retarget), rotate the snapshot, defer the
+/// app's `on_reorder`, and tell the native host to re-query. This is how the dayscript `reorder`
+/// step and the mock probe drive reordering without a native gesture. Returns the index the row
+/// actually landed at. Call with no borrow held.
+pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'static str> {
+    let driver = with_tree(|t| t.list_driver(node)).ok_or("no list at this node")?;
+    let Some(re) = driver.reorder.as_ref() else {
+        return Err("list is not reorderable");
+    };
+    let len = (driver.len)();
+    if from >= len || to >= len {
+        return Err("row index out of bounds");
+    }
+    let accepted = (re.can_move)(from, to);
+    if accepted < 0 {
+        return Err("reorder denied by the guard");
+    }
+    let accepted = (accepted as usize).min(len - 1);
+    if accepted != from {
+        (re.moved)(from, accepted);
+    }
+    // No native animation on this path — a reload re-binds the visible rows in the new order.
+    list_reload(node);
+    Ok(accepted)
+}
+
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver
 /// directly (no tree). `bind_row` phases the tree borrow around the build + flush (see module doc).
 pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
-    let (d_len, d_tok, d_bind) = (driver.clone(), driver.clone(), driver);
+    let (d_len, d_tok, d_reorder, d_bind) =
+        (driver.clone(), driver.clone(), driver.clone(), driver);
     ListSource {
         len: Rc::new(move || (d_len.len)()),
         token_at: Rc::new(move |i| (d_tok.token_at)(i)),
@@ -112,5 +153,19 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
             with_tree(|t| t.list_layout_cell(node, key));
         }),
         recycle: Rc::new(|_cell| { /* v1: cells stay cached in the reuse pool */ }),
+        reorder: d_reorder.reorder.as_ref().map(|_| day_spec::ListReorder {
+            can_move: {
+                let d = d_reorder.clone();
+                Rc::new(move |from, to| {
+                    (d.reorder.as_ref().expect("mapped from Some").can_move)(from, to)
+                })
+            },
+            move_row: {
+                let d = d_reorder.clone();
+                Rc::new(move |from, to| {
+                    (d.reorder.as_ref().expect("mapped from Some").moved)(from, to)
+                })
+            },
+        }),
     }
 }

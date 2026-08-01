@@ -106,6 +106,7 @@ pub struct TextArea {
     editable: Reactive<bool>,
     selectable: Reactive<bool>,
     spellcheck: Reactive<bool>,
+    on_submit: Option<Rc<dyn Fn()>>,
 }
 
 /// `text_area(text)` — a native multi-line editor whose contents mirror `text` in both directions.
@@ -118,6 +119,7 @@ pub fn text_area(text: Signal<String>) -> TextArea {
         editable: true.into_reactive(),
         selectable: true.into_reactive(),
         spellcheck: true.into_reactive(),
+        on_submit: None,
     }
 }
 
@@ -161,6 +163,15 @@ impl TextArea {
         self.spellcheck = v.into_reactive();
         self
     }
+
+    /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline — the chat-composer
+    /// contract. Shift+Enter still inserts a line break where the platform can distinguish the
+    /// two (desktop toolkits and the web; mobile soft keyboards submit on their return/send key).
+    /// The bound `text` signal is already up to date when `f` runs.
+    pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
+        self.on_submit = Some(Rc::new(f));
+        self
+    }
 }
 
 impl Piece for TextArea {
@@ -173,6 +184,7 @@ impl Piece for TextArea {
             editable,
             selectable,
             spellcheck,
+            on_submit,
         } = self;
         let initial = text.get_untracked();
         let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
@@ -192,6 +204,7 @@ impl Piece for TextArea {
                 editable: editable.get_untracked(),
                 selectable: selectable.get_untracked(),
                 spellcheck: spellcheck.get_untracked(),
+                submit_on_enter: on_submit.is_some(),
             },
             // A composer fills the available width; height is content-driven (the backend's
             // measure grows it between min/max lines), so it is NOT a height-growing leaf.
@@ -264,11 +277,17 @@ impl Piece for TextArea {
                 }
             },
         );
-        cx.on(node, move |ev| {
-            if let Event::TextChanged(t) = ev {
+        cx.on(node, move |ev| match ev {
+            Event::TextChanged(t) => {
                 *guard.borrow_mut() = Some(t.clone());
                 text.set(t.clone());
             }
+            Event::Submitted => {
+                if let Some(f) = &on_submit {
+                    f();
+                }
+            }
+            _ => {}
         });
         node
     }

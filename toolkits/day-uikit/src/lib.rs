@@ -40,6 +40,7 @@ mod imp {
     use objc2_quartz_core::CADisplayLink;
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
+    use objc2::Message as _;
     use objc2_ui_kit::NSIndexPathUIKitAdditions as _;
     #[allow(deprecated)]
     use objc2_ui_kit::UIApplicationMain;
@@ -63,7 +64,9 @@ mod imp {
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
         UITapGestureRecognizer,
     };
-    use objc2_ui_kit::{UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate};
+    use objc2_ui_kit::{
+        UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate,
+    };
     use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
     // `.import`/`.exportToService` modes (deprecated in favor of `initFor…ContentTypes:`, which
     // would pull in the UniformTypeIdentifiers crate) remain the simplest UTType-free path.
@@ -1320,6 +1323,47 @@ mod imp {
                 }
                 cell
             }
+
+            // --- drag-to-reorder (docs/list.md): the data-source half. With a drag delegate and
+            // `dragInteractionEnabled`, UITableView runs its whole native reorder UX — long-press
+            // lift, the gap under the finger, haptics — and commits through `moveRow`.
+
+            #[unsafe(method(tableView:canMoveRowAtIndexPath:))]
+            fn can_move_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2::runtime::Bool {
+                // A row the guard won't move ANYWHERE (a pinned row) refuses the lift itself:
+                // probing (row -> row) is the cheapest "may this row drag at all" question.
+                let row = unsafe { index_path.row() } as usize;
+                objc2::runtime::Bool::new(self.reorder_verdict(row, row) >= 0)
+            }
+
+            #[unsafe(method(tableView:moveRowAtIndexPath:toIndexPath:))]
+            fn move_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                from_path: &objc2_foundation::NSIndexPath,
+                to_path: &objc2_foundation::NSIndexPath,
+            ) {
+                // UIKit hands FINAL indices (post-removal semantics — the seam's own contract).
+                // The table has already animated the move; commit rotates Day's snapshot and
+                // defers the app callback.
+                let (from, to) = unsafe { (from_path.row() as usize, to_path.row() as usize) };
+                if from == to {
+                    return;
+                }
+                let mv = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
+                if let Some(mv) = mv {
+                    mv(from, to);
+                }
+            }
         }
 
         unsafe impl UITableViewDelegate for DayListData {
@@ -1344,6 +1388,64 @@ mod imp {
                     emit(self.ivars().node, Event::SelectionChanged(row as i64));
                 }
             }
+
+            // The guard's live veto/override: UIKit proposes a landing slot while the finger
+            // moves; returning the source path refuses it (the gap stays home), another path
+            // retargets it — the affordance mirrors the app's answer before the drop.
+            #[unsafe(method_id(tableView:targetIndexPathForMoveFromRowAtIndexPath:toProposedIndexPath:))]
+            fn target_for_move(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                from_path: &objc2_foundation::NSIndexPath,
+                proposed: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_foundation::NSIndexPath> {
+                // (Closure body: define_class converts only the tail expression.)
+                let target = || {
+                    let (from, to) = unsafe { (from_path.row() as usize, proposed.row() as usize) };
+                    let accepted = self.reorder_verdict(from, to);
+                    if accepted < 0 {
+                        return from_path.retain();
+                    }
+                    if accepted as usize == to {
+                        return proposed.retain();
+                    }
+                    objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                        accepted as isize,
+                        proposed.section(),
+                    )
+                };
+                target()
+            }
+        }
+
+        // The drag delegate that lets rows lift WITHOUT editing mode (docs/list.md): one drag
+        // item with an empty provider — nothing leaves the table; UIKit treats it as a local
+        // reorder and drives the data-source move above.
+        unsafe impl UITableViewDragDelegate for DayListData {
+            #[unsafe(method_id(tableView:itemsForBeginningDragSession:atIndexPath:))]
+            fn items_for_drag(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                _session: &ProtocolObject<dyn objc2_ui_kit::UIDragSession>,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UIDragItem>> {
+                // (Closure body: define_class converts only the tail expression.)
+                let items = || {
+                    let row = unsafe { index_path.row() } as usize;
+                    if self.reorder_verdict(row, row) < 0 {
+                        return objc2_foundation::NSArray::new();
+                    }
+                    let provider = objc2_foundation::NSItemProvider::new();
+                    let item = unsafe {
+                        objc2_ui_kit::UIDragItem::initWithItemProvider(
+                            objc2_ui_kit::UIDragItem::alloc(self.mtm()),
+                            &provider,
+                        )
+                    };
+                    objc2_foundation::NSArray::from_retained_slice(&[item])
+                };
+                items()
+            }
         }
     );
 
@@ -1361,6 +1463,17 @@ mod imp {
                 selectable: std::cell::Cell::new(selectable),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// The guard's verdict for `from -> to` through the sync seam (accepted index, or -1 —
+        /// also -1 when the list has no reorder seam at all).
+        fn reorder_verdict(&self, from: usize, to: usize) -> i64 {
+            self.ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.reorder.as_ref().map(|r| (r.can_move)(from, to)))
+                .unwrap_or(-1)
         }
     }
 
@@ -1932,6 +2045,8 @@ mod imp {
                 | Cap::TextEditable
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck
+                // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
+                | Cap::ListReorder
                 | Cap::Appearance => Support::Native,
                 _ => Support::Unsupported,
             }
@@ -2132,6 +2247,13 @@ mod imp {
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
                         if !p.selectable {
                             table.setAllowsSelection(false);
+                        }
+                        if p.reorderable {
+                            // Native drag-to-reorder (docs/list.md): the drag delegate lifts a
+                            // row on long-press (no editing mode); the data-source move methods
+                            // + target-for-move delegate drive commit and the live guard.
+                            table.setDragDelegate(Some(ProtocolObject::from_ref(&*data)));
+                            table.setDragInteractionEnabled(true);
                         }
                     }
                     let view = view_of(table.clone());

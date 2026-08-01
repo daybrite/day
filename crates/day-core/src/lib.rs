@@ -23,7 +23,8 @@ pub use frame::{
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
-    BuiltRow, ListDriver, install_list, list_reload, list_scroll_to_end, list_set_selected,
+    BuiltRow, ListDriver, ListReorderDriver, install_list, list_reload, list_scroll_to_end,
+    list_set_selected, list_try_reorder,
 };
 pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
@@ -207,11 +208,22 @@ fn handle_route_request(route: &str) {
 /// the native main loop.
 pub fn launch_with<P: Platform>(
     backend: P,
-    options: WindowOptions,
+    mut options: WindowOptions,
     root_piece: impl FnOnce() -> AnyPiece + 'static,
 ) {
     // Record the backend identity for runtime introspection (crash reports, diagnostics).
     let _ = BACKEND_NAME.set(P::TARGET);
+    // `DAY_WINDOW=900x700` overrides the app's initial window size — responsive-layout testing
+    // (scripted runs can exercise a narrow window without a resize gesture). Desktop only in
+    // effect; mobile/web backends size to the screen and ignore `options.size` anyway.
+    if let Ok(v) = std::env::var("DAY_WINDOW")
+        && let Some((w, h)) = v.split_once('x')
+        && let (Ok(w), Ok(h)) = (w.trim().parse::<f64>(), h.trim().parse::<f64>())
+        && w > 0.0
+        && h > 0.0
+    {
+        options.size = day_spec::Size::new(w, h);
+    }
     // Reactive plumbing rides the platform's main-loop poster. Both doors CONTAIN panics (the
     // `pump_events` rationale, tree.rs): posted closures run inside native main-loop trampolines
     // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a
@@ -419,7 +431,31 @@ fn autodrive(spec: &str) {
 /// branch apps take when painting custom OPAQUE surfaces so fills track the theme that the
 /// default text colors already follow.
 pub fn dark_mode() -> bool {
-    tree::with_tree(|t| t.dark_mode())
+    dark_signal().get()
+}
+
+thread_local! {
+    static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
+        const { std::cell::OnceCell::new() };
+}
+
+/// The reactive backing for [`dark_mode`], lazily seeded from the toolkit's answer.
+fn dark_signal() -> day_reactive::Signal<bool> {
+    DARK_SIGNAL.with(|c| {
+        *c.get_or_init(|| {
+            let seed = tree::with_tree(|t| t.dark_mode());
+            day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(seed))
+        })
+    })
+}
+
+/// Re-read the toolkit's appearance into the reactive [`dark_mode`] signal. Backends call
+/// this when the SYSTEM appearance changes under a running app (macOS theme switch, GTK
+/// style-manager change), and [`set_appearance`] calls it after applying an override — so
+/// closures reading `dark_mode()` recolor live instead of going stale until a rebuild.
+pub fn note_appearance_changed() {
+    let d = tree::with_tree(|t| t.dark_mode());
+    dark_signal().set(d);
 }
 
 /// Deliver synthetic TYPING to a text control (the dayscript `input` step and the autodrive
@@ -454,7 +490,8 @@ pub fn synthesize_text(node: RNode, text: String) {
 /// and [`dark_mode`] answers the override; app-painted surfaces pick it up on their next
 /// rebuild. Other backends ignore the call — probe before offering a theme picker.
 pub fn set_appearance(dark: Option<bool>) {
-    tree::with_tree(|t| t.set_appearance(dark))
+    tree::with_tree(|t| t.set_appearance(dark));
+    note_appearance_changed();
 }
 
 #[cfg(test)]

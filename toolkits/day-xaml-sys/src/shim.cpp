@@ -959,6 +959,62 @@ void day_xaml_list_set_content_size(void* content, int w, int h) {
     }
 }
 
+// --- emulated list drag-to-reorder (docs/list.md) ---
+// The real WinRT drag pipeline (CanDrag / DragOver / Drop — the same visuals every Windows app
+// gets) over the emulated Canvas list. The DECISIONS stay Rust's: every hovered slot is vetted
+// synchronously through the can-move callback (the app's guard; a denied slot answers
+// DataPackageOperation::None so the system shows the no-drop cursor live), and the drop commits
+// through the move callback.
+typedef int (*DayListCanMoveCb)(unsigned long long id, int from, int to);
+typedef void (*DayListMoveCb)(unsigned long long id, int from, int to);
+
+struct DayListDragState {
+    int from = -1;
+};
+static std::map<unsigned long long, DayListDragState> g_list_drags; // keyed by day list node id
+
+void day_xaml_list_enable_reorder(void* content, unsigned long long id, int row_h,
+                                  DayListCanMoveCb can, DayListMoveCb mv) {
+    auto canvas = elem(content).try_as<WUXC::Canvas>();
+    if (!canvas || row_h <= 0) return;
+    canvas.AllowDrop(true);
+    canvas.DragOver([id, row_h, can](WF::IInspectable const& sender,
+                                     WUX::DragEventArgs const& e) {
+        auto& st = g_list_drags[id];
+        if (st.from < 0) return;
+        auto c = sender.try_as<WUX::UIElement>();
+        if (!c) return;
+        int slot = (int)(e.GetPosition(c).Y) / row_h;
+        e.AcceptedOperation(
+            can(id, st.from, slot) >= 0
+                ? winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move
+                : winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::None);
+    });
+    canvas.Drop([id, row_h, can, mv](WF::IInspectable const& sender,
+                                     WUX::DragEventArgs const& e) {
+        auto& st = g_list_drags[id];
+        int from = st.from;
+        st.from = -1;
+        if (from < 0) return;
+        auto c = sender.try_as<WUX::UIElement>();
+        if (!c) return;
+        int slot = (int)(e.GetPosition(c).Y) / row_h;
+        int accepted = can(id, from, slot);
+        if (accepted >= 0 && accepted != from) mv(id, from, accepted);
+    });
+}
+
+void day_xaml_cell_drag(void* cell, unsigned long long id, int row) {
+    auto el = elem(cell).try_as<WUX::UIElement>();
+    if (!el) return;
+    el.CanDrag(true);
+    el.DragStarting([id, row](WUX::UIElement const&, WUX::DragStartingEventArgs const& args) {
+        g_list_drags[id].from = row;
+        args.Data().RequestedOperation(
+            winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Move);
+    });
+}
+
 // Navigation sidebar item list (docs/navigation.md): a single-select ListView of route titles.
 // The NAV host + pages are plain Canvases; day-core's NavLayout positions the sidebar/detail
 // split, so no native split control is needed. Items are '\n'-joined (titles have no newlines).

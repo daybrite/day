@@ -265,7 +265,27 @@ pub struct List<T: 'static, K: 'static> {
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     scroll_to_end: Option<day_reactive::Trigger>,
     stick_to_bottom: bool,
+    reorderable: bool,
+    on_reorder: Option<Rc<dyn Fn(usize, usize)>>,
+    reorder_guard: Option<Rc<dyn Fn(usize, usize) -> Reorder>>,
 }
+
+/// A reorder guard's verdict on a proposed row move (docs/list.md): consulted synchronously from
+/// the native drag's validate hook, so the affordance (gap, insertion mark, forbidden cursor)
+/// reflects the answer while the user is still dragging.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reorder {
+    /// Accept the drop where proposed.
+    Allow,
+    /// Refuse the drop (the row springs back; most backends show a forbidden cursor live).
+    Deny,
+    /// Accept the drop, but at this row index instead of the proposed one.
+    Retarget(usize),
+}
+
+/// The `Event::Custom` tag carrying a committed reorder from the native drop back to the piece
+/// (`num` = the source row, `text` = the accepted target row).
+const REORDER_TAG: &str = "day.list.reorder";
 
 /// Build a recycling list from a reactive items closure, a key function, and a row builder.
 pub fn list<T, K, P>(
@@ -289,6 +309,9 @@ where
         selected_rows: None,
         scroll_to_end: None,
         stick_to_bottom: false,
+        reorderable: false,
+        on_reorder: None,
+        reorder_guard: None,
     }
 }
 
@@ -341,6 +364,35 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
         self.stick_to_bottom = on;
         self
     }
+
+    /// Let the user drag rows into a new order with the platform's native mechanism — the
+    /// macOS drop gap, the iOS long-press lift, Android's `ItemTouchHelper` — where the backend
+    /// supports it (probe `Cap::ListReorder`; docs/list.md has the matrix). Pair with
+    /// [`on_reorder`](Self::on_reorder) so the app's data follows the move, and optionally
+    /// [`reorder_guard`](Self::reorder_guard) to veto or retarget drops.
+    pub fn reorderable(mut self, on: bool) -> Self {
+        self.reorderable = on;
+        self
+    }
+
+    /// A committed move: row `from` now sits at row `to`. Apply the same rotation to the backing
+    /// data (`let it = v.remove(from); v.insert(to, it);`) — and persist it if the order should
+    /// survive a relaunch. Runs on the main thread at the next event drain, never inside the
+    /// native drop callback.
+    pub fn on_reorder(mut self, f: impl Fn(usize, usize) + 'static) -> Self {
+        self.on_reorder = Some(Rc::new(f));
+        self
+    }
+
+    /// Veto or override drops while the drag is live: called synchronously from the native
+    /// validate hook with `(from, proposed_to)`. Return [`Reorder::Deny`] to refuse,
+    /// [`Reorder::Retarget`] to accept at a different index (a "pinned rows" pattern), or
+    /// [`Reorder::Allow`] to accept as proposed (the default when no guard is set). Keep it
+    /// pure — read state, decide, return; it runs inside the platform's drag callback.
+    pub fn reorder_guard(mut self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
+        self.reorder_guard = Some(Rc::new(g));
+        self
+    }
 }
 
 impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
@@ -349,6 +401,7 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
             row_height: self.row_height,
             selectable: self.on_select.is_some() || self.on_selection.is_some(),
             multi_select: self.multi_select,
+            reorderable: self.reorderable,
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -365,6 +418,11 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
         // build/rebind closures read the same snapshot.
         let snapshot: Rc<RefCell<Vec<T>>> = Rc::new(RefCell::new(Vec::new()));
         let tokens: Rc<RefCell<Vec<u64>>> = Rc::new(RefCell::new(Vec::new()));
+        // After a committed native move, the token order the app's own data update is expected to
+        // echo back. When the refresh below sees exactly this order, the native rows already sit
+        // in it (the drop animated them there) — update the snapshot and skip the redundant
+        // `Reload` instead of visibly re-binding every visible row.
+        let pending_echo: Rc<RefCell<Option<Vec<u64>>>> = Rc::new(RefCell::new(None));
 
         // Selection → keys (translate the native row indices through the snapshot). A
         // single-selection report also feeds `on_selection` as a one-element set, so an app
@@ -394,6 +452,19 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                     }
                 }
                 _ => {}
+            });
+        }
+
+        // A committed native move, deferred to the event drain (never run inside the platform's
+        // drop callback): hand the app the same (from, to) the native side animated.
+        if let Some(on_reorder) = self.on_reorder.clone() {
+            cx.on(node, move |ev| {
+                if let Event::Custom { tag, num, text } = ev
+                    && *tag == REORDER_TAG
+                    && let Ok(to) = text.parse::<usize>()
+                {
+                    on_reorder(*num as usize, to);
+                }
             });
         }
 
@@ -434,18 +505,70 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                     BuiltRow { scope, rebind }
                 })
             },
+            reorder: self.reorderable.then(|| ListReorderDriver {
+                // The guard's verdict, encoded for the sync seam: accepted index or -1.
+                can_move: {
+                    let guard = self.reorder_guard.clone();
+                    Box::new(move |from, to| match guard.as_ref().map(|g| g(from, to)) {
+                        None | Some(Reorder::Allow) => to as i64,
+                        Some(Reorder::Deny) => -1,
+                        Some(Reorder::Retarget(i)) => i as i64,
+                    })
+                },
+                // Commit: rotate the snapshot + tokens NOW (subsequent len/token_at/bind_row
+                // serve the new order while the native move animates), arm the echo skip, and
+                // defer the app's callback through the event queue.
+                moved: {
+                    let (snapshot, tokens, echo) =
+                        (snapshot.clone(), tokens.clone(), pending_echo.clone());
+                    Box::new(move |from, to| {
+                        {
+                            let mut snap = snapshot.borrow_mut();
+                            let mut toks = tokens.borrow_mut();
+                            if from >= snap.len() || to >= snap.len() {
+                                return;
+                            }
+                            let item = snap.remove(from);
+                            snap.insert(to, item);
+                            let tok = toks.remove(from);
+                            toks.insert(to, tok);
+                            *echo.borrow_mut() = Some(toks.clone());
+                        }
+                        enqueue_event(
+                            rnode_to_id(node),
+                            Event::Custom {
+                                tag: REORDER_TAG,
+                                num: from as f64,
+                                text: to.to_string(),
+                            },
+                        );
+                    })
+                },
+            }),
         };
         install_list(node, driver);
 
         // Keep the snapshot current and tell the native host to re-query on every change.
         // `watch` (not `bind`) so `T` need not be `PartialEq` — matching `each`; run once eagerly.
         let refresh: RefreshFn<T> = {
-            let (snapshot, tokens, key_of) =
-                (snapshot.clone(), tokens.clone(), self.key_of.clone());
+            let (snapshot, tokens, key_of, echo) = (
+                snapshot.clone(),
+                tokens.clone(),
+                self.key_of.clone(),
+                pending_echo.clone(),
+            );
             Rc::new(move |its: &Vec<T>| {
-                *tokens.borrow_mut() = its.iter().map(|t| key_token(&key_of(t))).collect();
+                let new_tokens: Vec<u64> = its.iter().map(|t| key_token(&key_of(t))).collect();
+                // The echo of a committed native move: the app rotated its data to exactly the
+                // order the drop animated the rows into. The natives are already right — take the
+                // data, skip the reload. Any OTHER change (even one arriving while an echo is
+                // armed) reloads normally.
+                let is_echo = echo.borrow_mut().take().is_some_and(|e| e == new_tokens);
+                *tokens.borrow_mut() = new_tokens;
                 *snapshot.borrow_mut() = its.clone();
-                list_reload(node);
+                if !is_echo {
+                    list_reload(node);
+                }
             })
         };
         let items = self.items.clone();

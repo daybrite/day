@@ -54,6 +54,18 @@ unsafe extern "C" {
     // recycling list host (docs/list.md): a ScrollViewer + content Canvas
     pub fn day_xaml_list_new(out_content: *mut *mut c_void) -> *mut c_void;
     pub fn day_xaml_list_set_content_size(content: *mut c_void, w: c_int, h: c_int);
+    // Emulated list drag-to-reorder (docs/list.md): the content Canvas accepts day-row drops —
+    // every hovered slot is vetted synchronously through `can` (accepted index or -1; the system
+    // shows the no-drop cursor on -1), and the drop commits via `mv`.
+    pub fn day_xaml_list_enable_reorder(
+        content: *mut c_void,
+        id: u64,
+        row_h: c_int,
+        can: extern "C" fn(u64, c_int, c_int) -> c_int,
+        mv: extern "C" fn(u64, c_int, c_int),
+    );
+    // Arm the WinRT drag start on one cell (cell index == row for its whole life).
+    pub fn day_xaml_cell_drag(cell: *mut c_void, id: u64, row: c_int);
 
     // navigation sidebar menu (docs/navigation.md): a single-select ListView
     pub fn day_xaml_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;

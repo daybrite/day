@@ -25,6 +25,10 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QDrag>
+#include <QMimeData>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QInputDialog>
 #include <QStringList>
 #include <QProgressBar>
@@ -1248,6 +1252,131 @@ void day_qt_list_cell_click(void *w, uint64_t node, int row, DayRowClickCb cb) {
     DayRowClickFilter *f = new DayRowClickFilter(node, row, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);
+}
+
+// --- emulated list drag-to-reorder (docs/list.md) ---
+// Qt's own QDrag carries the affordance — the grabbed cell as the drag pixmap, the forbidden
+// cursor over a denied slot, a 2px palette-highlight insertion line — while the DECISIONS stay
+// Rust's: every hovered slot is vetted synchronously through the can-move callback (the app's
+// guard), and the drop commits through the move callback.
+typedef int (*DayListCanMoveCb)(uint64_t node, int from, int to);
+typedef void (*DayListMoveCb)(uint64_t node, int from, int to);
+
+static const char *DAY_ROW_MIME = "application/x-day-row";
+
+// Starts a QDrag when a press on cell `row` moves past the platform drag threshold. Cell index
+// == row for the cell's whole life (the click filter above relies on the same invariant).
+class DayCellDragFilter : public QObject {
+public:
+    uint64_t node; int row;
+    DayCellDragFilter(uint64_t n, int r) : node(n), row(r) {}
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        QWidget *w = static_cast<QWidget *>(obj);
+        if (ev->type() == QEvent::MouseButtonPress) {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (me->button() == Qt::LeftButton) press = me->pos();
+        } else if (ev->type() == QEvent::MouseMove) {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (!press.isNull()
+                && (me->pos() - press).manhattanLength() >= QApplication::startDragDistance()) {
+                QDrag *drag = new QDrag(w);
+                QMimeData *mime = new QMimeData();
+                mime->setData(DAY_ROW_MIME, QByteArray::number(row));
+                drag->setMimeData(mime);
+                drag->setPixmap(w->grab());
+                drag->setHotSpot(press);
+                press = QPoint();
+                drag->exec(Qt::MoveAction);
+                return true;
+            }
+        } else if (ev->type() == QEvent::MouseButtonRelease) {
+            press = QPoint();
+        }
+        return false; // observe until the drag actually starts
+    }
+private:
+    QPoint press;
+};
+
+// Accepts day-row drops on the list's content widget, drawing the insertion line where the
+// (possibly retargeted) drop would land and refusing denied slots so Qt shows the no-drop cursor.
+class DayListDropFilter : public QObject {
+public:
+    uint64_t node; int rowH; DayListCanMoveCb can; DayListMoveCb commit;
+    QWidget *line;
+    DayListDropFilter(uint64_t n, int rh, DayListCanMoveCb c, DayListMoveCb m, QWidget *content)
+        : node(n), rowH(rh > 0 ? rh : 1), can(c), commit(m) {
+        line = new QWidget(content);
+        line->setFixedHeight(2);
+        line->setAutoFillBackground(true);
+        QPalette p = line->palette();
+        p.setColor(QPalette::Window, p.color(QPalette::Highlight));
+        line->setPalette(p);
+        line->hide();
+    }
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        QWidget *content = static_cast<QWidget *>(obj);
+        if (ev->type() == QEvent::DragEnter || ev->type() == QEvent::DragMove) {
+            auto *e = static_cast<QDragMoveEvent *>(ev);
+            int from = fromOf(e);
+            if (from < 0) return false; // not a day row — none of our business
+            int accepted = can(node, from, slotOf(e));
+            if (accepted < 0) {
+                line->hide();
+                e->ignore();
+            } else {
+                int ins = accepted > from ? accepted + 1 : accepted;
+                line->setGeometry(0, ins * rowH - 1, content->width(), 2);
+                line->raise();
+                line->show();
+                e->acceptProposedAction();
+            }
+            return true;
+        }
+        if (ev->type() == QEvent::DragLeave) {
+            line->hide();
+            return false;
+        }
+        if (ev->type() == QEvent::Drop) {
+            auto *e = static_cast<QDropEvent *>(ev);
+            line->hide();
+            int from = fromOf(e);
+            if (from < 0) return false;
+            int accepted = can(node, from, slotOf(e));
+            if (accepted >= 0 && accepted != from) {
+                commit(node, from, accepted);
+                e->acceptProposedAction();
+            } else {
+                e->ignore();
+            }
+            return true;
+        }
+        return false;
+    }
+private:
+    static int fromOf(QDropEvent *e) {
+        QByteArray b = e->mimeData()->data(DAY_ROW_MIME);
+        return b.isEmpty() ? -1 : b.toInt();
+    }
+    int slotOf(QDropEvent *e) const { return (int)(e->position().y()) / rowH; }
+};
+
+void day_qt_list_enable_reorder(void *content, uint64_t node, int row_h,
+                                DayListCanMoveCb can, DayListMoveCb mv) {
+    QWidget *w = static_cast<QWidget *>(content);
+    w->setAcceptDrops(true);
+    auto *f = new DayListDropFilter(node, row_h, can, mv, w);
+    f->setParent(w); // freed with the widget
+    w->installEventFilter(f);
+}
+
+void day_qt_cell_drag(void *cell, uint64_t node, int row) {
+    QWidget *w = static_cast<QWidget *>(cell);
+    auto *f = new DayCellDragFilter(node, row);
+    f->setParent(w);
+    w->installEventFilter(f);
 }
 
 // Paint (or clear) the selected-row treatment on an emulated list cell: the palette

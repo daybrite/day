@@ -85,6 +85,8 @@ list_selection = { $count ->
    *[other] Lignes sélectionnées : { $rows }
 }
 list_clear_selection = Effacer la sélection
+list_reorder_hint = Glissez les lignes pour les réordonner ; la première ligne est épinglée
+list_order = Premières lignes : { $rows }
 
 webview_url_hint = Saisir une URL
 webview_go = Aller

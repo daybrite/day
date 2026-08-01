@@ -148,6 +148,18 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, c_int, c_int),
     );
     pub fn day_qt_cell_set_selected(w: *mut c_void, on: c_int);
+    // Emulated list drag-to-reorder (docs/list.md): the content widget accepts day-row drops —
+    // every hovered slot is vetted synchronously through `can` (accepted index or -1; Qt shows
+    // the no-drop cursor on -1, an insertion line otherwise), and the drop commits via `mv`.
+    pub fn day_qt_list_enable_reorder(
+        content: *mut c_void,
+        node: u64,
+        row_h: c_int,
+        can: extern "C" fn(u64, c_int, c_int) -> c_int,
+        mv: extern "C" fn(u64, c_int, c_int),
+    );
+    // Arm the press-and-drag QDrag start on one cell (cell index == row for its whole life).
+    pub fn day_qt_cell_drag(cell: *mut c_void, node: u64, row: c_int);
     // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
     // drive via setFocus/clearFocus.
     pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));

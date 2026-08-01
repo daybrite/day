@@ -39,5 +39,8 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",
     "UIDocumentPickerViewController", "UIViewControllerTransitionCoordinator",
     "UIGeometry",
+    # List drag-to-reorder (docs/list.md): the drag-delegate item that lifts a row without
+    # entering editing mode (the move/target data-source methods are ungated).
+    "UIDragItem", "UIDragSession", "UIDragInteraction",
     "objc2-core-foundation", "objc2-core-graphics",
 ] }

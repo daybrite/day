@@ -346,6 +346,31 @@ impl StackLayout {
                 sizes[i] = s;
             }
         }
+        // Shrink pass: when the rigid children's natural sizes OVERFLOW a bounded main axis,
+        // re-measure the overflowing ones against the space that is actually left (in order —
+        // earlier children keep their natural size first). Content that fits keeps its natural
+        // measure, so proposal-expanding kinds (text fields, lists) don't balloon; wrapping
+        // content (a capped message bubble, a long label) folds instead of spilling out of the
+        // stack.
+        if let Some(mp) = main_p {
+            let spacing_total = self.spacing * (kids.len().saturating_sub(1)) as f64;
+            let available = (mp - spacing_total).max(0.0);
+            if rigid_main > available {
+                let mut budget = available;
+                rigid_main = 0.0;
+                for (i, &k) in kids.iter().enumerate() {
+                    if self.grows_main(cx.flex_of(k)) {
+                        continue;
+                    }
+                    if self.main(sizes[i]) > budget {
+                        sizes[i] = cx.measure_child(k, self.proposal(Some(budget), cross_p));
+                    }
+                    let m = self.main(sizes[i]);
+                    rigid_main += m;
+                    budget = (budget - m).max(0.0);
+                }
+            }
+        }
         if !flex_idx.is_empty() {
             let spacing_total = self.spacing * (kids.len().saturating_sub(1)) as f64;
             match main_p {
@@ -930,6 +955,36 @@ impl Layout for GrowLayout {
                 cs.height
             };
             cx.place_child(c, Rect::from_size(Size::new(w, h)));
+        }
+    }
+}
+
+/// The `.max_width(w)` decorator (docs/layout.md): proposes at most `w` to the child, so
+/// text wraps instead of overflowing, while narrower content still hugs. The vertical axis
+/// passes through untouched.
+pub struct MaxWidthLayout {
+    pub max: f64,
+}
+
+impl Layout for MaxWidthLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let capped = Proposal::new(
+            Some(p.width.map(|w| w.min(self.max)).unwrap_or(self.max)),
+            p.height,
+        );
+        match children.first() {
+            Some(&c) => {
+                let s = cx.measure_child(c, capped);
+                Size::new(s.width.min(self.max), s.height)
+            }
+            None => Size::ZERO,
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let w = bounds.size.width.min(self.max);
+            let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
+            cx.place_child(c, Rect::from_size(Size::new(s.width.min(w), s.height)));
         }
     }
 }

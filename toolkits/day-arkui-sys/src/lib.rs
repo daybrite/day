@@ -107,8 +107,9 @@ unsafe extern "C" {
 
     /// Recycling list (docs/list.md): create the node's `NodeAdapter`, binding it to `host_id` so
     /// the row callbacks (`day_arkui_list_count` / `_bind`) can find the source. `row_h_vp` is the
-    /// uniform row height in vp (0 = content-sized).
-    pub fn day_ark_list_init(node: *mut c_void, host_id: u64, row_h_vp: f64);
+    /// uniform row height in vp (0 = content-sized). With `reorderable`, cells become draggable
+    /// and drops route through `day_arkui_list_can_move` / `day_arkui_list_move` (docs/list.md).
+    pub fn day_ark_list_init(node: *mut c_void, host_id: u64, row_h_vp: f64, reorderable: u32);
     /// Re-query the list's row count (the adapter re-fetches its visible cells).
     pub fn day_ark_list_reload(node: *mut c_void);
     /// Scroll the list so its last row is fully visible (docs/list.md).

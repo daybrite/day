@@ -30,6 +30,11 @@ pub struct Request {
 pub enum Step {
     WaitFor {
         id: String,
+        /// Upper bound in seconds for the implicit retry wait (§14.3) — for elements that
+        /// appear only after slow work (a login round-trip, a first sync). Defaults to the
+        /// shared step timeout.
+        #[serde(default)]
+        timeout_secs: Option<f64>,
     },
     WaitIdle,
     /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
@@ -73,6 +78,15 @@ pub enum Step {
     Select {
         id: String,
         index: i64,
+    },
+    /// Drag-reorder a list row programmatically: row `from` drops at row `to` through the same
+    /// guard → commit path a native drag takes (docs/list.md) — the app's `reorder_guard` may
+    /// deny or retarget it. Fails (non-retryably) when the list isn't `.reorderable()` or the
+    /// guard denies the move.
+    Reorder {
+        id: String,
+        from: usize,
+        to: usize,
     },
     AssertVisible {
         id: String,
@@ -163,6 +177,20 @@ pub enum Step {
         #[serde(default)]
         within: Option<f64>,
     },
+}
+
+impl Step {
+    /// The implicit-wait budget for this step, seconds: its own `timeout_secs` when declared
+    /// (and positive), else the shared [`DEFAULT_TIMEOUT_SECS`].
+    fn wait_budget_secs(&self) -> f64 {
+        match self {
+            Step::WaitFor {
+                timeout_secs: Some(t),
+                ..
+            } if *t > 0.0 => *t,
+            _ => DEFAULT_TIMEOUT_SECS,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -259,7 +287,7 @@ mod web {
                         .unwrap_or(false)
                 });
                 if authed {
-                    let attempts = (DEFAULT_TIMEOUT_SECS * 1000.0 / RETRY_MS as f64) as u32;
+                    let attempts = (req.step.wait_budget_secs() * 1000.0 / RETRY_MS as f64) as u32;
                     attempt(req.step, attempts);
                     return;
                 }
@@ -330,9 +358,10 @@ fn handle_conn(stream: TcpStream, token: &str) {
     }
 }
 
-/// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout.
+/// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout —
+/// the shared default, or the step's own `timeout_secs` where it declares one.
 fn run_step_with_wait(step: Step) -> Reply {
-    let deadline = Instant::now() + Duration::from_secs_f64(DEFAULT_TIMEOUT_SECS);
+    let deadline = Instant::now() + Duration::from_secs_f64(step.wait_budget_secs());
     loop {
         let reply = run_on_main(step.clone());
         if reply.ok || !reply.retryable || Instant::now() > deadline {
@@ -403,7 +432,7 @@ fn exec(step: Step) -> Reply {
     use day_spec::present::PresentResult;
     let result: Result<Reply, Reply> = (|| {
         match step {
-            Step::WaitFor { id } => {
+            Step::WaitFor { id, .. } => {
                 visible(&id)?;
                 Ok(Reply::ok())
             }
@@ -458,6 +487,18 @@ fn exec(step: Step) -> Reply {
             Step::Select { id, index } => {
                 emit(&id, Event::SelectionChanged(index))?;
                 Ok(Reply::ok())
+            }
+            Step::Reorder { id, from, to } => {
+                let node = find(&id)?;
+                match day_core::list_try_reorder(node, from, to) {
+                    Ok(_) => Ok(Reply::ok()),
+                    // Not retryable: a guard denial or a non-reorderable list won't change by
+                    // waiting — surface it to the runner immediately.
+                    Err(e) => Err(Reply::fail(
+                        format!("reorder {id:?} {from}->{to}: {e}"),
+                        false,
+                    )),
+                }
             }
             Step::AssertVisible { id } => {
                 visible(&id)?;

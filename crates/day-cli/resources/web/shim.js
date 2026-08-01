@@ -158,6 +158,84 @@ const env = {
     el.scrollTo({ top, behavior: animated ? 'smooth' : 'instant' });
   },
   day_dom_scroll_offset(id, out) { const el = E(id); f64(out, 2).set([el.scrollLeft, el.scrollTop]); },
+  // Pointer-drag reorder for the emulated list (docs/list.md): the browser has no native list
+  // reorder, so this fakes the affordance — lift the pressed cell, slide a gap under it (CSS
+  // transitions on the other cells), autoscroll near the edges — while the DECISIONS stay
+  // Day's: every hovered slot is vetted synchronously through wasm.day_dom_list_can_move (the
+  // app's guard), and the drop commits through wasm.day_dom_list_move, which re-binds the cells.
+  day_dom_list_reorder(id) {
+    const host = E(id);
+    host.classList.add('day-reorder');
+    let d = null; // in-flight drag
+    const cells = () => [...host.querySelectorAll('.day-cell')];
+    const cleanup = () => {
+      if (!d) return;
+      for (const c of cells()) { c.style.transform = ''; c.classList.remove('day-drag'); }
+      host.classList.remove('day-no-drop');
+      clearTimeout(d.hold);
+      d = null;
+    };
+    host.addEventListener('pointerdown', (e) => {
+      const cell = e.target.closest('.day-cell');
+      if (!cell || d) return;
+      const rowH = cell.offsetHeight || 1;
+      d = {
+        cell, rowH,
+        from: Math.round(cell.offsetTop / rowH),
+        startY: e.clientY, startScroll: host.scrollTop,
+        engaged: false, accepted: null, pid: e.pointerId,
+        // Touch engages after a hold (so plain swipes still scroll); mouse/pen on first move.
+        hold: e.pointerType === 'touch' ? setTimeout(() => { if (d) engage(); }, 300) : null,
+      };
+    });
+    const engage = () => {
+      d.engaged = true;
+      host.setPointerCapture(d.pid);
+      d.cell.classList.add('day-drag');
+    };
+    host.addEventListener('pointermove', (e) => {
+      if (!d) return;
+      const dy = (e.clientY - d.startY) + (host.scrollTop - d.startScroll);
+      if (!d.engaged) {
+        if (e.pointerType === 'touch') return;      // waiting for the hold timer
+        if (Math.abs(dy) < 5) return;
+        engage();
+      }
+      e.preventDefault();
+      d.cell.style.transform = `translateY(${dy}px)`;
+      // Autoscroll near the viewport edges so long lists are reachable.
+      const r = host.getBoundingClientRect();
+      if (e.clientY < r.top + 24) host.scrollTop -= 12;
+      else if (e.clientY > r.bottom - 24) host.scrollTop += 12;
+      // The slot under the dragged cell's center, vetted by the app's guard.
+      const centre = d.cell.offsetTop + dy + d.rowH / 2;
+      const n = cells().length;
+      const slot = Math.max(0, Math.min(n - 1, Math.floor(centre / d.rowH)));
+      const verdict = wasm.day_dom_list_can_move(id, d.from, slot);
+      d.accepted = verdict < 0 ? null : verdict;
+      host.classList.toggle('day-no-drop', d.accepted === null);
+      for (const c of cells()) {
+        if (c === d.cell) continue;
+        const row = Math.round(c.offsetTop / d.rowH);
+        let shift = 0;
+        if (d.accepted !== null) {
+          if (d.from < d.accepted && row > d.from && row <= d.accepted) shift = -d.rowH;
+          else if (d.from > d.accepted && row >= d.accepted && row < d.from) shift = d.rowH;
+        }
+        c.style.transform = shift ? `translateY(${shift}px)` : '';
+      }
+    });
+    const finish = (commit) => {
+      if (!d) return;
+      const { engaged, from, accepted } = d;
+      cleanup();
+      if (commit && engaged && accepted !== null && accepted !== from) {
+        wasm.day_dom_list_move(id, from, accepted);
+      }
+    };
+    host.addEventListener('pointerup', () => finish(true));
+    host.addEventListener('pointercancel', () => finish(false));
+  },
   day_dom_scroll_content(id, w, h) {
     const c = E(id).__content; if (!c) return;
     c.style.position = 'relative';
