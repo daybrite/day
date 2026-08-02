@@ -1409,7 +1409,7 @@ jobs:
   # still deploys — the API pages 404 until the next green run) rather than blocking the site.
   # ---------------------------------------------------------------------------
   api-docs:
-    name: api-docs (rustdoc)
+    name: rustdoc
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
     runs-on: ubuntu-latest
     steps:
