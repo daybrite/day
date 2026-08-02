@@ -1251,6 +1251,19 @@ and primitives, never text formats.
 > needs no link-time trick because a wasm module has a single deterministic init path. First
 > consumer: `day-piece-media` ([docs/media.md](docs/media.md)).
 
+> [!NOTE]
+> **Built-in kinds are an enum, extension kinds stay strings (2026-08).** `PieceKind` is still the
+> interned `&'static str` the registry keys on, but the kinds Day itself defines are now generated —
+> together with their string keys and the `kinds::*` constants — from one `builtin_kinds!` table in
+> day-spec, which emits a plain (deliberately NOT `#[non_exhaustive]`) `Builtin` enum. Every backend
+> dispatches `match Builtin::from_key(kind)`, so the built-in arms are checked for exhaustiveness and
+> the `None` arm is exactly the extension path described above. Adding a built-in kind is therefore a
+> compile error in all eight backends until each one decides how to realize it, instead of silently
+> degrading to a placeholder leaf at runtime. `Builtin::ListCell` shares the `None` arm: a recycled
+> row's anchor is ADOPTED from the native list (`Toolkit::adopt`), never realized. The enum is plain
+> because the guarantee is the point — a new built-in kind genuinely is a new duty for every backend,
+> so it should break the build rather than pass semver-quietly.
+
 Registration was designed **layered** so that `linkme` is a convenience, not a correctness mechanism (the
 bare `use crate as _;` anchor is a link-time gamble under iOS `-dead_strip` + LTO, and a
 startup-time completeness check is impossible if the registry itself is the only source of truth):

@@ -25,7 +25,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, FontSpec, FontWeight,
+    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, FontSpec, FontWeight,
     GestureKind, Lifecycle, ListSource, MenuItem, NodeId, Paint, PieceKind, Platform, Point,
     Proposal, Rect, Registry, Renderer, Shape, Size, Support, TextAnchor, Toolkit, Transform,
     WindowOptions, kinds,
@@ -518,14 +518,14 @@ impl Toolkit for Dom {
     }
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> DomHandle {
-        let el = match kind {
-            kinds::CONTAINER => {
+        let el = match Builtin::from_key(kind) {
+            Some(Builtin::Container) => {
                 let p = props.downcast_ref::<ContainerProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_DIV) };
                 apply_surface(el, p.background, p.corner_radius, p.clips, p.role.is_some());
                 el
             }
-            kinds::LABEL => {
+            Some(Builtin::Label) => {
                 let p = props.downcast_ref::<LabelProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_LABEL) };
                 text(el, &p.text);
@@ -538,7 +538,7 @@ impl Toolkit for Dom {
                 }
                 el
             }
-            kinds::BUTTON => {
+            Some(Builtin::Button) => {
                 let p = props.downcast_ref::<ButtonProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_BUTTON) };
                 text(el, &p.title);
@@ -553,7 +553,7 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 1) };
                 el
             }
-            kinds::TOGGLE => {
+            Some(Builtin::Toggle) => {
                 let p = props.downcast_ref::<ToggleProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_TOGGLE) };
                 unsafe { day_dom_set_checked(el, p.on as u32) };
@@ -563,7 +563,7 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 4) };
                 el
             }
-            kinds::SLIDER => {
+            Some(Builtin::Slider) => {
                 let p = props.downcast_ref::<SliderProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_SLIDER) };
                 attr(el, "min", &p.min.to_string());
@@ -580,7 +580,7 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 2) };
                 el
             }
-            kinds::TEXT_FIELD => {
+            Some(Builtin::TextField) => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_FIELD) };
                 attr(el, "value", &p.text);
@@ -591,7 +591,7 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 2 | 8 | 16) };
                 el
             }
-            kinds::TEXT_AREA => {
+            Some(Builtin::TextArea) => {
                 let p = props.downcast_ref::<TextAreaProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_AREA) };
                 text(el, &p.text);
@@ -600,11 +600,11 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 2 | 8) };
                 el
             }
-            kinds::PICKER => {
+            Some(Builtin::Picker) => {
                 let p = props.downcast_ref::<PickerProps>().unwrap();
                 realize_picker(p)
             }
-            kinds::PROGRESS => {
+            Some(Builtin::Progress) => {
                 let p = props.downcast_ref::<ProgressProps>().unwrap();
                 let el = unsafe {
                     day_dom_create(if p.value.is_some() {
@@ -619,7 +619,7 @@ impl Toolkit for Dom {
                 }
                 el
             }
-            kinds::IMAGE => {
+            Some(Builtin::Image) => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_IMAGE) };
                 let src = if p.source.contains('/') {
@@ -643,8 +643,8 @@ impl Toolkit for Dom {
                 }
                 el
             }
-            kinds::CANVAS => unsafe { day_dom_create(EL_CANVAS) },
-            kinds::SCROLL => {
+            Some(Builtin::Canvas) => unsafe { day_dom_create(EL_CANVAS) },
+            Some(Builtin::Scroll) => {
                 let p = props.downcast_ref::<ScrollProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_SCROLL) };
                 if p.horizontal {
@@ -653,8 +653,8 @@ impl Toolkit for Dom {
                 unsafe { day_dom_listen(el, 64) };
                 el
             }
-            kinds::DIVIDER => unsafe { day_dom_create(EL_DIVIDER) },
-            kinds::NAV => {
+            Some(Builtin::Divider) => unsafe { day_dom_create(EL_DIVIDER) },
+            Some(Builtin::Nav) => {
                 let p = props.downcast_ref::<NavProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_NAV) };
                 unsafe { day_dom_nav_mode(el, p.split as u32, p.title.as_ptr(), p.title.len()) };
@@ -671,7 +671,7 @@ impl Toolkit for Dom {
                 });
                 el
             }
-            kinds::NAV_PAGE => {
+            Some(Builtin::NavPage) => {
                 let p = props.downcast_ref::<NavPageProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 PAGE_SIDEBAR.with(|m| m.borrow_mut().insert(el, p.sidebar));
@@ -681,34 +681,34 @@ impl Toolkit for Dom {
             }
             // Emulated fullscreen cover (docs/cover.md): a fixed-position overlay, hidden
             // until presented. CSS-framed (inset:0) and observer-reported, like nav pages.
-            kinds::COVER => {
+            Some(Builtin::Cover) => {
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 class(el, "day-cover", true);
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
                 unsafe { day_dom_listen(el, 32) };
                 el
             }
-            kinds::NAV_MENU => {
+            Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
                 let json = navmenu_json(&p.items, &p.icons, p.selected);
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 el
             }
-            kinds::TABS => {
+            Some(Builtin::Tabs) => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_TABS) };
                 let json = tabs_json(&p.titles, p.selected);
                 unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
                 el
             }
-            kinds::TABS_PAGE => {
+            Some(Builtin::TabsPage) => {
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
                 unsafe { day_dom_listen(el, 32) };
                 el
             }
-            kinds::LIST => {
+            Some(Builtin::List) => {
                 let p = props.downcast_ref::<ListProps>().unwrap();
                 let host = unsafe { day_dom_create(EL_SCROLL) };
                 class(host, "day-list", true);
@@ -740,9 +740,11 @@ impl Toolkit for Dom {
                 });
                 host
             }
-            other => {
+            // A recycled list cell is ADOPTED from the native list, never realized through
+            // this path; anything else is an extension piece.
+            Some(Builtin::ListCell) | None => {
                 // An external piece's own dom renderer, if one registered for this kind.
-                if let Some(make) = registered(other, |r| r.make) {
+                if let Some(make) = registered(kind, |r| r.make) {
                     let h = make(self, props, id);
                     remember(h.0, id);
                     return h;
@@ -750,11 +752,11 @@ impl Toolkit for Dom {
                 // `warn` reaches the browser console; `report` records it for
                 // dayscript's assert_no_placeholders (eprintln goes nowhere on wasm).
                 warn(&format!(
-                    "day: no renderer for piece kind \"{other}\" on web-dom (rendering a placeholder)"
+                    "day: no renderer for piece kind \"{kind}\" on web-dom (rendering a placeholder)"
                 ));
-                day_spec::placeholder::report(other, "web-dom");
+                day_spec::placeholder::report(kind, "web-dom");
                 let el = unsafe { day_dom_create(EL_LABEL) };
-                text(el, &format!("⟨{other}⟩"));
+                text(el, &format!("⟨{kind}⟩"));
                 class(el, "placeholder", true);
                 el
             }

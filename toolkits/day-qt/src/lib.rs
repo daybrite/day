@@ -13,8 +13,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform, WindowOptions, kinds,
+    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
+    Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform, WindowOptions,
+    kinds,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -901,8 +902,8 @@ impl Toolkit for Qt {
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
         unsafe {
-            match kind {
-                kinds::CONTAINER => {
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
                     let w = ffi::day_qt_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>()
                         && p.role == Some(day_spec::SurfaceRole::SectionCard)
@@ -926,7 +927,7 @@ impl Toolkit for Qt {
                     }
                     QtHandle(w)
                 }
-                kinds::NAV => {
+                Some(Builtin::Nav) => {
                     let nav_props = props.downcast_ref::<NavProps>();
                     let is_split = nav_props.map(|p| p.split).unwrap_or(true);
                     let host = ffi::day_qt_splitter_new();
@@ -958,20 +959,20 @@ impl Toolkit for Qt {
                     });
                     QtHandle(host)
                 }
-                kinds::NAV_PAGE => {
+                Some(Builtin::NavPage) => {
                     let page = QtHandle(ffi::day_qt_container_new());
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
                     page
                 }
                 // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
                 // it onto the window content, topmost, at the content size.
-                kinds::COVER => {
+                Some(Builtin::Cover) => {
                     let cover = QtHandle(ffi::day_qt_container_new());
                     ffi::day_qt_set_visible(cover.0, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover.0 as usize, id));
                     cover
                 }
-                kinds::TABS => {
+                Some(Builtin::Tabs) => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
                     let w = ffi::day_qt_tabs_new(id.0, tabs_changed);
                     TABS_STATE.with(|m| {
@@ -986,7 +987,7 @@ impl Toolkit for Qt {
                     });
                     QtHandle(w)
                 }
-                kinds::TABS_PAGE => {
+                Some(Builtin::TabsPage) => {
                     let p = props.downcast_ref::<TabsPageProps>().unwrap();
                     let page = QtHandle(ffi::day_qt_container_new());
                     TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
@@ -994,7 +995,7 @@ impl Toolkit for Qt {
                         .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
                     page
                 }
-                kinds::NAV_MENU => {
+                Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let w = ffi::day_qt_navlist_new(id.0, nav_menu_changed);
                     let joined = p.items.join("\u{1f}");
@@ -1019,14 +1020,14 @@ impl Toolkit for Qt {
                     NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
                     QtHandle(w)
                 }
-                kinds::SCROLL => {
+                Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
                         .map(|p| p.horizontal)
                         .unwrap_or(false);
                     QtHandle(ffi::day_qt_scroll_new(horizontal as c_int))
                 }
-                kinds::LABEL => {
+                Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic) = font_params(p.font);
@@ -1037,20 +1038,20 @@ impl Toolkit for Qt {
                     }
                     QtHandle(w)
                 }
-                kinds::BUTTON => {
+                Some(Builtin::Button) => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                kinds::TOGGLE => {
+                Some(Builtin::Toggle) => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let w = ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle);
                     ffi::day_qt_set_enabled(w, p.enabled as c_int);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                kinds::SLIDER => {
+                Some(Builtin::Slider) => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
                     RANGES.with(|r| r.borrow_mut().insert(id.0, (p.min, p.max)));
                     let w = ffi::day_qt_slider_new(
@@ -1062,9 +1063,9 @@ impl Toolkit for Qt {
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                kinds::PICKER => picker::realize_any(self, props, id),
-                kinds::TEXT_AREA => textarea::realize_any(self, props, id),
-                kinds::TEXT_FIELD => {
+                Some(Builtin::Picker) => picker::realize_any(self, props, id),
+                Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
+                Some(Builtin::TextField) => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let w = ffi::day_qt_lineedit_new(
                         cstr(&p.text).as_ptr(),
@@ -1075,16 +1076,16 @@ impl Toolkit for Qt {
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                kinds::DIVIDER => QtHandle(ffi::day_qt_separator_new()),
-                kinds::PROGRESS => {
+                Some(Builtin::Divider) => QtHandle(ffi::day_qt_separator_new()),
+                Some(Builtin::Progress) => {
                     let p = props.downcast_ref::<ProgressProps>().unwrap();
                     match p.value {
                         Some(v) => QtHandle(ffi::day_qt_progress_new(1, progress_ticks(v))),
                         None => QtHandle(ffi::day_qt_progress_new(0, 0)),
                     }
                 }
-                kinds::CANVAS => QtHandle(ffi::day_qt_canvas_new()),
-                kinds::IMAGE => {
+                Some(Builtin::Canvas) => QtHandle(ffi::day_qt_canvas_new()),
+                Some(Builtin::Image) => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
                     let res_path = format!(":/day/images/{}", p.source);
@@ -1103,7 +1104,7 @@ impl Toolkit for Qt {
                     };
                     QtHandle(ffi::day_qt_image_new(cstr(&path).as_ptr(), mode))
                 }
-                kinds::LIST => {
+                Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let host = ffi::day_qt_scroll_new(0);
                     let row_height = match p.row_height {
@@ -1145,7 +1146,9 @@ impl Toolkit for Qt {
                     LIST_BY_NODE.with(|m| m.borrow_mut().insert(id.0, host as usize));
                     QtHandle(host)
                 }
-                _ => {
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

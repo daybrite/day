@@ -17,9 +17,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Animatable, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
-    NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
-    Toolkit, Transform, kinds,
+    A11yProps, AnimSpec, Animatable, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font,
+    ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size,
+    Support, Toolkit, Transform, kinds,
 };
 
 pub type Handle = gtk4::Widget;
@@ -1335,8 +1335,8 @@ impl Toolkit for Gtk {
     }
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> Handle {
-        match kind {
-            kinds::CONTAINER => {
+        match Builtin::from_key(kind) {
+            Some(Builtin::Container) => {
                 let w: Handle = gtk4::Fixed::new().upcast();
                 if let Some(p) = props.downcast_ref::<ContainerProps>() {
                     if p.role == Some(day_spec::SurfaceRole::SectionCard) {
@@ -1349,7 +1349,7 @@ impl Toolkit for Gtk {
                 }
                 w
             }
-            kinds::NAV => {
+            Some(Builtin::Nav) => {
                 let is_split = props
                     .downcast_ref::<NavProps>()
                     .map(|p| p.split)
@@ -1416,7 +1416,7 @@ impl Toolkit for Gtk {
                 });
                 host
             }
-            kinds::NAV_PAGE => {
+            Some(Builtin::NavPage) => {
                 let title = props
                     .downcast_ref::<NavPageProps>()
                     .map(|p| p.title.clone())
@@ -1429,7 +1429,7 @@ impl Toolkit for Gtk {
             }
             // Emulated fullscreen cover (docs/cover.md): parked hidden; CoverPatch::Present
             // re-homes it onto the window's root Fixed, topmost, sized to the content area.
-            kinds::COVER => {
+            Some(Builtin::Cover) => {
                 let cover = gtk4::Fixed::new();
                 cover.set_visible(false);
                 COVER_IDS.with(|m| {
@@ -1438,7 +1438,7 @@ impl Toolkit for Gtk {
                 });
                 cover.upcast()
             }
-            kinds::TABS => {
+            Some(Builtin::Tabs) => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 // Adwaita segmented switcher: a `.linked` row of grouped toggle buttons above an
                 // AdwViewStack. Toggle buttons are wired per page in `insert`.
@@ -1471,7 +1471,7 @@ impl Toolkit for Gtk {
                 });
                 host
             }
-            kinds::TABS_PAGE => {
+            Some(Builtin::TabsPage) => {
                 let p = props.downcast_ref::<TabsPageProps>().unwrap();
                 let page: Handle = gtk4::Fixed::new().upcast();
                 let key = widget_key(&page);
@@ -1480,7 +1480,7 @@ impl Toolkit for Gtk {
                 TABS_PAGES.with(|s| s.borrow_mut().insert(key));
                 page
             }
-            kinds::NAV_MENU => {
+            Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let listbox = gtk4::ListBox::new();
                 // The standard GNOME sidebar treatment.
@@ -1524,7 +1524,7 @@ impl Toolkit for Gtk {
                 });
                 handle
             }
-            kinds::SCROLL => {
+            Some(Builtin::Scroll) => {
                 let horizontal = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
                     .map(|p| p.horizontal)
@@ -1542,7 +1542,7 @@ impl Toolkit for Gtk {
                 sw.add_css_class("day-scroll");
                 sw.upcast()
             }
-            kinds::LABEL => {
+            Some(Builtin::Label) => {
                 let p = props.downcast_ref::<LabelProps>().unwrap();
                 let label = gtk4::Label::new(Some(&p.text));
                 label.set_xalign(0.0);
@@ -1552,7 +1552,7 @@ impl Toolkit for Gtk {
                 update_text_attrs(&label, Some(p.font), Some(p.color));
                 label.upcast()
             }
-            kinds::BUTTON => {
+            Some(Builtin::Button) => {
                 let p = props.downcast_ref::<ButtonProps>().unwrap();
                 let btn = gtk4::Button::with_label(&p.title);
                 // Prominent = Adwaita's accent-filled suggested action. Bordered is the stock
@@ -1564,7 +1564,7 @@ impl Toolkit for Gtk {
                 wire_focus(&btn, id);
                 btn.upcast()
             }
-            kinds::TOGGLE => {
+            Some(Builtin::Toggle) => {
                 let p = props.downcast_ref::<ToggleProps>().unwrap();
                 let sw = gtk4::Switch::new();
                 sw.set_active(p.on);
@@ -1573,7 +1573,7 @@ impl Toolkit for Gtk {
                 wire_focus(&sw, id);
                 sw.upcast()
             }
-            kinds::SLIDER => {
+            Some(Builtin::Slider) => {
                 let p = props.downcast_ref::<SliderProps>().unwrap();
                 let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
                 let scale =
@@ -1584,9 +1584,9 @@ impl Toolkit for Gtk {
                 wire_focus(&scale, id);
                 scale.upcast()
             }
-            kinds::PICKER => picker::realize_any(self, props, id),
-            kinds::TEXT_AREA => textarea::realize_any(self, props, id),
-            kinds::TEXT_FIELD => {
+            Some(Builtin::Picker) => picker::realize_any(self, props, id),
+            Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
+            Some(Builtin::TextField) => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let entry = gtk4::Entry::new();
                 entry.set_text(&p.text);
@@ -1596,8 +1596,8 @@ impl Toolkit for Gtk {
                 wire_focus(&entry, id);
                 entry.upcast()
             }
-            kinds::DIVIDER => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
-            kinds::PROGRESS => {
+            Some(Builtin::Divider) => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
+            Some(Builtin::Progress) => {
                 let p = props.downcast_ref::<ProgressProps>().unwrap();
                 match p.value {
                     Some(v) => {
@@ -1612,7 +1612,7 @@ impl Toolkit for Gtk {
                     }
                 }
             }
-            kinds::CANVAS => {
+            Some(Builtin::Canvas) => {
                 let area = gtk4::DrawingArea::new();
                 area.set_draw_func(|area, cr, _w, _h| {
                     let ptr = area.as_ptr() as usize;
@@ -1623,7 +1623,7 @@ impl Toolkit for Gtk {
                 });
                 area.upcast()
             }
-            kinds::LIST => {
+            Some(Builtin::List) => {
                 let p = props.downcast_ref::<ListProps>().unwrap();
                 let model = gtk4::StringList::new(&[]);
                 let factory = gtk4::SignalListItemFactory::new();
@@ -1787,7 +1787,7 @@ impl Toolkit for Gtk {
                 });
                 host
             }
-            kinds::IMAGE => {
+            Some(Builtin::Image) => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let pic = gtk4::Picture::new();
                 // Scaling (§18.3): GtkPicture content-fit — Contain (fit) / Cover (fill) / Fill.
@@ -1807,7 +1807,9 @@ impl Toolkit for Gtk {
                 }
                 pic.upcast()
             }
-            _ => {
+            // A recycled list cell is ADOPTED from the native list, never realized
+            // through this path; anything else is an extension piece.
+            Some(Builtin::ListCell) | None => {
                 if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                     return make(self, props, id);
                 }

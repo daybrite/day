@@ -398,9 +398,9 @@ mod imp {
     use day_spec::bridge;
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
-        PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
-        Toolkit, Transform, WindowOptions, kinds,
+        A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
+        NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size,
+        Support, Toolkit, Transform, WindowOptions, kinds,
     };
 
     thread_local! {
@@ -1320,8 +1320,8 @@ mod imp {
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
             let idj = id.0 as i64;
-            match kind {
-                kinds::CONTAINER => {
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
                     let h = with_env(|env| {
                         AHandle(make_view(
                             env,
@@ -1347,7 +1347,7 @@ mod imp {
                     }
                     h
                 }
-                kinds::SCROLL => {
+                Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
                         .map(|p| p.horizontal)
@@ -1361,7 +1361,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::LIST => {
+                Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let d = DENSITY.with(|x| x.get());
                     let rowh = match p.row_height {
@@ -1387,7 +1387,7 @@ mod imp {
                     });
                     handle
                 }
-                kinds::NAV => {
+                Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     with_env(|env| {
                         let s = jstr(env, &p.title);
@@ -1399,7 +1399,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::NAV_PAGE => with_env(|env| {
+                Some(Builtin::NavPage) => with_env(|env| {
                     AHandle(make_view(
                         env,
                         "makeNavPage",
@@ -1409,7 +1409,7 @@ mod imp {
                 }),
                 // Fullscreen cover (docs/cover.md): a DayCover shell whose content pane is the
                 // Day mount point; CoverPatch::Present re-homes it over the activity content.
-                kinds::COVER => with_env(|env| {
+                Some(Builtin::Cover) => with_env(|env| {
                     AHandle(make_view(
                         env,
                         "makeCover",
@@ -1417,7 +1417,7 @@ mod imp {
                         &[JValue::Long(idj)],
                     ))
                 }),
-                kinds::TABS => {
+                Some(Builtin::Tabs) => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
                     with_env(|env| {
                         AHandle(make_view(
@@ -1428,7 +1428,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::TABS_PAGE => {
+                Some(Builtin::TabsPage) => {
                     let p = props.downcast_ref::<TabsPageProps>().unwrap();
                     with_env(|env| {
                         let title = jstr(env, &p.title);
@@ -1446,7 +1446,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::NAV_MENU => {
+                Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let joined = p.items.join("\u{1f}");
                     // Parallel, index-aligned icon NAMES ("" = no icon for that row).
@@ -1467,7 +1467,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::LABEL => {
+                Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let (sp, weight, italic) = font_params(p.font);
                     with_env(|env| {
@@ -1509,7 +1509,7 @@ mod imp {
                         AHandle(view)
                     })
                 }
-                kinds::BUTTON => {
+                Some(Builtin::Button) => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     with_env(|env| {
                         let s = jstr(env, &p.title);
@@ -1521,7 +1521,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::TOGGLE => {
+                Some(Builtin::Toggle) => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     with_env(|env| {
                         AHandle(make_view(
@@ -1536,7 +1536,7 @@ mod imp {
                         ))
                     })
                 }
-                kinds::SLIDER => {
+                Some(Builtin::Slider) => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
                     with_env(|env| {
                         AHandle(make_view(
@@ -1552,9 +1552,9 @@ mod imp {
                         ))
                     })
                 }
-                kinds::PICKER => crate::picker::realize_any(self, props, id),
-                kinds::TEXT_AREA => crate::textarea::realize_any(self, props, id),
-                kinds::TEXT_FIELD => {
+                Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
+                Some(Builtin::TextArea) => crate::textarea::realize_any(self, props, id),
+                Some(Builtin::TextField) => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     with_env(|env| {
                         let v = jstr(env, &p.text);
@@ -1567,10 +1567,10 @@ mod imp {
                         ))
                     })
                 }
-                kinds::DIVIDER => with_env(|env| {
+                Some(Builtin::Divider) => with_env(|env| {
                     AHandle(make_view(env, "makeDivider", "()Landroid/view/View;", &[]))
                 }),
-                kinds::PROGRESS => {
+                Some(Builtin::Progress) => {
                     let p = props.downcast_ref::<ProgressProps>().unwrap();
                     with_env(|env| {
                         AHandle(make_view(
@@ -1584,10 +1584,10 @@ mod imp {
                         ))
                     })
                 }
-                kinds::CANVAS => with_env(|env| {
+                Some(Builtin::Canvas) => with_env(|env| {
                     AHandle(make_view(env, "makeCanvas", "()Landroid/view/View;", &[]))
                 }),
-                kinds::IMAGE => {
+                Some(Builtin::Image) => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     // Scaling (§18.3): 0=fit (FIT_CENTER), 1=fill (CENTER_CROP), 2=stretch (FIT_XY).
                     let mode = match p.content_mode {
@@ -1605,7 +1605,9 @@ mod imp {
                         ))
                     })
                 }
-                _ => {
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

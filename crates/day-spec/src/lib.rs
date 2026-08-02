@@ -28,47 +28,91 @@ pub use day_fonts as fonts;
 /// Interned piece-kind key, e.g. `"day.label"` or `"acme.combobox"`.
 pub type PieceKind = &'static str;
 
-pub mod kinds {
-    pub const CONTAINER: &str = "day.container"; // dumb native panel (column/row/stack backing)
-    pub const LABEL: &str = "day.label";
-    pub const BUTTON: &str = "day.button";
-    pub const TOGGLE: &str = "day.toggle";
-    pub const SLIDER: &str = "day.slider";
-    pub const TEXT_FIELD: &str = "day.text_field";
+/// Declare the built-in piece vocabulary ONCE: the [`Builtin`] enum, its string keys, and the
+/// `kinds::*` constants are all generated from this list, so they can never drift apart.
+///
+/// Adding a variant here is deliberately a breaking change for backends: every `Toolkit` must
+/// decide how to realize the new kind, and the exhaustive `match Builtin` in each backend's
+/// `realize` turns that decision into a compile error rather than a runtime placeholder.
+macro_rules! builtin_kinds {
+    ($( $(#[$meta:meta])* $variant:ident = $konst:ident => $key:literal ),+ $(,)?) => {
+        /// Every piece kind Day itself defines (§5.3). Backends match on this exhaustively in
+        /// `realize`; anything outside it is an extension piece resolved through the
+        /// [`Registry`] by its string [`PieceKind`].
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+        pub enum Builtin {
+            $( $(#[$meta])* $variant, )+
+        }
+
+        impl Builtin {
+            /// This kind's wire key — the same string as the matching `kinds::*` constant.
+            pub const fn key(self) -> PieceKind {
+                match self { $( Builtin::$variant => $key, )+ }
+            }
+
+            /// The built-in this key names, or `None` for an extension piece's kind.
+            pub fn from_key(kind: PieceKind) -> Option<Builtin> {
+                match kind {
+                    $( $key => Some(Builtin::$variant), )+
+                    _ => None,
+                }
+            }
+
+            /// Every built-in, in declaration order (conformance tests iterate it).
+            pub const ALL: &'static [Builtin] = &[ $( Builtin::$variant, )+ ];
+        }
+
+        /// The built-in piece keys as plain strings, for the registry and the `PieceKind` seam.
+        pub mod kinds {
+            $( $(#[$meta])* pub const $konst: super::PieceKind = super::Builtin::$variant.key(); )+
+        }
+    };
+}
+
+builtin_kinds! {
+    /// A dumb native panel (the column/row/stack backing).
+    Container = CONTAINER => "day.container",
+    Label = LABEL => "day.label",
+    Button = BUTTON => "day.button",
+    Toggle = TOGGLE => "day.toggle",
+    Slider = SLIDER => "day.slider",
+    TextField = TEXT_FIELD => "day.text_field",
     /// A native multi-line text editor (docs/textarea.md). Built-in since 2026-07 (previously
     /// the satellite `day-piece-textarea`).
-    pub const TEXT_AREA: &str = "day.text_area";
+    TextArea = TEXT_AREA => "day.text_area",
     /// A native option picker with menu/segmented/inline stylings (docs/picker.md). Built-in
     /// since 2026-07 (previously the satellite `day-piece-picker`).
-    pub const PICKER: &str = "day.picker";
-    pub const DIVIDER: &str = "day.divider";
-    pub const SCROLL: &str = "day.scroll";
-    pub const IMAGE: &str = "day.image";
+    Picker = PICKER => "day.picker",
+    Divider = DIVIDER => "day.divider",
+    Scroll = SCROLL => "day.scroll",
+    Image = IMAGE => "day.image",
     /// Progress indicator: determinate bar (fraction) or indeterminate spinner.
-    pub const PROGRESS: &str = "day.progress";
-    pub const CANVAS: &str = "day.canvas";
+    Progress = PROGRESS => "day.progress",
+    Canvas = CANVAS => "day.canvas",
     /// Navigation host (docs/navigation.md): stack on mobile, split panes on desktop.
-    pub const NAV: &str = "day.nav";
+    Nav = NAV => "day.nav",
     /// One destination's native container inside a NAV host.
-    pub const NAV_PAGE: &str = "day.nav_page";
+    NavPage = NAV_PAGE => "day.nav_page",
     /// Native navigation item list (docs/navigation.md): NSOutlineView source list /
     /// GtkListBox navigation-sidebar / QListWidget / UITableView rows with chevrons.
-    pub const NAV_MENU: &str = "day.nav_menu";
+    NavMenu = NAV_MENU => "day.nav_menu",
     /// Native tabbed container (docs/tabs.md): NSTabView / GtkNotebook / QTabWidget /
     /// UITabBarController / Android tab strip. Holds `TABS_PAGE` children, one visible.
-    pub const TABS: &str = "day.tabs";
+    Tabs = TABS => "day.tabs",
     /// One tab's content container inside a `TABS` host; its frame is native-owned.
-    pub const TABS_PAGE: &str = "day.tabs_page";
+    TabsPage = TABS_PAGE => "day.tabs_page",
     /// Native recycling list (docs/list.md): NSTableView / UITableView / RecyclerView /
     /// GtkListView / QListView. Owns scrolling + cell reuse; Day binds row content on demand.
-    pub const LIST: &str = "day.list";
+    List = LIST => "day.list",
     /// A recycled row's content anchor inside a `LIST`; Day adopts the native cell as its handle.
-    pub const LIST_CELL: &str = "day.list_cell";
+    /// ADOPTED, never realized — `Toolkit::adopt` wraps the native cell, so backends' `realize`
+    /// never sees this kind.
+    ListCell = LIST_CELL => "day.list_cell",
     /// A fullscreen cover (docs/cover.md): a modal surface presented over the whole window,
     /// edge-to-edge, driven by `CoverPatch::{Present,Dismiss}`. The handle is the cover's
     /// CONTENT container; its frame is native-owned while presented (the backend sizes it to
     /// the safe area and reports it via `Event::FrameChanged`).
-    pub const COVER: &str = "day.cover";
+    Cover = COVER => "day.cover",
 }
 
 /// Placeholder leaves: the one hole in Day's rendering that is invisible to a screenshot.
@@ -2463,4 +2507,40 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         }
     }
     (nums, texts)
+}
+
+#[cfg(test)]
+mod builtin_kind_tests {
+    use super::*;
+
+    /// Every built-in round-trips through its wire key, and the keys are unique. Guards the
+    /// `builtin_kinds!` expansion: a copy-paste slip in the table would alias two kinds.
+    #[test]
+    fn keys_round_trip_and_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for &b in Builtin::ALL {
+            assert_eq!(Builtin::from_key(b.key()), Some(b), "{b:?} key round-trip");
+            assert!(seen.insert(b.key()), "duplicate key {:?}", b.key());
+            assert!(
+                b.key().starts_with("day."),
+                "built-in {b:?} must use the reserved `day.` prefix"
+            );
+        }
+    }
+
+    /// The `kinds::*` constants are the enum's keys — the two spellings cannot drift.
+    #[test]
+    fn kinds_constants_match_the_enum() {
+        assert_eq!(kinds::LABEL, Builtin::Label.key());
+        assert_eq!(kinds::LIST_CELL, Builtin::ListCell.key());
+        assert_eq!(kinds::COVER, Builtin::Cover.key());
+        assert_eq!(Builtin::ALL.len(), 21);
+    }
+
+    /// An extension piece's kind is not a built-in.
+    #[test]
+    fn extension_kinds_are_not_builtin() {
+        assert_eq!(Builtin::from_key("acme.combobox"), None);
+        assert_eq!(Builtin::from_key("day.not_a_real_kind"), None);
+    }
 }

@@ -76,9 +76,9 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, Curve, DrawOp, Edges, Event, EventSink, Font, ListSource, NodeId,
-        PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
-        Transform, WINDOW_NODE, WindowOptions, kinds,
+        A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Edges, Event, EventSink, Font,
+        ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer,
+        Size, Support, Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -2197,8 +2197,8 @@ mod imp {
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
             let mtm = mtm();
-            match kind {
-                kinds::CONTAINER => {
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
                     let v = unsafe { UIView::new(mtm) };
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
@@ -2216,7 +2216,7 @@ mod imp {
                     }
                     view_of(v)
                 }
-                kinds::NAV => {
+                Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     let _ = p;
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
@@ -2250,7 +2250,7 @@ mod imp {
                     });
                     host
                 }
-                kinds::NAV_PAGE => {
+                Some(Builtin::NavPage) => {
                     let p = props.downcast_ref::<NavPageProps>().unwrap();
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
@@ -2268,7 +2268,7 @@ mod imp {
                 // Fullscreen cover (docs/cover.md): a DayCoverVC over a DayNavPageView (safe-
                 // area pinning + FrameChanged reports, like a nav page), created detached;
                 // CoverPatch::Present shows it modally over the whole window.
-                kinds::COVER => {
+                Some(Builtin::Cover) => {
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
@@ -2286,7 +2286,7 @@ mod imp {
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     handle
                 }
-                kinds::TABS => {
+                Some(Builtin::Tabs) => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
                     let tabbar = unsafe { UITabBarController::new(mtm) };
                     let root_vc = WINDOW
@@ -2314,7 +2314,7 @@ mod imp {
                     });
                     host
                 }
-                kinds::TABS_PAGE => {
+                Some(Builtin::TabsPage) => {
                     let p = props.downcast_ref::<TabsPageProps>().unwrap();
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
@@ -2351,7 +2351,7 @@ mod imp {
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     handle
                 }
-                kinds::NAV_MENU => {
+                Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let data = DayNavTableData::new(mtm, id, &p.items, &p.icons);
                     let table = unsafe {
@@ -2370,7 +2370,7 @@ mod imp {
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     view
                 }
-                kinds::LIST => {
+                Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
@@ -2403,11 +2403,11 @@ mod imp {
                     LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
                     view
                 }
-                kinds::SCROLL => {
+                Some(Builtin::Scroll) => {
                     let sv = unsafe { UIScrollView::new(mtm) };
                     view_of(sv)
                 }
-                kinds::LABEL => {
+                Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
@@ -2420,7 +2420,7 @@ mod imp {
                     }
                     view_of(label)
                 }
-                kinds::BUTTON => {
+                Some(Builtin::Button) => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     let target = DayTarget::new(mtm, id);
                     let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
@@ -2457,7 +2457,7 @@ mod imp {
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
-                kinds::TOGGLE => {
+                Some(Builtin::Toggle) => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let target = DayTarget::new(mtm, id);
                     let sw = unsafe { UISwitch::new(mtm) };
@@ -2475,7 +2475,7 @@ mod imp {
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
-                kinds::SLIDER => {
+                Some(Builtin::Slider) => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
                     let target = DayTarget::new(mtm, id);
                     let sl = unsafe { UISlider::new(mtm) };
@@ -2494,9 +2494,9 @@ mod imp {
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
-                kinds::PICKER => crate::picker::realize_any(self, props, id),
-                kinds::TEXT_AREA => crate::textarea::realize_any(self, props, id),
-                kinds::TEXT_FIELD => {
+                Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
+                Some(Builtin::TextArea) => crate::textarea::realize_any(self, props, id),
+                Some(Builtin::TextField) => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let target = DayTarget::new(mtm, id);
                     let tf = unsafe { UITextField::new(mtm) };
@@ -2532,12 +2532,12 @@ mod imp {
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
-                kinds::DIVIDER => {
+                Some(Builtin::Divider) => {
                     let v = unsafe { UIView::new(mtm) };
                     unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
                     view_of(v)
                 }
-                kinds::PROGRESS => {
+                Some(Builtin::Progress) => {
                     let p = props.downcast_ref::<ProgressProps>().unwrap();
                     match p.value {
                         Some(v) => {
@@ -2552,8 +2552,8 @@ mod imp {
                         }
                     }
                 }
-                kinds::CANVAS => view_of(DayCanvasView::new(mtm)),
-                kinds::IMAGE => {
+                Some(Builtin::Canvas) => view_of(DayCanvasView::new(mtm)),
+                Some(Builtin::Image) => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     let iv = unsafe { objc2_ui_kit::UIImageView::new(mtm) };
                     // Scaling (§18.3): AspectFit / AspectFill (crop, clipped) / ScaleToFill.
@@ -2601,7 +2601,9 @@ mod imp {
                     }
                     view_of(iv)
                 }
-                _ => {
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

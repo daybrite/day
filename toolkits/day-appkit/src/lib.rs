@@ -55,9 +55,9 @@ use objc2_quartz_core::{
 use day_spec::present;
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId, PieceKind,
-    Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support, Toolkit,
-    Transform, WINDOW_NODE, WindowOptions, kinds,
+    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
+    PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
+    Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds,
 };
 
 pub type Handle = Retained<NSView>;
@@ -1957,8 +1957,8 @@ impl Toolkit for AppKit {
 
     fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> Handle {
         let mtm = self.mtm;
-        match kind {
-            kinds::CONTAINER => {
+        match Builtin::from_key(kind) {
+            Some(Builtin::Container) => {
                 let v = DayFlipped::new(mtm);
                 if let Some(p) = props.downcast_ref::<ContainerProps>() {
                     if p.role == Some(day_spec::SurfaceRole::SectionCard) {
@@ -1969,7 +1969,7 @@ impl Toolkit for AppKit {
                 }
                 view_of(v)
             }
-            kinds::SCROLL => {
+            Some(Builtin::Scroll) => {
                 let horizontal = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
                     .map(|p| p.horizontal)
@@ -1990,7 +1990,7 @@ impl Toolkit for AppKit {
                 unsafe { sv.setDocumentView(Some(doc.as_ref())) };
                 view_of(sv)
             }
-            kinds::LABEL => {
+            Some(Builtin::Label) => {
                 let p = props.downcast_ref::<LabelProps>().unwrap();
                 let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
                 configure_label_cell(&tf);
@@ -2000,7 +2000,7 @@ impl Toolkit for AppKit {
                 }
                 view_of(tf)
             }
-            kinds::BUTTON => {
+            Some(Builtin::Button) => {
                 let p = props.downcast_ref::<ButtonProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
                 let btn = unsafe {
@@ -2020,7 +2020,7 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
-            kinds::TOGGLE => {
+            Some(Builtin::Toggle) => {
                 let p = props.downcast_ref::<ToggleProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
                 let sw = unsafe { NSSwitch::new(mtm) };
@@ -2034,7 +2034,7 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
-            kinds::SLIDER => {
+            Some(Builtin::Slider) => {
                 let p = props.downcast_ref::<SliderProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
                 let sl = unsafe {
@@ -2052,9 +2052,9 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
-            kinds::PICKER => picker::realize_any(self, props, id),
-            kinds::TEXT_AREA => textarea::realize_any(self, props, id),
-            kinds::TEXT_FIELD => {
+            Some(Builtin::Picker) => picker::realize_any(self, props, id),
+            Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
+            Some(Builtin::TextField) => {
                 let p = props.downcast_ref::<TextFieldProps>().unwrap();
                 let target = DayTarget::new(mtm, id);
                 // Retained<DayTextField> → Retained<NSTextField> (its declared superclass) so
@@ -2071,12 +2071,12 @@ impl Toolkit for AppKit {
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
-            kinds::DIVIDER => {
+            Some(Builtin::Divider) => {
                 let b = unsafe { NSBox::new(mtm) };
                 unsafe { b.setBoxType(NSBoxType::Separator) };
                 view_of(b)
             }
-            kinds::PROGRESS => {
+            Some(Builtin::Progress) => {
                 let p = props.downcast_ref::<ProgressProps>().unwrap();
                 let pi = unsafe { NSProgressIndicator::new(mtm) };
                 unsafe {
@@ -2097,8 +2097,8 @@ impl Toolkit for AppKit {
                 }
                 view_of(pi)
             }
-            kinds::CANVAS => view_of(DayCanvas::new(mtm)),
-            kinds::NAV => {
+            Some(Builtin::Canvas) => view_of(DayCanvas::new(mtm)),
+            Some(Builtin::Nav) => {
                 let is_split = props
                     .downcast_ref::<NavProps>()
                     .map(|p| p.split)
@@ -2215,7 +2215,7 @@ impl Toolkit for AppKit {
                 });
                 view
             }
-            kinds::NAV_PAGE => {
+            Some(Builtin::NavPage) => {
                 let page = view_of(DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
                 page
@@ -2223,12 +2223,12 @@ impl Toolkit for AppKit {
             // Emulated fullscreen cover (docs/cover.md, the ArkUI tier): a DayNavPage — its
             // setFrameSize: override reports FrameChanged, so a window resize re-lays the cover
             // content for free — parked hidden until CoverPatch::Present re-homes it on top.
-            kinds::COVER => {
+            Some(Builtin::Cover) => {
                 let page = DayNavPage::new(mtm, id);
                 unsafe { page.setHidden(true) };
                 view_of(page)
             }
-            kinds::TABS => {
+            Some(Builtin::Tabs) => {
                 let p = props.downcast_ref::<TabsProps>().unwrap();
                 let tabview = unsafe { NSTabView::new(mtm) };
                 let delegate = DayTabDelegate::new(mtm, id);
@@ -2245,7 +2245,7 @@ impl Toolkit for AppKit {
                 });
                 view
             }
-            kinds::TABS_PAGE => {
+            Some(Builtin::TabsPage) => {
                 let p = props.downcast_ref::<TabsPageProps>().unwrap();
                 // A tab page is a native-owned content view (like a nav page: reports its
                 // allocated size via FrameChanged), tagged so set_frame skips it.
@@ -2254,7 +2254,7 @@ impl Toolkit for AppKit {
                 TAB_TITLES.with(|m| m.borrow_mut().insert(ptr_of(&page), p.title.clone()));
                 page
             }
-            kinds::NAV_MENU => {
+            Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let data = DayNavMenuData::new(mtm, id, &p.items, &p.icons);
                 let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
@@ -2308,7 +2308,7 @@ impl Toolkit for AppKit {
                 NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (outline, data)));
                 view
             }
-            kinds::LIST => {
+            Some(Builtin::List) => {
                 let p = props.downcast_ref::<ListProps>().unwrap();
                 let table = unsafe { NSTableView::new(mtm) };
                 let col = unsafe {
@@ -2386,7 +2386,7 @@ impl Toolkit for AppKit {
                 LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
                 view
             }
-            kinds::IMAGE => {
+            Some(Builtin::Image) => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
                 let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
                 // Scaling (§18.3): NSImageView has no crop-fill, so Fit/Fill both scale-to-fit
@@ -2412,7 +2412,9 @@ impl Toolkit for AppKit {
                 }
                 view_of(iv)
             }
-            _ => {
+            // A recycled list cell is ADOPTED from the native list, never realized
+            // through this path; anything else is an extension piece.
+            Some(Builtin::ListCell) | None => {
                 if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                     return make(self, props, id);
                 }

@@ -19,8 +19,8 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform, Point,
-    Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+    A11yProps, AnimSpec, Builtin, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
+    Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -826,8 +826,8 @@ impl Toolkit for Xaml {
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
         unsafe {
-            match kind {
-                kinds::CONTAINER => {
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
                     let h = ffi::day_xaml_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
@@ -843,7 +843,7 @@ impl Toolkit for Xaml {
                     }
                     WinHandle(h)
                 }
-                kinds::SCROLL => {
+                Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
                         .map(|p| p.horizontal)
@@ -853,8 +853,8 @@ impl Toolkit for Xaml {
                     SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
                     WinHandle(sv)
                 }
-                kinds::CANVAS => WinHandle(ffi::day_xaml_canvas_new()),
-                kinds::NAV => {
+                Some(Builtin::Canvas) => WinHandle(ffi::day_xaml_canvas_new()),
+                Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     // Both presentations are a native NavigationView: a sidebar+header selector
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
@@ -888,7 +888,7 @@ impl Toolkit for Xaml {
                     }
                     WinHandle(nav)
                 }
-                kinds::NAV_PAGE => {
+                Some(Builtin::NavPage) => {
                     let page = ffi::day_xaml_container_new();
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page as usize, id));
                     WinHandle(page)
@@ -896,13 +896,13 @@ impl Toolkit for Xaml {
                 // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
                 // it onto the window's content Canvas, appended last (= topmost), at the
                 // content size.
-                kinds::COVER => {
+                Some(Builtin::Cover) => {
                     let cover = ffi::day_xaml_container_new();
                     ffi::day_xaml_set_visible(cover, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover as usize, id));
                     WinHandle(cover)
                 }
-                kinds::NAV_MENU => {
+                Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     let pending = PENDING_SPLIT_NAV.with(|c| c.get());
                     if !pending.is_null() {
@@ -947,7 +947,7 @@ impl Toolkit for Xaml {
                         WinHandle(w)
                     }
                 }
-                kinds::LABEL => {
+                Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic) = font_params(p.font);
@@ -958,7 +958,7 @@ impl Toolkit for Xaml {
                     }
                     WinHandle(h)
                 }
-                kinds::BUTTON => {
+                Some(Builtin::Button) => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     let h = ffi::day_xaml_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     // Prominent = the accent-filled style; Bordered is XAML's stock look.
@@ -969,14 +969,14 @@ impl Toolkit for Xaml {
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
-                kinds::TOGGLE => {
+                Some(Builtin::Toggle) => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let h = ffi::day_xaml_toggle_new(p.on as c_int, id.0, on_toggle);
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
-                kinds::SLIDER => {
+                Some(Builtin::Slider) => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
                     // Default to a fine 1/1000-of-range step (matching the GTK backend) when the app
                     // leaves it unset, so the slider stays effectively continuous.
@@ -986,9 +986,9 @@ impl Toolkit for Xaml {
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
-                kinds::PICKER => picker::realize_any(self, props, id),
-                kinds::TEXT_AREA => textarea::realize_any(self, props, id),
-                kinds::TEXT_FIELD => {
+                Some(Builtin::Picker) => picker::realize_any(self, props, id),
+                Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
+                Some(Builtin::TextField) => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let h = ffi::day_xaml_textbox_new(
                         cstr(&p.text).as_ptr(),
@@ -1000,8 +1000,8 @@ impl Toolkit for Xaml {
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
-                kinds::DIVIDER => WinHandle(ffi::day_xaml_divider_new()),
-                kinds::LIST => {
+                Some(Builtin::Divider) => WinHandle(ffi::day_xaml_divider_new()),
+                Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let mut content: *mut c_void = std::ptr::null_mut();
                     let host = ffi::day_xaml_list_new(&mut content);
@@ -1038,14 +1038,14 @@ impl Toolkit for Xaml {
                     LIST_BY_NODE.with(|m| m.borrow_mut().insert(id.0, host as usize));
                     WinHandle(host)
                 }
-                kinds::PROGRESS => {
+                Some(Builtin::Progress) => {
                     let p = props.downcast_ref::<ProgressProps>().unwrap();
                     match p.value {
                         Some(v) => WinHandle(ffi::day_xaml_progress_new(1, progress_ticks(v))),
                         None => WinHandle(ffi::day_xaml_progress_new(0, 0)),
                     }
                 }
-                kinds::TABS => {
+                Some(Builtin::Tabs) => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
                     let w = ffi::day_xaml_tabs_new(id.0, tabs_changed);
                     TABS_STATE.with(|m| {
@@ -1060,7 +1060,7 @@ impl Toolkit for Xaml {
                     });
                     WinHandle(w)
                 }
-                kinds::TABS_PAGE => {
+                Some(Builtin::TabsPage) => {
                     let p = props.downcast_ref::<TabsPageProps>().unwrap();
                     let page = WinHandle(ffi::day_xaml_container_new());
                     TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
@@ -1068,7 +1068,7 @@ impl Toolkit for Xaml {
                         .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
                     page
                 }
-                kinds::IMAGE => {
+                Some(Builtin::Image) => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     // Scaling: 0=fit, 1=fill (crop), 2=stretch.
                     let mode = match p.content_mode {
@@ -1081,7 +1081,9 @@ impl Toolkit for Xaml {
                         mode,
                     ))
                 }
-                _ => {
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

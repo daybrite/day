@@ -33,9 +33,9 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Cap, DrawOp, Event, EventSink, Font, FontSpec, GestureKind, NodeId,
-        PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit,
-        WindowOptions, kinds,
+        A11yProps, AnimSpec, Builtin, Cap, DrawOp, Event, EventSink, Font, FontSpec, GestureKind,
+        NodeId, PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support,
+        Toolkit, WindowOptions, kinds,
     };
 
     /// An `ArkUI_NodeHandle`. day owns the tree, so the raw pointer is the identity.
@@ -645,8 +645,8 @@ mod imp {
         type Handle = AHandle;
 
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
-            match kind {
-                kinds::CONTAINER => {
+            match Builtin::from_key(kind) {
+                Some(Builtin::Container) => {
                     let n = new_node(K_STACK);
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         unsafe {
@@ -668,7 +668,7 @@ mod imp {
                     }
                     n
                 }
-                kinds::SCROLL => {
+                Some(Builtin::Scroll) => {
                     let n = new_node(K_SCROLL);
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
@@ -683,7 +683,7 @@ mod imp {
                         .with(|m| m.borrow_mut().insert(n.0 as usize, content.0 as usize));
                     n
                 }
-                kinds::IMAGE => {
+                Some(Builtin::Image) => {
                     let p = props.downcast_ref::<ImageProps>().unwrap();
                     let n = new_node(K_IMAGE);
                     // Resolve `image("name")` through the app's rawfile store — the only resource
@@ -701,7 +701,7 @@ mod imp {
                     unsafe { ffi::day_ark_set_image_fit(n.0, fit) };
                     n
                 }
-                kinds::LABEL => {
+                Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let n = new_node(K_TEXT);
                     unsafe {
@@ -718,7 +718,7 @@ mod imp {
                     apply_custom_family(n.0, p.font);
                     n
                 }
-                kinds::BUTTON => {
+                Some(Builtin::Button) => {
                     let p = props.downcast_ref::<ButtonProps>().unwrap();
                     let n = new_node(K_BUTTON);
                     unsafe {
@@ -728,7 +728,7 @@ mod imp {
                     }
                     n
                 }
-                kinds::TEXT_FIELD => {
+                Some(Builtin::TextField) => {
                     let p = props.downcast_ref::<TextFieldProps>().unwrap();
                     let n = new_node(K_TEXT_INPUT);
                     unsafe {
@@ -742,7 +742,7 @@ mod imp {
                 // Multi-line editor (docs/textarea.md): ARKUI_NODE_TEXT_AREA, TextChanged via
                 // event kind 7. min/max-lines aren't a native attribute here — the node grows
                 // with content and the measure arm bounds it.
-                kinds::TEXT_AREA => {
+                Some(Builtin::TextArea) => {
                     let p = props.downcast_ref::<TextAreaProps>().unwrap();
                     let n = new_node(K_TEXT_AREA);
                     TEXTAREA_LINES.with(|m| {
@@ -759,7 +759,7 @@ mod imp {
                 }
                 // Option picker (docs/picker.md): HarmonyOS has no segmented control, so every
                 // style maps to the native TEXT_PICKER wheel; SelectionChanged via event kind 8.
-                kinds::PICKER => {
+                Some(Builtin::Picker) => {
                     let p = props.downcast_ref::<PickerProps>().unwrap();
                     let n = new_node(K_TEXT_PICKER);
                     let joined = p.options.join(";");
@@ -770,7 +770,7 @@ mod imp {
                     }
                     n
                 }
-                kinds::TOGGLE => {
+                Some(Builtin::Toggle) => {
                     let p = props.downcast_ref::<ToggleProps>().unwrap();
                     let n = new_node(K_TOGGLE);
                     unsafe {
@@ -780,7 +780,7 @@ mod imp {
                     }
                     n
                 }
-                kinds::SLIDER => {
+                Some(Builtin::Slider) => {
                     let p = props.downcast_ref::<SliderProps>().unwrap();
                     let n = new_node(K_SLIDER);
                     SLIDER_RANGE.with(|m| m.borrow_mut().insert(n.0 as usize, (p.min, p.max)));
@@ -793,7 +793,7 @@ mod imp {
                     n
                 }
                 // A 1-vp hairline: a thin Stack tinted with a faint separator colour.
-                kinds::DIVIDER => {
+                Some(Builtin::Divider) => {
                     let n = new_node(K_STACK);
                     unsafe {
                         ffi::day_ark_set_bg_color(n.0, theme_color(0x3300_0000, 0x33FF_FFFF))
@@ -801,7 +801,7 @@ mod imp {
                     n
                 }
                 // Determinate bar (ARKUI_NODE_PROGRESS) vs indeterminate spinner (LOADING_PROGRESS).
-                kinds::PROGRESS => {
+                Some(Builtin::Progress) => {
                     let p = props.downcast_ref::<ProgressProps>().unwrap();
                     match p.value {
                         Some(v) => {
@@ -817,7 +817,7 @@ mod imp {
                 // own Navigation/NavPathStack) when its NavPatch::Pushed arrives — native push
                 // transition, title bar, and system back gesture included. Pages carry an opaque
                 // background so transitions don't bleed.
-                kinds::NAV => {
+                Some(Builtin::Nav) => {
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
                     // A REBUILT host invalidates every pointer the old one tracked — a Pushed
@@ -832,7 +832,7 @@ mod imp {
                     NAV_PENDING_POP.with(|p| p.borrow_mut().clear());
                     n
                 }
-                kinds::NAV_PAGE => {
+                Some(Builtin::NavPage) => {
                     let n = new_node(K_STACK);
                     unsafe {
                         ffi::day_ark_set_bg_color(n.0, theme_color(0xFFFF_FFFF, 0xFF1A_1A1C))
@@ -843,20 +843,20 @@ mod imp {
                 // Fullscreen cover (docs/cover.md): a Stack that CoverPatch::Present re-homes
                 // onto the window root at full bounds (day owns layout, so the "modal" is a
                 // topmost full-window child; no transition on this backend).
-                kinds::COVER => {
+                Some(Builtin::Cover) => {
                     let n = new_node(K_STACK);
                     COVER_NODES.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }
                 // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
                 // against this menu host (via a synthetic click id, see day_arkui_on_event).
-                kinds::NAV_MENU => {
+                Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
                     build_nav_menu(id, &p.items)
                 }
                 // Tabs: a native Swiper pager (swipe + dot indicator). Each TABS_PAGE is a Swiper
                 // child (the Swiper owns their horizontal layout, so their set_frame skips position).
-                kinds::TABS => {
+                Some(Builtin::Tabs) => {
                     let p = props.downcast_ref::<TabsProps>().unwrap();
                     let n = new_node(K_SWIPER);
                     unsafe {
@@ -866,20 +866,20 @@ mod imp {
                     }
                     n
                 }
-                kinds::TABS_PAGE => {
+                Some(Builtin::TabsPage) => {
                     let n = new_node(K_STACK);
                     TABS_PAGES.with(|s| s.borrow_mut().insert(n.0 as usize));
                     n
                 }
                 // Canvas: a custom node whose on-draw callback replays the encoded display list.
-                kinds::CANVAS => {
+                Some(Builtin::Canvas) => {
                     let n = new_node(K_CANVAS);
                     unsafe { ffi::day_ark_canvas_init(n.0) };
                     n
                 }
                 // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the
                 // row source; the adapter binds cells on demand). See attach_list / the adapter cbs.
-                kinds::LIST => {
+                Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
                     let row_h = match p.row_height {
                         RowHeight::Uniform(h) => h,
@@ -890,7 +890,9 @@ mod imp {
                     unsafe { ffi::day_ark_list_init(n.0, id.0, row_h, p.reorderable as u32) };
                     n
                 }
-                _ => {
+                // A recycled list cell is ADOPTED from the native list, never realized
+                // through this path; anything else is an extension piece.
+                Some(Builtin::ListCell) | None => {
                     if let Some(r) = self.registry.get(kind) {
                         let make = r.make;
                         return make(self, props, id);
