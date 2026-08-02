@@ -16,7 +16,7 @@ pub(crate) fn controls_page() -> AnyPiece {
     // day-part-prefs (localStorage — docs/web.md). Native launches start fresh on purpose:
     // a demo app resetting per run is expected there, and the CI walkthrough asserts it.
     #[cfg(target_arch = "wasm32")]
-    day_part_prefs::bind("controls.count", count);
+    day::prefs::bind("controls.count", count);
     page(
         crate::res::str::nav_controls(),
         "controls-title",
@@ -39,9 +39,9 @@ fn basics_section(count: Signal<i64>) -> impl Piece {
     // Reload-persistent on the web, like the counter above.
     #[cfg(target_arch = "wasm32")]
     {
-        day_part_prefs::bind("controls.name", name);
-        day_part_prefs::bind("controls.volume", volume);
-        day_part_prefs::bind("controls.subscribed", subscribed);
+        day::prefs::bind("controls.name", name);
+        day::prefs::bind("controls.volume", volume);
+        day::prefs::bind("controls.subscribed", subscribed);
     }
     section((
         // — state: counter —

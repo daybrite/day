@@ -37,6 +37,21 @@ pub use day_spec::WindowKind;
 pub mod reactive {
     pub use day_reactive::*;
 }
+
+/// Persistent settings (docs/prefs.md): a small key/value string store backed by each platform's
+/// native facility — `NSUserDefaults` on Apple, `SharedPreferences` on Android, a file store
+/// elsewhere. `day::prefs::{get, set, remove, contains}`, plus `bind` to persist a `Signal` and
+/// `install_nav_store` to make `.restore(key)` navigation survive a relaunch
+/// (docs/navigation.md).
+///
+/// Promoted into the facade rather than left a satellite because it is what nearly every app
+/// reaches for first, and because it is the one part that lives in the reactive layer. It stays
+/// its own crate (`day-part-prefs`), so existing `day_part_prefs::…` paths keep working; this is
+/// the same API under a shorter name. Opt out with `default-features = false`.
+#[cfg(feature = "prefs")]
+pub mod prefs {
+    pub use day_part_prefs::*;
+}
 // Localization text source + arg trait (§12) at the crate root so generated `res::str::<key>(…)`
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};

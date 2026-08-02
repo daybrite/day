@@ -67,7 +67,8 @@ day-tweak-slider-tickmarks = { workspace = true }
 day-piece-webview = { workspace = true }
 day-piece-media = { workspace = true }
 day-part-haptics = { workspace = true }
-day-part-prefs = { workspace = true }
+# day-part-prefs is no longer a direct dependency: it arrives through the day facade as
+# `day::prefs` (docs/prefs.md).
 day-piece-settings = { workspace = true }
 day-part-deviceinfo = { workspace = true }
 day-part-http = { workspace = true }

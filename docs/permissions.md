@@ -129,7 +129,7 @@ yourself when you call `request`:
 
 ```rust
 day_part_permissions::request(perm, move |s| {
-    day_part_prefs::set("asked.camera", "1");
+    day::prefs::set("asked.camera", "1");
     // …
 });
 ```

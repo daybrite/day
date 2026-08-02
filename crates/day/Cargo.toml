@@ -9,6 +9,12 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+# On by default so `day::prefs` is simply there (docs/prefs.md). Apps that want neither the Apple
+# NSUserDefaults dependency nor the Android SharedPreferences Java shim opt out with
+# `day = { …, default-features = false }`. NOTE: `day build` passes `--no-default-features` for the
+# APP crate only — a dependency's own defaults are unaffected — so this stays on in real builds.
+default = ["prefs"]
+prefs = ["dep:day-part-prefs"]
 # Exactly one backend feature per binary (§3.2).
 appkit = ["dep:day-appkit"]
 gtk = ["dep:day-gtk"]
@@ -28,6 +34,9 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-fluent = { workspace = true }
 day-script = { workspace = true }
+# Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
+# and it is the only part that lives in the reactive layer. Optional so it can be declined.
+day-part-prefs = { workspace = true, optional = true }
 day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }

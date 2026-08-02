@@ -85,7 +85,7 @@ with back bar, tabs, the emulated recycling list with multi-selection, alert/con
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
 visibility), routes in the URL (below), day-part-prefs backed by `localStorage`
-(docs/prefs.md) — so app state bound through `day_part_prefs::bind` survives a reload — and
+(docs/prefs.md) — so app state bound through `day::prefs::bind` survives a reload — and
 day-part-http backed by the browser's `fetch()` (docs/http.md): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
 entry points return `Unsupported` (one thread, no blocking waits).

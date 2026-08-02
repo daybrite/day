@@ -250,9 +250,36 @@ pub fn set_nav_store(store: Rc<dyn NavStore>) {
 /// Read a `.restore` key through the installed [`NavStore`] (`None` if none is installed or the
 /// key was never saved).
 pub fn nav_store_load(key: &str) -> Option<String> {
-    NAV_STORE
-        .with(|s| s.borrow().clone())
-        .and_then(|st| st.load(key))
+    match NAV_STORE.with(|s| s.borrow().clone()) {
+        Some(st) => st.load(key),
+        None => {
+            warn_no_nav_store(key);
+            None
+        }
+    }
+}
+
+/// Debug-build diagnostic, once per process: a surface asked to `.restore(key)` while no
+/// [`NavStore`] is installed persists nothing, and does so SILENTLY — the surface still builds,
+/// the app still runs, and the setting simply never survives a relaunch. That is a deliberate
+/// design (`.restore` must never fail to build), but it reads as a bug, so say it out loud where
+/// a developer will see it.
+fn warn_no_nav_store(key: &str) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    thread_local! {
+        static WARNED: Cell<bool> = const { Cell::new(false) };
+    }
+    WARNED.with(|w| {
+        if !w.replace(true) {
+            crate::diag(format_args!(
+                "day: .restore({key:?}) has no NavStore installed — navigation state will not \
+                 persist. Call `day::prefs::install_nav_store()` before the UI mounts \
+                 (docs/navigation.md)."
+            ));
+        }
+    });
 }
 
 /// Write a `.restore` key through the installed [`NavStore`] (a no-op if none is installed).

@@ -78,7 +78,7 @@ fn prefs_section() -> impl Piece {
             button(crate::res::str::prefs_save())
                 .bordered()
                 .action(move || {
-                    let ok = field.with(|t| day_part_prefs::set(KEY, t));
+                    let ok = field.with(|t| day::prefs::set(KEY, t));
                     let msg = if ok {
                         crate::res::str::prefs_saved()
                     } else {
@@ -89,7 +89,7 @@ fn prefs_section() -> impl Piece {
                 .id("prefs-save"),
             button(crate::res::str::prefs_load())
                 .bordered()
-                .action(move || match day_part_prefs::get(KEY) {
+                .action(move || match day::prefs::get(KEY) {
                     Some(v) => {
                         value.set(v);
                         status.set(crate::res::str::prefs_loaded().format());
@@ -103,7 +103,7 @@ fn prefs_section() -> impl Piece {
             button(crate::res::str::prefs_clear())
                 .bordered()
                 .action(move || {
-                    day_part_prefs::remove(KEY);
+                    day::prefs::remove(KEY);
                     value.set(crate::res::str::prefs_empty().format());
                     status.set(crate::res::str::prefs_cleared().format());
                 })

@@ -2,18 +2,25 @@
 
 > **Status: implemented** as `day-part-prefs` (in `parts/`, the headless counterpart of `pieces/`).
 > It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
-> **string key/value store**, backed by each platform's native preferences facility. Any Rust code can
-> depend on it and call `day_part_prefs::{set, get, remove, contains}`. Verified on macOS (real
-> round-trip through `NSUserDefaults`); iOS-sim / Android (Rust side) / HarmonyOS / Linux all
+> **string key/value store**, backed by each platform's native preferences facility. Verified on macOS
+> (real round-trip through `NSUserDefaults`); iOS-sim / Android (Rust side) / HarmonyOS / Linux all
 > clippy-clean and cross-compile.
+>
+> **Promoted into the facade (2026-08): reach for `day::prefs`.** Nearly every app wants settings, and
+> this is the one part that lives in the reactive layer (`bind`) and backs a core framework feature
+> (`.restore(key)` navigation), so `day` depends on it behind a **default-on `prefs` feature** and
+> re-exports it as `day::prefs`. Apps need no separate dependency. It is still its own crate, so a
+> direct `day-part-prefs` dependency and the `day_part_prefs::…` paths keep working unchanged — the two
+> spellings are the same API. Decline it with `day = { …, default-features = false }`, which drops the
+> Apple `NSUserDefaults` dependency and the Android `SharedPreferences` Java shim.
 
 ## Authoring
 
 ```rust
-day_part_prefs::set("greeting", "hello");            // persist a value
-assert_eq!(day_part_prefs::get("greeting").as_deref(), Some("hello"));
-assert!(day_part_prefs::contains("greeting"));
-day_part_prefs::remove("greeting");                  // delete it
+day::prefs::set("greeting", "hello");                // persist a value
+assert_eq!(day::prefs::get("greeting").as_deref(), Some("hello"));
+assert!(day::prefs::contains("greeting"));
+day::prefs::remove("greeting");                      // delete it
 ```
 
 | Function | Behavior |

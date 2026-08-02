@@ -234,7 +234,7 @@ until you install one:
 
 ```rust
 fn main() {
-    day_part_prefs::install_nav_store();   // before the UI mounts
+    day::prefs::install_nav_store();   // before the UI mounts
     // …
 }
 ```

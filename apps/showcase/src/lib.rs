@@ -157,7 +157,7 @@ fn window_root(primary: bool) -> AnyPiece {
     // native launches install no store, so `.restore` is a silent no-op and every run starts
     // fresh — which is what the walkthrough asserts.
     #[cfg(target_arch = "wasm32")]
-    day_part_prefs::install_nav_store();
+    day::prefs::install_nav_store();
     // Deep-link: open directly on a section when `DAY_DEMO_ROUTE` is set (`day launch --env
     // DAY_DEMO_ROUTE=canvas`), else start at the root menu. Handy for driving the emulator when
     // synthetic input is unreliable.
