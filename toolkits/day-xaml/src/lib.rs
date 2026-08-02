@@ -653,6 +653,7 @@ fn win_role_label(role: day_spec::MenuRole) -> String {
         Minimize => "Minimize",
         CloseWindow => "Close",
         Fullscreen => "Full Screen",
+        NewWindow => "New Window",
     }
     .to_string()
 }
@@ -667,6 +668,8 @@ fn win_role_keymods(role: day_spec::MenuRole) -> (i32, i32) {
         SelectAll => (b'A' as i32, 1),
         Undo => (b'Z' as i32, 1),
         Redo => (b'Y' as i32, 1),
+        NewWindow => (b'N' as i32, 1),
+        CloseWindow => (b'W' as i32, 1),
         _ => (0, 0),
     }
 }
@@ -748,37 +751,39 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 role,
             } => {
                 let en = *enabled as i32;
-                if let Some(role) = role {
-                    let text = if label.is_empty() {
-                        win_role_label(*role)
-                    } else {
-                        label.clone()
-                    };
-                    let (key, mods) = match shortcut {
-                        Some(sc) => (win_keycode(&sc.key), win_mods(sc)),
-                        None => win_role_keymods(*role),
-                    };
-                    out.push_str(&format!(
+                // Label/shortcut fall back to the role's platform defaults; the DISPATCH
+                // is chosen separately below.
+                let text = match role {
+                    Some(r) if label.is_empty() => win_role_label(*r),
+                    _ => clean(label),
+                };
+                let (key, mods) = match (shortcut, role) {
+                    (Some(sc), _) => (win_keycode(&sc.key), win_mods(sc)),
+                    (None, Some(r)) => win_role_keymods(*r),
+                    (None, None) => (0, 0),
+                };
+                // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
+                // dispatches the day action and the role only decorates it. day-core's auto
+                // Preferences item and `MenuRole::NewWindow` arrive exactly this way — routing
+                // them through the role-only path dropped the id, leaving visible-but-DEAD
+                // menu items (the same bug macos-qt had).
+                match role {
+                    Some(r) if *id == 0 => out.push_str(&format!(
                         "R\t0\t{}\t{}\t{}\t{}\t{}\n",
-                        *role as i32,
+                        *r as i32,
                         key,
                         mods,
                         en,
                         clean(&text)
-                    ));
-                } else {
-                    let (key, mods) = shortcut
-                        .as_ref()
-                        .map(|sc| (win_keycode(&sc.key), win_mods(sc)))
-                        .unwrap_or((0, 0));
-                    out.push_str(&format!(
+                    )),
+                    _ => out.push_str(&format!(
                         "A\t{}\t-1\t{}\t{}\t{}\t{}\n",
                         id,
                         key,
                         mods,
                         en,
-                        clean(label)
-                    ));
+                        clean(&text)
+                    )),
                 }
             }
         }
