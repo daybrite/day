@@ -32,9 +32,11 @@ See the [documentation](https://daybrite.dev/docs/textarea) for the per-toolkit 
 
 pub(crate) fn text_areas_page() -> AnyPiece {
     // What the running toolkit can actually honor — an unsupported attribute grays out its toggle.
-    let cap_editable = capability(Cap::TextEditable) == Support::Native;
-    let cap_selectable = capability(Cap::TextSelectable) == Support::Native;
-    let cap_spellcheck = capability(Cap::TextSpellCheck) == Support::Native;
+    // `Emulated` counts as honored: the attribute behaves, it just isn't one native property behind
+    // the scenes (XAML has no TextBox selection flag, so it collapses selections as they form).
+    let cap_editable = capability(Cap::TextEditable) != Support::Unsupported;
+    let cap_selectable = capability(Cap::TextSelectable) != Support::Unsupported;
+    let cap_spellcheck = capability(Cap::TextSpellCheck) != Support::Unsupported;
 
     let content = Signal::new(SHORT.to_string());
     // The three attributes, each bound to a toggle. Live: flipping a toggle patches the editor.

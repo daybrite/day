@@ -12,7 +12,7 @@ use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_void};
+use std::os::raw::{c_char, c_int, c_void};
 
 use crate::{WinHandle, Xaml};
 use day_spec::{NodeId, Proposal, Size};
@@ -30,6 +30,11 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_textarea_xaml_set_text(w: *mut c_void, text: *const c_char);
+    // The three attributes (docs/textarea.md). editable → TextBox::IsReadOnly, spell-check →
+    // IsSpellCheckEnabled; selectable has no TextBox property and is emulated in the shim.
+    fn day_textarea_xaml_set_editable(w: *mut c_void, on: c_int);
+    fn day_textarea_xaml_set_selectable(w: *mut c_void, on: c_int);
+    fn day_textarea_xaml_set_spellcheck(w: *mut c_void, on: c_int);
     // Generic size hint from day-xaml-sys (already linked), like the searchfield renderer.
     fn day_xaml_measure(
         w: *mut c_void,
@@ -69,6 +74,13 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
             on_text,
         )
     };
+    // The attributes are applied at build too, not only through patches: a text_area that starts
+    // read-only (or with spell-check off) must come up that way rather than after its first patch.
+    unsafe {
+        day_textarea_xaml_set_editable(ptr, p.editable as c_int);
+        day_textarea_xaml_set_selectable(ptr, p.selectable as c_int);
+        day_textarea_xaml_set_spellcheck(ptr, p.spellcheck as c_int);
+    }
     DIMS.with(|m| {
         m.borrow_mut()
             .insert(ptr as usize, (p.min_lines, p.max_lines))
@@ -79,11 +91,15 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &TextPatch) {
     match patch {
         TextPatch::SetText(t) => unsafe { day_textarea_xaml_set_text(h.0, cstr(t).as_ptr()) },
-        // TextBox natively supports IsReadOnly / IsTextSelectionEnabled / IsSpellCheckEnabled, but
-        // the XAML shim doesn't expose setters for them yet — these three attributes are a
-        // documented follow-up (docs/textarea.md), so Cap::Text* stay Unsupported and the patches
-        // are no-ops here.
-        TextPatch::SetEditable(_) | TextPatch::SetSelectable(_) | TextPatch::SetSpellCheck(_) => {}
+        TextPatch::SetEditable(v) => unsafe { day_textarea_xaml_set_editable(h.0, *v as c_int) },
+        // Emulated, not native: TextBox has no IsTextSelectionEnabled (that is TextBlock's), so the
+        // shim collapses selections as they form and suppresses the context menu (docs/textarea.md).
+        TextPatch::SetSelectable(v) => unsafe {
+            day_textarea_xaml_set_selectable(h.0, *v as c_int)
+        },
+        TextPatch::SetSpellCheck(v) => unsafe {
+            day_textarea_xaml_set_spellcheck(h.0, *v as c_int)
+        },
     }
 }
 

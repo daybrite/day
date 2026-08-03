@@ -893,6 +893,12 @@ impl Toolkit for Xaml {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // text_area attributes (docs/textarea.md): editable and spell-check are plain TextBox
+            // properties (IsReadOnly / IsSpellCheckEnabled).
+            Cap::TextEditable | Cap::TextSpellCheck => Support::Native,
+            // Selection is emulated: IsTextSelectionEnabled is TextBlock's, not TextBox's, so the
+            // shim collapses selections as they form and suppresses the context menu instead.
+            Cap::TextSelectable => Support::Emulated,
             Cap::ListRecycling => Support::Emulated,
             // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
             // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
