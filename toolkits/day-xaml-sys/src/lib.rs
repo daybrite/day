@@ -55,6 +55,23 @@ unsafe extern "C" {
     pub fn day_xaml_scroll_offset(sv: *mut c_void, out_x: *mut c_double, out_y: *mut c_double);
     pub fn day_xaml_scroll_to(sv: *mut c_void, y: c_int, h: c_int, animated: c_int);
     pub fn day_xaml_container_set_bg(w: *mut c_void, argb: u32);
+    // Backend-executed animation (DESIGN.md §8.4): day passes a target value + intent and XAML's
+    // own compositor runs it. `dur_ms <= 0` sets the value outright. `curve`: 0 linear, 1 ease-in,
+    // 2 ease-out, 3 ease-in-out, 4 spring — the same encoding day-qt's shim takes.
+    pub fn day_xaml_set_opacity(w: *mut c_void, opacity: c_double, dur_ms: c_int, curve: c_int);
+    #[allow(clippy::too_many_arguments)]
+    pub fn day_xaml_set_transform(
+        w: *mut c_void,
+        tx: c_double,
+        ty: c_double,
+        sx: c_double,
+        sy: c_double,
+        rotate_deg: c_double,
+        dur_ms: c_int,
+        curve: c_int,
+    );
+    // Animated fill. XAML is the only desktop backend that can tween a background colour (§8.4).
+    pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, dur_ms: c_int, curve: c_int);
     pub fn day_xaml_cover_ground(w: *mut c_void);
     /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
     /// Clip whose Rect tracks the element size (SizeChanged). Corner support is limited on a bare

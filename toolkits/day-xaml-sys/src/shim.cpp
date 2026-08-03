@@ -44,6 +44,9 @@
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Windows.UI.Xaml.Input.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
+// Storyboard / DoubleAnimation / ColorAnimation — backend-executed animation (DESIGN.md §8.4).
+// This is the header the `#undef GetCurrentTime` at the top of this file exists for.
+#include <winrt/Windows.UI.Xaml.Media.Animation.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Shapes.h>
 #include <winrt/Windows.UI.Xaml.Hosting.h>
@@ -64,6 +67,7 @@ namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
+namespace WUXMA = winrt::Windows::UI::Xaml::Media::Animation;
 namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
 namespace WUXIn = winrt::Windows::UI::Xaml::Input;
@@ -1455,6 +1459,151 @@ static WUXSh::Rectangle ensure_bg_rect(WUXC::Canvas const& canvas) {
 void day_xaml_container_set_bg(void* h, unsigned int argb) {
     if (auto c = elem(h).try_as<WUXC::Canvas>())
         ensure_bg_rect(c).Fill(WUXM::SolidColorBrush(color_argb(argb)));
+}
+
+// --- backend-executed animation (DESIGN.md §8.4) ---
+// Day passes INTENT — a target value plus an AnimSpec — and the platform animates it; Day never
+// ticks frames for native widgets. Here that is a Storyboard per channel, which XAML runs on its
+// own compositor. `curve`: 0 linear, 1 ease-in, 2 ease-out, 3 ease-in-out, 4 spring (the shared
+// encoding day-qt uses). `dur_ms <= 0` means "no animation" — set the value outright.
+
+static WUXMA::EasingFunctionBase easing_for(int curve) {
+    switch (curve) {
+        case 1: {
+            WUXMA::QuadraticEase e;
+            e.EasingMode(WUXMA::EasingMode::EaseIn);
+            return e;
+        }
+        case 2: {
+            WUXMA::QuadraticEase e;
+            e.EasingMode(WUXMA::EasingMode::EaseOut);
+            return e;
+        }
+        case 3: {
+            WUXMA::QuadraticEase e;
+            e.EasingMode(WUXMA::EasingMode::EaseInOut);
+            return e;
+        }
+        case 4: {
+            // §8.4: a spring maps to a fixed-duration OVERSHOOT curve over exactly duration_ms, so
+            // the timing matches the other toolkits rather than a physics settle time.
+            WUXMA::BackEase e;
+            e.EasingMode(WUXMA::EasingMode::EaseOut);
+            e.Amplitude(0.35);
+            return e;
+        }
+        default:
+            return nullptr; // linear
+    }
+}
+
+// One Storyboard per (element, property path). Re-animating a channel has to REPLACE the running
+// storyboard: two live storyboards on one property fight, and a stopped one snaps its property
+// back to the pre-animation value. Keyed by element+path so the channels stay independent.
+static std::map<std::pair<void*, std::wstring>, WUXMA::Storyboard> g_anims;
+
+static void stop_anim(void* key, std::wstring const& path) {
+    auto it = g_anims.find({key, path});
+    if (it != g_anims.end()) {
+        it->second.Stop();
+        g_anims.erase(it);
+    }
+}
+
+// Animate one double property to `to`. `target` is the object the path is rooted at.
+static void animate_double(void* key, WUX::DependencyObject const& target, std::wstring const& path,
+                           double to, int dur_ms, int curve, bool dependent) {
+    stop_anim(key, path);
+    WUXMA::DoubleAnimation a;
+    a.To(to);
+    a.Duration(WUX::Duration(WF::TimeSpan{static_cast<int64_t>(dur_ms) * 10000}));
+    a.EnableDependentAnimation(dependent);
+    if (auto e = easing_for(curve)) a.EasingFunction(e);
+    // FillBehavior::HoldEnd keeps the animated value after the run; without it the property snaps
+    // back to its pre-animation value the moment the storyboard completes.
+    a.FillBehavior(WUXMA::FillBehavior::HoldEnd);
+    WUXMA::Storyboard sb;
+    sb.Children().Append(a);
+    WUXMA::Storyboard::SetTarget(a, target);
+    WUXMA::Storyboard::SetTargetProperty(a, path);
+    g_anims[{key, path}] = sb;
+    sb.Begin();
+}
+
+// The CompositeTransform every transform channel animates through. Installed once per element;
+// RenderTransformOrigin is the CENTRE, matching AppKit's layer anchor and Qt's painter transform
+// (Day's anchor_x/anchor_y are 0.5/0.5 in practice and the other backends centre unconditionally).
+static WUXM::CompositeTransform ensure_transform(WUX::UIElement const& el) {
+    if (auto existing = el.RenderTransform().try_as<WUXM::CompositeTransform>()) return existing;
+    WUXM::CompositeTransform t;
+    el.RenderTransform(t);
+    el.RenderTransformOrigin(WF::Point{0.5f, 0.5f});
+    return t;
+}
+
+void day_xaml_set_opacity(void* h, double opacity, int dur_ms, int curve) {
+    auto el = elem(h).try_as<WUX::UIElement>();
+    if (!el) return;
+    if (dur_ms <= 0) {
+        stop_anim(h, L"Opacity");
+        el.Opacity(opacity);
+        return;
+    }
+    // Opacity is GPU-composited, so this runs independent of the UI thread.
+    animate_double(h, el, L"Opacity", opacity, dur_ms, curve, false);
+}
+
+void day_xaml_set_transform(void* h, double tx, double ty, double sx, double sy, double rotate_deg,
+                            int dur_ms, int curve) {
+    auto el = elem(h).try_as<WUX::UIElement>();
+    if (!el) return;
+    auto t = ensure_transform(el);
+    struct Channel { const wchar_t* path; double to; };
+    const Channel channels[] = {
+        {L"TranslateX", tx}, {L"TranslateY", ty},
+        {L"ScaleX", sx},     {L"ScaleY", sy},
+        {L"Rotation", rotate_deg},
+    };
+    for (auto const& ch : channels) {
+        if (dur_ms <= 0) {
+            stop_anim(h, ch.path);
+            if (std::wstring(ch.path) == L"TranslateX") t.TranslateX(ch.to);
+            else if (std::wstring(ch.path) == L"TranslateY") t.TranslateY(ch.to);
+            else if (std::wstring(ch.path) == L"ScaleX") t.ScaleX(ch.to);
+            else if (std::wstring(ch.path) == L"ScaleY") t.ScaleY(ch.to);
+            else t.Rotation(ch.to);
+        } else {
+            // CompositeTransform channels are GPU-composited too — independent animations.
+            animate_double(h, t, ch.path, ch.to, dur_ms, curve, false);
+        }
+    }
+}
+
+// Animated background fill. Unlike the transform channels a brush colour is NOT composited
+// independently, so this one needs EnableDependentAnimation — it is a single box, not a per-frame
+// layout cost. XAML is the only desktop backend that can tween this (DESIGN.md §8.4).
+void day_xaml_container_animate_bg(void* h, unsigned int argb, int dur_ms, int curve) {
+    auto canvas = elem(h).try_as<WUXC::Canvas>();
+    if (!canvas) return;
+    auto rect = ensure_bg_rect(canvas);
+    auto brush = rect.Fill().try_as<WUXM::SolidColorBrush>();
+    if (dur_ms <= 0 || !brush) {
+        rect.Fill(WUXM::SolidColorBrush(color_argb(argb)));
+        return;
+    }
+    stop_anim(h, L"BgColor");
+    WUXMA::ColorAnimation a;
+    a.To(color_argb(argb));
+    a.Duration(WUX::Duration(WF::TimeSpan{static_cast<int64_t>(dur_ms) * 10000}));
+    a.EnableDependentAnimation(true);
+    if (auto e = easing_for(curve)) a.EasingFunction(e);
+    a.FillBehavior(WUXMA::FillBehavior::HoldEnd);
+    WUXMA::Storyboard sb;
+    sb.Children().Append(a);
+    WUXMA::Storyboard::SetTarget(a, brush);
+    WUXMA::Storyboard::SetTargetProperty(a, L"Color");
+    g_anims[{h, L"BgColor"}] = sb;
+    sb.Begin();
 }
 
 // Emulated fullscreen cover (docs/cover.md): give the cover an OPAQUE page-background surface

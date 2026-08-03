@@ -19,9 +19,28 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, DrawOp, Event, EventSink, Font, NodeId, PieceKind, Platform,
-    Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, WindowOptions, kinds,
+    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
+    Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform,
+    WindowOptions, kinds,
 };
+
+/// An `AnimSpec` as the shim's `(duration_ms, curve)` pair — `(0, 0)` meaning "no animation, set
+/// it outright". The curve encoding is shared with day-qt's shim (DESIGN.md §8.4).
+fn xaml_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
+    match anim {
+        None => (0, 0),
+        Some(a) => (
+            a.duration_ms as c_int,
+            match a.curve {
+                Curve::Linear => 0,
+                Curve::EaseIn => 1,
+                Curve::EaseOut => 2,
+                Curve::EaseInOut => 3,
+                Curve::Spring { .. } => 4,
+            },
+        ),
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WinHandle(pub *mut c_void);
@@ -1201,7 +1220,7 @@ impl Toolkit for Xaml {
         h: &WinHandle,
         kind: PieceKind,
         patch: &dyn std::any::Any,
-        _anim: Option<&AnimSpec>,
+        anim: Option<&AnimSpec>,
     ) {
         unsafe {
             match kind {
@@ -1210,9 +1229,15 @@ impl Toolkit for Xaml {
                         patch.downcast_ref::<ContainerPatch>()
                     {
                         // A cleared background maps to fully transparent (best-effort on XAML).
-                        ffi::day_xaml_container_set_bg(
+                        // Unlike the other desktop backends this one INTERPOLATES an animated fill
+                        // (DESIGN.md §8.4): the fill is a SolidColorBrush we own, and XAML tweens
+                        // brush colour given EnableDependentAnimation.
+                        let (dur, curve) = xaml_anim_args(anim);
+                        ffi::day_xaml_container_animate_bg(
                             h.0,
                             argb(c.unwrap_or(day_spec::Color::CLEAR)),
+                            dur,
+                            curve,
                         );
                     }
                 }
@@ -1683,6 +1708,23 @@ impl Toolkit for Xaml {
     fn set_selectable(&mut self, h: &WinHandle, selectable: bool) {
         // The shim try_as's to a TextBlock, so a non-label handle is a safe no-op (docs/text.md).
         unsafe { ffi::day_xaml_label_set_selectable(h.0, selectable as c_int) };
+    }
+
+    // Animatable visual channels (DESIGN.md §8.4): cheap per-node opacity + transform that don't
+    // relayout. `anim = Some` hands the target to XAML's compositor as a Storyboard; `None` sets it
+    // outright. Day never ticks these frames itself (§0.3).
+    fn set_opacity(&mut self, h: &WinHandle, opacity: f64, anim: Option<&AnimSpec>) {
+        let (dur, curve) = xaml_anim_args(anim);
+        unsafe { ffi::day_xaml_set_opacity(h.0, opacity, dur, curve) };
+    }
+
+    fn set_transform(&mut self, h: &WinHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
+        // A CompositeTransform about the element's centre — the same anchor AppKit's layer and
+        // Qt's painter transform use, so a rotated/scaled box matches across backends.
+        let (dur, curve) = xaml_anim_args(anim);
+        unsafe {
+            ffi::day_xaml_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve)
+        };
     }
 
     fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {

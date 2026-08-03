@@ -1335,16 +1335,28 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 ### §8.4 Animation (reserved hooks — still unimplemented)
 
 > [!NOTE]
-> **Status: partly shipped (2026-07).** `with_animation(spec, || …)` exists (day-core
-> `anim.rs`) and threads `AnimSpec` through `set_frame`/`set_opacity`/`set_transform`/
-> `update`; the backends execute opacity and transform changes natively (the showcase
-> Animation page drives every channel at once). An animated background-color `update`
-> interpolates on UIKit only: `UIView.backgroundColor` is a CALayer property that UIKit's
-> own animator tweens on the render server. The AppKit backend paints its fill in
-> `drawRect` (so dynamic system colors re-resolve per appearance), which Core Animation
-> cannot interpolate — and per §0.3 Day does not tick its own animations for native
-> widgets — so there, and on the other backends, the color applies at commit. The
-> `.transition` enter/exit surface remains unimplemented.
+> **Status: partly shipped (2026-07; XAML 2026-08).** `with_animation(spec, || …)` exists
+> (day-core `anim.rs`) and threads `AnimSpec` through
+> `set_frame`/`set_opacity`/`set_transform`/`update`; the backends execute opacity and
+> transform changes natively (the showcase Animation page drives every channel at once).
+> An animated background-color `update` interpolates on UIKit and XAML: `UIView.backgroundColor`
+> is a CALayer property that UIKit's own animator tweens on the render server, and XAML's
+> fill is a `SolidColorBrush` Day owns, which a `ColorAnimation` tweens given
+> `EnableDependentAnimation` (brush color is not GPU-composited, unlike opacity and the
+> `CompositeTransform` channels). The AppKit backend paints its fill in `drawRect` (so
+> dynamic system colors re-resolve per appearance), which Core Animation cannot interpolate
+> — and per §0.3 Day does not tick its own animations for native widgets — so there, and on
+> the remaining backends, the color applies at commit. The `.transition` enter/exit surface
+> remains unimplemented.
+>
+> **windows-xaml (2026-08).** `set_opacity`/`set_transform` were the trait's defaulted
+> no-ops until now, so scale, rotation, offset and opacity did nothing at all on Windows
+> (the color still applied, which made the page look half-alive). Both are implemented as
+> XAML `Storyboard`s: opacity on `UIElement.Opacity` and the transform channels on a
+> `CompositeTransform` about the element's centre — the same anchor AppKit's layer and Qt's
+> painter transform use. Storyboards are kept per (element, property) and stopped before
+> re-animating, since two live storyboards on one property fight and a stopped one snaps its
+> property back; `FillBehavior::HoldEnd` keeps the settled value.
 
 Native-widget frameworks that bolt animation on later end up breaking their backend ABI — so the
 seam ships now even though MVP backends ignore it. Day commits to **backend-executed animation**:
