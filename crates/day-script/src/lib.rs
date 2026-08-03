@@ -429,7 +429,7 @@ fn find_menu_actions(
     items: &[day_spec::MenuItem],
     target_label: &str,
     target_key: Option<&str>,
-    path: &[String],
+    path: &[(String, String)],
 ) -> Vec<(u64, bool, Vec<String>)> {
     // Mirrors day-pieces' role_catalog_key (docs/menus.md) — the stable `day-*` key set.
     fn role_key(role: day_spec::MenuRole) -> &'static str {
@@ -456,7 +456,7 @@ fn find_menu_actions(
         trail: &mut Vec<String>,
         target_label: &str,
         target_key: Option<&str>,
-        path: &[String],
+        path: &[(String, String)],
         out: &mut Vec<(u64, bool, Vec<String>)>,
     ) {
         for it in items {
@@ -470,8 +470,12 @@ fn find_menu_actions(
                 } => {
                     let by_label = !label.is_empty() && label == target_label;
                     let by_key = target_key.is_some_and(|k| role.is_some_and(|r| role_key(r) == k));
-                    let path_ok =
-                        path.is_empty() || (path.len() <= trail.len() && trail.ends_with(path));
+                    let path_ok = path.is_empty()
+                        || (path.len() <= trail.len()
+                            && trail[trail.len() - path.len()..]
+                                .iter()
+                                .zip(path)
+                                .all(|(seen, want)| seen == &want.0 || seen == &want.1));
                     if (by_label || by_key) && path_ok {
                         out.push((*id, *enabled, trail.clone()));
                     }
@@ -620,11 +624,22 @@ fn exec(step: Step) -> Reply {
                         return Err(Reply::fail("menu: needs `item:` or `key:`", false));
                     }
                 };
+                // Each `path:` entry matches an ancestor submenu by its literal label OR by
+                // its Fluent key resolved in the run's locale, so `path: [menu_file]` works
+                // wherever `key: menu_file` does.
+                let path: Vec<(String, String)> = path
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| {
+                        let resolved = format_key(&p, None);
+                        (p, resolved)
+                    })
+                    .collect();
                 let matches = find_menu_actions(
                     &day_core::menu::app_menu_model(),
                     &target_label,
                     key.as_deref(),
-                    path.as_deref().unwrap_or(&[]),
+                    &path,
                 );
                 // The AUTO items (docs/windows.md) exist even when the app never installed a
                 // menu (the backend's default menu carries them): resolve their keys straight

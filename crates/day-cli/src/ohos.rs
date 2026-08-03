@@ -519,6 +519,11 @@ pub fn build_ohos(
         ));
     }
 
+    // 0) Stage every standalone piece's ArkTS into the project + regenerate the aggregator the host
+    //    page registers (docs/extending.md). Before the cargo leg, because hvigor compiles whatever
+    //    is on disk and a piece's Rust renderer is useless without its ArkTS half.
+    crate::pieces::write_ohos_pieces(project, &harmony)?;
+
     // 1) Cross-compile the app to a cdylib for EACH connected target's arch (an emulator is x86_64,
     //    a device arm64 — the hap carries both so it installs on either), staging each as
     //    entry/libs/<abi>/libentry.so — the .so the ArkTS host imports (its NAPI module is "entry").

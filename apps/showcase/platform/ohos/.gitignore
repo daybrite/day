@@ -11,3 +11,7 @@ local.properties
 
 # Resources staged per-build by the day CLI (§18.3) — regenerated from images/ + assets/.
 entry/src/main/resources/rawfile/day/
+
+# Standalone pieces' ArkTS + the generated aggregator, staged per-build by the day CLI
+# (docs/extending.md).
+entry/src/main/ets/daypieces/

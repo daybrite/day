@@ -60,6 +60,10 @@ unsafe extern "C" {
         clips: c_int,
     );
 
+    /// Nonzero when Qt's palette is a dark one (system scheme, `DAY_THEME`, or the
+    /// pre-6.8 Fusion fallback alike).
+    pub fn day_qt_dark_mode() -> c_int;
+
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_label_set_font(w: *mut c_void, pt: c_double, weight: c_int, italic: c_int);

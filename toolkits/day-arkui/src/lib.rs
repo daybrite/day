@@ -78,6 +78,9 @@ mod imp {
         static IS_DARK: Cell<bool> = const { Cell::new(false) };
         /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
         static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+        /// ArkTS-built piece nodes (docs/extending.md): FrameNode ptr → day NodeId. Release sends
+        /// the ArkTS side its disposal and skips the native dispose — ArkTS owns these nodes.
+        static PIECE_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
@@ -210,6 +213,48 @@ mod imp {
 
     fn cstr(s: &str) -> CString {
         CString::new(s).unwrap_or_default()
+    }
+
+    /// Pieces whose component exists only in ArkTS (docs/extending.md).
+    ///
+    /// The ArkUI C node API has no node kind for the declarative `Web` or `Map` components, so a
+    /// piece wrapping one ships an `.ets` (staged into the hvigor project by `day build`) that
+    /// builds it in a `BuilderNode`; this module hands that FrameNode back as an [`AHandle`] Day
+    /// mounts like any other node. `props`, `cmd`, and `arg` are opaque strings the piece defines —
+    /// the bridge stays generic, so a new piece needs no shim change.
+    pub mod piece {
+        use super::{AHandle, PIECE_NODES, cstr, ffi};
+        use day_spec::NodeId;
+
+        /// Build the ArkTS component registered for `kind`. A null handle means no ArkTS piece
+        /// factory is registered (or it declined `kind`) — the caller should fall back to Day's
+        /// placeholder leaf, exactly as an unregistered renderer does.
+        pub fn make(kind: day_spec::PieceKind, id: NodeId, props: &str) -> AHandle {
+            let h =
+                unsafe { ffi::day_ark_piece_make(cstr(kind).as_ptr(), id.0, cstr(props).as_ptr()) };
+            if h.is_null() {
+                // No ArkTS module claimed the kind (or building it threw). Hand back a real empty
+                // node, never a null handle: the tree mounts this like any leaf, and a null would
+                // take its whole parent's layout down instead of leaving one blank rectangle.
+                // Reported so `assert_no_placeholders` sees it, exactly like a missing renderer.
+                day_spec::placeholder::report(kind, "arkui");
+                return super::new_node(super::K_STACK);
+            }
+            // Remembered so `release` can send the ArkTS side its disposal — and so it knows
+            // NOT to dispose an ArkTS-owned node itself.
+            PIECE_NODES.with(|m| m.borrow_mut().insert(h as usize, id.0));
+            AHandle(h)
+        }
+
+        /// Send a command to a piece's ArkTS component. Takes the handle rather than the node id
+        /// because that is what a `Renderer`'s `update` is handed; the id it was made with is
+        /// remembered here. A handle that isn't an ArkTS piece node is a no-op.
+        pub fn update(h: &AHandle, cmd: &str, arg: &str) {
+            let Some(id) = PIECE_NODES.with(|m| m.borrow().get(&(h.0 as usize)).copied()) else {
+                return;
+            };
+            unsafe { ffi::day_ark_piece_update(id, cstr(cmd).as_ptr(), cstr(arg).as_ptr()) };
+        }
     }
 
     /// day `Color` (0..1 components) → ArkUI ARGB `u32`.
@@ -442,6 +487,23 @@ mod imp {
                     .with(|m| m.borrow().get(&(id as usize)).copied())
                     .unwrap_or((0.0, 1.0));
                 Event::ValueChanged(min + (num / 100.0) * (max - min))
+            }
+            // An ArkTS-built piece component reporting back (docs/extending.md), through the
+            // shim's `pieceEvent`. Like the Android bridge's Custom, the payload IS the event —
+            // a cross-boundary Custom carries no tag, and the piece owns the whole channel.
+            12 => {
+                let s = if text.is_null() {
+                    String::new()
+                } else {
+                    unsafe { CStr::from_ptr(text) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                Event::Custom {
+                    tag: "",
+                    num,
+                    text: s,
+                }
             }
             // File-picker answer (docs/files.md): `id` is the request id, `text` the chosen local
             // path (a cache copy for open, a docs URI for save) — empty means the user cancelled.
@@ -1166,6 +1228,12 @@ mod imp {
             // A scroll owns its content container (realize) — dispose it with the scroll.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                 unsafe { ffi::day_ark_node_dispose(stack as *mut _) };
+            }
+            // An ArkTS-built piece node belongs to its BuilderNode: ask ArkTS to release it and
+            // do NOT dispose it here — the native dispose would free a node ArkTS still holds.
+            if let Some(id) = PIECE_NODES.with(|m| m.borrow_mut().remove(&key)) {
+                unsafe { ffi::day_ark_piece_dispose(id) };
+                return;
             }
             unsafe { ffi::day_ark_node_dispose(h.0) };
         }

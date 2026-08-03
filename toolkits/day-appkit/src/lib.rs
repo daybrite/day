@@ -797,6 +797,11 @@ define_class!(
                     label.setAutoresizingMask(
                         objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
                     );
+                    // Feed titles are arbitrarily long. Without a tail truncation the label
+                    // draws straight past the sidebar's edge and the name is simply cut.
+                    label.cell().inspect(|c| {
+                        c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
+                    });
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
                 }

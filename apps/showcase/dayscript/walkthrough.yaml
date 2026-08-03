@@ -475,11 +475,17 @@ flow:
   # then `pause` (runner-side — the engine must not block the UI thread) so the page finishes
   # loading before the capture. Visited LAST-ish so a heavy embedded browser can't disturb the
   # route assertions above.
-  - navigate: { route: webview }
-  - assert_route: { route: webview }
-  - assert_visible: { id: webview-title }
-  - pause: 5
-  - screenshot: webview
+  # skip_on harmony-arkui: the x86_64 emulator image ships ArkWebCore.hap with arm64-only native
+  # libs (`bm install` rejects it: "the Abi type supported by the device does not match"), so the
+  # Web component's engine is null — and its RosenWeb surface then wedges the window's compositor
+  # for the rest of the process, staling EVERY screenshot after this page. The piece's arkui arm is
+  # implemented and renders on a real device; drop this skip once the emulator image carries an
+  # x86_64 engine. (measured on the API-18 x86_64 emulator, docs/harmonyos.md)
+  - navigate: { route: webview, skip_on: [harmony-arkui] }
+  - assert_route: { route: webview, skip_on: [harmony-arkui] }
+  - assert_visible: { id: webview-title, skip_on: [harmony-arkui] }
+  - pause: { secs: 5, skip_on: [harmony-arkui] }
+  - screenshot: { name: webview, skip_on: [harmony-arkui] }
 
   # Tweaks (docs/tweaks.md): packaged per-toolkit native configuration of built-in pieces, plus
   # NativeRef liveness — unmounting the Tweaked Piece clears the ref (asserted via Fluent keys

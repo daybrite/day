@@ -60,3 +60,19 @@ export const windowStart: (content: Object, node: number, widthVp: number, heigh
 export const windowResized: (node: number, widthVp: number, heightVp: number) => void;
 export const windowFocused: (node: number, active: number) => void;
 export const windowClosed: (node: number) => void;
+
+// --- ArkTS-built piece components (docs/extending.md) -----------------------
+// Some components exist only in ArkTS — the ArkUI C node API has no `Web` node kind — so a
+// standalone piece ships its own .ets and `day build` generates the aggregator that calls this
+// once, before `start()`. `make` returns the component's FrameNode (undefined declines the kind,
+// leaving Day's placeholder leaf); `update` carries the piece's own command vocabulary; `dispose`
+// releases what the piece holds for a node Day tore down.
+export const registerPiece: (
+  make: (kind: string, id: number, props: string) => Object | undefined,
+  update: (id: number, cmd: string, arg: string) => void,
+  dispose: (id: number) => void
+) => void;
+
+// An ArkTS-built component reporting back to its piece's Rust front-end, as an `Event::Custom`
+// whose payload is the whole message (the cross-boundary Custom carries no tag).
+export const pieceEvent: (id: number, text: string) => void;

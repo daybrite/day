@@ -173,7 +173,17 @@ NodeAPI nodes, verified on the Oniro emulator:
 - **Fullscreen cover** (docs/cover.md) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 
-Images/webview/lottie/map pieces are not yet wired (they render as placeholders). Packaging + signing
+- **ArkTS-built pieces** (docs/extending.md) — a piece whose component exists only in ArkTS (the
+  declarative `Web` has no ArkUI C node kind) ships its own `.ets`; `day build` stages it into the
+  hvigor project and generates `entry/src/main/ets/daypieces/DayPieces.ets`, which the host page
+  registers with the shim (`registerPiece`) before `start()`. `day-piece-webview` is the first user.
+  **ArkWeb does not run on the x86_64 emulator**: the image's `ArkWebCore.hap` carries arm64-only
+  native libs, so `libarkweb_engine.so` never loads (`GetNWeb: web engine is nullptr`) and the
+  component's RosenWeb surface wedges the window's compositor for the rest of the process — every
+  later frame goes stale. The showcase walkthrough therefore skips the web-view page on
+  harmony-arkui; the arm path is unaffected.
+
+Images/lottie/map pieces are not yet wired (they render as placeholders). Packaging + signing
 run headlessly via the command-line-tools (see Build & run) with no Huawei developer account: hvigor
 assembles the `.hap` and `sign-hap.mjs` patches (compileSdkType → OpenHarmony) + signs it with the
 public release material. `libentry.so` links the NDK's shared libc++ and `libnative_drawing`, both
@@ -247,7 +257,7 @@ Six facts the scripted channel depends on (each was a silent total failure until
 
 ## Follow-ups
 
-Wire the remaining pieces (image / webview / lottie / map), richer accessibility (roles beyond the
+Wire the remaining pieces (image / lottie / map), richer accessibility (roles beyond the
 label), interactive tab-bar labels on the swiper, and the image/webview backends. The dayscript
 engine's TCP channel is flaky on the TCG emulator (occasional connection resets), so scripted
 walkthrough screenshots on OHOS are best-effort.

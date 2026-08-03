@@ -47,6 +47,14 @@ gallery.
   GTK3 API and has no bottle, and WebKitGTK isn't viable on macOS-quartz, so `webkit6` is a non-macOS
   target dependency and `macos-gtk` falls back to a placeholder leaf. The CI Linux/Windows GTK jobs
   install `libwebkitgtk-6.0-dev` / `mingw-w64-x86_64-webkitgtk6`.
+- **ArkUI (HarmonyOS)**: the ArkTS `Web` component. The ArkUI **C** node API has no Web node kind, so
+  this is the first piece whose native half is ArkTS: the crate ships `ohos/ets/Index.ets`, `day build`
+  stages it into the app's hvigor project (`[package.metadata.day.ohos]`), and day-arkui's generic piece
+  bridge builds it in a `BuilderNode` and mounts its FrameNode in the Day tree. Commands go out through
+  `webview.WebviewController`; `onPageEnd` reports each committed URL back. **The x86_64 emulator cannot
+  run it**: its `ArkWebCore.hap` carries arm64-only native libs (`bm install` answers "the Abi type
+  supported by the device does not match"), so the engine loads as null and the component's surface
+  wedges the window's compositor — the walkthrough skips this page there (docs/harmonyos.md).
 - **XAML**: the UWP-XAML `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), which is in the base Windows SDK
   cppwinrt projection day-xaml already uses (no Windows App SDK / WebView2). Creation + navigation are
   wrapped in try/catch: EdgeHTML WebView can be unavailable in an unpackaged Win32 XAML host, so it
@@ -74,6 +82,12 @@ Building `day-piece-webview` as a fully self-contained piece surfaced (and fixed
 3. **Grow-leaf sizing on Android.** day-android's default `measure` (for `measure: None`) returns a view's
    *natural* size, which is ~0 for a `WebView`. A fill leaf must return the *proposal* from `measure`
    (as the built-in `list` does); AppKit/Qt/UIKit already do this in their `measure: None` default.
+
+4. **ArkTS-built components on HarmonyOS.** The ArkUI C API can't construct a `Web` at all, so a piece
+   needed a way to ship ArkTS and have it mounted in the native tree. `[package.metadata.day.ohos] ets =
+   [...]` stages a piece's `.ets` into the hvigor project, `day build` generates the `DayPieces.ets`
+   aggregator the host page registers, and the shim's `registerPiece`/`pieceEvent` pair carries
+   make/update/dispose and events across — generically, so `map`/`lottie` need no new bridge.
 
 Two more findings handled within existing contracts: native→URL reporting uses `Custom("webview:url", …)`
 on Apple/Qt but the public `TextChanged` kind on Android (its `Custom` kind is reserved for deep links);

@@ -2001,6 +2001,9 @@ swift = ["ios/swift"]                      # Swift shim source dirs
 swift-packages = [{ url = "https://github.com/airbnb/lottie-ios", from = "4.0.0", products = ["Lottie"] }]
 frameworks = ["CoreLocation"]              # system frameworks the app must link (xcodebuild ignores Rust #[link])
 
+[package.metadata.day.ohos]
+ets = ["ohos/ets"]                         # ArkTS source dirs, staged into the hvigor project
+
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
 ```
@@ -2011,7 +2014,11 @@ in Day.toml. A contribution the app has given no reason for is a hard build erro
 HarmonyOS — the alternative is an app that builds and then terminates on a device.
 
 Qt/XAML/ArkUI native halves are C++ compiled by the crate's own `build.rs` (the `-sys`
-convention, with `day-toolchain` locating SDKs) — no metadata needed. OS-API *parts* select
+convention, with `day-toolchain` locating SDKs) — no metadata needed. The exception is a HarmonyOS
+component that exists only in **ArkTS** (the C node API cannot construct a `Web` or a `Map` at all):
+those pieces declare `ets` dirs above, and day-arkui's generic piece bridge (`registerPiece` /
+`pieceEvent`) mounts the ArkTS-built FrameNode in the Day tree — one seam for every such piece, not
+one shim entry point per piece (docs/extending.md). OS-API *parts* select
 their half by OS (`cfg(target_os)`), so battery on `macos-gtk` gets the IOKit half, exactly the
 extra-combo case the design worried about.
 
@@ -2045,6 +2052,12 @@ reference generically, exactly once:
   shims; the checked-in `.xcodeproj` depends on that one package — adding an iOS piece is pure
   `Cargo.toml` data, no `.xcodeproj` edits. (Flutter's generated-plugin-package pattern,
   as designed — under the shipped name `DayPieces`.)
+
+- **harmonyos**: piece `.ets` stages into the hvigor project at `entry/src/main/ets/daypieces/<crate>/`
+  beside a generated `DayPieces.ets` aggregator, whose `registerDayPieces(uiContext)` the checked-in
+  host page calls once. Hvigor compiles ArkTS only from inside the module, so unlike the android/apple
+  legs these land in the project rather than `build/day/` — the scaffold gitignores the directory, and
+  the generated pair is rewritten from scratch every build so a removed piece leaves nothing behind.
 
 This mirrors how Flutter plugins carry `android/`/`ios/` folders the tool weaves into host
 projects. It is the reason Day's scaffolds are real Xcode/Gradle projects ([§17](#17-the-conventional-day-project-and-daytoml)).

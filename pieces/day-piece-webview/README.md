@@ -2,10 +2,10 @@
 
 Embed a real browser view in a Day app.
 
-`WKWebView` on macOS and iOS, WebKitGTK on Linux, `QWebEngineView` on Qt, and Android's
-`WebView` — one Rust API for loading URLs and hearing about navigation. Where a platform
-combination has no workable engine, the piece reports that plainly instead of bundling a
-browser of its own.
+`WKWebView` on macOS and iOS, WebKitGTK on Linux, `QWebEngineView` on Qt, Android's
+`WebView`, and the ArkTS `Web` component on HarmonyOS — one Rust API for loading URLs and
+hearing about navigation. Where a platform combination has no workable engine, the piece
+reports that plainly instead of bundling a browser of its own.
 
 Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
 front, a real native control per platform behind it. Enable the backends you build for

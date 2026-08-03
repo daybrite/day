@@ -30,6 +30,16 @@
 //! dependencies and compiles every piece's staged Swift shims. The app's checked-in `.xcodeproj`
 //! depends on that one local package (the iOS analog of the Gradle scaffold), so adding an iOS piece
 //! is pure `Cargo.toml` data — no `.xcodeproj` edits, ever.
+//!
+//! HarmonyOS contract (`[package.metadata.day.ohos]`):
+//! ```toml
+//! ets = ["ohos/ets"]                    # dirs (rel. to the crate) of ArkTS sources
+//! ```
+//! For components that exist ONLY in ArkTS — the ArkUI C node API cannot construct a `Web` at all.
+//! Hvigor compiles ArkTS only from inside the module, so these stage into the project itself
+//! (`entry/src/main/ets/daypieces/<crate>/`, gitignored) beside a generated `DayPieces.ets` whose
+//! `registerDayPieces(uiContext)` the checked-in host page calls once — so adding an ArkTS piece is
+//! pure `Cargo.toml` data too. Each declared dir needs an `Index.ets` exporting a `DayPieceModule`.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -375,7 +385,6 @@ fn closure(meta: &Metadata) -> HashSet<String> {
     seen
 }
 
-/// Write the resolved contributions to `build/day/android/day-pieces.json` for Gradle to read (and,
 /// Every `[package.metadata.day.permissions].uses` in the app's dependency closure, as
 /// `(crate_name, permission)`. The app package itself participates (the closure starts at the
 /// resolve root), so an app may use the same key instead of Day.toml when it has no reason to give.
@@ -397,6 +406,7 @@ pub fn contributed_permissions(project: &Project, backends: &[&str]) -> Vec<(Str
     out
 }
 
+/// Write the resolved contributions to `build/day/android/day-pieces.json` for Gradle to read (and,
 /// when pieces contribute Android permissions, a `day-pieces-manifest.xml` overlay the scaffold
 /// merges). Always writes (an empty manifest when there are no pieces) so a stale file never lingers.
 pub fn write_android_manifest(project: &Project) -> Result<(), String> {
@@ -650,6 +660,187 @@ pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
 
 /// Copy every `.swift` file under `src` into `dest` (recursively), so a piece's shims join the
 /// DayPieces target's sources.
+/// The `[package.metadata.day.ohos]` table, as declared by a piece crate.
+#[derive(Deserialize, Default)]
+struct OhosMeta {
+    /// Dirs (relative to the crate) of ArkTS sources staged into the app's hvigor project. Each
+    /// dir must carry an `Index.ets` exporting `dayPiece: DayPieceModule` (docs/extending.md).
+    #[serde(default)]
+    ets: StringOrVec,
+}
+
+/// The resolved HarmonyOS contributions across all pieces in the app's dependency closure.
+#[derive(Default)]
+struct OhosPieces {
+    /// `(namespace, absolute dir)` ArkTS dirs to stage — the namespace (the piece's crate name)
+    /// subfolders them so two pieces' files can't collide, as on iOS.
+    ets_dirs: Vec<(String, String)>,
+}
+
+/// Resolve every piece in the app's HarmonyOS dependency closure (features = `["arkui"]`) and
+/// collect its ArkTS dirs.
+fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, String> {
+    let meta = cargo_metadata(project, features)?;
+    let in_closure = closure(&meta);
+
+    let mut pieces = OhosPieces::default();
+    let mut seen = HashSet::new();
+    for pkg in &meta.packages {
+        if !in_closure.contains(&pkg.id) {
+            continue;
+        }
+        let Some(ohos) = piece_meta::<OhosMeta>(pkg, "ohos") else {
+            continue;
+        };
+        let crate_dir = Path::new(&pkg.manifest_path)
+            .parent()
+            .unwrap_or(Path::new("."));
+        let namespace = crate_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "piece".into());
+        for rel in &ohos.ets.0 {
+            let dir = crate_dir.join(rel);
+            if !dir.is_dir() {
+                eprintln!("day: {} ets dir {:?} not found — skipping", pkg.id, dir);
+                continue;
+            }
+            if !dir.join("Index.ets").is_file() {
+                eprintln!(
+                    "day: {} ets dir {:?} has no Index.ets (the `dayPiece` entry module) — skipping",
+                    pkg.id, dir
+                );
+                continue;
+            }
+            let abs = dir.to_string_lossy().into_owned();
+            if seen.insert(abs.clone()) {
+                pieces.ets_dirs.push((namespace.clone(), abs));
+            }
+        }
+    }
+    pieces.ets_dirs.sort();
+    Ok(pieces)
+}
+
+/// Stage every piece's ArkTS into the hvigor project's `entry/src/main/ets/daypieces/` and generate
+/// the two files the host page leans on: `DayPiece.ets` (the `DayPieceModule` interface both sides
+/// implement) and `DayPieces.ets` (the aggregator whose `registerDayPieces(uiContext)` hands the
+/// native shim one factory + command sink + disposer for ALL pieces). Hvigor compiles ArkTS only
+/// from inside the module, so unlike the android/iOS legs these land in the project — the scaffold
+/// gitignores the directory. Always writes both generated files, even with no contributing piece,
+/// because the host page imports them unconditionally.
+pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String> {
+    let pieces = resolve_ohos(project, &["arkui"]).unwrap_or_else(|e| {
+        eprintln!(
+            "day: HarmonyOS piece discovery failed ({e}); building with framework pieces only"
+        );
+        OhosPieces::default()
+    });
+
+    let dir = harmony.join("entry/src/main/ets/daypieces");
+    // Regenerate fresh so a removed piece never leaves a stale module the aggregator won't import
+    // but hvigor would still compile.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    std::fs::write(dir.join("DayPiece.ets"), DAY_PIECE_ETS).map_err(|e| e.to_string())?;
+    for (namespace, src) in &pieces.ets_dirs {
+        stage_ets_dir(Path::new(src), &dir.join(namespace))?;
+    }
+    std::fs::write(dir.join("DayPieces.ets"), day_pieces_ets(&pieces))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// The generated `DayPieceModule` contract — the seam between a piece's ArkTS and the aggregator.
+/// Written verbatim every build so the two generated files always agree.
+const DAY_PIECE_ETS: &str = r#"// Generated by `day build`. The contract between a standalone piece's ArkTS and the generated
+// aggregator (docs/extending.md). Do not edit.
+import { FrameNode, UIContext } from '@kit.ArkUI';
+
+export interface DayPieceModule {
+  // The piece kind this module renders, matching the Rust `KIND` (e.g. 'day.piece.webview').
+  kind: string;
+  // Build the component and return its FrameNode; undefined declines the node (Day then renders
+  // its placeholder leaf). `props` is whatever the piece's Rust renderer encoded.
+  make: (ui: UIContext, id: number, props: string) => FrameNode | undefined;
+  // A command from the piece's Rust renderer. `cmd`/`arg` are the piece's own vocabulary.
+  update: (id: number, cmd: string, arg: string) => void;
+  // Release everything held for `id` — Day disposed the node.
+  dispose: (id: number) => void;
+}
+"#;
+
+/// Render the aggregator for the resolved pieces.
+fn day_pieces_ets(pieces: &OhosPieces) -> String {
+    let mut imports = String::new();
+    let mut entries = String::new();
+    for (i, (namespace, _)) in pieces.ets_dirs.iter().enumerate() {
+        imports.push_str(&format!(
+            "import {{ dayPiece as dayPiece{i} }} from './{namespace}/Index';\n"
+        ));
+        entries.push_str(&format!("  dayPiece{i},\n"));
+    }
+    format!(
+        r#"// Generated by `day build`. Registers every standalone piece's ArkTS component with the native
+// shim (docs/extending.md): one factory, one command sink, one disposer for all of them. Do not edit.
+import nativeEntry from 'libentry.so';
+import {{ FrameNode, UIContext }} from '@kit.ArkUI';
+import {{ DayPieceModule }} from './DayPiece';
+{imports}
+const dayPieces: DayPieceModule[] = [
+{entries}];
+
+// Which module owns a live node, so commands and disposal reach the right piece.
+const dayPieceOwners: Map<number, DayPieceModule> = new Map();
+
+// Call once, before `start()`: a piece node can be realized during the first tree build.
+export function registerDayPieces(ui: UIContext): void {{
+  nativeEntry.registerPiece(
+    (kind: string, id: number, props: string): FrameNode | undefined => {{
+      for (const m of dayPieces) {{
+        if (m.kind === kind) {{
+          const node: FrameNode | undefined = m.make(ui, id, props);
+          if (node !== undefined) {{
+            dayPieceOwners.set(id, m);
+          }}
+          return node;
+        }}
+      }}
+      return undefined;
+    }},
+    (id: number, cmd: string, arg: string): void => {{
+      dayPieceOwners.get(id)?.update(id, cmd, arg);
+    }},
+    (id: number): void => {{
+      const m: DayPieceModule | undefined = dayPieceOwners.get(id);
+      if (m !== undefined) {{
+        dayPieceOwners.delete(id);
+        m.dispose(id);
+      }}
+    }}
+  );
+}}
+"#
+    )
+}
+
+/// Copy a piece's ArkTS sources (`.ets`) into the project, recursively — the HarmonyOS counterpart
+/// of [`stage_swift_dir`].
+fn stage_ets_dir(src: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            stage_ets_dir(&path, &dest.join(entry.file_name()))?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("ets") {
+            std::fs::copy(&path, dest.join(entry.file_name())).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn stage_swift_dir(src: &Path, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;

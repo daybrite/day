@@ -207,6 +207,53 @@ per-crate subfolder). The app's checked-in `.xcodeproj` depends on that one loca
 analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
+### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
+
+Some HarmonyOS components exist **only in ArkTS**: the ArkUI **C** node API (`arkui/native_node.h`)
+stops at the container kinds, so there is no way to construct a declarative `Web` — or `Map` — from
+native code at all. A piece wrapping one carries its own ArkTS the way an Android piece carries Java.
+
+```toml
+[package.metadata.day.ohos]
+ets = ["ohos/ets"]        # dirs of ArkTS sources; each needs an Index.ets exporting `dayPiece`
+```
+
+Each declared dir must contain an `Index.ets` exporting a `DayPieceModule`:
+
+```ts
+import { DayPieceModule } from '../DayPiece';           // generated next to the staged dirs
+
+export const dayPiece: DayPieceModule = {
+  kind: 'day.piece.webview',                            // matches the Rust KIND
+  make: (ui, id, props) => frameNode | undefined,       // build it; undefined declines the kind
+  update: (id, cmd, arg) => {},                         // the piece's own command vocabulary
+  dispose: (id) => {}                                   // Day disposed the node — release it
+};
+```
+
+`day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
+(gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
+`DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim ONE factory, command sink,
+and disposer for all pieces. The scaffold's host page calls it once, before `start()` — so adding an
+ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
+
+On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
+to build — `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:
+
+```rust
+fn make(_b: &mut ArkUi, p: &WebProps, id: NodeId) -> AHandle { piece::make(KIND, id, &p.url) }
+fn update(_b: &mut ArkUi, h: &AHandle, patch: &WebPatch) { piece::update(h, "load", url) }
+```
+
+Events come back through the shim's `pieceEvent(id, text)` as `Event::Custom` — the same open channel
+(§8.2) the Android bridge uses, payload only. Two rules the bridge enforces: a declined `make` yields
+Day's placeholder leaf rather than a null handle (a null would take the whole parent's layout down),
+and `release` routes an ArkTS-owned node to `dispose` instead of disposing it natively.
+
+**Sizing.** Day owns layout and sets each node's position + size through the C API, so the ArkTS
+component must NOT size itself with percentages: a `BuilderNode` is built detached, where `'100%'`
+resolves against the whole window and the component covers the page.
+
 The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mirroring the Android Java
 shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust wraps via
 `Retained::from_raw`. See `pieces/day-piece-lottie/{ios/swift/DayLottie.swift,src/lib-uikit.rs}`.

@@ -38,6 +38,13 @@ unsafe extern "C" {
     pub fn day_ark_open_url(url: *const c_char);
     pub fn day_ark_nav_remove(key: u64, page: *mut c_void);
     pub fn day_ark_nav_forget(key: u64);
+    /// ArkTS-built piece components (docs/extending.md): build one and return its FrameNode as an
+    /// `ArkUI_NodeHandle` (null when nothing is registered or the factory declined `kind`); send it
+    /// a command; release its BuilderNode. `props`/`cmd`/`arg` are opaque to the bridge — the piece
+    /// owns both ends. Prefer the safe `day_arkui::piece` wrappers over these.
+    pub fn day_ark_piece_make(kind: *const c_char, id: u64, props: *const c_char) -> *mut c_void;
+    pub fn day_ark_piece_update(id: u64, cmd: *const c_char, arg: *const c_char);
+    pub fn day_ark_piece_dispose(id: u64);
     /// Menu styling: flex-grow within a Row/Column; a conventional hairline list separator.
     pub fn day_ark_set_flex_grow(n: *mut c_void, g: f64);
     pub fn day_ark_menu_separator(n: *mut c_void, argb: u32);
@@ -206,6 +213,7 @@ mod bridge_kinds_parity {
             ("DAY_K_VALUE_CHANGED", BridgeKind::ValueChanged),
             ("DAY_K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
             ("DAY_K_GESTURE", BridgeKind::Gesture),
+            ("DAY_K_CUSTOM", BridgeKind::Custom),
             ("DAY_K_PRESENT_FILE", BridgeKind::PresentFile),
             ("DAY_K_FOCUS_CHANGED", BridgeKind::FocusChanged),
             ("DAY_K_SUBMITTED", BridgeKind::Submitted),

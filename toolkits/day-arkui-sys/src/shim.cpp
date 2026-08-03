@@ -71,6 +71,7 @@ extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const 
 #define DAY_K_VALUE_CHANGED 3
 #define DAY_K_SELECTION_CHANGED 4
 #define DAY_K_GESTURE 11
+#define DAY_K_CUSTOM 12
 #define DAY_K_PRESENT_FILE 15
 #define DAY_K_FOCUS_CHANGED 16
 #define DAY_K_SUBMITTED 17
@@ -117,6 +118,18 @@ extern "C" void day_arkui_nav_popped(uint64_t key);
 extern "C" void day_arkui_nav_back_requested();
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
 extern "C" void day_arkui_resized(double w, double h);
+
+// ---- ArkTS-built piece components (docs/extending.md) -----------------------
+// Some native components exist ONLY in ArkTS: the declarative `Web` has no ArkUI C-API node kind
+// (native_node.h stops at the container types), and neither does `Map`. A piece that wraps one
+// ships its own .ets (staged into the hvigor project by `day build`) and registers a factory here.
+// `make` builds the component in a BuilderNode and returns its FrameNode, which
+// OH_ArkUI_GetNodeHandleFromNapiValue turns into an ArkUI_NodeHandle Day mounts like any other
+// node. `props`/`cmd`/`arg` are opaque strings — the piece owns both ends, so the bridge never
+// grows a case per piece. Unregistered is a safe no-op (the kind falls back to a placeholder).
+static napi_ref g_piece_make = nullptr;    // (kind: string, id: number, props: string) => FrameNode
+static napi_ref g_piece_update = nullptr;  // (id: number, cmd: string, arg: string) => void
+static napi_ref g_piece_dispose = nullptr; // (id: number) => void — release the BuilderNode
 
 // ---- main-thread posting (uv_async on the JS event loop) -------------------
 struct PostItem {
@@ -1571,6 +1584,116 @@ extern "C" void day_ark_open_url(const char* url) {
     napi_close_handle_scope(g_env, scope);
 }
 
+// ---- ArkTS-built piece components (docs/extending.md) -----------------------
+// ArkTS registers the piece factory + command sink + disposer, once, before `start()`:
+// `registerPiece(make, update, dispose)`. `day build` generates the aggregator that calls this
+// from every staged piece .ets, so an app with no such piece never registers and every entry
+// point below stays a no-op.
+static napi_value RegisterPiece(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    napi_ref* slots[3] = {&g_piece_make, &g_piece_update, &g_piece_dispose};
+    for (size_t i = 0; i < 3; i++) {
+        if (*slots[i]) {
+            napi_delete_reference(env, *slots[i]);
+            *slots[i] = nullptr;
+        }
+        if (i < argc && argv[i]) napi_create_reference(env, argv[i], 1, slots[i]);
+    }
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// An ArkTS-built component reports back to its piece: `pieceEvent(id, text)`. Rides the SAME
+// Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole event,
+// so a piece that emits one kind of message needs no tag. JS thread only.
+static napi_value PieceEvent(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double id = 0;
+    napi_get_value_double(env, argv[0], &id);
+    std::string text = napi_to_string(env, argv[1]);
+    day_arkui_on_event((uint64_t)id, DAY_K_CUSTOM, 0.0, text.c_str());
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// Build a piece's ArkTS component and return its FrameNode as an ArkUI_NodeHandle Day can mount.
+// Null when nothing is registered or the factory declined the kind — the caller then falls back to
+// Day's placeholder leaf. JS thread only. `extern "C"` for the same reason as day_ark_open_url:
+// this sits outside the extern "C" block above and Rust imports the symbol unmangled.
+extern "C" void* day_ark_piece_make(const char* kind, uint64_t id, const char* props) {
+    if (!g_env || !g_piece_make) return nullptr;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    void* out = nullptr;
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_piece_make, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[3];
+        napi_create_string_utf8(g_env, kind ? kind : "", NAPI_AUTO_LENGTH, &args[0]);
+        napi_create_double(g_env, (double)id, &args[1]);
+        napi_create_string_utf8(g_env, props ? props : "", NAPI_AUTO_LENGTH, &args[2]);
+        napi_value ret = nullptr;
+        if (napi_call_function(g_env, undef, cb, 3, args, &ret) == napi_ok && ret) {
+            ArkUI_NodeHandle node = nullptr;
+            // Returns non-zero for undefined/null (an ArkTS factory that declined the kind),
+            // leaving `node` untouched — hence the explicit init above.
+            OH_ArkUI_GetNodeHandleFromNapiValue(g_env, ret, &node);
+            out = (void*)node;
+        }
+    }
+    napi_close_handle_scope(g_env, scope);
+    return out;
+}
+
+// Send a piece command to its ArkTS side (the webview's load/back/forward/stop/reload). JS thread
+// only; no-op when unregistered.
+extern "C" void day_ark_piece_update(uint64_t id, const char* cmd, const char* arg) {
+    if (!g_env || !g_piece_update) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_piece_update, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[3];
+        napi_create_double(g_env, (double)id, &args[0]);
+        napi_create_string_utf8(g_env, cmd ? cmd : "", NAPI_AUTO_LENGTH, &args[1]);
+        napi_create_string_utf8(g_env, arg ? arg : "", NAPI_AUTO_LENGTH, &args[2]);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 3, args, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
+// Release the ArkTS BuilderNode behind a piece node. Called when Day disposes the native node —
+// an ArkTS-owned component (a Web engine instance especially) outlives its FrameNode otherwise.
+extern "C" void day_ark_piece_dispose(uint64_t id) {
+    if (!g_env || !g_piece_dispose) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_piece_dispose, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value arg;
+        napi_create_double(g_env, (double)id, &arg);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 1, &arg, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
 // ArkTS hands the app's resourceManager to native so the rawfile data-resource opener (§18.3) can
 // read staged assets: `registerResourceManager(getContext(this).resourceManager)`. OH_ResourceManager
 // _InitNativeResourceManager needs this ArkTS object — there is no native-only way to obtain it — so
@@ -1733,6 +1856,10 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "navBackRequested", fn);
     napi_create_function(env, "navPageArea", NAPI_AUTO_LENGTH, NavPageArea, nullptr, &fn);
     napi_set_named_property(env, exports, "navPageArea", fn);
+    napi_create_function(env, "registerPiece", NAPI_AUTO_LENGTH, RegisterPiece, nullptr, &fn);
+    napi_set_named_property(env, exports, "registerPiece", fn);
+    napi_create_function(env, "pieceEvent", NAPI_AUTO_LENGTH, PieceEvent, nullptr, &fn);
+    napi_set_named_property(env, exports, "pieceEvent", fn);
     return exports;
 }
 

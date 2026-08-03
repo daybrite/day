@@ -15,6 +15,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
+import { registerDayPieces } from '../daypieces/DayPieces';
 import DayWindowAbility from '../entryability/DayWindowAbility';
 
 @Entry
@@ -75,6 +76,12 @@ struct Index {
         this.navGuardedTop = on;
       }
     );
+    // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
+    // Web view is one, since the ArkUI C node API has no Web kind. `day build` regenerates
+    // DayPieces.ets from the app's piece closure (an empty set when it has none). Before
+    // start(): a piece node can be realized during the very first tree build.
+    registerDayPieces(this.getUIContext());
+
     const d = display.getDefaultDisplaySync();
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
     nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);

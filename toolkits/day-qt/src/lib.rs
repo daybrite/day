@@ -1838,6 +1838,14 @@ impl Toolkit for Qt {
         };
     }
 
+    fn dark_mode(&mut self) -> bool {
+        // Ask Qt, not the `DAY_THEME` default: Qt Widgets follow the system scheme on their
+        // own, so the default's "light unless DAY_THEME says otherwise" left app-painted
+        // surfaces light while every native control around them rendered dark.
+        // SAFETY: a plain palette read; no arguments and no pointers cross the boundary.
+        unsafe { ffi::day_qt_dark_mode() != 0 }
+    }
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());

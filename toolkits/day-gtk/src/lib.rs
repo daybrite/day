@@ -364,11 +364,26 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
         "Return" | "Enter" => "Return".to_string(),
         "Delete" | "Backspace" => "Delete".to_string(),
         "Space" => "space".to_string(),
-        // Punctuation must be spelled by keysym name — GTK rejects the literal
-        // ("Unable to parse accelerator '<Primary>,'").
-        "," => "comma".to_string(),
-        "." => "period".to_string(),
-        k if k.chars().count() == 1 => k.to_lowercase(),
+        k if k.chars().count() == 1 => {
+            // Punctuation must be spelled by keysym name — GTK rejects the literal
+            // ("Unable to parse accelerator '<Primary>/'") and then installs NO accelerators
+            // for that menu at all. Ask GDK for the name rather than keeping a hand-written
+            // table, which only ever covers the punctuation someone already hit.
+            match k.chars().next() {
+                Some(ch) if !ch.is_ascii_alphanumeric() => {
+                    let keyval = gtk4::gdk::unicode_to_keyval(ch as u32);
+                    // SAFETY: `Key` is a transparent newtype over a keyval and validates
+                    // nothing; `keyval` is one GDK just minted for this char. gdk4 relies on
+                    // the same reasoning in its own `FromValue for Key`.
+                    let key: gtk4::gdk::Key =
+                        unsafe { gtk4::glib::translate::FromGlib::from_glib(keyval) };
+                    key.name()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| k.to_lowercase())
+                }
+                _ => k.to_lowercase(),
+            }
+        }
         k => k.to_string(),
     };
     format!("{acc}{key}")
@@ -636,7 +651,14 @@ fn gtk_animation(
 fn fill_nav_menu(listbox: &gtk4::ListBox, items: &[String], icons: &[Option<String>]) {
     for (i, item) in items.iter().enumerate() {
         let label = gtk4::Label::new(Some(item));
-        label.set_halign(gtk4::Align::Start);
+        label.set_halign(gtk4::Align::Fill);
+        label.set_xalign(0.0);
+        // Ellipsize, or a long feed title makes the row wider than the sidebar: the ListBox's
+        // natural width then wins over its allocation and GTK slides every row leftwards, past
+        // the window edge, leaving only the tails of the longest names visible. An ellipsizing
+        // label reports a one-ellipsis minimum instead, so the list fits the pane it is given.
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        label.set_hexpand(true);
         let icon = icons
             .get(i)
             .and_then(|o| o.as_deref())

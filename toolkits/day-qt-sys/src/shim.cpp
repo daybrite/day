@@ -74,6 +74,15 @@ static char *s_argv[] = {s_arg0, nullptr};
 // 3=WillResignActive, 7=WillTerminate). Set from Rust before exec.
 static void (*g_lifecycle_cb)(int) = nullptr;
 
+// Whether Qt is currently painting dark. Read from the live palette rather than
+// QStyleHints::colorScheme so one answer covers all three sources of the scheme: the system,
+// a DAY_THEME override, and the hand-built dark Fusion palette on pre-6.8 Qt (where
+// colorScheme reports Unknown). Widgets are palette-driven, so the palette IS the truth.
+int day_qt_dark_mode(void) {
+    const QColor window = QApplication::palette().color(QPalette::Active, QPalette::Window);
+    return window.lightness() < 128 ? 1 : 0;
+}
+
 void *day_qt_app_new(const char *app_name) {
     if (app_name && *app_name) {
         strncpy(s_arg0, app_name, sizeof(s_arg0) - 1);
@@ -813,6 +822,10 @@ void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
     auto *w = new QListWidget();
     w->setFrameShape(QFrame::NoFrame);
     w->setIconSize(QSize(18, 18));
+    // Long entries (feed titles, file names) truncate with an ellipsis instead of running
+    // under the sidebar's edge, and never widen the pane to fit.
+    w->setTextElideMode(Qt::ElideRight);
+    w->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     w->setStyleSheet(
         "QListWidget{background:transparent;outline:0;}"
         "QListWidget::item{padding:6px 10px;border-radius:6px;margin:1px 4px;}"

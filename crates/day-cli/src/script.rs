@@ -74,12 +74,22 @@ pub(crate) fn connect_window_secs(kind: TargetKind) -> u64 {
         })
 }
 
+/// How long the runner waits for one step's reply: the connect window (which a slow device
+/// bumps — HarmonyOS uses 120 s), but never less than the step's own implicit-wait budget plus
+/// headroom. The engine answers a retryable step only after polling for the whole budget, so an
+/// equal timeout is already a race; the headroom covers the reply's trip back.
+fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
+    let floor = Duration::from_secs(window_secs.max(20));
+    Duration::from_secs_f64(budget_secs + 10.0).max(floor)
+}
+
 pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
     let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-            s.set_read_timeout(Some(Duration::from_secs(window_secs.max(20))))
-                .ok();
+            // A floor for the handshake only — `roundtrip` resets this per step from the
+            // step's own wait budget.
+            s.set_read_timeout(Some(read_window(window_secs, 0.0))).ok();
             return Ok(s);
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -282,11 +292,20 @@ pub fn run_scripts(
 
     // adb-forwarded ports accept host connections BEFORE the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
+    //
+    // `budget` is the step's own implicit-wait budget (§14.3). The engine polls a retryable step
+    // on the main thread for that long before answering, so the runner must out-wait it: sizing
+    // the socket read from `window_secs` alone made any step declaring a longer `timeout_secs`
+    // time out runner-side FIRST and report "engine connection lost" — a healthy, idle app
+    // mislabeled as a dead one.
     let roundtrip = |stream: &mut TcpStream,
                      reader: &mut BufReader<TcpStream>,
-                     line: &str|
+                     line: &str,
+                     budget: f64|
      -> Result<String, String> {
-        let deadline = std::time::Instant::now() + Duration::from_secs(window_secs);
+        let window = read_window(window_secs, budget);
+        let _ = stream.set_read_timeout(Some(window));
+        let deadline = std::time::Instant::now() + window;
         loop {
             let attempt = (|| -> Result<String, String> {
                 stream
@@ -305,8 +324,7 @@ pub fn run_scripts(
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-                        s.set_read_timeout(Some(Duration::from_secs(window_secs.max(20))))
-                            .ok();
+                        s.set_read_timeout(Some(window)).ok();
                         *reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
                         *stream = s;
                     }
@@ -424,7 +442,12 @@ pub fn run_scripts(
             let req = serde_json::json!({"token": token, "step": step});
             let mut line = serde_json::to_string(&req).unwrap();
             line.push('\n');
-            let reply_line = roundtrip(&mut stream, &mut reader, &line)?;
+            let budget = step
+                .get("timeout_secs")
+                .and_then(|v| v.as_f64())
+                .filter(|t| *t > 0.0)
+                .unwrap_or(0.0);
+            let reply_line = roundtrip(&mut stream, &mut reader, &line, budget)?;
             let reply: serde_json::Value =
                 serde_json::from_str(reply_line.trim()).map_err(|e| e.to_string())?;
             let ok = reply.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
