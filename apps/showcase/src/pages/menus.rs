@@ -39,6 +39,11 @@ fn build_app_menu() -> Vec<MenuEntry> {
     let reload = crate::res::str::menu_reload().format();
     let actual_size = crate::res::str::menu_actual_size().format();
     vec![
+        // `.bar_role(...)` claims the platform's standard slot for this menu, which is what puts
+        // File/Edit/View in the platform's own order and stops the backend adding its stock copy
+        // beside them. The TAG, not the title, identifies the slot: day's catalog and this app's
+        // may translate the same menu differently (day's `day-view` is "Présentation", this app's
+        // is "Affichage"), and a bar showing both is exactly the bug that taught us so.
         sub_menu(
             file.clone(),
             vec![
@@ -73,7 +78,8 @@ fn build_app_menu() -> Vec<MenuEntry> {
                 // conventional Quit in the App menu.
                 menu_role(MenuRole::Quit),
             ],
-        ),
+        )
+        .bar_role(MenuBarRole::File),
         // Standard edit commands — native items that target the focused control (default shortcuts).
         sub_menu(
             crate::res::str::menu_edit().format(),
@@ -86,7 +92,8 @@ fn build_app_menu() -> Vec<MenuEntry> {
                 menu_role(MenuRole::Paste),
                 menu_role(MenuRole::SelectAll),
             ],
-        ),
+        )
+        .bar_role(MenuBarRole::Edit),
         sub_menu(
             view.clone(),
             vec![
@@ -99,7 +106,8 @@ fn build_app_menu() -> Vec<MenuEntry> {
                 menu_separator(),
                 menu_role(MenuRole::Fullscreen),
             ],
-        ),
+        )
+        .bar_role(MenuBarRole::View),
     ]
 }
 

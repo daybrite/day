@@ -110,7 +110,28 @@ app_menu(vec![
 ```
 
 Top-level entries are the menu-bar menus. Call `app_menu` at startup or any time the menu changes; it
-replaces the previous app menu. Where each backend puts it:
+replaces the previous app menu.
+
+### Claiming a standard slot
+
+Each desktop fills the standard menu-bar slots it knows — Edit, View, Help — with its own stock menu
+for any slot the app did not claim, so an app never restates the platform's furniture. **Tag your own
+version with `.bar_role(...)` to take a slot:**
+
+```rust
+sub_menu("View", vec![ /* … */ ]).bar_role(MenuBarRole::View)
+```
+
+A tagged menu replaces the stock one *in place*, so it also lands where the platform expects that
+menu to sit — `File`, `Edit`, `View` in the bar's leading order rather than adrift after them.
+
+The tag, not the title, is what identifies the slot, and localization is why: day's catalog and your
+app's may translate the same menu differently (day's `day-view` is *Présentation*; the showcase's is
+*Affichage*), so a bar matched on titles would show both under `--locale fr`. An untagged submenu
+whose title *does* equal the slot's standard name still takes the slot — that stops the most common
+accidental duplicate — but it is a safety net, not the contract. Tag the menu.
+
+Where each backend puts the bar:
 
 - **AppKit**: the system menu bar. Day prepends the standard **App menu** (About/Quit) automatically,
   so your `sub_menu`s start at *File*.

@@ -44,7 +44,10 @@ enum Cmd {
     },
     /// Build + launch on one or more targets (in parallel)
     Launch {
-        #[arg(short = 'p', long = "platform", required = true)]
+        /// Targets to launch. Omit it to launch the HOST's default desktop target — appkit on
+        /// macOS, XAML on Windows, and on Linux the toolkit matching the running desktop (Qt
+        /// under Plasma/LXQt, GTK otherwise).
+        #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
         #[arg(long, default_value = "debug")]
         profile: String,
@@ -659,6 +662,16 @@ pub fn run() -> i32 {
             skip_build,
             device,
         } => with_project(cli.project.as_deref(), |project| {
+            // No `-p`: run what this machine natively is. Announced rather than assumed — the
+            // chosen target decides which toolkit gets built, so a silent pick would be a
+            // surprising several-minute build of something the caller did not name.
+            let platforms = if platforms.is_empty() {
+                let default = crate::targets::host_default();
+                ops::status("Defaulting", &format!("{default} (no --platform given)"));
+                vec![default.to_string()]
+            } else {
+                platforms.clone()
+            };
             let script_mode = !scripts.is_empty();
             let mut spec = ops::LaunchSpec {
                 locale: locale.clone(),

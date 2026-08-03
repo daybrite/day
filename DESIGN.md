@@ -2747,21 +2747,61 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    (incl. the day-mock e2e suite), per-backend clippy with warnings denied, `day doctor`, a
    `day new` scaffold smoke test, the **showcase walkthrough × light/dark/fr** with
    content-validated screenshot uploads, service round-trip scripts (e.g. clipboard), and
-   `day pack` — with real Developer ID / notarization / ASC signing on protected runs,
-   degrading loudly to dev signing on fork PRs. A `web-dom` job builds the showcase's wasm
+   `day pack`. The macOS leg packs at the dev tier on every ref — its release signature is
+   applied later by the isolated `notarize` job ([§20.2](#202-release-signing-isolation)); the
+   iOS and Android legs still sign in place on tag runs, degrading loudly to dev signing
+   everywhere else. A `web-dom` job builds the showcase's wasm
    dist (`day build -p web-dom --profile release`), uploads it for the website job (published
    at `/showcase/web-dom/` — the live, statically-hosted web build linked from the gallery),
    and runs the SAME walkthrough × light/dark × en/fr/ar/zh-CN in headless WebKit
    (`DAY_WEB_DRIVER` = scripts/ci/webdom-driver.mjs; the dayscript WebSocket bridge, §14.5),
    uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md).
-4. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
-   --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries, and crates.io
-   Trusted Publishing (wired; crates not yet published — [§1](#1-glossary-and-naming)).
+4. **Release lane** (semver tags) — the `notarize` job ([§20.2](#202-release-signing-isolation)),
+   publishability check (`cargo publish --workspace --dry-run`), tag-vs-version check, GitHub
+   release with the six CLI binaries, and crates.io Trusted Publishing (wired; crates not yet
+   published — [§1](#1-glossary-and-naming)).
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation
 (`scripts/ci/validate-screenshots.sh`), and the freedesktop icon-size rules flatpak's
 `appstreamcli` enforces.
+
+### §20.2 Release signing isolation
+
+> [!IMPORTANT]
+> **Status: shipped.** Supersedes the original arrangement, in which the macOS combo job held the
+> Developer ID certificate and the notary key as repository secrets gated by an inline
+> `startsWith(github.ref, 'refs/tags/')` test.
+
+The macOS Developer ID identity and the App Store Connect notary key are reachable from exactly
+one job, `notarize`, and from nothing else in any workflow. The rule it enforces: **the code that
+builds the app and the credentials that sign it never occupy the same runner.**
+
+`macos` builds and packs at the dev tier on every ref, tags included, then uploads the unsigned
+`.app` as a tar (`upload-artifact` preserves neither the executable bit nor symlinks). `notarize`
+picks that tar up and re-runs the signing half of §16.5's macOS lane — sign inside-out → `hdiutil`
+→ sign the dmg → `notarytool` → `stapler`. Duplicating those stages in YAML is the cost of the
+isolation, so a change to either copy updates the other.
+
+What holds the boundary:
+
+| Control | Effect |
+| --- | --- |
+| `environment: release-signing` | The six secrets are environment-scoped, so no other job can read them; the environment's rules limit it to `v*` tags and require a reviewer. |
+| `github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')` | `workflow_dispatch` cannot aim the job at a chosen ref, and a bare `refs/tags/` prefix would have matched any tag. |
+| No `actions/checkout` | The tagged commit's source never reaches the runner holding the keys. |
+| Apple's tools only | Cargo and the `day` CLI never run here, so a compromised dependency gets no execution beside the credentials — its `build.rs` ran in a job with no secrets. |
+| Ephemeral keychain | Created for the job, auto-locking, deleted in `always()`. |
+| `permissions: contents: read` | The job cannot write to the repository or mint an OIDC token. |
+| Identity pinned by SHA-1 | `codesign -s` takes the fingerprint read back out of the keychain, not a name. The team holds two Developer ID certificates with identical common names, so a name would be ambiguous — the job also asserts the keychain holds exactly one identity and that it is the expected one. |
+
+The `release` job checks `needs.notarize.result` before publishing, because its `!cancelled()`
+guard would otherwise let a failed notarization ship a release whose macOS package is simply
+absent from the artifact glob.
+
+Residual exposure, recorded rather than fixed here: `ios-uikit`, `android-mdc`, and
+`harmony-arkui` still import their signing material into jobs that run repo code, and every
+third-party action in the workflow floats on a tag rather than a commit SHA.
 
 ### §20.5 Toolchain and dependency governance
 
@@ -3200,7 +3240,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `select` | `id`, `index` | pickers/tabs |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam (docs/list.md); a guard denial fails the step, non-retryably |
 | `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — docs/menus.md |
-| `toolbar` | `item`, `text?` \| `on?` | drive a window-toolbar item by its id: bare = run a button's command, `text` types into a search item, `on` sets a toggle. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — docs/toolbars.md |
+| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a window-toolbar item by its id: bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — docs/toolbars.md |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path (docs/windows.md); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |

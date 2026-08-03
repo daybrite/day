@@ -138,7 +138,14 @@ question a search field asks: does this row match what the user typed? The rule 
 | Stack | `Stack` |
 
 and not "Toolbars" or "Controls", whose only `s` is inside a word. An empty query matches
-everything, so an empty box filters nothing. `matches_search` reads the locale signal (tracked);
+everything, so an empty box filters nothing.
+
+The **start of the text is always a word start**, whatever the segmenter reports, so a title
+always matches itself and any leading prefix of it — `canvas &` matches "Canvas & shapes", and a
+localized title typed verbatim is a query that works in every locale (which is how a dayscript
+filters a sidebar without knowing the language). This matters most where the segmenter types a
+whole run as not-word-like: a Han title like `堆栈` has no interior word start under the invariant
+break options, and without the leading one it could not be matched at all. `matches_search` reads the locale signal (tracked);
 `matches_search_in` takes the locale explicitly and reads nothing.
 
 ```rust

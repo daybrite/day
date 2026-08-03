@@ -5,6 +5,7 @@
 #     scripts/launch-showcase.py desktop
 #     scripts/launch-showcase.py macos-appkit web-dom
 #     scripts/launch-showcase.py mobile --env DAY_DEMO_ROUTE=canvas
+#     scripts/launch-showcase.py desktop --profile release
 #
 # On Windows, invoke it through the interpreter — `python scripts\launch-showcase.py desktop`
 # (the `python3` alias there is a Microsoft Store stub that only offers to install Python).
@@ -17,17 +18,18 @@
 #               its simulator/emulator already running; `day launch` says which is missing
 #     web       web-dom, served over loopback with a browser opened on it
 #
-# Anything starting with `-` is passed straight through to `day launch`, so `--env K=V`,
-# `--locale`, `--script`, and `--detach` all work. `--dry-run` prints the targets an argument list
-# expands to and stops, without building anything.
+# Anything starting with `-` is passed straight through to `day launch`, so `--profile release`,
+# `--env K=V`, `--locale`, `--script`, and `--detach` all work — the script adds no flags of its
+# own. `--dry-run` prints the targets an argument list expands to and stops, without building.
 #
 # Symlink it anywhere and call it from anywhere — `ln -s .../day/scripts/launch-showcase.py
 # ~/bin/showcase`. The script resolves its own path through the link chain, so it always finds the
 # checkout it actually lives in, whatever the caller's working directory is.
 #
-# The app is built in RELEASE: a debug build of a UI framework indicates nothing about what a user
-# would experience, and the showcase exists to be looked at. The `day` CLI itself is built from this
-# checkout in debug — it is the build tool, not the thing being measured.
+# The build profile is whatever `day launch` defaults to; pass `--profile release` when the point
+# is performance, since a debug build of a UI framework indicates nothing about what a user would
+# experience. The `day` CLI itself is always built from this checkout, in debug — it is the build
+# tool, not the thing being measured.
 #
 # Python 3.8+, standard library only.
 import json
@@ -224,12 +226,9 @@ def main():
     argv = [str(day), "--project", str(SHOWCASE), "launch"]
     for target in targets:
         argv += ["-p", target]
-    # Release unless the caller asked for something else; passing both would be a clap error.
-    if not any(a == "--profile" or a.startswith("--profile=") for a in passthrough):
-        argv += ["--profile", "release"]
     argv += passthrough
 
-    step("Launching showcase (release): %s" % " ".join(targets))
+    step("Launching showcase: %s" % " ".join(targets))
     if os.name != "nt":
         os.execv(str(day), argv)  # replace this process, as the shell version does
     # Windows has no exec that REPLACES the caller: os.execv there spawns a new process and exits
