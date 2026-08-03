@@ -82,32 +82,45 @@ export const suites = [
       'web-dom',
     ],
     hero: 'home',
+    // ORDER: the Showcase's own top-level navigation list, which is alphabetical by English
+    // title (apps/showcase/src/lib.rs `destinations()`) — so the gallery reads in the same order
+    // as the app's sidebar. `home` leads as the hero, and the surfaces that are not their own
+    // destination (a window, a modal, a filtered variant) follow the row they are reached from.
     shots: [
       { id: 'home', label: 'Home', source: 'apps/showcase/src/lib.rs' },
-      { id: 'controls', label: 'Controls form', source: 'apps/showcase/src/pages/controls.rs' },
-      { id: 'dates', label: 'Date & time pickers', source: 'apps/showcase/src/pages/dates.rs' },
-      { id: 'focus', label: 'Keyboard focus', source: 'apps/showcase/src/pages/focus.rs' },
-      { id: 'canvas', label: 'Canvas & shapes', source: 'apps/showcase/src/pages/canvas.rs' },
-      { id: 'grid', label: 'Grid layout', source: 'apps/showcase/src/pages/grid.rs' },
-      { id: 'animation', label: 'Declarative animation', source: 'apps/showcase/src/pages/animation.rs' },
-      { id: 'system', label: 'Device & sensors', source: 'apps/showcase/src/pages/system.rs' },
-      { id: 'services', label: 'Platform services', source: 'apps/showcase/src/pages/services.rs' },
-      { id: 'menus', label: 'Menus & dialogs', source: 'apps/showcase/src/pages/menus.rs' },
-      { id: 'tabs-one', label: 'Tabs', source: 'apps/showcase/src/pages/tabs.rs' },
-      { id: 'stack-detail', label: 'Navigation stack', source: 'apps/showcase/src/pages/stack.rs' },
-      { id: 'list', label: 'Native list', source: 'apps/showcase/src/pages/list.rs' },
-      { id: 'refresh', label: 'Pull to refresh', source: 'apps/showcase/src/pages/refresh.rs' },
-      { id: 'list-item-100', label: 'Programmatic scrolling', source: 'apps/showcase/src/pages/list.rs' },
-      { id: 'media', label: 'Media playback', source: 'apps/showcase/src/pages/media.rs' },
-      { id: 'resources', label: 'Bundled resources', source: 'apps/showcase/src/pages/resources.rs' },
-      { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },
-      { id: 'tweaks', label: 'Tweaks (native config)', source: 'apps/showcase/src/pages/tweaks.rs' },
-      { id: 'text', label: 'Typography & custom fonts', source: 'apps/showcase/src/pages/text.rs' },
-      { id: 'textareas', label: 'Text areas', source: 'apps/showcase/src/pages/text_areas.rs' },
-      { id: 'toolbars', label: 'Window toolbars', source: 'apps/showcase/src/pages/toolbars.rs' },
-      { id: 'localization', label: 'Localization', source: 'apps/showcase/src/pages/localization.rs' },
-      { id: 'crash', label: 'Crash reporting', source: 'apps/showcase/src/pages/crash.rs' },
       { id: 'about', label: 'About', source: 'apps/showcase/src/pages/about.rs' },
+      { id: 'animation', label: 'Animation', source: 'apps/showcase/src/pages/animation.rs' },
+      { id: 'canvas', label: 'Canvas & shapes', source: 'apps/showcase/src/pages/canvas.rs' },
+      { id: 'controls', label: 'Controls', source: 'apps/showcase/src/pages/controls.rs' },
+      { id: 'crash', label: 'Crash reporting', source: 'apps/showcase/src/pages/crash.rs' },
+      { id: 'dates', label: 'Date & time', source: 'apps/showcase/src/pages/dates.rs' },
+      { id: 'system', label: 'Device & sensors', source: 'apps/showcase/src/pages/system.rs' },
+      { id: 'focus', label: 'Focus', source: 'apps/showcase/src/pages/focus.rs' },
+      { id: 'grid', label: 'Grid', source: 'apps/showcase/src/pages/grid.rs' },
+      { id: 'list', label: 'List', source: 'apps/showcase/src/pages/list.rs' },
+      { id: 'list-item-100', label: 'List · programmatic scrolling', source: 'apps/showcase/src/pages/list.rs' },
+      { id: 'localization', label: 'Localization', source: 'apps/showcase/src/pages/localization.rs' },
+      { id: 'media', label: 'Media playback', source: 'apps/showcase/src/pages/media.rs' },
+      { id: 'menus', label: 'Menus & dialogs', source: 'apps/showcase/src/pages/menus.rs' },
+      // The preferences singleton: a real OS window on desktop, a fullscreen cover where the
+      // backend has no secondary windows — the same ids either way (docs/windows.md).
+      { id: 'preferences', label: 'Menus & dialogs · preferences window', source: 'apps/showcase/src/pages/preferences.rs' },
+      { id: 'services', label: 'Platform services', source: 'apps/showcase/src/pages/services.rs' },
+      { id: 'refresh', label: 'Refresh', source: 'apps/showcase/src/pages/refresh.rs' },
+      { id: 'resources', label: 'Resources', source: 'apps/showcase/src/pages/resources.rs' },
+      { id: 'stack-detail', label: 'Stack', source: 'apps/showcase/src/pages/stack.rs' },
+      // Every backend presents the fullscreen cover — native modal on mobile, topmost child
+      // elsewhere (docs/cover.md). Driven from the Stack page.
+      { id: 'cover', label: 'Stack · fullscreen cover', source: 'apps/showcase/src/pages/stack.rs' },
+      { id: 'tabs-one', label: 'Tabs', source: 'apps/showcase/src/pages/tabs.rs' },
+      { id: 'text', label: 'Text', source: 'apps/showcase/src/pages/text.rs' },
+      { id: 'textareas', label: 'Text areas', source: 'apps/showcase/src/pages/text_areas.rs' },
+      { id: 'toolbars', label: 'Toolbars', source: 'apps/showcase/src/pages/toolbars.rs' },
+      // The toolbar's search field filtering the sidebar by localized word-prefix — the one shot
+      // that shows the nav responding to a query (docs/localization.md "Searching").
+      { id: 'toolbars-filtered', label: 'Toolbars · sidebar search', source: 'apps/showcase/src/pages/toolbars.rs' },
+      { id: 'tweaks', label: 'Tweaks', source: 'apps/showcase/src/pages/tweaks.rs' },
+      { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },
     ],
   },
 ];

@@ -116,6 +116,14 @@ pub enum Step {
         item: String,
         #[serde(default)]
         text: Option<String>,
+        /// Localized alternative to `text`, exactly as [`Step::Input`] takes one: resolve this
+        /// Fluent key (with `args`) in the RUN'S locale and type the result. A toolbar search
+        /// field that filters on localized text needs this — a literal query written in English
+        /// matches nothing once the run switches locale.
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        args: Option<BTreeMap<String, serde_json::Value>>,
         #[serde(default)]
         on: Option<bool>,
     },
@@ -708,7 +716,19 @@ fn exec(step: Step) -> Reply {
                     )),
                 }
             }
-            Step::Toolbar { item, text, on } => {
+            Step::Toolbar {
+                item,
+                text,
+                key,
+                args,
+                on,
+            } => {
+                // `key` resolves through the run's locale, like `input`'s does; `text` stays a
+                // literal. Resolved BEFORE the item lookup so a bad key fails as a bad key.
+                let text = match key {
+                    Some(k) => Some(format_key(&k, args)),
+                    None => text,
+                };
                 let model = day_core::toolbar::primary_toolbar_model();
                 let Some(found) = model.iter().find(|i| i.id == item) else {
                     // Retryable: a reactive toolbar may not have installed yet.

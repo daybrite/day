@@ -165,11 +165,89 @@ pub fn host_os() -> &'static str {
 }
 
 /// The default target for the current host — the sensible preselection for `day new app`'s target
-/// menu and the fallback when a non-interactive `day new app` gets no `--toolkit`.
+/// menu, the fallback when a non-interactive `day new app` gets no `--toolkit`, and what
+/// `day launch`/`day build` run when given no `-p`.
+///
+/// Each OS has one obvious native answer except Linux, where the toolkit follows the DESKTOP the
+/// user is actually running: a Qt desktop gets `linux-qt`, everything else `linux-gtk`. Getting
+/// this wrong is not cosmetic — a GTK build under Plasma (or vice versa) is the one that looks
+/// foreign, which is the whole thing Day exists to avoid.
 pub fn host_default() -> &'static str {
     match host_os() {
-        "linux" => "linux-gtk",
+        "linux" => linux_default_desktop(),
         "windows" => "windows-xaml",
         _ => "macos-appkit",
+    }
+}
+
+/// Qt or GTK for the running Linux desktop.
+///
+/// `XDG_CURRENT_DESKTOP` is the freedesktop-specified answer and is colon-separated for
+/// derivatives (`ubuntu:GNOME`), so every component is checked; `DESKTOP_SESSION` is the older
+/// fallback still set by some display managers. Unknown or unset means a plain GTK build, which is
+/// the safer default: GTK is present on more Linux systems than Qt, and a headless/CI shell has no
+/// desktop to match anyway.
+fn linux_default_desktop() -> &'static str {
+    desktop_toolkit(&[
+        std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
+        std::env::var("XDG_SESSION_DESKTOP").unwrap_or_default(),
+        std::env::var("DESKTOP_SESSION").unwrap_or_default(),
+    ])
+}
+
+/// The toolkit for a set of desktop-identifying strings — pure, so the mapping is testable
+/// without mutating the process environment.
+fn desktop_toolkit(values: &[String]) -> &'static str {
+    const QT_DESKTOPS: [&str; 6] = ["kde", "plasma", "lxqt", "deepin", "razor", "trinity"];
+    for value in values {
+        for part in value.split(':') {
+            let part = part.trim().to_ascii_lowercase();
+            if QT_DESKTOPS.iter().any(|d| part.contains(d)) {
+                return "linux-qt";
+            }
+        }
+    }
+    "linux-gtk"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every default names a real target — a typo here would only surface as a launch failure on
+    /// the one OS that hits that arm.
+    /// The desktops a Linux user actually runs, as their session variables report them.
+    #[test]
+    fn linux_desktops_map_to_their_toolkit() {
+        let v = |s: &str| vec![s.to_string()];
+        for qt in ["KDE", "plasma", "KDE:plasma", "LXQt", "Deepin"] {
+            assert_eq!(desktop_toolkit(&v(qt)), "linux-qt", "{qt}");
+        }
+        for gtk in [
+            "GNOME",
+            "ubuntu:GNOME",
+            "XFCE",
+            "MATE",
+            "Cinnamon",
+            "sway",
+            "",
+        ] {
+            assert_eq!(desktop_toolkit(&v(gtk)), "linux-gtk", "{gtk}");
+        }
+        // The first variable may be empty while a later one names the desktop.
+        assert_eq!(
+            desktop_toolkit(&["".into(), "".into(), "plasmawayland".into()]),
+            "linux-qt"
+        );
+        // Nothing set at all (a CI shell, a bare TTY) is GTK, not a panic.
+        assert_eq!(desktop_toolkit(&[]), "linux-gtk");
+    }
+
+    #[test]
+    fn host_defaults_name_real_targets() {
+        for name in ["macos-appkit", "windows-xaml", "linux-gtk", "linux-qt"] {
+            assert!(find(name).is_some(), "{name} is not in the target table");
+        }
+        assert!(find(host_default()).is_some());
     }
 }

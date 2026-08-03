@@ -143,6 +143,7 @@ menu-bar twin. A toggle or a search field emits `Event::ToolbarChanged { action,
 ```yaml
 - toolbar: { item: refresh }                  # run a button's command
 - toolbar: { item: search, text: "swift" }    # type into a search item
+- toolbar: { item: search, key: nav_stack }   # …or type a Fluent key resolved in the RUN'S locale
 - toolbar: { item: star, on: true }           # set a toggle
 ```
 

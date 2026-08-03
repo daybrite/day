@@ -286,20 +286,81 @@ pub fn standard_menu_bar(
             _ => own.push(item),
         }
     }
-    let mut take = |r: R| -> Option<day_spec::MenuItem> {
-        claimed
-            .iter()
-            .position(|(cr, _)| *cr == r)
-            .map(|i| claimed.remove(i).1)
-            .or_else(|| stock(r))
-    };
-
-    let mut out: Vec<day_spec::MenuItem> = leading.iter().filter_map(|r| take(*r)).collect();
+    let mut out: Vec<day_spec::MenuItem> = leading
+        .iter()
+        .filter_map(|r| take_slot(*r, &mut claimed, &mut own, &stock))
+        .collect();
+    let trailing_menus: Vec<day_spec::MenuItem> = trailing
+        .iter()
+        .filter_map(|r| take_slot(*r, &mut claimed, &mut own, &stock))
+        .collect();
     out.append(&mut own);
-    out.extend(trailing.iter().filter_map(|r| take(*r)));
+    out.extend(trailing_menus);
     // A role the platform does not know about still belongs on the bar rather than vanishing.
     out.extend(claimed.into_iter().map(|(_, m)| m));
     out
+}
+
+/// Fill one bar slot: the app's role-tagged menu if it claimed the slot, else its own menu that
+/// IS this standard menu by title, else the platform's stock one.
+///
+/// The title fallback is what keeps a bar from showing the same menu twice. Tagging a submenu
+/// with a [`day_spec::MenuBarRole`] is how an app claims a slot, but an app that simply builds
+/// its own "Edit" — the natural thing to write, and what the showcase did — would otherwise get
+/// the stock Edit in the slot AND its own further along the bar. An untagged submenu whose title
+/// is the stock menu's title is that menu, so it takes the slot instead of being appended.
+fn take_slot(
+    role: day_spec::MenuBarRole,
+    claimed: &mut Vec<(day_spec::MenuBarRole, day_spec::MenuItem)>,
+    own: &mut Vec<day_spec::MenuItem>,
+    stock: &impl Fn(day_spec::MenuBarRole) -> Option<day_spec::MenuItem>,
+) -> Option<day_spec::MenuItem> {
+    if let Some(i) = claimed.iter().position(|(cr, _)| *cr == role) {
+        return Some(claimed.remove(i).1);
+    }
+    // Match against the slot's OWN localized name, not the stock menu's label: it is the same
+    // string where a stock menu exists, and it still identifies the slot where none does. That
+    // second case is File — no platform ships a stock File, yet an app's hand-built File belongs
+    // in the File slot rather than adrift after View.
+    if let Some(title) = role_title(role)
+        && let Some(i) = own
+            .iter()
+            .position(|m| submenu_label(m).is_some_and(|l| menu_titles_match(l, &title)))
+    {
+        return Some(own.remove(i));
+    }
+    stock(role)
+}
+
+/// The slot's standard name in the current locale — the same catalog key a stock menu is labelled
+/// from, so an app's "Edit" matches in English and its "Édition" matches under `--locale fr`.
+fn role_title(role: day_spec::MenuBarRole) -> Option<String> {
+    use day_spec::MenuBarRole as B;
+    let key = match role {
+        B::File => "day-file",
+        B::Edit => "day-edit",
+        B::View => "day-view",
+        B::Window => "day-window",
+        B::Help => "day-help",
+        _ => return None,
+    };
+    Some(day_l10n::t(key))
+}
+
+fn submenu_label(item: &day_spec::MenuItem) -> Option<&str> {
+    match item {
+        day_spec::MenuItem::Submenu { label, .. } => Some(label),
+        _ => None,
+    }
+}
+
+/// Do two menu titles name the same menu? Compared case-insensitively, without surrounding space
+/// and without the `&` mnemonic markers GTK and Windows carry — `&View` and `View` are one menu.
+/// Both titles come from the same catalog in the same locale at the same moment, so a localized
+/// bar compares localized titles and still matches.
+fn menu_titles_match(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.replace('&', "").trim().to_lowercase();
+    norm(a) == norm(b)
 }
 
 #[cfg(test)]
@@ -355,6 +416,41 @@ mod tests {
             labels(&out),
             ["File", "Edit", "View", "Go", "Article", "Window", "Help"]
         );
+    }
+
+    /// An app that builds a standard menu by hand — an "Edit" submenu with no `bar_role` — gets
+    /// ONE Edit menu, in the Edit slot, not the stock one plus its own further along the bar.
+    /// This is the duplicate the showcase's macOS bar actually showed: Showcase, Edit, View,
+    /// File, Edit, View, Window, Help.
+    #[test]
+    fn an_untagged_menu_named_like_a_stock_one_takes_its_slot() {
+        let bar = standard_menu_bar(
+            vec![sub("File", None), sub("Edit", None), sub("View", None)],
+            &[BR::File, BR::Edit, BR::View],
+            &[BR::Window, BR::Help],
+            |r| match r {
+                // File is always the app's own; Window/Help are the platform's.
+                BR::File => None,
+                BR::Edit => Some(sub("Edit", Some(BR::Edit))),
+                BR::View => Some(sub("View", Some(BR::View))),
+                BR::Window => Some(sub("Window", Some(BR::Window))),
+                _ => Some(sub("Help", Some(BR::Help))),
+            },
+        );
+        assert_eq!(
+            labels(&bar),
+            ["File", "Edit", "View", "Window", "Help"],
+            "a hand-built standard menu must not double the stock one"
+        );
+    }
+
+    /// The title match ignores case, surrounding space, and the `&` mnemonics GTK/Windows carry.
+    #[test]
+    fn menu_titles_match_across_mnemonics_and_case() {
+        assert!(menu_titles_match("&View", "View"));
+        assert!(menu_titles_match("edit ", "Edit"));
+        assert!(menu_titles_match("Ansicht", "ansicht"));
+        assert!(!menu_titles_match("Edit", "View"));
     }
 
     /// A claimed slot replaces the stock menu in place — it does NOT also get the stock one,

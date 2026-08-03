@@ -39,12 +39,20 @@ fn fold(locale: &str, s: &str) -> String {
 /// start is the previous boundary of any segment that is word-like. Segments that are only
 /// spaces or punctuation are skipped, so `&` in "Canvas & shapes" is not a place a search can
 /// start.
+///
+/// Offset 0 is ALWAYS a start, whatever the segmenter says. Two reasons, one of which is a bug
+/// this closes: a query that is a prefix of the whole text should match it (that is what lets
+/// `canvas &` match "Canvas & shapes"), and under `WordBreakInvariantOptions` a run of Han
+/// ideographs comes back typed not-word-like — so `堆栈` had NO word starts at all and could not
+/// match even itself, which is how a localized title stopped matching when typed verbatim.
+/// Interior word starts in CJK still depend on the segmenter's dictionaries; this only
+/// guarantees the leading one.
 fn word_starts(text: &str) -> Vec<usize> {
     let segmenter = WordSegmenter::new_auto(WordBreakInvariantOptions::default());
-    let mut starts = Vec::new();
+    let mut starts = vec![0usize];
     let mut prev = 0usize;
     for (boundary, word_type) in segmenter.segment_str(text).iter_with_word_type() {
-        if boundary > prev && word_type.is_word_like() {
+        if boundary > prev && word_type.is_word_like() && prev != 0 {
             starts.push(prev);
         }
         prev = boundary;
@@ -205,5 +213,30 @@ mod tests {
     fn digits_count_as_a_word() {
         assert!(matches_search_in("en", "Day 2026 release", "2026"));
         assert!(matches_search_in("en", "Day 2026 release", "20"));
+    }
+}
+
+#[cfg(test)]
+mod self_match {
+    use super::*;
+
+    /// A title must always match ITSELF, in every locale — that is what makes a localized title
+    /// usable as a locale-portable query (the showcase walkthrough types one to filter its
+    /// sidebar). The CJK case is the one that broke: segmentation there is not space-driven.
+    #[test]
+    fn every_title_matches_itself() {
+        for (locale, title) in [
+            ("en", "Stack"),
+            ("fr", "Pile"),
+            ("ar", "المكدّس"),
+            ("zh-CN", "堆栈"),
+            ("zh", "堆栈"),
+            ("zh-CN", "工具栏"),
+        ] {
+            assert!(
+                matches_search_in(locale, title, title),
+                "{locale}: {title:?} does not match itself"
+            );
+        }
     }
 }
