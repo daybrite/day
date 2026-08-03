@@ -1360,6 +1360,25 @@ and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-M
 > non-panicking stderr writer. Still not implemented: per-entry guards on the remaining
 > backend-specific trampolines and the in-app debug error surface — those remain the design of record.
 
+> [!NOTE]
+> **The reactive runtime is unwind-safe (2026-08).** Containment only pays off if what survives is
+> coherent, and day-reactive used to restore its state *after* the user callback returned — a line
+> an unwind skips. Four sites now restore through an RAII guard instead, so a contained panic can no
+> longer strand runtime state: `Scope::enter` (a stranded `current_scope` left every later
+> `Signal::new` parented to a disposed scope, so its first read failed as "read of disposed
+> Signal" — a wrong diagnosis of a corrupt runtime), `untrack` (a stranded `None` observer silently
+> disabled dependency tracking process-wide), `batch` (a stranded depth stopped writes from ever
+> scheduling a drain), and the signal/memo read path. `recover_from_panic` additionally re-roots
+> `current_scope`, since a panic raised between scopes never reaches a guard.
+>
+> A node's value is now held in a shared cell (`Rc<RefCell<…>>`) rather than being moved out for the
+> duration of a `with`/`try_with` closure. That removes the last way a panic could destroy state — an
+> unwind used to lose the value permanently, killing that signal for the rest of the process — and it
+> makes **re-entrant reads work**: reading a signal inside its own closure returns the value instead
+> of finding the hole. Writing a signal while a read of it is in flight was previously silent data
+> loss (the read's restore clobbered the write) and is now a panic that names the cause. Measured at
+> ~4.6 ns per `with()` read, so the shared cell is not a hot-path regression.
+
 A panic unwinding out of an `extern "C"` / ObjC / JNI frame aborts the process with no useful
 report, so this policy was specified up front:
 

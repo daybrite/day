@@ -51,10 +51,20 @@ enum NodeKind {
 /// Type-erased memo comparator (a monomorphized `PartialEq::eq`).
 type MemoEq = fn(&dyn Any, &dyn Any) -> bool;
 
+/// A node's stored value, shared so a reader can hold it while the runtime borrow is released.
+///
+/// `with`/`try_with` must run the caller's closure WITHOUT holding the thread-local runtime
+/// borrow (the closure routinely reads other signals, which re-enters `with_rt`). This used to be
+/// done by taking the value out of the node and putting it back afterwards, which had two costs: a
+/// re-entrant read of the same signal found the hole and reported "disposed", and a panic inside
+/// the closure lost the value permanently. Sharing the cell instead lets a reader clone it out
+/// cheaply, so concurrent reads simply work and the value is never in limbo.
+type NodeValue = Rc<RefCell<Box<dyn Any>>>;
+
 struct Node {
     kind: NodeKind,
     state: NodeState,
-    value: Option<Box<dyn Any>>,
+    value: Option<NodeValue>,
     /// Memo recompute (returns boxed new value) — compared with `eq`.
     memo_compute: Option<Rc<dyn Fn() -> Box<dyn Any>>>,
     memo_eq: Option<MemoEq>,
@@ -282,14 +292,20 @@ fn refresh_memo(key: NodeKey) {
         rt.observers.pop();
         let tick = rt.tick;
         let node = &mut rt.nodes[key];
-        let changed = match (&node.value, node.memo_eq) {
-            (Some(old), Some(eq)) => !eq(old.as_ref(), new_value.as_ref()),
+        let changed = match (node.value.as_ref(), node.memo_eq) {
+            (Some(old), Some(eq)) => {
+                // A reader may be holding this cell; compare against it without disturbing them.
+                let old = old.borrow();
+                !eq(old.as_ref(), new_value.as_ref())
+            }
             _ => true,
         };
         node.last_run = tick;
         node.state = NodeState::Clean;
         if changed {
-            node.value = Some(new_value);
+            // Install a NEW cell rather than writing through the old one: a read in flight keeps
+            // reading the value it borrowed, for the duration of its closure, instead of panicking.
+            node.value = Some(Rc::new(RefCell::new(new_value)));
             node.last_changed = tick;
             rt.tick += 1;
         }
@@ -425,6 +441,10 @@ pub fn recover_from_panic() {
         rt.batch_depth = 0;
         rt.pending.clear();
         rt.observers.clear();
+        // The scope stack is unwound by `Scope::enter`'s guard, but a panic raised BETWEEN
+        // scopes (or from a callsite that set `current_scope` directly) can still leave it on a
+        // disposed scope, where every later `Signal::new` would be born dead. Re-root it.
+        rt.current_scope = rt.root_scope;
     });
 }
 
@@ -444,8 +464,21 @@ fn schedule_after_write(rt: &mut Runtime) -> Option<Rc<dyn Fn()>> {
 fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> bool) {
     let poster = with_rt(|rt| {
         let node = rt.nodes.get_mut(key)?;
-        let value = node.value.as_mut()?;
-        let changed = apply(value);
+        let cell = node.value.as_ref()?.clone();
+        let mut value = match cell.try_borrow_mut() {
+            Ok(v) => v,
+            // A write to a signal from inside its own `with`/`try_with` closure. Before the value
+            // was shared this silently did nothing (the read's restore clobbered the write), so
+            // say it plainly instead of losing the update.
+            Err(_) => panic!(
+                "day-reactive: wrote to a Signal while a with()/try_with() read of it is still \
+                 in flight — the write would be lost. Finish the read closure first (copy the \
+                 value out with get()) and write after it returns."
+            ),
+        };
+        let changed = apply(&mut value);
+        drop(value);
+        let node = rt.nodes.get_mut(key)?;
         if !changed {
             return None;
         }
@@ -464,13 +497,28 @@ fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> boo
 // ---------------------------------------------------------------------------
 
 /// Run `f` in a batch: writes coalesce; the synchronous fixpoint drain runs at batch close.
+/// Restores a piece of runtime state when it goes out of scope — on the normal path AND on an
+/// unwind. day-core deliberately CONTAINS panics at its trampoline boundaries (`pump_events`,
+/// posted tasks, lifecycle) so a panicking app callback degrades the UI instead of aborting the
+/// process; that guarantee is only worth anything if the reactive runtime is still coherent
+/// afterwards. Restoring after `f()` returns is not enough, because that line is skipped on unwind.
+struct RtGuard<F: FnMut(&mut Runtime)>(F);
+
+impl<F: FnMut(&mut Runtime)> Drop for RtGuard<F> {
+    fn drop(&mut self) {
+        with_rt(|rt| (self.0)(rt));
+    }
+}
+
 pub fn batch<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.batch_depth += 1);
-    let r = f();
-    let should_drain = with_rt(|rt| {
-        rt.batch_depth -= 1;
-        rt.batch_depth == 0 && !rt.draining && !rt.pending.is_empty()
-    });
+    let r = {
+        // Runs on unwind too, so a contained panic can't strand `batch_depth` above zero — which
+        // would stop every later write from scheduling a drain (a silently frozen UI).
+        let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth -= 1);
+        f()
+    };
+    let should_drain = with_rt(|rt| rt.batch_depth == 0 && !rt.draining && !rt.pending.is_empty());
     if should_drain {
         flush_sync();
     }
@@ -492,11 +540,12 @@ pub fn flush_now() {
 /// Run `f` without tracking reads.
 pub fn untrack<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.observers.push(None));
-    let r = f();
-    with_rt(|rt| {
+    // Popped on unwind too: a stranded `None` observer would silently disable dependency
+    // tracking for every read that followed, so nothing would ever update again.
+    let _g = RtGuard(|rt: &mut Runtime| {
         rt.observers.pop();
     });
-    r
+    f()
 }
 
 /// Install "post a drain on the main loop". Backends call this once at startup.
@@ -646,9 +695,11 @@ impl Scope {
     /// Run `f` with `self` as the current scope.
     pub fn enter<R>(self, f: impl FnOnce() -> R) -> R {
         let prev = with_rt(|rt| std::mem::replace(&mut rt.current_scope, self.key));
-        let r = f();
-        with_rt(|rt| rt.current_scope = prev);
-        r
+        // Restored on unwind too. Otherwise a contained panic leaves the runtime parented to
+        // this (usually transient, soon-disposed) scope, so every later `Signal::new` is created
+        // dead and its first read panics with a misleading "read of disposed Signal".
+        let _g = RtGuard(move |rt: &mut Runtime| rt.current_scope = prev);
+        f()
     }
 
     pub fn on_cleanup(self, f: impl FnOnce() + 'static) {
@@ -782,7 +833,7 @@ impl<T: 'static> Signal<T> {
         let created_at = Location::caller();
         let key = with_rt(|rt| {
             let k = create_node(rt, NodeKind::Signal, scope.key);
-            rt.nodes[k].value = Some(Box::new(value));
+            rt.nodes[k].value = Some(Rc::new(RefCell::new(Box::new(value) as Box<dyn Any>)));
             rt.nodes[k].created_at = created_at;
             k
         });
@@ -806,23 +857,16 @@ impl<T: 'static> Signal<T> {
     }
 
     pub fn try_with<R>(self, f: impl FnOnce(&T) -> R) -> Option<R> {
-        let value_ptr = with_rt(|rt| {
+        // Clone the shared cell out so `f` runs with the runtime borrow released (it routinely
+        // reads other signals). The value stays in the node throughout, so a re-entrant read of
+        // THIS signal inside `f` succeeds instead of reporting a disposed node, and a panic in
+        // `f` cannot strand it.
+        let cell = with_rt(|rt| {
             track_read(rt, self.key);
-            // Take the value out to run `f` without holding the RefCell borrow; put it back after.
-            rt.nodes.get_mut(self.key).and_then(|n| n.value.take())
-        });
-        match value_ptr {
-            Some(boxed) => {
-                let r = boxed.downcast_ref::<T>().map(f);
-                with_rt(|rt| {
-                    if let Some(n) = rt.nodes.get_mut(self.key) {
-                        n.value = Some(boxed);
-                    }
-                });
-                r
-            }
-            None => None,
-        }
+            rt.nodes.get(self.key).and_then(|n| n.value.clone())
+        })?;
+        let value = cell.borrow();
+        value.downcast_ref::<T>().map(f)
     }
 
     pub fn with_untracked<R>(self, f: impl FnOnce(&T) -> R) -> R {
@@ -939,9 +983,13 @@ impl<T: Send + 'static> Setter<T> {
         let key = self.key;
         on_main(move || {
             let poster = with_rt(|rt| {
+                let cell = rt.nodes.get(key)?.value.clone()?;
+                {
+                    let mut boxed = cell.try_borrow_mut().ok()?;
+                    let slot = boxed.downcast_mut::<T>()?;
+                    *slot = value;
+                }
                 let node = rt.nodes.get_mut(key)?;
-                let slot = node.value.as_mut().and_then(|b| b.downcast_mut::<T>())?;
-                *slot = value;
                 node.last_changed = rt.tick;
                 rt.tick += 1;
                 mark_observers(rt, key, NodeState::Dirty);
@@ -1011,20 +1059,16 @@ impl<T: 'static> Memo<T> {
         refresh_memo(self.key);
         let value = with_rt(|rt| {
             track_read(rt, self.key);
-            rt.nodes.get_mut(self.key).and_then(|n| n.value.take())
+            rt.nodes.get(self.key).and_then(|n| n.value.clone())
         });
         match value {
-            Some(boxed) => {
-                let r = boxed
+            // Shared, like `Signal::try_with`: the memo stays readable while `f` runs.
+            Some(cell) => {
+                let boxed = cell.borrow();
+                boxed
                     .downcast_ref::<EqBox<T>>()
                     .map(|e| f(&e.value))
-                    .unwrap_or_else(|| panic!("day-reactive: memo type mismatch"));
-                with_rt(|rt| {
-                    if let Some(n) = rt.nodes.get_mut(self.key) {
-                        n.value = Some(boxed);
-                    }
-                });
-                r
+                    .unwrap_or_else(|| panic!("day-reactive: memo type mismatch"))
             }
             None => panic!(
                 "day-reactive: read of disposed Memo created at {}",
@@ -1944,5 +1988,124 @@ mod resource_tests {
     fn spawner_missing_panics() {
         // Deliberately NOT installing the test spawner: this test thread's Runtime has none.
         let _r = Resource::new(|| (), |_| async { Ok::<_, std::convert::Infallible>(1) });
+    }
+}
+
+#[cfg(test)]
+mod unwind_safety_tests {
+    use super::*;
+
+    /// Run `f`, swallowing a panic, with the panic hook silenced so the test output stays clean.
+    fn contained(f: impl FnOnce() + std::panic::UnwindSafe) {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(f);
+        std::panic::set_hook(prev);
+        assert!(r.is_err(), "expected the closure to panic");
+    }
+
+    /// A panic inside `Scope::enter` must not leave the runtime parented to the transient scope.
+    /// Before the guard, every later `Signal::new` landed in a disposed scope and its first read
+    /// panicked with a misleading "read of disposed Signal".
+    #[test]
+    fn panic_in_scope_enter_restores_current_scope() {
+        let before = with_rt(|rt| rt.current_scope);
+        let scope = Scope::detached();
+        contained(|| scope.enter(|| panic!("boom in enter")));
+        assert_eq!(with_rt(|rt| rt.current_scope), before, "scope not restored");
+        // The real symptom: a signal created afterwards must still be alive and readable.
+        let s = Signal::new(7u32);
+        assert_eq!(s.get(), 7);
+    }
+
+    /// A panic inside `untrack` must pop its `None` observer, or dependency tracking stays off
+    /// for the rest of the process and nothing ever updates again.
+    #[test]
+    fn panic_in_untrack_restores_tracking() {
+        let depth = with_rt(|rt| rt.observers.len());
+        contained(|| untrack(|| panic!("boom in untrack")));
+        assert_eq!(with_rt(|rt| rt.observers.len()), depth, "observer stranded");
+
+        // Tracking still works: an effect re-runs when its source changes.
+        let src = Signal::new(0i32);
+        let runs = Rc::new(RefCell::new(0));
+        let r2 = runs.clone();
+        Effect::new(move || {
+            src.get();
+            *r2.borrow_mut() += 1;
+        });
+        flush_sync();
+        let before = *runs.borrow();
+        src.set(1);
+        flush_sync();
+        assert!(
+            *runs.borrow() > before,
+            "effect did not re-run — tracking is off"
+        );
+    }
+
+    /// A panic inside `batch` must not strand `batch_depth`, which would stop every later write
+    /// from scheduling a drain.
+    #[test]
+    fn panic_in_batch_restores_depth() {
+        let depth = with_rt(|rt| rt.batch_depth);
+        contained(|| batch(|| panic!("boom in batch")));
+        assert_eq!(with_rt(|rt| rt.batch_depth), depth, "batch depth stranded");
+    }
+
+    /// A panic inside a `with` closure must not consume the signal's value. Before the value was
+    /// shared it was taken out for the closure's duration, so an unwind lost it permanently and
+    /// the signal was dead for the rest of the process.
+    #[test]
+    fn panic_in_with_leaves_the_value_intact() {
+        let s = Signal::new(String::from("intact"));
+        contained(|| s.with(|_| panic!("boom in with")));
+        assert_eq!(s.with(|v| v.clone()), "intact");
+    }
+
+    /// Reading a signal from inside its own `with` closure now works. It used to find the hole
+    /// left by the take and panic with "read of disposed Signal".
+    #[test]
+    fn reentrant_read_inside_with_succeeds() {
+        let s = Signal::new(5u32);
+        let doubled = s.with(|outer| *outer + s.with(|inner| *inner));
+        assert_eq!(doubled, 10);
+        assert_eq!(
+            s.with(|v| *v),
+            5,
+            "value still in place after the nested read"
+        );
+    }
+
+    /// Two different signals read inside one another's closures — the ordinary case, and the
+    /// reason the closure must run with the runtime borrow released.
+    #[test]
+    fn nested_reads_of_distinct_signals_succeed() {
+        let a = Signal::new(2u32);
+        let b = Signal::new(3u32);
+        assert_eq!(a.with(|x| *x * b.with(|y| *y)), 6);
+    }
+
+    /// Writing a signal while a read of it is in flight is reported instead of silently lost.
+    #[test]
+    fn write_during_read_panics_with_a_clear_message() {
+        let s = Signal::new(1u32);
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            s.with(|_| s.set(2));
+        }));
+        std::panic::set_hook(prev);
+        let payload = r.unwrap_err();
+        // A `panic!` with no format arguments carries a `&'static str`, not a `String`.
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .expect("panic payload should be a string");
+        assert!(
+            msg.contains("in flight") && msg.contains("Signal"),
+            "message should name the cause, got: {msg}"
+        );
     }
 }
