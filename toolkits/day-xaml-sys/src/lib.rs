@@ -84,6 +84,17 @@ unsafe extern "C" {
     );
     // Arm the WinRT drag start on one cell (cell index == row for its whole life).
     pub fn day_xaml_cell_drag(cell: *mut c_void, id: u64, row: c_int);
+    // Emulated list row selection (docs/list.md): report a press on one cell as (node, row, mods)
+    // — mods bit 0 = ctrl (toggle), bit 1 = shift (range) — leaving the semantics to Rust. Also
+    // makes the cell hit-testable across its whole band.
+    pub fn day_xaml_list_cell_click(
+        cell: *mut c_void,
+        id: u64,
+        row: c_int,
+        cb: extern "C" fn(u64, c_int, c_int),
+    );
+    // Paint one cell's selected treatment (0 clears it).
+    pub fn day_xaml_cell_set_selected(cell: *mut c_void, on: c_int);
 
     // navigation sidebar menu (docs/navigation.md): a single-select ListView
     pub fn day_xaml_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;

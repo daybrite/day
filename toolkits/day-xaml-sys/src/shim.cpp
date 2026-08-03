@@ -1191,6 +1191,63 @@ void day_xaml_cell_drag(void* cell, unsigned long long id, int row) {
     });
 }
 
+// --- emulated list row selection (docs/list.md) ---
+// A press on a list cell reports (list node, row, modifiers); the Rust side owns every selection
+// DECISION (replace / toggle / extend) and calls back to paint the result, so the shim holds no
+// selection state. modifiers: bit 0 = ctrl (toggle), bit 1 = shift (range).
+typedef void (*DayRowClickCb)(unsigned long long id, int row, int modifiers);
+
+// Defined with the container helpers below: a Canvas paints nothing itself, so its background —
+// here, the selection fill — lives on a `Rectangle` shape kept as child[0], behind day's children.
+static WUXSh::Rectangle ensure_bg_rect(WUXC::Canvas const& canvas);
+
+// The emulated list's cell i shows row i for the cell's whole life (cells are created per row and
+// never re-indexed), so the row is fixed at install time — the same invariant day_xaml_cell_drag
+// relies on.
+void day_xaml_list_cell_click(void* cell, unsigned long long id, int row, DayRowClickCb cb) {
+    auto canvas = elem(cell).try_as<WUXC::Canvas>();
+    if (!canvas) return;
+    // An unpainted Canvas is not hit-testable (see day_xaml_enable_gesture), so a press would only
+    // land where the row's own content is and miss its padding — a click just inside the row band
+    // would do nothing. Giving the cell its background Rectangle up front — transparent, but
+    // PAINTED — makes the whole band pressable, and it is the same rect the selection recolors.
+    ensure_bg_rect(canvas).Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
+    canvas.PointerPressed(
+        [id, row, cb](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& e) {
+            auto mods = e.KeyModifiers();
+            int m = 0;
+            if ((mods & WS::VirtualKeyModifiers::Control) != WS::VirtualKeyModifiers::None) m |= 1;
+            if ((mods & WS::VirtualKeyModifiers::Shift) != WS::VirtualKeyModifiers::None) m |= 2;
+            cb(id, row, m);
+        });
+}
+
+// Paint (or clear) one cell's selected treatment. The fill is the theme's list-selection accent
+// where the app resources can be trusted; a DAY_THEME force makes them resolve for the SYSTEM
+// scheme, so the forced case falls back to a translucent accent — alpha-over-ground, so it reads
+// correctly in either scheme (the same reasoning as day_xaml_container_set_card).
+void day_xaml_cell_set_selected(void* cell, int on) {
+    auto canvas = elem(cell).try_as<WUXC::Canvas>();
+    if (!canvas) return;
+    auto rect = ensure_bg_rect(canvas);
+    if (!on) {
+        // Transparent, not null: the cell must stay hit-testable so the NEXT press still lands.
+        rect.Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
+        return;
+    }
+    if (g_forced_theme == 0) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"SystemControlHighlightListAccentLowBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                rect.Fill(brush);
+                return;
+            }
+        }
+    }
+    rect.Fill(WUXM::SolidColorBrush(color_argb(0x66'0078D4u)));
+}
+
 // Navigation sidebar item list (docs/navigation.md): a single-select ListView of route titles.
 // The NAV host + pages are plain Canvases; day-core's NavLayout positions the sidebar/detail
 // split, so no native split control is needed. Items are '\n'-joined (titles have no newlines).

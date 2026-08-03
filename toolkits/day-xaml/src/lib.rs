@@ -9,7 +9,7 @@
 #![cfg(windows)]
 
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_double, c_int, c_void};
 use std::rc::Rc;
@@ -188,14 +188,70 @@ struct ListEntry {
     /// Last host width a populate ran at, so `set_frame` only repopulates on a real width change
     /// (a populate's own child `set_frame`s must not schedule another, or it loops forever).
     last_width: c_int,
+    /// The width day's layout last framed the host at (-1 = never framed). This — not the host's
+    /// `ActualWidth`, which lags a posted populate by a layout pass — is what cells are sized from.
+    frame_width: c_int,
     /// Drag-to-reorder (docs/list.md): whether new cells get the WinRT drag armed.
     reorderable: bool,
     node: u64,
+    /// Selection (docs/list.md): whether rows select at all, whether several may be selected at
+    /// once, the currently selected rows, and the last plainly-clicked row (the shift anchor).
+    selectable: bool,
+    multi: bool,
+    selected: BTreeSet<usize>,
+    anchor: Option<usize>,
 }
 
 thread_local! {
-    /// List NODE id → host key, so the reorder callbacks (which carry the node) find their entry.
+    /// List NODE id → host key, so the reorder + row-click callbacks (which carry the node) find
+    /// their entry.
     static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+}
+
+/// Repaint every cell's selected treatment from the entry's selection set.
+fn list_paint_selection(entry: &ListEntry) {
+    for (i, &cell) in entry.cells.iter().enumerate() {
+        unsafe { ffi::day_xaml_cell_set_selected(cell, entry.selected.contains(&i) as c_int) };
+    }
+}
+
+/// A press on an emulated list cell (docs/list.md). Owns the selection semantics: a plain click
+/// replaces the selection, ctrl toggles the row, shift extends from the anchor (multi-select
+/// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
+extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
+    let row = row.max(0) as usize;
+    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+        return;
+    };
+    let emit_ev = LIST_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let st = m.get_mut(&host_key)?;
+        if !st.selectable {
+            return None;
+        }
+        let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
+        if st.multi && ctrl {
+            if !st.selected.remove(&row) {
+                st.selected.insert(row);
+            }
+            st.anchor = Some(row);
+        } else if st.multi && shift {
+            let a = st.anchor.unwrap_or(row);
+            st.selected = (a.min(row)..=a.max(row)).collect();
+        } else {
+            st.selected = std::iter::once(row).collect();
+            st.anchor = Some(row);
+        }
+        list_paint_selection(st);
+        Some(if st.multi {
+            Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
+        } else {
+            Event::SelectionChanged(row as i64)
+        })
+    });
+    if let Some(ev) = emit_ev {
+        emit(NodeId(node), ev);
+    }
 }
 
 /// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
@@ -301,15 +357,40 @@ fn list_populate(host_key: usize) {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host_key)?;
         let source = st.source.borrow().clone()?;
-        let (mut w, mut h) = (0.0_f64, 0.0_f64);
-        unsafe { ffi::day_xaml_widget_size(st.host, &mut w, &mut h) };
-        let width = w.max(1.0) as c_int;
+        // Cells are sized from the width day's layout FRAMED the host at — NOT from the host's
+        // `ActualWidth`. A populate is posted for the next loop turn, which routinely runs before
+        // XAML's layout pass has published the size `set_frame` just assigned, so `ActualWidth`
+        // reads a stale 0 and every cell gets built 1px wide.
+        let width = if st.frame_width > 0 {
+            st.frame_width
+        } else {
+            // `attach_list` populates before the host is ever framed: use whatever is realized.
+            let (mut w, mut h) = (0.0_f64, 0.0_f64);
+            unsafe { ffi::day_xaml_widget_size(st.host, &mut w, &mut h) };
+            w.round() as c_int
+        };
+        if width <= 0 {
+            // No usable width yet. Bail WITHOUT recording `last_width`, so the host's next
+            // `set_frame` still reads as a width change and schedules the real populate.
+            return None;
+        }
         let n = (source.len)();
         while st.cells.len() < n {
             let cell = unsafe { ffi::day_xaml_container_new() };
             unsafe { ffi::day_xaml_add_child(st.content, cell) };
+            // Cell index == row for the cell's whole life (docs/list.md), so both the press
+            // handler's row and the drag's are fixed here, at creation.
+            if st.selectable {
+                unsafe {
+                    ffi::day_xaml_list_cell_click(
+                        cell,
+                        st.node,
+                        st.cells.len() as c_int,
+                        on_list_row_click,
+                    )
+                };
+            }
             if st.reorderable {
-                // Cell index == row for the cell's whole life (docs/list.md).
                 unsafe { ffi::day_xaml_cell_drag(cell, st.node, st.cells.len() as c_int) };
             }
             st.cells.push(cell);
@@ -339,6 +420,13 @@ fn list_populate(host_key: usize) {
         unsafe { ffi::day_xaml_set_visible(cell, 0) };
     }
     unsafe { ffi::day_xaml_list_set_content_size(content, width, (n as f64 * rowh) as c_int) };
+    // Cells just added to the pool start unpainted, and a reload can move which rows are selected
+    // under a selection that hasn't changed — so repaint from the entry's set on every populate.
+    LIST_STATE.with(|m| {
+        if let Some(st) = m.borrow().get(&host_key) {
+            list_paint_selection(st);
+        }
+    });
 }
 
 struct TabsState {
@@ -1033,8 +1121,13 @@ impl Toolkit for Xaml {
                                 source: Rc::new(RefCell::new(None)),
                                 cells: Vec::new(),
                                 last_width: -1,
+                                frame_width: -1,
                                 reorderable: p.reorderable,
                                 node: id.0,
+                                selectable: p.selectable,
+                                multi: p.multi_select,
+                                selected: BTreeSet::new(),
+                                anchor: None,
                             },
                         )
                     });
@@ -1183,11 +1276,19 @@ impl Toolkit for Xaml {
                     Some(ListPatch::ScrollToRow(row)) => {
                         schedule_list_scroll_row(h.0 as usize, *row)
                     }
-                    // Not implemented: RowSizeInvalidated (pooled cells re-measure on the next
-                    // populate) and Selected (no programmatic selection sync yet).
-                    Some(ListPatch::RowSizeInvalidated(_))
-                    | Some(ListPatch::Selected(_))
-                    | None => {}
+                    Some(ListPatch::Selected(rows)) => {
+                        // Programmatic selection sync (empty = clear): repaint, no re-emit.
+                        LIST_STATE.with(|m| {
+                            if let Some(st) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                st.selected = rows.iter().copied().collect();
+                                st.anchor = rows.last().copied();
+                                list_paint_selection(st);
+                            }
+                        });
+                    }
+                    // Not implemented: RowSizeInvalidated — pooled cells re-measure on the next
+                    // populate.
+                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
@@ -1573,11 +1674,16 @@ impl Toolkit for Xaml {
         // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
         // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
         // set_frames a populate itself makes (on row content) don't schedule another forever.
+        let framed = frame.size.width.round() as c_int;
         let width_changed = LIST_STATE.with(|m| {
-            m.borrow()
-                .get(&(h.0 as usize))
-                .map(|st| st.last_width != frame.size.width.round() as c_int)
-                .unwrap_or(false)
+            let mut m = m.borrow_mut();
+            let Some(st) = m.get_mut(&(h.0 as usize)) else {
+                return false;
+            };
+            // Remember the assigned width for the populate this schedules: the host's own
+            // `ActualWidth` is still the PREVIOUS pass's value at that point (see ListEntry).
+            st.frame_width = framed;
+            st.last_width != framed
         });
         if width_changed {
             schedule_list_populate(h.0 as usize);

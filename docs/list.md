@@ -137,11 +137,11 @@ toolkit. `.selected_rows(Fn() -> Vec<usize>)` reactively syncs app state back in
 selection (`ListPatch::Selected`; empty clears) without a selection-event echo — drive it from
 the same signal `on_selection` writes to get a two-way binding and a "clear selection" action.
 
-Support matrix: **AppKit** (native `NSTableView` multi-selection) and **Qt** (the emulated
-list: per-cell press filter, palette-highlight treatment, ctrl/cmd toggles, shift extends)
-honor `multi_select` and `ListPatch::Selected`. The remaining toolkits report single
-selection (`SelectionChanged`) and ignore the multi flag and the programmatic sync — the
-one-element `on_selection` contract still holds there.
+Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt** and **XAML** (the
+emulated lists: a per-cell press hook, a highlight treatment on the cell's background, ctrl/cmd
+toggles, shift extends) honor `multi_select` and `ListPatch::Selected`. The remaining toolkits
+report single selection (`SelectionChanged`) and ignore the multi flag and the programmatic
+sync — the one-element `on_selection` contract still holds there.
 
 ## Programmatic scrolling
 
