@@ -289,6 +289,7 @@ mod tests {
         parse_manifest(
             &format!("schema = 1\n[app]\nid = \"dev.x.demo\"\n{perms}"),
             CARGO,
+            None,
         )
         .expect("parse")
     }

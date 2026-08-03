@@ -440,7 +440,11 @@ fn validate_permissions(day_toml: &str) -> Result<(), String> {
 }
 
 /// Parse Day.toml text + the sibling Cargo.toml's `[package]` into a Manifest.
-pub fn parse_manifest(day_toml: &str, cargo_toml: &str) -> Result<Manifest, String> {
+pub fn parse_manifest(
+    day_toml: &str,
+    cargo_toml: &str,
+    workspace_version: Option<&str>,
+) -> Result<Manifest, String> {
     // Before the typed parse: serde's untagged `Declaration` turns any mistake in [permissions]
     // into an unactionable "data did not match any variant".
     validate_permissions(day_toml)?;
@@ -462,12 +466,55 @@ pub fn parse_manifest(day_toml: &str, cargo_toml: &str) -> Result<Manifest, Stri
         .and_then(|v| v.as_str())
         .ok_or("Cargo.toml: no package.name")?
         .to_string();
-    manifest.app.version = package
-        .get("version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0.1.0")
-        .to_string();
+    // `version.workspace = true` is the common shape for an app inside a workspace — including
+    // every app in this repo — so the inherited value is resolved, not defaulted. Silently
+    // falling back to a literal is worse than it looks: `app.version` stamps CFBundleShort
+    // VersionString, Android's versionName, the MSIX/NSIS version and the .hap's, so a wrong
+    // one ships in the artifacts, not just in the debug title bar.
+    manifest.app.version = match package.get("version") {
+        Some(v) if v.as_str().is_some() => v.as_str().unwrap_or_default().to_string(),
+        Some(v) if inherits_from_workspace(v) => workspace_version
+            .ok_or(
+                "Cargo.toml: version.workspace = true, but no [workspace.package] version \
+                    was found in an ancestor Cargo.toml",
+            )?
+            .to_string(),
+        _ => "0.1.0".to_string(),
+    };
     Ok(manifest)
+}
+
+/// Is this a `<field>.workspace = true` inheritance marker?
+fn inherits_from_workspace(value: &toml::Value) -> bool {
+    value
+        .get("workspace")
+        .and_then(|w| w.as_bool())
+        .unwrap_or(false)
+}
+
+/// The `[workspace.package] version` of the nearest ancestor that declares a `[workspace]` — the
+/// same search cargo itself does when resolving inheritance.
+pub fn workspace_package_version(start: &Path) -> Option<String> {
+    for dir in start.ancestors() {
+        let candidate = dir.join("Cargo.toml");
+        let Ok(text) = std::fs::read_to_string(&candidate) else {
+            continue;
+        };
+        // `toml::from_str`, not `str::parse` — the latter parses a bare VALUE in this toml
+        // version and fails on the first table header, which is every Cargo.toml.
+        let Ok(value) = toml::from_str::<toml::Value>(&text) else {
+            continue;
+        };
+        let Some(workspace) = value.get("workspace") else {
+            continue;
+        };
+        return workspace
+            .get("package")
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+    }
+    None
 }
 
 /// Find the nearest ancestor directory containing Day.toml (from `start` or cwd).
@@ -487,7 +534,8 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
                     cargo_path.display()
                 )
             })?;
-            let manifest = parse_manifest(&day_toml, &cargo_toml)?;
+            let inherited = workspace_package_version(&dir);
+            let manifest = parse_manifest(&day_toml, &cargo_toml, inherited.as_deref())?;
             // Always hand back an ABSOLUTE root. A relative `--project` (e.g. `apps/showcase`) would
             // otherwise flow into build-tool arguments like xcodebuild's `SYMROOT` as a relative path;
             // xcodebuild resolves relative build paths against each target's own working directory, so
@@ -517,7 +565,12 @@ mod tests {
 
     #[test]
     fn identity_derives_from_cargo_toml() {
-        let m = parse_manifest("schema = 1\n[app]\nid = \"dev.example.demo\"\n", CARGO).unwrap();
+        let m = parse_manifest(
+            "schema = 1\n[app]\nid = \"dev.example.demo\"\n",
+            CARGO,
+            None,
+        )
+        .unwrap();
         assert_eq!(m.app.name, "demo-app");
         assert_eq!(m.app.version, "1.2.3");
         let r = m.resolve("macos-appkit");
@@ -550,6 +603,7 @@ title = "Demo for macOS Qt"
 build = 7
 "#,
             CARGO,
+            None,
         )
         .unwrap();
         assert_eq!(m.resolve("ios-uikit").title, "Demo");
@@ -564,10 +618,17 @@ build = 7
 
     #[test]
     fn schema_and_shape_are_validated() {
-        assert!(parse_manifest("schema = 2\n[app]\nid = \"x\"\n", CARGO).is_err());
-        assert!(parse_manifest("schema = 1\n", CARGO).is_err()); // no [app]
+        assert!(parse_manifest("schema = 2\n[app]\nid = \"x\"\n", CARGO, None).is_err());
+        assert!(parse_manifest("schema = 1\n", CARGO, None).is_err()); // no [app]
         // A typo'd scalar under [app] can't parse as an override table.
-        assert!(parse_manifest("schema = 1\n[app]\nid = \"x\"\ntitel = \"y\"\n", CARGO).is_err());
+        assert!(
+            parse_manifest(
+                "schema = 1\n[app]\nid = \"x\"\ntitel = \"y\"\n",
+                CARGO,
+                None
+            )
+            .is_err()
+        );
     }
 
     #[cfg(windows)]
@@ -596,7 +657,8 @@ build = 7
     /// checked into every app in the tree.
     #[test]
     fn manifest_without_permissions_still_parses() {
-        let m = parse_manifest("schema = 1\n[app]\nid = \"dev.x.demo\"\n", CARGO).expect("parse");
+        let m =
+            parse_manifest("schema = 1\n[app]\nid = \"dev.x.demo\"\n", CARGO, None).expect("parse");
         assert!(m.permissions.declared.is_empty());
         assert!(m.permissions.raw.android.is_empty());
     }
@@ -622,7 +684,7 @@ android = ["android.permission.READ_CONTACTS"]
 ios = { NSContactsUsageDescription = "Find friends." }
 ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when = "inuse" }]
 "#;
-        let m = parse_manifest(toml, CARGO).expect("parse");
+        let m = parse_manifest(toml, CARGO, None).expect("parse");
         assert_eq!(m.permissions.declared.len(), 3);
 
         let camera = &m.permissions.declared["camera"];
@@ -673,6 +735,7 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
         let err = parse_manifest(
             "schema = 1\n[app]\nid = \"dev.x.demo\"\n[permissions]\ncammera = \"typo\"\n",
             CARGO,
+            None,
         )
         .expect_err("should reject");
         assert!(err.contains("cammera"), "{err}");
@@ -688,11 +751,50 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
         let err = parse_manifest(
             "schema = 1\n[app]\nid = \"dev.x.demo\"\n[permissions.camera]\nresaon = \"typo\"\n",
             CARGO,
+            None,
         )
         .expect_err("should reject");
         assert!(
             err.contains("resaon") || err.contains("unknown field"),
             "{err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod workspace_inheritance {
+    use super::*;
+
+    /// `version.workspace = true` resolves from the nearest ancestor `[workspace.package]` — the
+    /// shape every app in this repo uses. Before this, the parse fell back to a literal "0.1.0",
+    /// which then stamped every packaged artifact.
+    #[test]
+    fn an_inherited_version_resolves_from_the_workspace() {
+        const INHERITED: &str = "[package]\nname = \"demo\"\nversion.workspace = true\n";
+        let m = parse_manifest(
+            "schema = 1\n[app]\nid = \"dev.example.demo\"\n",
+            INHERITED,
+            Some("9.9.9"),
+        )
+        .expect("parse");
+        assert_eq!(m.app.version, "9.9.9");
+    }
+
+    /// An inherited version with no workspace to inherit from is an error, not a quiet default:
+    /// the wrong version reaches shipped artifacts.
+    #[test]
+    fn an_inherited_version_without_a_workspace_is_an_error() {
+        const INHERITED: &str = "[package]\nname = \"demo\"\nversion.workspace = true\n";
+        let err = parse_manifest("schema = 1\n[app]\nid = \"dev.x.demo\"\n", INHERITED, None)
+            .expect_err("must not silently default");
+        assert!(err.contains("workspace"), "{err}");
+    }
+
+    /// The repo's own workspace answers for the showcase — the case in the bug report.
+    #[test]
+    fn this_repo_resolves_its_own_workspace_version() {
+        let here = Path::new(env!("CARGO_MANIFEST_DIR")); // crates/day-cli
+        let found = workspace_package_version(here);
+        assert_eq!(found.as_deref(), Some(env!("CARGO_PKG_VERSION")));
     }
 }

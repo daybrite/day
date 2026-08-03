@@ -468,13 +468,18 @@ jobs:
           $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json | tee "$RUNNER_TEMP/pack.json"
           codesign -vvv --deep --strict build/day/pack/macos-appkit/*.app
           hdiutil verify build/day/dist/*.dmg
-      # Hand the UNSIGNED .app to the notarize job. tar, because upload-artifact preserves neither
-      # the executable bit nor symlinks — both of which a .app bundle needs to survive codesign.
+      # Hand the UNSIGNED .app onward. Archived rather than uploaded as loose files, because
+      # upload-artifact preserves neither the executable bit nor symlinks — both of which a .app
+      # bundle needs to survive codesign. `ditto -c -k` is the archiver for the job: it is Apple's
+      # own, it keeps the mode bits and symlinks a bundle depends on (a plain `zip` without `-y`
+      # would flatten the symlinks), and pack/ios.rs already uses it to build the unsigned .ipa.
       # The entitlements file (if [signing.macos] sets one) rides along so the notarize job can
       # apply it without checking the repo out; `day pack` is the only other consumer of that key,
       # so the two must be updated together (§16.5).
+      # Uploaded on every ref, not just tags: `notarize` consumes it on tags, and
+      # `macos-appkit-repro` compares against it on pushes to main (§20.3).
       - name: Stage the .app for release signing
-        if: ${{ matrix.toolkit == 'appkit' && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ matrix.toolkit == 'appkit' }}
         working-directory: apps/showcase
         run: |
           STAGE="$RUNNER_TEMP/appstage"
@@ -483,13 +488,13 @@ jobs:
           for a in build/day/pack/macos-appkit/*.app; do ditto "$a" "$STAGE/$(basename "$a")"; done
           ENT="$(sed -n 's/^entitlements = "\(.*\)".*/\1/p' Day.toml | head -1)"
           if [ -n "$ENT" ]; then cp "$ENT" "$STAGE/entitlements.plist"; fi
-          tar -C "$STAGE" -cf "$RUNNER_TEMP/showcase-app.tar" .
+          ditto -c -k "$STAGE" "$RUNNER_TEMP/showcase-app.zip"
       - name: Upload the unsigned .app
-        if: ${{ matrix.toolkit == 'appkit' && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ matrix.toolkit == 'appkit' }}
         uses: actions/upload-artifact@v7
         with:
           name: showcase-app-${{ matrix.combo }}
-          path: ${{ runner.temp }}/showcase-app.tar
+          path: ${{ runner.temp }}/showcase-app.zip
           if-no-files-found: error
       # On tags the release .dmg comes from `notarize` instead — uploading here too would put a
       # second, dev-signed .dmg into the release job's `showcase-dist-*` download.
@@ -547,7 +552,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stage"
-          tar -C "$RUNNER_TEMP/stage" -xf "$RUNNER_TEMP/incoming/showcase-app.tar"
+          ditto -x -k "$RUNNER_TEMP/incoming/showcase-app.zip" "$RUNNER_TEMP/stage"
           APP="$(find "$RUNNER_TEMP/stage" -maxdepth 1 -name '*.app' | head -1)"
           [ -n "$APP" ] || { echo "::error::no .app in the artifact"; exit 1; }
           {
@@ -1512,6 +1517,442 @@ jobs:
   # msrv: the declared minimum supported Rust (workspace rust-version) still
   # builds the host-portable crates (§20.5).
   # ---------------------------------------------------------------------------
+  # === Reproducible-build verification (DESIGN.md §20.3) =========================================
+  # One follow-up job per packing platform-toolkit. Each rebuilds the SAME commit that its parent
+  # job just packed, from a checkout at a DIFFERENT absolute path (`repro-src/`, so the build tree
+  # sits one level deeper than the parent's `$GITHUB_WORKSPACE`), then compares the result against
+  # the parent's uploaded artifact.
+  #
+  # `day pack` hardcodes its output to `<project-root>/build/day/dist` (pack/mod.rs) and
+  # `find_project` canonicalizes the project root to an absolute path, so a checkout at a different
+  # path really does drive every downstream tool from a different prefix — which is the point: a
+  # source path baked into the binary shows up here as a payload mismatch.
+  #
+  # scripts/ci/repro-check.sh decides the outcome. The payload tier (the compiled code, pulled out
+  # of whatever container it ships in) is a HARD failure. The container tier is advisory, because
+  # hdiutil/gradle/flatpak-builder/makeappx/makensis all stamp mtimes and nothing is wired to
+  # SOURCE_DATE_EPOCH yet. Exit 10 means "code matched, packaging did not" and only warns.
+  #
+  # Pushes to main only. PRs are skipped because these double the build cost across six runner
+  # platforms and reproducibility drift is not a review blocker. TAGS are skipped for a harder
+  # reason: on a tag the parent jobs release-sign their output, and `codesign --timestamp` /
+  # `signtool /tr` embed a wall-clock timestamp from Apple's and DigiCert's TSAs, so a signed
+  # artifact cannot be byte-identical to anything, ever. Comparing there would report noise. The
+  # alternative — handing these jobs the signing secrets so they could produce a matching
+  # signature — is exactly the exposure §20.2 exists to prevent, so it is not on the table.
+
+  macos-appkit-repro:
+    name: repro (macos-appkit)
+    needs: [macos]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: macos-26
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Download the day CLI (release, matching this runner's os+arch)
+        uses: actions/download-artifact@v8
+        with:
+          name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        run: $DAY_BIN pack -p macos-appkit --no-version-in-name --no-notarize --format json
+      # The .app tree, not the .dmg: hdiutil output is nondeterministic by construction, so the
+      # bundle is where the signal is. The parent uploads the same tree on every ref.
+      - name: Download the .app packed by the macos job
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-app-macos-appkit
+          path: incoming
+      - name: Compare
+        run: |
+          set -euo pipefail
+          mkdir -p original rebuilt
+          ditto -x -k incoming/showcase-app.zip original
+          rm -f original/entitlements.plist
+          for a in repro-src/apps/showcase/build/day/pack/macos-appkit/*.app; do
+            ditto "$a" "rebuilt/$(basename "$a")"
+          done
+          brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh macos-appkit original rebuilt repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::macos-appkit is byte-for-byte reproducible" ;;
+            10) echo "::warning::macos-appkit code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-macos-appkit
+          path: repro-report
+          if-no-files-found: warn
+
+  ios-uikit-repro:
+    name: repro (ios-uikit)
+    needs: [ios-uikit]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: macos-26
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
+      - uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-ios-uikit
+          path: original
+      - name: Compare
+        run: |
+          set -euo pipefail
+          brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh ios-uikit \
+            original repro-src/apps/showcase/build/day/dist repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::ios-uikit is byte-for-byte reproducible" ;;
+            10) echo "::warning::ios-uikit code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-ios-uikit
+          path: repro-report
+          if-no-files-found: warn
+
+  linux-repro:
+    name: repro (${{ matrix.combo }})
+    needs: [linux]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - combo: linux-gtk
+            toolkit: gtk
+          - combo: linux-qt
+            toolkit: qt
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install toolkit deps
+        run: |
+          sudo apt-get update
+          case "${{ matrix.toolkit }}" in
+            qt)  sudo apt-get install -y qt6-base-dev qt6-webengine-dev pkg-config ;;
+            gtk) sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config ;;
+          esac
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
+      - uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-${{ matrix.combo }}
+          path: original
+      - name: Compare
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends diffoscope \
+            || echo "::warning::diffoscope unavailable; comparison continues without it"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }} \
+            original repro-src/apps/showcase/build/day/dist repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::${{ matrix.combo }} is byte-for-byte reproducible" ;;
+            10) echo "::warning::${{ matrix.combo }} code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-${{ matrix.combo }}
+          path: repro-report
+          if-no-files-found: warn
+
+  android-mdc-repro:
+    name: repro (android-mdc)
+    needs: [android-mdc]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.1"
+          add-job-summary: "never"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Set up the Android cross-compile targets
+        run: |
+          rustup target add x86_64-linux-android aarch64-linux-android
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        env:
+          DAY_ANDROID_ABI: arm64-v8a,x86_64
+        run: $DAY_BIN pack -p android-mdc --no-version-in-name --format json
+      - uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-android-mdc
+          path: original
+      - name: Compare
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends diffoscope \
+            || echo "::warning::diffoscope unavailable; comparison continues without it"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh android-mdc \
+            original repro-src/apps/showcase/build/day/dist repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::android-mdc is byte-for-byte reproducible" ;;
+            10) echo "::warning::android-mdc code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-android-mdc
+          path: repro-report
+          if-no-files-found: warn
+
+  windows-xaml-repro:
+    name: repro (windows-xaml)
+    needs: [windows-xaml]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
+      - uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-windows-xaml
+          path: original
+      # diffoscope is a Python package; on Windows most of its external comparators are missing, so
+      # it degrades to a binary diff. repro-check.sh reports its absence rather than assuming.
+      - name: Compare
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet diffoscope || echo "::warning::diffoscope unavailable on this runner"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh windows-xaml \
+            original repro-src/apps/showcase/build/day/dist repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::windows-xaml is byte-for-byte reproducible" ;;
+            10) echo "::warning::windows-xaml code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-windows-xaml
+          path: repro-report
+          if-no-files-found: warn
+
+  harmony-arkui-repro:
+    name: repro (harmony-arkui)
+    needs: [harmony-arkui]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    # Mirrors the parent job, which is continue-on-error at job level: the OHOS toolchain download
+    # is the flakiest leg in this workflow, and a failed SDK fetch is not a reproducibility signal.
+    continue-on-error: true
+    timeout-minutes: 90
+    env:
+      CLT_VERSION: "5.1.0.840"
+      CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: openharmony-rs/setup-ohos-sdk@v1
+        id: ohos-sdk
+        with:
+          version: "5.1.0"
+      # These four steps mirror the harmony-arkui job exactly; they are the minimum that makes
+      # `day pack -p harmony-arkui` work at all. Any change there has to be made here too.
+      - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
+        run: |
+          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
+          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
+          {
+            echo "OHOS_NDK_HOME=$NATIVE"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang"
+          } >> "$GITHUB_ENV"
+      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
+        uses: actions/cache@v6
+        with:
+          path: ~/ohos-clt
+          key: ohos-clt-${{ env.CLT_VERSION }}
+      - name: Install hvigor/ohpm from the (Linux) command-line-tools via node wrappers
+        run: |
+          set -euo pipefail
+          C="$HOME/ohos-clt/command-line-tools"
+          if [ ! -f "$C/hvigor/bin/hvigorw.js" ]; then
+            mkdir -p ~/ohos-clt && cd ~/ohos-clt
+            curl -fSL -o clt.zip "$CLT_URL"
+            unzip -q -o clt.zip && rm -f clt.zip
+          fi
+          mkdir -p "$HOME/ohos-bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/hvigor/bin/hvigorw.js" "$@"\n' "$C" > "$HOME/ohos-bin/hvigorw"
+          printf '#!/usr/bin/env bash\nexec node "%s/ohpm/bin/pm-cli.js" "$@"\n' "$C" > "$HOME/ohos-bin/ohpm"
+          chmod +x "$HOME/ohos-bin/hvigorw" "$HOME/ohos-bin/ohpm"
+          echo "$HOME/ohos-bin" >> "$GITHUB_PATH"
+          echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
+      - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
+        run: |
+          set -euo pipefail
+          OH="$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")"
+          BASE="$HOME/ohos-ohsdk"
+          mkdir -p "$BASE"
+          ln -sfn "$OH" "$BASE/18"
+          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Rebuild and pack from a different directory
+        working-directory: repro-src/apps/showcase
+        env:
+          DAY_OHOS_ARCH: arm64
+        run: $DAY_BIN pack -p harmony-arkui --no-version-in-name --format json
+      - uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-harmony-arkui
+          path: original
+      - name: Compare
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends diffoscope \
+            || echo "::warning::diffoscope unavailable; comparison continues without it"
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh harmony-arkui \
+            original repro-src/apps/showcase/build/day/dist repro-report
+          rc=$?
+          set -e
+          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          case $rc in
+            0)  echo "::notice::harmony-arkui is byte-for-byte reproducible" ;;
+            10) echo "::warning::harmony-arkui code is reproducible; packaging container differs" ;;
+            *)  exit $rc ;;
+          esac
+      - name: Upload the reproducibility report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repro-report-harmony-arkui
+          path: repro-report
+          if-no-files-found: warn
+
   msrv:
     runs-on: ubuntu-24.04
     steps:

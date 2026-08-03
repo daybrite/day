@@ -2778,8 +2778,10 @@ one job, `notarize`, and from nothing else in any workflow. The rule it enforces
 builds the app and the credentials that sign it never occupy the same runner.**
 
 `macos` builds and packs at the dev tier on every ref, tags included, then uploads the unsigned
-`.app` as a tar (`upload-artifact` preserves neither the executable bit nor symlinks). `notarize`
-picks that tar up and re-runs the signing half of §16.5's macOS lane — sign inside-out → `hdiutil`
+`.app` as a `ditto -c -k` zip (`upload-artifact` preserves neither the executable bit nor symlinks,
+and a bundle needs both to survive `codesign`; `ditto` keeps them, a plain `zip` drops the
+symlinks). `notarize` expands it with `ditto -x -k` and re-runs the signing half of §16.5's macOS
+lane — sign inside-out → `hdiutil`
 → sign the dmg → `notarytool` → `stapler`. Duplicating those stages in YAML is the cost of the
 isolation, so a change to either copy updates the other.
 
@@ -2802,6 +2804,50 @@ absent from the artifact glob.
 Residual exposure, recorded rather than fixed here: `ios-uikit`, `android-mdc`, and
 `harmony-arkui` still import their signing material into jobs that run repo code, and every
 third-party action in the workflow floats on a tag rather than a commit SHA.
+
+### §20.3 Reproducible-build verification
+
+> [!NOTE]
+> **Status: shipped, partial by design.** The payload tier is enforced; the container tier reports
+> but does not fail. Nothing in the tree sets `SOURCE_DATE_EPOCH` yet.
+
+Every platform-toolkit job that runs `day pack` has a follow-up `<combo>-repro` job. It rebuilds
+the same commit from a checkout at a different absolute path (`repro-src/`) and compares the result
+against the artifact the parent uploaded. `day pack` hardcodes its output under
+`<project-root>/build/day/dist` and `find_project` canonicalizes that root, so the second build
+genuinely drives every downstream tool from a different prefix — a source path baked into a binary
+surfaces as a mismatch rather than hiding.
+
+`scripts/ci/repro-check.sh` grades the result in two tiers:
+
+| Tier | What it compares | On mismatch |
+| --- | --- | --- |
+| payload | the compiled code — Mach-O / ELF / PE / `.so` — extracted from whatever container ships it | **fails the job** |
+| container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns, uploads a diffoscope report |
+
+The split reflects what was measured, not a preference. On `macos-appkit` the compiled executable
+is byte-identical across build directories once two things are normalized away: the Mach-O
+`LC_UUID`, which Apple's linker derives from the object-file paths, and the ad-hoc signature that
+covers it (`scripts/ci/macho-normalize.py`). The `.dmg` around it differs on *every* build, even
+in the same directory, because `hdiutil` stamps mtimes. The same holds for the other containers —
+`ditto -c -k`, Gradle's zip writer, `flatpak-builder`'s ostree commit, `makeappx`, `makensis` —
+none of which is wired to `SOURCE_DATE_EPOCH` today. Failing on that would make the check
+permanently red and teach everyone to ignore it.
+
+Exit codes: `0` both tiers match, `10` code matches and packaging does not, `1` the code itself
+differs, `2` the two builds produced different file lists. On any mismatch the job installs
+diffoscope and attaches its HTML and text reports as `repro-report-<combo>`.
+
+These run on pushes to `main` only. Tags are excluded because release signing embeds a wall-clock
+TSA timestamp, which makes a signed artifact non-reproducible by construction; giving the repro
+jobs signing secrets so they could match would reopen exactly the exposure
+[§20.2](#202-release-signing-isolation) closes.
+
+Known gaps, recorded rather than papered over: `.flatpak` has no payload extractor (an ostree
+bundle, not an archive), so the Linux combos are checked at the container tier only; on Windows
+diffoscope installs via pip without most of its comparators and degrades to a binary diff; and the
+PE `TimeDateStamp` is not normalized, so `windows-xaml` may report payload drift that is only a
+header timestamp. Closing these means wiring `SOURCE_DATE_EPOCH` through the packaging tools.
 
 ### §20.5 Toolchain and dependency governance
 
