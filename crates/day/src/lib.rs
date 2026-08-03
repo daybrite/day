@@ -24,6 +24,11 @@ pub use day_core::{
     task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
+/// An app-writable scratch directory. The OS temp dir is NOT app-writable on every target
+/// (Android reports `getCacheDir()`), so a backend records the right location at startup and
+/// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
+/// thumbnails, export staging.
+pub use day_spec::present::app_temp_dir;
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
@@ -138,6 +143,7 @@ pub mod prelude {
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
     pub use day_core::{AssetName, FontFamily, ImageName, Resource, resource};
+    pub use day_spec::present::app_temp_dir;
     // Toolkit capability probe (docs): lets app/piece content adapt to the backend, e.g. skip a
     // title the native nav already shows (`Cap::NavHeader`). `capability(cap) -> Support`.
     pub use day_core::capability;
