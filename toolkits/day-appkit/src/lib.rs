@@ -790,20 +790,31 @@ define_class!(
                 let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
                 let label = unsafe { NSTextField::labelWithString(text, mtm) };
                 unsafe {
-                    label.setFrame(NSRect::new(
-                        NSPoint::new(label_x, 3.0),
-                        NSSize::new(10.0, 17.0),
-                    ));
-                    label.setAutoresizingMask(
-                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
-                    );
-                    // Feed titles are arbitrarily long. Without a tail truncation the label
-                    // draws straight past the sidebar's edge and the name is simply cut.
+                    // Feed titles are arbitrarily long, so the label truncates with an
+                    // ellipsis — but only within a frame that ENDS where the cell does.
+                    // Autoresizing could not deliver that: the label was born 10pt wide in a
+                    // zero-width cell, so a width-sizable mask grew it to (cell + 10) and the
+                    // overhang was clipped by the sidebar's edge, cutting names mid-glyph
+                    // with no ellipsis at all. Pin it to the cell instead.
                     label.cell().inspect(|c| {
                         c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
                     });
+                    label.setTranslatesAutoresizingMaskIntoConstraints(false);
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
+                    objc2_app_kit::NSLayoutConstraint::activateConstraints(
+                        &objc2_foundation::NSArray::from_retained_slice(&[
+                            label
+                                .leadingAnchor()
+                                .constraintEqualToAnchor_constant(&cell.leadingAnchor(), label_x),
+                            label
+                                .trailingAnchor()
+                                .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
+                            label
+                                .centerYAnchor()
+                                .constraintEqualToAnchor(&cell.centerYAnchor()),
+                        ]),
+                    );
                 }
                 if let Some(img) = icon {
                     let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
@@ -2297,6 +2308,14 @@ impl Toolkit for AppKit {
                     // clip the trailing edge of rows laid out at the full frame width (see
                     // the SCROLL realize).
                     scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
+                    // One column, sized to the pane: a sidebar never scrolls sideways.
+                    scroll.setHasHorizontalScroller(false);
+                    outline.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
+                    );
+                    outline.setColumnAutoresizingStyle(
+                        objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
+                    );
                     scroll.setDocumentView(Some(&outline));
                 }
                 let view = view_of(scroll);

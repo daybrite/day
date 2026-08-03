@@ -1507,6 +1507,10 @@ impl Toolkit for Gtk {
                 let listbox = gtk4::ListBox::new();
                 // The standard GNOME sidebar treatment.
                 listbox.add_css_class("navigation-sidebar");
+                // Breathing room at the ends: flush against the window edge the first row's
+                // ascenders touch the chrome and the selection pill has nowhere to sit.
+                listbox.set_margin_top(4);
+                listbox.set_margin_bottom(4);
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
                 fill_nav_menu(&listbox, &p.items, &p.icons);
                 let suppress = Rc::new(std::cell::Cell::new(false));
