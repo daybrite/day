@@ -172,6 +172,8 @@ the app's model owns `MenuRole::Minimize`. `MenuRole::NewWindow` lowers to the
 `menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable
 — app keys and the `day-*` role keys both work, so the auto Preferences item is
 `key: day-preferences`, with or without an installed app menu). `path: [File]`
-disambiguates by ancestor submenu labels. The step dispatches the registered day action
-directly — toolkit-uniform, no native menu automation — so role-only items that run a
-native selector (Cut, Quit, …) are not invokable this way.
+disambiguates by ancestor submenu — each entry matches a submenu's literal label OR its
+Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
+`key: menu_file` does and one script stays valid in every language. The step dispatches the
+registered day action directly — toolkit-uniform, no native menu automation — so role-only
+items that run a native selector (Cut, Quit, …) are not invokable this way.

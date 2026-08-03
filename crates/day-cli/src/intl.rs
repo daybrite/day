@@ -28,7 +28,7 @@ use crate::ops::status;
 /// The day-l10n built-in core catalog's locales — data for these is always included so framework
 /// strings (dialog buttons, menu roles) format correctly even in apps with fewer app locales.
 /// Must match `crates/day-l10n/catalog/*.ftl` (guarded by `core_locales_match_catalog` below).
-const CORE_LOCALES: &[&str] = &["en", "fr", "es", "de", "ja", "zh"];
+const CORE_LOCALES: &[&str] = &["en", "fr", "es", "de", "ja", "zh", "ar"];
 
 /// The icu_provider minor version this day-cli's datagen emits data for. The skew guard skips
 /// thinning when the app's lockfile resolves a different minor (its data crates couldn't compile
