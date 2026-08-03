@@ -1652,8 +1652,14 @@ impl Toolkit for Xaml {
     }
 
     fn set_context_menu(&mut self, h: &WinHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        // Windows' bar: File, Edit, View, the app's own menus, then Help. No Window menu (MDI
+        // is long gone) and no app menu — Exit lives in File, About in Help.
+        let items = day_core::menu::standard_menu_bar_for(
+            day_core::menu::MenuBarStyle::Windows,
+            items.to_vec(),
+        );
         let mut spec = String::new();
-        serialize_menu_xaml(items, &mut spec);
+        serialize_menu_xaml(&items, &mut spec);
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
     }
 
@@ -1661,8 +1667,14 @@ impl Toolkit for Xaml {
         if self.window.is_null() {
             return;
         }
+        // Windows' bar: File, Edit, View, the app's own menus, then Help. No Window menu (MDI
+        // is long gone) and no app menu — Exit lives in File, About in Help.
+        let items = day_core::menu::standard_menu_bar_for(
+            day_core::menu::MenuBarStyle::Windows,
+            items.to_vec(),
+        );
         let mut spec = String::new();
-        serialize_menu_xaml(items, &mut spec);
+        serialize_menu_xaml(&items, &mut spec);
         unsafe { ffi::day_xaml_set_app_menu(self.window, cstr(&spec).as_ptr()) };
     }
 

@@ -655,6 +655,7 @@ name = "day-core"
 version = "0.1.2"
 dependencies = [
  "day-geometry",
+ "day-l10n",
  "day-mock",
  "day-reactive",
  "day-spec",

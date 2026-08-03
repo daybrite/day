@@ -164,19 +164,113 @@ fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
 /// Arrange an app's top-level menus into the platform's standard bar, filling every standard
 /// slot the app did not claim with the backend's stock menu.
 ///
-/// The order is the one every desktop platform agrees on: File, Edit, View, then the app's own
-/// menus, then Window and Help. A backend calls this with a `stock` builder that returns its
-/// house version of a slot (or `None` to leave that slot empty, e.g. a platform with no Help
-/// menu). Menus the app tagged with [`MenuBarRole`] replace the stock one in place, so an app
-/// customizes a standard menu by claiming it rather than by rebuilding the whole bar.
+/// Which desktop's menu-bar conventions a backend follows. A toolkit picks the style of the
+/// platform it is native to, not the one it happens to be compiled on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MenuBarStyle {
+    /// macOS: an app menu, and a Window menu the toolkit installs natively.
+    Macos,
+    /// GNOME / GTK on Linux.
+    Gnome,
+    /// KDE Plasma / Qt on Linux.
+    Kde,
+    /// Windows.
+    Windows,
+}
+
+impl MenuBarStyle {
+    /// The standard slots before and after the app's own menus on this desktop.
+    pub fn bar_order(
+        self,
+    ) -> (
+        &'static [day_spec::MenuBarRole],
+        &'static [day_spec::MenuBarRole],
+    ) {
+        use day_spec::MenuBarRole as B;
+        const LEADING: &[day_spec::MenuBarRole] = &[B::File, B::Edit, B::View];
+        match self {
+            // Only macOS has a Window menu; the Linux and Windows shells own window management.
+            MenuBarStyle::Macos => (LEADING, &[B::Window, B::Help]),
+            MenuBarStyle::Gnome | MenuBarStyle::Windows => (LEADING, &[B::Help]),
+            MenuBarStyle::Kde => (LEADING, &[B::Settings, B::Help]),
+        }
+    }
+
+    /// This desktop's stock menu for a slot, as a pure model: every entry is a `MenuRole`, so
+    /// each backend renders it with its own native command and localized label and nothing here
+    /// is toolkit- or app-specific.
+    ///
+    /// `File` is always the app's own. `Window` is `None` even on macOS because the toolkit
+    /// installs it natively (only AppKit can append the live window list). `Settings` is `None`
+    /// for now everywhere: Preferences is placed before a backend sees the model
+    /// (`inject_preferences`), so a stock Settings menu would be a second copy of it.
+    pub fn stock(self, role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
+        use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
+        let act = |r: R| MI::Action {
+            id: 0,
+            label: String::new(),
+            shortcut: None,
+            enabled: true,
+            role: Some(r),
+        };
+        let sub = |key: &str, items: Vec<MI>| {
+            Some(MI::Submenu {
+                label: day_l10n::t(key),
+                items,
+                role: None,
+            })
+        };
+        match role {
+            B::Edit => sub(
+                "day-edit",
+                vec![
+                    act(R::Undo),
+                    act(R::Redo),
+                    MI::Separator,
+                    act(R::Cut),
+                    act(R::Copy),
+                    act(R::Paste),
+                    act(R::Delete),
+                    act(R::SelectAll),
+                ],
+            ),
+            B::View => sub("day-view", vec![act(R::Fullscreen)]),
+            // macOS keeps About in the app menu; the other desktops keep it in Help. An empty
+            // Help menu still earns its place on macOS — AppKit fills it with the help search.
+            B::Help => match self {
+                MenuBarStyle::Macos => sub("day-help", Vec::new()),
+                _ => sub("day-help", vec![act(R::About)]),
+            },
+            _ => None,
+        }
+    }
+}
+
+/// Assemble the bar for a desktop's conventions — [`standard_menu_bar`] with that style's slot
+/// order and stock menus.
+pub fn standard_menu_bar_for(
+    style: MenuBarStyle,
+    app_menus: Vec<day_spec::MenuItem>,
+) -> Vec<day_spec::MenuItem> {
+    let (leading, trailing) = style.bar_order();
+    standard_menu_bar(app_menus, leading, trailing, |r| style.stock(r))
+}
+
+/// `leading` are the slots before the app's own menus and `trailing` the ones after — each
+/// backend passes its platform's bar (macOS trails Window and Help; KDE trails Settings and
+/// Help; GNOME and Windows trail Help alone). `stock` returns the backend's house version of a
+/// slot, or `None` where that platform has no such menu. Menus the app tagged with
+/// [`MenuBarRole`] replace the stock one IN PLACE, so an app customizes a standard menu by
+/// claiming it rather than by rebuilding the whole bar.
 pub fn standard_menu_bar(
     app_menus: Vec<day_spec::MenuItem>,
+    leading: &[day_spec::MenuBarRole],
+    trailing: &[day_spec::MenuBarRole],
     stock: impl Fn(day_spec::MenuBarRole) -> Option<day_spec::MenuItem>,
 ) -> Vec<day_spec::MenuItem> {
     use day_spec::MenuBarRole as R;
-    // Slots in bar order. `Window` and `Help` trail the app's own menus; the rest lead.
-    const LEADING: [R; 3] = [R::File, R::Edit, R::View];
-    const TRAILING: [R; 2] = [R::Window, R::Help];
+    let _ = R::File;
 
     let mut claimed: Vec<(R, day_spec::MenuItem)> = Vec::new();
     let mut own: Vec<day_spec::MenuItem> = Vec::new();
@@ -194,9 +288,9 @@ pub fn standard_menu_bar(
             .or_else(|| stock(r))
     };
 
-    let mut out: Vec<day_spec::MenuItem> = LEADING.iter().filter_map(|r| take(*r)).collect();
+    let mut out: Vec<day_spec::MenuItem> = leading.iter().filter_map(|r| take(*r)).collect();
     out.append(&mut own);
-    out.extend(TRAILING.iter().filter_map(|r| take(*r)));
+    out.extend(trailing.iter().filter_map(|r| take(*r)));
     // A role the platform does not know about still belongs on the bar rather than vanishing.
     out.extend(claimed.into_iter().map(|(_, m)| m));
     out
@@ -206,6 +300,10 @@ pub fn standard_menu_bar(
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    use day_spec::MenuBarRole as BR;
+    const MAC_LEADING: &[BR] = &[BR::File, BR::Edit, BR::View];
+    const MAC_TRAILING: &[BR] = &[BR::Window, BR::Help];
 
     fn sub(label: &str, role: Option<day_spec::MenuBarRole>) -> day_spec::MenuItem {
         day_spec::MenuItem::Submenu {
@@ -229,19 +327,24 @@ mod tests {
     #[test]
     fn stock_menus_fill_the_slots_an_app_left_open() {
         use day_spec::MenuBarRole as R;
-        let out = standard_menu_bar(vec![sub("Go", None), sub("Article", None)], |r| {
-            Some(sub(
-                match r {
-                    R::File => "File",
-                    R::Edit => "Edit",
-                    R::View => "View",
-                    R::Window => "Window",
-                    R::Help => "Help",
-                    _ => "?",
-                },
-                Some(r),
-            ))
-        });
+        let out = standard_menu_bar(
+            vec![sub("Go", None), sub("Article", None)],
+            MAC_LEADING,
+            MAC_TRAILING,
+            |r| {
+                Some(sub(
+                    match r {
+                        R::File => "File",
+                        R::Edit => "Edit",
+                        R::View => "View",
+                        R::Window => "Window",
+                        R::Help => "Help",
+                        _ => "?",
+                    },
+                    Some(r),
+                ))
+            },
+        );
         assert_eq!(
             labels(&out),
             ["File", "Edit", "View", "Go", "Article", "Window", "Help"]
@@ -253,9 +356,12 @@ mod tests {
     #[test]
     fn a_claimed_slot_replaces_the_stock_menu_in_place() {
         use day_spec::MenuBarRole as R;
-        let out = standard_menu_bar(vec![sub("My File", Some(R::File)), sub("Go", None)], |r| {
-            Some(sub("stock", Some(r)))
-        });
+        let out = standard_menu_bar(
+            vec![sub("My File", Some(R::File)), sub("Go", None)],
+            MAC_LEADING,
+            MAC_TRAILING,
+            |r| Some(sub("stock", Some(r))),
+        );
         let l = labels(&out);
         assert_eq!(l[0], "My File", "the app's File sits in the File slot");
         assert_eq!(l.iter().filter(|s| *s == "My File").count(), 1);
@@ -263,11 +369,46 @@ mod tests {
         assert_eq!(l[3], "Go", "app menus still follow the leading slots");
     }
 
+    /// The bar order is the BACKEND's, not one hardcoded shape: KDE trails Settings and Help,
+    /// GNOME and Windows trail Help alone, and neither grows a macOS Window menu.
+    #[test]
+    fn each_platform_gets_its_own_bar_order() {
+        use day_spec::MenuBarRole as R;
+        // File is the app's own everywhere — no backend ships a stock one.
+        let stock = |r: R| {
+            let label = match r {
+                R::Edit => "Edit",
+                R::View => "View",
+                R::Settings => "Settings",
+                R::Help => "Help",
+                R::Window => "Window",
+                _ => return None,
+            };
+            Some(sub(label, Some(r)))
+        };
+        let kde = standard_menu_bar(
+            vec![sub("Go", None)],
+            &[R::File, R::Edit, R::View],
+            &[R::Settings, R::Help],
+            stock,
+        );
+        assert_eq!(labels(&kde), ["Edit", "View", "Go", "Settings", "Help"]);
+
+        let gnome = standard_menu_bar(
+            vec![sub("Go", None)],
+            &[R::File, R::Edit, R::View],
+            &[R::Help],
+            stock,
+        );
+        assert_eq!(labels(&gnome), ["Edit", "View", "Go", "Help"]);
+        assert!(!labels(&gnome).contains(&"Window".to_string()));
+    }
+
     /// A backend with no stock menu for a slot simply has no such menu.
     #[test]
     fn a_slot_with_no_stock_menu_is_omitted() {
         use day_spec::MenuBarRole as R;
-        let out = standard_menu_bar(vec![sub("Go", None)], |r| {
+        let out = standard_menu_bar(vec![sub("Go", None)], MAC_LEADING, MAC_TRAILING, |r| {
             (r == R::Edit).then(|| sub("Edit", Some(r)))
         });
         assert_eq!(labels(&out), ["Edit", "Go"]);

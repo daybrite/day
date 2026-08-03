@@ -592,6 +592,10 @@ pub enum MenuBarRole {
     File,
     Edit,
     View,
+    /// KDE/Plasma's Settings menu (Configure <App>, Configure Shortcuts). No counterpart on
+    /// macOS, where preferences live in the app menu, or on GNOME/Windows.
+    Settings,
+    /// macOS's Window menu. Windows and Linux desktops do not have one.
     Window,
     Help,
 }

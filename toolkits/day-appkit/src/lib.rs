@@ -3454,7 +3454,10 @@ impl Toolkit for AppKit {
         menubar.addItem(&app_item);
         // Fill the standard slots the app did not claim, in the platform's bar order
         // (day-core owns that policy so every backend arranges its bar the same way).
-        let items = day_core::menu::standard_menu_bar(items, stock_menu);
+        // Fill the standard slots the app left open, in macOS's bar order. The Window menu is
+        // installed natively below, so the style deliberately supplies none.
+        let items =
+            day_core::menu::standard_menu_bar_for(day_core::menu::MenuBarStyle::Macos, items);
         let mut help_menu: Option<(String, Retained<NSMenu>)> = None;
         // Each top-level entry becomes a menu-bar menu.
         for item in &items {
@@ -4237,49 +4240,6 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     install_windows_menu(mtm, app, &menubar);
 
     app.setMainMenu(Some(&menubar));
-}
-
-/// macOS's stock menu for a standard slot, as a pure model: role items carry their own native
-/// selector and localized label (`role_spec`), so this is the same vocabulary an app would use
-/// and nothing here is special-cased for one app.
-///
-/// `File` and `Window` return `None`: an app owns its own File menu, and Window is installed
-/// natively below so AppKit can append the live window list and the tab commands to it.
-fn stock_menu(role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
-    use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
-    let act = |r: R| MI::Action {
-        id: 0,
-        label: String::new(),
-        shortcut: None,
-        enabled: true,
-        role: Some(r),
-    };
-    let sub = |key: &str, items: Vec<MI>| {
-        Some(MI::Submenu {
-            label: day_l10n::t(key),
-            items,
-            role: None,
-        })
-    };
-    match role {
-        B::Edit => sub(
-            "day-edit",
-            vec![
-                act(R::Undo),
-                act(R::Redo),
-                MI::Separator,
-                act(R::Cut),
-                act(R::Copy),
-                act(R::Paste),
-                act(R::Delete),
-                act(R::SelectAll),
-            ],
-        ),
-        B::View => sub("day-view", vec![act(R::Fullscreen)]),
-        B::Help => sub("day-help", Vec::new()),
-        B::File | B::Window => None,
-        _ => None,
-    }
 }
 
 /// The standard Window menu (docs/windows.md): Minimize ⌘M / Zoom / Bring All to Front,

@@ -12,6 +12,9 @@ license.workspace = true
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
+# The standard menu-bar titles (File/Edit/View/Help) must be localized where the policy that
+# assembles the bar lives, so every backend gets the same locale-correct furniture.
+day-l10n = { workspace = true }
 slotmap = { workspace = true }
 
 [dev-dependencies]

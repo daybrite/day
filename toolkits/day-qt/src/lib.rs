@@ -1769,6 +1769,12 @@ impl Toolkit for Qt {
         if self.window.is_null() {
             return;
         }
+        // KDE's bar: File, Edit, View, the app's own menus, then Settings and Help.
+        let items = day_core::menu::standard_menu_bar_for(
+            day_core::menu::MenuBarStyle::Kde,
+            items.to_vec(),
+        );
+        let items = &items[..];
         let bar = unsafe { ffi::day_qt_window_menubar(self.window) };
         // Top level entries are the menu-bar menus; a bare action becomes a single-item menu.
         for item in items {

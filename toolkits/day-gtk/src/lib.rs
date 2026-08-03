@@ -2763,6 +2763,13 @@ impl Toolkit for Gtk {
     }
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
+        // GNOME's bar: File, Edit, View, the app's own menus, then Help — no Window menu, as
+        // the shell owns window management on Linux.
+        let items = day_core::menu::standard_menu_bar_for(
+            day_core::menu::MenuBarStyle::Gnome,
+            items.to_vec(),
+        );
+        let items = &items[..];
         let Some(window) = self
             .window_fixed
             .as_ref()
