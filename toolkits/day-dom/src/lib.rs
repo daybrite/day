@@ -928,6 +928,7 @@ impl Toolkit for Dom {
                     items,
                     icons,
                     selected,
+                    ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
                     let json = navmenu_json(items, icons, *selected);

@@ -1078,7 +1078,7 @@ mod imp {
         for item in items {
             match item {
                 day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t\n"),
-                day_spec::MenuItem::Submenu { label, items } => {
+                day_spec::MenuItem::Submenu { label, items, .. } => {
                     out.push_str(&format!("S\t0\t1\t{}\n", clean(label)));
                     serialize_menu(items, out);
                     out.push_str("E\t0\t1\t\n");

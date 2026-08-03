@@ -570,10 +570,30 @@ pub enum MenuItem {
         enabled: bool,
         role: Option<MenuRole>,
     },
-    /// A nested submenu.
-    Submenu { label: String, items: Vec<MenuItem> },
+    /// A nested submenu. At the TOP level of an app menu a `role` claims one of the platform's
+    /// standard menu-bar slots: the backend then uses this menu instead of its stock one, and
+    /// places it where the platform expects that menu to sit.
+    Submenu {
+        label: String,
+        items: Vec<MenuItem>,
+        role: Option<MenuBarRole>,
+    },
     /// A visual separator.
     Separator,
+}
+
+/// A standard menu-bar slot (macOS's File/Edit/View/Window/Help, and their counterparts
+/// elsewhere). A backend that has a house style for the menu bar fills every slot an app did
+/// not claim with its own stock menu, so an app never has to restate the platform's furniture
+/// — and can still replace any of it by tagging its own submenu with the matching role.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MenuBarRole {
+    File,
+    Edit,
+    View,
+    Window,
+    Help,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1592,6 +1612,13 @@ pub mod props {
     pub struct NavMenuProps {
         pub items: Vec<String>,
         pub icons: Vec<Option<String>>,
+        /// A trailing accessory per row — an unread count, a status. Rendered right-aligned and
+        /// de-emphasized, opposite the label. Parallel to `items`; `None` draws nothing.
+        pub badges: Vec<Option<String>>,
+        /// A section header introducing the row at the same index. `Some` opens a new group
+        /// before that row; `None` continues the current one. Parallel to `items`, so adding a
+        /// header never shifts the selection indices the rows are addressed by.
+        pub sections: Vec<Option<String>>,
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -1605,6 +1632,8 @@ pub mod props {
         Items {
             items: Vec<String>,
             icons: Vec<Option<String>>,
+            badges: Vec<Option<String>>,
+            sections: Vec<Option<String>>,
             selected: Option<usize>,
         },
     }

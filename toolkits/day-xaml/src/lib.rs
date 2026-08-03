@@ -738,7 +738,7 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
     for item in items {
         match item {
             day_spec::MenuItem::Separator => out.push_str("-\t0\t-1\t0\t0\t1\t\n"),
-            day_spec::MenuItem::Submenu { label, items } => {
+            day_spec::MenuItem::Submenu { label, items, .. } => {
                 out.push_str(&format!("S\t0\t-1\t0\t0\t1\t{}\n", clean(label)));
                 serialize_menu_xaml(items, out);
                 out.push_str("E\t0\t-1\t0\t0\t1\t\n");

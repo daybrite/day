@@ -480,7 +480,7 @@ fn find_menu_actions(
                         out.push((*id, *enabled, trail.clone()));
                     }
                 }
-                day_spec::MenuItem::Submenu { label, items } => {
+                day_spec::MenuItem::Submenu { label, items, .. } => {
                     trail.push(label.clone());
                     walk(items, trail, target_label, target_key, path, out);
                     trail.pop();

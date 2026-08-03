@@ -20,6 +20,7 @@ pub struct MenuEntry {
     action: Option<Rc<dyn Fn()>>,
     children: Option<Vec<MenuEntry>>,
     separator: bool,
+    bar_role: Option<day_spec::MenuBarRole>,
 }
 
 impl MenuEntry {
@@ -29,6 +30,7 @@ impl MenuEntry {
             shortcut: None,
             enabled: true,
             role: None,
+            bar_role: None,
             action: None,
             children: None,
             separator: false,
@@ -70,6 +72,20 @@ pub fn sub_menu(label: impl Into<String>, items: Vec<MenuEntry>) -> MenuEntry {
     MenuEntry {
         children: Some(items),
         ..MenuEntry::command(label)
+    }
+}
+
+/// Claim one of the platform's standard menu-bar slots for this submenu: the backend places it
+/// where that menu belongs and does NOT add its own stock version. Without a role, a submenu is
+/// an app menu and sits between the standard ones.
+///
+/// ```ignore
+/// sub_menu(tr("menu-file"), vec![…]).bar_role(MenuBarRole::File)
+/// ```
+impl MenuEntry {
+    pub fn bar_role(mut self, role: day_spec::MenuBarRole) -> MenuEntry {
+        self.bar_role = Some(role);
+        self
     }
 }
 
@@ -125,6 +141,7 @@ pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
                 day_spec::MenuItem::Submenu {
                     label: e.label,
                     items: lower_menu(children),
+                    role: e.bar_role,
                 }
             } else {
                 let mut id = e.action.map(day_core::register_menu_action).unwrap_or(0);

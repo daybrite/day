@@ -809,7 +809,7 @@ fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     for item in items {
         match item {
             day_spec::MenuItem::Separator => unsafe { ffi::day_qt_menu_add_separator(menu) },
-            day_spec::MenuItem::Submenu { label, items } => {
+            day_spec::MenuItem::Submenu { label, items, .. } => {
                 let sub = unsafe { ffi::day_qt_menu_add_submenu(menu, cstr(label).as_ptr()) };
                 build_qt_menu(sub, items);
             }
@@ -1183,6 +1183,7 @@ impl Toolkit for Qt {
                         items,
                         icons,
                         selected,
+                        ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         // Data-driven rows: rebuild the QListWidget from the new labels/icons
@@ -1772,7 +1773,7 @@ impl Toolkit for Qt {
         // Top level entries are the menu-bar menus; a bare action becomes a single-item menu.
         for item in items {
             match item {
-                day_spec::MenuItem::Submenu { label, items } => {
+                day_spec::MenuItem::Submenu { label, items, .. } => {
                     let menu = unsafe { ffi::day_qt_menubar_add_menu(bar, cstr(label).as_ptr()) };
                     build_qt_menu(menu, items);
                 }

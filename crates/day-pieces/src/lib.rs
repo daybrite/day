@@ -85,6 +85,6 @@ pub mod prelude {
         DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
     };
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
-    pub use day_spec::{MenuItem, MenuRole, Shortcut};
+    pub use day_spec::{MenuBarRole, MenuItem, MenuRole, Shortcut};
     pub use std::time::Duration;
 }

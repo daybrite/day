@@ -587,7 +587,7 @@ mod imp {
         for item in items {
             match item {
                 day_spec::MenuItem::Separator => {}
-                day_spec::MenuItem::Submenu { label, items } => {
+                day_spec::MenuItem::Submenu { label, items, .. } => {
                     out.push(Retained::into_super(build_ui_menu(mtm, label, items)));
                 }
                 day_spec::MenuItem::Action {

@@ -406,7 +406,7 @@ fn build_gio_menu(
                     section = gtk4::gio::Menu::new();
                 }
             }
-            MI::Submenu { label, items } => {
+            MI::Submenu { label, items, .. } => {
                 section.append_submenu(Some(label), &build_gio_menu(items, group));
             }
             MI::Action {
@@ -648,7 +648,13 @@ fn gtk_animation(
 /// if the name doesn't resolve / the file can't be decoded.
 /// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
 /// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
-fn fill_nav_menu(listbox: &gtk4::ListBox, items: &[String], icons: &[Option<String>]) {
+fn fill_nav_menu(
+    listbox: &gtk4::ListBox,
+    items: &[String],
+    icons: &[Option<String>],
+    badges: &[Option<String>],
+    sections: &[Option<String>],
+) {
     for (i, item) in items.iter().enumerate() {
         let label = gtk4::Label::new(Some(item));
         label.set_halign(gtk4::Align::Fill);
@@ -663,14 +669,42 @@ fn fill_nav_menu(listbox: &gtk4::ListBox, items: &[String], icons: &[Option<Stri
             .get(i)
             .and_then(|o| o.as_deref())
             .and_then(tinted_sidebar_icon);
-        if let Some(image) = icon {
+        let badge = badges.get(i).and_then(|o| o.as_deref()).map(|text| {
+            let b = gtk4::Label::new(Some(text));
+            // `dim-label` is the GNOME treatment for secondary text; numeric alignment keeps a
+            // column of counts from jittering as digits change.
+            b.add_css_class("dim-label");
+            b.add_css_class("numeric");
+            b.set_halign(gtk4::Align::End);
+            b
+        });
+        if icon.is_some() || badge.is_some() {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-            image.set_margin_start(2);
-            row.append(&image);
+            if let Some(image) = icon {
+                image.set_margin_start(2);
+                row.append(&image);
+            }
             row.append(&label);
+            if let Some(b) = badge {
+                row.append(&b);
+            }
             listbox.append(&row);
         } else {
             listbox.append(&label);
+        }
+        // Section headers ride ON the row via GtkListBox's header slot, so they never become
+        // rows of their own — indices stay 1:1 with day's items and selection needs no map.
+        if let Some(Some(title)) = sections.get(i)
+            && let Some(row) = listbox.row_at_index(i as i32)
+        {
+            let header = gtk4::Label::new(Some(title));
+            header.add_css_class("heading");
+            header.add_css_class("dim-label");
+            header.set_xalign(0.0);
+            header.set_margin_top(if i == 0 { 2 } else { 10 });
+            header.set_margin_bottom(2);
+            header.set_margin_start(4);
+            row.set_header(Some(&header));
         }
     }
 }
@@ -1512,7 +1546,7 @@ impl Toolkit for Gtk {
                 listbox.set_margin_top(4);
                 listbox.set_margin_bottom(4);
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
-                fill_nav_menu(&listbox, &p.items, &p.icons);
+                fill_nav_menu(&listbox, &p.items, &p.icons, &p.badges, &p.sections);
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 {
                     let suppress = suppress.clone();
@@ -1914,6 +1948,8 @@ impl Toolkit for Gtk {
                 if let Some(NavMenuPatch::Items {
                     items,
                     icons,
+                    badges,
+                    sections,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -1926,7 +1962,7 @@ impl Toolkit for Gtk {
                         while let Some(row) = state.listbox.first_child() {
                             state.listbox.remove(&row);
                         }
-                        fill_nav_menu(&state.listbox, items, icons);
+                        fill_nav_menu(&state.listbox, items, icons, badges, sections);
                         state.rows = items.len();
                         match selected {
                             Some(i) => state

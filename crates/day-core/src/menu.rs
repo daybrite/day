@@ -161,10 +161,117 @@ fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
     ids
 }
 
+/// Arrange an app's top-level menus into the platform's standard bar, filling every standard
+/// slot the app did not claim with the backend's stock menu.
+///
+/// The order is the one every desktop platform agrees on: File, Edit, View, then the app's own
+/// menus, then Window and Help. A backend calls this with a `stock` builder that returns its
+/// house version of a slot (or `None` to leave that slot empty, e.g. a platform with no Help
+/// menu). Menus the app tagged with [`MenuBarRole`] replace the stock one in place, so an app
+/// customizes a standard menu by claiming it rather than by rebuilding the whole bar.
+pub fn standard_menu_bar(
+    app_menus: Vec<day_spec::MenuItem>,
+    stock: impl Fn(day_spec::MenuBarRole) -> Option<day_spec::MenuItem>,
+) -> Vec<day_spec::MenuItem> {
+    use day_spec::MenuBarRole as R;
+    // Slots in bar order. `Window` and `Help` trail the app's own menus; the rest lead.
+    const LEADING: [R; 3] = [R::File, R::Edit, R::View];
+    const TRAILING: [R; 2] = [R::Window, R::Help];
+
+    let mut claimed: Vec<(R, day_spec::MenuItem)> = Vec::new();
+    let mut own: Vec<day_spec::MenuItem> = Vec::new();
+    for item in app_menus {
+        match &item {
+            day_spec::MenuItem::Submenu { role: Some(r), .. } => claimed.push((*r, item)),
+            _ => own.push(item),
+        }
+    }
+    let mut take = |r: R| -> Option<day_spec::MenuItem> {
+        claimed
+            .iter()
+            .position(|(cr, _)| *cr == r)
+            .map(|i| claimed.remove(i).1)
+            .or_else(|| stock(r))
+    };
+
+    let mut out: Vec<day_spec::MenuItem> = LEADING.iter().filter_map(|r| take(*r)).collect();
+    out.append(&mut own);
+    out.extend(TRAILING.iter().filter_map(|r| take(*r)));
+    // A role the platform does not know about still belongs on the bar rather than vanishing.
+    out.extend(claimed.into_iter().map(|(_, m)| m));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    fn sub(label: &str, role: Option<day_spec::MenuBarRole>) -> day_spec::MenuItem {
+        day_spec::MenuItem::Submenu {
+            label: label.into(),
+            items: Vec::new(),
+            role,
+        }
+    }
+
+    fn labels(items: &[day_spec::MenuItem]) -> Vec<String> {
+        items
+            .iter()
+            .map(|i| match i {
+                day_spec::MenuItem::Submenu { label, .. } => label.clone(),
+                _ => String::new(),
+            })
+            .collect()
+    }
+
+    /// Every stock slot appears, in bar order, with the app's own menus between View and Window.
+    #[test]
+    fn stock_menus_fill_the_slots_an_app_left_open() {
+        use day_spec::MenuBarRole as R;
+        let out = standard_menu_bar(vec![sub("Go", None), sub("Article", None)], |r| {
+            Some(sub(
+                match r {
+                    R::File => "File",
+                    R::Edit => "Edit",
+                    R::View => "View",
+                    R::Window => "Window",
+                    R::Help => "Help",
+                    _ => "?",
+                },
+                Some(r),
+            ))
+        });
+        assert_eq!(
+            labels(&out),
+            ["File", "Edit", "View", "Go", "Article", "Window", "Help"]
+        );
+    }
+
+    /// A claimed slot replaces the stock menu in place — it does NOT also get the stock one,
+    /// and it does not slide into the app-menu run.
+    #[test]
+    fn a_claimed_slot_replaces_the_stock_menu_in_place() {
+        use day_spec::MenuBarRole as R;
+        let out = standard_menu_bar(vec![sub("My File", Some(R::File)), sub("Go", None)], |r| {
+            Some(sub("stock", Some(r)))
+        });
+        let l = labels(&out);
+        assert_eq!(l[0], "My File", "the app's File sits in the File slot");
+        assert_eq!(l.iter().filter(|s| *s == "My File").count(), 1);
+        assert!(!l.contains(&"File".to_string()));
+        assert_eq!(l[3], "Go", "app menus still follow the leading slots");
+    }
+
+    /// A backend with no stock menu for a slot simply has no such menu.
+    #[test]
+    fn a_slot_with_no_stock_menu_is_omitted() {
+        use day_spec::MenuBarRole as R;
+        let out = standard_menu_bar(vec![sub("Go", None)], |r| {
+            (r == R::Edit).then(|| sub("Edit", Some(r)))
+        });
+        assert_eq!(labels(&out), ["Edit", "Go"]);
+    }
 
     #[test]
     fn dispatch_runs_the_registered_action_by_id() {

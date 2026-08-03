@@ -406,13 +406,28 @@ type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 
 /// The flattened live rows a selector's dynamic blocks derive to: per-row key strings, typed
 /// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
-type DerivedRows<K> = (Vec<String>, Vec<K>, Vec<String>, Vec<Option<String>>);
+/// One tracked derive of a selector's rows: (key strings, typed keys, titles, icons, badges,
+/// section headers). Compared by equality to gate the re-patch, so every decoration a backend
+/// renders has to ride along — a badge that changed but was not carried here would not repaint.
+type DerivedRows<K> = (
+    Vec<String>,
+    Vec<K>,
+    Vec<String>,
+    Vec<Option<String>>,
+    Vec<Option<String>>,
+    Vec<Option<String>>,
+);
 
 struct SelItem<K> {
     key: K,
     title: TextSource,
     /// Optional bundled-image name for the item's native icon (docs/navigation.md).
     icon: Option<String>,
+    /// Trailing accessory (an unread count). A `TextSource` so a live count retitles on its
+    /// own signal, and so a localized badge follows `set_locale`.
+    badge: Option<TextSource>,
+    /// Header introducing the group this item opens (docs/navigation.md).
+    section: Option<TextSource>,
     /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
     /// backends with an immersive nav mode; standard opaque bar otherwise.
     immersive: bool,
@@ -426,6 +441,8 @@ pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
     icon: Option<String>,
+    badge: Option<TextSource>,
+    section: Option<TextSource>,
     immersive: bool,
 }
 
@@ -437,6 +454,8 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
         key: key.into(),
         title: title.into_text(),
         icon: None,
+        badge: None,
+        section: None,
         immersive: false,
     }
 }
@@ -446,6 +465,18 @@ impl<K> NavItem<K> {
     /// [`Selector::item_icon`]).
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.icon = Some(icon.into().as_str().to_owned());
+        self
+    }
+    /// A trailing accessory for this row — an unread count, a status. Rendered right-aligned
+    /// and de-emphasized where the toolkit has an affordance for it, and dropped where it does
+    /// not (see docs/coverage-matrix.md).
+    pub fn badge<M>(mut self, badge: impl IntoText<M>) -> Self {
+        self.badge = Some(badge.into_text());
+        self
+    }
+    /// Open a new section with this header, immediately before this row.
+    pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
+        self.section = Some(title.into_text());
         self
     }
     /// Mark this item's pushed page immersive-chrome (docs/navigation.md) — the data-driven
@@ -470,8 +501,25 @@ enum ItemSource<K> {
 // for data-driven keys. `derive` is called untracked for the first build and tracked inside a
 // reactive effect that re-patches the native rows when a dynamic block's signal changes.
 enum MetaSource<K> {
-    Static(K, TextSource, Option<String>, bool),
+    Static(K, TextSource, RowMeta, bool),
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
+}
+
+/// The non-title decorations of one selector row.
+#[derive(Clone, Default)]
+struct RowMeta {
+    icon: Option<String>,
+    badge: Option<TextSource>,
+    section: Option<TextSource>,
+}
+
+/// One selector's live rows, flattened across its static items and dynamic blocks.
+struct NavRows<K> {
+    keys: Vec<K>,
+    titles: Vec<String>,
+    icons: Vec<Option<String>>,
+    badges: Vec<Option<String>>,
+    sections: Vec<Option<String>>,
 }
 
 struct SelItems<K> {
@@ -490,7 +538,16 @@ impl<K: Route> SelItems<K> {
                     if let Some(b) = it.build {
                         static_builders.insert(it.key.key(), b);
                     }
-                    meta.push(MetaSource::Static(it.key, it.title, it.icon, it.immersive));
+                    meta.push(MetaSource::Static(
+                        it.key,
+                        it.title,
+                        RowMeta {
+                            icon: it.icon,
+                            badge: it.badge,
+                            section: it.section,
+                        },
+                        it.immersive,
+                    ));
                 }
                 ItemSource::Dynamic(f) => {
                     meta.push(MetaSource::Dynamic(f));
@@ -508,25 +565,38 @@ impl<K: Route> SelItems<K> {
     /// a `Dynamic` block's signal subscribes the caller (the derive effect) to row changes,
     /// and resolving each title through [`TextSource::resolve`] subscribes it to the locale —
     /// `set_locale` re-runs the effect and the native rows retitle (docs/navigation.md).
-    fn derive(&self) -> (Vec<K>, Vec<String>, Vec<Option<String>>) {
-        let (mut keys, mut titles, mut icons) = (Vec::new(), Vec::new(), Vec::new());
+    fn derive(&self) -> NavRows<K> {
+        let mut r = NavRows {
+            keys: Vec::new(),
+            titles: Vec::new(),
+            icons: Vec::new(),
+            badges: Vec::new(),
+            sections: Vec::new(),
+        };
+        let mut push = |k: K, title: String, m: &RowMeta| {
+            r.keys.push(k);
+            r.titles.push(title);
+            r.icons.push(m.icon.clone());
+            r.badges.push(m.badge.as_ref().map(|b| b.resolve()));
+            r.sections.push(m.section.as_ref().map(|s| s.resolve()));
+        };
         for ms in self.meta.iter() {
             match ms {
-                MetaSource::Static(k, t, i, _) => {
-                    keys.push(k.clone());
-                    titles.push(t.resolve());
-                    icons.push(i.clone());
-                }
+                MetaSource::Static(k, t, m, _) => push(k.clone(), t.resolve(), m),
                 MetaSource::Dynamic(f) => {
                     for it in f() {
-                        keys.push(it.key);
-                        titles.push(it.title.resolve());
-                        icons.push(it.icon);
+                        let m = RowMeta {
+                            icon: it.icon,
+                            badge: it.badge,
+                            section: it.section,
+                        };
+                        let title = it.title.resolve();
+                        push(it.key, title, &m);
                     }
                 }
             }
         }
-        (keys, titles, icons)
+        r
     }
 
     /// An item's immersive-chrome flag (docs/navigation.md). A data-driven key checks its
@@ -592,12 +662,15 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     /// every change and restored at build (unless a launch deep link is pending). `None` = not
     /// persisted.
     restore: Option<String>,
+    /// A header from [`Selector::section`] waiting to be attached to the next item added.
+    pending_section: Option<TextSource>,
 }
 
 pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
     Selector {
         selection,
         style: SelectorStyle::Sidebar,
+        pending_section: None,
         title: TextSource::Static(String::new()),
         header: None,
         sources: Vec::new(),
@@ -617,6 +690,34 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         self.title = t.into_text();
         self
     }
+    /// Open a section: the NEXT item added (static or the first row of the next `.items` block)
+    /// carries this header. Backends without grouped rows ignore it and show one flat list, so
+    /// a section is a grouping hint, never a source of items the user cannot otherwise reach.
+    ///
+    /// ```ignore
+    /// selector(sel)
+    ///     .section(res::str::smart_feeds())
+    ///     .item_icon("today", res::str::today(), res::images::today, today_page)
+    ///     .section(res::str::feeds())
+    ///     .items(move || st.feeds.get(), |f| item(f.id, f.name))
+    /// ```
+    pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
+        self.pending_section = Some(title.into_text());
+        self
+    }
+    /// Attach a trailing badge — an unread count, a status — to the item just added:
+    /// `.item(…).badge(move || n.get().to_string())`. Reactive, so a live count repaints on
+    /// its own signal. An empty string draws nothing, which is the natural "zero" case.
+    ///
+    /// Ignored (in release) when no static item precedes it; data-driven rows carry their own
+    /// badge via [`NavItem::badge`].
+    pub fn badge<M>(mut self, badge: impl IntoText<M>) -> Self {
+        match self.sources.last_mut() {
+            Some(ItemSource::Static(it)) => it.badge = Some(badge.into_text()),
+            _ => debug_assert!(false, "day: `.badge(…)` needs a preceding `.item…(…)`"),
+        }
+        self
+    }
     /// An optional piece shown above the sidebar list (a logo, app name…).
     pub fn header<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
         self.header = Some(Box::new(move || AnyPiece::new(build())));
@@ -631,10 +732,13 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         title: impl IntoText<M>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
+        let section = self.pending_section.take();
         self.sources.push(ItemSource::Static(SelItem {
             key: key.into(),
             title: title.into_text(),
             icon: None,
+            badge: None,
+            section,
             immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
         }));
@@ -651,10 +755,13 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         icon: impl Into<day_spec::ImageName>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
+        let section = self.pending_section.take();
         self.sources.push(ItemSource::Static(SelItem {
             key: key.into(),
             title: title.into_text(),
             icon: Some(icon.into().as_str().to_owned()),
+            badge: None,
+            section,
             immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
         }));
@@ -686,15 +793,23 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     ) -> Self {
         // `items` is a TRACKED reader (a `Signal<Vec<T>>` via its `Fn()` deref, or a closure) —
         // reading it inside the derive effect subscribes the selector to changes.
+        // A pending `.section(…)` heads the block's FIRST row, wherever the data starts.
+        let section = self.pending_section.take();
         self.sources.push(ItemSource::Dynamic(Box::new(move || {
             items()
                 .iter()
-                .map(|t| {
-                    let ni = map(t);
+                .enumerate()
+                .map(|(i, t)| {
+                    let mut ni = map(t);
+                    if i == 0 && ni.section.is_none() {
+                        ni.section = section.clone();
+                    }
                     SelItem {
                         key: ni.key,
                         title: ni.title,
                         icon: ni.icon,
+                        badge: ni.badge,
+                        section: ni.section,
                         immersive: ni.immersive,
                         build: None,
                     }
@@ -782,7 +897,8 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
     let routed = sel.routed;
     let restore = sel.restore;
     let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
-    let (typed0, titles0, icons0) = day_reactive::untrack(|| items.derive());
+    let rows0 = day_reactive::untrack(|| items.derive());
+    let (typed0, titles0, icons0) = (rows0.keys, rows0.titles, rows0.icons);
     // Restore the last-selected tab (before the initial native index is read).
     restore_selection(&restore, &selection, &typed0);
     let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0.clone()));
@@ -897,10 +1013,25 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
         );
         bind(
             move || {
-                let (k, t, i) = items_e.derive();
-                (k.iter().map(|x| x.key()).collect::<Vec<_>>(), k, t, i)
+                let NavRows {
+                    keys: k,
+                    titles: t,
+                    icons: i,
+                    badges: b,
+                    sections: sc,
+                } = items_e.derive();
+                (
+                    k.iter().map(|x| x.key()).collect::<Vec<_>>(),
+                    k,
+                    t,
+                    i,
+                    b,
+                    sc,
+                )
             },
-            move |(key_strs, keys, ts, ics): &DerivedRows<K>| {
+            // Tabs render neither badges nor sections; the derive carries them for the
+            // selector's sake, so they are deliberately unused here.
+            move |(key_strs, keys, ts, ics, _badges, _sections): &DerivedRows<K>| {
                 // Drop pages whose key vanished (dispose scope + remove subtree).
                 pages_e.borrow_mut().retain(|(k, page, scope)| {
                     if key_strs.contains(k) {
@@ -989,7 +1120,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // The live row set is reactive: `typed` (index → key) and `titles` are shared mutable state
     // the derive effect updates; the initial derive is untracked (the effect below owns the
     // subscription).
-    let (typed0, titles0, icons0) = day_reactive::untrack(|| items.derive());
+    let rows0 = day_reactive::untrack(|| items.derive());
+    let (typed0, titles0, icons0) = (rows0.keys, rows0.titles, rows0.icons);
     // Restore the last-selected section (before the detail's initial `show` runs).
     restore_selection(&restore, &selection, &typed0);
     let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0));
@@ -1038,12 +1170,15 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     {
         let (mh, ks, s) = (menu_holder.clone(), typed.clone(), selection.clone());
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
+        let (badges_init, sections_init) = (rows0.badges.clone(), rows0.sections.clone());
         let menu_piece = piece_fn(move |mcx| {
             let node = mcx.native(
                 kinds::NAV_MENU,
                 &NavMenuProps {
                     items: titles_init,
                     icons: icons_init,
+                    badges: badges_init,
+                    sections: sections_init,
                     selected: None,
                 },
                 Rc::new(LeafLayout),
@@ -1215,10 +1350,23 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         bind(
             move || {
                 // TRACKED derive: subscribes to every dynamic block's signal.
-                let (k, t, i) = items_e.derive();
-                (k.iter().map(|x| x.key()).collect::<Vec<_>>(), k, t, i)
+                let NavRows {
+                    keys: k,
+                    titles: t,
+                    icons: i,
+                    badges: b,
+                    sections: sc,
+                } = items_e.derive();
+                (
+                    k.iter().map(|x| x.key()).collect::<Vec<_>>(),
+                    k,
+                    t,
+                    i,
+                    b,
+                    sc,
+                )
             },
-            move |(key_strs, keys, ts, ics): &DerivedRows<K>| {
+            move |(key_strs, keys, ts, ics, bs, scs): &DerivedRows<K>| {
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
@@ -1236,6 +1384,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                             Box::new(day_spec::props::NavMenuPatch::Items {
                                 items: ts.clone(),
                                 icons: ics.clone(),
+                                badges: bs.clone(),
+                                sections: scs.clone(),
                                 selected,
                             }),
                             false,

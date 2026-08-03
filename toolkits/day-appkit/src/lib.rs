@@ -691,6 +691,14 @@ struct NavMenuIvars {
     /// Template images tint with the source-list's selection/appearance, so they read in light,
     /// dark, and while selected — the macOS-idiomatic sidebar look (Finder/Mail).
     icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
+    /// Trailing accessory per item row (an unread count), `None` where a row has none.
+    badges: RefCell<Vec<Option<Retained<NSString>>>>,
+    /// The outline's rows, in display order: `Some(i)` is item `i`, `None` is a section
+    /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
+    /// goes through this map — a header must never shift what index 3 means.
+    rows: RefCell<Vec<Option<usize>>>,
+    /// One retained NSString per outline row, used as the outline's item identity.
+    row_objects: RefCell<Vec<Retained<NSString>>>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
 }
@@ -733,7 +741,7 @@ define_class!(
             item: Option<&objc2::runtime::AnyObject>,
         ) -> isize {
             if item.is_none() {
-                self.ivars().items.borrow().len() as isize
+                self.ivars().row_objects.borrow().len() as isize
             } else {
                 0
             }
@@ -746,8 +754,8 @@ define_class!(
             index: isize,
             _item: Option<&objc2::runtime::AnyObject>,
         ) -> Retained<objc2::runtime::AnyObject> {
-            let items = self.ivars().items.borrow();
-            let ns = items[index as usize].clone();
+            let objects = self.ivars().row_objects.borrow();
+            let ns = objects[index as usize].clone();
             unsafe { objc2::rc::Retained::cast_unchecked(ns) }
         }
 
@@ -764,6 +772,28 @@ define_class!(
     unsafe impl NSControlTextEditingDelegate for DayNavMenuData {}
 
     unsafe impl NSOutlineViewDelegate for DayNavMenuData {
+        /// Section headers are AppKit group rows: the source-list treatment (small, bold,
+        /// secondary) comes free, and they are excluded from selection below.
+        #[unsafe(method(outlineView:isGroupItem:))]
+        fn is_group_item(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            let row = unsafe { ov.rowForItem(Some(item)) };
+            row >= 0 && self.item_of_row(row).is_none()
+        }
+
+        #[unsafe(method(outlineView:shouldSelectItem:))]
+        fn should_select(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            let row = unsafe { ov.rowForItem(Some(item)) };
+            self.item_of_row(row).is_some()
+        }
+
         #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
         fn view_for(
             &self,
@@ -774,17 +804,44 @@ define_class!(
             let mtm = self.mtm();
             // No early returns: the method_id macro owns the return conversion.
             item.downcast_ref::<NSString>().map(|text| {
-                // This row's optional icon (indexed by row via the outline view's mapping).
                 let row = unsafe { ov.rowForItem(Some(item)) };
-                let icon = (row >= 0)
-                    .then(|| {
-                        self.ivars()
-                            .icons
-                            .borrow()
-                            .get(row as usize)
-                            .and_then(|o| o.clone())
-                    })
-                    .flatten();
+                let Some(index) = self.item_of_row(row) else {
+                    // A section header: a plain secondary label. AppKit gives group rows their
+                    // own typography, so this only supplies the text.
+                    let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
+                    let label = unsafe { NSTextField::labelWithString(text, mtm) };
+                    unsafe {
+                        label.setTranslatesAutoresizingMaskIntoConstraints(false);
+                        cell.addSubview(&label);
+                        cell.setTextField(Some(&label));
+                        objc2_app_kit::NSLayoutConstraint::activateConstraints(
+                            &objc2_foundation::NSArray::from_retained_slice(&[
+                                label
+                                    .leadingAnchor()
+                                    .constraintEqualToAnchor_constant(&cell.leadingAnchor(), 0.0),
+                                label
+                                    .trailingAnchor()
+                                    .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
+                                label
+                                    .centerYAnchor()
+                                    .constraintEqualToAnchor(&cell.centerYAnchor()),
+                            ]),
+                        );
+                    }
+                    return objc2::rc::Retained::into_super(cell);
+                };
+                let icon = self
+                    .ivars()
+                    .icons
+                    .borrow()
+                    .get(index)
+                    .and_then(|o| o.clone());
+                let badge = self
+                    .ivars()
+                    .badges
+                    .borrow()
+                    .get(index)
+                    .and_then(|o| o.clone());
                 // Indent the label past the icon when there is one, so labels align icon-to-text.
                 let label_x = if icon.is_some() { 26.0 } else { 0.0 };
                 let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
@@ -802,6 +859,41 @@ define_class!(
                     label.setTranslatesAutoresizingMaskIntoConstraints(false);
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
+                    // The badge sits at the trailing edge and keeps its intrinsic width; the
+                    // label truncates into whatever is left, so a long feed name never pushes
+                    // its own unread count off the pane.
+                    let trailing: Retained<NSView> = match &badge {
+                        Some(text) => {
+                            let b = NSTextField::labelWithString(text, mtm);
+                            b.setTranslatesAutoresizingMaskIntoConstraints(false);
+                            b.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
+                            b.setAlignment(objc2_app_kit::NSTextAlignment::Right);
+                            b.setFont(Some(
+                                &objc2_app_kit::NSFont::monospacedDigitSystemFontOfSize_weight(
+                                    objc2_app_kit::NSFont::smallSystemFontSize(),
+                                    objc2_app_kit::NSFontWeightRegular,
+                                ),
+                            ));
+                            b.setContentCompressionResistancePriority_forOrientation(
+                                objc2_app_kit::NSLayoutPriorityRequired,
+                                objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+                            );
+                            cell.addSubview(&b);
+                            let v: Retained<NSView> =
+                                objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(b));
+                            v
+                        }
+                        None => {
+                            let spacer = NSView::new(mtm);
+                            spacer.setTranslatesAutoresizingMaskIntoConstraints(false);
+                            cell.addSubview(&spacer);
+                            spacer
+                        }
+                    };
+                    label.setContentCompressionResistancePriority_forOrientation(
+                        objc2_app_kit::NSLayoutPriorityDefaultLow,
+                        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+                    );
                     objc2_app_kit::NSLayoutConstraint::activateConstraints(
                         &objc2_foundation::NSArray::from_retained_slice(&[
                             label
@@ -809,8 +901,17 @@ define_class!(
                                 .constraintEqualToAnchor_constant(&cell.leadingAnchor(), label_x),
                             label
                                 .trailingAnchor()
-                                .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
+                                .constraintLessThanOrEqualToAnchor_constant(
+                                    &trailing.leadingAnchor(),
+                                    -6.0,
+                                ),
                             label
+                                .centerYAnchor()
+                                .constraintEqualToAnchor(&cell.centerYAnchor()),
+                            trailing
+                                .trailingAnchor()
+                                .constraintEqualToAnchor_constant(&cell.trailingAnchor(), -6.0),
+                            trailing
                                 .centerYAnchor()
                                 .constraintEqualToAnchor(&cell.centerYAnchor()),
                         ]),
@@ -855,8 +956,8 @@ define_class!(
                 return;
             };
             let row = unsafe { ov.selectedRow() };
-            if row >= 0 {
-                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+            if let Some(item) = self.item_of_row(row) {
+                emit(self.ivars().node, Event::SelectionChanged(item as i64));
             }
         }
     }
@@ -889,21 +990,84 @@ impl DayNavMenuData {
         node: NodeId,
         items: &[String],
         icons: &[Option<String>],
+        badges: &[Option<String>],
+        sections: &[Option<String>],
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
             icons: RefCell::new(resolve_nav_icons(icons)),
+            badges: RefCell::new(ns_badges(badges)),
+            rows: RefCell::new(Vec::new()),
+            row_objects: RefCell::new(Vec::new()),
             suppress: std::cell::Cell::new(false),
         });
-        unsafe { msg_send![super(this), init] }
+        let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        this.rebuild_rows(items, sections);
+        this
     }
 
-    /// Data-driven rows changed (`NavMenuPatch::Items`): swap the stored labels/icons in place.
-    fn set_items(&self, items: &[String], icons: &[Option<String>]) {
+    /// Data-driven rows changed (`NavMenuPatch::Items`): swap the stored decorations in place.
+    fn set_items(
+        &self,
+        items: &[String],
+        icons: &[Option<String>],
+        badges: &[Option<String>],
+        sections: &[Option<String>],
+    ) {
         *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
         *self.ivars().icons.borrow_mut() = resolve_nav_icons(icons);
+        *self.ivars().badges.borrow_mut() = ns_badges(badges);
+        self.rebuild_rows(items, sections);
     }
+
+    /// Flatten items + section headers into the outline's display rows. Each row gets its own
+    /// retained NSString so the outline can tell two rows apart by identity even when their
+    /// labels match (two feeds legitimately share a title).
+    fn rebuild_rows(&self, items: &[String], sections: &[Option<String>]) {
+        let mut rows = Vec::with_capacity(items.len());
+        let mut objects = Vec::with_capacity(items.len());
+        for (i, label) in items.iter().enumerate() {
+            if let Some(Some(header)) = sections.get(i) {
+                rows.push(None);
+                objects.push(NSString::from_str(header));
+            }
+            rows.push(Some(i));
+            objects.push(NSString::from_str(label));
+        }
+        *self.ivars().rows.borrow_mut() = rows;
+        *self.ivars().row_objects.borrow_mut() = objects;
+    }
+
+    /// Outline row → day item index.
+    fn item_of_row(&self, row: isize) -> Option<usize> {
+        if row < 0 {
+            return None;
+        }
+        self.ivars()
+            .rows
+            .borrow()
+            .get(row as usize)
+            .copied()
+            .flatten()
+    }
+
+    /// Day item index → outline row.
+    fn row_of_item(&self, item: usize) -> Option<usize> {
+        self.ivars()
+            .rows
+            .borrow()
+            .iter()
+            .position(|r| *r == Some(item))
+    }
+}
+
+/// Badge strings, retained once per rebuild rather than per cell.
+fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
+    badges
+        .iter()
+        .map(|b| b.as_deref().map(NSString::from_str))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -2272,7 +2436,7 @@ impl Toolkit for AppKit {
             }
             Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                let data = DayNavMenuData::new(mtm, id, &p.items, &p.icons);
+                let data = DayNavMenuData::new(mtm, id, &p.items, &p.icons, &p.badges, &p.sections);
                 let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
                 let col = unsafe {
                     objc2_app_kit::NSTableColumn::initWithIdentifier(
@@ -2319,11 +2483,13 @@ impl Toolkit for AppKit {
                     scroll.setDocumentView(Some(&outline));
                 }
                 let view = view_of(scroll);
-                if let Some(sel) = p.selected {
+                // Day selects by ITEM index; section headers make that differ from the
+                // outline's row index, so every programmatic selection maps through `rows`.
+                if let Some(row) = p.selected.and_then(|sel| data.row_of_item(sel)) {
                     data.ivars().suppress.set(true);
                     unsafe {
                         outline.selectRowIndexes_byExtendingSelection(
-                            &objc2_foundation::NSIndexSet::indexSetWithIndex(sel),
+                            &objc2_foundation::NSIndexSet::indexSetWithIndex(row),
                             false,
                         )
                     };
@@ -2593,6 +2759,8 @@ impl Toolkit for AppKit {
                 if let Some(NavMenuPatch::Items {
                     items,
                     icons,
+                    badges,
+                    sections,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -2601,13 +2769,13 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
-                        data.set_items(items, icons);
+                        data.set_items(items, icons, badges, sections);
                         data.ivars().suppress.set(true);
                         unsafe {
                             outline.reloadData();
-                            match selected {
-                                Some(i) => outline.selectRowIndexes_byExtendingSelection(
-                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                            match selected.and_then(|i| data.row_of_item(i)) {
+                                Some(row) => outline.selectRowIndexes_byExtendingSelection(
+                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(row),
                                     false,
                                 ),
                                 None => outline.deselectAll(None),
@@ -2625,9 +2793,9 @@ impl Toolkit for AppKit {
                         };
                         data.ivars().suppress.set(true);
                         unsafe {
-                            match sel {
-                                Some(i) => outline.selectRowIndexes_byExtendingSelection(
-                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                            match sel.and_then(|i| data.row_of_item(i)) {
+                                Some(row) => outline.selectRowIndexes_byExtendingSelection(
+                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(row),
                                     false,
                                 ),
                                 None => outline.deselectAll(None),
@@ -3284,12 +3452,25 @@ impl Toolkit for AppKit {
         let app_menu = build_ns_menu(mtm, &self.app_name, &app_menu_items);
         app_item.setSubmenu(Some(&app_menu));
         menubar.addItem(&app_item);
+        // Fill the standard slots the app did not claim, in the platform's bar order
+        // (day-core owns that policy so every backend arranges its bar the same way).
+        let items = day_core::menu::standard_menu_bar(items, stock_menu);
+        let mut help_menu: Option<(String, Retained<NSMenu>)> = None;
         // Each top-level entry becomes a menu-bar menu.
         for item in &items {
             match item {
-                day_spec::MenuItem::Submenu { label, items } => {
+                day_spec::MenuItem::Submenu { label, items, role } => {
                     let sub = build_ns_menu(mtm, label, items);
                     let it = NSMenuItem::new(mtm);
+                    // Help is held back: the Window menu is installed natively AFTER this loop
+                    // (AppKit owns it so it can append the live window list), and Help sits
+                    // last on every Mac menu bar.
+                    if *role == Some(day_spec::MenuBarRole::Help)
+                        || *label == day_l10n::t("day-help")
+                    {
+                        help_menu = Some((label.clone(), sub));
+                        continue;
+                    }
                     it.setTitle(&NSString::from_str(label));
                     it.setSubmenu(Some(&sub));
                     menubar.addItem(&it);
@@ -3307,6 +3488,15 @@ impl Toolkit for AppKit {
         // `MenuRole::Minimize` (then the app is composing its own window management).
         if !model_has_role(&items, day_spec::MenuRole::Minimize) {
             install_windows_menu(mtm, &app, &menubar);
+        }
+        if let Some((label, help)) = help_menu {
+            let it = NSMenuItem::new(mtm);
+            it.setTitle(&NSString::from_str(&label));
+            it.setSubmenu(Some(&help));
+            menubar.addItem(&it);
+            // Registering it makes AppKit add the Help search field and index the help book —
+            // behavior no hand-built menu reproduces.
+            unsafe { app.setHelpMenu(Some(&help)) };
         }
         app.setMainMenu(Some(&menubar));
     }
@@ -3711,10 +3901,29 @@ impl Platform for AppKit {
             .app_name
             .clone()
             .unwrap_or_else(|| options.title.clone());
-        if let Some(name) = &options.app_name {
-            unsafe {
-                objc2_foundation::NSProcessInfo::processInfo()
-                    .setProcessName(&NSString::from_str(name));
+        // The bold App-menu title, the About panel and Quit all show the app's NAME. ALWAYS set
+        // it, not just when `app_name` was given explicitly — an app that only set `title` was
+        // showing its kebab-case cargo target ("day-sheets") where its name belongs.
+        //
+        // Two sources, because AppKit consults them in order: the main bundle's CFBundleName
+        // wins when there is one, and `day launch` runs the binary UNBUNDLED during development,
+        // where the name falls back to the executable's file name. Writing the info dictionary
+        // covers the bundled case; the process name covers the unbundled one.
+        unsafe {
+            objc2_foundation::NSProcessInfo::processInfo()
+                .setProcessName(&NSString::from_str(&self.app_name));
+            let bundle = objc2_foundation::NSBundle::mainBundle();
+            let info: Option<Retained<objc2_foundation::NSDictionary>> =
+                msg_send![&bundle, infoDictionary];
+            if let Some(info) = info {
+                let key = NSString::from_str("CFBundleName");
+                let value = NSString::from_str(&self.app_name);
+                // `infoDictionary` is documented immutable, but the instance backing an
+                // unbundled process is a mutable dictionary; guard the send so a genuinely
+                // immutable one is left alone instead of raising.
+                if info.respondsToSelector(objc2::sel!(setObject:forKey:)) {
+                    let _: () = msg_send![&info, setObject: &*value, forKey: &*key];
+                }
             }
         }
         // RTL locales (docs/localization): AppleTextDirection flips AppKit's app-wide
@@ -4030,6 +4239,49 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     app.setMainMenu(Some(&menubar));
 }
 
+/// macOS's stock menu for a standard slot, as a pure model: role items carry their own native
+/// selector and localized label (`role_spec`), so this is the same vocabulary an app would use
+/// and nothing here is special-cased for one app.
+///
+/// `File` and `Window` return `None`: an app owns its own File menu, and Window is installed
+/// natively below so AppKit can append the live window list and the tab commands to it.
+fn stock_menu(role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
+    use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
+    let act = |r: R| MI::Action {
+        id: 0,
+        label: String::new(),
+        shortcut: None,
+        enabled: true,
+        role: Some(r),
+    };
+    let sub = |key: &str, items: Vec<MI>| {
+        Some(MI::Submenu {
+            label: day_l10n::t(key),
+            items,
+            role: None,
+        })
+    };
+    match role {
+        B::Edit => sub(
+            "day-edit",
+            vec![
+                act(R::Undo),
+                act(R::Redo),
+                MI::Separator,
+                act(R::Cut),
+                act(R::Copy),
+                act(R::Paste),
+                act(R::Delete),
+                act(R::SelectAll),
+            ],
+        ),
+        B::View => sub("day-view", vec![act(R::Fullscreen)]),
+        B::Help => sub("day-help", Vec::new()),
+        B::File | B::Window => None,
+        _ => None,
+    }
+}
+
 /// The standard Window menu (docs/windows.md): Minimize ⌘M / Zoom / Bring All to Front,
 /// registered as `NSApp.windowsMenu` — AppKit then appends the open-window list and, with
 /// tabbing live, the tab commands (Show Next/Previous Tab, Merge All Windows) itself. All
@@ -4232,7 +4484,7 @@ fn build_ns_menu(
     for item in items {
         match item {
             MI::Separator => menu.addItem(&NSMenuItem::separatorItem(mtm)),
-            MI::Submenu { label, items } => {
+            MI::Submenu { label, items, .. } => {
                 let sub = build_ns_menu(mtm, label, items);
                 let it = NSMenuItem::new(mtm);
                 it.setTitle(&NSString::from_str(label));
