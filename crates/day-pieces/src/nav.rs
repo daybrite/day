@@ -1227,7 +1227,9 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Detail: `selection` drives which item's page is shown (reset-to; depth ≤ 1).
     let current: Rc<RefCell<Option<(String, Scope, RNode)>>> = Rc::default();
     let nav_scope = Scope::current();
-    let show = {
+    // Shared: BOTH the selection bind and the row-derive effect drive the detail (see the
+    // derive effect for why the selection bind alone is not enough).
+    let show = std::rc::Rc::new({
         let (items, current, sizes, typed_s, titles_s, sync_menu, owners, host_cx, selection) = (
             items.clone(),
             current.clone(),
@@ -1321,7 +1323,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             *current.borrow_mut() = Some((key.to_string(), scope, page));
             sync_menu(typed_s.borrow().iter().position(|k| k.key() == key));
         }
-    };
+    });
 
     // Desktop split never shows an empty detail: default to the first item.
     if split
@@ -1331,7 +1333,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         selection.set_rw(k);
     }
     {
-        let s = selection.clone();
+        let (s, show) = (selection.clone(), show.clone());
         bind(move || s.get_rw().key(), move |key: &String| show(key));
     }
 
@@ -1347,6 +1349,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             menu_holder.clone(),
             selection.clone(),
         );
+        let (show_e, split_e) = (show.clone(), split);
         bind(
             move || {
                 // TRACKED derive: subscribes to every dynamic block's signal.
@@ -1375,7 +1378,17 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 if !still && let Some(root) = K::from_key("") {
                     sel_e.set_rw(root);
                 }
-                let cur2 = sel_e.get_untracked_rw().key();
+                // A split view must never show an empty detail. The build-time fallback ran
+                // once, before any filtering, so re-apply it here: when the selected row is
+                // gone, move to the first row that survived rather than blanking the pane.
+                let mut cur2 = sel_e.get_untracked_rw().key();
+                if split_e
+                    && cur2.is_empty()
+                    && let Some(k) = keys.first().cloned()
+                {
+                    sel_e.set_rw(k.clone());
+                    cur2 = k.key();
+                }
                 let selected = key_strs.iter().position(|k| k == &cur2);
                 if let Some(m) = mh_e.get() {
                     with_tree(|t| {
@@ -1392,6 +1405,15 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                         );
                     });
                 }
+                // Drive the detail from HERE as well as from the selection bind. That bind is
+                // created FIRST, so when a query signal and the selection are written in one
+                // batch it runs while `typed` still holds the pre-filter rows, finds no index
+                // for the key, and gives up — leaving a highlighted row over an empty pane with
+                // nothing left to re-trigger it. The fallback just above has the same problem in
+                // reverse: it changes the selection after that bind has already run. `show` is
+                // idempotent (it returns at once when the detail already shows this key), so
+                // calling it on every derive costs nothing and closes both holes.
+                show_e(&cur2);
             },
         );
     }

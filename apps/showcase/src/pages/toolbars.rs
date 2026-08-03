@@ -32,6 +32,12 @@ struct ToolbarDemo {
     last: Signal<String>,
 }
 
+/// The toolbar's search text, which also filters the sidebar (`crate::destinations`). Public to
+/// the crate because the shell reads it while building the nav, before this page ever opens.
+pub(crate) fn search_query() -> Signal<String> {
+    state().query
+}
+
 fn state() -> ToolbarDemo {
     STATE.with(|c| {
         *c.get_or_init(|| ToolbarDemo {

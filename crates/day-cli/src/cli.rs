@@ -54,6 +54,11 @@ enum Cmd {
         /// Extra environment K=V passed to the app (repeatable)
         #[arg(long = "env")]
         envs: Vec<String>,
+        /// Device to launch on when the target has more than one: an iOS simulator UDID or
+        /// name. Without it every BOOTED simulator gets the app — right for a capture sweep,
+        /// wrong when you mean one specific device. (Android selects with `ANDROID_SERIAL`.)
+        #[arg(long)]
+        device: Option<String>,
         /// Exit after launch instead of staying attached to logs
         #[arg(long)]
         detach: bool,
@@ -472,6 +477,9 @@ pub fn run() -> i32 {
                     project.manifest.app.version.clone(),
                 )],
                 attached: false,
+                // A relaunch re-targets whatever the previous launch put on screen, so it keeps
+                // the unfiltered behaviour rather than inventing a device to prefer.
+                device: None,
             };
             for (ti, name) in names.iter().enumerate() {
                 let Some(target) = targets::find(name) else {
@@ -649,10 +657,12 @@ pub fn run() -> i32 {
             scripts,
             variant,
             skip_build,
+            device,
         } => with_project(cli.project.as_deref(), |project| {
             let script_mode = !scripts.is_empty();
             let mut spec = ops::LaunchSpec {
                 locale: locale.clone(),
+                device: device.clone(),
                 envs: envs
                     .iter()
                     .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))

@@ -218,6 +218,13 @@ pub struct LaunchSpec {
     pub locale: Option<String>,
     pub envs: Vec<(String, String)>,
     pub attached: bool,
+    /// Which device to launch on, when the target has more than one. Today that means an iOS
+    /// simulator (UDID or name): without it a launch goes to EVERY booted simulator, which is
+    /// right for a capture sweep and wrong for anything that means one specific device — a
+    /// side-by-side comparison against another app, or a machine that keeps several sims booted.
+    /// `None` keeps the every-booted-simulator behaviour. Android already selects with
+    /// `ANDROID_SERIAL`, which adb reads directly.
+    pub device: Option<String>,
 }
 
 /// Launch a built artifact; returns a join handle streaming prefixed logs.

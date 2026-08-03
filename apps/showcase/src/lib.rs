@@ -152,6 +152,177 @@ pub fn root() -> AnyPiece {
     window_root(true)
 }
 
+/// One sidebar destination: the row's title and icon, and the page it opens.
+///
+/// `Clone` because `.items(…)` re-derives the list on every query keystroke; the fields are a
+/// key, two fn pointers and a name, so a clone is cheap.
+///
+/// A TABLE, not a chain of `.item_icon(…)` calls, because the sidebar is filterable — its rows
+/// are derived from the search query, and `.items(…)` wants a list it can re-derive. The table
+/// is also what `.destination` looks a key up in, so a row and its page can never drift apart.
+#[derive(Clone)]
+struct Dest {
+    section: Section,
+    /// The generated `res::str` accessor, not a resolved `String`: the title has to be
+    /// re-resolved on every derive so the rows re-title (and re-filter) on a locale switch.
+    title: fn() -> day::LocalizedText,
+    icon: day::prelude::ImageName,
+    page: fn() -> AnyPiece,
+}
+
+/// Every destination, in the order the sidebar shows them — ALPHABETICAL by the US-English
+/// display title. Keep it that way when adding a page. About is both alphabetically first and
+/// the desktop split's default detail (the split selects the first row when nothing is chosen).
+fn destinations() -> Vec<Dest> {
+    vec![
+        Dest {
+            section: Section::About,
+            title: crate::res::str::nav_about,
+            icon: res::images::nav_about,
+            page: about_page,
+        },
+        Dest {
+            section: Section::Animation,
+            title: crate::res::str::nav_animation,
+            icon: res::images::nav_animation,
+            page: animation_page,
+        },
+        Dest {
+            section: Section::Canvas,
+            title: crate::res::str::nav_canvas,
+            icon: res::images::nav_canvas,
+            page: canvas_page,
+        },
+        Dest {
+            section: Section::Controls,
+            title: crate::res::str::nav_controls,
+            icon: res::images::nav_controls,
+            page: controls_page,
+        },
+        Dest {
+            section: Section::CrashReporting,
+            title: crate::res::str::nav_crash,
+            icon: res::images::nav_crash,
+            page: crash_page,
+        },
+        Dest {
+            section: Section::Dates,
+            title: crate::res::str::nav_dates,
+            icon: res::images::nav_dates,
+            page: dates_page,
+        },
+        Dest {
+            section: Section::System,
+            title: crate::res::str::nav_system,
+            icon: res::images::nav_system,
+            page: system_page,
+        },
+        Dest {
+            section: Section::Focus,
+            title: crate::res::str::nav_focus,
+            icon: res::images::nav_focus,
+            page: focus_page,
+        },
+        Dest {
+            section: Section::Grid,
+            title: crate::res::str::nav_grid,
+            icon: res::images::nav_grid,
+            page: grid_page,
+        },
+        Dest {
+            section: Section::List,
+            title: crate::res::str::nav_list,
+            icon: res::images::nav_list,
+            page: list_page,
+        },
+        Dest {
+            section: Section::Localization,
+            title: crate::res::str::nav_localization,
+            icon: res::images::nav_localization,
+            page: localization_page,
+        },
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        Dest {
+            section: Section::Map,
+            title: crate::res::str::nav_map,
+            icon: res::images::nav_map,
+            page: map_page,
+        },
+        Dest {
+            section: Section::Media,
+            title: crate::res::str::nav_media,
+            icon: res::images::nav_media,
+            page: media_page,
+        },
+        Dest {
+            section: Section::Menus,
+            title: crate::res::str::nav_menus,
+            icon: res::images::nav_menus,
+            page: menus_page,
+        },
+        Dest {
+            section: Section::Services,
+            title: crate::res::str::nav_services,
+            icon: res::images::nav_services,
+            page: services_page,
+        },
+        Dest {
+            section: Section::Refresh,
+            title: crate::res::str::nav_refresh,
+            icon: res::images::nav_refresh,
+            page: refresh_page,
+        },
+        Dest {
+            section: Section::Resources,
+            title: crate::res::str::nav_resources,
+            icon: res::images::nav_resources,
+            page: resources_page,
+        },
+        Dest {
+            section: Section::Stack,
+            title: crate::res::str::nav_stack,
+            icon: res::images::nav_stack,
+            page: stack_page,
+        },
+        Dest {
+            section: Section::Tabs,
+            title: crate::res::str::nav_tabs,
+            icon: res::images::nav_tabs,
+            page: tabs_page,
+        },
+        Dest {
+            section: Section::Text,
+            title: crate::res::str::nav_text,
+            icon: res::images::nav_text,
+            page: text_page,
+        },
+        Dest {
+            section: Section::TextAreas,
+            title: crate::res::str::nav_textareas,
+            icon: res::images::nav_textareas,
+            page: text_areas_page,
+        },
+        Dest {
+            section: Section::Toolbars,
+            title: crate::res::str::nav_toolbars,
+            icon: res::images::nav_toolbars,
+            page: toolbars_page,
+        },
+        Dest {
+            section: Section::Tweaks,
+            title: crate::res::str::nav_tweaks,
+            icon: res::images::nav_tweaks,
+            page: tweaks_page,
+        },
+        Dest {
+            section: Section::WebView,
+            title: crate::res::str::nav_webview,
+            icon: res::images::nav_webview,
+            page: webview_page,
+        },
+    ]
+}
+
 /// One showcase shell — the primary window's content, and (via `register_new_window`) each
 /// File ▸ New Window's. Every call creates its own section signal, so windows navigate
 /// independently; app-global state (menu log, lifecycle log, controls prefs) is shared.
@@ -175,163 +346,37 @@ fn window_root(primary: bool) -> AnyPiece {
     );
     // Each destination carries a bundled Material icon (images/nav_*.png) shown in the native nav
     // where the backend supports it (e.g. the Windows NavigationView pane).
+    // The sidebar filters live on what the toolbar's search field holds (docs/localization.md
+    // "Searching"): a row survives when the query is a case-insensitive prefix of one of its
+    // title's words, with the words found by the current locale's own segmentation.
+    let query = pages::toolbars::search_query();
     let nav = selector(section)
         .style(SelectorStyle::Sidebar)
         .title(crate::res::str::app_title())
         .header(sidebar_header)
         // Reopen on the last-viewed section (web only — see the install_nav_store note above).
         .restore("nav.section")
-        // ALPHABETICAL by the US-English display title — keep it that way when adding a
-        // page (including the cfg'd Map rebinding below, which holds its slot). About is
-        // both alphabetically first and the desktop split's default detail (the split
-        // selects the FIRST item when nothing is chosen).
-        .item_icon(
-            Section::About,
-            crate::res::str::nav_about(),
-            res::images::nav_about,
-            about_page,
+        .items(
+            move || {
+                // TRACKED: reads the query AND (through `matches_search`) the locale, so the
+                // rows re-filter on a keystroke and re-title on a language switch.
+                let q = query.get();
+                destinations()
+                    .into_iter()
+                    .filter(|d| matches_search(&(d.title)().format(), &q))
+                    .collect::<Vec<_>>()
+            },
+            |d: &Dest| item(d.section, (d.title)()).icon(d.icon.clone()),
         )
-        .item_icon(
-            Section::Animation,
-            crate::res::str::nav_animation(),
-            res::images::nav_animation,
-            animation_page,
-        )
-        .item_icon(
-            Section::Canvas,
-            crate::res::str::nav_canvas(),
-            res::images::nav_canvas,
-            canvas_page,
-        )
-        .item_icon(
-            Section::Controls,
-            crate::res::str::nav_controls(),
-            res::images::nav_controls,
-            controls_page,
-        )
-        .item_icon(
-            Section::CrashReporting,
-            crate::res::str::nav_crash(),
-            res::images::nav_crash,
-            crash_page,
-        )
-        .item_icon(
-            Section::Dates,
-            crate::res::str::nav_dates(),
-            res::images::nav_dates,
-            dates_page,
-        )
-        .item_icon(
-            Section::System,
-            crate::res::str::nav_system(),
-            res::images::nav_system,
-            system_page,
-        )
-        .item_icon(
-            Section::Focus,
-            crate::res::str::nav_focus(),
-            res::images::nav_focus,
-            focus_page,
-        )
-        .item_icon(
-            Section::Grid,
-            crate::res::str::nav_grid(),
-            res::images::nav_grid,
-            grid_page,
-        )
-        .item_icon(
-            Section::List,
-            crate::res::str::nav_list(),
-            res::images::nav_list,
-            list_page,
-        )
-        .item_icon(
-            Section::Localization,
-            crate::res::str::nav_localization(),
-            res::images::nav_localization,
-            localization_page,
-        );
-    // Map is Apple-only (docs/map.md) — a cfg'd rebinding keeps it in its alphabetical slot.
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    let nav = nav.item_icon(
-        Section::Map,
-        crate::res::str::nav_map(),
-        res::images::nav_map,
-        map_page,
-    );
-    let nav = nav
-        .item_icon(
-            Section::Media,
-            crate::res::str::nav_media(),
-            res::images::nav_media,
-            media_page,
-        )
-        .item_icon(
-            Section::Menus,
-            crate::res::str::nav_menus(),
-            res::images::nav_menus,
-            menus_page,
-        )
-        .item_icon(
-            Section::Services,
-            crate::res::str::nav_services(),
-            res::images::nav_services,
-            services_page,
-        )
-        .item_icon(
-            Section::Refresh,
-            crate::res::str::nav_refresh(),
-            res::images::nav_refresh,
-            refresh_page,
-        )
-        .item_icon(
-            Section::Resources,
-            crate::res::str::nav_resources(),
-            res::images::nav_resources,
-            resources_page,
-        )
-        .item_icon(
-            Section::Stack,
-            crate::res::str::nav_stack(),
-            res::images::nav_stack,
-            stack_page,
-        )
-        .item_icon(
-            Section::Tabs,
-            crate::res::str::nav_tabs(),
-            res::images::nav_tabs,
-            tabs_page,
-        )
-        .item_icon(
-            Section::Text,
-            crate::res::str::nav_text(),
-            res::images::nav_text,
-            text_page,
-        )
-        .item_icon(
-            Section::TextAreas,
-            crate::res::str::nav_textareas(),
-            res::images::nav_textareas,
-            text_areas_page,
-        )
-        .item_icon(
-            Section::Toolbars,
-            crate::res::str::nav_toolbars(),
-            res::images::nav_toolbars,
-            toolbars_page,
-        )
-        .item_icon(
-            Section::Tweaks,
-            crate::res::str::nav_tweaks(),
-            res::images::nav_tweaks,
-            tweaks_page,
-        )
-        .item_icon(
-            Section::WebView,
-            crate::res::str::nav_webview(),
-            res::images::nav_webview,
-            webview_page,
-        );
+        // Dynamic rows carry no page builder of their own — the key is looked up here.
+        .destination(|key: &Option<Section>| match key {
+            Some(sec) => destinations()
+                .into_iter()
+                .find(|d| d.section == *sec)
+                .map(|d| (d.page)())
+                .unwrap_or_else(|| column(()).any()),
+            None => column(()).any(),
+        });
     let nav = if primary { nav } else { nav.local() };
     nav.id("nav")
 }

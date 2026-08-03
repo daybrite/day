@@ -21,4 +21,6 @@ icu_calendar = { workspace = true }
 icu_time = { workspace = true }
 icu_datetime = { workspace = true }
 icu_collator = { workspace = true }
+icu_segmenter = { workspace = true }
+icu_casemap = { workspace = true }
 intl-memoizer = { workspace = true }

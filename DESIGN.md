@@ -2213,7 +2213,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day version` | version, build profile, git ref |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI) |
 | `day build -p <target>…` | build for one or more targets, in parallel |
-| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--keep-alive] [--detach] [--skip-build]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant |
+| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--keep-alive] [--detach] [--skip-build] [--device <udid\|name>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; `--device` narrows an iOS launch to ONE booted simulator (UDID or name) instead of every booted one, for side-by-side runs and hosts that keep several sims up |
 | `day pack -p <target> [--profile release]` | build → sign → installable artifact (formats below) |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |

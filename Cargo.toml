@@ -157,6 +157,11 @@ icu_calendar = { version = "2.2", features = ["compiled_data"] }
 icu_time = { version = "2.2", features = ["compiled_data"] }
 icu_datetime = { version = "2.2", features = ["compiled_data"] }
 icu_collator = { version = "2.2", features = ["compiled_data"] }
+# Search matching (docs/localization.md "Searching"). `auto` gives the segmenter its LSTM +
+# dictionary models, which is the only way word starts are found in a script that does not
+# write spaces — Chinese, Japanese, Thai, Khmer. Rules alone would make search useless there.
+icu_segmenter = { version = "2.2", features = ["compiled_data", "auto"] }
+icu_casemap = { version = "2.2", features = ["compiled_data"] }
 intl-memoizer = "0.5"
 
 [profile.release]

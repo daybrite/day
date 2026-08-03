@@ -647,6 +647,92 @@ fn selector_data_driven_items_reconcile() {
 }
 
 #[test]
+fn selector_filtered_rows_keep_a_live_detail() {
+    // A search-filtered sidebar (docs/navigation.md): the row set and the selection change in
+    // the SAME batch, which used to leave the detail pane empty for good — the selection bind
+    // is created before the derive effect, so it ran against the pre-filter rows, found no
+    // index for the key, and gave up with nothing left to re-trigger it.
+    let query = Signal::new(String::new());
+    let current = Signal::new(Option::<String>::None);
+    let all = ["canvas", "controls", "sensors"];
+    let q = query;
+    let probe = boot(move || {
+        selector(current)
+            .style(SelectorStyle::Sidebar)
+            .items(
+                move || {
+                    let needle = q.get();
+                    all.iter()
+                        .filter(|t| day_l10n::matches_search_in("en", t, &needle))
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                },
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            .destination(|k: &Option<String>| {
+                label(format!("page:{}", k.clone().unwrap_or_default()))
+            })
+            .any()
+    });
+    let menu = probe.find_by_kind("day.nav_menu")[0].0;
+    assert_eq!(probe.widget(menu).text, "canvas|controls|sensors");
+
+    let shows = |key: &str| {
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == format!("page:{key}"))
+    };
+
+    // Narrow to one row: only the word-prefix match survives.
+    batch(|| query.set("s".into()));
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "sensors");
+
+    // THE HAZARD: widen the filter and select a row that reappears, in ONE batch. The selection
+    // bind runs first, against the still-narrow row set, and finds no index for "canvas".
+    batch(|| {
+        query.set(String::new());
+        current.set(Some("canvas".into()));
+    });
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "canvas|controls|sensors");
+    assert!(
+        shows("canvas"),
+        "the detail follows a selection made in the same batch as the filter that revealed it"
+    );
+
+    // A surviving key keeps its page across a re-filter.
+    batch(|| query.set("can".into()));
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "canvas");
+    assert_eq!(current.get_untracked(), Some("canvas".to_string()));
+    assert!(shows("canvas"), "surviving key keeps its page");
+
+    // Reset for the removal case below.
+    batch(|| query.set(String::new()));
+    flush_sync();
+    batch(|| current.set(Some("sensors".into())));
+    flush_sync();
+    assert!(shows("sensors"));
+
+    // Filtering the SELECTED row away resets the selection rather than stranding the pane on a
+    // row that is no longer in the list.
+    batch(|| query.set("canv".into()));
+    flush_sync();
+    assert_eq!(probe.widget(menu).text, "canvas");
+    assert_eq!(
+        current.get_untracked(),
+        None,
+        "selection cleared when its row was filtered out"
+    );
+    assert!(
+        !shows("sensors"),
+        "the filtered-out page is gone, not left on screen"
+    );
+}
+
+#[test]
 fn stack_on_back_guard_intercepts_and_defers() {
     use std::cell::Cell;
     use std::rc::Rc;

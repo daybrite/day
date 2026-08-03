@@ -19,8 +19,10 @@ use unic_langid::LanguageIdentifier;
 
 mod collate;
 mod intl;
+mod search;
 
 pub use collate::{compare, compare_in, sort_localized};
+pub use search::{matches_search, matches_search_in};
 
 /// The built-in core catalog: standard UI strings the framework needs, per language. Apps override
 /// individual keys by defining them in their own catalog (see [`install`]).

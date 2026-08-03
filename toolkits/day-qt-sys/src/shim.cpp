@@ -870,7 +870,7 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons) {
     // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
     // list is likewise split keep-empty (empty entry = no icon for that row).
     const QStringList titles =
-        QString::fromUtf8(joined).split(QChar(0x1f), Qt::SkipEmptyParts);
+        QString::fromUtf8(joined).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QStringList iconPaths =
         QString::fromUtf8(icons).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QColor textColor = l->palette().color(QPalette::Text);

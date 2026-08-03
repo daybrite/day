@@ -444,6 +444,49 @@ pub(crate) fn booted_sims() -> Vec<String> {
         .collect()
 }
 
+/// Resolve `--device` (a UDID or a device name) against the booted simulators.
+///
+/// Matching is deliberately restricted to BOOTED devices: a name that exists but is shut down is a
+/// clearer error than silently booting something the caller did not ask for, and booting is the
+/// caller's decision (it takes tens of seconds and changes the state of their machine).
+fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
+    if booted.iter().any(|u| u.eq_ignore_ascii_case(want)) {
+        return Ok(vec![want.to_string()]);
+    }
+    // Not a booted UDID — try it as a device name, which is what a human passes.
+    let listing = Command::new("xcrun")
+        .args(["simctl", "list", "devices", "booted"])
+        .output()
+        .map_err(|e| format!("simctl list: {e}"))?;
+    let named: Vec<String> = String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter(|l| l.contains("(Booted)"))
+        .filter(|l| {
+            l.split_once('(')
+                .map(|(name, _)| name.trim().eq_ignore_ascii_case(want))
+                .unwrap_or(false)
+        })
+        .filter_map(|l| {
+            l.split(['(', ')'])
+                .map(str::trim)
+                .find(|t| t.len() == 36 && t.split('-').count() == 5)
+                .map(str::to_string)
+        })
+        .collect();
+    if named.is_empty() {
+        return Err(format!(
+            "--device {want:?} is not a booted iOS simulator (booted: {}). Boot it first: \
+             `xcrun simctl boot {want:?}`",
+            if booted.is_empty() {
+                "none".to_string()
+            } else {
+                booted.join(", ")
+            }
+        ));
+    }
+    Ok(named)
+}
+
 pub fn launch_ios(
     project: &Project,
     outcome: &BuildOutcome,
@@ -458,6 +501,11 @@ pub fn launch_ios(
                 .into(),
         );
     }
+    // `--device` narrows the launch to one simulator; without it every booted one gets the app.
+    let sims = match spec.device.as_deref() {
+        Some(want) => select_sim(&sims, want)?,
+        None => sims,
+    };
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();
     for udid in &sims {

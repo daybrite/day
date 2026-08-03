@@ -124,6 +124,53 @@ label(move || {
 })
 ```
 
+## Searching — localized match
+
+`day::matches_search(text, query)` and `day::matches_search_in(locale, text, query)` answer the
+question a search field asks: does this row match what the user typed? The rule is
+**case-insensitive prefix of any word**. In an English UI, `s` matches
+
+| title | why |
+|---|---|
+| Canvas & shapes | `shapes` |
+| Device & sensors | `sensors` |
+| Platform services | `services` |
+| Stack | `Stack` |
+
+and not "Toolbars" or "Controls", whose only `s` is inside a word. An empty query matches
+everything, so an empty box filters nothing. `matches_search` reads the locale signal (tracked);
+`matches_search_in` takes the locale explicitly and reads nothing.
+
+```rust
+let hits = titles.iter().filter(|t| matches_search(t, &query.get()));
+```
+
+Two icu4x components make this correct outside English.
+
+**Word segmentation** finds where words begin. Splitting on spaces is an English assumption:
+`日本語入力` is two words to a reader and one to `split_whitespace`, so search would find nothing
+in Chinese, Japanese, Thai, Khmer, Lao or Burmese. The segmenter carries dictionaries and LSTM
+models for exactly those scripts — `matches_search_in("ja", "日本語入力", "入力")` is true, and
+`"語"` (mid-word) is false. Punctuation and spaces are not word starts, so the `&` in
+"Canvas & shapes" is not somewhere a search can begin.
+
+**Case folding**, not `to_lowercase`: folding is the operation Unicode defines for caseless
+matching. `Straße` matches `STRASSE`, and `Σ`/`σ`/`ς` match each other. Turkish and Azerbaijani
+get the Turkic variant, which keeps the dotted and dotless I apart — in `tr`, `i` does *not*
+match `Irmak`, and `ı` does; in `en`, `i` matches it.
+
+Because the word start at offset 0 is a candidate like any other, a multi-word query works with
+no separate rule: `canvas &` matches "Canvas & shapes".
+
+> [!NOTE]
+> Matching is on **case** only. `é` does not match `e`, and `ä` does not match `a`. Accent-
+> insensitive search would mean comparing at the collator's primary strength, which is a
+> different (and slower) operation than a prefix test; it is a possible follow-up, not a
+> current behaviour.
+
+The segmenter's `auto` models are the reason this section's data footprint is not free — see the
+next section.
+
 ## Locale data — thinned per app
 
 The icu4x components ship `compiled_data` for every locale (~1.5 MB of a release binary with all

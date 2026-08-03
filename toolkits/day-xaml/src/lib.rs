@@ -1291,14 +1291,54 @@ impl Toolkit for Xaml {
                     Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 kinds::NAV_MENU => {
-                    if let Some(NavMenuPatch::Selected(sel)) = patch.downcast_ref::<NavMenuPatch>()
-                    {
-                        let idx = sel.map(|i| i as c_int).unwrap_or(-1);
-                        // Split navs drive the NavigationView pane; a plain ListView otherwise.
-                        match NAV_MENU_HOST.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
-                            Some(nav) => ffi::day_xaml_nav_set_selected(nav, idx),
-                            None => ffi::day_xaml_navlist_set_selected(h.0, idx),
+                    // Split navs drive the NavigationView pane; a plain ListView otherwise.
+                    let host = NAV_MENU_HOST.with(|m| m.borrow().get(&(h.0 as usize)).copied());
+                    match patch.downcast_ref::<NavMenuPatch>() {
+                        Some(NavMenuPatch::Selected(sel)) => {
+                            let idx = sel.map(|i| i as c_int).unwrap_or(-1);
+                            match host {
+                                Some(nav) => ffi::day_xaml_nav_set_selected(nav, idx),
+                                None => ffi::day_xaml_navlist_set_selected(h.0, idx),
+                            }
                         }
+                        // The row set changed (a filtered sidebar, a data-driven list). Without
+                        // this the pane kept its original rows for the life of the window, and
+                        // NAV_MENU_ROWS — which `measure` sizes the list from — went stale.
+                        // Badges and sections have no NavigationView counterpart yet, so they are
+                        // dropped here as they are at realize.
+                        Some(NavMenuPatch::Items {
+                            items,
+                            icons,
+                            selected,
+                            ..
+                        }) => {
+                            let idx = selected.map(|i| i as c_int).unwrap_or(-1);
+                            let joined = cstr(&items.join("\n"));
+                            match host {
+                                Some(nav) => {
+                                    let icons_joined = icons
+                                        .iter()
+                                        .map(|ic| {
+                                            ic.as_deref().map(icon_file_name).unwrap_or_default()
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    ffi::day_xaml_nav_set_items(
+                                        nav,
+                                        joined.as_ptr(),
+                                        cstr(&icons_joined).as_ptr(),
+                                    );
+                                    ffi::day_xaml_nav_set_selected(nav, idx);
+                                }
+                                None => {
+                                    ffi::day_xaml_navlist_set_items(h.0, joined.as_ptr());
+                                    ffi::day_xaml_navlist_set_selected(h.0, idx);
+                                    NAV_MENU_ROWS
+                                        .with(|m| m.borrow_mut().insert(h.0 as usize, items.len()));
+                                }
+                            }
+                        }
+                        None => {}
                     }
                 }
                 // Split navs show the current destination in the NavigationView Header (the whole

@@ -11,7 +11,8 @@ use day_pieces::{IntoText, TextSource};
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
 pub use day_l10n::{
     FArg, IntoFArg, IntoNumberFArg, SigM, ValM, compare, compare_in, format_in, locale,
-    set_launch_locale, set_locale, sort_localized, strip_isolates, t,
+    matches_search, matches_search_in, set_launch_locale, set_locale, sort_localized,
+    strip_isolates, t,
 };
 
 /// Register the app's locales (see [`day_l10n::install`]) and fix the layout direction from the

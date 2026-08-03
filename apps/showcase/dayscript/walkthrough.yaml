@@ -535,10 +535,10 @@ flow:
   - assert_route: { route: toolbars }
   - assert_visible: { id: toolbars-title }
   - toolbar: { item: tb-new, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
-  - toolbar: { item: tb-search, text: "hello", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - toolbar: { item: tb-search, text: "tool", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
   - toolbar: { item: tb-star, on: true, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
   - wait_idle:
-  - assert_text: { id: toolbar-query, text: "hello", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - assert_text: { id: toolbar-query, text: "tool", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
   - assert_text: { id: toolbar-star-state, key: toolbar_on, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
   # Adding an item is just a different list: tick the switch, then the new item is drivable.
   - toggle: { id: toolbar-extra-switch, value: true, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
@@ -551,6 +551,22 @@ flow:
   - tap: { id: toolbar-clear-search, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
   - wait_idle:
   - assert_text: { id: toolbar-query, key: toolbar_query_empty, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  # The search field also filters the SIDEBAR by localized word-prefix (docs/localization.md
+  # "Searching"): `s` keeps only the destinations with a word starting in `s`. Navigating while
+  # filtered proves the row set and the selection can change together without stranding the
+  # detail pane — the bug the nav derive effect now closes.
+  - toolbar: { item: tb-search, text: "s", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - navigate: { route: stack }
+  - assert_route: { route: stack }
+  - assert_visible: { id: stack-root }
+  - screenshot: toolbars-filtered
+  # Clearing the query restores every row, and the page opened while filtered is still there.
+  - toolbar: { item: tb-search, text: "", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - assert_route: { route: stack }
+  - navigate: { route: toolbars }
+  - wait_idle:
   - screenshot: toolbars
 
   # Localization (docs/localization.md): live locale switching, icu4x NUMBER/DATETIME rendering,

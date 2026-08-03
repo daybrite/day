@@ -195,6 +195,11 @@ pub fn debug_title_tag() -> Option<String> {
         return None;
     }
     let toolkit = toolkit_key()?;
+    // The mock backend has no window and no title bar, so there is nothing for a tag to
+    // disambiguate — it would only corrupt what a headless test asserts about a title.
+    if toolkit == "mock" {
+        return None;
+    }
     let mut parts = Vec::new();
     if let Ok(v) = std::env::var("DAY_APP_VERSION")
         && !v.is_empty()

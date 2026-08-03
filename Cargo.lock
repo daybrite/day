@@ -709,10 +709,12 @@ dependencies = [
  "day-reactive",
  "fluent-bundle",
  "icu_calendar",
+ "icu_casemap",
  "icu_collator",
  "icu_datetime",
  "icu_decimal",
  "icu_locale_core",
+ "icu_segmenter",
  "icu_time",
  "intl-memoizer",
  "unic-langid",
@@ -2053,6 +2055,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "070f98b5b82798fcb93654bf96ed9f40064fc44c86f51a09ea711092cd5cc5be"
 dependencies = [
  "databake",
+ "icu_casemap_data",
  "icu_collections",
  "icu_locale_core",
  "icu_properties",
@@ -2062,6 +2065,12 @@ dependencies = [
  "writeable",
  "zerovec",
 ]
+
+[[package]]
+name = "icu_casemap_data"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "846b0857ca091204be3c874bc93daaf89d4777e8d2d20b0d3ffe8f671d98014b"
 
 [[package]]
 name = "icu_codepointtrie_builder"
@@ -2444,14 +2453,23 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c0794db0b1a86193ac9c48768d0e6c52c54448e0870ad87907d456ee0dac964"
 dependencies = [
+ "core_maths",
  "databake",
  "icu_collections",
+ "icu_locale",
  "icu_provider",
+ "icu_segmenter_data",
  "potential_utf",
  "serde",
  "utf8_iter",
  "zerovec",
 ]
+
+[[package]]
+name = "icu_segmenter_data"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4a2c462a4d927d512f5f882a033ddd62f33a05bb9f230d98f736ac3dc85938f"
 
 [[package]]
 name = "icu_time"

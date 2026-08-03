@@ -81,6 +81,9 @@ pub use day_fluent::install as install_locales;
 // Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
 pub use day_fluent::{compare, compare_in, sort_localized};
+// Search matching (docs/localization.md "Searching"): case-insensitive, at the start of any
+// word, with words found by the locale's own segmentation. `matches_search` tracks the locale.
+pub use day_fluent::{matches_search, matches_search_in};
 // The current-locale Signal itself, for apps that show or branch on it (`locale().get()` is a
 // tracked read; `set_locale` in the prelude writes it).
 pub use day_fluent::locale;
@@ -136,7 +139,7 @@ pub const fn toolkit_name() -> &'static str {
 
 pub mod prelude {
     pub use day_fluent::{
-        LocalizedText, install as install_locales, set_locale, sort_localized, tr,
+        LocalizedText, install as install_locales, matches_search, set_locale, sort_localized, tr,
     };
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
