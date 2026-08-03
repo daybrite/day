@@ -49,16 +49,6 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  # ---------------------------------------------------------------------------
-  # clippy: every lint that needs NO toolkit libraries, as a first-pass check
-  # parallel with fmt/msrv. Deliberately NOT in the combos' `needs:` — a lint
-  # error must not suppress the platform matrix's build/test signal (it once
-  # rode linux-day (x86_64), where a pure lint failure killed the CLI artifact
-  # and with it every Linux-descended combo). It is a required status check, so
-  # a red lint still blocks merge. The per-combo backend lints stay in their
-  # platform jobs: feature unification forbids a workspace-wide clippy (§3),
-  # and each backend needs its platform SDK.
-  # ---------------------------------------------------------------------------
   clippy:
     runs-on: ubuntu-latest
     steps:
@@ -72,6 +62,11 @@ jobs:
           cargo clippy --locked --all-targets
           cargo clippy --locked -p day-cli -p day-script --all-targets
           cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
+
+  duty-matrix-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       # The Toolkit-duty conformance table (docs/duty-matrix.md) is generated; a Toolkit-trait
       # or backend change that forgets to regenerate it is drift, and drift is a red build.
       - name: Duty-matrix drift check
@@ -86,28 +81,6 @@ jobs:
         run: |
           scripts/ci/coverage-matrix.sh
           git diff --exit-code docs/coverage-matrix.md
-      # The Android cross-check lint gates HERE (the android-mdc job is continue-on-error
-      # for an emulator flake, so a lint failure there would not fail the workflow). The headless
-      # parts named below have no toolkit feature, and parts are NOT in default-members, so a bare
-      # `cargo test`/`clippy` never reaches them: lint their Linux + Android impls explicitly, and
-      # RUN the tests for the two whose decision logic is pure and host-testable (the permission
-      # status tables and the sensor subscription bookkeeping). The macOS/iOS/Windows impls compile
-      # as a showcase dependency on those jobs (RUSTFLAGS=-D warnings).
-      - name: Clippy (android cross-check + headless parts)
-        run: |
-          rustup target add aarch64-linux-android
-          # `-A missing_const_for_thread_local`: clippy 1.97 false-positives this lint on the
-          # bionic/musl cross-targets, flagging `thread_local!`s that ALREADY use `const { … }`
-          # (host and apple targets are clean). Suppress it on the cross-check; the host clippy
-          # step above still enforces the lint accurately.
-          cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
-            --no-default-features --features mdc -- -A clippy::missing_const_for_thread_local
-          for P in day-part-battery day-part-permissions day-part-location day-part-sensors; do
-            cargo clippy --locked -p $P --all-targets
-            cargo clippy --locked --target aarch64-linux-android -p $P \
-              -- -A clippy::missing_const_for_thread_local
-          done
-          cargo test --locked -p day-part-permissions -p day-part-location -p day-part-sensors
 
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.

@@ -111,6 +111,18 @@ if [ -d parts ]; then
   done
 fi
 
+# 4) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
+# checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,
+# or changing the SHAPE the generators detect (renaming a realize match arm, moving the kinds
+# table) so a generator silently stops seeing what it measures — that one emits an empty table
+# rather than an error, so only the diff catches it. Runs last because it rewrites the two files
+# in place: on failure they are left regenerated, so `git diff` shows exactly what moved.
+drift() { # drift <generator> <generated-file>
+  "$1" >/dev/null && git diff --exit-code -- "$2" >/dev/null
+}
+leg "duty-matrix drift" drift scripts/ci/duty-matrix.sh docs/duty-matrix.md
+leg "coverage-matrix drift" drift scripts/ci/coverage-matrix.sh docs/coverage-matrix.md
+
 # ── summary ────────────────────────────────────────────────────────────────────────────────────
 printf '\n\033[1m── lint summary ──\033[0m\n'
 [ ${#SKIPPED[@]} -eq 0 ] || { printf '\033[33mskipped:\033[0m\n'; printf '  %s\n' "${SKIPPED[@]}"; }

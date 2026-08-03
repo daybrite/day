@@ -56,9 +56,14 @@ realize_bodies = {n: body_of(sources[n], REALIZE) for n, _, _ in BACKENDS}
 cap_bodies = {n: body_of(sources[n], CAPABILITY) for n, _, _ in BACKENDS}
 
 # ---- built-in kinds ------------------------------------------------------------------------
-kinds = re.findall(r'\n    pub const (\w+): &str = "([^"]+)";', spec)
-# LIST_CELL is never realized: day-core adopts the recycled native cell as the handle.
-kinds = [(k, v) for k, v in kinds if k != "LIST_CELL"]
+# Parsed from the `builtin_kinds!` table in day-spec — the single source the Builtin enum, the
+# wire keys, and the `kinds::*` constants are all generated from.
+kinds = re.findall(
+    r'^\s*(\w+) = (\w+) => "([^"]+)",', body_of(spec, re.compile(r"\bbuiltin_kinds!\s*")), re.M
+)
+assert kinds, "no builtin_kinds! entries found in day-spec — did the table move?"
+# ListCell is never realized: day-core adopts the recycled native cell as the handle.
+kinds = [(variant, key) for variant, _const, key in kinds if variant != "ListCell"]
 
 # ---- external pieces ----------------------------------------------------------------------
 # A piece implements a backend when it ships that backend's arm file. An empty feature (e.g.
@@ -119,10 +124,13 @@ out = [
     "| kind | " + " | ".join(names) + " |",
     "|---|" + "---|" * len(names),
 ]
-for const, kind in kinds:
+for variant, kind in kinds:
     row = [f"`{kind}`"]
+    # Word-boundary match, NOT a substring test: `Builtin::List` is a prefix of
+    # `Builtin::ListCell`, which every realize body mentions in its fallback arm.
+    arm = re.compile(r"\bBuiltin::" + re.escape(variant) + r"\b")
     for n in names:
-        row.append("✓" if f"kinds::{const}" in realize_bodies[n] else "·")
+        row.append("✓" if arm.search(realize_bodies[n]) else "·")
     out.append("| " + " | ".join(row) + " |")
 
 out += [
