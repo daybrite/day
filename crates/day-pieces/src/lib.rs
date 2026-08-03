@@ -34,6 +34,7 @@ mod nav;
 mod shapes;
 mod sources;
 mod structure;
+mod toolbar;
 
 pub use canvas::*;
 pub use containers::*;
@@ -48,9 +49,11 @@ pub use nav::*;
 pub use shapes::*;
 pub use sources::*;
 pub use structure::*;
+pub use toolbar::*;
 
 pub mod prelude {
     pub use crate::TextStyle;
+    pub use crate::ToolbarEntry;
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, BackRequest, BackResponse, ButtonStyle, Confirm, Corner, Cover,
@@ -64,8 +67,9 @@ pub mod prelude {
         menu_separator, nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker,
         polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
         row, save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider,
-        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, when, with_environment,
-        zstack,
+        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, toolbar, toolbar_button,
+        toolbar_flexible_space, toolbar_label, toolbar_menu, toolbar_reactive, toolbar_search,
+        toolbar_separator, toolbar_space, toolbar_toggle, when, with_environment, zstack,
     };
     pub use crate::{Picker, TextArea};
     pub use day_core::{
@@ -86,5 +90,6 @@ pub mod prelude {
     };
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     pub use day_spec::{MenuBarRole, MenuItem, MenuRole, Shortcut};
+    pub use day_spec::{Symbol, ToolbarItem, ToolbarItemKind, ToolbarValue};
     pub use std::time::Duration;
 }

@@ -20,7 +20,10 @@
 #include <QPropertyAnimation>
 #include <QVariantAnimation>
 #include <functional>
+#include <QToolBar>
 #include <QToolButton>
+#include <QStyle>
+#include <QWidgetAction>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -178,17 +181,31 @@ public:
     // callbacks and close hides (Rust owns destruction — docs/windows.md).
     unsigned long long node = 0;
 
+    // The window toolbar (docs/toolbars.md), a strip under the menu bar. A plain QToolBar
+    // parented to the window rather than a QMainWindow dock: the geometry here is already
+    // hand-managed, and the toolbar is a genuine QToolBar either way — it gets the style's
+    // icon size, button style and hover behaviour. What it does not get is dragging between
+    // dock areas, which needs QMainWindow.
+    QToolBar *toolbar = nullptr;
+
     // The in-window menu bar height (0 when absent or when the platform uses a global bar).
     int menuHeight() const {
         if (!menubar || menubar->isNativeMenuBar()) return 0;
         return menubar->sizeHint().height();
     }
+    int toolbarHeight() const {
+        if (!toolbar || toolbar->isHidden() || toolbar->actions().isEmpty()) return 0;
+        return toolbar->sizeHint().height();
+    }
     void relayoutChrome() {
         const int mh = menuHeight();
+        const int th = toolbarHeight();
         if (menubar && mh > 0) menubar->setGeometry(0, 0, width(), mh);
-        if (content) content->setGeometry(0, mh, width(), height() - mh);
-        if (resize_cb) resize_cb(width(), height() - mh);
-        if (node && g_win_resized) g_win_resized(node, width(), height() - mh);
+        if (toolbar && th > 0) toolbar->setGeometry(0, mh, width(), th);
+        const int top = mh + th;
+        if (content) content->setGeometry(0, top, width(), height() - top);
+        if (resize_cb) resize_cb(width(), height() - top);
+        if (node && g_win_resized) g_win_resized(node, width(), height() - top);
     }
 
 protected:
@@ -1578,6 +1595,173 @@ void day_qt_window_menubar_done(void *win) {
 
 void *day_qt_menubar_add_menu(void *bar, const char *label) {
     return static_cast<QMenuBar *>(bar)->addMenu(QString::fromUtf8(label));
+}
+
+// --- window toolbar (docs/toolbars.md) ---------------------------------------------------
+// A real QToolBar under the menu bar, populated with QActions so the style decides icon size
+// and whether labels show — the KDE convention, and what the user's Qt settings expect.
+// Buttons ride the same g_menu_cb rail as menu items; values (toggle, search) go through
+// g_toolbar_cb.
+
+// kind 0 = toggle (`on`), kind 1 = search text (`text`).
+static void (*g_toolbar_cb)(uint64_t, int, int, const char *) = nullptr;
+void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_toolbar_cb = cb; }
+
+// Item widgets by id, for the targeted patches (search text, toggle state, enabled).
+static std::map<std::string, QWidget *> g_toolbar_widgets;
+static std::map<std::string, QAction *> g_toolbar_actions;
+
+// The icon for a standard symbol: the freedesktop theme first (Linux, where KDE and GNOME
+// both ship one), then the Qt style's own standard pixmap, which exists on every platform —
+// so a macOS or Windows Qt build still gets real icons for the common commands.
+static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
+    QString name = QString::fromUtf8(theme);
+    if (!name.isEmpty()) {
+        QIcon themed = QIcon::fromTheme(name);
+        if (!themed.isNull()) return themed;
+    }
+    if (standard_pixmap >= 0 && QApplication::style())
+        return QApplication::style()->standardIcon(
+            static_cast<QStyle::StandardPixmap>(standard_pixmap));
+    return QIcon();
+}
+
+void *day_qt_window_toolbar(void *win) {
+    auto *window = static_cast<DayWindow *>(win);
+    QToolBar *bar = window->toolbar;
+    if (!bar) {
+        bar = new QToolBar(window);
+        // No explicit tool-button style or icon size: inheriting them is what makes the bar
+        // match the rest of the user's Qt desktop.
+        bar->setMovable(false);
+        bar->setFloatable(false);
+        bar->show();
+        window->toolbar = bar;
+    }
+    bar->clear();
+    g_toolbar_widgets.clear();
+    g_toolbar_actions.clear();
+    return bar;
+}
+
+void day_qt_window_toolbar_done(void *win) {
+    auto *window = static_cast<DayWindow *>(win);
+    if (window->toolbar) window->toolbar->setVisible(!window->toolbar->actions().isEmpty());
+    window->relayoutChrome();
+}
+
+void day_qt_toolbar_add_action(void *bar, const char *id, const char *label, const char *theme,
+                               int standard_pixmap, const char *tooltip, uint64_t action,
+                               int enabled, int checkable, int checked) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    QAction *a = tb->addAction(QString::fromUtf8(label));
+    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap);
+    if (!icon.isNull()) a->setIcon(icon);
+    a->setToolTip(QString::fromUtf8(tooltip));
+    a->setEnabled(enabled != 0);
+    const uint64_t aid = action;
+    if (checkable) {
+        a->setCheckable(true);
+        a->setChecked(checked != 0);
+        QObject::connect(a, &QAction::toggled, [aid](bool on) {
+            if (g_toolbar_cb) g_toolbar_cb(aid, 0, on ? 1 : 0, "");
+        });
+    } else if (aid) {
+        QObject::connect(a, &QAction::triggered, [aid]() {
+            if (g_menu_cb) g_menu_cb(aid);
+        });
+    }
+    g_toolbar_actions[std::string(id)] = a;
+}
+
+// A pull-down: a QToolButton in InstantPopup mode, which is how Qt draws a menu button on a
+// toolbar (with the little chevron). Returns the QMenu for day-qt to fill.
+void *day_qt_toolbar_add_menu(void *bar, const char *id, const char *label, const char *theme,
+                              int standard_pixmap, const char *tooltip, int enabled) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *button = new QToolButton(tb);
+    auto *menu = new QMenu(button);
+    button->setText(QString::fromUtf8(label));
+    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap);
+    if (!icon.isNull()) button->setIcon(icon);
+    button->setToolTip(QString::fromUtf8(tooltip));
+    button->setEnabled(enabled != 0);
+    button->setMenu(menu);
+    button->setPopupMode(QToolButton::InstantPopup);
+    button->setToolButtonStyle(tb->toolButtonStyle());
+    tb->addWidget(button);
+    g_toolbar_widgets[std::string(id)] = button;
+    return menu;
+}
+
+void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
+                               const char *placeholder, uint64_t action, int enabled) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *edit = new QLineEdit(QString::fromUtf8(text), tb);
+    edit->setPlaceholderText(QString::fromUtf8(placeholder));
+    edit->setClearButtonEnabled(true);
+    edit->addAction(QIcon::fromTheme(QStringLiteral("edit-find")), QLineEdit::LeadingPosition);
+    edit->setEnabled(enabled != 0);
+    edit->setMaximumWidth(240);
+    const uint64_t aid = action;
+    if (aid) {
+        QObject::connect(edit, &QLineEdit::textChanged, [aid](const QString &s) {
+            QByteArray ba = s.toUtf8();
+            if (g_toolbar_cb) g_toolbar_cb(aid, 1, 0, ba.constData());
+        });
+    }
+    tb->addWidget(edit);
+    g_toolbar_widgets[std::string(id)] = edit;
+}
+
+void day_qt_toolbar_add_label(void *bar, const char *id, const char *text) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *label = new QLabel(QString::fromUtf8(text), tb);
+    tb->addWidget(label);
+    g_toolbar_widgets[std::string(id)] = label;
+}
+
+void day_qt_toolbar_add_separator(void *bar) { static_cast<QToolBar *>(bar)->addSeparator(); }
+
+// `expand` != 0 makes the spacer absorb the leftover width, which is how the model's flexible
+// space pushes everything after it to the trailing edge.
+void day_qt_toolbar_add_space(void *bar, int expand) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *spacer = new QWidget(tb);
+    if (expand)
+        spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    else
+        spacer->setFixedWidth(12);
+    tb->addWidget(spacer);
+}
+
+void day_qt_toolbar_set_text(const char *id, const char *text) {
+    auto it = g_toolbar_widgets.find(std::string(id));
+    if (it == g_toolbar_widgets.end()) return;
+    if (auto *edit = qobject_cast<QLineEdit *>(it->second)) {
+        QString next = QString::fromUtf8(text);
+        if (edit->text() == next) return;
+        // textChanged fires on a programmatic set too, which would echo into the signal.
+        const bool blocked = edit->blockSignals(true);
+        edit->setText(next);
+        edit->blockSignals(blocked);
+    }
+}
+
+void day_qt_toolbar_set_checked(const char *id, int on) {
+    auto it = g_toolbar_actions.find(std::string(id));
+    if (it == g_toolbar_actions.end() || !it->second->isCheckable()) return;
+    if (it->second->isChecked() == (on != 0)) return;
+    const bool blocked = it->second->blockSignals(true);
+    it->second->setChecked(on != 0);
+    it->second->blockSignals(blocked);
+}
+
+void day_qt_toolbar_set_enabled(const char *id, int on) {
+    auto a = g_toolbar_actions.find(std::string(id));
+    if (a != g_toolbar_actions.end()) a->second->setEnabled(on != 0);
+    auto w = g_toolbar_widgets.find(std::string(id));
+    if (w != g_toolbar_widgets.end()) w->second->setEnabled(on != 0);
 }
 
 void *day_qt_menu_new() { return new QMenu(); }

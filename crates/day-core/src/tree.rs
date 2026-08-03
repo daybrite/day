@@ -511,6 +511,11 @@ pub trait TreeOps {
     fn set_probe_focused(&mut self, node: RNode, focused: bool);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
+    /// Install `root`'s window toolbar (docs/toolbars.md). `root` is a window root — the primary
+    /// root or one returned by `open_window_root`.
+    fn set_window_toolbar(&mut self, root: RNode, items: Vec<day_spec::ToolbarItem>);
+    /// Apply a targeted change to one item of `root`'s toolbar.
+    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch);
     /// Programmatic scroll (§7.6, docs/scroll.md): resolve `target` against a SCROLL node's
     /// content/viewport and drive `Toolkit::scroll_to`. Returns false when `node` isn't a
     /// realized scroll (the caller reports the miss; dayscript retries).
@@ -885,6 +890,18 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>) {
         self.toolkit.set_app_menu(&items);
+    }
+
+    fn set_window_toolbar(&mut self, root: RNode, items: Vec<day_spec::ToolbarItem>) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_toolbar(&h, &items);
+        }
+    }
+
+    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.update_toolbar(&h, &patch);
+        }
     }
 
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>) {
@@ -1608,6 +1625,12 @@ fn pump_events_inner() {
         // Menu actions are keyed by action id, not by tree node (§ menus).
         if let Event::MenuAction(action) = ev {
             crate::menu::dispatch_menu_action(action);
+            continue;
+        }
+        // Toolbar values are keyed by action id too (docs/toolbars.md) — borrowed, because the
+        // payload owns a String and the arms below still need `ev`.
+        if let Event::ToolbarChanged { action, value } = &ev {
+            crate::toolbar::dispatch_toolbar_value(*action, value);
             continue;
         }
         // Lifecycle phases are app-global, not keyed by tree node (docs/lifecycle.md).

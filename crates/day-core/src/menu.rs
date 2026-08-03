@@ -22,13 +22,19 @@ thread_local! {
 /// Register an app closure for a menu item and return its dispatch id (nonzero). The `day-pieces`
 /// menu builder calls this while lowering a menu tree to the [`day_spec::MenuItem`] model.
 pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
-    let id = NEXT_ID.with(|c| {
+    let id = next_action_id();
+    ACTIONS.with(|m| m.borrow_mut().insert(id, f));
+    id
+}
+
+/// The next dispatch id (nonzero, monotonic). Toolbar value callbacks draw from this same
+/// counter (docs/toolbars.md) so a toolbar id can never collide with a menu id.
+pub(crate) fn next_action_id() -> u64 {
+    NEXT_ID.with(|c| {
         let id = c.get();
         c.set(id.wrapping_add(1).max(1));
         id
-    });
-    ACTIONS.with(|m| m.borrow_mut().insert(id, f));
-    id
+    })
 }
 
 /// Run the closure registered for `id` (no-op if none). Called by the event pump on

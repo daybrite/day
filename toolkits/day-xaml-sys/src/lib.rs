@@ -222,6 +222,18 @@ unsafe extern "C" {
     pub fn day_xaml_set_context_menu(elem: *mut c_void, spec: *const c_char);
     pub fn day_xaml_set_app_menu(win: *mut c_void, spec: *const c_char);
 
+    // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, built from one
+    // tab/newline spec the same way the menus are (the format is documented on both sides —
+    // `serialize_toolbar` in day-xaml, the parser in shim.cpp). Buttons ride
+    // `day_xaml_set_menu_cb`; values arrive on the toolbar callback as (action, kind, on, text)
+    // with kind 0 = toggle, 1 = search text. An empty spec removes the bar.
+    pub fn day_xaml_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
+    pub fn day_xaml_set_toolbar(win: *mut c_void, spec: *const c_char);
+    // Targeted patches, addressed by the item's id (no-op if the bar has no such item).
+    pub fn day_xaml_toolbar_set_text(id: *const c_char, text: *const c_char);
+    pub fn day_xaml_toolbar_set_checked(id: *const c_char, on: c_int);
+    pub fn day_xaml_toolbar_set_enabled(id: *const c_char, on: c_int);
+
     // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
     // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.
     pub fn day_xaml_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));

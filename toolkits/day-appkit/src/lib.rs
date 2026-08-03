@@ -65,6 +65,7 @@ pub type Handle = Retained<NSView>;
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
 mod textarea;
+mod toolbar;
 
 pub mod ext;
 pub use ext::*;
@@ -2127,6 +2128,8 @@ impl Toolkit for AppKit {
             | Cap::ListReorder
             // Real NSWindows with native tabbing + the Windows menu (docs/windows.md).
             | Cap::MultiWindow
+            // A real NSToolbar in the title bar (docs/toolbars.md).
+            | Cap::Toolbar
             | Cap::Appearance => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
@@ -3416,6 +3419,14 @@ impl Toolkit for AppKit {
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
 
+    fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
+        self.install_toolbar(h, items);
+    }
+
+    fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
+        self.patch_toolbar(h, patch);
+    }
+
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         let mtm = self.mtm;
         let app = NSApplication::sharedApplication(mtm);
@@ -4433,7 +4444,7 @@ fn role_spec(
     }
 }
 
-fn build_ns_menu(
+pub(crate) fn build_ns_menu(
     mtm: MainThreadMarker,
     title: &str,
     items: &[day_spec::MenuItem],

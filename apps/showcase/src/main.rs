@@ -3,9 +3,9 @@ fn main() {
     showcase::install_lifecycle_handlers();
     day::launch(
         day::WindowOptions {
-            // Name the app "Day Showcase" and tag which native toolkit is rendering it, e.g.
-            // "Day Showcase (AppKit)" / "(GTK)" / "(Qt)".
-            title: format!("Day Showcase ({})", day::toolkit_name()),
+            // Just the name: a debug build appends its own "(version/toolkit[/script])" tag
+            // (docs/windows.md), so naming the toolkit here would say it twice.
+            title: "Day Showcase".into(),
             // A desktop-appropriate default (the sidebar + detail split wants room); mobile ignores
             // this and fills the screen.
             size: day::prelude::Size::new(1000.0, 720.0),

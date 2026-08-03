@@ -594,3 +594,60 @@ storage_idle = لا شيء مخزّن بعد
 
 prefs_window_title = الإعدادات
 prefs_window_caption = يُطبَّق المظهر واللغة على كل النوافذ ويُحفظان بين عمليات التشغيل.
+
+# — Toolbars page (docs/toolbars.md) —
+nav_toolbars = أشرطة الأدوات
+toolbars_caption = شريط أدوات النافذة نفسها، ضمن الهيكل الأصلي للمنصة — ‏NSToolbar على macOS، وAdwHeaderBar على GNOME، وQToolBar على KDE، وCommandBar على Windows. انظر إلى أعلى هذه النافذة؛ عناصر التحكّم أدناه هي التي تقوده.
+toolbar_unsupported = لا تملك مجموعة الأدوات هذه شريط أدوات للنافذة، لذا لم يُثبَّت شيء. الهاتف يضع هذه الأوامر داخل المحتوى بدلًا من ذلك.
+toolbar_readout_title = ما الذي يفعله شريط الأدوات
+toolbar_controls_title = قيادته من هنا
+toolbar_vocabulary_title = مفردات العناصر
+# Item labels — these appear IN the toolbar, so they stay short.
+toolbar_new = جديد
+toolbar_refresh = تحديث
+toolbar_star = نجمة
+toolbar_menu = المزيد
+toolbar_extra = علامة مرجعية
+toolbar_menu_first = تكرار
+toolbar_menu_second = إعادة تسمية
+toolbar_search_placeholder = بحث
+# The live readout.
+toolbar_query_label = نص البحث
+toolbar_query_empty = (فارغ)
+toolbar_star_label = النجمة
+toolbar_on = مفعّلة
+toolbar_off = معطّلة
+toolbar_presses_label = الضغطات
+toolbar_presses = { $count ->
+    [zero] لا ضغطات
+    [one] ضغطة واحدة
+    [two] ضغطتان
+    [few] { $count } ضغطات
+    [many] { $count } ضغطةً
+   *[other] { $count } ضغطة
+}
+toolbar_last_label = آخر إجراء
+toolbar_last_none = لا شيء بعد
+toolbar_last_new = جديد
+toolbar_last_refresh = تحديث
+toolbar_last_star = تبديل النجمة
+toolbar_last_menu_first = المزيد ▸ تكرار
+toolbar_last_menu_second = المزيد ▸ إعادة تسمية
+toolbar_last_extra = علامة مرجعية
+# The page's own controls.
+toolbar_extra_label = إظهار عنصر العلامة المرجعية
+toolbar_enabled_label = تفعيل عنصر التحديث
+toolbar_clear_search = مسح البحث
+toolbar_seed_search = تعبئة البحث
+toolbar_seed_text = أشرطة الأدوات
+# One line per item kind.
+toolbar_kind_button = زر
+toolbar_kind_button_note = ينفّذ أمرًا، ويمكنه مشاركة إجرائه مع عنصر قائمة.
+toolbar_kind_toggle = مفتاح
+toolbar_kind_toggle_note = مرتبط باتجاهين بإشارة، فيتفق المفتاح أعلاه مع الزر.
+toolbar_kind_menu = قائمة
+toolbar_kind_menu_note = قائمة منسدلة مبنية من المدخلات نفسها التي يأخذها شريط القوائم.
+toolbar_kind_search = بحث
+toolbar_kind_search_note = عنصر البحث الأصلي للمنصة، مرتبط باتجاهين بإشارة.
+toolbar_kind_space = المسافات
+toolbar_kind_space_note = مسافة مرنة تفصل عناصر البداية عن عناصر النهاية.

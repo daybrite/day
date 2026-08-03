@@ -587,3 +587,56 @@ storage_idle = Rien d'enregistré pour l'instant
 
 prefs_window_title = Préférences
 prefs_window_caption = Le thème et la langue s'appliquent à toutes les fenêtres et sont conservés entre les lancements.
+
+# — Toolbars page (docs/toolbars.md) —
+nav_toolbars = Barres d'outils
+toolbars_caption = La barre d'outils de la fenêtre elle-même, dans l'habillage natif de la plateforme — un NSToolbar sur macOS, l'AdwHeaderBar sur GNOME, une QToolBar sur KDE, une CommandBar sur Windows. Regardez en haut de cette fenêtre ; les contrôles ci-dessous la pilotent.
+toolbar_unsupported = Cette boîte à outils n'a pas de barre d'outils de fenêtre ; rien n'a donc été installé. Sur téléphone, ces commandes vont dans le contenu.
+toolbar_readout_title = Ce que fait la barre d'outils
+toolbar_controls_title = La piloter depuis ici
+toolbar_vocabulary_title = Le vocabulaire des éléments
+# Item labels — these appear IN the toolbar, so they stay short.
+toolbar_new = Nouveau
+toolbar_refresh = Actualiser
+toolbar_star = Étoile
+toolbar_menu = Plus
+toolbar_extra = Signet
+toolbar_menu_first = Dupliquer
+toolbar_menu_second = Renommer
+toolbar_search_placeholder = Rechercher
+# The live readout.
+toolbar_query_label = Texte de recherche
+toolbar_query_empty = (vide)
+toolbar_star_label = Étoile
+toolbar_on = Activée
+toolbar_off = Désactivée
+toolbar_presses_label = Appuis
+toolbar_presses = { $count ->
+    [one] { $count } appui
+   *[other] { $count } appuis
+}
+toolbar_last_label = Dernière action
+toolbar_last_none = Rien pour l'instant
+toolbar_last_new = Nouveau
+toolbar_last_refresh = Actualiser
+toolbar_last_star = Étoile basculée
+toolbar_last_menu_first = Plus ▸ Dupliquer
+toolbar_last_menu_second = Plus ▸ Renommer
+toolbar_last_extra = Signet
+# The page's own controls.
+toolbar_extra_label = Afficher l'élément Signet
+toolbar_enabled_label = Élément Actualiser activé
+toolbar_clear_search = Effacer la recherche
+toolbar_seed_search = Remplir la recherche
+toolbar_seed_text = barres d'outils
+# One line per item kind.
+toolbar_kind_button = Bouton
+toolbar_kind_button_note = Exécute une commande, et peut partager son action avec un élément de menu.
+toolbar_kind_toggle = Interrupteur
+toolbar_kind_toggle_note = Lié en double sens à un signal, donc l'interrupteur ci-dessus et le bouton s'accordent.
+toolbar_kind_menu = Menu
+toolbar_kind_menu_note = Un menu déroulant construit à partir des mêmes entrées que la barre de menus.
+toolbar_kind_search = Recherche
+toolbar_kind_search_note = Le champ de recherche de la plateforme, lié en double sens à un signal.
+toolbar_kind_space = Espaceurs
+toolbar_kind_space_note = Un espace flexible sépare les éléments de tête de ceux de fin.

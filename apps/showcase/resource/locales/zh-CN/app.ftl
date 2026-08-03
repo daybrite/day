@@ -582,3 +582,55 @@ storage_idle = 尚未存储任何内容
 
 prefs_window_title = 偏好设置
 prefs_window_caption = 主题和语言应用于所有窗口，并在启动之间保留。
+
+# — Toolbars page (docs/toolbars.md) —
+nav_toolbars = 工具栏
+toolbars_caption = 窗口自己的工具栏，绘制在平台原生的窗口外壳里——macOS 上是 NSToolbar，GNOME 上是 AdwHeaderBar，KDE 上是 QToolBar，Windows 上是 CommandBar。看看本窗口顶部；下面的控件在驱动它。
+toolbar_unsupported = 此工具包没有窗口工具栏，因此没有安装任何内容。手机会把这些命令放进页面内容里。
+toolbar_readout_title = 工具栏正在做什么
+toolbar_controls_title = 从这里驱动它
+toolbar_vocabulary_title = 工具栏项的种类
+# Item labels — these appear IN the toolbar, so they stay short.
+toolbar_new = 新建
+toolbar_refresh = 刷新
+toolbar_star = 星标
+toolbar_menu = 更多
+toolbar_extra = 书签
+toolbar_menu_first = 创建副本
+toolbar_menu_second = 重命名
+toolbar_search_placeholder = 搜索
+# The live readout.
+toolbar_query_label = 搜索文字
+toolbar_query_empty = （空）
+toolbar_star_label = 星标
+toolbar_on = 开
+toolbar_off = 关
+toolbar_presses_label = 按下次数
+toolbar_presses = { $count ->
+   *[other] { $count } 次按下
+}
+toolbar_last_label = 最近操作
+toolbar_last_none = 暂无
+toolbar_last_new = 新建
+toolbar_last_refresh = 刷新
+toolbar_last_star = 已切换星标
+toolbar_last_menu_first = 更多 ▸ 创建副本
+toolbar_last_menu_second = 更多 ▸ 重命名
+toolbar_last_extra = 书签
+# The page's own controls.
+toolbar_extra_label = 显示书签项
+toolbar_enabled_label = 启用刷新项
+toolbar_clear_search = 清除搜索
+toolbar_seed_search = 填充搜索
+toolbar_seed_text = 工具栏
+# One line per item kind.
+toolbar_kind_button = 按钮
+toolbar_kind_button_note = 执行一个命令，并可与菜单项共用同一个动作。
+toolbar_kind_toggle = 开关
+toolbar_kind_toggle_note = 与信号双向绑定，因此上面的开关和这个按钮状态一致。
+toolbar_kind_menu = 菜单
+toolbar_kind_menu_note = 下拉菜单，由菜单栏所用的同一批条目构建。
+toolbar_kind_search = 搜索
+toolbar_kind_search_note = 平台自带的搜索控件，与信号双向绑定。
+toolbar_kind_space = 间隔
+toolbar_kind_space_note = 弹性间隔把靠前的项与靠后的项分开。

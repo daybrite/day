@@ -527,6 +527,32 @@ flow:
   - wait_idle:
   - screenshot: textareas
 
+  # Toolbars (docs/toolbars.md): the MAIN WINDOW's own toolbar, so the assertions read the
+  # page's live bindings rather than any on-page widget. `toolbar:` drives an item through the
+  # same dispatch its native control fires; the screenshot is what shows the bar actually drew.
+  # Skipped where the toolkit has no toolbar — nothing installs there, by design.
+  - navigate: { route: toolbars }
+  - assert_route: { route: toolbars }
+  - assert_visible: { id: toolbars-title }
+  - toolbar: { item: tb-new, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - toolbar: { item: tb-search, text: "hello", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - toolbar: { item: tb-star, on: true, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - assert_text: { id: toolbar-query, text: "hello", skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - assert_text: { id: toolbar-star-state, key: toolbar_on, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  # Adding an item is just a different list: tick the switch, then the new item is drivable.
+  - toggle: { id: toolbar-extra-switch, value: true, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - toolbar: { item: tb-extra, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - assert_text: { id: toolbar-last, key: toolbar_last_extra, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  # Disabling one item patches only that item — `toolbar:` refuses a disabled command.
+  - toggle: { id: toolbar-enabled-switch, value: false, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - tap: { id: toolbar-clear-search, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - wait_idle:
+  - assert_text: { id: toolbar-query, key: toolbar_query_empty, skip_on: [ios-uikit, android-mdc, harmony-arkui, web-dom] }
+  - screenshot: toolbars
+
   # Localization (docs/localization.md): live locale switching, icu4x NUMBER/DATETIME rendering,
   # CLDR plural categories, and collation-aware sorting. Key-based asserts resolve through the
   # SAME bundle + formatter as the labels, so the expected strings are locale-correct by

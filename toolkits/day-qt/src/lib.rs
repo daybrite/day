@@ -43,6 +43,7 @@ fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
 mod textarea;
+mod toolbar;
 
 pub type Handle = QtHandle;
 
@@ -80,7 +81,7 @@ fn emit_deferred(id: NodeId, ev: Event) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-fn cstr(s: &str) -> CString {
+pub(crate) fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
 
@@ -805,7 +806,7 @@ fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
 }
 
 /// Walk the day-neutral menu tree, issuing flat builder calls against a QMenu pointer.
-fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
+pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     for item in items {
         match item {
             day_spec::MenuItem::Separator => unsafe { ffi::day_qt_menu_add_separator(menu) },
@@ -893,7 +894,9 @@ impl Toolkit for Qt {
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
             | Cap::ListReorder
             // Real DayWindows on the shared QApplication (docs/windows.md).
-            | Cap::MultiWindow => Support::Native,
+            | Cap::MultiWindow
+            // A real QToolBar under the menu bar (docs/toolbars.md).
+            | Cap::Toolbar => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -1765,6 +1768,14 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, is_drag as c_int, on_gesture) };
     }
 
+    fn set_toolbar(&mut self, h: &QtHandle, items: &[day_spec::ToolbarItem]) {
+        self.install_toolbar(h, items);
+    }
+
+    fn update_toolbar(&mut self, h: &QtHandle, patch: &day_spec::ToolbarPatch) {
+        self.patch_toolbar(h, patch);
+    }
+
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         if self.window.is_null() {
             return;
@@ -1966,6 +1977,7 @@ impl Platform for Qt {
             self.window = window;
             ffi::day_qt_set_present_cb(present_cb);
             ffi::day_qt_set_menu_cb(on_menu_action);
+            ffi::day_qt_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_qt_set_lifecycle_cb(on_lifecycle);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);

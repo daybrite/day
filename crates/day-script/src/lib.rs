@@ -108,6 +108,17 @@ pub enum Step {
         #[serde(default)]
         path: Option<Vec<String>>,
     },
+    /// Drive a window-toolbar item by its id (docs/toolbars.md). With neither `text:` nor
+    /// `on:` this runs a button's command; `text:` types into a search item; `on:` sets a
+    /// toggle. Each goes through the same dispatch the native control fires, so it exercises
+    /// the app's wiring — it does not prove the native widget drew (a screenshot does).
+    Toolbar {
+        item: String,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        on: Option<bool>,
+    },
     AssertVisible {
         id: String,
     },
@@ -696,6 +707,35 @@ fn exec(step: Step) -> Reply {
                         false,
                     )),
                 }
+            }
+            Step::Toolbar { item, text, on } => {
+                let model = day_core::toolbar::primary_toolbar_model();
+                let Some(found) = model.iter().find(|i| i.id == item) else {
+                    // Retryable: a reactive toolbar may not have installed yet.
+                    return Err(Reply::fail(format!("toolbar: no item {item:?}"), true));
+                };
+                if !found.enabled {
+                    return Err(Reply::fail(format!("toolbar: {item:?} is disabled"), false));
+                }
+                if found.action == 0 {
+                    return Err(Reply::fail(
+                        format!("toolbar: {item:?} has no command"),
+                        false,
+                    ));
+                }
+                match (text, on) {
+                    (Some(t), _) => day_core::toolbar::dispatch_toolbar_value(
+                        found.action,
+                        &day_spec::ToolbarValue::Text(t),
+                    ),
+                    (None, Some(v)) => day_core::toolbar::dispatch_toolbar_value(
+                        found.action,
+                        &day_spec::ToolbarValue::On(v),
+                    ),
+                    (None, None) => day_core::dispatch_menu_action(found.action),
+                }
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
             }
             Step::AssertVisible { id } => {
                 visible(&id)?;

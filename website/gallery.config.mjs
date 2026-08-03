@@ -104,6 +104,7 @@ export const suites = [
       { id: 'tweaks', label: 'Tweaks (native config)', source: 'apps/showcase/src/pages/tweaks.rs' },
       { id: 'text', label: 'Typography & custom fonts', source: 'apps/showcase/src/pages/text.rs' },
       { id: 'textareas', label: 'Text areas', source: 'apps/showcase/src/pages/text_areas.rs' },
+      { id: 'toolbars', label: 'Window toolbars', source: 'apps/showcase/src/pages/toolbars.rs' },
       { id: 'localization', label: 'Localization', source: 'apps/showcase/src/pages/localization.rs' },
       { id: 'crash', label: 'Crash reporting', source: 'apps/showcase/src/pages/crash.rs' },
       { id: 'about', label: 'About', source: 'apps/showcase/src/pages/about.rs' },

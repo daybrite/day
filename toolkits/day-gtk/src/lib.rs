@@ -27,6 +27,7 @@ pub type Handle = gtk4::Widget;
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
 mod textarea;
+mod toolbar;
 
 pub mod ext;
 pub use ext::*;
@@ -389,7 +390,7 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
     format!("{acc}{key}")
 }
 
-fn build_gio_menu(
+pub(crate) fn build_gio_menu(
     items: &[day_spec::MenuItem],
     group: &gtk4::gio::SimpleActionGroup,
 ) -> gtk4::gio::Menu {
@@ -1383,6 +1384,8 @@ impl Toolkit for Gtk {
             | Cap::ListReorder
             // Real AdwApplicationWindows on the shared GtkApplication (docs/windows.md).
             | Cap::MultiWindow
+            // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
+            | Cap::Toolbar
             | Cap::Appearance => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -2762,6 +2765,14 @@ impl Toolkit for Gtk {
         MENU_POPOVERS.with(|m| m.borrow_mut().insert(widget_key(h), popover));
     }
 
+    fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
+        self.install_toolbar(h, items);
+    }
+
+    fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
+        self.patch_toolbar(h, patch);
+    }
+
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         // GNOME's bar: File, Edit, View, the app's own menus, then Help — no Window menu, as
         // the shell owns window management on Linux.
@@ -3323,6 +3334,9 @@ fn build_day_window(
     // content — the standard Adwaita window structure, and the AdwDialog host that
     // AdwAlertDialog needs.
     let header = adw::HeaderBar::new();
+    // A day toolbar packs into THIS bar (docs/toolbars.md) — remember it, since AdwToolbarView
+    // does not enumerate its top bars and there is no other way back from a content handle.
+    crate::toolbar::register_header(&window, &header);
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&wrapper));

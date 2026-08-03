@@ -357,6 +357,14 @@ pub enum Event {
     /// routes it to the app closure registered for the id. Standard-role items don't carry an id
     /// (`role` items are handled natively) so they never emit this.
     MenuAction(u64),
+    /// A toolbar item produced a value — a search field's text, a toggle's new state
+    /// (docs/toolbars.md). `action` is the item's dispatch id, from the same registry
+    /// [`Event::MenuAction`] uses, and day-core routes it to the closure registered for it.
+    /// A plain toolbar button has no value and emits `MenuAction` instead.
+    ToolbarChanged {
+        action: u64,
+        value: ToolbarValue,
+    },
     /// The app moved through a lifecycle phase (docs/lifecycle.md). Backends emit this from the
     /// native app/activity delegate; day-core routes it to the app's `on_lifecycle` handlers.
     Lifecycle(Lifecycle),
@@ -600,6 +608,143 @@ pub enum MenuBarRole {
     Help,
 }
 
+// ---------------------------------------------------------------------------
+// Window toolbars (docs/toolbars.md)
+// ---------------------------------------------------------------------------
+
+/// A standard icon, named by what it MEANS rather than by how it looks, so each backend can
+/// draw the platform's own glyph for it — an SF Symbol on macOS, a freedesktop icon name on
+/// GTK and Qt, a Fluent glyph on Windows. This is the only way an icon looks native on every
+/// desktop at once; a bundled PNG cannot, because it is one artist's take on all four.
+///
+/// The set is deliberately small: the commands that recur across toolbars. Anything
+/// app-specific is an [`Icon::Image`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Symbol {
+    Add,
+    Remove,
+    Delete,
+    Edit,
+    New,
+    Open,
+    Save,
+    Print,
+    Refresh,
+    Search,
+    Share,
+    Settings,
+    Info,
+    Star,
+    Bookmark,
+    Back,
+    Forward,
+    Up,
+    Down,
+    Home,
+    /// Show/hide the sidebar — the leading item of most desktop toolbars.
+    Sidebar,
+    Filter,
+    Sort,
+    /// An overflow affordance (macOS `ellipsis`, GNOME's hamburger, Fluent `More`).
+    More,
+    Play,
+    Pause,
+    Stop,
+    ZoomIn,
+    ZoomOut,
+    Undo,
+    Redo,
+    Copy,
+    Cut,
+    Paste,
+    Mail,
+    Folder,
+    Document,
+    Check,
+    Close,
+    Warning,
+}
+
+/// A toolbar item's picture: a standard [`Symbol`] (drawn with the platform's own icon set) or
+/// a bundled image from `resource/images` for something only this app has.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Icon {
+    Symbol(Symbol),
+    /// A bundled image name, resolved the same way [`ImageName`] is elsewhere.
+    Image(String),
+}
+
+/// What a toolbar item IS. The variants are the vocabulary every desktop toolbar shares; each
+/// backend realizes one with its native control, never with a drawn imitation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolbarItemKind {
+    /// A push button running the item's `action`.
+    Button,
+    /// A two-state button. `on` seeds it; the user flipping it emits
+    /// [`ToolbarValue::On`], and the app's own writes arrive as [`ToolbarPatch::On`].
+    Toggle { on: bool },
+    /// A button that drops a menu — the same [`MenuItem`] model the menu bar uses, so a
+    /// toolbar menu and its menu-bar twin are one list of commands.
+    Menu { items: Vec<MenuItem> },
+    /// A search field. Edits emit [`ToolbarValue::Text`]; the app's own writes arrive as
+    /// [`ToolbarPatch::Text`].
+    Search { text: String, placeholder: String },
+    /// Static text, for a status or a caption.
+    Label,
+    /// A divider, where the platform draws one (macOS toolbars have no separator, so AppKit
+    /// renders it as a fixed space — docs/toolbars.md).
+    Separator,
+    /// A fixed gap.
+    Space,
+    /// A gap that absorbs the leftover width. This is how the model expresses each platform's
+    /// packing: items before the first flexible space are leading, items after it trailing —
+    /// GTK packs them start/end, XAML splits them across `Content`/`PrimaryCommands`, and
+    /// AppKit and Qt place a real expanding spacer.
+    FlexibleSpace,
+}
+
+/// One item in a window's toolbar (docs/toolbars.md).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolbarItem {
+    /// Stable identity: the native item identifier, the dayscript target, and the key a
+    /// [`ToolbarPatch`] addresses. Unique within a toolbar.
+    pub id: String,
+    pub kind: ToolbarItemKind,
+    /// The item's name. Shown beside or below the icon where the platform does that, and used
+    /// verbatim in the overflow and customization menus — so it is never optional, even on a
+    /// toolbar that only shows icons. It is also the item's accessible name.
+    pub label: String,
+    /// Hover help. Defaults to `label` where the platform expects a tooltip and none is given.
+    pub tooltip: Option<String>,
+    pub icon: Option<Icon>,
+    pub enabled: bool,
+    /// The item's command, as a dispatch id from the same registry [`Event::MenuAction`] uses
+    /// (0 = no command), so a toolbar button and its menu twin can share one closure.
+    pub action: u64,
+}
+
+/// A value a toolbar item produced.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolbarValue {
+    /// A search item's full new text.
+    Text(String),
+    /// A toggle item's new state.
+    On(bool),
+}
+
+/// A targeted update to one live toolbar item — the path that keeps a bound signal in sync
+/// without rebuilding the bar (which would drop the search field's focus mid-keystroke).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolbarPatch {
+    /// Replace a search item's text.
+    Text { item: String, text: String },
+    /// Set a toggle item's state.
+    On { item: String, on: bool },
+    /// Enable or disable any item.
+    Enabled { item: String, on: bool },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
     pub key: String,
@@ -708,6 +853,11 @@ pub enum Cap {
     /// native title bar or close button, so window content should carry its own close
     /// affordance.
     MultiWindow,
+    /// The toolkit gives a window a native toolbar (`Toolkit::set_toolbar`, docs/toolbars.md):
+    /// `Native` on the desktop backends, `Unsupported` elsewhere — a phone has no toolbar, and
+    /// day does not draw a fake one. Probe it to decide where a command lives: an app puts its
+    /// refresh button on the toolbar where there is one and in the content where there is not.
+    Toolbar,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2046,6 +2196,19 @@ pub trait Toolkit: Sized + 'static {
     /// A context menu for `h`, shown on secondary-click (desktop) or long-press (mobile). Passing an
     /// empty slice removes it.
     fn set_context_menu(&mut self, _h: &Self::Handle, _node: NodeId, _items: &[MenuItem]) {}
+
+    // toolbars (docs/toolbars.md): a window's native toolbar — NSToolbar, AdwHeaderBar, QToolBar,
+    // CommandBar. `h` is the window root's handle (the same handle `open_window` returned, or the
+    // primary root's); the backend walks from it to the window it belongs to. Default no-op: a
+    // toolkit with no toolbar shows nothing rather than a drawn imitation, and reports
+    // `Cap::Toolbar` as `Unsupported` so an app can put the command somewhere else.
+    /// Install `items` as the window's toolbar, replacing any previous one. An empty slice removes
+    /// it. Items are identified by [`ToolbarItem::id`]; a backend that can reuse the native item
+    /// already carrying an id should, so a replace does not drop the search field's focus.
+    fn set_toolbar(&mut self, _h: &Self::Handle, _items: &[ToolbarItem]) {}
+    /// Apply a targeted change to one live toolbar item — the path a bound signal writes through,
+    /// so syncing a search field does not rebuild the bar. No-op if the item is not present.
+    fn update_toolbar(&mut self, _h: &Self::Handle, _patch: &ToolbarPatch) {}
 
     // lifecycle (docs/lifecycle.md): does this backend deliver `phase`? The default answers "yes" for
     // the universal phases (launch/activation/termination) and "no" for the mobile-only ones. Backends

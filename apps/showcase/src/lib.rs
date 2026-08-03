@@ -86,6 +86,7 @@ day::routes! {
         Focus => "focus",
         Text => "text",
         TextAreas => "textareas",
+        Toolbars => "toolbars",
         Localization => "localization",
         Canvas => "canvas",
         Animation => "animation",
@@ -137,8 +138,14 @@ pub fn root() -> AnyPiece {
         },
         pages::preferences_window,
     );
-    day::register_new_window(|| window_root(false));
+    day::register_new_window(|| {
+        // Each window gets its own toolbar; the install targets the window being built.
+        pages::toolbars::install();
+        window_root(false)
+    });
     install_app_menu();
+    // The main window's own toolbar (docs/toolbars.md) — the Toolbars page drives it.
+    pages::toolbars::install();
     // Lifecycle handlers (docs/lifecycle.md). On mobile this is the registration point; on desktop
     // `main` already registered them before launch (to also catch WillLaunch) — the call is idempotent.
     install_lifecycle_handlers();
@@ -306,6 +313,12 @@ fn window_root(primary: bool) -> AnyPiece {
             crate::res::str::nav_textareas(),
             res::images::nav_textareas,
             text_areas_page,
+        )
+        .item_icon(
+            Section::Toolbars,
+            crate::res::str::nav_toolbars(),
+            res::images::nav_toolbars,
+            toolbars_page,
         )
         .item_icon(
             Section::Tweaks,

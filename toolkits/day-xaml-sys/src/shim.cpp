@@ -343,6 +343,8 @@ struct AppWindow {
     // both used to share `root` at (0,0), overlapping day's header with File/Edit/View.
     WUXC::Canvas content{ nullptr };
     WUXC::MenuBar menubar{ nullptr };
+    // The window toolbar (docs/toolbars.md), docked under the menu bar; `content` clears both.
+    WUXC::CommandBar toolbar{ nullptr };
     // Focus parking spot (docs/focus.md): system XAML has no "focus nothing", so resigning
     // hands focus to this invisible non-tab-stop control.
     WUXC::ContentControl focus_sink{ nullptr };
@@ -361,9 +363,11 @@ static int g_min_w = 0, g_min_h = 0;
 // 3=WillResignActive, 7=WillTerminate).
 static void (*g_lifecycle_cb)(int) = nullptr;
 
-// Reserve the docked MenuBar's strip: size the bar to the window width, offset day's
-// content canvas below it, and report the REMAINING client size to day-core (XAML works in
-// DIPs; the resize report and client rect are physical px — convert via the window DPI).
+// Reserve the docked chrome's strips: size the MenuBar and the toolbar CommandBar to the window
+// width, stack them at the top, offset day's content canvas below BOTH, and report the REMAINING
+// client size to day-core (XAML works in DIPs; the resize report and client rect are physical px
+// — convert via the window DPI). Either strip may be absent, and they are installed in either
+// order, so both offsets are recomputed here rather than where a bar is created.
 static void day_xaml_relayout_chrome(AppWindow* app) {
     if (!app || !app->host) return;
     RECT rc; GetClientRect(app->host, &rc);
@@ -376,10 +380,20 @@ static void day_xaml_relayout_chrome(AppWindow* app) {
         mh_dip = app->menubar.DesiredSize().Height;
         app->menubar.Width(rc.right / scale);
     }
-    if (app->content) WUXC::Canvas::SetTop(app->content, mh_dip);
+    double th_dip = 0;
+    if (app->toolbar) {
+        // Measured at the real width: a CommandBar lays its commands out against the width it
+        // gets, and an infinite proposal would not give the height it will actually draw at.
+        app->toolbar.Measure(WF::Size{ static_cast<float>(rc.right / scale),
+                                       std::numeric_limits<float>::infinity() });
+        th_dip = app->toolbar.DesiredSize().Height;
+        app->toolbar.Width(rc.right / scale);
+        WUXC::Canvas::SetTop(app->toolbar, mh_dip);
+    }
+    if (app->content) WUXC::Canvas::SetTop(app->content, mh_dip + th_dip);
     if (g_resize_cb) {
-        int mh_px = static_cast<int>(std::lround(mh_dip * scale));
-        g_resize_cb(rc.right, rc.bottom > mh_px ? rc.bottom - mh_px : 0);
+        int chrome_px = static_cast<int>(std::lround((mh_dip + th_dip) * scale));
+        g_resize_cb(rc.right, rc.bottom > chrome_px ? rc.bottom - chrome_px : 0);
     }
 }
 
@@ -2113,6 +2127,292 @@ extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
     app->root.Children().Append(bar);
     app->menubar = bar;
     day_xaml_relayout_chrome(app);
+} catch (...) {
+}
+
+// ---- window toolbar (docs/toolbars.md) ------------------------------------
+// A Fluent CommandBar docked under the menu bar. `PrimaryCommands` — which the CommandBar
+// template right-aligns — carries the AppBarButton / AppBarToggleButton / AppBarSeparator
+// commands, and `Content` — which it left-aligns — carries the leading items in a horizontal
+// StackPanel. That split is what the model's flexible space MEANS on Windows: items before it
+// are leading Content, items after it are primary commands. A search field, a label or a fixed
+// gap lands in Content whichever side it was written on, because system XAML's PrimaryCommands
+// takes only ICommandBarElement — AppBarElementContainer, which would wrap an arbitrary control,
+// is WinUI's and not in Windows.UI.Xaml.
+//
+// The spec is ONE flat blob, like the menu spec above. One line per item:
+//   kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder
+// kinds: B button, T toggle, M menu, F search field, L label, `-` separator, `_` fixed space,
+// `>` flexible space (the Content/PrimaryCommands split). `on` seeds a toggle and `text` a search
+// field; `glyph` is a Segoe Fluent Icons code point in hex, `image` a bundled image FILE NAME.
+// An `M` line is followed by that item's MENU spec — the same lines build_menu_items already
+// parses — closed by an `X` line, so the sub-spec is sliced out here and handed straight to it.
+// Buttons ride the same g_menu_cb rail as menu items; a toggle's state and a search field's text
+// go through g_toolbar_cb. CI-built (no live Windows verification).
+
+// kind 0 = toggle (`on`), kind 1 = search text (`text`).
+static void (*g_toolbar_cb)(unsigned long long, int, int, const char*) = nullptr;
+
+// Live item elements by id, for the targeted patches (search text, toggle state, enabled). Each
+// install rebuilds it; the map holds the only reference day keeps to those elements.
+static std::map<std::string, FrameworkElement> g_toolbar_elems;
+
+// A programmatic IsChecked write is in flight. ToggleButton raises Checked/Unchecked
+// synchronously from the setter, so a flag around the write keeps day's own value from echoing
+// back through g_toolbar_cb. (The search field can't use one: AutoSuggestBox raises TextChanged
+// asynchronously, which is why that handler filters on the change REASON instead.)
+static bool g_toolbar_setting_checked = false;
+
+extern "C" void day_xaml_set_toolbar_cb(void (*cb)(unsigned long long, int, int, const char*)) {
+    g_toolbar_cb = cb;
+}
+
+// Segoe Fluent Icons is the Windows 11 icon font; Windows 10 ships its predecessor, Segoe MDL2
+// Assets, which carries the same code points for every glyph day maps. A family the system does
+// not have draws notdef boxes rather than falling back to a real glyph, so pick by the file the
+// Win11 font installs. Resolved once — it cannot change while the process runs.
+static winrt::hstring const& toolbar_icon_font() {
+    static winrt::hstring family = [] {
+        wchar_t dir[MAX_PATH]{};
+        UINT n = GetWindowsDirectoryW(dir, MAX_PATH);
+        std::wstring path = (n > 0 && n < MAX_PATH) ? std::wstring(dir) : std::wstring(L"C:\\Windows");
+        path += L"\\Fonts\\SegoeIcons.ttf";
+        return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES
+                   ? winrt::hstring{ L"Segoe Fluent Icons" }
+                   : winrt::hstring{ L"Segoe MDL2 Assets" };
+    }();
+    return family;
+}
+
+// An item's icon: the standard symbol's glyph, else a bundled image staged next to the exe (an
+// ms-appx BitmapIcon, as the nav icons load), else none — an AppBarButton without an Icon shows
+// its label alone, which is exactly what an unmapped symbol should look like.
+static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::string& image) {
+    if (!glyph.empty()) {
+        // Every code point day maps is in the BMP private-use area: one UTF-16 unit.
+        wchar_t ch = static_cast<wchar_t>(std::strtoul(glyph.c_str(), nullptr, 16));
+        if (ch) {
+            WUXC::FontIcon fi;
+            fi.FontFamily(WUXM::FontFamily(toolbar_icon_font()));
+            fi.Glyph(winrt::hstring{ std::wstring(1, ch) });
+            return fi;
+        }
+    }
+    if (!image.empty()) {
+        WUXC::BitmapIcon bicon;
+        bicon.UriSource(WF::Uri{ hs(("ms-appx:///images/" + image).c_str()) });
+        bicon.ShowAsMonochrome(true); // tint to the bar foreground (theme-adaptive)
+        return bicon;
+    }
+    return nullptr;
+}
+
+extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) return;
+    // Take out the bar a previous install docked (named "day_toolbar"), the same way the MenuBar
+    // above is replaced; `Children()` is a projection returned by value, so bind it by value.
+    auto kids = app->root.Children();
+    for (uint32_t i = 0; i < kids.Size(); ++i) {
+        if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
+            if (fe.Name() == L"day_toolbar") { kids.RemoveAt(i); break; }
+        }
+    }
+    app->toolbar = nullptr;
+    g_toolbar_elems.clear();
+    if (!spec || !*spec) { day_xaml_relayout_chrome(app); return; }
+
+    WUXC::CommandBar bar;
+    bar.Name(L"day_toolbar");
+    // Labels beside the icons: the desktop CommandBar look, and it keeps the strip one row tall.
+    bar.DefaultLabelPosition(WUXC::CommandBarDefaultLabelPosition::Right);
+    bar.HorizontalContentAlignment(WUX::HorizontalAlignment::Left);
+    bar.VerticalContentAlignment(WUX::VerticalAlignment::Center);
+
+    WUXC::StackPanel lead;
+    lead.Orientation(WUXC::Orientation::Horizontal);
+    lead.VerticalAlignment(WUX::VerticalAlignment::Center);
+
+    bool trailing = false; // past the first flexible space
+    // A command: a primary command past the flexible space, a leading-panel child before it.
+    // Either way it is remembered by id, which is what the targeted patches address.
+    auto place_command = [&](FrameworkElement const& e, const std::string& id) {
+        if (trailing) bar.PrimaryCommands().Append(e.as<WUXC::ICommandBarElement>());
+        else lead.Children().Append(e);
+        if (!id.empty()) g_toolbar_elems.insert_or_assign(id, e);
+    };
+    // A leading AppBarButton is outside the bar's own collections, so DefaultLabelPosition does
+    // not reach it and it would draw its label UNDER the icon — two rows tall. Collapse the label
+    // where there is an icon to show instead; without one the label is the only click target.
+    auto compact = [&](WUXC::AppBarButton const& b, bool has_icon) {
+        if (!trailing && has_icon) b.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
+    };
+
+    auto lines = split_lines(spec);
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (lines[i].empty()) continue;
+        auto f = split_tabs(lines[i]);
+        auto fld = [&f](size_t n) { return f.size() > n ? f[n] : std::string(); };
+        std::string kind = fld(0), id = fld(1);
+        unsigned long long action = std::strtoull(fld(2).c_str(), nullptr, 10);
+        bool enabled = fld(3) != "0";
+        bool on = fld(4) == "1";
+        std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
+                    placeholder = fld(10);
+        bool has_icon = !glyph.empty() || !image.empty();
+
+        if (kind == ">") {
+            trailing = true;
+        } else if (kind == "-") {
+            if (trailing) {
+                bar.PrimaryCommands().Append(
+                    WUXC::AppBarSeparator{}.as<WUXC::ICommandBarElement>());
+            } else {
+                // AppBarSeparator sizes itself against the bar's own row, not against a
+                // StackPanel, so a leading divider is a hairline of our own — the same
+                // translucent neutral the divider piece falls back to, which reads in both
+                // schemes.
+                WUXC::Border rule;
+                rule.Width(1);
+                rule.Height(20);
+                rule.Margin(WUX::Thickness{ 6, 0, 6, 0 });
+                rule.Background(WUXM::SolidColorBrush(color_argb(0x33'808080u)));
+                lead.Children().Append(rule);
+            }
+        } else if (kind == "_") {
+            // A fixed gap. PrimaryCommands spaces its own commands and takes no filler element,
+            // so a trailing gap has nothing to be.
+            if (!trailing) {
+                WUXC::Border gap;
+                gap.Width(12);
+                lead.Children().Append(gap);
+            }
+        } else if (kind == "F") {
+            WUXC::AutoSuggestBox box;
+            box.Text(hs(text.c_str()));
+            box.PlaceholderText(hs(placeholder.c_str()));
+            box.QueryIcon(toolbar_icon("E721", "")); // the search glyph
+            box.IsEnabled(enabled);
+            box.Width(240); // a bar search field is sized, not stretched
+            box.Margin(WUX::Thickness{ 4, 0, 4, 0 });
+            if (action) {
+                box.TextChanged([action](WUXC::AutoSuggestBox const& s,
+                                         WUXC::AutoSuggestBoxTextChangedEventArgs const& a) {
+                    // day writing the bound signal back raises this too; reporting that would
+                    // echo the app's own value straight back at it.
+                    if (a.Reason() != WUXC::AutoSuggestionBoxTextChangeReason::UserInput) return;
+                    std::string str = u8(s.Text());
+                    if (g_toolbar_cb) g_toolbar_cb(action, 1, 0, str.c_str());
+                });
+            }
+            lead.Children().Append(box);
+            if (!id.empty()) g_toolbar_elems.insert_or_assign(id, box);
+        } else if (kind == "L") {
+            WUXC::TextBlock caption;
+            caption.Text(hs(label.c_str()));
+            caption.VerticalAlignment(WUX::VerticalAlignment::Center);
+            caption.Margin(WUX::Thickness{ 8, 0, 8, 0 });
+            lead.Children().Append(caption);
+            if (!id.empty()) g_toolbar_elems.insert_or_assign(id, caption);
+        } else if (kind == "T") {
+            WUXC::AppBarToggleButton toggle;
+            toggle.Label(hs(label.c_str()));
+            toggle.Icon(toolbar_icon(glyph, image));
+            toggle.IsEnabled(enabled);
+            toggle.IsChecked(on);
+            if (!trailing && has_icon)
+                toggle.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
+            WUXC::ToolTipService::SetToolTip(toggle, winrt::box_value(hs(tip.c_str())));
+            if (action) {
+                toggle.Checked([action](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_toolbar_cb && !g_toolbar_setting_checked) g_toolbar_cb(action, 0, 1, "");
+                });
+                toggle.Unchecked([action](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_toolbar_cb && !g_toolbar_setting_checked) g_toolbar_cb(action, 0, 0, "");
+                });
+            }
+            place_command(toggle, id);
+        } else if (kind == "M") {
+            // The item's own menu spec follows, closed by an `X` line: slice it out and let the
+            // menu builder fill a MenuFlyout with it, so a toolbar menu and its menu-bar twin are
+            // built by the same code.
+            std::string inner;
+            size_t j = i + 1;
+            for (; j < lines.size(); ++j) {
+                auto ff = split_tabs(lines[j]);
+                if (!ff.empty() && ff[0] == "X") break;
+                inner += lines[j];
+                inner += "\n";
+            }
+            i = j; // resume after the terminator (or at the end of the spec)
+            WUXC::AppBarButton button;
+            button.Label(hs(label.c_str()));
+            button.Icon(toolbar_icon(glyph, image));
+            button.IsEnabled(enabled);
+            compact(button, has_icon);
+            WUXC::ToolTipService::SetToolTip(button, winrt::box_value(hs(tip.c_str())));
+            WUXC::MenuFlyout fly;
+            build_menu_items(fly.Items(), inner);
+            button.Flyout(fly);
+            place_command(button, id);
+        } else { // "B", and anything a later model adds: a plain command
+            WUXC::AppBarButton button;
+            button.Label(hs(label.c_str()));
+            button.Icon(toolbar_icon(glyph, image));
+            button.IsEnabled(enabled);
+            compact(button, has_icon);
+            WUXC::ToolTipService::SetToolTip(button, winrt::box_value(hs(tip.c_str())));
+            if (action) {
+                button.Click([action](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_menu_cb) g_menu_cb(action);
+                });
+            }
+            place_command(button, id);
+        }
+    }
+
+    if (lead.Children().Size() > 0) bar.Content(lead);
+    WUXC::Canvas::SetLeft(bar, 0);
+    // The top offset (below the menu bar, if there is one) and the width are relayout's job —
+    // the two bars are installed in either order.
+    app->root.Children().Append(bar);
+    app->toolbar = bar;
+    day_xaml_relayout_chrome(app);
+} catch (...) {
+}
+
+extern "C" void day_xaml_toolbar_set_text(const char* id, const char* text) try {
+    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
+    if (it == g_toolbar_elems.end()) return;
+    auto box = it->second.try_as<WUXC::AutoSuggestBox>();
+    if (!box) return;
+    // Write only a real change, exactly as day_xaml_textbox_set_text does: an identical Text
+    // raises no TextChanged at all, so the app's caret and selection survive the sync.
+    auto next = hs(text);
+    if (box.Text() != next) box.Text(next);
+} catch (...) {
+}
+
+extern "C" void day_xaml_toolbar_set_checked(const char* id, int on) try {
+    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
+    if (it == g_toolbar_elems.end()) return;
+    auto toggle = it->second.try_as<WUXC::AppBarToggleButton>();
+    if (!toggle) return;
+    auto current = toggle.IsChecked(); // IReference<bool>: null = indeterminate
+    if (current && current.Value() == (on != 0)) return;
+    g_toolbar_setting_checked = true;
+    toggle.IsChecked(on != 0);
+    g_toolbar_setting_checked = false;
+} catch (...) {
+    g_toolbar_setting_checked = false;
+}
+
+extern "C" void day_xaml_toolbar_set_enabled(const char* id, int on) try {
+    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
+    if (it == g_toolbar_elems.end()) return;
+    // A label item is a TextBlock, which has no enabled state — the cast fails and nothing
+    // happens, which is the honest outcome for "disable a caption".
+    if (auto control = it->second.try_as<WUXC::Control>()) control.IsEnabled(on != 0);
 } catch (...) {
 }
 

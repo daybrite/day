@@ -111,6 +111,7 @@ impl WindowHandle {
     /// new title up at completion; the cover tier has no title bar (no-op).
     pub fn set_title(&self, title: &str) {
         let root = self.root;
+        let title = &crate::decorate_window_title(title);
         let live = WINDOWS.with(|w| {
             let mut windows = w.borrow_mut();
             match windows.iter_mut().find(|r| r.root == root) {
@@ -164,7 +165,7 @@ enum CloseAction {
 /// same way.
 pub fn open_window(
     key: Option<&str>,
-    options: WindowOptions,
+    mut options: WindowOptions,
     kind: WindowKind,
     build: impl FnOnce() -> AnyPiece + 'static,
 ) -> WindowHandle {
@@ -174,6 +175,9 @@ pub fn open_window(
         existing.focus();
         return existing;
     }
+    // A secondary window carries the same debug tag as the primary — with several windows of
+    // several builds open, that is what tells them apart.
+    options.title = crate::decorate_window_title(&options.title);
 
     // The window's lifetime is app-owned, not caller-owned: a window opened from a button
     // must survive that page popping, so its scope hangs off the root scope.
@@ -184,9 +188,13 @@ pub fn open_window(
             register(root, key, kind, scope, Tier::Native);
             wire_window_events(root);
             scope.enter(|| {
-                let piece = build();
-                let mut cx = BuildCx::new(root);
-                let _ = piece.build(&mut cx);
+                // Name this window for the duration of its build, so a `toolbar(...)` inside a
+                // shared window builder installs on THIS window (docs/toolbars.md).
+                crate::toolbar::with_window(root, || {
+                    let piece = build();
+                    let mut cx = BuildCx::new(root);
+                    let _ = piece.build(&mut cx);
+                })
             });
             with_tree(|t| {
                 t.mark_layout_dirty();
@@ -277,9 +285,11 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
     with_tree(|t| t.set_native_window_title(root, &title));
     if let Some(build) = build {
         scope.enter(|| {
-            let piece = build();
-            let mut cx = BuildCx::new(root);
-            let _ = piece.build(&mut cx);
+            crate::toolbar::with_window(root, || {
+                let piece = build();
+                let mut cx = BuildCx::new(root);
+                let _ = piece.build(&mut cx);
+            })
         });
     }
     with_tree(|t| {
@@ -351,6 +361,7 @@ fn teardown(root: RNode) {
         return;
     };
     record.scope.dispose();
+    crate::toolbar::forget_window(root);
     match record.tier {
         Tier::Native | Tier::PendingNative { .. } => {
             while let Some(c) = with_tree(|t| t.first_child(root)) {
@@ -448,9 +459,11 @@ fn open_as_cover(
     }
 
     scope.enter(|| {
-        let piece = build();
-        let mut cx = BuildCx::new(cover);
-        let _ = piece.build(&mut cx);
+        crate::toolbar::with_window(cover, || {
+            let piece = build();
+            let mut cx = BuildCx::new(cover);
+            let _ = piece.build(&mut cx);
+        })
     });
     with_tree(|t| {
         t.patch(
@@ -602,6 +615,7 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 /// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
 pub fn reset_windows() {
     WINDOWS.with(|w| w.borrow_mut().clear());
+    crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
     // Action ids stay registered (the closures are inert without a builder) — cheap, and

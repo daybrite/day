@@ -12,6 +12,7 @@ pub mod menu;
 mod nav;
 mod present;
 pub mod shield;
+pub mod toolbar;
 mod tree;
 pub mod windows;
 
@@ -30,6 +31,10 @@ pub use list::{
 pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
 pub use present::*;
+pub use toolbar::{
+    dispatch_toolbar_value, patch_toolbar, patch_window_toolbar, register_toolbar_value,
+    set_toolbar, set_window_toolbar,
+};
 // The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
 pub use day_spec::resource::{
     AssetName, FontFamily, ImageName, Resource, ResourceOpener, resource, set_resource_opener,
@@ -168,6 +173,83 @@ pub fn backend_name() -> Option<&'static str> {
 
 static BACKEND_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
+/// The toolkit key of the running backend (`"appkit"`, `"gtk"`, … — the `Platform::TOOLKIT`
+/// string), recorded by [`launch_with`]. `None` before launch.
+pub fn toolkit_key() -> Option<&'static str> {
+    TOOLKIT_KEY.get().copied()
+}
+
+static TOOLKIT_KEY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// The development tag every window title carries in a DEBUG build:
+/// `(<version>/<toolkit>[/<script>])` — `(1.1.0/appkit)`, or
+/// `(1.1.0/gtk/walkthrough.yaml)` while a dayscript is driving. With several apps, toolkits and
+/// scripted runs open at once, the title bar is the only place that says which window is which.
+///
+/// `None` in a release build (this is a development aid and must never ship), and before
+/// [`launch_with`] has named the backend. The version and the script name come from
+/// `DAY_APP_VERSION` and `DAY_SCRIPT`, which the `day` CLI sets on every launch; run the binary
+/// some other way and the tag simply carries the parts it knows.
+pub fn debug_title_tag() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let toolkit = toolkit_key()?;
+    let mut parts = Vec::new();
+    if let Ok(v) = std::env::var("DAY_APP_VERSION")
+        && !v.is_empty()
+    {
+        parts.push(v);
+    }
+    parts.push(toolkit.to_string());
+    if let Ok(s) = std::env::var("DAY_SCRIPT")
+        && !s.is_empty()
+    {
+        parts.push(s);
+    }
+    Some(format!("({})", parts.join("/")))
+}
+
+/// Append [`debug_title_tag`] to a window title. Every title day sets goes through here — the
+/// primary window's, each secondary window's, and every [`crate::windows::WindowHandle::set_title`].
+///
+/// An EMPTY title stays empty: a window the app deliberately left untitled should not grow a
+/// title bar full of build metadata. An already-tagged title is left alone, since the same
+/// window can be retitled repeatedly.
+pub(crate) fn decorate_window_title(title: &str) -> String {
+    tag_title(title, debug_title_tag().as_deref())
+}
+
+/// The join rule, split out from the environment so it can be tested.
+fn tag_title(title: &str, tag: Option<&str>) -> String {
+    match tag {
+        Some(tag) if !title.is_empty() && !title.ends_with(tag) => format!("{title} {tag}"),
+        _ => title.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod title_tag_tests {
+    use super::tag_title;
+
+    #[test]
+    fn the_tag_is_appended_once_and_never_to_an_empty_title() {
+        assert_eq!(
+            tag_title("Day Sheets", Some("(0.1.0/appkit)")),
+            "Day Sheets (0.1.0/appkit)"
+        );
+        // A release build has no tag, so the title is the app's own, untouched.
+        assert_eq!(tag_title("Day Sheets", None), "Day Sheets");
+        // An untitled window stays untitled rather than growing a bar of build metadata.
+        assert_eq!(tag_title("", Some("(0.1.0/appkit)")), "");
+        // Retitling an already-tagged window must not stack tags.
+        assert_eq!(
+            tag_title("Day Sheets (0.1.0/appkit)", Some("(0.1.0/appkit)")),
+            "Day Sheets (0.1.0/appkit)"
+        );
+    }
+}
+
 /// Write a framework diagnostic line to stderr, IGNORING I/O errors. `eprintln!`/`println!` PANIC
 /// when the write fails — most commonly a broken/closed stderr pipe, which happens routinely when
 /// the parent `day launch` tears the app down or the controlling terminal goes away. Such a panic
@@ -219,6 +301,14 @@ pub fn launch_with<P: Platform>(
 ) {
     // Record the backend identity for runtime introspection (crash reports, diagnostics).
     let _ = BACKEND_NAME.set(P::TARGET);
+    let _ = TOOLKIT_KEY.set(P::TOOLKIT);
+    // Tag the window title with version/toolkit/script in debug builds. Pin the app's display
+    // name to the UNDECORATED title first: backends fall back to `title` for the macOS App menu
+    // and the About panel, which must keep reading "Day Sheets", not "Day Sheets (0.1.0/appkit)".
+    if options.app_name.is_none() && !options.title.is_empty() {
+        options.app_name = Some(options.title.clone());
+    }
+    options.title = decorate_window_title(&options.title);
     // `DAY_WINDOW=900x700` overrides the app's initial window size — responsive-layout testing
     // (scripted runs can exercise a narrow window without a resize gesture). Desktop only in
     // effect; mobile/web backends size to the screen and ignore `options.size` anyway.

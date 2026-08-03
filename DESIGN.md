@@ -50,6 +50,7 @@ the architecture-level view and the rationale.
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | docs/coverage-matrix.md | [§8.2](#82-the-open-renderer-registry) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
+| window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | docs/cover.md | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -72,7 +73,7 @@ the architecture-level view and the rationale.
 | web — the `web-dom` backend (wasm32 + DOM) | docs/web.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | docs/lite.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | docs/break.md | [§8.5](#85-panics-and-crashes) |
-| secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback | docs/windows.md | [§8.1](#81-the-toolkit-trait) |
+| secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag | docs/windows.md | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | docs/environment.md | [§16](#16-the-day-cli) |
 | API design conventions | docs/api-style.md | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
@@ -1159,6 +1160,14 @@ pub trait Toolkit: Sized + 'static {
     // menus (docs/menus.md)
     fn set_app_menu(&mut self, items: &[MenuItem]) {}
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
+
+    // window toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend
+    // walks from it to the window. A full install replaces the bar; `update_toolbar` is the
+    // targeted path a bound signal writes through, so syncing a search field does not rebuild
+    // (and refocus) the bar. Defaulted no-ops — a toolkit with no toolbar shows nothing and
+    // answers Cap::Toolbar = Unsupported rather than drawing an imitation.
+    fn set_toolbar(&mut self, h, items: &[ToolbarItem]) {}
+    fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -3179,6 +3188,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `select` | `id`, `index` | pickers/tabs |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam (docs/list.md); a guard denial fails the step, non-retryably |
 | `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — docs/menus.md |
+| `toolbar` | `item`, `text?` \| `on?` | drive a window-toolbar item by its id: bare = run a button's command, `text` types into a search item, `on` sets a toggle. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — docs/toolbars.md |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path (docs/windows.md); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |

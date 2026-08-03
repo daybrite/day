@@ -107,6 +107,33 @@ registered, automatic tabbing is turned off entirely (no tab bar, no dead menu i
 app that places `MenuRole::Minimize` in its own model owns window management and skips the
 auto menu.
 
+## The debug title tag
+
+A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets —
+the primary window's, each secondary window's, and every `WindowHandle::set_title`:
+
+```
+Day Showcase (1.1.0/gtk/walkthrough.yaml)
+Day Sheets (0.1.0/appkit)
+```
+
+With several apps, several toolkits and a scripted run open at once, the title bar is the only
+place that says which window is which. Release builds get none of it: `day_core::debug_title_tag`
+returns `None` outside `debug_assertions`, so the decoration can never ship.
+
+The version and script name arrive as `DAY_APP_VERSION` and `DAY_SCRIPT`, which `day launch` sets
+from the project manifest and the `--script` arguments (docs/environment.md). Run the binary
+another way and the tag carries only what it knows — `(gtk)`. Apps do nothing: **do not** put the
+toolkit in your own title, or it will be there twice.
+
+Two rules the join follows. An **empty** title stays empty, so a window the app deliberately left
+untitled does not grow a bar of build metadata. And an already-tagged title is left alone, since
+the same window can be retitled many times.
+
+The tag is on the window title only. The macOS App menu, the About panel and the process name
+read the app's *name*, so `launch_with` pins `WindowOptions::app_name` to the undecorated title
+before tagging — an app that sets only `title` still shows "Day Sheets" in its App menu.
+
 ## dayscript
 
 ```yaml

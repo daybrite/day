@@ -251,6 +251,48 @@ unsafe extern "C" {
     pub fn day_qt_window_menubar(win: *mut c_void) -> *mut c_void;
     pub fn day_qt_window_menubar_done(win: *mut c_void);
     pub fn day_qt_menubar_add_menu(bar: *mut c_void, label: *const c_char) -> *mut c_void;
+
+    // Window toolbar (docs/toolbars.md). Buttons ride `day_qt_set_menu_cb`; values arrive on
+    // the toolbar callback as (action, kind, on, text) with kind 0 = toggle, 1 = search text.
+    pub fn day_qt_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
+    pub fn day_qt_window_toolbar(win: *mut c_void) -> *mut c_void;
+    pub fn day_qt_window_toolbar_done(win: *mut c_void);
+    #[allow(clippy::too_many_arguments)]
+    pub fn day_qt_toolbar_add_action(
+        bar: *mut c_void,
+        id: *const c_char,
+        label: *const c_char,
+        theme_icon: *const c_char,
+        standard_pixmap: c_int,
+        tooltip: *const c_char,
+        action: u64,
+        enabled: c_int,
+        checkable: c_int,
+        checked: c_int,
+    );
+    pub fn day_qt_toolbar_add_menu(
+        bar: *mut c_void,
+        id: *const c_char,
+        label: *const c_char,
+        theme_icon: *const c_char,
+        standard_pixmap: c_int,
+        tooltip: *const c_char,
+        enabled: c_int,
+    ) -> *mut c_void;
+    pub fn day_qt_toolbar_add_search(
+        bar: *mut c_void,
+        id: *const c_char,
+        text: *const c_char,
+        placeholder: *const c_char,
+        action: u64,
+        enabled: c_int,
+    );
+    pub fn day_qt_toolbar_add_label(bar: *mut c_void, id: *const c_char, text: *const c_char);
+    pub fn day_qt_toolbar_add_separator(bar: *mut c_void);
+    pub fn day_qt_toolbar_add_space(bar: *mut c_void, expand: c_int);
+    pub fn day_qt_toolbar_set_text(id: *const c_char, text: *const c_char);
+    pub fn day_qt_toolbar_set_checked(id: *const c_char, on: c_int);
+    pub fn day_qt_toolbar_set_enabled(id: *const c_char, on: c_int);
     pub fn day_qt_menu_new() -> *mut c_void;
     pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;
     pub fn day_qt_menu_add_separator(menu: *mut c_void);

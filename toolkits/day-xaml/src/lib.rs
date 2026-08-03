@@ -29,6 +29,7 @@ pub struct WinHandle(pub *mut c_void);
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
 mod textarea;
+mod toolbar;
 
 pub type Handle = WinHandle;
 
@@ -810,6 +811,8 @@ impl Toolkit for Xaml {
             Cap::ListReorder => Support::Native,
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
+            // A Fluent CommandBar under the menu bar (docs/toolbars.md).
+            Cap::Toolbar => Support::Native,
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
@@ -1663,6 +1666,14 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
     }
 
+    fn set_toolbar(&mut self, h: &WinHandle, items: &[day_spec::ToolbarItem]) {
+        self.install_toolbar(h, items);
+    }
+
+    fn update_toolbar(&mut self, h: &WinHandle, patch: &day_spec::ToolbarPatch) {
+        self.patch_toolbar(h, patch);
+    }
+
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         if self.window.is_null() {
             return;
@@ -1985,6 +1996,7 @@ impl Platform for Xaml {
                 ffi::day_xaml_set_app_icon(win, cstr(&icon).as_ptr());
             }
             ffi::day_xaml_set_menu_cb(on_menu_action);
+            ffi::day_xaml_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_xaml_set_lifecycle_cb(on_lifecycle);
             ffi::day_xaml_set_present_cb(present_cb);
             let root = ffi::day_xaml_window_root(win);

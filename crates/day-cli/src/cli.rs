@@ -465,7 +465,12 @@ pub fn run() -> i32 {
             }
             let spec = ops::LaunchSpec {
                 locale,
-                envs: Vec::new(),
+                // Same debug title tag as a plain launch (docs/windows.md); no script drives a
+                // relaunch, so the tag carries version and toolkit only.
+                envs: vec![(
+                    "DAY_APP_VERSION".into(),
+                    project.manifest.app.version.clone(),
+                )],
                 attached: false,
             };
             for (ti, name) in names.iter().enumerate() {
@@ -662,6 +667,27 @@ pub fn run() -> i32 {
             // watchers (simctl / adb logcat) down too — not leave them orphaned.
             if spec.attached {
                 crate::signals::install();
+            }
+            // The debug window-title tag (docs/windows.md): which build, which toolkit, and —
+            // when a script is driving — which script. The app reads these off the environment
+            // and only shows them in a debug build.
+            spec.envs.push((
+                "DAY_APP_VERSION".into(),
+                project.manifest.app.version.clone(),
+            ));
+            if script_mode {
+                // The app is launched once and the scripts run in sequence against it, so the
+                // title names all of them.
+                let names: Vec<String> = scripts
+                    .iter()
+                    .map(|s| {
+                        std::path::Path::new(s)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| s.to_string_lossy().into_owned())
+                    })
+                    .collect();
+                spec.envs.push(("DAY_SCRIPT".into(), names.join(",")));
             }
             let token = crate::script::make_token();
             let mut handles = Vec::new();

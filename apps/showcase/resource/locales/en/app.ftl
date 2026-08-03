@@ -588,3 +588,56 @@ storage_idle = Nothing stored yet
 # --- Preferences window (docs/windows.md) ---
 prefs_window_title = Preferences
 prefs_window_caption = Theme and language apply to every window and persist across launches.
+
+# — Toolbars page (docs/toolbars.md) —
+nav_toolbars = Toolbars
+toolbars_caption = The window's own toolbar, in the platform's native chrome — an NSToolbar on macOS, the AdwHeaderBar on GNOME, a QToolBar on KDE, a CommandBar on Windows. Look at the top of this window; the controls below drive it.
+toolbar_unsupported = This toolkit has no window toolbar, so nothing was installed. A phone puts these commands in the content instead.
+toolbar_readout_title = What the toolbar is doing
+toolbar_controls_title = Driving it from here
+toolbar_vocabulary_title = The item vocabulary
+# Item labels — these appear IN the toolbar, so they stay short.
+toolbar_new = New
+toolbar_refresh = Refresh
+toolbar_star = Star
+toolbar_menu = More
+toolbar_extra = Bookmark
+toolbar_menu_first = Duplicate
+toolbar_menu_second = Rename
+toolbar_search_placeholder = Search
+# The live readout.
+toolbar_query_label = Search text
+toolbar_query_empty = (empty)
+toolbar_star_label = Star
+toolbar_on = On
+toolbar_off = Off
+toolbar_presses_label = Presses
+toolbar_presses = { $count ->
+    [one] { $count } press
+   *[other] { $count } presses
+}
+toolbar_last_label = Last action
+toolbar_last_none = Nothing yet
+toolbar_last_new = New
+toolbar_last_refresh = Refresh
+toolbar_last_star = Star toggled
+toolbar_last_menu_first = More ▸ Duplicate
+toolbar_last_menu_second = More ▸ Rename
+toolbar_last_extra = Bookmark
+# The page's own controls.
+toolbar_extra_label = Show the bookmark item
+toolbar_enabled_label = Refresh enabled
+toolbar_clear_search = Clear search
+toolbar_seed_search = Fill search
+toolbar_seed_text = toolbars
+# One line per item kind.
+toolbar_kind_button = Button
+toolbar_kind_button_note = Runs a command, and can share its closure with a menu item.
+toolbar_kind_toggle = Toggle
+toolbar_kind_toggle_note = Two-way with a signal, so the switch above and the button agree.
+toolbar_kind_menu = Menu
+toolbar_kind_menu_note = A pull-down built from the same entries the menu bar takes.
+toolbar_kind_search = Search
+toolbar_kind_search_note = The platform's search control, bound two-way to a signal.
+toolbar_kind_space = Spacers
+toolbar_kind_space_note = A flexible space splits leading items from trailing ones.

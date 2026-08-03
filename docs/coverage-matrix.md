@@ -77,3 +77,4 @@ An app branches on this rather than on the target name.
 | `TextSelectable` | N | N | – | N | – | N | – | N |
 | `TextSpellCheck` | N | N | – | – | – | N | – | N |
 | `MultiWindow` | N | – | N | N | N | N | ? | – |
+| `Toolbar` | N | – | N | N | N | – | – | – |
