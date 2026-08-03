@@ -13,6 +13,10 @@ use crate::widgets::heading;
 /// Selection (docs/list.md): the rows are multi-selectable where the toolkit supports it, the
 /// full selection lives in an app signal summarized above the list (with ranges compressed,
 /// "4-10"), and Clear Selection syncs an empty selection back into the native list.
+/// The row "Scroll to item 100" targets — a row NUMBER, which is also its key. The button
+/// resolves it to a position at press time, so the jump follows the row through a shuffle.
+const TARGET_ROW: i64 = 100;
+
 pub(crate) fn list_page() -> AnyPiece {
     // A real Vec of row numbers (not a derived range): drag-to-reorder rotates it, shuffle
     // permutes it, and the refresh paths append to it — the order is app-owned state.
@@ -84,7 +88,17 @@ pub(crate) fn list_page() -> AnyPiece {
                 .id("list-scroll-top"),
             button(crate::res::str::scroll_to_item())
                 .bordered()
-                .action(move || jump_row.set(Some(99)))
+                // Find the row by IDENTITY, not by position. The list's keys ARE the row
+                // numbers, but `scroll_to_row` addresses a POSITION — and shuffle and
+                // drag-to-reorder move row 100 elsewhere, so a hardcoded index 99 scrolls to
+                // whatever row happens to have landed there. Selecting it too makes the landing
+                // unambiguous once the row is no longer where its number suggests.
+                .action(move || {
+                    if let Some(at) = rows.get_untracked().iter().position(|n| *n == TARGET_ROW) {
+                        jump_row.set(Some(at));
+                        selected.set(BTreeSet::from([TARGET_ROW]));
+                    }
+                })
                 .id("list-scroll-item"),
             button(crate::res::str::scroll_to_bottom())
                 .bordered()
@@ -128,12 +142,12 @@ pub(crate) fn list_page() -> AnyPiece {
                 move || rows.get(),
                 |n: &i64| *n,
                 |row: ItemSlot<i64, i64>| {
-                    // Row 100 wears the warm accent so "Scroll to item 100" visibly lands on
-                    // it; the rest keep the theme-neutral slate the old Scrolling page used
-                    // (reactive, so recycled cells restyle as they rebind).
+                    // The target row wears the warm accent so "Scroll to item 100" visibly
+                    // lands on it wherever a shuffle has moved it; the rest keep the
+                    // theme-neutral slate (reactive, so recycled cells restyle as they rebind).
                     label(move || crate::res::str::list_row(row.get()).format())
                         .color(move || {
-                            if row.get() == 100 {
+                            if row.get() == TARGET_ROW {
                                 crate::palette::CORAL
                             } else {
                                 crate::palette::SLATE

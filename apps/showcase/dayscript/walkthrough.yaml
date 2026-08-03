@@ -423,11 +423,23 @@ flow:
   - tap: { id: list-scroll-item }
   - wait_idle:
   - pause: { secs: 0.7 }
+  # The jump targets the ROW, not the position: it selects row 100, and the selection readout
+  # names it whatever index the row currently sits at.
+  - assert_text: { id: list-selection, key: list_selection, args: { count: 1, rows: "100" } }
   - screenshot: list-item-100
   - tap: { id: list-scroll-top }
   - wait_idle:
+  # Shuffle moves row 100 somewhere else, then jump again: the same assertion has to hold, which
+  # it would not for a hardcoded index 99.
   - tap: { id: list-shuffle }
   - pause: { secs: 0.7 }
+  - tap: { id: list-clear }
+  - assert_text: { id: list-selection, key: list_selection_none }
+  - tap: { id: list-scroll-item }
+  - wait_idle:
+  - pause: { secs: 0.7 }
+  - assert_text: { id: list-selection, key: list_selection, args: { count: 1, rows: "100" } }
+  - screenshot: list-item-100-shuffled
   - tap: { id: list-reset }
   - assert_text: { id: list-order, key: list_order, args: { rows: "1,2,3,4,5" } }
 
