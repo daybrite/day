@@ -116,6 +116,9 @@ pub fn pack(
             project.manifest.app.build
         ))
         .arg(format!("DAY_BIN={}", day_bin.display()))
+        // `archive` already implies DEPLOYMENT_POSTPROCESSING, but state it so the signed and
+        // unsigned lanes ship the same shape of binary.
+        .args(REPRODUCIBLE_BUILD_SETTINGS)
         .arg("archive");
     if let Some((k, i, p)) = &asc {
         cmd.args(["-authenticationKeyID", k])
@@ -257,6 +260,23 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
     None
 }
 
+/// Build settings that keep the shipped iOS binary reproducible (DESIGN.md §20.3).
+///
+/// Without these, `ld` leaves a debug map in the linked Mach-O: one `N_OSO` stab per object file,
+/// each holding that `.o`'s ABSOLUTE path under `SYMROOT`. `SYMROOT` derives from the project root,
+/// so the same commit built in two different directories yields two different binaries — 267
+/// differing entries for the showcase app. Stripping the debug map removes them (and ~700 KB).
+///
+/// Xcode runs `dsymutil` before `strip`, so the `.dSYM` is still produced and crash symbolication
+/// is unaffected — the debug info moves out of the shipped binary rather than being discarded.
+/// `STRIP_STYLE=debugging` keeps the dynamic symbol table intact, so backtraces still resolve
+/// exported frames.
+const REPRODUCIBLE_BUILD_SETTINGS: [&str; 3] = [
+    "DEPLOYMENT_POSTPROCESSING=YES",
+    "STRIP_INSTALLED_PRODUCT=YES",
+    "STRIP_STYLE=debugging",
+];
+
 /// The unsigned fallback: a real DEVICE build (`-sdk iphoneos`, Release) with code signing
 /// disabled, packaged as `Payload/<App>.app` inside a `-unsigned.ipa`. It cannot launch until
 /// signed — AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
@@ -287,6 +307,7 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
                 project.manifest.app.build
             ))
             .arg(format!("DAY_BIN={}", day_bin.display()))
+            .args(REPRODUCIBLE_BUILD_SETTINGS)
             .arg("build"),
         "xcodebuild (iphoneos, unsigned)",
     )

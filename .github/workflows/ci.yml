@@ -920,6 +920,16 @@ jobs:
       - name: Pack (${{ matrix.combo }} → flatpak)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
+      # The pre-bundle payload, for linux-repro (§20.3). A `.flatpak` is an OSTree bundle that no
+      # ordinary archiver can open, so comparing the bundle alone could never say whether the CODE
+      # matched — and a check that cannot answer must not report success. flatpak.rs stages the
+      # real ELF at stage/bin/<name>-bin before bundling; that is what gets compared.
+      - name: Upload the staged payload (reproducibility)
+        uses: actions/upload-artifact@v7
+        with:
+          name: showcase-payload-${{ matrix.combo }}
+          path: apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin/
+          if-no-files-found: error
       - name: Install + inspect the bundle
         working-directory: apps/showcase
         run: |
@@ -1695,18 +1705,21 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
+      # The staged ELF, not the .flatpak: the bundle is OSTree and nothing here can open it, so
+      # comparing it could only ever produce an unverifiable verdict (§20.3).
       - uses: actions/download-artifact@v8
         with:
-          name: showcase-dist-${{ matrix.combo }}
+          name: showcase-payload-${{ matrix.combo }}
           path: original
       - name: Compare
         run: |
           set -euo pipefail
           sudo apt-get install -y --no-install-recommends diffoscope \
             || echo "::warning::diffoscope unavailable; comparison continues without it"
+          echo "::notice::comparing the staged ELF payload; the .flatpak bundle itself is not byte-compared"
           set +e
           bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }} \
-            original repro-src/apps/showcase/build/day/dist repro-report
+            original "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report
           rc=$?
           set -e
           cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"

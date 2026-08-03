@@ -19,6 +19,12 @@
 #             1 = payload differs (hard failure). 2 = structural problem (file lists disagree).
 set -uo pipefail
 
+# Standard tools first. harmony-arkui puts the OpenHarmony SDK toolchains on PATH, and they ship a
+# `diff` that rejects GNU options *and exits 0* — which silently turned every payload comparison
+# into a pass. Nothing here decides a verdict with diff(1) any more (cmp only), but a shadowed
+# coreutils is a trap worth closing outright.
+export PATH="/usr/bin:/bin:$PATH"
+
 COMBO="${1:?usage: repro-check.sh <combo> <dir-original> <dir-rebuilt> <report-dir>}"
 DIR_A="${2:?missing dir-original}"
 DIR_B="${3:?missing dir-rebuilt}"
@@ -38,12 +44,18 @@ done
 # --- file lists must agree before anything else is meaningful --------------------------------
 ( cd "$DIR_A" && find . -type f | LC_ALL=C sort ) > "$REPORT/files-a.txt"
 ( cd "$DIR_B" && find . -type f | LC_ALL=C sort ) > "$REPORT/files-b.txt"
-if ! diff -u "$REPORT/files-a.txt" "$REPORT/files-b.txt" > "$REPORT/filelist.diff"; then
+if ! cmp -s "$REPORT/files-a.txt" "$REPORT/files-b.txt"; then
   note "## $COMBO — FAIL (structural)"
   note ""
-  note 'The rebuild produced a different set of files:'
+  note 'The rebuild produced a different set of files.'
+  note ''
+  note 'Original:'
   note '```'
-  cat "$REPORT/filelist.diff" | tee -a "$SUMMARY"
+  cat "$REPORT/files-a.txt" | tee -a "$SUMMARY"
+  note '```'
+  note 'Rebuilt:'
+  note '```'
+  cat "$REPORT/files-b.txt" | tee -a "$SUMMARY"
   note '```'
   exit 2
 fi
@@ -109,6 +121,19 @@ normalize() {
   esac
 }
 
+# Compare two directories by content using cmp only — see the PATH note at the top. Returns 0 when
+# every file matches, 1 on any difference (including a differing file list).
+dirs_identical() {
+  local x="$1" y="$2" f
+  ( cd "$x" && find . -type f | LC_ALL=C sort ) > "$REPORT/.dx" 2>/dev/null
+  ( cd "$y" && find . -type f | LC_ALL=C sort ) > "$REPORT/.dy" 2>/dev/null
+  cmp -s "$REPORT/.dx" "$REPORT/.dy" || return 1
+  while IFS= read -r f; do
+    cmp -s "$x/$f" "$y/$f" || return 1
+  done < "$REPORT/.dx"
+  return 0
+}
+
 # --- compare ----------------------------------------------------------------------------------
 container_diffs=(); payload_diffs=(); no_extractor=(); metadata_only=()
 
@@ -124,7 +149,7 @@ while IFS= read -r rel; do
   if extract_payload "$a" "$pa" && extract_payload "$b" "$pb" \
      && [ -n "$(ls -A "$pa" 2>/dev/null)" ]; then
     for f in "$pa"/* "$pb"/*; do [ -f "$f" ] && normalize "$f"; done
-    if ! diff -rq "$pa" "$pb" > "$REPORT/payload-$(basename "$rel").diff" 2>&1; then
+    if ! dirs_identical "$pa" "$pb"; then
       payload_diffs+=("${rel#./}")
     fi
   else
@@ -180,6 +205,19 @@ if [ ${#payload_diffs[@]} -gt 0 ]; then
   note ""
   note "Payload mismatches:"
   for f in "${payload_diffs[@]}"; do note "- \`$f\`"; done
+elif [ ${#no_extractor[@]} -gt 0 ]; then
+  # Never report a format as reproducible on the strength of a check that did not run. The bytes
+  # differ and nothing here can see inside the container, so the honest verdict is "unverified",
+  # and unverified fails — otherwise the job is decoration.
+  note "## $COMBO — UNVERIFIED (no payload extractor)"
+  note ""
+  note "These artifacts differ byte-for-byte and this script cannot open them, so whether the"
+  note "compiled code matches is unknown. Add an extractor for the format in"
+  note "\`extract_payload\` (scripts/ci/repro-check.sh), or have the packing job upload the"
+  note "pre-container payload the way the macos job uploads its \`.app\` (§20.3)."
+  note ""
+  note "Unopened formats:"
+  for f in "${no_extractor[@]}"; do note "- \`$f\`"; done
 else
   note "## $COMBO — code reproducible, bytes differ"
   note ""
@@ -198,13 +236,9 @@ note "Files whose bytes differ:"
 for f in "${container_diffs[@]}"; do
   note "- \`$f\` — original \`$(shasum -a 256 "$DIR_A/$f" | cut -c1-16)…\` vs rebuilt \`$(shasum -a 256 "$DIR_B/$f" | cut -c1-16)…\`"
 done
-if [ ${#no_extractor[@]} -gt 0 ]; then
-  note ""
-  note "No payload extractor for these formats, so they were checked at the container tier only:"
-  for f in "${no_extractor[@]}"; do note "- \`$f\`"; done
-fi
 note ""
 note "See the \`diffoscope-*.html\` files in this report for the byte-level explanation."
 
 [ ${#payload_diffs[@]} -gt 0 ] && exit 1
+[ ${#no_extractor[@]} -gt 0 ] && exit 1
 exit 10

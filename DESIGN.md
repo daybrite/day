@@ -2834,6 +2834,18 @@ in the same directory, because `hdiutil` stamps mtimes. The same holds for the o
 none of which is wired to `SOURCE_DATE_EPOCH` today. Failing on that would make the check
 permanently red and teach everyone to ignore it.
 
+`ios-uikit` needed a real fix to reach that bar, and it is the reason `REPRODUCIBLE_BUILD_SETTINGS`
+exists in `pack/ios.rs`. Xcode is the only linker in the matrix that writes a **debug map** into the
+product: one `N_OSO` stab per object file, each holding that `.o`'s absolute path under `SYMROOT`,
+which derives from the project root. The showcase app carried 267 of them, so the same commit built
+in two directories produced two different binaries — the first failure this check caught. Passing
+`DEPLOYMENT_POSTPROCESSING=YES STRIP_INSTALLED_PRODUCT=YES STRIP_STYLE=debugging` strips the debug
+map; Xcode runs `dsymutil` before `strip`, so the `.dSYM` still appears and symbolication is
+unaffected, `STRIP_STYLE=debugging` keeps the symbol table so in-process backtraces still resolve,
+and the binary loses ~17% of its size. What remains is the same 16-byte `LC_UUID` as on macOS.
+`day build` (the simulator/dev lane in `mobile.rs`) is deliberately untouched — stripping a
+debug build would be a poor trade.
+
 Exit codes: `0` both tiers match, `10` code matches and packaging does not, `1` the code itself
 differs, `2` the two builds produced different file lists. On any mismatch the job installs
 diffoscope and attaches its HTML and text reports as `repro-report-<combo>`.
@@ -2843,11 +2855,26 @@ TSA timestamp, which makes a signed artifact non-reproducible by construction; g
 jobs signing secrets so they could match would reopen exactly the exposure
 [§20.2](#202-release-signing-isolation) closes.
 
-Known gaps, recorded rather than papered over: `.flatpak` has no payload extractor (an ostree
-bundle, not an archive), so the Linux combos are checked at the container tier only; on Windows
-diffoscope installs via pip without most of its comparators and degrades to a binary diff; and the
-PE `TimeDateStamp` is not normalized, so `windows-xaml` may report payload drift that is only a
-header timestamp. Closing these means wiring `SOURCE_DATE_EPOCH` through the packaging tools.
+**A check that cannot answer must not report success.** Two false passes shipped in the first
+version of this and are worth recording, because both made the job look green while verifying
+nothing:
+
+- The payload verdict came from `diff -rq`. `harmony-arkui` puts the OpenHarmony SDK toolchains on
+  `PATH`, and they ship a `diff` that rejects GNU options *and exits 0* — so every payload
+  comparison passed unconditionally. Nothing decides a verdict with `diff(1)` now; `cmp` does, and
+  the script prepends `/usr/bin:/bin` so a vendored SDK cannot shadow coreutils again.
+- A format with no payload extractor was reported as "code reproducible" on the strength of a
+  comparison that never ran. Unopenable now means **UNVERIFIED, and unverified fails.**
+
+That second rule is why the `linux` job uploads `stage/bin/` as `showcase-payload-<combo>`. A
+`.flatpak` is an OSTree bundle no ordinary archiver can open, so `flatpak.rs`'s pre-bundle ELF is
+what `linux-repro` compares — the same shape as macOS handing over its `.app`. The bundle itself is
+not byte-compared, and the job says so rather than implying coverage it doesn't have.
+
+Remaining gaps: on Windows diffoscope installs via pip without most of its comparators and degrades
+to a binary diff, and the PE `TimeDateStamp` is not normalized, so `windows-xaml` may report payload
+drift that is only a header timestamp. Closing the container tier everywhere means wiring
+`SOURCE_DATE_EPOCH` through the packaging tools.
 
 ### §20.5 Toolchain and dependency governance
 
