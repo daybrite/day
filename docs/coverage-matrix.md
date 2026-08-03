@@ -73,8 +73,8 @@ An app branches on this rather than on the target name.
 | `FileDialogs` | N | N | N | N | N | N | N | – |
 | `Animation` | N | N | – | – | – | N | – | N |
 | `Cover` | E | N | E | E | E | N | E | E |
-| `TextEditable` | N | N | N | N | – | N | – | N |
-| `TextSelectable` | N | N | – | N | – | N | – | N |
-| `TextSpellCheck` | N | N | – | – | – | N | – | N |
+| `TextEditable` | N | N | N | N | N | N | – | N |
+| `TextSelectable` | N | N | – | N | E | N | – | N |
+| `TextSpellCheck` | N | N | – | – | N | N | – | N |
 | `MultiWindow` | N | – | N | N | N | N | ? | – |
 | `Toolbar` | N | – | N | N | N | – | – | – |
