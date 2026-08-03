@@ -2002,6 +2002,26 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
         float fw = aw < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(aw);
         float fh = ah < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(ah);
         auto& e = elem(h);
+        // Measure with the explicit size back at Auto. Once day has framed an element,
+        // `set_geometry` has stamped a Width/Height on it, and XAML derives `DesiredSize` from
+        // THOSE rather than from the content — so a re-measure after the content changed reports
+        // the size the PREVIOUS content wanted. That is what leaves a recycled list cell showing
+        // "Row" alone: the label was framed for "Row 4", the shuffle rebinds it to "Row 487", the
+        // stale narrow frame comes back from measure, and TextWrapping::Wrap folds the number onto
+        // a second line outside the row band. The frame is day's to re-apply through set_geometry
+        // right after, so clearing it here costs nothing; it is restored below either way.
+        auto fe = e.try_as<FrameworkElement>();
+        double saved_w = 0, saved_h = 0;
+        bool had_w = false, had_h = false;
+        const double kAuto = std::numeric_limits<double>::quiet_NaN();
+        if (fe) {
+            saved_w = fe.Width();
+            saved_h = fe.Height();
+            had_w = !std::isnan(saved_w);
+            had_h = !std::isnan(saved_h);
+            if (had_w) fe.Width(kAuto);
+            if (had_h) fe.Height(kAuto);
+        }
         e.Measure(WF::Size{ fw, fh });
         auto d = e.DesiredSize();
         // day measures during its synchronous initial layout, before the island's first async layout
@@ -2019,6 +2039,12 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
             s_forcing_layout = false;
             e.Measure(WF::Size{ fw, fh });
             d = e.DesiredSize();
+        }
+        // Put the frame back before returning: day re-applies it through set_geometry only when
+        // its layout actually changes, so an element it leaves alone must keep the size it had.
+        if (fe) {
+            if (had_w) fe.Width(saved_w);
+            if (had_h) fe.Height(saved_h);
         }
         *ow = d.Width;
         *oh = d.Height;
