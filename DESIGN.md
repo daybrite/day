@@ -2894,8 +2894,14 @@ of day's, and turned an advisory container diff into a spurious hard failure.
   commit packed elsewhere shipped arm64 — and `entry/libs/<abi>/` was never cleared, so a stale
   arch could ride along. The override now wins, and the libs tree is cleared before staging. A
   distribution pack must not change shape because a device was attached.
-- `ios-uikit` — the `LC_UUID`/debug-map fix above was necessary but not sufficient; a second
-  cause remains, see below.
+- `ios-uikit` — three causes stacked, and each was only visible once the one above it was gone.
+  The `LC_UUID`/debug-map strip was necessary but not sufficient; underneath it, every one of the
+  201 `__objc_stubs` entries pointed at a different `__got` slot than in the other build. The
+  binary carries TWO slots for `_objc_msgSend` — one for the classic `__stubs` path, one for the
+  `__objc_stubs` section Xcode 14 added — with byte-identical GOT contents, and which consumer
+  gets which slot is not stable. The two builds were equivalent; the linker flipped a coin.
+  `-fno-objc-msgsend-selector-stubs` leaves one slot, so there is no coin. Note this also means
+  the same-runner comparison passing for iOS was a ~50/50 result, not evidence.
 - `linux-gtk` / `linux-qt` — two symbols differ only in their `.llvm.<moduleId>` suffix, which
   cascades into `NT_GNU_BUILD_ID` and a two-byte `.strtab` change.
 
@@ -2908,20 +2914,33 @@ runner* showed it: two builds one machine apart still differed.
 
 What differed was narrow. The machine code was identical — same addresses, same sizes — and so were
 the crate disambiguators and CGU names. The whole delta was the `.llvm.<hash>` suffix on two
-promoted symbols, plus what that drags along: the GNU build-id, and four bytes of `.strtab`. That
-suffix is ThinLTO's rename for an internal symbol promoted across module boundaries, and its hash is
-not stable across build directories. `[profile.release] lto = "fat"` merges everything into one
-module, so no promotion happens and the suffix is never emitted — measured on the real app, 53
-occurrences down to zero. Cargo's `trim-paths`, the more targeted fix, is **still unstable as of
-Cargo 1.97** and cannot be used from a stable toolchain. Fat LTO costs roughly 40% more link time on
-a release build.
+promoted symbols, plus what that drags along: the GNU build-id, and four bytes of `.strtab`.
+
+ThinLTO makes an internal symbol external so it can be inlined across modules, and renames it with
+that suffix to avoid collisions. **What feeds the hash is not established here** — upstream reports
+attribute it to different inputs in different cases (rust-lang/rust#129080 is the standing list, and
+the rustdoc case traced to PGO rather than to paths) — so what follows is a fix for a measured
+symptom, not for a diagnosed root cause. `[profile.release] lto = "fat"` merges everything into one
+module, so no cross-module promotion happens and the suffix is never emitted: measured on the real
+app, 53 occurrences down to zero, and `linux-gtk`/`linux-qt` went green on the next CI run. Cargo's
+`trim-paths`, the more targeted candidate, is **still unstable as of Cargo 1.97** and unusable from a
+stable toolchain. `codegen-units = 1`, already set, is the documented half of this. Fat LTO costs
+roughly 40% more link time and produced a binary ~9% smaller.
 
 The `linux-repro` and `ios-uikit-repro` jobs carry a temporary second build at a third path on the
 same runner. It earned its keep once; keep it until iOS is also green, then remove it.
 
+`ZERO_AR_DATE=1` rides on every cargo and xcodebuild invocation (`ops::apply_determinism`).
+`libtool` and `ld64` otherwise write file modification times into static archives and into the debug
+map's `OSO` entries. It is set in the CLI rather than in CI so local packs are deterministic too —
+reproducibility that only holds on the build farm is not worth much. It is preventive here: the
+`OSO` entries are already gone via `STRIP_STYLE=debugging`, so what it still protects is the
+intermediate `.a` archives and any future config that keeps a debug map.
+
 Remaining gaps: on Windows diffoscope installs via pip without most of its comparators and degrades
 to a binary diff. Closing the container tier everywhere means wiring `SOURCE_DATE_EPOCH` through the
-packaging tools.
+packaging tools — none of hdiutil, `ditto -c -k`, Gradle, flatpak-builder, makeappx or makensis
+honours it today, which is why the container tier stays advisory.
 
 ### §20.5 Toolchain and dependency governance
 

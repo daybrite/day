@@ -95,6 +95,7 @@ pub fn pack(
         "ios-uikit (xcodebuild archive, generic/platform=iOS)",
     );
     let mut cmd = Command::new("xcodebuild");
+    crate::ops::apply_determinism(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
         .args(["-project", "DayApp.xcodeproj", "-scheme", "Runner"])
         .args(["-configuration", "Release"])
@@ -136,6 +137,7 @@ pub fn pack(
     let _ = std::fs::remove_dir_all(&export_dir);
     status("Packing", &format!("xcodebuild -exportArchive ({method})"));
     let mut cmd = Command::new("xcodebuild");
+    crate::ops::apply_determinism(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
         .arg("-exportArchive")
         .arg("-archivePath")
@@ -271,10 +273,24 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
 /// is unaffected — the debug info moves out of the shipped binary rather than being discarded.
 /// `STRIP_STYLE=debugging` keeps the dynamic symbol table intact, so backtraces still resolve
 /// exported frames.
-const REPRODUCIBLE_BUILD_SETTINGS: [&str; 3] = [
+/// The second half is the ObjC selector stubs, and it fixes a different failure. Xcode 14 added a
+/// size optimization where the compiler emits `_objc_msgSend$<selector>` references and the LINKER
+/// synthesizes an `__objc_stubs` section for them. That leaves the binary with TWO `__got` slots for
+/// `_objc_msgSend` — one for the classic `__stubs` path, one for `__objc_stubs` — and which
+/// consumer gets which slot is not stable: two CI builds of the same commit differed in exactly
+/// those 404 bytes, every `__objc_stubs` entry pointing at slot 1528 in one and 1536 in the other,
+/// with byte-identical GOT contents. The binaries were equivalent; the linker just flipped a coin.
+/// Turning the optimization off leaves one slot, so there is no coin to flip.
+///
+/// Both flags are needed — `OTHER_CFLAGS` alone was measured to leave the section in place, because
+/// the references come from Swift here, not from ObjC sources. For this app the flag also makes the
+/// binary ~9.7 KB SMALLER: the stub table is overhead when little of the code is ObjC.
+const REPRODUCIBLE_BUILD_SETTINGS: [&str; 5] = [
     "DEPLOYMENT_POSTPROCESSING=YES",
     "STRIP_INSTALLED_PRODUCT=YES",
     "STRIP_STYLE=debugging",
+    "OTHER_CFLAGS=$(inherited) -fno-objc-msgsend-selector-stubs",
+    "OTHER_SWIFT_FLAGS=$(inherited) -Xcc -fno-objc-msgsend-selector-stubs",
 ];
 
 /// The unsigned fallback: a real DEVICE build (`-sdk iphoneos`, Release) with code signing
@@ -294,6 +310,7 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
     status("Building", "ios-uikit (xcodebuild, iphoneos, unsigned)");
     run_tool(
         Command::new("xcodebuild")
+            .env("ZERO_AR_DATE", "1")
             .current_dir(project.root.join("platform/ios"))
             .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
             .args(["-configuration", "Release", "-sdk", "iphoneos"])

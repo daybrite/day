@@ -165,12 +165,16 @@ icu_casemap = { version = "2.2", features = ["compiled_data"] }
 intl-memoizer = "0.5"
 
 [profile.release]
-# `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO promotes internal symbols
-# across module boundaries and renames them with a `.llvm.<hash>` suffix derived from a module hash;
-# that hash is not stable across build directories, so the same commit built twice on ONE machine
-# produced binaries differing in exactly those symbol names (and, downstream, in the GNU build-id
-# and `.strtab` size). Fat LTO merges everything into a single module, so no cross-module promotion
-# happens and the suffix is never emitted. Cargo's `trim-paths`, the other candidate, is still
-# unstable as of Cargo 1.97.
+# `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO makes an internal symbol
+# external so it can be inlined across modules, renaming it with a `.llvm.<hash>` suffix to avoid
+# collisions. Measured here: that suffix was NOT stable across build directories, so the same commit
+# built twice on ONE machine produced binaries differing in exactly those symbol names, and
+# downstream in the GNU build-id and `.strtab` size. What feeds the hash is not established — the
+# upstream reports attribute it to different inputs in different cases — so this is a fix for the
+# observed symptom, not for a diagnosed root cause. Fat LTO merges everything into one module, so no
+# cross-module promotion happens and the suffix is never emitted (measured: 53 occurrences → 0).
+# Cargo's `trim-paths`, the more targeted candidate, is still unstable as of Cargo 1.97.
+# `codegen-units = 1` is the other half, and is the documented baseline for reproducible rustc
+# output; see rust-lang/rust#129080 for the standing list of reproducibility hazards.
 lto = "fat"
 codegen-units = 1

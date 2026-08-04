@@ -36,6 +36,21 @@ pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
     cmd.env("DAY_APP_ID", &project.manifest.app.id)
         .env("DAY_APP_VERSION", &project.manifest.app.version)
         .env("DAY_APP_BUILD", project.manifest.app.build.to_string());
+    apply_determinism(cmd);
+}
+
+/// Environment that makes Apple's toolchain stop stamping the clock into its output
+/// (DESIGN.md §20.3).
+///
+/// `libtool` and `ld64` write file modification times into static archives and into the debug map's
+/// `OSO` entries, so two builds of identical sources differ by whenever they happened to run.
+/// `ZERO_AR_DATE` zeroes both. It is set here rather than in CI so local packs are deterministic
+/// too — reproducibility that only holds on the build farm is not worth much.
+///
+/// Scope: archive and debug-map timestamps only. It does NOT touch `__DATE__`/`__TIME__` (Day uses
+/// neither), and it is inert on non-Apple hosts.
+pub fn apply_determinism(cmd: &mut Command) {
+    cmd.env("ZERO_AR_DATE", "1");
 }
 
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the

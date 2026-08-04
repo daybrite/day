@@ -377,6 +377,7 @@ pub fn build_ios(
     );
     let xcodebuild = || {
         let mut cmd = Command::new("xcodebuild");
+        crate::ops::apply_determinism(&mut cmd);
         cmd.current_dir(project.root.join("platform/ios"))
             .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
             .args([
