@@ -5,12 +5,15 @@
 // its light capture plus, where CI produced one, the matching dark capture; the site theme picks
 // which shows (platforms without a dark set keep their light shot — never a missing file).
 import { url } from '../lib/site';
+import DeviceShell from './DeviceShell.astro';
 import shotsData from '../data/hero-shots.json';
 
 const shots: {
   src: string;
   srcDark?: string;
   shot?: string;
+  width?: number;
+  height?: number;
   os: string;
   toolkit: string;
   accent: string;
@@ -22,24 +25,30 @@ const shots: {
     {/* The frame links to the gallery, anchored at the row for the screen currently showing —
         the controller retargets the href on every image change. */}
     <a class="hc-link" data-hc-link href={url('gallery')} aria-label="See this screen on every platform in the gallery">
-      <div class="hc-frame">
+      <div class="hc-stage">
         <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
         {shots.map((s, i) => (
-          <img
-            class:list={['hc-img', { 'is-active': i === 0 }]}
-            src={url(s.src)}
-            alt={s.alt}
-            width="1000"
-            height="750"
-            decoding="async"
-            loading={i < 3 ? 'eager' : 'lazy'}
-            data-src-light={url(s.src)}
-            data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
-            data-shot={s.shot}
-            data-os={s.os}
-            data-toolkit={s.toolkit}
-            data-accent={s.accent}
-          />
+          <div class:list={['hc-slide', { 'is-active': i === 0 }]}>
+            {/* Each shot wears its platform's shell — the same window chrome and phone bezels the
+                gallery draws (src/lib/shells.ts explains why a capture needs one). */}
+            <DeviceShell platform={s.accent}>
+              <img
+                class="hc-img"
+                src={url(s.src)}
+                alt={s.alt}
+                width={s.width ?? 1000}
+                height={s.height ?? 750}
+                decoding="async"
+                loading={i < 3 ? 'eager' : 'lazy'}
+                data-src-light={url(s.src)}
+                data-src-dark={s.srcDark ? url(s.srcDark) : undefined}
+                data-shot={s.shot}
+                data-os={s.os}
+                data-toolkit={s.toolkit}
+                data-accent={s.accent}
+              />
+            </DeviceShell>
+          </div>
         ))}
       </div>
     </a>
@@ -61,36 +70,49 @@ const shots: {
   .hc-link { display: block; border-radius: var(--radius-lg); }
   .hc-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
-  .hc-frame {
+  /* No matte: the stage is an invisible box that only reserves height, so what the visitor sees
+     is the device itself — bare screenshot inside its window chrome or bezel, floating on the
+     page background. The aspect ratio keeps the hero from resizing as portrait phones and
+     landscape desktops take turns. */
+  .hc-stage {
     position: relative;
-    aspect-ratio: 4 / 3;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border);
-    background:
-      radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--surface-2) 90%, transparent), var(--surface));
-    overflow: hidden;
-    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.55);
+    /* An explicit height, not an aspect ratio, because the shells size themselves from the
+       PICTURE: a percentage max-height cannot resolve against a shell whose own height is what
+       the picture decides, so the screen's height budget is handed down in absolute units. */
+    --hc-h: clamp(300px, 34vw, 520px);
+    height: var(--hc-h);
   }
-  /* Accent glow tinted by the active platform (var set from JS). */
+  /* Accent glow tinted by the active platform (var set from JS) — a pool of light UNDER the
+     device now that there is no panel to tint. */
   .hc-glow {
-    position: absolute; inset: 0;
-    background: radial-gradient(90% 70% at 50% 8%, var(--hc-accent, transparent), transparent 60%);
-    opacity: 0.18;
+    position: absolute; inset: -6% -4%;
+    background: radial-gradient(58% 46% at 50% 50%, var(--hc-accent, transparent), transparent 70%);
+    opacity: 0.22;
     transition: background 0.6s ease;
     pointer-events: none;
   }
-  .hc-img {
-    position: absolute;
-    inset: 14px;
-    width: calc(100% - 28px);
-    height: calc(100% - 28px);
-    object-fit: contain;
+  .hc-slide {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
     opacity: 0;
     transform: scale(1.015);
     transition: opacity 0.7s ease, transform 0.7s ease;
-    filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.28));
   }
-  .hc-img.is-active { opacity: 1; transform: scale(1); }
+  .hc-slide.is-active { opacity: 1; transform: scale(1); }
+  /* The picture fits the stage minus what its shell adds around it — the 30px title bar, or the
+     bezel's padding. The shell then shrink-wraps that, so the frame hugs the screenshot at every
+     viewport width instead of stretching to the column. */
+  .hc-slide :global(.sh-win > :not(.sh-chrome)) { max-height: calc(var(--hc-h) - 30px); }
+  .hc-slide :global(.sh-dev > *) { max-height: calc(var(--hc-h) - 18px); }
+
+  /* The shells carry a tile-sized shadow in the gallery grid; standing alone at hero size they
+     need a deeper one to lift off the page. */
+  .hc-slide :global(.sh-win) { box-shadow: 0 26px 60px -24px rgba(0, 0, 0, 0.55); }
+  .hc-slide :global(.sh-dev) {
+    box-shadow:
+      inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
+      0 26px 60px -24px rgba(0, 0, 0, 0.55);
+  }
 
   /* Story-style segmented progress / index. */
   .hc-track { display: flex; gap: 4px; padding: 0 2px; }
@@ -125,8 +147,8 @@ const shots: {
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .hc-img { transition: opacity 0.2s linear; transform: none; }
-    .hc-img.is-active { transform: none; }
+    .hc-slide { transition: opacity 0.2s linear; transform: none; }
+    .hc-slide.is-active { transform: none; }
     .hc-seg.is-active i { animation: none; transform: scaleX(1); }
     .hc-rise .hc-os, .hc-rise .hc-toolkit { animation: none; }
   }
@@ -139,8 +161,12 @@ const shots: {
   function applyHeroTheme() {
     const dark = document.documentElement.dataset.theme === 'dark';
     for (const img of document.querySelectorAll<HTMLImageElement>('[data-hero-carousel] .hc-img')) {
-      const src = (dark && img.dataset.srcDark) || img.dataset.srcLight;
+      const useDark = dark && !!img.dataset.srcDark;
+      const src = (useDark && img.dataset.srcDark) || img.dataset.srcLight;
       if (src && img.getAttribute('src') !== src) img.setAttribute('src', src);
+      // Window chrome follows the capture, not the site: a platform with no dark screenshot
+      // keeps its light one, and a dark title bar around it would look like a rendering bug.
+      img.closest<HTMLElement>('.sh-win')?.toggleAttribute('data-dark', useDark);
     }
   }
   // Re-resolve when the theme toggle (or the OS, under "system") flips the site theme.
@@ -157,6 +183,8 @@ const shots: {
     if (!root) return;
 
     const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('.hc-img'));
+    // The image carries the data; the slide (image + its shell) is what cross-fades.
+    const slides = imgs.map((im) => im.closest<HTMLElement>('.hc-slide')!);
     const segs = Array.from(root.querySelectorAll<HTMLElement>('.hc-seg'));
     const link = root.querySelector<HTMLAnchorElement>('[data-hc-link]');
     const glow = root.querySelector<HTMLElement>('[data-hc-glow]');
@@ -225,7 +253,7 @@ const shots: {
       // transitions `color`, so it glides between platforms in step with the cross-fade).
       root!.closest<HTMLElement>('.hero')?.style.setProperty('--hero-accent', accent);
 
-      imgs.forEach((im, i) => im.classList.toggle('is-active', i === idx));
+      slides.forEach((sl, i) => sl.classList.toggle('is-active', i === idx));
 
       // Progress segments track position within the shuffled order.
       segs.forEach((seg, i) => {

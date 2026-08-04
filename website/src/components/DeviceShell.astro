@@ -1,0 +1,66 @@
+---
+// Wraps a screenshot in its platform's presentational shell: a window with that desktop's
+// decoration, or a phone bezel. Targets with neither (none today, but the mapping is data)
+// render the screenshot bare. Styles live in ../styles/shells.css — global, because the
+// selectors have to reach slotted content; see that file and ../lib/shells.ts.
+import { bezelOf, chromeOf } from '../lib/shells';
+import '../styles/shells.css';
+
+interface Props {
+  /** Platform-toolkit id, e.g. `macos-appkit` — the gallery config's platform ids. */
+  platform: string;
+  /** Window title for the chrome bar (ignored by bezels). */
+  title?: string;
+  /** Start in the dark palette. Callers that swap captures at runtime toggle `data-dark`. */
+  dark?: boolean;
+}
+
+const { platform, title = 'Day Showcase', dark = false } = Astro.props;
+const chrome = chromeOf(platform);
+const bezel = chrome ? undefined : bezelOf(platform);
+---
+{chrome ? (
+  <div class="sh-win" data-chrome={chrome} data-dark={dark ? '' : undefined}>
+    <div class={`sh-chrome c-${chrome}`} aria-hidden="true">
+      {chrome === 'macos' && (
+        <>
+          <span class="sh-dots"><i class="d-r" /><i class="d-y" /><i class="d-g" /></span>
+          <span class="sh-title">{title}</span>
+          <span class="sh-eq" />
+        </>
+      )}
+      {chrome === 'windows' && (
+        <>
+          <span class="sh-title left">{title}</span>
+          <span class="sh-caps"><i>—</i><i>▢</i><i>✕</i></span>
+        </>
+      )}
+      {chrome === 'gnome' && (
+        <>
+          <span class="sh-eq" />
+          <span class="sh-title bold">{title}</span>
+          <span class="sh-gbtn">✕</span>
+        </>
+      )}
+      {chrome === 'kde' && (
+        <>
+          <span class="sh-eq" />
+          <span class="sh-title">{title}</span>
+          <span class="sh-caps"><i>—</i><i>▢</i><i>✕</i></span>
+        </>
+      )}
+      {chrome === 'browser' && (
+        <>
+          <span class="sh-dots plain"><i /><i /><i /></span>
+          <span class="sh-url">daybrite.dev</span>
+          <span class="sh-eq" />
+        </>
+      )}
+    </div>
+    <slot />
+  </div>
+) : bezel ? (
+  <div class="sh-dev" data-dev={bezel}><slot /></div>
+) : (
+  <slot />
+)}

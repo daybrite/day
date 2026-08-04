@@ -53,8 +53,8 @@ const PRIMARY_PLATFORMS = [
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.
 // The marker is the manifest format — bump it when the output shape, the caption/accent fields,
-// or the shot pool change so stale caches rebuild (v5: staggered bling-first pool, 3 per platform).
-const PRIMARY_KEY = ['v5', ...PRIMARY_PLATFORMS].join(',');
+// or the shot pool change so stale caches rebuild (v6: per-shot pixel dimensions).
+const PRIMARY_KEY = ['v6', ...PRIMARY_PLATFORMS].join(',');
 
 // Carousel caption names — shorter than the gallery's toolkit strings, anchored to the desktop
 // each toolkit is known by. Platforms not listed keep their gallery toolkit string.
@@ -170,11 +170,16 @@ export async function assembleHeroShots(opts = {}) {
 
   // Normalise for the web: cap the longest side (the iOS captures are ~2600px tall) so the hero
   // stays light, and re-encode PNG. Never enlarge — desktop shots are already ~1000px.
-  const normalise = (buf) =>
-    sharp(buf, { failOn: 'none' })
+  // Emitted size travels with the image: the carousel frames each shot in its platform's window
+  // chrome or phone bezel, which shrink-wrap the picture — so the <img> needs the capture's REAL
+  // aspect ratio, not one nominal ratio for portrait phones and landscape desktops alike.
+  const normalise = async (buf) => {
+    const { data, info } = await sharp(buf, { failOn: 'none' })
       .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
       .png({ compressionLevel: 9 })
-      .toBuffer();
+      .toBuffer({ resolveWithObject: true });
+    return { data, width: info.width, height: info.height };
+  };
 
   const shots = [];
   const platforms = PRIMARY_PLATFORMS
@@ -202,10 +207,13 @@ export async function assembleHeroShots(opts = {}) {
       if (!buf) continue;
       if (!(await isContentful(buf))) continue;
       const file = `${platform.id}-${shot}.png`;
-      writeFileSync(join(outDir, file), await normalise(buf));
+      const light = await normalise(buf);
+      writeFileSync(join(outDir, file), light.data);
       const toolkit = CAROUSEL_TOOLKIT[platform.id] ?? platform.toolkit;
       const entry = {
         src: `hero/${file}`,
+        width: light.width,
+        height: light.height,
         // The gallery shot id — the carousel links each image to its row anchor (`/gallery#<shot>`).
         shot,
         os: platform.os,
@@ -221,7 +229,7 @@ export async function assembleHeroShots(opts = {}) {
       const darkBuf = await obtain(platform.id, shot, 'dark');
       if (darkBuf && (await isContentful(darkBuf)) && (await isDark(darkBuf))) {
         const darkFile = `${platform.id}-${shot}-dark.png`;
-        writeFileSync(join(outDir, darkFile), await normalise(darkBuf));
+        writeFileSync(join(outDir, darkFile), (await normalise(darkBuf)).data);
         entry.srcDark = `hero/${darkFile}`;
       }
       shots.push(entry);

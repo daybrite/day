@@ -231,6 +231,7 @@ thread_local! {
     /// List cell element → (list host element, row index) for selection clicks.
     static CELL_ROWS: RefCell<HashMap<u32, (u32, usize)>> = RefCell::new(HashMap::new());
     /// Spinner-vs-bar per PROGRESS element (progress with `None` renders as a spinner).
+    static SPINNERS: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
     static POSTED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = RefCell::new(Vec::new());
     static DELAYED: RefCell<HashMap<u32, Box<dyn FnOnce() + Send>>> = RefCell::new(HashMap::new());
     static NEXT_DELAY: Cell<u32> = const { Cell::new(1) };
@@ -613,9 +614,16 @@ impl Toolkit for Dom {
                         EL_SPINNER
                     })
                 };
-                if let Some(v) = p.value {
-                    attr(el, "max", "1");
-                    unsafe { day_dom_set_value(el, v) };
+                match p.value {
+                    Some(v) => {
+                        attr(el, "max", "1");
+                        unsafe { day_dom_set_value(el, v) };
+                    }
+                    // Which of the two this element is, is only knowable here — both render with
+                    // no text, so `measure` cannot tell them apart from the DOM.
+                    None => {
+                        SPINNERS.with(|s| s.borrow_mut().insert(el));
+                    }
                 }
                 el
             }
@@ -972,6 +980,7 @@ impl Toolkit for Dom {
         NAV_STATE.with(|m| m.borrow_mut().remove(&el));
         SEG_COUNT.with(|m| m.borrow_mut().remove(&el));
         PICKER_SIZE.with(|m| m.borrow_mut().remove(&el));
+        SPINNERS.with(|s| s.borrow_mut().remove(&el));
         MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
         if let Some(list) = LISTS.with(|m| m.borrow_mut().remove(&el)) {
             CELL_ROWS.with(|m| {
@@ -1064,20 +1073,12 @@ impl Toolkit for Dom {
             kinds::PICKER => PICKER_SIZE
                 .with(|m| m.borrow().get(&el).copied())
                 .unwrap_or(Size::new(68.0, 26.0)),
+            // A spinner is SQUARE — `.day-spinner` is a 50%-radius ring that rotates, so any
+            // other aspect ratio spins as an ellipse sweeping the layout (docs/pieces.md).
+            // Determinate progress is the wide, short bar.
             kinds::PROGRESS => {
-                let mut out = [0.0f64; 2];
-                unsafe {
-                    day_dom_measure_text(
-                        std::ptr::null(),
-                        el as usize,
-                        std::ptr::null(),
-                        0,
-                        1.0e6,
-                        out.as_mut_ptr(),
-                    )
-                };
-                if out[0] <= 1.0 {
-                    Size::new(22.0, 22.0) // spinner
+                if SPINNERS.with(|s| s.borrow().contains(&el)) {
+                    Size::new(22.0, 22.0)
                 } else {
                     Size::new(p.width.unwrap_or(160.0), 8.0)
                 }

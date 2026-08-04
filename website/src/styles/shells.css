@@ -1,0 +1,168 @@
+/* Presentational device shells — the window chrome and phone bezels drawn around a screenshot.
+   Global (not component-scoped) because the shell wraps SLOTTED content: the selectors below
+   have to reach an <img> that belongs to the calling page's scope. Every class is `sh-`
+   prefixed for that reason — these rules apply site-wide.
+
+   Rendered by src/components/DeviceShell.astro; see src/lib/shells.ts for which platform wears
+   which shell, and why the captures need one at all. */
+
+/* ---- window chrome (desktop + web) ------------------------------------------------------- */
+/* The shell shrink-wraps the IMAGE (flex column, centered cross-axis), so the bar always hugs
+   the window edge-to-edge instead of spanning the whole frame around a letterboxed capture.
+   Colors are hand-held approximations of each desktop's stock decoration — display dressing,
+   drawn here precisely because the captures are content-only by design. */
+.sh-win {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+/* The screen: whatever was slotted in. It shrinks to fit the space the bar leaves. */
+.sh-win > :not(.sh-chrome) {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0;
+}
+/* A placeholder has no intrinsic size, so it fills instead of shrink-wrapping. */
+.sh-win:has(.ph) { width: 100%; height: 100%; }
+.sh-win > .ph { flex: 1 1 auto; }
+
+.sh-chrome {
+  align-self: stretch;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 0.68rem;
+  line-height: 1;
+  user-select: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+.sh-title {
+  flex: 1 1 auto;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sh-title.left { text-align: left; }
+.sh-title.bold { font-weight: 700; }
+/* An invisible twin of the button cluster, so a centered title stays optically centered. */
+.sh-eq { flex: 0 0 44px; }
+.sh-dots { display: inline-flex; gap: 7px; flex: 0 0 44px; }
+.sh-dots i { width: 12px; height: 12px; border-radius: 50%; }
+.sh-dots .d-r { background: #ff5f57; }
+.sh-dots .d-y { background: #febc2e; }
+.sh-dots .d-g { background: #28c840; }
+.sh-dots.plain i { width: 9px; height: 9px; background: rgba(128, 128, 128, 0.55); }
+.sh-caps { display: inline-flex; gap: 12px; flex: 0 0 auto; font-size: 0.62rem; }
+.sh-caps i { font-style: normal; opacity: 0.75; }
+.sh-gbtn {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  background: rgba(0, 0, 0, 0.09);
+}
+
+/* Per-desktop palettes, light then dark. `data-dark` follows the APPLIED capture — the gallery
+   sets it from the chosen variant, the carousel from the site theme — so chrome and pixels
+   always agree. */
+.c-macos { background: #ececec; color: #3c3c3e; }
+.sh-win[data-dark] .c-macos { background: #323234; color: #b9b9bd; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.c-windows { background: #f3f3f3; color: #1b1b1b; }
+.sh-win[data-dark] .c-windows { background: #202020; color: #d6d6d6; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.c-gnome { background: linear-gradient(#f9f8f7, #f0efed); color: #2e3436; }
+.sh-win[data-dark] .c-gnome { background: linear-gradient(#3a3a3a, #303030); color: #d3d2d0; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.sh-win[data-dark] .c-gnome .sh-gbtn { background: rgba(255, 255, 255, 0.12); }
+.c-kde { background: #eff0f1; color: #232629; }
+.sh-win[data-dark] .c-kde { background: #2a2e32; color: #cfd2d5; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.c-browser { background: #f1f0f0; color: #444; }
+.sh-win[data-dark] .c-browser { background: #2c2c2e; color: #bdbdbf; border-bottom-color: rgba(255, 255, 255, 0.08); }
+.sh-url {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 4px 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sh-win[data-dark] .sh-url { background: rgba(255, 255, 255, 0.09); }
+
+/* ---- device bezels (phone-class) --------------------------------------------------------- */
+/* The screen pixels are untouched — the shell only adds the hardware a screenshot cannot
+   contain. Corner radii clip the rectangular capture the way the physical glass does; the nubs
+   are the side buttons, drawn with pseudo-elements (box-shadow doubles the volume rocker) so
+   they poke out of the frame without any overflow clipping. */
+.sh-dev {
+  position: relative;
+  /* Centered, never stretched: a stretched flex item would take the frame's height while keeping
+     its own width, and the screenshot would sit letterboxed inside a bezel wider than itself. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  padding: 9px;
+  background: linear-gradient(160deg, #1a1a1c, #060607);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.28);
+}
+/* A hairline at the glass edge, so the screen still reads as a screen when what is behind it is
+   dark — a dark-theme capture or the placeholder would otherwise merge with the bezel into one
+   featureless slab. */
+.sh-dev > * {
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+.sh-dev:has(.ph) { width: 100%; height: 100%; }
+.sh-dev[data-dev='iphone'] { border-radius: 42px; }
+.sh-dev[data-dev='iphone'] > * { border-radius: 33px; }
+.sh-dev[data-dev='android'] { border-radius: 30px; padding: 7px; }
+.sh-dev[data-dev='android'] > * { border-radius: 23px; }
+.sh-dev[data-dev='harmony'] { border-radius: 26px; padding: 8px; }
+.sh-dev[data-dev='harmony'] > * { border-radius: 18px; }
+/* Side buttons. iPhone: volume rocker left (doubled by the shadow), power right. Android and
+   Harmony: power + volume on the right, the common slab layout. */
+.sh-dev::before,
+.sh-dev::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  border-radius: 2px;
+  background: #212124;
+}
+.sh-dev[data-dev='iphone']::before { left: -3px; top: 21%; height: 34px; box-shadow: 0 46px 0 #212124; }
+.sh-dev[data-dev='iphone']::after { right: -3px; top: 27%; height: 56px; }
+.sh-dev[data-dev='android']::before,
+.sh-dev[data-dev='harmony']::before { right: -3px; top: 18%; height: 30px; }
+.sh-dev[data-dev='android']::after,
+.sh-dev[data-dev='harmony']::after { right: -3px; top: 28%; height: 52px; }
