@@ -422,8 +422,10 @@ impl AppKit {
 
         let existing = BARS.with(|b| b.borrow().contains_key(&key));
         if existing {
-            // Reuse the live NSToolbar: replacing it would drop the search field's focus and
-            // flash the title bar. Swapping the model and re-reading the identifiers is enough.
+            // Reuse the live NSToolbar — replacing it flashes the title bar — but rebuild its
+            // items (see below). A full replace is rare: the builder re-runs on a locale change or
+            // a change in the bar's shape, never on a keystroke — typing patches the item in place
+            // through `day_core::patch_toolbar` — so the focus this costs is not focus in use.
             BARS.with(|b| {
                 if let Some(w) = b.borrow_mut().get_mut(&key) {
                     w.items = items.to_vec();
@@ -433,6 +435,14 @@ impl AppKit {
             let toolbar = BARS.with(|b| b.borrow().get(&key).map(|w| w.toolbar.clone()));
             if let Some(toolbar) = toolbar {
                 let ids = identifiers(key);
+                // Clear first, then set. `setItemIdentifiers` diffs BY IDENTIFIER: it inserts the
+                // new ones, removes the departed, and leaves every other item exactly as it was —
+                // still carrying the previous model's label and, worse, the previous `ItemTarget`,
+                // whose action id day-core had already swept. That is why a locale switch left the
+                // search field dead (its input dispatched into nothing) and the labels in the old
+                // language: same ids, new model, untouched items. Clearing drops them all so each
+                // is rebuilt through the delegate against the model swapped in above.
+                toolbar.setItemIdentifiers(&NSArray::new());
                 toolbar.setItemIdentifiers(&ids);
             }
             report_content_size(&window);

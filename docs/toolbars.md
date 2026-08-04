@@ -145,6 +145,12 @@ menu-bar twin. A toggle or a search field emits `Event::ToolbarChanged { action,
 - toolbar: { item: search, text: "swift" }    # type into a search item
 - toolbar: { item: search, key: nav_stack }   # …or type a Fluent key resolved in the RUN'S locale
 - toolbar: { item: star, on: true }           # set a toggle
+
+Note what this step does NOT prove. It resolves the item in the CURRENT model and dispatches its
+action, so it passes even if the native control is still bound to a previous model's action — the
+failure mode a real keystroke hits. A backend that rebuilds its bar must rebind the live controls,
+not just diff the identifier list (day-appkit had exactly this bug: after a locale change the
+search field dispatched an action id day-core had already swept, so typing did nothing).
 ```
 
 The step goes through the same dispatch the native control fires, so it exercises the app's
