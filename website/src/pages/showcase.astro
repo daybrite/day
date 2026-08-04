@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { url } from '../lib/site';
 import manifest from '../data/downloads.json';
+import PlatformIcon from '../components/PlatformIcon.astro';
 
 // The Day Showcase, packaged for every primary platform by `day pack` on the SAME CI run
 // that drives the gallery's walkthroughs. Files, sizes, and SHA-256 checksums come from
@@ -12,14 +13,15 @@ const byId = new Map<string, ManifestFile[]>(
   (manifest.platforms ?? []).map((p: { id: string; files: ManifestFile[] }) => [p.id, p.files]),
 );
 
+// web-dom is rendered ahead of these directly in the markup: there is nothing to download.
 const targets = [
   {
-    id: 'macos-appkit',
-    os: 'macOS',
-    name: 'AppKit',
-    kind: '.dmg',
+    id: 'android-mdc',
+    os: 'Android',
+    name: 'Material Components',
+    kind: '.apk / .aab',
     install:
-      'Open the .dmg and drag Day Showcase into Applications. The build is signed and notarized, so it opens like any other Mac app.',
+      'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
   },
   {
     id: 'ios-uikit',
@@ -30,12 +32,20 @@ const targets = [
       'An unsigned device .ipa — it can only be sideloaded: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window. It is not App Store distributed.',
   },
   {
-    id: 'android-mdc',
-    os: 'Android',
-    name: 'Material Components',
-    kind: '.apk / .aab',
+    id: 'harmony-arkui',
+    os: 'HarmonyOS',
+    name: 'ArkUI',
+    kind: '.hap',
     install:
-      'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
+      'Development-signed for the public OpenHarmony certificate: install on an emulator or developer device with `hdc install <file>.hap`.',
+  },
+  {
+    id: 'macos-appkit',
+    os: 'macOS',
+    name: 'AppKit',
+    kind: '.dmg',
+    install:
+      'Open the .dmg and drag Day Showcase into Applications. The build is signed and notarized, so it opens like any other Mac app.',
   },
   {
     id: 'windows-xaml',
@@ -61,14 +71,6 @@ const targets = [
     install:
       'Same as the GTK build: `flatpak install --user ./<file>.flatpak`, confirm the unsigned local bundle, accept the runtime offer if prompted.',
   },
-  {
-    id: 'harmony-arkui',
-    os: 'HarmonyOS',
-    name: 'ArkUI',
-    kind: '.hap',
-    install:
-      'Development-signed for the public OpenHarmony certificate: install on an emulator or developer device with `hdc install <file>.hap`.',
-  },
 ];
 
 function human(bytes: number): string {
@@ -82,7 +84,7 @@ function richInstall(text: string): (string | { code: string })[] {
 }
 const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
 ---
-<BaseLayout title="Showcase downloads" description="Install the Day Showcase natively: packaged builds for macOS, iOS, Android, Windows, Linux, and HarmonyOS, with sizes and SHA-256 checksums — or open the web build in place." active="showcase">
+<BaseLayout title="Showcase downloads" description="Open the Day Showcase web build in place, or install it natively: packaged builds for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with sizes and SHA-256 checksums." active="showcase">
   <section class="section dl-hero">
     <div class="container">
       <p class="eyebrow">Showcase downloads</p>
@@ -106,6 +108,7 @@ const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
     <div class="container">
       <div class="dl-grid">
         <article class="dl-card" data-pf="web-dom">
+          <PlatformIcon id="web-dom" class="dl-icon" />
           <p class="dl-os">Web</p>
           <h2 class="dl-name">The DOM</h2>
           <code class="dl-id">web-dom</code>
@@ -120,6 +123,7 @@ const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
           const files = byId.get(t.id) ?? [];
           return (
             <article class="dl-card" data-pf={t.id}>
+              <PlatformIcon id={t.id} class="dl-icon" />
               <p class="dl-os">{t.os}</p>
               <h2 class="dl-name">{t.name}</h2>
               <code class="dl-id">{t.id}</code>
@@ -179,6 +183,14 @@ const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
     font-weight: 650;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
+  }
+  /* :global — the <svg> lives in PlatformIcon's template, so it carries that component's
+     scope attribute, not this page's, and an unscoped `.dl-icon` selector never matches it. */
+  .dl-card :global(.dl-icon) {
+    width: 30px;
+    height: 30px;
+    margin-bottom: 12px;
     color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
   }
   .dl-name { margin: 0 0 6px; font-size: 1.15rem; }

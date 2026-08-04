@@ -19,18 +19,31 @@ const WEBSITE_ROOT = resolve(HERE, '..');
 
 // The primary platform-toolkit pairs, in display order. The secondary desktop combos
 // (macos-gtk/qt, windows-gtk/qt) are deliberately absent even when CI uploads them.
+// web-dom leads the page but is absent here: it has nothing to download, so showcase.astro
+// renders its card directly.
 const PRIMARY = [
-  'macos-appkit',
-  'ios-uikit',
   'android-mdc',
+  'ios-uikit',
+  'harmony-arkui',
+  'macos-appkit',
   'windows-xaml',
   'linux-gtk',
   'linux-qt',
-  'harmony-arkui',
 ];
 
 // Installable payloads only — pack.json/log droppings in the dist dirs are skipped.
 const EXTENSIONS = ['.dmg', '.ipa', '.zip', '.apk', '.aab', '.flatpak', '.msix', '.exe', '.hap'];
+
+/**
+ * `day pack` names artifacts after the app title, so they arrive as `Day Showcase.dmg` — a space
+ * and capitals in every download URL. Serve them lowercase and hyphenated instead. Suffixes are
+ * preserved, so `Day Showcase-setup.exe` becomes `day-showcase-setup.exe`.
+ * @param {string} name
+ * @returns {string}
+ */
+function downloadName(name) {
+  return name.toLowerCase().replace(/\s+/g, '-');
+}
 
 /**
  * @param {{ quiet?: boolean }} [opts]
@@ -52,10 +65,14 @@ export function assembleDownloads(opts = {}) {
       if (!statSync(path).isFile()) continue;
       if (!EXTENSIONS.some((e) => name.toLowerCase().endsWith(e))) continue;
       const bytes = readFileSync(path);
+      const served = downloadName(name);
+      if (files.some((f) => f.name === served)) {
+        throw new Error(`${combo}: two artifacts both normalize to ${served} (from ${name})`);
+      }
       mkdirSync(join(outDir, combo), { recursive: true });
-      copyFileSync(path, join(outDir, combo, name));
+      copyFileSync(path, join(outDir, combo, served));
       files.push({
-        name,
+        name: served,
         bytes: bytes.length,
         sha256: createHash('sha256').update(bytes).digest('hex'),
       });

@@ -4,6 +4,7 @@ import CodeSample from '../components/CodeSample.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
 import InstallCommand from '../components/InstallCommand.astro';
 import Logo from '../components/Logo.astro';
+import PlatformIcon from '../components/PlatformIcon.astro';
 import { url, site } from '../lib/site';
 
 // The eight primary platform-toolkits for the "runs on" grid, in Day's canonical order.
@@ -184,6 +185,7 @@ const compare = [
       <div class="pf-grid">
         {targets.map((t) => (
           <article class="pf-card" data-pf={t.id}>
+            <PlatformIcon id={t.id} class="pf-icon-mark" />
             <p class="pf-os">{t.os}</p>
             <h3 class="pf-name">{t.name}</h3>
             <code class="pf-id">{t.id}</code>
@@ -425,6 +427,13 @@ const compare = [
     font-weight: 650;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+    color: color-mix(in srgb, var(--pf) 78%, var(--text));
+  }
+  /* :global — see the note on .dl-icon in showcase.astro: the svg carries PlatformIcon's scope. */
+  .pf-card :global(.pf-icon-mark) {
+    width: 28px;
+    height: 28px;
+    margin-bottom: 12px;
     color: color-mix(in srgb, var(--pf) 78%, var(--text));
   }
   .pf-name { margin: 0 0 6px; font-size: 1.02rem; }

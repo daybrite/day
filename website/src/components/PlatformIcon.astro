@@ -1,0 +1,58 @@
+---
+// The platform-toolkit mark shown on every card-like presentation of a platform: the landing
+// page's platform grid and hero carousel, the showcase download cards, and the gallery captions.
+//
+// The vendored files in src/icons/ are kept exactly as fetched, so their provenance and license
+// stay checkable (see src/icons/README.md). This component is what adapts them for inline use:
+// it takes each file's own viewBox (they differ — Simple Icons is 24×24, Font Awesome 448×512,
+// Material Symbols 960×960 with a negative origin), drops the width/height and <title> the
+// sources ship, and re-emits the geometry with `fill: currentColor` so the caller tints it by
+// setting `color` — which is how each surface hands it the platform's --pf accent.
+interface Props {
+  /** A platform-toolkit id, e.g. `linux-gtk`. Unknown ids render nothing. */
+  id: string;
+  class?: string;
+}
+const { id, class: klass } = Astro.props;
+
+const sources = import.meta.glob<string>('../icons/*.svg', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+const raw = sources[`../icons/${id}.svg`];
+
+const viewBox = raw?.match(/viewBox="([^"]+)"/)?.[1];
+// Everything inside the root <svg>, minus the <title> the source ships: the accessible name comes
+// from the platform name already next to the icon, so a second one would just be read twice.
+const inner = raw
+  ?.replace(/^[\s\S]*?<svg[^>]*>/, '')
+  .replace(/<\/svg>\s*$/, '')
+  .replace(/<title>[\s\S]*?<\/title>/g, '')
+  .replace(/<!--[\s\S]*?-->/g, '')
+  .trim();
+---
+
+{
+  viewBox && inner && (
+    <svg
+      class:list={['pf-icon', klass]}
+      viewBox={viewBox}
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+      set:html={inner}
+    />
+  )
+}
+
+<style is:global>
+  /* Sized and tinted by the surface that places it; these are only the invariants. */
+  .pf-icon {
+    display: block;
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    fill: currentColor;
+  }
+</style>

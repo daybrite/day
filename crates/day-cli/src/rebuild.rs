@@ -613,7 +613,8 @@ fn find_project_dir(root: &Path, _artifact: &Path) -> Option<PathBuf> {
 }
 
 // --- Two-tier comparison (§20.3) -----------------------------------------------------------------
-// Ported from scripts/ci/repro-check.sh so `day rebuild` is self-contained: a verification command
+// Ported from the retired scripts/ci/repro-check.sh (last present at 07dc6ac) so `day rebuild` is
+// self-contained: a verification command
 // that needs a checkout of Day's own CI scripts to reach a verdict is not much use to someone
 // holding only an artifact.
 
@@ -900,7 +901,8 @@ mod tests {
         );
     }
 
-    /// The Rust port must agree with scripts/ci/macho-normalize.py, which was validated against
+    /// The Rust port must agree with the retired scripts/ci/macho-normalize.py (last present at
+    /// 07dc6ac), which was validated against
     /// two real showcase binaries that differed only in LC_UUID.
     #[test]
     fn zeroing_the_uuid_matches_the_python_normalizer() {

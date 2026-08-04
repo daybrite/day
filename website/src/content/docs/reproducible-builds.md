@@ -212,10 +212,67 @@ binaries even when everything else matches — Day's CI compares builds on the s
 where that path is constant. `rust-lang/rust#129080` is the [standing list of reproducibility
 hazards](https://github.com/rust-lang/rust/issues/129080) and worth watching.
 
+## What ships alongside the artifact
+
+`day pack` writes two files into `build/day/dist` next to the artifact itself:
+
+| File | What it records |
+| --- | --- |
+| `day-sbom.cdx.json` / `day-sbom.spdx.json` | every dependency that went into the build, plus the repository and commit it came from |
+| `<target>.buildinfo.json` | the target and profile, the host OS and architecture, the exact version of every tool that participated, and the SHA-256 of each artifact produced |
+
+The SBOM answers *what went in*. The `.buildinfo` answers *what built it*:
+
+```json
+{
+  "schema": "1.0",
+  "target": "macos-appkit",
+  "profile": "release",
+  "host": { "os": "macos", "arch": "aarch64" },
+  "tools": [
+    { "key": "rust",  "name": "rustc", "version": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+      "install": "rustup toolchain install <version> && rustup override set <version>" },
+    { "key": "xcode", "name": "Xcode", "version": "Xcode 26.6",
+      "install": "https://developer.apple.com/download/all/?q=Xcode — install, then sudo xcode-select -s ..." }
+  ],
+  "artifacts": [
+    { "name": "Day Showcase.dmg",
+      "sha256": "62e8dd94235e3e36202cd0d4a0be2084f24ba4be037d9ae9c93e7baa5d929e9e" }
+  ]
+}
+```
+
+Each tool carries an `install` hint, so a machine that cannot reproduce the build can be told what
+to change. The `.buildinfo` is always a sidecar and never embedded: tool versions differ per machine,
+so baking them into the artifact would make the artifact itself unreproducible.
+
+On `linux-gtk` and `linux-qt` a second file, `<source>_<version>_<arch>.buildinfo`, is written in
+Debian's [deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles)
+alongside the JSON one, so a Debian maintainer has everything the distribution's own tooling expects.
+
+Keep both files with the artifact when you publish it. Without the SBOM there is no commit to
+rebuild from, and without the `.buildinfo` there is no way to tell whether your machine matches the
+one that built it.
+
+## Checking an artifact you did not build
+
+The recorded SHA-256 makes the cheapest check a hash comparison. If you downloaded a release and its
+`.buildinfo`, you can confirm the file is the one the publisher meant to ship without building
+anything:
+
+```sh
+shasum -a 256 "Day Showcase.dmg"
+python3 -c "import json;print(json.load(open('macos-appkit.buildinfo.json'))['artifacts'][0]['sha256'])"
+```
+
+That establishes the artifact is intact. It does not establish that it was built from the source it
+claims — the publisher computed both the file and the hash. To check *that*, rebuild it and compare
+the result against the artifact you were given, which is what `day rebuild` does.
+
 ## Verifying with `day rebuild`
 
-Every artifact `day pack` produces carries the information needed to rebuild it. `day rebuild` reads
-that information back and does the whole check for you:
+Point `day rebuild` at any artifact that has its SBOM and `.buildinfo` beside it — one you built, or
+one you downloaded from someone else. It reads that information back and does the whole check:
 
 ```sh
 day rebuild "My App.dmg"

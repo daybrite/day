@@ -6,6 +6,7 @@
 // which shows (platforms without a dark set keep their light shot — never a missing file).
 import { url } from '../lib/site';
 import DeviceShell from './DeviceShell.astro';
+import PlatformIcon from './PlatformIcon.astro';
 import shotsData from '../data/hero-shots.json';
 
 const shots: {
@@ -19,6 +20,10 @@ const shots: {
   accent: string;
   alt: string;
 }[] = shotsData.shots ?? [];
+
+// The caption's mark changes with the slide, and the slide order is decided in the browser, so
+// every platform in the pool is rendered once here (hidden) for the controller to copy from.
+const accents = [...new Set(shots.map((s) => s.accent))];
 ---
 {shots.length > 0 && (
   <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
@@ -52,11 +57,21 @@ const shots: {
         ))}
       </div>
     </a>
-    <div class="hc-track" data-hc-track aria-hidden="true">
-      {shots.map(() => <span class="hc-seg"><i></i></span>)}
+    {/* The progress dashes are controls, not decoration: hovering one jumps straight to that
+        slide and holds it, and following one opens the same gallery row the frame links to.
+        Their hrefs and labels are per-position, so the controller fills them in once the
+        shuffled order for this visit is known. */}
+    <div class="hc-track" data-hc-track>
+      {shots.map(() => (
+        <a class="hc-seg" data-hc-seg href={url('gallery')}><span class="hc-bar"><i></i></span></a>
+      ))}
+    </div>
+    <div class="hc-icons" data-hc-icons aria-hidden="true">
+      {accents.map((a) => <span data-icon-for={a}><PlatformIcon id={a} /></span>)}
     </div>
     <figcaption class="hc-caption" data-hc-caption>
       <span class="hc-plat">
+        <span class="hc-icon" data-hc-icon aria-hidden="true"></span>
         <b class="hc-os" data-hc-os></b>
         <span class="hc-toolkit" data-hc-toolkit></span>
       </span>
@@ -114,13 +129,26 @@ const shots: {
       0 26px 60px -24px rgba(0, 0, 0, 0.55);
   }
 
-  /* Story-style segmented progress / index. */
-  .hc-track { display: flex; gap: 4px; padding: 0 2px; }
+  /* Story-style segmented progress / index. Each dash is a link, so it needs a hit area a
+     pointer can actually catch: the anchor is padded to ~21px tall and the track pulls that
+     padding back out with a negative margin, leaving the layout exactly where it was. */
+  .hc-track { display: flex; gap: 4px; padding: 0 2px; margin: -9px 0; }
   .hc-seg {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 9px 0;
+    cursor: pointer;
+  }
+  .hc-seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+  .hc-bar {
     flex: 1; height: 3px; border-radius: 2px;
     background: var(--border);
     overflow: hidden;
+    transition: background 0.15s ease;
   }
+  /* Hovering a dash previews its slide; lift the unfilled track so the target reads as live. */
+  .hc-seg:hover .hc-bar { background: color-mix(in srgb, var(--hc-accent, var(--brand)) 35%, var(--border)); }
   .hc-seg i {
     display: block; height: 100%; width: 100%;
     background: var(--hc-accent, var(--brand));
@@ -132,6 +160,10 @@ const shots: {
 
   .hc-caption { display: flex; flex-direction: column; gap: 3px; min-height: 40px; }
   .hc-plat { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  /* The platform mark, wearing the same accent as the OS name beside it. */
+  .hc-icon { align-self: center; color: var(--hc-accent, var(--text)); display: flex; }
+  .hc-icon :global(.pf-icon) { width: 1.35rem; height: 1.35rem; }
+  .hc-icons { display: none; }
   .hc-os {
     font-size: 1.35rem; font-weight: 800; line-height: 1.1;
     color: var(--hc-accent, var(--text));
@@ -190,6 +222,7 @@ const shots: {
     const glow = root.querySelector<HTMLElement>('[data-hc-glow]');
     const caption = root.querySelector<HTMLElement>('[data-hc-caption]');
     const osEl = root.querySelector<HTMLElement>('[data-hc-os]');
+    const iconEl = root.querySelector<HTMLElement>('[data-hc-icon]');
     const tkEl = root.querySelector<HTMLElement>('[data-hc-toolkit]');
     if (imgs.length === 0) return;
 
@@ -269,6 +302,10 @@ const shots: {
         link.setAttribute('href', shot ? `${base}#${shot}` : base);
       }
 
+      if (iconEl) {
+        const mark = root!.querySelector(`[data-icon-for="${img.dataset.accent}"]`);
+        iconEl.innerHTML = mark ? mark.innerHTML : '';
+      }
       if (osEl) osEl.textContent = img.dataset.os ?? '';
       if (tkEl) tkEl.textContent = img.dataset.toolkit ?? '';
       // Restart the caption entrance animation.
@@ -296,6 +333,38 @@ const shots: {
     root.addEventListener('mouseenter', stop);
     root.addEventListener('mouseleave', start);
     document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+
+    // Wire the progress dashes to the order this visit shuffled into: dash i is the slide at
+    // position i, so hovering it jumps there (the root's hover already halts the timer, so it
+    // simply stays), and following it opens that slide's gallery row rather than the current
+    // one. Advancing later resumes from wherever the pointer left off.
+    const galleryBase = (link?.getAttribute('href') ?? '').split('#')[0];
+    segs.forEach((seg, i) => {
+      const img = imgs[order[i]];
+      const shot = img.dataset.shot;
+      if (seg instanceof HTMLAnchorElement) {
+        seg.href = shot ? `${galleryBase}#${shot}` : galleryBase;
+      }
+      const label = `${img.dataset.os ?? ''} ${img.dataset.toolkit ?? ''}`.trim();
+      seg.setAttribute('aria-label', label ? `Show the ${label} screenshot` : 'Show this screenshot');
+      const jump = () => {
+        if (pos === i) return;
+        pos = i;
+        render(i);
+      };
+      // Hold explicitly rather than leaning on the carousel-wide hover pause: the dash is the
+      // thing being pointed at, so it is the thing that should stop the timer. Cycling resumes
+      // once the pointer is off the carousel entirely, which is what the root's handler decides.
+      seg.addEventListener('mouseenter', () => {
+        stop();
+        jump();
+      });
+      seg.addEventListener('mouseleave', () => {
+        if (!root!.matches(':hover')) start();
+      });
+      // Keyboard parity: tabbing across the dashes previews each one too.
+      seg.addEventListener('focus', jump);
+    });
 
     render(0);
     start();

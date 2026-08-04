@@ -386,13 +386,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -464,6 +468,10 @@ jobs:
       # Distribution packaging (§16.5): appkit → .dmg, always at the dev tier here (ad-hoc), on
       # every ref including tags. The tagged release .dmg is rebuilt from the .app below by the
       # `notarize` job under a real Developer ID identity (§20.2).
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       - name: Pack (${{ matrix.combo }} → dmg)
         if: matrix.toolkit == 'appkit'
         working-directory: apps/showcase
@@ -716,13 +724,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -784,6 +796,10 @@ jobs:
             echo "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
             echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
           fi
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       # Distribution packaging (§16.5): without signing.ios (ASC API key) this is the zipped
       # unsigned device .ipa — a SIGNED .ipa lights up when the ASC secrets are configured (§20).
       - name: Pack (ios-uikit)
@@ -844,13 +860,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -901,6 +921,10 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       - name: Pack (${{ matrix.combo }} → flatpak)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
@@ -983,13 +1007,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -1028,6 +1056,10 @@ jobs:
       # is a CI-generated dev key — installable, marked dev-signed, never distributable (§20).
       # apksigner verify runs inside pack. Runs BEFORE the emulator walkthrough so the dist
       # artifacts survive an emulator flake.
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       - name: Pack (android-mdc → apk + aab)
         working-directory: apps/showcase
         env:
@@ -1180,13 +1212,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -1281,6 +1317,10 @@ jobs:
       # Distribution packaging (§16.5): the .hap, release-signed when signing.ohos material is
       # configured; the public-cert dev signature otherwise (emulator installs only, dev tier).
       # DAY_OHOS_ARCH pins the packaged .so to arm64 (devices); the emulator runs x86_64.
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       - name: Pack (harmony-arkui → hap)
         working-directory: apps/showcase
         env:
@@ -1341,13 +1381,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -1389,6 +1433,10 @@ jobs:
           if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
           "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "makensis: $($exe.FullName)"
+      # The commit in the SBOM only describes the artifact if the tree it was built from
+      # matches that commit exactly — see the script.
+      - name: Assert the checkout is pristine
+        run: bash scripts/ci/assert-pristine.sh
       - name: Pack (windows-xaml → msix + setup.exe)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
@@ -1485,13 +1533,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
-          # step can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
+          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
+          # which cygpath turns into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
@@ -1596,10 +1648,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
@@ -1659,10 +1713,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
@@ -1738,10 +1794,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
@@ -1805,10 +1863,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
@@ -1874,10 +1934,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: day-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       - name: Install NSIS
@@ -1990,10 +2052,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
@@ -2090,13 +2154,15 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: day-cli
+          path: ${{ runner.temp }}/day-cli
       - name: Locate the day CLI (exports DAY_BIN)
         shell: bash
         run: |
           # The artifact holds exactly the one binary (day); take its absolute path so every step
-          # can invoke it as $DAY_BIN regardless of working directory.
-          BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
+          # can invoke it as $DAY_BIN regardless of working directory. On Windows $RUNNER_TEMP is a
+          # DOS path; cygpath turns it into one `find` can walk.
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"

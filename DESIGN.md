@@ -2852,6 +2852,13 @@ the parent job built in, which is the point — `day pack` hardcodes its output 
 genuinely drives every downstream tool from a different prefix, and a source path baked into a
 binary surfaces as a mismatch rather than hiding.
 
+Both stages rest on the packing job having built from a **pristine checkout**: `day rebuild` refuses
+an artifact whose SBOM records a dirty tree, since a commit cannot describe a tree that has extra
+files in it — and on GitHub Actions the workspace IS the checkout, so anything a job downloads into
+it (the `day` CLI artifact, once) counts. Downloads go to `$RUNNER_TEMP`, and
+`scripts/ci/assert-pristine.sh` runs immediately before every `day pack` so a stray path names
+itself there rather than surfacing a job later as an artifact nothing can rebuild.
+
 Stage 2 needs no checkout of its own; only `android-mdc-validate` still checks the repo out, because
 its stage 1 runs `scripts/ci/validate-apk.sh` on the emulator. Each job names the container it
 verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.apk`, `*.msix`, `*.hap`) rather than globbing the dist
@@ -2865,16 +2872,18 @@ directory: `windows-xaml` also ships a self-extracting `-setup.exe` that nothing
 | payload | the compiled code — Mach-O / ELF / PE / `.so` — extracted from whatever container ships it | **fails the job** |
 | container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns |
 
-`--strict` adds a third outcome: a payload that could not be compared at all — a container this host
-has no extractor for — fails rather than reporting "not checked". CI passes it because a green run
+`--strict` adds a third outcome: a payload that could not be compared at all — a container this
+host has no extractor for — fails rather than reporting "not checked". CI passes it because a green
+run
 that never opened the artifact is a false pass, and this check has produced two of those before.
 
 The split reflects what was measured, not a preference. On `macos-appkit` the compiled executable
 is byte-identical across build directories once two things are normalized away: the Mach-O
 `LC_UUID`, which Apple's linker derives from the object-file paths, and the ad-hoc signature that
-covers it (`zero_macho_uuid` in `rebuild.rs`, ported from and validated against the earlier
-`scripts/ci/macho-normalize.py`). The `.dmg` around it differs on *every* build, even
-in the same directory, because `hdiutil` stamps mtimes. That was originally true of every container
+covers it (`zero_macho_uuid` in `rebuild.rs`, ported from and validated against the shell checker
+it replaced, `scripts/ci/macho-normalize.py`, last present at 07dc6ac). The `.dmg` around it
+differs on *every* build, even in the same directory, because `hdiutil` stamps mtimes. That
+was originally true of every container
 — `ditto -c -k`, Gradle's zip writer, `flatpak-builder`'s ostree commit, `makeappx`, `makensis` —
 and failing on it would have made the check permanently red. Those clocks are normalized now (see
 the table below), so a container mismatch today means a linker build-id or a signature, neither of

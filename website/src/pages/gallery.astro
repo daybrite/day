@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import manifest from '../data/gallery-manifest.json';
 import { site, url } from '../lib/site';
 import DeviceShell from '../components/DeviceShell.astro';
+import PlatformIcon from '../components/PlatformIcon.astro';
 
 // The manifest is assembled before every build by the gallery integration: from CI screenshot
 // artifacts on GitHub Actions, or as placeholders locally. See integrations/gallery.mjs.
@@ -133,7 +134,10 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                       </div>
                       <figcaption data-pf={platform.id}>
                         <span class="cap-os">{platform.os}</span>
-                        <span class="cap-tk">{platform.label}</span>
+                        <span class="cap-tk">
+                          <PlatformIcon id={platform.id} class="cap-icon" />
+                          {platform.label}
+                        </span>
                       </figcaption>
                     </figure>
                   );
@@ -484,7 +488,14 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   /* A real (non-placeholder) tile opens the full-size viewer on click. */
   .frame:has(.var-img) { cursor: zoom-in; }
   .frame:has(.var-img):hover { border-color: var(--muted); }
-  .frame img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
+  /* `>`, not a descendant match: a shelled screenshot is a child of .sh-dev / .sh-win, and
+     shells.css already sizes it AND gives it the corner radius that matches its bezel or window
+     (33px inside an iPhone, for one). Astro scopes this rule to `.frame[cid] img[cid]`, which
+     outweighs shells.css's `.sh-dev[data-dev] > *` — so as a descendant match it was overriding
+     the bezel radius with 6px, and every phone screenshot sat with near-square corners poking
+     outside the bezel's curve. Restricting it to a direct child leaves shelled shots to the
+     shell and keeps the 6px radius for bare ones. */
+  .frame > img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
 
   .fb-badge {
     position: absolute; right: 8px; bottom: 8px;
@@ -510,6 +521,9 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   }
   .cap-os { color: var(--muted); font-weight: 650; }
   .cap-tk { color: var(--faint); font-size: 0.76rem; }
+  /* The mark rides with the toolkit label and inherits its accent. */
+  .cap-tk { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+  .cap-tk :global(.cap-icon) { width: 0.95rem; height: 0.95rem; }
   /* The toolkit line wears its platform accent (data-pf on the figcaption → --pf). */
   figcaption[data-pf] .cap-tk { color: color-mix(in srgb, var(--pf) 72%, var(--text)); font-weight: 600; }
 
