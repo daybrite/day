@@ -192,30 +192,27 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
     Ok(tier)
 }
 
-/// A per-project dev keystore under build/day/ (generated once with keytool; PKCS12).
+/// The shared dev keystore, written out under `build/day/` on first use.
+///
+/// FIXED and embedded rather than generated per project, which is what Android's own
+/// `debug.keystore` does and for the same two reasons. A freshly minted key each time meant a dev
+/// `.apk` could never be byte-reproducible — two CI jobs signed the same bytes with different keys,
+/// which is exactly what the container tier kept reporting (§20.3) — and it meant a build from one
+/// machine could not upgrade an install from another, because Android refuses an update whose
+/// signature changed.
+///
+/// This key is deliberately public and carries no secret: `day pack` warns loudly whenever it is
+/// used, the tier is recorded as dev-signed on the artifact, and distribution requires configuring
+/// `signing.android` with a real keystore.
 fn dev_keystore(project: &Project) -> Result<PathBuf, String> {
+    const EMBEDDED: &[u8] = include_bytes!("../../resources/day-dev.keystore");
     let path = project.root.join("build/day/android/day-dev.keystore");
     if path.exists() {
         return Ok(path);
     }
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    status("Signing", "generating dev keystore (keytool)");
-    run_tool(
-        Command::new("keytool")
-            .args(["-genkeypair", "-v", "-storetype", "PKCS12"])
-            .arg("-keystore")
-            .arg(&path)
-            .args(["-keyalg", "RSA", "-keysize", "2048", "-validity", "10000"])
-            .args(["-alias", "day-dev"])
-            .args([
-                "-storepass",
-                DEV_KEYSTORE_PASS,
-                "-keypass",
-                DEV_KEYSTORE_PASS,
-            ])
-            .args(["-dname", "CN=Day Development"]),
-        "keytool",
-    )?;
+    status("Signing", "staging the shared dev keystore (dev tier)");
+    std::fs::write(&path, EMBEDDED).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(path)
 }
 
