@@ -128,6 +128,27 @@ pub fn run(
     let dist = project.root.join("build/day/dist");
     std::fs::create_dir_all(&dist).map_err(|e| PackError::Other(e.to_string()))?;
 
+    // Provenance (§20.4). The SBOM is written BEFORE the build so it can be staged into the
+    // bundle as a resource; it derives only from source, so it is identical on every machine and
+    // does not make the artifact environment-specific.
+    let sbom_cfg = project.manifest.sbom.clone();
+    let sbom = crate::provenance::collect_sbom(project);
+    if !sbom_cfg.is_off() && sbom.dirty {
+        status(
+            "Warning",
+            "the working tree has uncommitted changes — the recorded commit does not describe \
+             this artifact, and `day rebuild` cannot reproduce it",
+        );
+    }
+    // Generated into build/day/ regardless of destination; `embed` copies from here into the
+    // bundle, `sidecar` copies alongside the artifact, `none` skips generation entirely.
+    let sbom_dir = project.root.join("build/day/sbom");
+    let _ = std::fs::remove_dir_all(&sbom_dir);
+    if !sbom_cfg.is_off() {
+        crate::provenance::write_sbom(&sbom_dir, &sbom, &sbom_cfg.formats)
+            .map_err(PackError::Other)?;
+    }
+
     let mut artifacts: Vec<Artifact> = Vec::new();
     match target.name {
         "macos-appkit" => {
@@ -185,6 +206,76 @@ pub fn run(
             );
         }
     }
+
+    // The buildinfo sidecar records the machine, so it is deliberately NOT embedded: doing so
+    // would make the artifact differ whenever a tool version differs (§20.3).
+    let mut info = crate::provenance::collect_buildinfo(target, &opts.profile);
+    info.artifacts = artifacts
+        .iter()
+        .map(|a| {
+            (
+                a.path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                a.sha256.clone(),
+            )
+        })
+        .collect();
+    if sbom_cfg.mode == crate::meta::SbomMode::Sidecar {
+        for f in &sbom_cfg.formats {
+            let from = sbom_dir.join(f.file_name());
+            if from.is_file() {
+                std::fs::copy(&from, dist.join(f.file_name()))
+                    .map_err(|e| PackError::Other(e.to_string()))?;
+            }
+        }
+    }
+    let sidecar = dist.join(format!("{}.buildinfo.json", target.name));
+    crate::provenance::write_buildinfo(&sidecar, &info).map_err(PackError::Other)?;
+
+    // Linux targets additionally get a Debian-format .buildinfo (deb-buildinfo(5)), because that is
+    // what Debian's reproducibility tooling consumes. The JSON above stays: it is cross-platform and
+    // is what `day rebuild` reads.
+    if matches!(target.toolkit, "gtk" | "qt") {
+        let deb = crate::provenance::debian_buildinfo(
+            &sbom,
+            &info,
+            &project.root,
+            Some(flatpak::runtime_for(target)),
+        );
+        let name = crate::provenance::debian_buildinfo_name(&sbom);
+        std::fs::write(dist.join(&name), deb).map_err(|e| PackError::Other(e.to_string()))?;
+        status(
+            "Provenance",
+            &format!("{} (deb822)", dist.join(&name).display()),
+        );
+    }
+    status(
+        "Provenance",
+        &format!(
+            "{} ({} tools) · sbom: {}",
+            sidecar.display(),
+            info.tools.len(),
+            if sbom_cfg.is_off() {
+                "none".to_string()
+            } else {
+                format!(
+                    "{:?} {} component(s), {}",
+                    sbom_cfg.mode,
+                    sbom.components.len(),
+                    sbom_cfg
+                        .formats
+                        .iter()
+                        .map(|f| f.file_name())
+                        .collect::<Vec<_>>()
+                        .join(" + ")
+                )
+                .to_lowercase()
+            }
+        ),
+    );
 
     Ok(PackOutcome {
         target: target.name,

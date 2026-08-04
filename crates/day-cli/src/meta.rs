@@ -34,6 +34,131 @@ pub struct Manifest {
     /// may even ask. `#[serde(default)]`, so every Day.toml written before this existed still parses.
     #[serde(default)]
     pub permissions: Permissions,
+    /// `[sbom]` — whether to produce a software bill of materials, in which formats, and whether it
+    /// ships inside the app or beside it (§20.4). Defaults to two sidecar documents: sidecars cost
+    /// the artifact nothing, whereas embedding both formats adds roughly 400 KB.
+    #[serde(default)]
+    pub sbom: SbomConfig,
+}
+
+/// Where a generated SBOM goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SbomMode {
+    /// Write the documents next to the artifact, like the `.buildinfo` sidecar.
+    #[default]
+    Sidecar,
+    /// Stage the documents inside the app so it can read them at runtime — a license screen, say.
+    Embed,
+    /// Produce nothing.
+    None,
+}
+
+/// One SBOM serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SbomFormat {
+    /// CycloneDX 1.5 JSON.
+    #[serde(alias = "cdx")]
+    Cyclonedx,
+    /// SPDX 2.3 JSON.
+    Spdx,
+}
+
+impl SbomFormat {
+    pub fn file_name(self) -> &'static str {
+        match self {
+            SbomFormat::Cyclonedx => "day-sbom.cdx.json",
+            SbomFormat::Spdx => "day-sbom.spdx.json",
+        }
+    }
+}
+
+/// `[sbom]`, accepted either as a table or as the shorthand string `"<mode> <format>…"`:
+///
+/// ```toml
+/// sbom = "embed spdx"                    # one embedded SPDX document
+/// sbom = "sidecar spdx cyclonedx"        # both, beside the artifact
+/// sbom = "none"                          # generate nothing
+///
+/// [sbom]                                 # the same thing, spelled out
+/// mode = "embed"
+/// formats = ["spdx"]
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SbomConfig {
+    pub mode: SbomMode,
+    pub formats: Vec<SbomFormat>,
+}
+
+impl Default for SbomConfig {
+    fn default() -> Self {
+        Self {
+            mode: SbomMode::Sidecar,
+            formats: vec![SbomFormat::Cyclonedx, SbomFormat::Spdx],
+        }
+    }
+}
+
+impl SbomConfig {
+    /// True when nothing should be produced.
+    pub fn is_off(&self) -> bool {
+        self.mode == SbomMode::None || self.formats.is_empty()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SbomConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Table {
+            #[serde(default)]
+            mode: SbomMode,
+            #[serde(default)]
+            formats: Option<Vec<SbomFormat>>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Either {
+            Shorthand(String),
+            Table(Table),
+        }
+        match Either::deserialize(d)? {
+            Either::Table(t) => Ok(SbomConfig {
+                mode: t.mode,
+                formats: t.formats.unwrap_or_else(|| Self::default().formats),
+            }),
+            Either::Shorthand(text) => {
+                let mut words = text.split_whitespace();
+                let mode = match words.next() {
+                    Some("sidecar") => SbomMode::Sidecar,
+                    Some("embed") => SbomMode::Embed,
+                    Some("none") => SbomMode::None,
+                    other => {
+                        return Err(serde::de::Error::custom(format!(
+                            "sbom: expected `sidecar`, `embed`, or `none`, got {other:?}"
+                        )));
+                    }
+                };
+                let mut formats = Vec::new();
+                for w in words {
+                    match w {
+                        "cyclonedx" | "cdx" => formats.push(SbomFormat::Cyclonedx),
+                        "spdx" => formats.push(SbomFormat::Spdx),
+                        other => {
+                            return Err(serde::de::Error::custom(format!(
+                                "sbom: unknown format {other:?} (expected `spdx` or `cyclonedx`)"
+                            )));
+                        }
+                    }
+                }
+                if formats.is_empty() {
+                    formats = Self::default().formats;
+                }
+                Ok(SbomConfig { mode, formats })
+            }
+        }
+    }
 }
 
 /// `[permissions]`. Every key is a portable permission name from `day_build::permissions` except the

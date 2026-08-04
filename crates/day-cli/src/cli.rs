@@ -92,6 +92,18 @@ enum Cmd {
         #[arg(long = "themes", requires = "scripts")]
         themes: Vec<String>,
     },
+    /// Rebuild a shipped artifact from its own provenance and report whether it matches
+    Rebuild {
+        /// The artifact to verify (.dmg / .ipa / .apk / .flatpak / .msix / .hap)
+        artifact: std::path::PathBuf,
+        /// Ignore a tool-version mismatch for one tool (repeatable). `--force-tool=all` ignores
+        /// every mismatch. A forced rebuild that differs proves nothing, so this is opt-in.
+        #[arg(long = "force-tool")]
+        force_tool: Vec<String>,
+        /// Keep the temporary checkout and rebuild instead of deleting them
+        #[arg(long)]
+        keep: bool,
+    },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
         #[arg(short = 'p', long = "platform", required = true)]
@@ -377,6 +389,23 @@ pub fn run() -> i32 {
                 .and_then(|p| crate::external::resolve(&p).ok())
                 .unwrap_or(&[]);
             crate::doctor::run(&toolkits, external)
+        }
+        Cmd::Rebuild {
+            artifact,
+            force_tool,
+            keep,
+        } => {
+            let opts = crate::rebuild::Options {
+                force_tools: force_tool,
+                keep,
+            };
+            match crate::rebuild::run(&artifact, &opts) {
+                Ok(code) => code,
+                Err(e) => {
+                    crate::ops::status("Error", &e);
+                    1
+                }
+            }
         }
         Cmd::Pack {
             platforms,

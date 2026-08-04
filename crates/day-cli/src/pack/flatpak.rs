@@ -65,6 +65,11 @@ pub fn pack(
     let share_app = stage.join("share").join(&name);
     std::fs::create_dir_all(&bin_dir).map_err(|e| PackError::Other(e.to_string()))?;
     std::fs::create_dir_all(&share_app).map_err(|e| PackError::Other(e.to_string()))?;
+    // SBOM into share/<name>/sbom so the packaged app can read it (§20.4).
+    if project.manifest.sbom.mode == crate::meta::SbomMode::Embed {
+        crate::provenance::embed_into(&project.root.join("build/day/sbom"), &share_app)
+            .map_err(PackError::Other)?;
+    }
     std::fs::copy(&outcome.artifact, bin_dir.join(format!("{name}-bin")))
         .map_err(|e| PackError::Other(e.to_string()))?;
     let assets = project.root.join("resource/assets");
@@ -220,8 +225,13 @@ pub fn pack(
 
 /// The generated flatpak-builder manifest: runtime per toolkit, module = dump the staged tree.
 /// `webengine` adds the Qt WebEngine BaseApp — only for a Qt app that links it (§16.5).
-pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str, webengine: bool) -> String {
-    let (runtime, runtime_version) = match target.toolkit {
+/// The Flathub runtime a target links against, as `(id, version)`.
+///
+/// Recorded in the Debian `.buildinfo` (§20.4): `Installed-Build-Depends` describes the machine that
+/// ran the build, but a flatpak app runs against this runtime, not against the build host's
+/// packages. Without it the buildinfo would describe only half of what a rebuild needs.
+pub(crate) fn runtime_for(target: &Target) -> (&'static str, String) {
+    match target.toolkit {
         "qt" => (
             "org.kde.Platform",
             std::env::var("DAY_KDE_RUNTIME").unwrap_or_else(|_| KDE_RUNTIME_VERSION.into()),
@@ -230,7 +240,11 @@ pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str, webengine: bo
             "org.gnome.Platform",
             std::env::var("DAY_GNOME_RUNTIME").unwrap_or_else(|_| GNOME_RUNTIME_VERSION.into()),
         ),
-    };
+    }
+}
+
+pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str, webengine: bool) -> String {
+    let (runtime, runtime_version) = runtime_for(target);
     let sdk = runtime.replace(".Platform", ".Sdk");
     // Qt apps that link WebEngine need the BaseApp (QtWebEngine is not in org.kde.Platform).
     let base = if webengine {

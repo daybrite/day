@@ -1817,6 +1817,12 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     steps:
+      # One checkout serves both stages: stage 1 runs a script out of it, stage 2 rebuilds from it
+      # (in `repro-src`, a DIFFERENT directory than the job that shipped the artifact used — that
+      # difference is what the reproducibility comparison is testing).
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src
       # --- Stage 1: does the shipped .apk install and start on a device? -------------------------
       # An APK cannot be installed without a device, so this leg boots an emulator. That is the
       # only setup here, and it happens before any Rust toolchain exists on the runner.
@@ -1837,28 +1843,10 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            set -euo pipefail
-            APK="$(find shipped -name '*.apk' | head -1)"
-            [ -n "$APK" ] || { echo "::error::no .apk in the artifact"; exit 1; }
-            adb shell pm list packages | sort > /tmp/pkgs-before
-            adb install -r "$APK"
-            adb shell pm list packages | sort > /tmp/pkgs-after
-            # Whatever appeared is the package we just installed — no aapt needed, and aapt is not
-            # reliably on PATH inside the emulator action.
-            PKG="$(comm -13 /tmp/pkgs-before /tmp/pkgs-after | head -1 | sed 's/^package://' | tr -d '\r')"
-            [ -n "$PKG" ] || { echo "::error::the .apk installed no new package"; exit 1; }
-            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
-            sleep 10
-            # `pidof` returns empty when the process died, which is what a crash on startup looks like.
-            PID="$(adb shell pidof "$PKG" | tr -d '\r')"
-            [ -n "$PID" ] || { echo "::error::$PKG is not running 10s after launch"; adb logcat -d -t 200; exit 1; }
-            echo "installed and running: $PKG (pid $PID)"
-            adb uninstall "$PKG" >/dev/null
+          # The action runs each script LINE as its own `sh -c` (dash: no `pipefail`, no shared
+          # state), so the check is one line invoking one bash script.
+          script: bash repro-src/scripts/ci/validate-apk.sh shipped
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@stable
       - uses: gradle/actions/setup-gradle@v6
         with:

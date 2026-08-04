@@ -21,6 +21,8 @@ mod pack;
 mod permissions;
 mod pieces;
 mod plist;
+mod provenance;
+mod rebuild;
 mod resources;
 mod script;
 mod sessions;

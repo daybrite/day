@@ -46,6 +46,12 @@ pub fn pack(
     if fonts.is_dir() {
         super::copy_tree(&fonts, &res_dir.join("fonts")).map_err(PackError::Other)?;
     }
+    // SBOM into the bundle when [sbom] mode = embed (§20.4), so the app can read its own
+    // license notices at runtime.
+    if project.manifest.sbom.mode == crate::meta::SbomMode::Embed {
+        crate::provenance::embed_into(&project.root.join("build/day/sbom"), &res_dir)
+            .map_err(PackError::Other)?;
+    }
     let icon_entry = build_icns(project, &res_dir)
         .map(|_| "  <key>CFBundleIconFile</key><string>AppIcon</string>\n")
         .unwrap_or_default();

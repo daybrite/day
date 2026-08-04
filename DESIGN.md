@@ -2838,7 +2838,10 @@ the job stops there if the app does not survive ten seconds. An artifact that on
 which already has the toolchain is broken for whoever downloads it. Two targets cannot be installed
 on a runner at all: an `-sdk iphoneos` `.ipa` needs provisioned hardware, and a `.hap` needs the
 Oniro emulator that makes the parent job the flakiest leg in the workflow. Both get structural
-validation instead, and say so rather than implying a launch.
+validation instead, and say so rather than implying a launch. The Android leg's install-and-launch
+check is `scripts/ci/validate-apk.sh`: the emulator action runs each line of its `script` input as
+a separate `sh -c`, so a check that needs shell state has to be a file it invokes rather than a
+block it inlines.
 
 **Stage 2 checks reproducibility**, and only runs once stage 1 passes. It rebuilds
 the same commit from a checkout at a different absolute path (`repro-src/`) and compares the result

@@ -28,6 +28,11 @@ pub fn stage_payload(
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage).map_err(|e| PackError::Other(e.to_string()))?;
     let name = &project.manifest.app.name;
+    // SBOM into the shared payload, which feeds both the .msix and the NSIS installer (§20.4).
+    if project.manifest.sbom.mode == crate::meta::SbomMode::Embed {
+        crate::provenance::embed_into(&project.root.join("build/day/sbom"), &stage)
+            .map_err(PackError::Other)?;
+    }
     std::fs::copy(&outcome.artifact, stage.join(format!("{name}.exe")))
         .map_err(|e| PackError::Other(e.to_string()))?;
     // The xaml runtime resolves assets/images/fonts relative to the exe when DAY_* env is
