@@ -41,6 +41,10 @@ pub fn stage_payload(
     if let Some(ico) = crate::resources::app_icon(project, "xaml") {
         let _ = std::fs::copy(&ico, stage.join(format!("{name}.ico")));
     }
+    // Both containers built from this tree — makeappx's .msix and makensis's -setup.exe — copy
+    // each file's mtime into their archive, so the tree is stamped once here rather than in each
+    // packer (§20.3).
+    super::normalize_mtimes(&stage).map_err(PackError::Other)?;
     Ok(stage)
 }
 

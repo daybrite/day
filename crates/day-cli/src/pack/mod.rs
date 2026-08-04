@@ -265,3 +265,276 @@ pub(crate) fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+// --- Reproducible archives (DESIGN.md §20.3) -----------------------------------------------------
+// Every container Day ships is built by a tool that copies file modification times into the archive
+// and offers no flag to suppress it. Two packs of identical content therefore differ by exactly the
+// wall-clock gap between them. There are two levers, depending on whether Day stages the tree that
+// the archiver reads:
+//
+//   * it does (.ipa, .msix, -setup.exe) → `normalize_mtimes` the staging dir before archiving.
+//   * it does not (.hap: hvigor assembles and emits the zip itself) → `normalize_zip_mtimes` on the
+//     finished archive, rewriting the timestamps in place.
+
+/// The fixed modification time written into packaged artifacts, in seconds since the Unix epoch.
+///
+/// `SOURCE_DATE_EPOCH` is the reproducible-builds convention and wins when set. The fallback is
+/// 2020-01-01T00:00:00Z rather than the Unix epoch because ZIP's DOS timestamp field cannot encode
+/// anything before 1980; an out-of-range value would be clamped by the writer and reintroduce the
+/// very variance this removes, so a `SOURCE_DATE_EPOCH` below that floor is ignored.
+pub(crate) fn reproducible_epoch() -> i64 {
+    const ZIP_FLOOR: i64 = 315_532_800; // 1980-01-01T00:00:00Z
+    const DEFAULT: i64 = 1_577_836_800; // 2020-01-01T00:00:00Z
+    std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|e| *e >= ZIP_FLOOR)
+        .unwrap_or(DEFAULT)
+}
+
+/// Stamp every entry under `root` with [`reproducible_epoch`] so an archive built from it is
+/// byte-identical between runs.
+///
+/// `filetime::set_symlink_file_times` stamps a symlink itself rather than its target: std has no
+/// equivalent (`File::set_times` follows links, and on Windows a directory cannot even be opened
+/// without `FILE_FLAG_BACKUP_SEMANTICS`). The walk is hand-rolled rather than pulling in `walkdir`
+/// — this is a tree Day just created, so a general walker's loop detection would be unused weight.
+pub(crate) fn normalize_mtimes(root: &Path) -> Result<(), String> {
+    let stamp = filetime::FileTime::from_unix_time(reproducible_epoch(), 0);
+    let mut stack = vec![root.to_path_buf()];
+    let mut entries = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let read =
+            std::fs::read_dir(&dir).map_err(|e| format!("reading {}: {e}", dir.display()))?;
+        for entry in read {
+            let path = entry
+                .map_err(|e| format!("reading {}: {e}", dir.display()))?
+                .path();
+            // symlink_metadata, not metadata: a broken or absolute symlink must not be followed.
+            let meta = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("stat {}: {e}", path.display()))?;
+            if meta.is_dir() {
+                stack.push(path.clone());
+            }
+            entries.push(path);
+        }
+    }
+    entries.push(root.to_path_buf());
+    // Deepest first, so a directory is stamped after everything inside it.
+    entries.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    for path in entries {
+        filetime::set_symlink_file_times(&path, stamp, stamp)
+            .map_err(|e| format!("set mtime on {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// [`reproducible_epoch`] as a packed MS-DOS (date, time) pair, the form ZIP stores.
+///
+/// DOS packs a date into 16 bits as `year-1980 << 9 | month << 5 | day`, and a time as
+/// `hour << 11 | minute << 5 | second/2` — hence the two-second resolution.
+fn dos_datetime() -> (u16, u16) {
+    let secs = reproducible_epoch();
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil-from-days (Howard Hinnant's algorithm), shifted to a March-based year so leap days
+    // land at the end of the cycle and no month-length table is needed.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u16;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u16;
+    let year = (yoe + era * 400 + i64::from(month <= 2)) as u16;
+    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let date = (year.saturating_sub(1980) << 9) | (month << 5) | day;
+    let time = ((hour as u16) << 11) | ((minute as u16) << 5) | (second as u16 / 2);
+    (date, time)
+}
+
+/// Rewrite every timestamp in a ZIP archive to [`reproducible_epoch`], in place.
+///
+/// For archives Day does not stage — hvigor emits the `.hap` itself — normalizing the source tree
+/// is not an option, so the finished container is patched instead. Entry offsets and compressed
+/// data are untouched, so this cannot invalidate the archive; only the DOS date/time words in each
+/// local header and central-directory record change. Any run afterwards (hap signing) is unaffected
+/// because it appends its own block rather than rewriting these.
+pub(crate) fn normalize_zip_mtimes(archive: &Path) -> Result<(), String> {
+    const EOCD_SIG: &[u8] = b"PK\x05\x06";
+    const CD_SIG: [u8; 4] = *b"PK\x01\x02";
+    const LFH_SIG: [u8; 4] = *b"PK\x03\x04";
+    let mut buf =
+        std::fs::read(archive).map_err(|e| format!("reading {}: {e}", archive.display()))?;
+    // The end-of-central-directory record is last, but a trailing comment may follow it, so scan
+    // back from the end for its signature.
+    let eocd = (0..buf.len().saturating_sub(21))
+        .rev()
+        .find(|&i| buf[i..i + 4] == *EOCD_SIG)
+        .ok_or_else(|| format!("{}: no ZIP end-of-central-directory", archive.display()))?;
+    let count = u16::from_le_bytes([buf[eocd + 10], buf[eocd + 11]]) as usize;
+    let mut cd = u32::from_le_bytes([
+        buf[eocd + 16],
+        buf[eocd + 17],
+        buf[eocd + 18],
+        buf[eocd + 19],
+    ]) as usize;
+    let (date, time) = dos_datetime();
+    let epoch = reproducible_epoch();
+    for _ in 0..count {
+        if cd + 46 > buf.len() || buf[cd..cd + 4] != CD_SIG {
+            return Err(format!(
+                "{}: malformed central directory",
+                archive.display()
+            ));
+        }
+        buf[cd + 12..cd + 14].copy_from_slice(&time.to_le_bytes());
+        buf[cd + 14..cd + 16].copy_from_slice(&date.to_le_bytes());
+        let name = u16::from_le_bytes([buf[cd + 28], buf[cd + 29]]) as usize;
+        let extra = u16::from_le_bytes([buf[cd + 30], buf[cd + 31]]) as usize;
+        let comment = u16::from_le_bytes([buf[cd + 32], buf[cd + 33]]) as usize;
+        let lfh =
+            u32::from_le_bytes([buf[cd + 42], buf[cd + 43], buf[cd + 44], buf[cd + 45]]) as usize;
+        normalize_extra_timestamps(&mut buf, cd + 46 + name, extra, epoch);
+        if lfh + 30 <= buf.len() && buf[lfh..lfh + 4] == LFH_SIG {
+            buf[lfh + 10..lfh + 12].copy_from_slice(&time.to_le_bytes());
+            buf[lfh + 12..lfh + 14].copy_from_slice(&date.to_le_bytes());
+            let lname = u16::from_le_bytes([buf[lfh + 26], buf[lfh + 27]]) as usize;
+            let lextra = u16::from_le_bytes([buf[lfh + 28], buf[lfh + 29]]) as usize;
+            normalize_extra_timestamps(&mut buf, lfh + 30 + lname, lextra, epoch);
+        } else {
+            return Err(format!(
+                "{}: central directory points at {lfh}, which is not a local file header",
+                archive.display()
+            ));
+        }
+        cd += 46 + name + extra + comment;
+    }
+    std::fs::write(archive, &buf).map_err(|e| format!("writing {}: {e}", archive.display()))
+}
+
+/// Rewrite the Unix timestamps inside a ZIP extra-field block, leaving every field's length alone.
+///
+/// The DOS date/time words are not the only clock in a ZIP: the "extended timestamp" field (`0x5455`)
+/// carries 32-bit Unix times, and it is what `unzip -l` and diffoscope actually report. Normalizing
+/// only the DOS words leaves the archive looking unchanged in every tool that prefers this field.
+/// `0x000a` (NTFS) stores 64-bit FILETIMEs and is normalized the same way.
+fn normalize_extra_timestamps(buf: &mut [u8], mut at: usize, len: usize, epoch: i64) {
+    const EXTENDED: u16 = 0x5455;
+    const NTFS: u16 = 0x000a;
+    // FILETIME counts 100ns ticks from 1601-01-01; 11644473600 s separates that from the Unix epoch.
+    let filetime = ((epoch + 11_644_473_600) as u64).saturating_mul(10_000_000);
+    let end = (at + len).min(buf.len());
+    while at + 4 <= end {
+        let id = u16::from_le_bytes([buf[at], buf[at + 1]]);
+        let size = u16::from_le_bytes([buf[at + 2], buf[at + 3]]) as usize;
+        let body = at + 4;
+        if body + size > end {
+            return; // malformed; leave the rest alone rather than corrupt it
+        }
+        match id {
+            // flags byte, then up to three 4-byte times (mtime, atime, ctime) per the flag bits.
+            EXTENDED if size >= 5 => {
+                let mut p = body + 1;
+                while p + 4 <= body + size {
+                    buf[p..p + 4].copy_from_slice(&(epoch as u32).to_le_bytes());
+                    p += 4;
+                }
+            }
+            // reserved(4) + tag(2) + tagsize(2), then mtime/atime/ctime as 8-byte FILETIMEs.
+            NTFS if size >= 32 => {
+                let mut p = body + 8;
+                while p + 8 <= body + size {
+                    buf[p..p + 8].copy_from_slice(&filetime.to_le_bytes());
+                    p += 8;
+                }
+            }
+            _ => {}
+        }
+        at = body + size;
+    }
+}
+
+#[cfg(test)]
+mod repro_tests {
+    use super::*;
+
+    /// SAFETY-adjacent: these mutate a process-global env var, so they must not run concurrently
+    /// with each other. `cargo test` threads within a module can interleave, so both epoch-sensitive
+    /// assertions live in this single test.
+    #[test]
+    fn epoch_honours_source_date_epoch_above_the_zip_floor() {
+        unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
+        assert_eq!(
+            reproducible_epoch(),
+            1_577_836_800,
+            "default is 2020-01-01Z"
+        );
+        unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "1234567890") };
+        assert_eq!(
+            reproducible_epoch(),
+            1_234_567_890,
+            "an in-range value wins"
+        );
+        // Below 1980 ZIP cannot represent it, so the floor rejects rather than letting the writer
+        // clamp it back into per-run variance.
+        unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "100") };
+        assert_eq!(reproducible_epoch(), 1_577_836_800);
+        unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "not-a-number") };
+        assert_eq!(reproducible_epoch(), 1_577_836_800);
+        unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
+    }
+
+    #[test]
+    fn dos_datetime_packs_the_default_epoch() {
+        unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
+        let (date, time) = dos_datetime();
+        // 2020-01-01T00:00:00Z → year 2020, month 1, day 1, midnight.
+        assert_eq!(date >> 9, 2020 - 1980, "year");
+        assert_eq!((date >> 5) & 0xF, 1, "month");
+        assert_eq!(date & 0x1F, 1, "day");
+        assert_eq!(time, 0, "midnight packs to zero");
+    }
+
+    #[test]
+    fn extended_timestamp_extra_field_is_rewritten() {
+        // 0x5455 "extended timestamp": id, size, flags, then mtime (and here atime).
+        let epoch: i64 = 1_577_836_800;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&0x5455u16.to_le_bytes());
+        buf.extend_from_slice(&9u16.to_le_bytes()); // flags + two 4-byte times
+        buf.push(0x03);
+        buf.extend_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+        buf.extend_from_slice(&0xFEED_FACEu32.to_le_bytes());
+        let len = buf.len();
+        normalize_extra_timestamps(&mut buf, 0, len, epoch);
+        assert_eq!(
+            u32::from_le_bytes(buf[5..9].try_into().unwrap()),
+            epoch as u32
+        );
+        assert_eq!(
+            u32::from_le_bytes(buf[9..13].try_into().unwrap()),
+            epoch as u32
+        );
+        assert_eq!(
+            u16::from_le_bytes(buf[0..2].try_into().unwrap()),
+            0x5455,
+            "id preserved"
+        );
+        assert_eq!(
+            u16::from_le_bytes(buf[2..4].try_into().unwrap()),
+            9,
+            "length preserved"
+        );
+    }
+
+    #[test]
+    fn a_malformed_extra_field_is_left_alone_rather_than_corrupted() {
+        // Declared size runs past the block: the walker must bail, not write out of bounds.
+        let mut buf = vec![0x55, 0x54, 0xFF, 0xFF, 0x03, 1, 2, 3, 4];
+        let before = buf.clone();
+        let len = buf.len();
+        normalize_extra_timestamps(&mut buf, 0, len, 1_577_836_800);
+        assert_eq!(buf, before);
+    }
+}

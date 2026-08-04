@@ -106,6 +106,10 @@ OutFile "{out_s}"
 InstallDir "$LOCALAPPDATA\{title}"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+; Reproducible installer (DESIGN.md §20.3): without this NSIS copies each source file's mtime into
+; the installer and restores it on extract, so two builds of identical input differ. The compressor
+; above is already deterministic, so this is the remaining clock.
+SetDateSave off
 
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{id}"
 

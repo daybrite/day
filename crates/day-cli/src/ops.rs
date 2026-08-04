@@ -51,6 +51,14 @@ pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
 /// neither), and it is inert on non-Apple hosts.
 pub fn apply_determinism(cmd: &mut Command) {
     cmd.env("ZERO_AR_DATE", "1");
+    // Export the resolved epoch so any SOURCE_DATE_EPOCH-aware tool downstream agrees with the
+    // value Day stamps into archives itself — flatpak-builder honours it (1.3.1+), as do many
+    // compilers and archivers. Passing through the caller's value when they set one, and Day's
+    // default otherwise, means one clock governs the whole pack.
+    cmd.env(
+        "SOURCE_DATE_EPOCH",
+        crate::pack::reproducible_epoch().to_string(),
+    );
 }
 
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the

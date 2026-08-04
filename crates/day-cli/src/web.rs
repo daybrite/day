@@ -189,6 +189,16 @@ pub fn launch_web(
     if let Some(script_port) = env_of("DAYSCRIPT_PORT").and_then(|p| p.parse::<u16>().ok()) {
         start_runner_bridge(script_port)?;
     }
+    // Drop the PREVIOUS launch's bridge endpoints before opening this page (capture matrix:
+    // several launches share one process and one bridge). The old page's socket is closed but
+    // still WRITABLE — TCP buffers the first write after a peer close and errors only on the
+    // next — so a stale PAGE_WS swallows the new run's first step whole: forwarded "successfully",
+    // no reply ever, the runner burns its whole window and reports the engine lost. Cleared
+    // slots make forward_to_page genuinely wait for THIS page's registration instead.
+    {
+        *PAGE_WS.lock().expect("page slot") = None;
+        *RUNNER.lock().expect("runner slot") = None;
+    }
     open_page(&url)?;
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -217,6 +227,9 @@ fn open_page(url: &str) -> Result<(), String> {
         .port();
     let mut words = driver.split_whitespace();
     let program = words.next().ok_or("DAY_WEB_DRIVER is empty")?;
+    // A previous variant's browser (capture matrix) shows the OLD page — retire it first, or
+    // its control port would keep answering screenshot requests with stale pixels.
+    stop_driver();
     let child = Command::new(program)
         .args(words)
         .arg(url)
@@ -224,7 +237,7 @@ fn open_page(url: &str) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("DAY_WEB_DRIVER {driver:?}: {e}"))?;
     crate::signals::register_child(child.id());
-    let _ = DRIVER.set((control, std::sync::Mutex::new(Some(child))));
+    *DRIVER.lock().expect("driver slot") = Some((control, child));
     status("Driver", &format!("{driver} (control port {control})"));
     Ok(())
 }
@@ -345,14 +358,33 @@ fn mime_of(p: &Path) -> &'static str {
 static PAGE_WS: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
 /// The runner half: the accepted DAYSCRIPT_PORT connection (write side, for replies).
 static RUNNER: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
-/// The `DAY_WEB_DRIVER` control port + child, once spawned (script.rs asks for screenshots).
-static DRIVER: std::sync::OnceLock<(u16, std::sync::Mutex<Option<std::process::Child>>)> =
-    std::sync::OnceLock::new();
+/// The `DAY_WEB_DRIVER` control port + child of the CURRENT launch. A `Mutex<Option<…>>`, not a
+/// `OnceLock`: a capture-matrix launch (`--themes`/`--locales`) opens the page once per variant
+/// IN ONE PROCESS, and a once-only slot would leave every later screenshot request talking to
+/// the FIRST variant's browser — silently capturing the wrong theme and locale.
+#[allow(clippy::type_complexity)]
+static DRIVER: std::sync::Mutex<Option<(u16, std::process::Child)>> = std::sync::Mutex::new(None);
+
+/// Ports this process already runs a dayscript bridge on. The bridge listener is a forever
+/// thread; a second launch on the same port in the same process (again: the capture matrix)
+/// must REUSE it — rebinding is EADDRINUSE — and the accept loop already hands each new runner
+/// connection and page WebSocket to the current slots.
+static BRIDGED: std::sync::Mutex<Option<std::collections::HashSet<u16>>> =
+    std::sync::Mutex::new(None);
 
 /// Accept runner connections on the dayscript port and forward each request line to the
 /// page's WebSocket (waiting for the page to connect — it is still loading when the runner's
 /// first step arrives).
 fn start_runner_bridge(port: u16) -> Result<(), String> {
+    {
+        let mut bridged = BRIDGED.lock().expect("bridged ports");
+        let set = bridged.get_or_insert_with(std::collections::HashSet::new);
+        if !set.insert(port) {
+            // Already ours: the listener thread below is still accepting, and the next runner
+            // connection and page WebSocket will replace the RUNNER/PAGE_WS slots.
+            return Ok(());
+        }
+    }
     let listener =
         TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("dayscript bridge: {e}"))?;
     std::thread::spawn(move || {
@@ -597,10 +629,13 @@ fn sha1(data: &[u8]) -> [u8; 20] {
 
 /// Fetch a PNG of the page from the driver's control server and write it to `path`.
 pub(crate) fn driver_screenshot(path: &Path) -> Result<(), String> {
-    let Some((port, _)) = DRIVER.get() else {
-        return Err("no web driver (set DAY_WEB_DRIVER to a browser driver command)".into());
+    let port = match DRIVER.lock().expect("driver slot").as_ref() {
+        Some((port, _)) => *port,
+        None => {
+            return Err("no web driver (set DAY_WEB_DRIVER to a browser driver command)".into());
+        }
     };
-    let body = control_get(*port, "/screenshot")?;
+    let body = control_get(port, "/screenshot")?;
     if body.is_empty() {
         return Err("web driver returned an empty screenshot".into());
     }
@@ -609,11 +644,9 @@ pub(crate) fn driver_screenshot(path: &Path) -> Result<(), String> {
 
 /// Stop the driver browser (end of a scripted run): ask it to quit, then reap the child.
 pub(crate) fn stop_driver() {
-    if let Some((port, child)) = DRIVER.get() {
-        let _ = control_get(*port, "/quit");
-        if let Some(mut c) = child.lock().expect("driver child").take() {
-            let _ = c.wait();
-        }
+    if let Some((port, mut child)) = DRIVER.lock().expect("driver slot").take() {
+        let _ = control_get(port, "/quit");
+        let _ = child.wait();
     }
 }
 

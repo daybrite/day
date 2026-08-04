@@ -2963,16 +2963,60 @@ intermediate `.a` archives and any future config that keeps a debug map.
 
 **The container tier is closed for `ios-uikit`.** `ditto -c -k` copies each entry's modification
 time into the ZIP — both the DOS field and the `UX` extra field — and has no flag to suppress it, so
-two packs differed by exactly the wall-clock gap between them. `pack/ios.rs` now stamps the whole
-staging tree with `touch -h -t` before archiving (`-depth`, so a directory is stamped after its
-contents). The timestamp is `SOURCE_DATE_EPOCH` when set, else 2020-01-01T00:00:00Z — not the Unix
-epoch, because ZIP's DOS field cannot encode anything before 1980 and an out-of-range value would be
-clamped back into variance. Measured: two clean packs now produce a byte-identical `.ipa`.
+two packs differed by exactly the wall-clock gap between them. `pack/ios.rs::normalize_mtimes` walks
+the staging tree and stamps every entry before archiving, deepest first so a directory is stamped
+after its contents. The timestamp is `SOURCE_DATE_EPOCH` when set, else 2020-01-01T00:00:00Z — not
+the Unix epoch, because ZIP's DOS field cannot encode anything before 1980 and an out-of-range value
+would be clamped back into variance. Measured: two clean packs now produce a byte-identical `.ipa`.
 
-The same trick would close `.dmg` and the other containers, but each needs its own handling —
-hdiutil embeds a volume UUID and creation date beyond the file mtimes, and Gradle, flatpak-builder,
-makeappx and makensis each stamp differently. Until then those stay advisory. On Windows diffoscope
-also installs via pip without most of its comparators and degrades to a binary diff.
+The walk is plain `read_dir` rather than `walkdir` — this is a tree Day just created, so a general
+walker's loop detection and ordering guarantees would be unused weight. The stamping is `filetime`,
+because std genuinely cannot do it: `File::set_times` follows symlinks, and on Windows a directory
+cannot be opened at all without `FILE_FLAG_BACKUP_SEMANTICS`. `filetime` was already in the tree via
+`tar`, so naming it added one dependency edge and zero compiled crates. Keeping this in Rust rather
+than shelling out to `find`/`touch` also means it ports to the Windows and Android containers when
+their turn comes.
+
+The same normalization is applied wherever a container tool reads the clock, via two shared helpers
+in `pack/mod.rs`. Which one applies depends on whether Day stages the tree the archiver reads:
+
+| Container | Lever |
+| --- | --- |
+| `.ipa`, `.msix`, `-setup.exe` | `normalize_mtimes` on the staging tree before archiving. The Windows two share one payload dir, so it is stamped once in `msix::stage_payload`. |
+| `.hap` | `normalize_zip_mtimes` — hvigor emits the zip itself, so the finished archive is patched instead. |
+| `.apk` / `.aab` | Gradle's own `isPreserveFileTimestamps = false` + `isReproducibleFileOrder = true`, in the app template and the showcase project. |
+| `-setup.exe` | `SetDateSave off` in the generated `.nsi`; the `/SOLID lzma` compressor was already deterministic. |
+| `.flatpak` | `SOURCE_DATE_EPOCH`, honoured by flatpak-builder 1.3.1+. `ops::apply_determinism` now EXPORTS the resolved epoch to every child, so one clock governs the whole pack rather than each tool inventing its own. |
+
+`normalize_zip_mtimes` rewrites the DOS date/time words in both the local headers and the central
+directory, and the Unix times inside the `0x5455` extended-timestamp and `0x000a` NTFS extra fields
+— the DOS words alone are not enough, because `unzip` and diffoscope both prefer the extra field and
+will keep reporting the old date. Entry offsets and compressed data are untouched, so the rewrite
+cannot invalidate an archive.
+
+**Ordering matters: normalize before signing, never after.** A `.hap` signature covers the local
+headers, so patching timestamps afterwards would invalidate it — the release path normalizes the
+unsigned hap and then signs, and the dev path (already hvigor-signed) is deliberately left alone.
+
+**What signing costs.** Two containers cannot be byte-reproducible however much is normalized, and
+it is worth being explicit about why rather than chasing them. A signed `.hap` carries an
+`SHA256withECDSA` signature, and ECDSA picks a random `k` per signature — measured, the residual
+13405-byte difference between two haps of byte-identical content is entirely the signing block. The
+released `.dmg` is stapled, and `xcrun stapler staple` writes an Apple-issued notarization ticket
+into it. For both, the payload tier is the real guarantee.
+
+`.dmg` is left advisory by choice. Measured: two DMGs from identical, mtime-normalized input differ
+by 628 bytes uncompressed under APFS — UUIDs plus a Fletcher-64 checksum on every block — or 151
+bytes under `-fs HFS+`, split across GPT GUIDs and their CRC32s, the volume header's dates and
+`finderInfo` UUID, and per-file creation dates in the catalog B-tree (`hdiutil` stamps copy time as
+birthtime, so normalizing the source does not reach them). UDZO then amplifies any of that to the
+whole file, because a ten-byte shift in compressed length moves every subsequent chunk. Closing it
+means forcing HFS+ and rewriting three classes of field in the uncompressed image before
+`hdiutil convert` — a few hundred lines of undocumented-format surgery, for an artifact that gets a
+notarization ticket stapled into it anyway.
+
+On Windows diffoscope also installs via pip without most of its comparators and degrades to a
+binary diff.
 
 ### §20.5 Toolchain and dependency governance
 

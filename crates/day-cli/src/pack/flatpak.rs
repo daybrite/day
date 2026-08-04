@@ -175,6 +175,7 @@ pub fn pack(
     status("Packing", "flatpak-builder");
     run_tool(
         Command::new("flatpak-builder")
+            .env("SOURCE_DATE_EPOCH", super::reproducible_epoch().to_string())
             .current_dir(&work)
             .args(["--force-clean", "--user", "--install-deps-from=flathub"])
             .arg("--repo=repo")
@@ -196,6 +197,7 @@ pub fn pack(
     status("Packing", "flatpak build-bundle");
     run_tool(
         Command::new("flatpak")
+            .env("SOURCE_DATE_EPOCH", super::reproducible_epoch().to_string())
             .current_dir(&work)
             .arg("build-bundle")
             .arg("repo")

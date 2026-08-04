@@ -143,3 +143,13 @@ if (dayPieces["dayJavaSrcDir"] == null) {
         }
     }
 }
+
+// Reproducible archives (DESIGN.md §20.3). Gradle stamps each ZIP entry with the file's mtime and
+// walks the tree in filesystem order, so two builds of identical sources differ by the wall-clock
+// gap between them and by whatever order the directory happened to yield. These two flags are the
+// documented fix; AGP zeroes APK timestamps on its own, but the AAB and every intermediate jar
+// still need them. Applies to every archive task the build declares.
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
