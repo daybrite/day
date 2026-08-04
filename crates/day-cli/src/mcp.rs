@@ -258,7 +258,8 @@ fn call_tool(
             let rows: Vec<serde_json::Value> = sessions
                 .iter()
                 .map(|s| {
-                    let kind_direct = crate::targets::find(&s.target)
+                    let kind_direct = crate::external::find_target(project, &s.target)
+                        .ok()
                         .map(|t| {
                             matches!(
                                 t.kind,

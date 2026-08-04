@@ -31,6 +31,12 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   RUST_BACKTRACE: full
+  # The macOS runner images ship with third-party taps (aws/tap) that Homebrew's tap-trust
+  # check warns about on every `brew install`. Runners are ephemeral, so trust checks buy
+  # nothing here; this silences the warning in every job. NOTE the flag is deprecated
+  # upstream ("will be removed in a later release") — when it stops working, replace it
+  # with a `brew untap aws/tap` step next to the brew installs.
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
   # The walkthrough capture matrix — themes × locales, space-separated (the shell word-splits
   # them). ONE place to grow: every screenshot leg (macOS, iOS, Linux, Android, HarmonyOS,
   # Windows, web-dom) loops over these; the gallery variant ids in website/gallery.config.mjs

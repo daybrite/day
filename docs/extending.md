@@ -332,6 +332,65 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
   through `with_tree(|t| t.patch(node, …))` — identical to leaf pieces.
 
+## External toolkits — registering a platform-toolkit pair (experimental)
+
+> **The toolkit SPI is unstable.** Everything a backend implements — day-spec's `Toolkit` and
+> `Platform` traits, `Event`, `Cap`, the per-kind props structs — evolves with this repository and
+> is not published to crates.io. An external toolkit pins the day crates to a **git revision** and
+> expects breakage between revisions. This section describes the registration seam, which is the
+> part that will stay; the contract behind it firms up at SPI stabilization.
+
+A toolkit implemented in its own repository registers its platform-toolkit pair by declaring it in
+the toolkit crate's `Cargo.toml`:
+
+```toml
+[package.metadata.day.toolkit]
+target = "netbsd-wxwidgets"    # <os>-<toolkit>; the toolkit half names the app's cargo feature
+host = "any"                   # optional: restrict to "macos" | "linux" | "windows"
+label = "wxWidgets"            # optional: pickers and error listings
+doctor = "wx-config --version" # optional: `day doctor` probe (command + space-separated args)
+```
+
+The CLI resolves `-p <name>` against the builtin catalog first, then against declarations found in
+the app's dependency graph (via `cargo metadata --all-features`, since the toolkit crate sits
+behind the very feature its declaration names). A declared target inherits the **desktop**
+pipeline — that is the only `kind` accepted today, deliberately: a new pipeline kind (another
+mobile OS) means new build/launch/pack code in the CLI, which cannot come from a crate.
+
+The app wires the toolkit the same way it would a builtin, plus one entry call:
+
+```toml
+# the app's Cargo.toml
+[features]
+wxwidgets = ["dep:day-toolkit-wx"]          # feature = the toolkit half of the target name
+
+[dependencies]
+day-toolkit-wx = { git = "…", optional = true }
+```
+
+```rust
+// the app's main.rs — the toolkit's entry wraps `day::launch_external`, the cfg-free
+// launcher that starts the dayscript engine exactly as the builtin launchers do.
+#[cfg(feature = "wxwidgets")]
+day_toolkit_wx::launch(options, root);
+```
+
+With `targets = ["netbsd-wxwidgets"]` in Day.toml, the target behaves like a builtin desktop
+target: `day launch` (build + run + log streaming), `--script` walkthroughs, `day drive`,
+`day stop`/`relaunch`, the session registry, `day doctor` (running the declared probe), `day
+metadata` (the catalog entry carries `external: true` and the declaring `crate`), and `day lint`.
+
+What a declared target does **not** get:
+
+- **`day pack`** — packaging formats are per-OS CLI code; the guard says so explicitly.
+- **`day new` / `day app add`** — scaffolding stays builtin; the toolkit crate documents its own
+  project shape.
+- **The in-repo pieces' native renderers.** `day-piece-webview` has no `wxwidgets` feature arm, so
+  extension-piece kinds render Day's visible `⟨kind⟩` placeholders unless the external ecosystem
+  ships renderer crates for its backend (the `Registry`/`renderer!` seam is the same one in-repo
+  pieces use). The BUILT-IN vocabulary is the backend's own `realize` — cover what you support and
+  placeholder the rest; `assert_no_placeholders` allow-lists keep the gap ledger honest.
+
 ## Reference
 
 `pieces/day-piece-searchfield` implements all of the above: a native search input on six backends,

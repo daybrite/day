@@ -233,7 +233,9 @@ pub fn run(project: &Project, strict: bool) -> i32 {
     // semantic checks: every [app] target is a known combo, and every [app.<key>] override
     // table names a known platform, toolkit, or target.
     for t in &project.manifest.app.targets {
-        if crate::targets::find(t).is_none() {
+        // Combined catalog: a target declared by a dependency crate's
+        // [package.metadata.day.toolkit] is as known as a builtin (docs/extending.md).
+        if !crate::external::known(project, t) {
             findings.push(Finding {
                 code: "day::lint::unknown-target",
                 message: format!("Day.toml: targets entry {t:?} is not a known target"),

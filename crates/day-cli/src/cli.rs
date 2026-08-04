@@ -7,7 +7,6 @@ use clap::{Parser, Subcommand};
 
 use crate::meta;
 use crate::ops;
-use crate::targets;
 
 #[derive(Parser)]
 #[command(
@@ -359,7 +358,16 @@ pub fn run() -> i32 {
             println!("day {}", env!("DAY_VERSION_LONG"));
             0
         }
-        Cmd::Doctor { toolkits } => crate::doctor::run(&toolkits),
+        Cmd::Doctor { toolkits } => {
+            // Doctor works outside a project too, so external discovery is best-effort: inside a
+            // project, declared toolkits join the report; elsewhere (or on a discovery failure)
+            // the builtin groups stand alone.
+            let external = crate::meta::find_project(cli.project.as_deref())
+                .ok()
+                .and_then(|p| crate::external::resolve(&p).ok())
+                .unwrap_or(&[]);
+            crate::doctor::run(&toolkits, external)
+        }
         Cmd::Pack {
             platforms,
             profile,
@@ -381,10 +389,23 @@ pub fn run() -> i32 {
             };
             let mut outcomes = Vec::new();
             for p in &platforms {
-                let Some(target) = targets::find(p) else {
-                    eprintln!("error: unknown target {p:?}");
-                    return 2;
+                let target = match crate::external::find_target(project, p) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 2;
+                    }
                 };
+                if crate::external::is_external(target) {
+                    // Packaging is per-OS CLI code (dmg/msix/flatpak/…) that a declared desktop
+                    // target has none of. Say so plainly rather than fall into some builtin arm.
+                    eprintln!(
+                        "error: day pack does not support externally declared targets yet — \
+                         {} builds and launches, but packaging is Stage 1 (docs/extending.md)",
+                        target.name
+                    );
+                    return 2;
+                }
                 match crate::pack::run(project, target, &opts) {
                     Ok(o) => outcomes.push(o),
                     Err(e) => {
@@ -443,9 +464,12 @@ pub fn run() -> i32 {
                 return 2;
             }
             for name in &names {
-                let Some(target) = targets::find(name) else {
-                    eprintln!("error: unknown target {name:?}");
-                    return 2;
+                let target = match crate::external::find_target(project, name) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 2;
+                    }
                 };
                 crate::script::terminate(project, target);
                 crate::sessions::remove(&project.root, name);
@@ -485,9 +509,12 @@ pub fn run() -> i32 {
                 device: None,
             };
             for (ti, name) in names.iter().enumerate() {
-                let Some(target) = targets::find(name) else {
-                    eprintln!("error: unknown target {name:?}");
-                    return 2;
+                let target = match crate::external::find_target(project, name) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return 2;
+                    }
                 };
                 crate::script::terminate(project, target);
                 let outcome = match ops::build(project, target, &profile) {
@@ -529,9 +556,12 @@ pub fn run() -> i32 {
             platform,
             steps_json,
         } => with_project(cli.project.as_deref(), |project| {
-            let Some(target) = targets::find(&platform) else {
-                eprintln!("error: unknown target {platform:?}");
-                return 2;
+            let target = match crate::external::find_target(project, &platform) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return 2;
+                }
             };
             crate::drive::run(project, target, &steps_json)
         }),
@@ -619,10 +649,10 @@ pub fn run() -> i32 {
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
             for p in &platforms {
-                let target = match targets::find(p) {
-                    Some(t) => t,
-                    None => {
-                        eprintln!("error: unknown target {p:?}");
+                let target = match crate::external::find_target(project, p) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("error: {e}");
                         return 2;
                     }
                 };
@@ -724,10 +754,10 @@ pub fn run() -> i32 {
                     .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
                 spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
                 spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
-                let target = match targets::find(p) {
-                    Some(t) => t,
-                    None => {
-                        eprintln!("error: unknown target {p:?}");
+                let target = match crate::external::find_target(project, p) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("error: {e}");
                         return 2;
                     }
                 };

@@ -578,12 +578,16 @@ fn eprint_setup(g: &Group) {
 }
 
 /// `day doctor [--toolkit <id>]…`. `focus` holds the requested toolkit ids (empty = default scan).
-pub fn run(focus: &[String]) -> i32 {
+pub fn run(focus: &[String], external: &[crate::external::ExternalToolkit]) -> i32 {
     let host = host_os();
     let groups = all_groups();
 
     // Validate any requested ids up front so a typo is a clear error, not a silent no-op.
-    let known: Vec<&str> = groups.iter().map(|g| g.id).collect();
+    let mut known: Vec<&str> = groups.iter().map(|g| g.id).collect();
+    for e in external {
+        known.push(e.target.name);
+        known.push(e.target.toolkit);
+    }
     for f in focus {
         if !known.contains(&f.as_str()) {
             eprintln!(
@@ -635,6 +639,44 @@ pub fn run(focus: &[String]) -> i32 {
         let t = report_group(g, host, hard, focused);
         total.errors += t.errors;
         total.warnings += t.warnings;
+    }
+
+    // Externally declared toolkits (docs/extending.md): one line per declaration, running the
+    // crate's own probe where it gave one. The probe is the crate author's claim about what the
+    // toolkit needs; day has no house knowledge of it, which is the point of the seam.
+    for e in external {
+        let focused = focus
+            .iter()
+            .any(|f| f == e.target.name || f == e.target.toolkit);
+        if !focus.is_empty() && !focused {
+            continue;
+        }
+        eprintln!(
+            "{BOLD}{}{BOLD:#}  {DIM}external — declared by {}{DIM:#}",
+            e.target.label, e.crate_name
+        );
+        match &e.doctor {
+            None => eprintln!("  {DIM}– no doctor probe declared{DIM:#}"),
+            Some(cmd) => {
+                let mut parts = cmd.split_whitespace();
+                let bin = parts.next().unwrap_or_default();
+                let args: Vec<&str> = parts.collect();
+                match run_line(bin, &args) {
+                    Some(d) => eprintln!("  {SUCCESS}✓{SUCCESS:#} {:<14} {d}", e.target.toolkit),
+                    None => {
+                        eprintln!(
+                            "  {ERROR}✗{ERROR:#} {:<14} `{cmd}` failed — see {}'s setup docs",
+                            e.target.toolkit, e.crate_name
+                        );
+                        if focused {
+                            total.errors += 1;
+                        } else {
+                            total.warnings += 1;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     eprintln!();

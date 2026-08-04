@@ -221,6 +221,22 @@ macro_rules! require_lifecycle {
     };
 }
 
+/// Launch through an EXTERNAL toolkit's backend (docs/extending.md "External toolkits") — the
+/// cfg-free counterpart of the feature-gated `launch` entries below, for platform-toolkit pairs
+/// registered via `[package.metadata.day.toolkit]`. Feature-independent on purpose: `day build
+/// -p <external>` compiles the app with only the external toolkit's own feature, so none of the
+/// launchers below exist in that build. Starts the dayscript engine exactly as they do — which
+/// is what keeps `day launch --script`, `day drive`, and the session registry working on a
+/// backend this repository has never heard of.
+pub fn launch_external<P: day_spec::Platform>(
+    backend: P,
+    options: WindowOptions,
+    root: impl FnOnce() -> AnyPiece + 'static,
+) {
+    day_script::init();
+    day_core::launch_with(backend, options, root);
+}
+
 /// Launch the app on the selected backend (blocks; owns the native main loop).
 #[cfg(feature = "appkit")]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {

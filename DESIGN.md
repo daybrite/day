@@ -2124,6 +2124,22 @@ permission-gated bridge modules, and sqlite + a sandboxed filesystem are built i
 `apps/daylite` superapp (catalog, install/update, permission disclosure) is the reference
 embedding; day-lite's runner runs a miniapp's own headless tests against day-mock.
 
+### §15.5 External toolkits (Stage 0 — experimental)
+
+> [!NOTE]
+> **Status: Stage 0 shipped (2026-08).** The registration seam only: a crate OUTSIDE this
+> repository declares a platform-toolkit pair in `[package.metadata.day.toolkit]`, and the CLI
+> resolves `-p <name>` against builtin ∪ declared (docs/extending.md "External toolkits"). A
+> declared target inherits the desktop pipeline — build, launch, log streaming, dayscript,
+> sessions, a `day doctor` probe, the `day metadata` catalog entry (`external: true`) — and is
+> refused by `day pack` and `day new` with explicit errors. The app-side entry is
+> `day::launch_external`, the cfg-free launcher that starts the dayscript engine exactly as the
+> feature-gated launchers do. The toolkit SPI itself (day-spec's `Toolkit`/`Platform`, `Event`,
+> `Cap`, the props structs) stays UNSTABLE and unpublished: an external toolkit pins the day
+> crates to a git revision. Publishing the SPI crates, a conformance kit, and pack hooks are
+> Stage 1, deferred to SPI stabilization — the dayffi record (§15.3) is the cautionary precedent
+> for freezing an extension boundary early.
+
 ### §16.1 Design goals
 
 For humans: colorful, animated, cancellable, self-explanatory. For machines (CI, IDEs, AI agents):
@@ -2225,7 +2241,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day version` | version, build profile, git ref |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI) |
 | `day build -p <target>…` | build for one or more targets, in parallel |
-| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--keep-alive] [--detach] [--skip-build] [--device <udid\|name>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; `--device` narrows an iOS launch to ONE booted simulator (UDID or name) instead of every booted one, for side-by-side runs and hosts that keep several sims up |
+| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--keep-alive] [--detach] [--skip-build] [--device <udid\|name>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; `--device` narrows an iOS launch to ONE booted simulator (UDID or name) instead of every booted one, for side-by-side runs and hosts that keep several sims up; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)) |
 | `day pack -p <target> [--profile release]` | build → sign → installable artifact (formats below) |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |

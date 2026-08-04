@@ -97,17 +97,17 @@ pub struct AndroidPieces {
 // --- `cargo metadata` JSON (only the fields we need) ---
 
 #[derive(Deserialize)]
-struct Metadata {
-    packages: Vec<Package>,
+pub(crate) struct Metadata {
+    pub(crate) packages: Vec<Package>,
     resolve: Option<Resolve>,
 }
 #[derive(Deserialize)]
-struct Package {
+pub(crate) struct Package {
     id: String,
-    name: String,
+    pub(crate) name: String,
     manifest_path: String,
     #[serde(default)]
-    metadata: Option<serde_json::Value>,
+    pub(crate) metadata: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct Resolve {
@@ -216,12 +216,33 @@ pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
 
 /// Run `cargo metadata` for the app with a specific feature selection (no default features), so only
 /// pieces actually pulled in by that backend's features are considered.
-fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, String> {
+pub(crate) fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, String> {
+    cargo_metadata_inner(project, features, false)
+}
+
+/// `cargo metadata --all-features` — the form external-toolkit discovery needs: a toolkit crate
+/// is an OPTIONAL dependency (behind the very feature its declaration names), and cargo omits
+/// unactivated optional deps from `packages` under any narrower flag set (verified empirically:
+/// only `--all-features` lists them). Feature-closure consumers keep the precise form above.
+pub(crate) fn cargo_metadata_all_features(project: &Project) -> Result<Metadata, String> {
+    cargo_metadata_inner(project, &[], true)
+}
+
+fn cargo_metadata_inner(
+    project: &Project,
+    features: &[&str],
+    all_features: bool,
+) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
     let mut cmd = Command::new("cargo");
-    cmd.args(["metadata", "--format-version", "1", "--no-default-features"])
+    cmd.args(["metadata", "--format-version", "1"])
         .arg("--manifest-path")
         .arg(&manifest);
+    if all_features {
+        cmd.arg("--all-features");
+    } else {
+        cmd.arg("--no-default-features");
+    }
     if !features.is_empty() {
         cmd.arg("--features").arg(features.join(","));
     }
@@ -240,7 +261,10 @@ fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, Stri
 
 /// Deserialize a piece's `[package.metadata.day.<toolkit>]` table, warning (not failing) on a
 /// malformed one. Returns `None` when the piece declares no such table.
-fn piece_meta<T: serde::de::DeserializeOwned>(pkg: &Package, toolkit: &str) -> Option<T> {
+pub(crate) fn piece_meta<T: serde::de::DeserializeOwned>(
+    pkg: &Package,
+    toolkit: &str,
+) -> Option<T> {
     let table = pkg
         .metadata
         .as_ref()

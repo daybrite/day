@@ -28,6 +28,9 @@ permissions:
 
 env:
   APP: smoke-app
+  # See ci.yml: the runner images' aws/tap trips Homebrew's tap-trust warning on every
+  # brew install; the flag (deprecated upstream) silences it on these ephemeral runners.
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
 
 jobs:
   install:

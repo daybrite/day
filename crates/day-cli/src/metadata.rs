@@ -33,7 +33,7 @@ fn host_os() -> &'static str {
 
 pub fn run(project: &Project, json: bool) -> i32 {
     let m = &project.manifest;
-    let catalog: Vec<serde_json::Value> = targets::TARGETS
+    let mut catalog: Vec<serde_json::Value> = targets::TARGETS
         .iter()
         .map(|t| {
             serde_json::json!({
@@ -46,6 +46,28 @@ pub fn run(project: &Project, json: bool) -> i32 {
             })
         })
         .collect();
+    // Externally declared targets (docs/extending.md) ride the same catalog with two extra
+    // fields — `external` and the declaring `crate` — so tooling that groups or filters can
+    // tell them apart. Grow-only, per the envelope's contract. A discovery failure degrades to
+    // the builtin catalog with a warning: metadata is read by editors, which must keep working
+    // while a Cargo.toml is mid-edit.
+    match crate::external::resolve(project) {
+        Ok(ext) => {
+            for t in ext {
+                catalog.push(serde_json::json!({
+                    "name": t.target.name,
+                    "toolkit": t.target.toolkit,
+                    "kind": kind_str(t.target.kind),
+                    "host": t.target.host,
+                    "label": t.target.label,
+                    "experimental": true,
+                    "external": true,
+                    "crate": t.crate_name,
+                }));
+            }
+        }
+        Err(e) => eprintln!("warning: external toolkit discovery failed: {e}"),
+    }
     // Per-target identity AFTER [app.<key>] overrides — what each target actually builds with.
     let resolved: serde_json::Map<String, serde_json::Value> = m
         .app
