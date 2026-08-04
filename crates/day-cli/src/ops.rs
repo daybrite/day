@@ -258,7 +258,49 @@ pub fn launch(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     match target.kind {
         TargetKind::Desktop => {
-            let mut cmd = Command::new(&outcome.artifact);
+            // Headless CI (a linux host with no display server): give the toolkit what the CI
+            // shims used to wrap around the CLI — linux-gtk under xvfb sized to `[window]` (the
+            // root-capture screenshot fallback then frames exactly the app) plus the WebKit
+            // flags, linux-qt on the offscreen platform. This knowledge lived in TWO workflow
+            // files (day's ci.yml and build-day-app.yml) and drifted between them; the CLI
+            // knows the target and the window, so it decides.
+            let wrap = headless_wrap(
+                target.toolkit,
+                crate::targets::host_os(),
+                std::env::var_os("DISPLAY").is_some()
+                    || std::env::var_os("WAYLAND_DISPLAY").is_some(),
+                project.manifest.window.width,
+                project.manifest.window.height,
+            );
+            let mut cmd = match &wrap {
+                HeadlessWrap::Xvfb { width, height } => {
+                    // Probe rather than assume: without xvfb-run the bare run at least fails
+                    // with the toolkit's own display error, which is more actionable than
+                    // "No such file or directory" from the wrapper.
+                    if Command::new("xvfb-run").arg("--help").output().is_ok() {
+                        status("Headless", "wrapping in xvfb-run (no DISPLAY on this host)");
+                        let mut c = Command::new("xvfb-run");
+                        c.args(["-a", "-s", &format!("-screen 0 {width}x{height}x24")])
+                            .arg(&outcome.artifact)
+                            .env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
+                            .env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+                        c
+                    } else {
+                        status("Warning", "no DISPLAY and no xvfb-run — launching bare");
+                        Command::new(&outcome.artifact)
+                    }
+                }
+                HeadlessWrap::QtOffscreen => {
+                    status(
+                        "Headless",
+                        "QT_QPA_PLATFORM=offscreen (no DISPLAY on this host)",
+                    );
+                    let mut c = Command::new(&outcome.artifact);
+                    c.env("QT_QPA_PLATFORM", "offscreen");
+                    c
+                }
+                HeadlessWrap::None => Command::new(&outcome.artifact),
+            };
             cmd.current_dir(&project.root)
                 .env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
                 .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
@@ -381,4 +423,72 @@ pub fn stream_logs(
             emit_log(name, stream, &line);
         }
     })
+}
+
+/// How to run a desktop target on a host with no display server.
+#[derive(Debug, PartialEq)]
+pub(crate) enum HeadlessWrap {
+    None,
+    Xvfb { width: u32, height: u32 },
+    QtOffscreen,
+}
+
+/// The decision alone, display-state and host passed in — testable on any machine. Only the
+/// in-repo linux toolkits get house treatment; an external toolkit (docs/extending.md) manages
+/// its own headless story.
+pub(crate) fn headless_wrap(
+    toolkit: &str,
+    host: &str,
+    display_present: bool,
+    width: f64,
+    height: f64,
+) -> HeadlessWrap {
+    if host != "linux" || display_present {
+        return HeadlessWrap::None;
+    }
+    match toolkit {
+        "gtk" => HeadlessWrap::Xvfb {
+            width: width.max(1.0) as u32,
+            height: height.max(1.0) as u32,
+        },
+        "qt" => HeadlessWrap::QtOffscreen,
+        _ => HeadlessWrap::None,
+    }
+}
+
+#[cfg(test)]
+mod headless_tests {
+    use super::*;
+
+    #[test]
+    fn linux_without_a_display_wraps_gtk_and_offscreens_qt() {
+        assert_eq!(
+            headless_wrap("gtk", "linux", false, 960.0, 640.0),
+            HeadlessWrap::Xvfb {
+                width: 960,
+                height: 640
+            }
+        );
+        assert_eq!(
+            headless_wrap("qt", "linux", false, 960.0, 640.0),
+            HeadlessWrap::QtOffscreen
+        );
+    }
+
+    #[test]
+    fn a_display_or_a_nonlinux_host_or_a_foreign_toolkit_runs_bare() {
+        assert_eq!(
+            headless_wrap("gtk", "linux", true, 1.0, 1.0),
+            HeadlessWrap::None
+        );
+        assert_eq!(
+            headless_wrap("gtk", "macos", false, 1.0, 1.0),
+            HeadlessWrap::None
+        );
+        // External toolkits (Stage 0) own their headless behaviour.
+        assert_eq!(
+            headless_wrap("wxwidgets", "linux", false, 1.0, 1.0),
+            HeadlessWrap::None
+        );
+    }
 }

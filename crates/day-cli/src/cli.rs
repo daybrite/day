@@ -81,6 +81,16 @@ enum Cmd {
         /// e.g. CI capture loops that pay xcodebuild/hvigor once, then launch per variant.
         #[arg(long)]
         skip_build: bool,
+        /// Run the script(s) once per locale (comma- or space-separated; repeatable). Each run
+        /// passes `--locale <l>` and saves screenshots under variant `<l>` — the capture
+        /// convention app CIs use. Builds once; later runs reuse the artifact.
+        #[arg(long = "locales", requires = "scripts")]
+        locales: Vec<String>,
+        /// Cross the scripted runs with forced themes (sets DAY_THEME per run). Variants become
+        /// `<theme>` for `en` and `<theme>-<locale>` otherwise — the day-CI / gallery
+        /// convention (website/gallery.config.mjs variant ids).
+        #[arg(long = "themes", requires = "scripts")]
+        themes: Vec<String>,
     },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
@@ -690,6 +700,8 @@ pub fn run() -> i32 {
             scripts,
             variant,
             skip_build,
+            locales,
+            themes,
             device,
         } => with_project(cli.project.as_deref(), |project| {
             // No `-p`: run what this machine natively is. Announced rather than assumed — the
@@ -743,6 +755,18 @@ pub fn run() -> i32 {
                 spec.envs.push(("DAY_SCRIPT".into(), names.join(",")));
             }
             let token = crate::script::make_token();
+            // The capture matrix (--themes × --locales): the scripted runs each target performs,
+            // with the variant names both CI shapes already produce — the day-CI/gallery
+            // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
+            // preserved byte-for-byte so existing artifact layouts survive the move from YAML
+            // loops into the CLI. No flags = one run with the plain --locale/--variant.
+            let matrix = match capture_matrix(&themes, &locales, &locale, &variant, &envs) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return 2;
+                }
+            };
             let mut handles = Vec::new();
             let mut script_failures = 0usize;
             for (ti, p) in platforms.iter().enumerate() {
@@ -773,55 +797,123 @@ pub fn run() -> i32 {
                         return 4;
                     }
                 };
-                match ops::launch(project, target, &outcome, &spec) {
-                    Ok(h) => {
-                        crate::sessions::record(
-                            &project.root,
-                            crate::sessions::Session {
-                                target: p.clone(),
-                                app_id: project.manifest.resolve(p).id,
-                                profile: profile.clone(),
-                                engine_port: port,
-                                engine_token: token.clone(),
-                                started_at: crate::sessions::now_millis(),
-                            },
-                        );
-                        handles.push(h);
+                for (ri, capture) in matrix.iter().enumerate() {
+                    // Per-run spec: the matrix's locale and theme ride the SAME channels the
+                    // old YAML loops used (the --locale plumbing and the DAY_THEME env).
+                    let mut run_spec = spec.clone();
+                    if let Some(l) = &capture.locale {
+                        run_spec.locale = Some(l.clone());
                     }
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 1;
+                    if let Some(t) = &capture.theme {
+                        run_spec.envs.push(("DAY_THEME".into(), t.clone()));
                     }
-                }
-                if script_mode {
-                    match crate::script::run_scripts(
-                        project,
-                        target,
-                        port,
-                        &token,
-                        &scripts,
-                        locale.as_deref(),
-                        variant.as_deref(),
-                        keep_alive,
-                        spec.attached,
-                    ) {
-                        Ok(run) => {
-                            script_failures += run.steps_failed;
-                            ops::status(
-                                "Script",
-                                &format!(
-                                    "{}: {}/{} steps passed · {} screenshot(s)",
-                                    target.name,
-                                    run.steps_total - run.steps_failed,
-                                    run.steps_total,
-                                    run.screenshots.len()
-                                ),
-                            );
+                    let mut attempt = 0u32;
+                    loop {
+                        if ri > 0 || attempt > 0 {
+                            // The previous run's app still holds the engine port — stop it the
+                            // way `day stop` does before the next instance binds.
+                            crate::script::terminate(project, target);
                         }
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            return 5;
+                        match ops::launch(project, target, &outcome, &run_spec) {
+                            Ok(h) => {
+                                crate::sessions::record(
+                                    &project.root,
+                                    crate::sessions::Session {
+                                        target: p.clone(),
+                                        app_id: project.manifest.resolve(p).id,
+                                        profile: profile.clone(),
+                                        engine_port: port,
+                                        engine_token: token.clone(),
+                                        started_at: crate::sessions::now_millis(),
+                                    },
+                                );
+                                handles.push(h);
+                            }
+                            Err(e) => {
+                                eprintln!("error: {e}");
+                                return 1;
+                            }
                         }
+                        if !script_mode {
+                            break;
+                        }
+                        match crate::script::run_scripts(
+                            project,
+                            target,
+                            port,
+                            &token,
+                            &scripts,
+                            run_spec.locale.as_deref(),
+                            capture.variant.as_deref(),
+                            keep_alive,
+                            spec.attached,
+                        ) {
+                            Ok(run) => {
+                                script_failures += run.steps_failed;
+                                let tag = capture
+                                    .variant
+                                    .as_deref()
+                                    .map(|v| format!(" [{v}]"))
+                                    .unwrap_or_default();
+                                ops::status(
+                                    "Script",
+                                    &format!(
+                                        "{}{tag}: {}/{} steps passed · {} screenshot(s)",
+                                        target.name,
+                                        run.steps_total - run.steps_failed,
+                                        run.steps_total,
+                                        run.screenshots.len()
+                                    ),
+                                );
+                                break;
+                            }
+                            // The iOS simulator's known app-death flake: the engine died with
+                            // ZERO failed steps. Retry the (idempotent) run once — the logic
+                            // both CI workflows used to grep logs for, now typed. A loss AFTER
+                            // a failed step is a failing run that then died: report it.
+                            Err(crate::script::ScriptError::EngineLost {
+                                steps_failed: 0, ..
+                            }) if target.kind == crate::targets::TargetKind::IosSim
+                                && attempt == 0 =>
+                            {
+                                eprintln!(
+                                    "warning: engine connection lost (flaky simulator \
+                                     app-death) — retrying the script once"
+                                );
+                                // Keep the annotation CI used to emit from its own retry wrapper.
+                                if std::env::var_os("GITHUB_ACTIONS").is_some() {
+                                    println!(
+                                        "::warning::engine connection lost (flaky simulator \
+                                         app-death) — retrying the script once"
+                                    );
+                                }
+                                attempt += 1;
+                            }
+                            // An engine loss that survived the retry policy: count it and
+                            // move to the NEXT matrix run instead of abandoning the rest —
+                            // the CI loops this replaced continued per variant (OHOS relies
+                            // on it under TCG), and the final exit code still reports failure.
+                            Err(crate::script::ScriptError::EngineLost {
+                                steps_failed, ..
+                            }) => {
+                                eprintln!(
+                                    "error: engine connection lost — abandoning this variant"
+                                );
+                                script_failures += steps_failed.max(1);
+                                break;
+                            }
+                            // Anything else is a runner/config error (bad script, bad flags):
+                            // abort outright, as before.
+                            Err(e) => {
+                                eprintln!("error: {e}");
+                                return 5;
+                            }
+                        }
+                    }
+                    // Between matrix runs the app must exit so the next launch re-binds the
+                    // engine port (each variant is a fresh process, as the CI loops had it).
+                    if script_mode && ri + 1 < matrix.len() {
+                        crate::script::terminate(project, target);
                     }
                 }
             }
@@ -914,4 +1006,179 @@ fn print_result_json(command: &str, results: &[ops::BuildOutcome]) {
         "{}",
         serde_json::json!({"event": "result", "command": command, "ok": true, "targets": targets})
     );
+}
+
+/// One scripted run of the capture matrix: which theme to force, which locale to pass, and the
+/// variant directory the screenshots land in.
+#[derive(Debug)]
+struct CaptureRun {
+    theme: Option<String>,
+    locale: Option<String>,
+    variant: Option<String>,
+}
+
+/// Accept both `--themes light,dark` and `--themes "light dark"` — the CI matrix variables are
+/// space-separated and pass through as one argument.
+fn split_list(raw: &[String]) -> Vec<String> {
+    raw.iter()
+        .flat_map(|s| s.split([',', ' ']))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// Expand `--themes` × `--locales` into runs, preserving BOTH existing artifact conventions
+/// byte-for-byte (they predate this flag and live on in the gallery config and the app CIs):
+///
+/// - locales alone → one run per locale, `--locale <l>` passed for every locale INCLUDING the
+///   default, variant `<l>` — what the app CIs' shell loops produced.
+/// - themes × locales → variant `<theme>` when the locale is `en` (run in the default locale,
+///   no `--locale` flag), `<theme>-<locale>` otherwise — the day-CI / gallery convention
+///   (website/gallery.config.mjs lists exactly these ids).
+///
+/// The `en` asymmetry between the modes is deliberate compatibility, not design: renaming
+/// artifact directories would break every consumer that globs them.
+fn capture_matrix(
+    themes_raw: &[String],
+    locales_raw: &[String],
+    locale: &Option<String>,
+    variant: &Option<String>,
+    envs: &[String],
+) -> Result<Vec<CaptureRun>, String> {
+    let themes = split_list(themes_raw);
+    let locales = split_list(locales_raw);
+    if themes.is_empty() && locales.is_empty() {
+        return Ok(vec![CaptureRun {
+            theme: None,
+            locale: locale.clone(),
+            variant: variant.clone(),
+        }]);
+    }
+    if variant.is_some() {
+        return Err(
+            "--variant names ONE run; --themes/--locales name each run themselves — drop \
+             --variant"
+                .into(),
+        );
+    }
+    if locale.is_some() && !locales.is_empty() {
+        return Err("--locale conflicts with --locales (which passes a locale per run)".into());
+    }
+    if !themes.is_empty() && envs.iter().any(|kv| kv.starts_with("DAY_THEME=")) {
+        return Err("--themes sets DAY_THEME per run — drop the --env DAY_THEME override".into());
+    }
+    let mut out = Vec::new();
+    if themes.is_empty() {
+        for l in &locales {
+            out.push(CaptureRun {
+                theme: None,
+                locale: Some(l.clone()),
+                variant: Some(l.clone()),
+            });
+        }
+    } else if locales.is_empty() {
+        for t in &themes {
+            out.push(CaptureRun {
+                theme: Some(t.clone()),
+                locale: locale.clone(),
+                variant: Some(t.clone()),
+            });
+        }
+    } else {
+        for t in &themes {
+            for l in &locales {
+                let (run_locale, run_variant) = if l == "en" {
+                    (None, t.clone())
+                } else {
+                    (Some(l.clone()), format!("{t}-{l}"))
+                };
+                out.push(CaptureRun {
+                    theme: Some(t.clone()),
+                    locale: run_locale,
+                    variant: Some(run_variant),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod capture_matrix_tests {
+    use super::*;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The day-CI shape: themes × locales, with `en` implicit — the exact variant ids the
+    /// gallery config lists.
+    #[test]
+    fn themes_cross_locales_the_gallery_way() {
+        let m = capture_matrix(&v(&["light dark"]), &v(&["en,fr"]), &None, &None, &[]).unwrap();
+        let got: Vec<(Option<&str>, Option<&str>, Option<&str>)> = m
+            .iter()
+            .map(|r| {
+                (
+                    r.theme.as_deref(),
+                    r.locale.as_deref(),
+                    r.variant.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (Some("light"), None, Some("light")),
+                (Some("light"), Some("fr"), Some("light-fr")),
+                (Some("dark"), None, Some("dark")),
+                (Some("dark"), Some("fr"), Some("dark-fr")),
+            ]
+        );
+    }
+
+    /// The app-CI shape: locales alone, every locale passed explicitly, variant = locale.
+    #[test]
+    fn locales_alone_the_app_ci_way() {
+        let m = capture_matrix(&[], &v(&["en", "fr"]), &None, &None, &[]).unwrap();
+        let got: Vec<(Option<&str>, Option<&str>)> = m
+            .iter()
+            .map(|r| (r.locale.as_deref(), r.variant.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![(Some("en"), Some("en")), (Some("fr"), Some("fr"))]
+        );
+    }
+
+    /// No matrix flags: one run carrying the plain --locale/--variant through unchanged.
+    #[test]
+    fn no_flags_is_one_plain_run() {
+        let m = capture_matrix(&[], &[], &Some("ar".into()), &Some("rtl".into()), &[]).unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].locale.as_deref(), Some("ar"));
+        assert_eq!(m[0].variant.as_deref(), Some("rtl"));
+        assert!(m[0].theme.is_none());
+    }
+
+    /// The conflicts each produce an instruction, not a mystery.
+    #[test]
+    fn conflicts_are_rejected_with_instructions() {
+        assert!(
+            capture_matrix(&v(&["light"]), &[], &None, &Some("x".into()), &[])
+                .unwrap_err()
+                .contains("--variant")
+        );
+        assert!(
+            capture_matrix(&[], &v(&["fr"]), &Some("ar".into()), &None, &[])
+                .unwrap_err()
+                .contains("--locales")
+        );
+        assert!(
+            capture_matrix(&v(&["dark"]), &[], &None, &None, &v(&["DAY_THEME=light"]))
+                .unwrap_err()
+                .contains("DAY_THEME")
+        );
+    }
 }

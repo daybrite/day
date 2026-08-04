@@ -2241,7 +2241,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day version` | version, build profile, git ref |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI) |
 | `day build -p <target>…` | build for one or more targets, in parallel |
-| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--keep-alive] [--detach] [--skip-build] [--device <udid\|name>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; `--device` narrows an iOS launch to ONE booted simulator (UDID or name) instead of every booted one, for side-by-side runs and hosts that keep several sims up; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)) |
+| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--device <udid\|name>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; `--device` narrows an iOS launch to ONE booted simulator (UDID or name) instead of every booted one, for side-by-side runs and hosts that keep several sims up; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release]` | build → sign → installable artifact (formats below) |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
@@ -2943,8 +2943,16 @@ app, 53 occurrences down to zero, and `linux-gtk`/`linux-qt` went green on the n
 stable toolchain. `codegen-units = 1`, already set, is the documented half of this. Fat LTO costs
 roughly 40% more link time and produced a binary ~9% smaller.
 
-The `linux-repro` and `ios-uikit-repro` jobs carry a temporary second build at a third path on the
-same runner. It earned its keep once; keep it until iOS is also green, then remove it.
+A temporary second build at a third path on the same runner carried `linux-repro` and
+`ios-uikit-repro` through this. It paid for itself twice — proving Linux really was path-dependent
+when a first round of reasoning said otherwise, and then showing iOS was not — and has been removed
+now that every combo is green. Worth rebuilding if a platform ever regresses: varying the directory
+alone is what separates "depends on its path" from "the two runners disagreed".
+
+`notarize` and `macos-appkit-repro` both `needs: [macos]`, which waits on the WHOLE matrix — so an
+unrelated leg failing (macos-gtk's walkthrough, in the run that surfaced this) silently SKIPPED
+them. Both now carry `!cancelled()`, so a sibling's failure cannot quietly cancel a release
+signing; if the appkit leg itself fails they fail at download-artifact instead, which is honest.
 
 `ZERO_AR_DATE=1` rides on every cargo and xcodebuild invocation (`ops::apply_determinism`).
 `libtool` and `ld64` otherwise write file modification times into static archives and into the debug
@@ -2953,10 +2961,18 @@ reproducibility that only holds on the build farm is not worth much. It is preve
 `OSO` entries are already gone via `STRIP_STYLE=debugging`, so what it still protects is the
 intermediate `.a` archives and any future config that keeps a debug map.
 
-Remaining gaps: on Windows diffoscope installs via pip without most of its comparators and degrades
-to a binary diff. Closing the container tier everywhere means wiring `SOURCE_DATE_EPOCH` through the
-packaging tools — none of hdiutil, `ditto -c -k`, Gradle, flatpak-builder, makeappx or makensis
-honours it today, which is why the container tier stays advisory.
+**The container tier is closed for `ios-uikit`.** `ditto -c -k` copies each entry's modification
+time into the ZIP — both the DOS field and the `UX` extra field — and has no flag to suppress it, so
+two packs differed by exactly the wall-clock gap between them. `pack/ios.rs` now stamps the whole
+staging tree with `touch -h -t` before archiving (`-depth`, so a directory is stamped after its
+contents). The timestamp is `SOURCE_DATE_EPOCH` when set, else 2020-01-01T00:00:00Z — not the Unix
+epoch, because ZIP's DOS field cannot encode anything before 1980 and an out-of-range value would be
+clamped back into variance. Measured: two clean packs now produce a byte-identical `.ipa`.
+
+The same trick would close `.dmg` and the other containers, but each needs its own handling —
+hdiutil embeds a volume UUID and creation date beyond the file mtimes, and Gradle, flatpak-builder,
+makeappx and makensis each stamp differently. Until then those stay advisory. On Windows diffoscope
+also installs via pip without most of its comparators and degrades to a binary diff.
 
 ### §20.5 Toolchain and dependency governance
 

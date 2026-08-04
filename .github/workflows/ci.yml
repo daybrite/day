@@ -426,14 +426,11 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
+        # The theme × locale expansion, variant naming, and build-once-reuse live in the CLI now
+        # (`day launch --themes/--locales`) — one copy instead of a loop per job per workflow.
         run: |
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
-            done
-          done
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Secondary windows (docs/windows.md): New Window + the preferences singleton on
       # every native-tier desktop combo; the theme-flip leg additionally needs
       # Cap::Appearance (qt has none). The walkthrough's preferences leg covers the
@@ -543,7 +540,11 @@ jobs:
   notarize:
     name: notarize (macos-appkit)
     needs: [macos]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    # `!cancelled()` rather than a bare condition: `needs` waits on the WHOLE `macos` matrix, so
+    # without it an unrelated leg (macos-gtk's walkthrough, say) failing would silently SKIP the
+    # release signing. Skipping is the one outcome a release must never take quietly — if the
+    # appkit leg itself failed, this job fails at download-artifact instead, which is honest.
+    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: macos-26
     environment: release-signing
     permissions:
@@ -741,40 +742,19 @@ jobs:
       - name: Walkthrough (ios-uikit)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
-        # The iOS Simulator can intermittently jettison the app mid-run; the dayscript engine then
-        # reports "engine connection lost" — the app PROCESS died (a dead socket the runner cannot
-        # reconnect to), NOT an assertion failure. Retry the full, idempotent walkthrough ONCE on that
-        # specific flaky signal. A real assertion failure (a ✗ step, with no connection-lost) fails
-        # fast so regressions are never masked; a run that logged a ✗ is never retried.
+        # The simulator's app-death flake ("engine connection lost" with zero failed steps) is
+        # retried ONCE inside the CLI now — the same signal this step used to grep logs for. One
+        # xcodebuild for all eight variants: theme/locale are runtime inputs, so `--skip-build`
+        # reuses the .app (xcodebuild's fixed overhead used to be paid per variant).
         run: |
-          LOG="$RUNNER_TEMP/ios-walk.log"
-          # ONE xcodebuild for all eight variants: theme and locale are runtime inputs, so the
-          # .app is variant-independent and each launch reuses it (--skip-build). xcodebuild's
-          # fixed per-invocation overhead on these runners (~2-4 min even warm — no daemon)
-          # used to be paid per variant and dominated this step.
           "$DAY_BIN" build -p ios-uikit
-          walk() { "$DAY_BIN" launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml "$@" 2>&1 | tee "$LOG"; }
-          # Eight screenshot variants (light/dark × en/fr/ar/zh-CN), each with the flaky-retry dance.
-          run_variant() {
-            if ! walk "$@"; then
-              if grep -q "engine connection lost" "$LOG" && ! grep -q "✗" "$LOG"; then
-                echo "::warning::iOS engine connection lost (flaky simulator app-death) — retrying the walkthrough once"
-                # Best-effort: surface the most recent crash report for post-mortem if the retry also fails.
-                ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
-                  | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
-                walk "$@"
-              else
-                exit 1
-              fi
-            fi
-          }
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              run_variant --variant $VAR --env DAY_THEME=$TH $EXTRA
-            done
-          done
+          "$DAY_BIN" launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
+      - name: Dump the most recent crash report (walkthrough failed)
+        if: ${{ failure() }}
+        run: |
+          ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
+            | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
       # the secrets these no-op and pack produces the unsigned device .ipa (dev tier, §20).
       - name: Import the distribution certificate
@@ -895,26 +875,12 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
+        # Headless plumbing is the CLI's now: no DISPLAY on this runner, so linux-gtk runs under
+        # an xvfb sized from Day.toml [window] (the root-capture fallback frames exactly the app)
+        # with the WebKit flags, and linux-qt runs on the offscreen platform.
         run: |
-          for TH in $WALKTHROUGH_THEMES; do
-          for LOC in $WALKTHROUGH_LOCALES; do
-            VAR=$TH
-            EXTRA="--variant $TH --env DAY_THEME=$TH"
-            if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--variant $VAR --env DAY_THEME=$TH --locale $LOC"; fi
-            if [ "${{ matrix.toolkit }}" = gtk ]; then
-              # The xvfb screen matches the showcase window (1000×720) so the `import -window
-              # root` fallback capture (day-cli script.rs) is exactly the app, edge to edge.
-              xvfb-run -a -s "-screen 0 1000x720x24" "$DAY_BIN" launch -p linux-gtk \
-                --script dayscript/walkthrough.yaml $EXTRA \
-                --env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
-                --env WEBKIT_DISABLE_COMPOSITING_MODE=1
-            else
-              "$DAY_BIN" launch -p linux-qt \
-                --script dayscript/walkthrough.yaml $EXTRA \
-                --env QT_QPA_PLATFORM=offscreen
-            fi
-          done
-          done
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
       # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
       # install time (--runtime-repo), so the bundle stays app-only. ubuntu-24.04 runners don't
@@ -1077,7 +1043,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd apps/showcase && for TH in $WALKTHROUGH_THEMES; do for LOC in $WALKTHROUGH_LOCALES; do VAR=$TH; EXTRA=""; if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi; $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA || exit 1; done; done && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
+          script: cd apps/showcase && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1272,16 +1238,13 @@ jobs:
           DAY_OHOS_SHOT_SETTLE_MS: 2500
         run: |
           # One hvigor+sign build for all eight variants (theme/locale are runtime inputs).
+          # The CLI's matrix continues past a variant whose engine dies (the TCG emulator's
+          # specialty) and reports the failure count at the end; the `||` keeps this leg
+          # advisory exactly as the old per-variant `|| warning` did.
           $DAY_BIN build -p harmony-arkui
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p harmony-arkui --skip-build --script dayscript/walkthrough.yaml \
-                --variant $VAR --env DAY_THEME=$TH $EXTRA \
-                || echo "::warning::ohos walkthrough variant $VAR failed"
-            done
-          done
+          $DAY_BIN launch -p harmony-arkui --skip-build --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" \
+            || echo "::warning::ohos walkthrough reported failures (see the log per variant)"
       # Release-signing material, tag pushes only: OHOS keystore + cert + provision profile on
       # disk. Without the secrets these no-op and pack signs with the public dev cert (§20).
       - name: Materialize OHOS signing material
@@ -1397,13 +1360,8 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
         run: |
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p windows-xaml --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
-            done
-          done
+          $DAY_BIN launch -p windows-xaml --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
       # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
       - name: Install NSIS
@@ -1534,13 +1492,9 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         working-directory: apps/showcase
         run: |
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA --env WEBKIT_DISABLE_COMPOSITING_MODE=1
-            done
-          done
+          $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" \
+            --env WEBKIT_DISABLE_COMPOSITING_MODE=1
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1580,7 +1534,8 @@ jobs:
   macos-appkit-repro:
     name: repro (macos-appkit)
     needs: [macos]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # See the note on `notarize`: a sibling matrix leg's failure must not skip this job.
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: macos-26
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -1663,19 +1618,6 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
-      # DIAGNOSTIC (§20.3): a second build, at a THIRD path, on THIS runner. The cross-job
-      # comparison below cannot tell "the build depends on its directory" apart from "the two
-      # runners disagreed", because it varies both at once. This pair varies only the directory.
-      # Measured locally, the build is path- and parallelism-independent (identical sha256 across
-      # two paths and across -j1/-j8), so a same-machine mismatch here would be new information —
-      # and a same-machine MATCH alongside a cross-job mismatch points at the runner, not the path.
-      # Remove once the ios/linux cause is known.
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src2
-      - name: Pack again on this runner, at a third path
-        working-directory: repro-src2/apps/showcase
-        run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
       - uses: actions/download-artifact@v8
         with:
           name: showcase-dist-ios-uikit
@@ -1684,19 +1626,6 @@ jobs:
         run: |
           set -euo pipefail
           brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
-          # Same runner, two directories — reported, never the verdict.
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh ios-uikit-samehost \
-            repro-src/apps/showcase/build/day/dist \
-            repro-src2/apps/showcase/build/day/dist repro-report-samehost
-          same=$?
-          set -e
-          echo "### same-runner, two directories: exit $same" >> "$GITHUB_STEP_SUMMARY"
-          cat repro-report-samehost/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          case $same in
-            0|10) echo "::notice::ios-uikit is reproducible on a single runner — a cross-job mismatch is runner variance, not path dependence" ;;
-            *)    echo "::warning::ios-uikit differs across two directories on the SAME runner — genuine path dependence" ;;
-          esac
           set +e
           bash repro-src/scripts/ci/repro-check.sh ios-uikit \
             original repro-src/apps/showcase/build/day/dist repro-report
@@ -1713,9 +1642,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: repro-report-ios-uikit
-          path: |
-            repro-report
-            repro-report-samehost
+          path: repro-report
           if-no-files-found: warn
 
   linux-repro:
@@ -1759,15 +1686,6 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
-      # DIAGNOSTIC (§20.3): see the note in ios-uikit-repro. Varies the directory alone, so a
-      # cross-job mismatch can be attributed to the runner or to the path, not both at once.
-      # Remove once the ios/linux cause is known.
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src2
-      - name: Pack again on this runner, at a third path
-        working-directory: repro-src2/apps/showcase
-        run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       # The staged ELF, not the .flatpak: the bundle is OSTree and nothing here can open it, so
       # comparing it could only ever produce an unverifiable verdict (§20.3).
       - uses: actions/download-artifact@v8
@@ -1780,19 +1698,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends diffoscope \
             || echo "::warning::diffoscope unavailable; comparison continues without it"
           echo "::notice::comparing the staged ELF payload; the .flatpak bundle itself is not byte-compared"
-          # Same runner, two directories — reported, never the verdict.
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }}-samehost \
-            "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" \
-            "repro-src2/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report-samehost
-          same=$?
-          set -e
-          echo "### same-runner, two directories: exit $same" >> "$GITHUB_STEP_SUMMARY"
-          cat repro-report-samehost/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
-          case $same in
-            0|10) echo "::notice::${{ matrix.combo }} is reproducible on a single runner — a cross-job mismatch is runner variance, not path dependence" ;;
-            *)    echo "::warning::${{ matrix.combo }} differs across two directories on the SAME runner — genuine path dependence" ;;
-          esac
           set +e
           bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }} \
             original "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report
@@ -1809,9 +1714,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: repro-report-${{ matrix.combo }}
-          path: |
-            repro-report
-            repro-report-samehost
+          path: repro-report
           if-no-files-found: warn
 
   android-mdc-repro:
@@ -2168,13 +2071,8 @@ jobs:
           # Linux WebKit has no OPFS — the fs steps need Chromium (see the job comment).
           DAY_WEB_DRIVER_BROWSER: chromium
         run: |
-          for TH in $WALKTHROUGH_THEMES; do
-            for LOC in $WALKTHROUGH_LOCALES; do
-              VAR=$TH; EXTRA=""
-              if [ "$LOC" != en ]; then VAR="$TH-$LOC"; EXTRA="--locale $LOC"; fi
-              $DAY_BIN launch -p web-dom --script dayscript/walkthrough.yaml --variant $VAR --env DAY_THEME=$TH $EXTRA
-            done
-          done
+          $DAY_BIN launch -p web-dom --script dayscript/walkthrough.yaml \
+            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Headless WebKit has no motion hardware, so the walkthrough above can only prove the
       # "unavailable" path. Serve the built page, dispatch a synthetic `devicemotion` with known
       # values, and assert the CONVERTED numbers — the deg/s → rad/s conversion and the

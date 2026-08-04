@@ -37,6 +37,11 @@ serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
 sha2 = "0.11"
+# Normalizing artifact timestamps before archiving (pack/ios.rs, §20.3). std cannot do this: its
+# `File::set_times` follows symlinks, and on Windows a directory cannot be opened at all without
+# `FILE_FLAG_BACKUP_SEMANTICS`. filetime handles both and is already in the tree via `tar`
+# (icu_provider_source), so naming it adds no new compiled crates.
+filetime = "0.2"
 # Background "is a newer day-cli on crates.io?" check (update.rs). ureq is a small synchronous HTTP
 # client with bundled roots — no OS cert-store dependency, works on a fresh machine.
 ureq = "3"

@@ -20,6 +20,32 @@ pub struct ScriptRun {
     pub screenshots: Vec<PathBuf>,
 }
 
+/// Why a scripted run could not run to completion.
+#[derive(Debug)]
+pub enum ScriptError {
+    /// The engine socket could not be reached, or died mid-run: the app process is gone (or
+    /// never came up). `steps_failed` counts failures seen BEFORE the loss — a loss with ZERO
+    /// failures on the iOS simulator is the known app-death flake, which the launch path
+    /// retries once. Both CI workflows used to grep the log for exactly this distinction
+    /// (`grep "engine connection lost" && ! grep ✗`); typing it here replaced those greps.
+    EngineLost {
+        steps_failed: usize,
+        detail: String,
+    },
+    Other(String),
+}
+
+impl std::fmt::Display for ScriptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScriptError::EngineLost { detail, .. } => {
+                write!(f, "engine connection lost: {detail}")
+            }
+            ScriptError::Other(e) => f.write_str(e),
+        }
+    }
+}
+
 /// Parse a walkthrough file into engine steps: each flow entry is a single-key mapping
 /// (`- tap: { id: x, repeat: 3 }`, `- screenshot: home`, `- wait_idle:`).
 fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
@@ -284,11 +310,20 @@ pub fn run_scripts(
     variant: Option<&str>,
     keep_alive: bool,
     attached: bool,
-) -> Result<ScriptRun, String> {
+) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
     let window_secs = connect_window_secs(target.kind);
-    let mut stream = connect(port, window_secs)?;
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+    // A connect failure IS an engine loss (the app died during startup, or never bound) — the
+    // same condition the mid-run loss reports, and the same one the CI retry used to catch.
+    let mut stream = connect(port, window_secs).map_err(|detail| ScriptError::EngineLost {
+        steps_failed: 0,
+        detail,
+    })?;
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|e| ScriptError::Other(e.to_string()))?,
+    );
 
     // adb-forwarded ports accept host connections BEFORE the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
@@ -329,7 +364,7 @@ pub fn run_scripts(
                         *stream = s;
                     }
                 }
-                Err(e) => return Err(format!("engine connection lost: {e}")),
+                Err(e) => return Err(e),
             }
         }
     };
@@ -343,16 +378,16 @@ pub fn run_scripts(
         screenshots: Vec::new(),
     };
     for script in scripts {
-        let steps = parse_flow(script)?;
+        let steps = parse_flow(script).map_err(ScriptError::Other)?;
         // `expect_exit` tolerates the app dying, so it must be terminal — a step after it could
         // never run (the connection is gone). Reject a misplaced one before driving anything.
         if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
             && pos != steps.len() - 1
         {
-            return Err(format!(
+            return Err(ScriptError::Other(format!(
                 "{}: expect_exit must be the last step",
                 script.display()
-            ));
+            )));
         }
         eprintln!(
             "{BOLD}     Script{BOLD:#} {} on {} ({} steps)",
@@ -447,9 +482,19 @@ pub fn run_scripts(
                 .and_then(|v| v.as_f64())
                 .filter(|t| *t > 0.0)
                 .unwrap_or(0.0);
-            let reply_line = roundtrip(&mut stream, &mut reader, &line, budget)?;
-            let reply: serde_json::Value =
-                serde_json::from_str(reply_line.trim()).map_err(|e| e.to_string())?;
+            // A roundtrip that gives up reconnecting means the app process is gone — carry
+            // the failure count seen so far, so the caller can tell a clean-run flake (retry)
+            // from a failing run that then died (report).
+            let failed_before = run.steps_failed;
+            let reply_line =
+                roundtrip(&mut stream, &mut reader, &line, budget).map_err(|detail| {
+                    ScriptError::EngineLost {
+                        steps_failed: failed_before,
+                        detail,
+                    }
+                })?;
+            let reply: serde_json::Value = serde_json::from_str(reply_line.trim())
+                .map_err(|e| ScriptError::Other(e.to_string()))?;
             let ok = reply.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
             let detail = step
                 .get("id")

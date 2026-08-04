@@ -9,6 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use filetime::FileTime;
+
 use super::settings::{PackOptions, resolve_degradable};
 use super::{Artifact, PackError, SignTier, run_tool};
 use crate::meta::Project;
@@ -293,6 +295,65 @@ const REPRODUCIBLE_BUILD_SETTINGS: [&str; 5] = [
     "OTHER_SWIFT_FLAGS=$(inherited) -Xcc -fno-objc-msgsend-selector-stubs",
 ];
 
+/// The fixed modification time written into packaged artifacts, in seconds since the Unix epoch.
+///
+/// `SOURCE_DATE_EPOCH` is the reproducible-builds convention and wins when set. The fallback is
+/// 2020-01-01T00:00:00Z rather than the Unix epoch because ZIP's DOS timestamp field cannot encode
+/// anything before 1980; an out-of-range value would be clamped by the writer and reintroduce the
+/// very variance this removes. A `SOURCE_DATE_EPOCH` below that floor is ignored for the same reason.
+pub(crate) fn reproducible_epoch() -> i64 {
+    const ZIP_FLOOR: i64 = 315_532_800; // 1980-01-01T00:00:00Z
+    const DEFAULT: i64 = 1_577_836_800; // 2020-01-01T00:00:00Z
+    std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|e| *e >= ZIP_FLOOR)
+        .unwrap_or(DEFAULT)
+}
+
+/// Stamp every entry under `root` with [`reproducible_epoch`] so an archive built from it is
+/// byte-identical between runs.
+///
+/// `ditto -c -k` copies each entry's modification time into the ZIP — both the DOS field and the
+/// `UX` extra field — and offers no flag to suppress it, so two packs of identical content differed
+/// by exactly the wall-clock gap between them. Normalizing the tree first is the only lever.
+///
+/// `set_symlink_file_times` stamps a symlink itself rather than its target: std has no equivalent
+/// (`File::set_times` follows links, and on Windows a directory cannot even be opened without
+/// `FILE_FLAG_BACKUP_SEMANTICS`), which is why `filetime` is worth the line in Cargo.toml — it was
+/// already in the tree via `tar`, so it costs no extra compilation. The walk is hand-rolled rather
+/// than pulling in `walkdir`: this tree is one we just created ourselves, so the loop detection and
+/// ordering guarantees a general walker provides would be unused weight.
+fn normalize_mtimes(root: &Path) -> Result<(), String> {
+    let stamp = FileTime::from_unix_time(reproducible_epoch(), 0);
+    let mut stack = vec![root.to_path_buf()];
+    let mut entries = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let read =
+            std::fs::read_dir(&dir).map_err(|e| format!("reading {}: {e}", dir.display()))?;
+        for entry in read {
+            let path = entry
+                .map_err(|e| format!("reading {}: {e}", dir.display()))?
+                .path();
+            // symlink_metadata, not metadata: a broken or absolute symlink must not be followed.
+            let meta = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("stat {}: {e}", path.display()))?;
+            if meta.is_dir() {
+                stack.push(path.clone());
+            }
+            entries.push(path);
+        }
+    }
+    entries.push(root.to_path_buf());
+    // Deepest first, so a directory is stamped after everything inside it.
+    entries.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    for path in entries {
+        filetime::set_symlink_file_times(&path, stamp, stamp)
+            .map_err(|e| format!("set mtime on {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// The unsigned fallback: a real DEVICE build (`-sdk iphoneos`, Release) with code signing
 /// disabled, packaged as `Payload/<App>.app` inside a `-unsigned.ipa`. It cannot launch until
 /// signed — AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
@@ -352,6 +413,7 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
     .map_err(PackError::Other)?;
     let out = dist.join(format!("{name}{}-unsigned.ipa", opts.version_tag(version)));
     let _ = std::fs::remove_file(&out);
+    normalize_mtimes(&staging).map_err(PackError::Other)?;
     run_tool(
         Command::new("ditto")
             .args(["-c", "-k"])

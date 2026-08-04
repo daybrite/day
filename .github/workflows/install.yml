@@ -19,7 +19,7 @@ name: install
 
 on:
   schedule:
-    - cron: "17 * * * *" # daily (UTC)
+    - cron: "0 0,6,12,18 * * *" # 4 times daily (UTC)
   workflow_dispatch:
 
 # No repo access needed — everything installs from crates.io / package managers.

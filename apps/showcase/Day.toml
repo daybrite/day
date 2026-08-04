@@ -26,9 +26,12 @@ location-when-in-use = "Show your coordinates live on the Device & sensors page.
 notifications = true
 motion = "Show live accelerometer, gyroscope and magnetometer traces on the Device & sensors page."
 
+# The desktop window (docs/cli.md). Kept in lockstep with main.rs's WindowOptions — the CLI
+# sizes headless X servers (xvfb) from THIS, so a mismatch would crop or letterbox the
+# root-capture screenshot fallback on linux-gtk.
 [window]
-width = 480
-height = 640
+width = 1000
+height = 720
 
 # Release signing (§16.5): values resolve from the environment at pack time — an unset variable
 # degrades that section to the dev tier LOUDLY (ad-hoc / dev keystore / self-signed), it never
