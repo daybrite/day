@@ -7,7 +7,7 @@ section: Concepts
 
 Day's reactive system is the reason a [Piece tree built once](/docs/pieces) can keep moving. It's
 a fine-grained signal graph in the SolidJS and floem tradition: state lives in **signals**,
-derived values in **memos**, and side effects — including every native-widget update — in
+derived values in **memos**, and side effects (including every native-widget update) in
 **effects** that re-run when something they read changes.
 
 If you've used SwiftUI, React, or Flutter, the important difference is what *doesn't* happen
@@ -17,7 +17,7 @@ call.
 
 ## Signals
 
-A `Signal<T>` is a reactive cell. The handle is `Copy` — you move it into as many closures as you
+A `Signal<T>` is a reactive cell. The handle is `Copy`; you move it into as many closures as you
 like without cloning ceremony:
 
 ```rust
@@ -30,7 +30,7 @@ count.with(|c| c.to_string());     // read by reference, no clone
 count.get_untracked();             // read WITHOUT subscribing
 ```
 
-A read is *tracked* when it happens inside a reactive context — a memo, an effect, or one of the
+A read is *tracked* when it happens inside a reactive context: a memo, an effect, or one of the
 reactive closures you hand to Pieces. Tracking is how the graph learns its edges: while your
 closure runs, every `.get()` registers the enclosing computation as an observer of that signal.
 
@@ -42,9 +42,9 @@ let name = Signal::new(String::from("Ada"));
 label(move || format!("Hello, {}", name.get()))
 ```
 
-Untracked reads are the escape hatch for "I want the current value but no subscription" — common
+Untracked reads are the escape hatch for "I want the current value but no subscription" (common
 in event handlers, which are not reactive contexts anyway, and in effects that would otherwise
-over-subscribe.
+over-subscribe).
 
 ## Memos
 
@@ -61,8 +61,8 @@ label(move || format!("{:.2} €", total.get()))
 ```
 
 Memos are pull-based and glitch-free: reading one mid-update gives you a value consistent with
-all its sources. You don't need them for cheap derivations — a closure reading two signals is
-fine — but they earn their keep when the computation is expensive or when many observers hang off
+all its sources. You don't need them for cheap derivations (a closure reading two signals is
+fine), but they earn their keep when the computation is expensive or when many observers hang off
 one derived value.
 
 ## Effects and bindings
@@ -96,13 +96,13 @@ toolkit.update(handle, patch)   →   NSTextField.stringValue = "3 clicks"
 ```
 
 Nothing above the label in the tree is visited. There is no render pass to schedule and no
-virtual tree to compare — the cost of a state change is proportional to what observes it, not to
+virtual tree to compare. The cost of a state change is proportional to what observes it, not to
 the size of your UI.
 
 ## Batching and the turn
 
 Writes inside an event handler are batched: the handler runs to completion, then the reactive
-graph drains to a fixpoint, then — once per turn — layout runs for whatever became dirty and
+graph drains to a fixpoint, then (once per turn) layout runs for whatever became dirty and
 native frames are updated. You can batch explicitly too:
 
 ```rust
@@ -114,7 +114,7 @@ batch(|| {
 ```
 
 The drain is synchronous and ordered (structural changes before attribute updates, outer scopes
-before inner). A cycle — an effect that keeps re-dirtying itself — trips a re-run cap and panics
+before inner). A cycle (an effect that keeps re-dirtying itself) trips a re-run cap and panics
 in debug builds with the creation site of the offending effect, rather than hanging.
 
 ## Scopes: ownership and cleanup
@@ -122,7 +122,7 @@ in debug builds with the creation site of the offending effect, rather than hang
 Every signal, memo, effect, and event handler is owned by the `Scope` that was current when it
 was created. Day's structural Pieces manage scopes for you: each `when` arm and each `each`/`list`
 row gets a child scope, and when that arm or row goes away, disposing the scope tears down
-everything it owns — bindings stop firing, handlers are dropped, and the native widgets are
+everything it owns: bindings stop firing, handlers are dropped, and the native widgets are
 released. There's no unsubscribe bookkeeping to forget.
 
 ```text
@@ -145,14 +145,14 @@ Two sharp edges:
   the value once and forgets it. If you meant "keep this up to date", the read has to be inside a
   binding, memo, or reactive closure. Debug builds warn (once per call site) when a tracked read
   happens with nothing listening.
-- **Disposed handles.** Writing to a signal whose scope is gone is a silent no-op — normal in
-  async races, where a background task completes after the page closed. *Reading* one panics in
+- **Disposed handles.** Writing to a signal whose scope is gone is a silent no-op (normal in
+  async races, where a background task completes after the page closed). *Reading* one panics in
   debug builds and names the signal's creation site.
 
 ## Threads
 
 The UI, the reactive graph, and the realized tree are single-threaded on the platform's main
-thread — `Signal` is deliberately `!Send`, so the compiler stops you from smuggling one into a
+thread. `Signal` is deliberately `!Send`, so the compiler stops you from smuggling one into a
 worker. Two doors lead back in from other threads:
 
 ```rust
@@ -170,19 +170,19 @@ std::thread::spawn(move || {
 on_main(move || { /* touch signals freely here */ });
 ```
 
-A `Setter` checks liveness on arrival — if the target scope was disposed while the worker ran,
+A `Setter` checks liveness on arrival: if the target scope was disposed while the worker ran,
 the write drops silently. That's the behavior you want when a download finishes after its page
 was dismissed.
 
 This model makes single-threaded UI code simple and makes the
 compiler enforce the threading rule, but there's no shared-state shortcut. Anything computed off
 the main thread comes back through a `Setter` or `on_main`, the same way it would with
-`DispatchQueue.main.async` or a `Handler` — Day gives it a type instead of a convention.
+`DispatchQueue.main.async` or a `Handler`; Day gives it a type instead of a convention.
 
 ## What this model asks of you
 
 The cost of this build-once model is that *you* mark what's dynamic. A closure makes text
-live; a bare value doesn't. Structure changes only through `when`, `each`, and `list` — deriving
+live; a bare value doesn't. Structure changes only through `when`, `each`, and `list`. Deriving
 structure from a signal in plain Rust freezes it at build time. In diffing frameworks these
 distinctions don't exist because everything re-runs; here they're the price of nothing
 re-running. In practice the rules are few, `day lint` and the debug diagnostics catch the common
@@ -190,4 +190,4 @@ misses, and the payoff is a UI whose update cost you can reason about line by li
 
 ---
 
-Next: [Layout](/docs/layout) — how measured, native-sized widgets end up in the right place.
+Next: [Layout](/docs/layout), how measured, native-sized widgets end up in the right place.

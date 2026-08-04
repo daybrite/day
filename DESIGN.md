@@ -2775,7 +2775,10 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 4. **Release lane** (semver tags) — the `notarize` job ([§20.2](#202-release-signing-isolation)),
    publishability check (`cargo publish --workspace --dry-run`), tag-vs-version check, GitHub
    release with the six CLI binaries, and crates.io Trusted Publishing (wired; crates not yet
-   published — [§1](#1-glossary-and-naming)).
+   published — [§1](#1-glossary-and-naming)). The release's app packages are also what the
+   website's `/showcase/` page offers: the signing identity is scoped to `v*` tags, so a package
+   built on a main push is unsigned by construction, and the page links release assets over the
+   API (`website/scripts/assemble-downloads.mjs`) rather than serving this run's artifacts.
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation
@@ -2846,7 +2849,10 @@ block it inlines.
 **Stage 2 checks reproducibility**, and only runs once stage 1 passes. The whole stage is one
 command, `day rebuild --strict <artifact>` (§20.4): it reads the SBOM and `.buildinfo` shipped
 beside the artifact, gates on the recorded tool versions, clones the recorded commit into a scratch
-directory, packs it again, and compares. The scratch directory is at a different absolute path than
+directory, packs it again, and compares. The SBOM records WHICH project in that repository was
+packed (`day:project`, from `git rev-parse --show-prefix`) — this one holds three apps plus the
+scaffold templates, and a rebuild that searched for a `Day.toml` would pack whichever the directory
+walk reached first. The scratch directory is at a different absolute path than
 the parent job built in, which is the point — `day pack` hardcodes its output under
 `<project-root>/build/day/dist` and `find_project` canonicalizes that root, so the second build
 genuinely drives every downstream tool from a different prefix, and a source path baked into a

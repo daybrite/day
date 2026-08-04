@@ -24,21 +24,21 @@ function platformOf(suite: Suite, id: string) {
 }
 const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
 ---
-<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target — light, dark, and localized — with screenshots taken straight from CI." active="gallery">
+<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target, light, dark, and localized, with screenshots taken straight from CI." active="gallery">
   <section class="section gal-hero">
     <div class="container">
       <p class="eyebrow">Screenshot gallery</p>
       <h1 class="gal-title">The same Rust program, <span class="grad-text">native on every platform</span>.</h1>
       <p class="lead">
-        Every screenshot below is captured in CI by the dayscript walkthrough — one pass per
-        theme and language — and assembled here automatically. Each row is one screen; scroll it
+        Every screenshot below is captured in CI by the dayscript walkthrough, one pass per
+        theme and language, then assembled here automatically. Each row is one screen; scroll it
         sideways to compare platforms.
       </p>
       {generated
         ? <p class="gen">Latest run · {generated}</p>
         : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
       <p class="gen">
-        Screenshots not enough? <a href={url('showcase')}>Run the Showcase app</a> — installed on
+        <a href={url('showcase')}>Run the Showcase app</a> yourself: installed on
         your machine, or live in this browser.
       </p>
 
@@ -108,13 +108,13 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                       <div class="frame">
                         {(() => {
                           const body = tile.placeholder ? (
-                            <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label} — preview placeholder`}>
+                            <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label}, preview placeholder`}>
                               <span class="ph-mark">◱</span>
                               <span class="ph-txt">preview</span>
                             </div>
                           ) : (
                             <img
-                              alt={`${shot.label} — ${platform.os} ${platform.label}`}
+                              alt={`${shot.label}, ${platform.os} ${platform.label}`}
                               loading="lazy"
                               decoding="async"
                               class="var-img"
@@ -165,7 +165,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       <div class="lb-empty" data-lb-empty hidden>Not captured on this platform yet</div>
       <figcaption class="lb-cap">
         <span class="lb-shot" data-lb-shot></span>
-        <span class="lb-plat"><b data-lb-os></b><span data-lb-tk></span></span>
+        <span class="lb-plat"><i class="lb-icon" data-lb-icon aria-hidden="true"></i><b data-lb-os></b><span data-lb-tk></span></span>
       </figcaption>
     </figure>
   </div>
@@ -283,6 +283,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     const shotEl = box.querySelector<HTMLElement>('[data-lb-shot]')!;
     const osEl = box.querySelector<HTMLElement>('[data-lb-os]')!;
     const tkEl = box.querySelector<HTMLElement>('[data-lb-tk]')!;
+    const lbIcon = box.querySelector<HTMLElement>('[data-lb-icon]');
 
     // grid[suite][row][col] = <figure>
     const grid: HTMLElement[][][] = [];
@@ -307,7 +308,7 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       const src = srcOf(fig);
       if (src) {
         imgEl.setAttribute('src', src);
-        imgEl.alt = `${fig.dataset.shot} — ${fig.dataset.os} ${fig.dataset.tk}`;
+        imgEl.alt = `${fig.dataset.shot}, ${fig.dataset.os} ${fig.dataset.tk}`;
         imgEl.hidden = false;
         emptyEl.hidden = true;
       } else {
@@ -318,6 +319,8 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
       shotEl.textContent = fig.dataset.shot ?? '';
       osEl.textContent = fig.dataset.os ?? '';
       tkEl.textContent = fig.dataset.tk ?? '';
+      // Reuse the tile's own mark rather than shipping a second copy of every icon.
+      if (lbIcon) lbIcon.innerHTML = fig.querySelector('.cap-icon')?.outerHTML ?? '';
       // The platform accent (global.css [data-pf] → --pf) tints the caption's platform line.
       if (fig.dataset.plat) box.setAttribute('data-pf', fig.dataset.plat);
     }
@@ -558,11 +561,14 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     backdrop-filter: blur(6px);
   }
   .lb-shot { color: var(--sun); font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.1em; }
-  .lb-plat { color: var(--muted); font-size: 0.98rem; }
+  .lb-plat { color: var(--muted); font-size: 0.98rem; display: inline-flex; align-items: baseline; gap: 8px; }
+  /* The mark rides the caption's baseline and wears the same accent as the toolkit name. */
+  .lb-icon { display: inline-flex; color: color-mix(in srgb, var(--pf, var(--brand)) 72%, var(--text)); }
+  .lb-icon :global(.cap-icon) { width: 1.05rem; height: 1.05rem; }
   .lb-plat b { color: var(--text); }
-  .lb-plat span { margin-left: 8px; color: var(--faint); }
+  .lb-plat > span { color: var(--faint); }
   /* Accent the toolkit name by the viewed platform (data-pf set on open/arrow-move). */
-  .lightbox[data-pf] .lb-plat span { color: color-mix(in srgb, var(--pf) 72%, var(--text)); }
+  .lightbox[data-pf] .lb-plat > span { color: color-mix(in srgb, var(--pf) 72%, var(--text)); }
 
   .lb-btn {
     position: absolute; z-index: 2; appearance: none; cursor: pointer;

@@ -26,10 +26,16 @@ export default function gallery() {
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });
         logger.info(`hero carousel: ${count} verified screenshot(s)`);
-        // Stage the /showcase/ downloads (the per-combo `day pack` artifacts) + their manifest
-        // of sizes and SHA-256 checksums. Absent artifacts ⇒ placeholders, like the gallery.
-        const dl = assembleDownloads({ quiet: true });
-        logger.info(`showcase downloads: ${dl.files} package(s) across ${dl.platforms} platform(s)`);
+        // Resolve the /showcase/ downloads from the latest GitHub release — the only packages
+        // that are signed and notarized. No release reachable ⇒ placeholders, like the gallery.
+        const dl = await assembleDownloads({ quiet: true });
+        logger.info(
+          dl.tag
+            ? `showcase downloads: ${dl.files} package(s) across ${dl.platforms} platform(s) from ${dl.tag}`
+            : 'showcase downloads: no release reachable — the page shows placeholders',
+        );
+        // A platform missing from the release is usually its job having failed on the tag run.
+        if (dl.missing?.length) logger.warn(`no package in ${dl.tag} for: ${dl.missing.join(', ')}`);
       },
     },
   };

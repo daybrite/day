@@ -534,7 +534,7 @@ registration check panics first. A half-finished piece degrades noisily instead 
 ## 6. Generating the backend bodies
 
 Writing the same widget in Objective-C, C++, Java, and C++/WinRT is the tedious core of a native
-piece. It is also a narrow, well-specified translation task — the kind a code generator or an
+piece. It is also a narrow, well-specified translation task: the kind a code generator or an
 LLM handles well, once the contract is fixed.
 
 Make the boundary crisp first, then delegate each backend body:

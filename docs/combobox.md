@@ -3,7 +3,7 @@
 > **Status: implemented** as `day-piece-combobox`, an external Day Piece (like
 > `day-piece-searchfield`) registered link-time into each backend's renderer slice without
 > touching day. One API: free-form text entry PLUS a native dropdown of suggestions, bound
-> two-way to a `Signal<String>` — the text IS the value — with a reactive
+> two-way to a `Signal<String>` (the text IS the value) with a reactive
 > `Signal<Vec<String>>` item list. Reworked 2026-07 from a selection-only dropdown (an
 > `NSPopUpButton`-style control bound to an index) into the real thing; `picker`
 > (docs/picker.md) is now the one-of-N control, the combo box is for values that need not be
@@ -21,18 +21,18 @@ combo_box(flavors, flavor).placeholder("Type or pick a flavor").id("flavor")
 
 `combo_box(items, text)` binds `text` two-way: typing writes the signal per keystroke, picking a
 dropdown item writes the item's string, and setting the signal patches the control (echo-guarded,
-§4.4 — the guard remembers the last value that arrived from the native control so `bind_seeded`
+§4.4: the guard remembers the last value that arrived from the native control so `bind_seeded`
 does not patch it straight back). `items` is reactive: a change patches the native dropdown live,
 and the typed text survives the swap. `.placeholder(impl IntoText)` sets the empty-state prompt
 (read once at build). `ComboBox` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via
 `Decorate`. Like `text_field` it is a **width-growing leaf** (`grow_w = true`, natural
 single-line height).
 
-Every backend reports both change paths — typing and picking — through the one
+Every backend reports both change paths (typing and picking) through the one
 `Event::TextChanged(String)`, so `dayscript`'s `input:` step drives the entry on every backend.
 The front-end also answers a synthetic `Event::SelectionChanged(i)` by mapping `i` through the
 current items, so `dayscript`'s `select:` step is the scripted menu path (native backends never
-emit it — a native pick already arrives as text).
+emit it: a native pick already arrives as text).
 
 ## Per-backend native realization
 
@@ -44,7 +44,7 @@ iOS and HarmonyOS have no native combo-box control, so the piece deliberately ca
 renderer** there: day renders its placeholder leaf, and the showcase adds a footnote saying why.
 Use `picker` or `text_field` on those platforms. The change plumbing per backend:
 
-- **AppKit**: one per-node delegate serves both halves —
+- **AppKit**: one per-node delegate serves both halves,
   `NSControlTextEditingDelegate::controlTextDidChange:` for keystrokes and
   `NSComboBoxDelegate::comboBoxSelectionDidChange:` for picks. The selection notification fires
   *before* the control writes the pick into its own `stringValue`, so the handler reads the
@@ -75,7 +75,7 @@ The showcase **Controls** page (`controls.rs` `flavor_block`) binds a `combo_box
 signal with a localized three-item list, an **Add** button that pushes the typed text into the
 items, and a readout mirroring the signal. The walkthrough drives all three behaviors: `select`
 index 2 (menu path, asserted by localized key), `input` a literal that is in no list (free-form
-path), then Add + `select` index 3 — an index that exists only after the add — proving the
+path), then Add + `select` index 3 (an index that exists only after the add), proving the
 reactive item list round-trips. Runs on macOS-AppKit, GTK, Qt, iOS-sim (placeholder + synthetic
 steps), and the Android emulator. Rust is clippy-clean (`-D warnings`) and `cargo fmt`-clean for
 every backend feature.

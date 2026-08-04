@@ -7,7 +7,7 @@
 > services page and its walkthrough on every target.
 
 Where [day-part-prefs](prefs.md) is a small key/value store for settings, this crate is for
-*data*: documents, caches, exports — anything file-shaped. Both persist per app and survive
+*data*: documents, caches, exports (anything file-shaped). Both persist per app and survive
 restarts; on the web, prefs ride `localStorage` while files ride OPFS, which is sized for real
 data and holds a true directory hierarchy.
 
@@ -34,7 +34,7 @@ The contract points:
   `.`/`..`/empty segment is `FsError::BadPath` before any backend runs. `write` creates missing
   parent directories.
 - **`list("")` is the root**, entries sorted, directories suffixed `/`. A never-written
-  directory lists as empty — the ordinary first-run state, not an error.
+  directory lists as empty, the ordinary first-run state, not an error.
 - **The blocking calls follow the day-part-http rule**: real on every native target, and
   `FsError::Unsupported` on web, where the single browser thread cannot wait. The `*_async`
   twins and `*_future` forms are the portable surface.
@@ -50,7 +50,7 @@ The contract points:
 | web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the ONLY store: a context without it — a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing — answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
 | anything else | `FsError::Unsupported` |
 
-`DAY_DATA_DIR` wins everywhere when set — the mobile hosts export it (DayActivity on Android,
+`DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity on Android,
 EntryAbility on OHOS), and tests set it to a scratch directory.
 
 ## Error taxonomy
@@ -61,12 +61,12 @@ into `Io`, except `NotFoundError` → `NotFound` and a context without OPFS → 
 ## What it shows about the extension system
 
 The third part to ride the day-dom shim (after prefs and http), and the second to complete back
-into wasm with the request-id pattern. Native needs no platform code at all — one `std::fs`
+into wasm with the request-id pattern. Native needs no platform code at all: one `std::fs`
 backend over an env-resolved root covers six targets, with the mobile hosts contributing a
 single `DAY_DATA_DIR` line each.
 
 ## v2 notes (deliberately out of scope)
 
-Streaming reads/writes (today a file is one buffer — see the memory-efficiency rule before
+Streaming reads/writes (today a file is one buffer; see the memory-efficiency rule before
 storing anything huge), append, rename, recursive remove, file metadata (size/mtime), and
 cancellation for in-flight web operations.

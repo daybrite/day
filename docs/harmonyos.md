@@ -50,8 +50,8 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
 
    The NDK ships the linker wrappers `$OHOS_NDK_HOME/llvm/bin/<target>-clang`; point cargo at them
    with `CARGO_TARGET_<TARGET>_LINKER`. (`day build` sets this itself, along with `CC_<target>`/
-   `AR_<target>` pointing at the NDK's clang and llvm-ar so `cc-rs` build scripts — e.g. `ring`
-   under day-part-http's rustls fallback — cross-compile too; the exports only matter if you drive
+   `AR_<target>` pointing at the NDK's clang and llvm-ar so `cc-rs` build scripts (e.g. `ring`
+   under day-part-http's rustls fallback) cross-compile too; the exports only matter if you drive
    bare cargo.)
 
 ## Check your environment first
@@ -70,17 +70,17 @@ warning rather than an error, since you only need it if you build for HarmonyOS.
 
 The build has two halves with different tool needs:
 
-1. **The Rust cross-compile** (`libentry.so`) needs only the OpenHarmony **NDK** — the `native`
+1. **The Rust cross-compile** (`libentry.so`) needs only the OpenHarmony **NDK**, the `native`
    component of the public SDK, which downloads without a Huawei account. Point `OHOS_NDK_HOME` at it.
    `hdc` (for install/launch) sits in the SDK's sibling `toolchains/` dir; `day` finds it there
    automatically, or you can put it on `PATH`.
-2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are NOT in the public SDK — they ship with
+2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are NOT in the public SDK; they ship with
    the OpenHarmony **command-line-tools** (bundled with DevEco Studio, or the Linux-x64 bundle at
    `repo.huaweicloud.com/harmonyos/ohpm/<ver>/`). Put their `bin/` on `PATH`.
 
 The showcase's `platform/ohos/` project targets **OpenHarmony** (`runtimeOS: "OpenHarmony"`,
 `compileSdkVersion`/`compatibleSdkVersion` = the integer API level), which matches the Oniro emulator
-and avoids the HMS-only `libimage_transcoder_shared` library that only DevEco Studio ships — so the
+and avoids the HMS-only `libimage_transcoder_shared` library that only DevEco Studio ships, so the
 whole flow works login-free on macOS and Linux.
 
 **macOS note.** The Linux command-line-tools hvigor/ohpm are pure JavaScript, so they run under
@@ -128,7 +128,7 @@ hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
 
 `day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
-In practice you don't run any of the above by hand — `day launch -p harmony-arkui` does the whole flow
+In practice you don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
 ```bash
@@ -146,7 +146,7 @@ day launch --project apps/showcase -p harmony-arkui
 (`uname -m` → x86_64 emulator / arm64 device), builds a `libentry.so` for **each** arch, and packs
 them all into the one `.hap` (`libs/x86_64/` + `libs/arm64-v8a/`) so it installs on any of them.
 It then installs + starts the app on **every** connected target. Android (`adb`, per-device
-`ro.product.cpu.abi`) and iOS (every booted simulator) do the same — one `day launch` fans out to
+`ro.product.cpu.abi`) and iOS (every booted simulator) do the same: one `day launch` fans out to
 all connected devices, building whatever ABIs they need.
 
 ## Status
@@ -158,7 +158,7 @@ NodeAPI nodes, verified on the Oniro emulator:
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
-  with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text) — the gauge + shapes pages.
+  with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
 - **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
   500-row list only builds the visible cells.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
@@ -179,7 +179,7 @@ NodeAPI nodes, verified on the Oniro emulator:
   registers with the shim (`registerPiece`) before `start()`. `day-piece-webview` is the first user.
   **ArkWeb does not run on the x86_64 emulator**: the image's `ArkWebCore.hap` carries arm64-only
   native libs, so `libarkweb_engine.so` never loads (`GetNWeb: web engine is nullptr`) and the
-  component's RosenWeb surface wedges the window's compositor for the rest of the process — every
+  component's RosenWeb surface wedges the window's compositor for the rest of the process; every
   later frame goes stale. The showcase walkthrough therefore skips the web-view page on
   harmony-arkui; the arm path is unaffected.
 
@@ -205,7 +205,7 @@ TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmo
    walkthrough, uploading screenshots for the gallery, like the other targets. CI boots the emulator
    with `day ohos emulator launch --headless` (the same Oniro v6.1 image openharmony-rs's
    emulator-action uses) rather than the action itself: the action's QEMU command has **no GPU
-   device** (`-nographic`), so the guest has no display — the keyguard never dismisses, `aa start`
+   device** (`-nographic`), so the guest has no display: the keyguard never dismisses, `aa start`
    is refused with error 10106102, and screenshots capture nothing. Day's launcher adds
    `-device virtio-gpu-pci` with `-display none`: a headless framebuffer the apps can foreground on
    and `uitest screenCap` can capture.
@@ -214,7 +214,7 @@ Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it ins
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
 verification for OpenHarmony-declared apps on devices without Huawei OH code signing.
 
-The whole job — build gates and emulator screenshots — runs on a single **macOS** runner: the
+The whole job (build gates and emulator screenshots) runs on a single **macOS** runner: the
 x86_64 Oniro guest is TCG-emulated on every GitHub runner, and only the macOS ARM hosts run it
 fast enough for the pipeline (first-boot keyguard render → wake + swipe-unlock → walkthrough);
 the ubuntu hosts never got that far. Build steps gate hard; only the emulator boot + walkthrough
@@ -222,14 +222,14 @@ are per-step best-effort. The setup replicates the validated local macOS flow: t
 command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin
 API-18 SDK from setup-ohos-sdk supplies the NDK + hdc + the versioned `OHOS_BASE_SDK_HOME`
 view hvigor builds against, and Day's own QEMU launcher boots the image. `OHOS_BASE_SDK_HOME`
-must be a **host-platform** SDK — hvigor spawns its native tools (`syscap_tool`, `restool`,
+must be a **host-platform** SDK: hvigor spawns its native tools (`syscap_tool`, `restool`,
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.
 
 Six facts the scripted channel depends on (each was a silent total failure until diagnosed):
 
 - **The default hdc forward port 55555 is often already occupied** — GitHub's macOS runners hold
-  it, and so do some local services — and QEMU then dies instantly ("Could not set up host
+  it, and so do some local services; QEMU then dies instantly ("Could not set up host
   forwarding rule"), leaving no reachable target and blank screenshot sets. `day ohos emulator
   launch` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
   finds it), and exports `DAY_OHOS_TARGET` through `GITHUB_ENV` so later CI steps target it too.

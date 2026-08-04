@@ -7,7 +7,7 @@ section: Guides
 
 Day treats an AI agent as a full developer: every launch embeds the
 [dayscript](/docs/dayscript) engine, and the `day` CLI exposes it as MCP tools an agent can
-call — build, relaunch, tap, type, assert, screenshot. The agent doesn't guess whether its
+call: build, relaunch, tap, type, assert, screenshot. The agent doesn't guess whether its
 change worked; it drives the running app and looks at the pixels, on every platform you target.
 
 This guide walks that loop end to end with [Claude Code](https://claude.com/claude-code) in a
@@ -32,7 +32,7 @@ day launch -p macos-appkit
 ```
 
 You get a running native app with a sidebar, a home page, localized strings, a dayscript smoke
-test (`dayscript/smoke.yaml`), and — the part that matters here — an `AGENTS.md` that teaches
+test (`dayscript/smoke.yaml`), and, most importantly here, an `AGENTS.md` that teaches
 any coding agent the project's conventions: where pages live, how routes register, that every
 control gets a stable `.id()`, and that new strings go into *every* locale.
 
@@ -43,25 +43,25 @@ claude mcp add day -- day --project . mcp-server
 claude
 ```
 
-`day mcp-server` (docs: [agent surface](/docs/internal/agent)) exposes ten tools —
+`day mcp-server` (docs: [agent surface](/docs/internal/agent)) exposes ten tools:
 `day_metadata`, `day_build`, `day_launch`, `day_relaunch`, `day_drive`, `day_screenshot`, and
 friends. The important two are `day_relaunch`, which returns compile errors *inside the tool
 result* so the agent fixes and retries on its own, and `day_drive`, whose screenshots come back
 as images the agent can actually see.
 
-## 3. Add a weather page — by prompt
+## 3. Add a weather page, by prompt
 
 In the Claude Code session:
 
 > Add a "weather" page to the sidebar: a city picker (Lisbon, Nairobi, Osaka), a large
 > temperature label, a one-line conditions label, and a Refresh button that simulates a reload
-> with day::sleep. Use demo data — no network. Give every control a stable id
+> with day::sleep. Use demo data, no network. Give every control a stable id
 > (weather-city, weather-temp, weather-conditions, weather-refresh), localize every string in
 > all locales, then relaunch and show me a screenshot of the page.
 
 Watch the loop the scaffolded `AGENTS.md` prescribes: `day_metadata` first, then the edits, a
 `day_relaunch` (fixing anything the compiler says), then a `day_drive` that navigates to the
-page and hands back a screenshot. The page it lands on will be a normal Day page — the shape to
+page and hands back a screenshot. The page it lands on will be a normal Day page. The shape to
 expect, abridged:
 
 ```rust
@@ -84,13 +84,13 @@ pub(crate) fn weather_page() -> AnyPiece {
 }
 ```
 
-If the result isn't right, say so in the same session — "the temperature should update when the
-city changes" — and the agent re-drives the app to prove the fix. You never leave the terminal,
+If the result isn't right, say so in the same session ("the temperature should update when the
+city changes") and the agent re-drives the app to prove the fix. You never leave the terminal,
 and you never take its word for it.
 
 ## 4. Script it: dayscript
 
-Now freeze that verification into a script anyone — human, agent, or CI — can rerun. Ask the
+Now freeze that verification into a script anyone can rerun: human, agent, or CI. Ask the
 agent to write it, or drop this in as `dayscript/weather.yaml`:
 
 ```yaml
@@ -100,7 +100,7 @@ flow:
   - assert_route: { route: weather }
   - assert_visible: { id: weather-title }
 
-  # The picker drives a signal; the labels read it — assert the round trip.
+  # The picker drives a signal; the labels read it; assert the round trip.
   - select: { id: weather-city, index: 1 }
   - assert_text: { id: weather-temp, text: "24 °C" }
   - tap: { id: weather-refresh }
@@ -116,14 +116,14 @@ day launch -p macos-appkit --script dayscript/weather.yaml --variant fr --locale
 ```
 
 Each run drives the real app and writes content-checked captures under
-`build/day/screenshots/<target>/<variant>/` — the same mechanism that produces the localized
+`build/day/screenshots/<target>/<variant>/`, the same mechanism that produces the localized
 [gallery](/gallery) on this site. For strings that vary by locale, assert by Fluent key
 (`assert_text: { id: …, key: … }`) instead of literal text and one script passes in every
 language.
 
 ## 5. Put it in CI
 
-A minimal GitHub workflow that builds the app headlessly and runs the script on every push —
+A minimal GitHub workflow that builds the app headlessly and runs the script on every push:
 the Linux leg is the cheapest always-on regression gate:
 
 ```yaml

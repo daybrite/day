@@ -1,13 +1,13 @@
 # Secondary windows (§8.1)
 
-> **Status: implemented** on every backend. Desktop — AppKit, GTK, Qt native (runtime-
-> verified) and XAML native (compile-verified on the windows-xaml CI leg — its runtime pass
-> and per-window screenshot capture are follow-ups noted below). Mobile — `Normal` windows
+> **Status: implemented** on every backend. Desktop: AppKit, GTK, Qt native (runtime-
+> verified) and XAML native (compile-verified on the windows-xaml CI leg; its runtime pass
+> and per-window screenshot capture are follow-ups noted below). Mobile: `Normal` windows
 > are NATIVE where the platform has a real secondary-window surface: iPad UIScenes (the
 > uikit backend runs the scene lifecycle now), Android document-style `DayWindowActivity`
 > instances, and OHOS multiton `DayWindowAbility` instances; iPhone and the `Preferences`
 > kind on all mobile present as a fullscreen cover in the primary window (the platform
-> settings idiom) — same API, ids, and close path. web answers `Unsupported` (a second
+> settings idiom): same API, ids, and close path. web answers `Unsupported` (a second
 > browser window cannot share the wasm instance) and always takes the cover. Verified by
 > mock e2e (`crates/day-pieces/tests/mock_e2e.rs`, the window suite), the showcase
 > walkthrough's preferences leg (369/369 on appkit, gtk, qt, ios-sim, android-emulator,
@@ -17,7 +17,7 @@
 One tree, many roots: a secondary window's content container is adopted as an additional
 boundary root of the SAME thread-local tree (the `create_cell_anchor` trick the primary root
 and list cells already use), laid out at that window's own size. Bindings, `find_by_id`,
-navigation state, and dayscript therefore work across windows with no window parameter —
+navigation state, and dayscript therefore work across windows with no window parameter;
 element ids stay globally unique, and a control in one window can drive a label in another
 through ordinary signals.
 
@@ -36,7 +36,7 @@ win.close();                              // async: confirmed by the platform, T
 ```
 
 - `key` names the LOGICAL window: opening an already-open key focuses it instead of
-  duplicating — the preferences pattern. `window_by_key` finds it later.
+  duplicating: the preferences pattern. `window_by_key` finds it later.
 - `WindowKind` shapes the chrome: `Normal` is resizable/miniaturizable and joins the
   platform's tabbing group; `Preferences` drops resize/minimize and never tabs (macOS
   convention; other platforms map as fits).
@@ -45,12 +45,12 @@ win.close();                              // async: confirmed by the platform, T
 - Close is ASYNC everywhere: the title-bar close, a platform gesture, and
   `WindowHandle::close()` all route through the platform's confirm
   (`Event::WindowClosed` on the window's root), and day-core tears the subtree down on a
-  deferred hop — never inside the native close callback. `on_close` runs after disposal.
+  deferred hop, never inside the native close callback. `on_close` runs after disposal.
 - Closing the PRIMARY window quits the app, taking secondary windows with it (unified
   across the desktop backends; the mac-conventional zero-window state is a recorded
   non-goal for v1).
 - Probe `Cap::MultiWindow` to adapt chrome: on `Unsupported` backends the surface is a
-  fullscreen cover with no native title bar or close button — content that needs a close
+  fullscreen cover with no native title bar or close button; content that needs a close
   affordance should carry its own (system back closes it on Android).
 - Dialogs (`docs/dialogs.md`) attach to the KEY window at present time, falling back to the
   primary.
@@ -69,7 +69,7 @@ day::open_preferences();
 
 Registering a preferences piece enables, with zero menu code:
 
-- **macOS**: "Settings…" + ⌘, in the App menu, directly under About — in both the default
+- **macOS**: "Settings…" + ⌘, in the App menu, directly under About, in both the default
   menu (apps that never call `app_menu`) and an installed one (the item is hoisted out of
   the model into its standard position).
 - **GTK/Qt/XAML**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
@@ -79,13 +79,13 @@ Registering a preferences piece enables, with zero menu code:
   itself.
 - The window opens under the singleton key `day.preferences` (`WindowKind::Preferences`);
   reopening focuses. On cover-tier backends `open_preferences` presents the same piece
-  fullscreen — mobile apps typically keep their in-nav settings route as the visible entry
+  fullscreen; mobile apps typically keep their in-nav settings route as the visible entry
   point and gate on `Cap::MultiWindow` (Day-Matrix's `settings::show()` is the pattern).
 
 `pieces/day-piece-settings` supplies the shared theme/language rows most preferences
 surfaces need: `appearance_picker(key)` (Light/Dark/System, id `theme-picker`, gated on
 `Cap::Appearance`), `language_picker(key, res::locales::ALL)` (System + autonyms, id
-`language-picker`), `settings_sections(..)`, and `apply_startup(theme_key, locale_key)` —
+`language-picker`), `settings_sections(..)`, and `apply_startup(theme_key, locale_key)`,
 which applies persisted overrides at boot with the **env-wins rule**: `DAY_THEME` /
 `DAY_LOCALE` launches keep their forced values regardless of persistence (CI variant loops
 stay deterministic), while live picker changes always apply.
@@ -93,14 +93,14 @@ stay deterministic), while live picker changes always apply.
 ## New Window + the macOS Window menu
 
 `day::register_new_window(|| shell())` names the builder behind `menu_role(MenuRole::NewWindow)`
-(File ▸ New Window, ⌘N/Ctrl+N — lowers disabled when unregistered) and the macOS tab-bar "+"
+(File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the macOS tab-bar "+"
 (`newWindowForTab:`). Each call opens an independent `Normal` window; give each its own nav
 signals, and mark secondary shells' routed navs `.local()` so `navigate()` stays unambiguous
 (the showcase's `window_root(primary)` is the pattern).
 
 On macOS, day-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
 Bring All to Front) registered as `NSApp.windowsMenu`, so AppKit appends the open-window
-list and — while automatic tabbing is live — the tab commands (Show Next/Previous Tab,
+list and, while automatic tabbing is live, the tab commands (Show Next/Previous Tab,
 Merge All Windows). `Normal` Day windows share the `day.normal` tabbing identifier and
 group as native tabs per the system "prefer tabs" setting. When no new-window builder is
 registered, automatic tabbing is turned off entirely (no tab bar, no dead menu items). An
@@ -109,8 +109,8 @@ auto menu.
 
 ## The debug title tag
 
-A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets —
-the primary window's, each secondary window's, and every `WindowHandle::set_title`:
+A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets
+(the primary window's, each secondary window's, and every `WindowHandle::set_title`):
 
 ```
 Day Showcase (1.1.0/gtk/walkthrough.yaml)
@@ -123,7 +123,7 @@ returns `None` outside `debug_assertions`, so the decoration can never ship.
 
 The version and script name arrive as `DAY_APP_VERSION` and `DAY_SCRIPT`, which `day launch` sets
 from the project manifest and the `--script` arguments (docs/environment.md). Run the binary
-another way and the tag carries only what it knows — `(gtk)`. Apps do nothing: **do not** put the
+another way and the tag carries only what it knows: `(gtk)`. Apps do nothing: **do not** put the
 toolkit in your own title, or it will be there twice.
 
 Two rules the join follows. An **empty** title stays empty, so a window the app deliberately left
@@ -132,7 +132,7 @@ the same window can be retitled many times.
 
 The tag is on the window title only. The macOS App menu, the About panel and the process name
 read the app's *name*, so `launch_with` pins `WindowOptions::app_name` to the undecorated title
-before tagging — an app that sets only `title` still shows "Day Sheets" in its App menu.
+before tagging; an app that sets only `title` still shows "Day Sheets" in its App menu.
 
 ## dayscript
 
@@ -144,17 +144,17 @@ before tagging — an app that sets only `title` still shows "Day Sheets" in its
 ```
 
 `screenshot.window` resolves the key through the registry; on the cover tier it captures the
-primary window, whose fullscreen cover IS the content — same pixels, no special case. (XAML
-currently also answers the primary for per-window captures — noted follow-up.)
+primary window, whose fullscreen cover IS the content: same pixels, no special case. (XAML
+currently also answers the primary for per-window captures, a noted follow-up.)
 
 ## The seam (backends)
 
 `Toolkit::open_window(id, options, kind) -> WindowOpenReply<Handle>` creates and shows the
 native window, wires ITS events to `id` (`WindowResized` in content points, `WindowClosed`
 after the platform committed the close, `WindowFocused` on key changes), and answers the
-CONTENT container handle — the same contract as `ready`'s root. Backends whose window
+CONTENT container handle, the same contract as `ready`'s root. Backends whose window
 creation is asynchronous (a scene, an activity, an ability) answer `Pending` and complete
-later through `day_core::finish_window_open(id, raw, size)` — the type-erased `RawHandle`
+later through `day_core::finish_window_open(id, raw, size)`, the type-erased `RawHandle`
 adoption seam list cells use; day-core parks the record (build deferred) and a close before
 completion cancels it (`finish_window_open` answers `false`; the backend drops its window).
 `close_window`/`focus_window`/`set_window_title`/`snapshot_window_of` round out the duties;

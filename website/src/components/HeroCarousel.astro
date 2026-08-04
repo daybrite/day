@@ -161,7 +161,10 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   .hc-caption { display: flex; flex-direction: column; gap: 3px; min-height: 40px; }
   .hc-plat { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   /* The platform mark, wearing the same accent as the OS name beside it. */
-  .hc-icon { align-self: center; color: var(--hc-accent, var(--text)); display: flex; }
+  /* The mark sits ON the text baseline, like a capital letter: an SVG's baseline is its bottom
+     margin edge, so letting it take part in the row's baseline alignment (rather than centring it
+     against the line box) puts its foot exactly where "iOS" and "UIKit" put theirs. */
+  .hc-icon { display: inline-flex; color: var(--hc-accent, var(--text)); }
   .hc-icon :global(.pf-icon) { width: 1.35rem; height: 1.35rem; }
   .hc-icons { display: none; }
   .hc-os {
@@ -171,8 +174,9 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   .hc-toolkit { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
 
   /* Caption re-animates on each change (JS toggles .hc-rise). */
-  .hc-rise .hc-os, .hc-rise .hc-toolkit { animation: hc-rise 0.5s ease both; }
-  .hc-rise .hc-toolkit { animation-delay: 0.05s; }
+  .hc-rise .hc-os, .hc-rise .hc-toolkit, .hc-rise .hc-icon { animation: hc-rise 0.5s ease both; }
+  /* No stagger. A delay on one of two baseline-aligned words reads as a baseline error for the
+     whole half-second it is catching up, which is most of what the eye sees between changes. */
   @keyframes hc-rise {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
@@ -182,7 +186,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     .hc-slide { transition: opacity 0.2s linear; transform: none; }
     .hc-slide.is-active { transform: none; }
     .hc-seg.is-active i { animation: none; transform: scaleX(1); }
-    .hc-rise .hc-os, .hc-rise .hc-toolkit { animation: none; }
+    .hc-rise .hc-os, .hc-rise .hc-toolkit, .hc-rise .hc-icon { animation: none; }
   }
 </style>
 

@@ -39,7 +39,7 @@ follows a widget through the running system.
 The boundary everything crosses is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
 types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is written against
 that trait and monomorphized over the concrete backend, so core code calls native operations
-directly — no `dyn` dispatch, no message bus. Everything above `day-spec` is portable; everything
+directly, with no `dyn` dispatch and no message bus. Everything above `day-spec` is portable; everything
 below it is one platform's business.
 
 Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
@@ -50,7 +50,7 @@ tests.
 ## One binary per target
 
 A Day binary contains exactly one backend, selected by a Cargo feature at compile time. There is
-no runtime toolkit registry, no abstraction layer choosing a backend at startup — the AppKit
+no runtime toolkit registry, no abstraction layer choosing a backend at startup. The AppKit
 build literally does not contain GTK code, and a call like "set this label's text" compiles down
 to the backend's concrete function.
 
@@ -89,7 +89,7 @@ and neither goes stale.
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
 `libentry.so`). Metadata flows one way: `Day.toml` (identity, version) is conveyed into
-generated, gitignored files that the checked-in projects read — the scaffolds themselves are
+generated, gitignored files that the checked-in projects read; the scaffolds themselves are
 never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.
 
@@ -99,15 +99,15 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 
 | Backend | Seam |
 |---|---|
-| AppKit / UIKit | `objc2` bindings — Rust calls Objective-C runtime directly, no shim |
+| AppKit / UIKit | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
 | GTK | `gtk4-rs` (gobject bindings) |
 | Qt | a small hand-written C++ shim (`day-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
 | XAML | same pattern with C++/WinRT (`day-xaml-sys`) |
 | Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
 
-The shims are deliberately boring: create widget, set property, forward event. All policy —
-layout, reactivity, when to update what — lives on the shared Rust side, which keeps each
+The shims are deliberately boring: create widget, set property, forward event. All policy (layout, reactivity, when to update what)
+lives on the shared Rust side, which keeps each
 new backend's surface area small and auditable.
 
 ## Where the CLI fits

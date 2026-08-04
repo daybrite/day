@@ -18,7 +18,7 @@ The `day` CLI is on crates.io:
 
 <InstallCommand />
 
-The framework crates themselves aren't on crates.io yet — the scaffold pins them as git
+The framework crates themselves aren't on crates.io yet. The scaffold pins them as git
 dependencies to the matching release, so you never manage that by hand. Check the install worked:
 
 ```bash
@@ -47,7 +47,7 @@ day doctor --toolkit android     # focus one toolkit; misses become errors with 
 
 ## 2. Install the Day extension for VS Code
 
-The extension isn't on the Marketplace yet — install the packaged `.vsix` straight from GitHub:
+The extension isn't on the Marketplace yet. Install the packaged `.vsix` straight from GitHub:
 
 ```bash
 # grab the latest .vsix from the releases page…
@@ -59,13 +59,13 @@ code --install-extension day-vscode.vsix
 works too: `git clone https://github.com/daybrite/day-vscode && cd day-vscode && npm install &&
 npx vsce package`, then install the produced `.vsix`.)
 
-Two companions are worth installing alongside it — the extension recommends both in any Day
+Two companions are worth installing alongside it, and the extension recommends both in any Day
 workspace: **rust-analyzer** (the Rust language service) and **Even Better TOML** (which the Day
 extension wires up to validate `Day.toml` against its published schema automatically).
 
 ## 3. Create a project
 
-In VS Code: **⇧⌘P → "Day: New Project…"** — name the app, pick the platform-toolkits it should
+In VS Code: **⇧⌘P → "Day: New Project…"**. Name the app, pick the platform-toolkits it should
 target (start with your desktop; you can add more later), choose a parent folder, and the
 extension scaffolds with `day new` and opens the project.
 
@@ -75,8 +75,8 @@ Terminal equivalent:
 day new app hello --toolkit macos-appkit --appid com.example.hello && cd hello && code .
 ```
 
-The scaffold is a normal Cargo project — `cargo build` and `cargo clippy` work without the
-`day` CLI — plus a `Day.toml` manifest, per-target platform folders, a Fluent `resource/locales/` tree,
+The scaffold is a normal Cargo project (`cargo build` and `cargo clippy` work without the
+`day` CLI) plus a `Day.toml` manifest, per-target platform folders, a Fluent `resource/locales/` tree,
 a dayscript walkthrough, and an `AGENTS.md` that teaches AI agents this project's conventions.
 The two files that matter first:
 
@@ -88,7 +88,7 @@ hello/
 
 ## 4. Run it
 
-Look at the **status bar** — that's the Day cockpit:
+Look at the **status bar**, the Day cockpit:
 
 - **⬡ targets** shows what Run acts on (amber "pick targets" until you choose; click it to
   multi-select). Hovering it shows every target with live run/build/stop links.
@@ -96,14 +96,14 @@ Look at the **status bar** — that's the Day cockpit:
 - **⚙ debug/release** switches the build profile.
 
 Pick your desktop target and press ▶. The first build takes a while (it's compiling a native
-toolkit backend); after that it's an incremental compile plus relaunch — a few seconds on a warm
+toolkit backend); after that it's an incremental compile plus relaunch, a few seconds on a warm
 build. Compile errors land in the Problems panel with clickable locations.
 
 Terminal equivalent: `day launch -p macos-appkit`.
 
 ## 5. Drive it from VS Code's agent mode
 
-Every launch embeds a **dayscript engine** — a loopback automation channel — and the Day
+Every launch embeds a **dayscript engine** (a loopback automation channel), and the Day
 extension exposes it to VS Code's agent mode through ten MCP tools (`day.mcp.enabled`, on by
 default): an agent can build, launch, relaunch, tap and type in the running app, and take
 screenshots it can actually see, on every platform you target.
@@ -124,19 +124,19 @@ A well-behaved agent will follow the loop the scaffolded `AGENTS.md` teaches it:
 2. **Edit** — create `src/pages/configuration.rs`, register the route, add `nav-configuration`
    keys to *every* locale, give controls stable `.id()`s.
 3. **`day_relaunch`** — compile errors come back inside the tool result; it fixes and retries.
-4. **`day_drive`** — `navigate` to the new page, `assert_text` the ids, `screenshot` — and the
+4. **`day_drive`** — `navigate` to the new page, `assert_text` the ids, `screenshot`. The
    screenshot comes back as an image in the chat, so both of you can see the new page running
    natively. Ask it to verify on each of your targets.
 
 You stay in control: agent mode asks before running tools, and everything the agent can do, you
-can do from a terminal — `day drive -p macos-appkit --steps-json '[{"navigate":{"route":"configuration"}},{"screenshot":"check"}]'`
+can do from a terminal: `day drive -p macos-appkit --steps-json '[{"navigate":{"route":"configuration"}},{"screenshot":"check"}]'`
 drives the same engine by hand. The full protocol is documented in the
 [dayscript](/docs/dayscript) and [for agents](/docs/for-agents) pages.
 
 ## 6. Second target
 
 Add a target with `day app add-toolkit <target>` (or pick several at scaffold time), tick it in
-the cockpit's target picker, and Run launches them side by side — each target compiles a separate
+the cockpit's target picker, and Run launches them side by side. Each target compiles a separate
 binary with only that platform's toolkit backend. For iOS boot a Simulator first
 (`open -a Simulator`); for Android have an emulator or device attached.
 

@@ -6,17 +6,17 @@ section: Extend
 ---
 
 Day's core widget vocabulary is small on purpose, and the framework expects to be extended. The
-extension model has one organizing idea: **an extension is an ordinary Cargo crate** — you depend
+extension model has one organizing idea: **an extension is an ordinary Cargo crate**. You depend
 on it, it registers itself, and the build tooling aggregates whatever native baggage it brings.
 Nothing about extending Day involves forking it or editing generated projects.
 
-There are three tiers, ordered by cost. Use the cheapest one that works — and note that when you
+There are three tiers, ordered by cost. Use the cheapest one that works, and note that when you
 only need to *configure* an existing widget rather than build a new one, that's not an extension
 tier at all but a [tweak](/docs/tweaks), which is cheaper than everything below.
 
 ## Tier 0 — composite pieces: pure composition
 
-A composite piece is Rust code that arranges existing Pieces. No native code, no registration —
+A composite piece is Rust code that arranges existing Pieces. No native code, no registration;
 it works on every target automatically because it bottoms out in Pieces that already do.
 
 ```rust
@@ -32,7 +32,7 @@ and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one en
 
 ## Tier 1 — native pieces: a new leaf widget per toolkit
 
-When the platform has a control Day doesn't wrap — a combo box, a web view, a map — you write a
+When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
 **native piece**: one cross-platform front end plus a renderer per toolkit you support.
 
 The front end defines the piece's identity and its props/patch protocol, and creates a leaf node:
@@ -62,17 +62,17 @@ day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
 
 The `renderer!` macro places an entry in the backend's link-time registry (a `linkme`
 distributed slice), so the app that depends on your crate gets your renderer with zero
-configuration — no plugin manifest, no runtime discovery, and an app that *doesn't* enable your
+configuration: no plugin manifest, no runtime discovery, and an app that *doesn't* enable your
 crate's feature for a given toolkit compiles none of it.
 
-A piece that implements some toolkits and not others renders a labeled placeholder on the rest —
-visible rather than a crash — so coverage can grow toolkit by toolkit. The
+A piece that implements some toolkits and not others renders a labeled placeholder on the rest
+(visible rather than a crash), so coverage can grow toolkit by toolkit. The
 [native piece tutorial](/docs/tutorial-native-piece) walks through all six desktop/mobile
 backends for one control.
 
 ### Native dependencies without scaffold edits
 
-Native pieces often wrap a platform *library* — Lottie's iOS framework, a Maps SDK's Gradle
+Native pieces often wrap a platform *library*: Lottie's iOS framework, a Maps SDK's Gradle
 artifact. A piece crate declares these in its Cargo metadata:
 
 ```toml
@@ -87,7 +87,7 @@ permissions = ["android.permission.INTERNET"]
 ```
 
 At build time, `day build` resolves every piece in your app's dependency graph via
-`cargo metadata` and regenerates the glue the platform projects reference — a local SwiftPM
+`cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM
 package for the Xcode side, a JSON manifest the Gradle build reads for Java sources,
 dependencies, and merged permissions. Your checked-in platform scaffolds never change; only
 generated, gitignored files do. (This is the same architecture Flutter uses for plugin
@@ -96,7 +96,7 @@ registration, adapted to Cargo.)
 ## Tier 2 — polyglot pieces: native-language implementations
 
 The design reserves a third tier: pieces implemented in a platform's own language (Swift, Kotlin,
-C++) behind **dayffi**, a small versioned C ABI — a vtable of `make`/`update`/`measure`/
+C++) behind **dayffi**, a small versioned C ABI: a vtable of `make`/`update`/`measure`/
 `command`/`destroy` plus host callbacks for events and async completion. This is the tier that
 would make "wrap an arbitrary CocoaPod/AAR behind one Rust function" routine without writing any
 FFI by hand.
@@ -108,7 +108,7 @@ on it.
 
 ## Parts: capabilities without UI
 
-Extensions that don't render — battery, clipboard, Bluetooth — are [parts](/docs/parts), which
+Extensions that don't render (battery, clipboard, Bluetooth) are [parts](/docs/parts), which
 skip all of the above machinery: a part is plain `#[cfg]`-dispatched functions, with no kind,
 renderer, or registry (plus the same Cargo-metadata mechanism when Android needs Java or permissions). The
 [part tutorial](/docs/tutorial-part) covers six platform implementations of one API.

@@ -14,8 +14,8 @@ uncompressed wherever the platform allows, so the runtime can return a zero-copy
 
 ## Referencing resources — typed constants (§18.5)
 
-You don't reference bundled resources by bare string. An app's `build.rs` — one line, wired into the
-`day new` scaffold — generates a typed constant for every file under `resource/`:
+You don't reference bundled resources by bare string. An app's `build.rs` (one line, wired into the
+`day new` scaffold) generates a typed constant for every file under `resource/`:
 
 ```rust
 // build.rs
@@ -39,7 +39,7 @@ Symbols are lowercase `[a-z0-9_]`: the file stem for images, the full file name 
 `numbers.bin` → `numbers_bin`) for assets, and the parsed font family (`"Special Elite"` →
 `special_elite`) for fonts.
 
-For a name known only at runtime, opt in explicitly — this bypasses the presence guarantee:
+For a name known only at runtime, opt in explicitly; this bypasses the presence guarantee:
 
 ```rust
 image(ImageName::dynamic(user_choice))
@@ -47,7 +47,7 @@ resource(AssetName::dynamic(format!("page-{n}.json")))
 ```
 
 `day-build` also fails the build with a fix hint if an image stem isn't **portable** across toolkits
-(e.g. `Logo.png` resolves verbatim on Apple/GTK/Qt but as `logo` on Android/ArkUI — rename to
+(e.g. `Logo.png` resolves verbatim on Apple/GTK/Qt but as `logo` on Android/ArkUI; rename to
 `logo.png`), or if two files **collide** on one symbol. The same crate is the single source of the
 name→identifier rule the CLI stagers use, so a constant's string is exactly the name staged natively.
 
@@ -100,7 +100,7 @@ opener once via `day_core::set_resource_opener`; absent that, the default mmap-f
 
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. The single invariant that makes the name resolve everywhere with no
-side table: `day build` parses the name table (`day_spec::fonts::parse_font_names` — a ~100-line
+side table: `day build` parses the name table (`day_spec::fonts::parse_font_names`, a ~100-line
 bounds-checked sfnt reader shared by the CLI and the runtimes) and derives every staged name from
 the family via `font_ident` ("Special Elite" → `special_elite`), so a runtime can re-derive it
 from the requested name. The size scales with the platform accessibility text scale exactly like
@@ -113,9 +113,9 @@ Per platform:
   `DAY_FONT_ROOT` (set by `day launch` to the project's `resource/fonts/`); packed apps read
   `Contents/Resources/fonts` (copied by `day pack`).
 - **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
-  (`DayPieces_DayPieces.bundle/fonts/…`) — `.copy`, not `.process`, so the bytes land verbatim.
+  (`DayPieces_DayPieces.bundle/fonts/…`): `.copy`, not `.process`, so the bytes land verbatim.
   `day build` ALSO syncs a `UIAppFonts` array into `platform/ios/Runner/Info.plist` (managed key,
-  rewritten each build), and day-uikit registers the bundle dir with CoreText at launch — the
+  rewritten each build), and day-uikit registers the bundle dir with CoreText at launch; the
   registration covers dev loops and any path iOS declines to load from the plist.
 - **Android:** staged as `res/font/<ident>.<ext>`; aapt2 assigns `R.font.<ident>`.
   `DayBridge.setLabelFont` takes the family string, re-derives `<ident>` with the same
@@ -130,18 +130,18 @@ Per platform:
 - **XAML:** unpackaged Win32 XAML has no registration API and rejects `file://`/absolute font
   locations (like `BitmapImage`). The one location system XAML resolves is `ms-appx:///`, mapped to
   the executable directory and its subtree, so `run()` stages every bundled font into `<exe>/fonts/`
-  (a no-op when packed — `day pack` already ships them there) and the shim sets
+  (a no-op when packed; `day pack` already ships them there) and the shim sets
   `FontFamily("ms-appx:///fonts/<file>#<family>")`. The family→file mapping is resolved (and cached)
   through `day_spec::fonts::resolve_font_file` against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/ohos scaffold's EntryAbility feeds it to ArkTS
-  `font.registerFont` (building the rawfile `Resource` object by hand — `$rawfile()` only takes
+  `font.registerFont` (building the rawfile `Resource` object by hand; `$rawfile()` only takes
   literals) before the native UI loads, and day-arkui sets `NODE_FONT_FAMILY`.
 
 Validation (`crates/day-cli/src/resources/mod.rs::scan_fonts`) is hard-error at build time: only
-`.ttf`/`.otf` (Android's `res/font` accepts nothing else — the strictest platform sets the rule),
+`.ttf`/`.otf` (Android's `res/font` accepts nothing else; the strictest platform sets the rule),
 a parseable name table, and no two families colliding on the same sanitized ident. At runtime an
-unknown family logs `day: unknown font family …` and falls back to the system font — a missing
+unknown family logs `day: unknown font family …` and falls back to the system font; a missing
 font is a visual bug, never a crash. Weight overrides on custom fonts map to synthesized bold
 (`>= Semibold`) where the family has no such face.
 

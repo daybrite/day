@@ -130,30 +130,30 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 ## Selection
 
 Rows report selection through two events: `Event::SelectionChanged(row)` (single) and, in
-multi-select mode, `Event::SelectionSet(rows)` — the FULL set of selected indices on every
+multi-select mode, `Event::SelectionSet(rows)`, the FULL set of selected indices on every
 change. `.on_selection(Fn(Vec<K>))` receives the selected keys either way (a single-selection
 report arrives as a one-element set), so an app tracking the whole selection works on every
 toolkit. `.selected_rows(Fn() -> Vec<usize>)` reactively syncs app state back into the native
-selection (`ListPatch::Selected`; empty clears) without a selection-event echo — drive it from
+selection (`ListPatch::Selected`; empty clears) without a selection-event echo; drive it from
 the same signal `on_selection` writes to get a two-way binding and a "clear selection" action.
 
 Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt** and **XAML** (the
 emulated lists: a per-cell press hook, a highlight treatment on the cell's background, ctrl/cmd
 toggles, shift extends) honor `multi_select` and `ListPatch::Selected`. The remaining toolkits
 report single selection (`SelectionChanged`) and ignore the multi flag and the programmatic
-sync — the one-element `on_selection` contract still holds there.
+sync; the one-element `on_selection` contract still holds there.
 
 ## Programmatic scrolling
 
 `.scroll_to_end(Trigger)` follows the last row (above); `.scroll_to_row(Signal<Option<usize>>)`
-jumps to any row — set the signal to `Some(row)` and the native list scrolls it into view,
+jumps to any row: set the signal to `Some(row)` and the native list scrolls it into view,
 realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
 row rail's counterpart to `scroll(...).scroll_target(...)`. Backends without a native
-scroll-to-index (GTK ≤ 4.10, Qt, XAML, web) position by uniform row pitch — prefer
+scroll-to-index (GTK ≤ 4.10, Qt, XAML, web) position by uniform row pitch; prefer
 `RowHeight::Uniform` when jumping programmatically there.
 
 A Reload whose rows are the SAME set in a new order (a shuffle, a programmatic sort) animates
-as native row moves on AppKit (`moveRowAtIndex` batch — the same animation a drag commit gets);
+as native row moves on AppKit (`moveRowAtIndex` batch, the same animation a drag commit gets);
 other backends apply it instantly. Inserts, removals, and content changes always reload flat.
 
 ## Drag-to-reorder
@@ -166,26 +166,26 @@ list(items, key, row)
 ```
 
 `reorderable` turns on the platform's own drag mechanism; probe `Cap::ListReorder` for support.
-`on_reorder` is the commit: row `from` landed at row `to` — apply the identical rotation to the
+`on_reorder` is the commit: row `from` landed at row `to`; apply the identical rotation to the
 backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if the order should
 survive a relaunch. It runs at the next event drain, never inside the native drop callback.
 
-`reorder_guard` vets every proposed drop **synchronously, while the drag is live** — the native
+`reorder_guard` vets every proposed drop **synchronously, while the drag is live**: the native
 affordance (the macOS gap, the no-drop cursor) reflects the answer before the user releases.
-`Deny` refuses the drop (the row springs back); `Retarget(i)` accepts it at a different index —
+`Deny` refuses the drop (the row springs back); `Retarget(i)` accepts it at a different index,
 the "pinned rows" pattern (the Showcase pins its first row this way). Keep the guard pure: it
-runs inside the platform's drag callback, so read state and return — no UI mutation.
+runs inside the platform's drag callback, so read state and return: no UI mutation.
 
 The seam is the reorder half of `ListSource` (`ListSource::reorder`, present only when
 `.reorderable()`): `can_move(from, proposed) -> accepted-index-or--1` for the live verdict, and
-`move_row(from, to)` for the commit — which rotates Day's row snapshot **before returning**, so
+`move_row(from, to)` for the commit, which rotates Day's row snapshot **before returning**, so
 `len`/`token_at`/`bind_row` answer in the new order while the native move animates, and defers
 the app's `on_reorder` through the event queue. When the app's own data change echoes back with
 exactly the committed token order, the piece skips the redundant `Reload` (no post-drop flicker).
 
 The dayscript step `reorder: { id, from, to }` drives the same guard → commit path without a
-native gesture (a guard denial fails the step, non-retryably) — how CI asserts reordering on
-every target.
+native gesture (a guard denial fails the step, non-retryably); that is how CI asserts reordering
+on every target.
 
 Per-backend affordances:
 
@@ -202,5 +202,5 @@ Per-backend affordances:
 | mock | `MockProbe::list_can_move` / `list_move` | op log | live |
 
 Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
-lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI — prefer
+lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI; prefer
 `Uniform` heights for reorderable lists there.

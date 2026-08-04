@@ -93,5 +93,5 @@ Because tab keys are routes, everything that already targets routes works unchan
   index recording, native-selection → `current_route`, no-redundant-patch idempotence, and the
   nested-in-nav fall-through (leaving a tab route disposes the tabs host). Plus a deep-link test.
 - **Showcase + walkthrough:** the `tabs` route hosts three keyed tabs; the walkthrough enters it,
-  selects each tab by key, asserts the route/index, and screenshots — verified on all five local
+  selects each tab by key, asserts the route/index, and screenshots, verified on all five local
   targets (macos-appkit/gtk/qt, ios-uikit, android-mdc).

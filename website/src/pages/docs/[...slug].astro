@@ -1,6 +1,7 @@
 ---
 import { getCollection, render } from 'astro:content';
 import DocsLayout from '../../layouts/DocsLayout.astro';
+import PlatformIcon from '../../components/PlatformIcon.astro';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs');
@@ -9,8 +10,36 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content } = await render(entry);
+
+// The pages under docs/platforms/ are named for the platform-toolkit they document, so the page
+// can wear that platform's mark and accent without any per-page frontmatter. Anything else, and
+// any id without an icon, falls back to a plain heading.
+const platform = entry.id.startsWith('platforms/') ? entry.id.slice('platforms/'.length) : undefined;
+const known = new Set(Object.keys(import.meta.glob('../../icons/*.svg')).map((p) => p.split('/').pop()!.replace('.svg', '')));
+const iconId = platform && known.has(platform) ? platform : undefined;
 ---
 <DocsLayout title={entry.data.title} description={entry.data.description} slug={entry.id}>
-  <h1>{entry.data.title}</h1>
+  {iconId ? (
+    <div class="doc-title" data-pf={iconId}>
+      <PlatformIcon id={iconId} class="doc-title-icon" />
+      <h1>{entry.data.title}</h1>
+    </div>
+  ) : (
+    <h1>{entry.data.title}</h1>
+  )}
   <Content />
 </DocsLayout>
+
+<style>
+  /* Same header shape as the platform cards: the mark beside the title, centered against it. */
+  .doc-title { display: flex; align-items: center; gap: 14px; }
+  .doc-title h1 { margin: 0; }
+  .doc-title :global(.doc-title-icon) {
+    width: 40px;
+    height: 40px;
+    color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
+  }
+  @media (max-width: 520px) {
+    .doc-title :global(.doc-title-icon) { width: 32px; height: 32px; }
+  }
+</style>

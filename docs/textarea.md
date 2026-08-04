@@ -2,7 +2,7 @@
 
 > **Status: implemented** as a built-in piece (`kinds::TEXT_AREA`; moved in from the satellite
 > `day-piece-textarea` 2026-07). A native multi-line text editor bound two-way to a string, with
-> an auto-growing height band. In `day::prelude::*` — no dependency to add.
+> an auto-growing height band. In `day::prelude::*`, with no dependency to add.
 
 ## Authoring
 
@@ -19,7 +19,7 @@ text_area(body)
 
 `text_area(text)` binds a `Signal<String>` two-way: keystrokes write the signal, and setting the
 signal replaces the editor's text (echo-guarded, so a programmatic set that matches the last typed
-value doesn't loop). `.placeholder(_)` sets the empty-state prompt (evaluated once — not reactive).
+value doesn't loop). `.placeholder(_)` sets the empty-state prompt (evaluated once, not reactive).
 The height auto-grows with content between `.min_lines(_)` (default 1) and `.max_lines(_)` (default
 `0` = unbounded, never scrolls); a non-zero max is floored to min. `TextArea` implements `Piece`, so
 `.id()`/`.a11y()`/`.frame()` chain via `Decorate`.
@@ -43,7 +43,7 @@ text_area(report)
 
 Native support varies; a toolkit that can't honor an attribute answers the matching capability with
 `Support::Unsupported`, so an app can gray out a control that would do nothing. `Emulated` means the
-attribute IS honored, just not by one native property — so the test to gray a control is
+attribute IS honored, just not by one native property, so the test to gray a control is
 `capability(…) == Support::Unsupported`, not `!= Support::Native` (the showcase's Text Areas page
 gates its three toggles that way):
 
@@ -58,10 +58,10 @@ spell-checker (that needs libspelling/gspell or Hunspell).
 
 **XAML** honors editable and spell-check with the plain `TextBox` properties `IsReadOnly` and
 `IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a `TextBlock` /
-`RichTextBlock` property and `TextBox` carries no equivalent, so `.selectable(false)` is EMULATED —
+`RichTextBlock` property and `TextBox` carries no equivalent, so `.selectable(false)` is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All. The **ArkUI** editor supports all three natively but
-its shim doesn't expose the setters yet — a documented follow-up; until then it reports
+its shim doesn't expose the setters yet, a documented follow-up; until then it reports
 `Unsupported` for all three and ignores the props.
 
 It is the multi-line sibling of `text_field` (docs/forms.md): a field is one line and submits on
@@ -79,7 +79,7 @@ Each backend keeps the `(min_lines, max_lines)` band and grows its `measure` hei
 Text changes report through `Event::TextChanged(String)`; programmatic sync (`TextAreaPatch::SetText`)
 is echo-guarded per backend, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
 apply the native property. The Qt and XAML renderers carry C++ shims in the matching `-sys` crate
-(`shim-textarea.cpp` — Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; XAML adds
+(`shim-textarea.cpp`: Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; XAML adds
 `day_textarea_xaml_set_editable`/`set_selectable`/`set_spellcheck`, applied at build as well as on
 patch so an editor that starts read-only comes up that way); Android's
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,
@@ -94,7 +94,7 @@ round-trips.
 ## Follow-ups
 
 - **XAML + ArkUI attribute setters**: `TextBox`/`ARKUI_NODE_TEXT_AREA` support editable/selectable/
-  spell-check natively, but their shims don't expose the setters yet — they report `Unsupported` and
+  spell-check natively, but their shims don't expose the setters yet; they report `Unsupported` and
   ignore the props for now.
 - Rich text / attributed runs (a separate `RichText` piece; DESIGN §B.5).
 - Reactive placeholder; a character/line counter affordance.

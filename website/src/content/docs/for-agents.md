@@ -30,14 +30,14 @@ bind straight to native attributes.
 
 1. **One toolkit backend per binary.** A binary compiles exactly one backend (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
-2. **Views are built once, then kept live by bindings — never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
+2. **Views are built once, then kept live by bindings, never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
    closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
 4. **Give every interactive/asserted Piece a stable `.id("…")`.** Tests, dayscript, and deep links
    address Pieces by id. No id ⇒ not scriptable.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
-   per key — `res::str::my_key()`, parameters become typed arguments — so a missing key or
+   per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
    wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Don't
    hard-code display strings in shipped apps (the showcase uses literals only for its own demo
    labels). Provider data (tickers, product names) stays verbatim.
@@ -82,7 +82,7 @@ height = 640
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
   `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-xaml`, `windows-gtk`,
-  `windows-qt`, `web-dom` (wasm in a browser; no process environment — pass runtime flags with
+  `windows-qt`, `web-dom` (wasm in a browser; no process environment, so pass runtime flags with
   `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
 
 ## Canonical patterns (copy these)
@@ -250,13 +250,13 @@ flow:
 
 For apps with network data, ship a deterministic mock behind a `day launch --env MY_MOCK=1`
 flag (read it with `day::env`, which also works on web-dom) and write the walkthrough against
-the mock's exact values. Keep the mock's arithmetic integer-derived — transcendentals can
+the mock's exact values. Keep the mock's arithmetic integer-derived. Transcendentals can
 round differently across platforms and break cross-target `assert_text` on formatted numbers.
 
 ## Driving a running app (`day drive` / MCP)
 
 Every `day launch` embeds a loopback automation engine and records its coordinates in
-`build/day/sessions.json` — so you can drive an app that is ALREADY running, without a script
+`build/day/sessions.json`, so you can drive an app that is ALREADY running, without a script
 file:
 
 ```bash
@@ -274,7 +274,7 @@ Output is JSON (per-step `ok`/`error`, screenshot paths + base64). Step ops: `na
 If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day
 extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_launch`,
 `day_relaunch`, `day_stop`, `day_running`, `day_drive`, `day_screenshot`, `day_doctor`,
-`day_lint`. `day_drive`/`day_screenshot` return screenshots as images — **look at them** to
+`day_lint`. `day_drive`/`day_screenshot` return screenshots as images. **Look at them** to
 verify UI changes on every target you touched. The canonical loop: edit → `day_relaunch`
 (compile errors come back in the result) → `day_drive` (navigate + assert + screenshot).
 

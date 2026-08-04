@@ -54,7 +54,7 @@ gallery.
   `webview.WebviewController`; `onPageEnd` reports each committed URL back. **The x86_64 emulator cannot
   run it**: its `ArkWebCore.hap` carries arm64-only native libs (`bm install` answers "the Abi type
   supported by the device does not match"), so the engine loads as null and the component's surface
-  wedges the window's compositor — the walkthrough skips this page there (docs/harmonyos.md).
+  wedges the window's compositor; the walkthrough skips this page there (docs/harmonyos.md).
 - **XAML**: the UWP-XAML `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), which is in the base Windows SDK
   cppwinrt projection day-xaml already uses (no Windows App SDK / WebView2). Creation + navigation are
   wrapped in try/catch: EdgeHTML WebView can be unavailable in an unpackaged Win32 XAML host, so it
@@ -87,7 +87,7 @@ Building `day-piece-webview` as a fully self-contained piece surfaced (and fixed
    needed a way to ship ArkTS and have it mounted in the native tree. `[package.metadata.day.ohos] ets =
    [...]` stages a piece's `.ets` into the hvigor project, `day build` generates the `DayPieces.ets`
    aggregator the host page registers, and the shim's `registerPiece`/`pieceEvent` pair carries
-   make/update/dispose and events across — generically, so `map`/`lottie` need no new bridge.
+   make/update/dispose and events across generically, so `map`/`lottie` need no new bridge.
 
 Two more findings handled within existing contracts: native→URL reporting uses `Custom("webview:url", …)`
 on Apple/Qt but the public `TextChanged` kind on Android (its `Custom` kind is reserved for deep links);

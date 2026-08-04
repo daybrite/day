@@ -16,7 +16,7 @@ const targets = [
     name: 'AppKit',
     os: 'macOS',
     blurb:
-      'The Mac’s native toolkit — the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
+      'The Mac’s native toolkit: the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
   },
   {
     id: 'ios-uikit',
@@ -30,21 +30,21 @@ const targets = [
     name: 'Material Components',
     os: 'Android',
     blurb:
-      'Google’s native widgets over android.view, on phones, tablets, and foldables — themed by the OS, packaged as .apk or .aab.',
+      'Google’s native widgets over android.view, on phones, tablets, and foldables, themed by the OS and packaged as .apk or .aab.',
   },
   {
     id: 'linux-gtk',
     name: 'GTK 4',
     os: 'Linux',
     blurb:
-      'GNOME’s toolkit, styled by libadwaita — the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
+      'GNOME’s toolkit, styled by libadwaita. It is the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
   },
   {
     id: 'linux-qt',
     name: 'Qt 6 Widgets',
     os: 'Linux',
     blurb:
-      'The toolkit beneath KDE Plasma — the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
+      'The toolkit beneath KDE Plasma: the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
   },
   {
     id: 'windows-xaml',
@@ -65,7 +65,7 @@ const targets = [
     name: 'The DOM',
     os: 'Web',
     blurb:
-      'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files — open the live build.',
+      'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files; open the live build.',
   },
 ];
 
@@ -99,37 +99,37 @@ const features = [
     icon: 'm438-452-58-57q-11-11-27.5-11T324-508q-11 11-11 28t11 28l86 86q12 12 28 12t28-12l170-170q12-12 11.5-28T636-592q-12-12-28.5-12.5T579-593L438-452ZM326-90l-58-98-110-24q-15-3-24-15.5t-7-27.5l11-113-75-86q-10-11-10-26t10-26l75-86-11-113q-2-15 7-27.5t24-15.5l110-24 58-98q8-13 22-17.5t28 1.5l104 44 104-44q14-6 28-1.5t22 17.5l58 98 110 24q15 3 24 15.5t7 27.5l-11 113 75 86q10 11 10 26t-10 26l-75 86 11 113q2 15-7 27.5T802-212l-110 24-58 98q-8 13-22 17.5T584-74l-104-44-104 44q-14 6-28 1.5T326-90Zm52-72 102-44 104 44 56-96 110-26-10-112 74-84-74-86 10-112-110-24-58-96-102 44-104-44-56 96-110 24 10 112-74 86 74 84-10 114 110 24 58 96Zm102-318Z',
     color: 'var(--pf-android-mdc)',
     title: 'Apps your users recognize',
-    body: 'Every control is the platform’s own — a real Mac button on macOS, real Material on Android. Text, scrolling, shortcuts, and dark mode behave the way each platform’s users already expect, and keep improving with OS updates you never have to ship.',
+    body: 'Every control is the platform’s own: a real Mac button on macOS, real Material on Android. Text, scrolling, shortcuts, and dark mode behave the way each platform’s users already expect, and keep improving with OS updates you never have to ship.',
   },
   {
     icon: 'm422-232 207-248H469l29-227-185 267h139l-30 208Zm-62-128H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Zm111-110Z',
     color: 'var(--sun)',
     title: 'No browser, no bundled engine',
-    body: 'Day apps are small native binaries that talk directly to the operating system. There is no embedded browser to patch and no rendering engine to carry, so apps start in milliseconds, install in megabytes, and leave less to patch.',
+    body: 'Day apps are small native binaries that talk directly to the operating system. With no embedded browser and no rendering engine, they start in milliseconds and install in megabytes.',
   },
   {
     icon: 'M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z',
     color: 'var(--brand)',
     title: 'One codebase, one team',
-    body: 'Six operating systems and the web from a single Rust program. A feature lands once and ships everywhere at the same time — instead of three implementations drifting apart across three teams and three schedules.',
+    body: 'Six operating systems and the web from a single Rust program. A feature lands once and ships everywhere at the same time, instead of one implementation per platform drifting apart as schedules diverge.',
   },
   {
     icon: 'M423.5-743.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5ZM360-120v-480q-49-4-99-11t-98-18q-17-4-27.5-19t-5.5-32q5-17 21-25t34-4q70 15 145.5 22t149.5 7q74 0 149.5-7T775-709q18-4 34 4t21 25q5 17-5.5 32T797-629q-48 11-98 18t-99 11v480q0 17-11.5 28.5T560-80q-17 0-28.5-11.5T520-120v-200h-80v200q0 17-11.5 28.5T400-80q-17 0-28.5-11.5T360-120Z',
     color: 'var(--pf-macos-appkit)',
     title: 'Accessibility & localization, built in',
-    body: 'Screen-reader support rides each platform’s own accessibility tree, and every user-facing string flows through Mozilla Fluent localization. The groundwork for accessibility requirements and new markets is in the framework, not on your backlog.',
+    body: 'Screen-reader support uses each platform’s own accessibility tree, and every user-facing string is localized with Mozilla Fluent. The groundwork for accessibility requirements and new markets is in the framework, not on your backlog.',
   },
   {
     icon: 'M160-120q-33 0-56.5-23.5T80-200v-560q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v560q0 33-23.5 56.5T800-120H160Zm0-80h640v-560H160v560Zm200-80q17 0 28.5-11.5T400-320q0-17-11.5-28.5T360-360H240q-17 0-28.5 11.5T200-320q0 17 11.5 28.5T240-280h120Zm222-193-29-29q-12-12-28-11.5T497-501q-11 12-11.5 28t11.5 28l57 57q12 12 28 12t28-12l142-142q12-12 12-28t-12-28q-12-12-28.5-12T695-586L582-473Zm-222 33q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520H240q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440h120Zm0-160q17 0 28.5-11.5T400-640q0-17-11.5-28.5T360-680H240q-17 0-28.5 11.5T200-640q0 17 11.5 28.5T240-600h120ZM160-200v-560 560Z',
     color: 'var(--pf-linux-qt)',
     title: 'Tested on every platform, every change',
-    body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots — the gallery on this site is those exact artifacts. Platform regressions surface in CI, not in your users’ reviews.',
+    body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots. The gallery on this site is those exact artifacts.',
   },
   {
     icon: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Zm187-200-76-76q-12-12-11.5-28t12.5-28q12-11 28-11.5t28 11.5l104 104q12 12 12 28t-12 28L328-308q-11 11-27.5 11.5T272-308q-11-11-11-28t11-28l75-76Zm173 160q-17 0-28.5-11.5T480-320q0-17 11.5-28.5T520-360h160q17 0 28.5 11.5T720-320q0 17-11.5 28.5T680-280H520Z',
     color: 'var(--pf-web-dom)',
     title: 'One CLI for the whole pipeline',
-    body: 'One command line creates, runs, tests, and packages signed installers for every platform — dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, built for CI and AI-assisted development alike.',
+    body: 'One command line creates, runs, tests, and packages signed installers for every platform: dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, for CI and for AI-assisted development.',
   },
 ];
 
@@ -139,7 +139,7 @@ const compare = [
   {
     name: 'Web-view shells',
     examples: 'Electron, Tauri',
-    body: 'Fast to staff from a web team, but the interface runs in a browser engine — bundled with the app (Electron) or the system’s (Tauri) — with the memory profile, patch cadence, and not-quite-native feel that implies.',
+    body: 'Fast to staff from a web team, but the interface runs in a browser engine, bundled with the app (Electron) or the system’s (Tauri). That brings the browser’s memory profile and its patch cadence.',
   },
   {
     name: 'Custom renderers',
@@ -185,16 +185,20 @@ const compare = [
       <div class="pf-grid">
         {targets.map((t) => (
           <article class="pf-card" data-pf={t.id}>
-            <PlatformIcon id={t.id} class="pf-icon-mark" />
-            <p class="pf-os">{t.os}</p>
-            <h3 class="pf-name">{t.name}</h3>
-            <code class="pf-id">{t.id}</code>
+            <div class="pf-head">
+              <PlatformIcon id={t.id} class="pf-icon-mark" />
+              <div class="pf-headings">
+                <p class="pf-os">{t.os}</p>
+                <h3 class="pf-name">{t.name}</h3>
+                <code class="pf-id">{t.id}</code>
+              </div>
+            </div>
             <p class="pf-blurb">
               {t.id === 'web-dom' ? (
                 <>
                   The browser’s own widgets: the same Rust compiled to WebAssembly, driving
                   real <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code> elements.
-                  Hosts as static files — <a href={url('showcase/web-dom/')}>open the live build</a>.
+                  Hosts as static files. <a href={url('showcase/web-dom/')}>Open the live build</a>.
                 </>
               ) : (
                 t.blurb
@@ -216,14 +220,14 @@ const compare = [
         <p class="eyebrow">One codebase, every platform</p>
         <h2 class="sec-title">One Rust function. A native app <span class="grad-text">everywhere</span>.</h2>
         <p class="lead">
-          This is a complete, working counter — the whole thing. The same function becomes a real
+          This is a complete, working counter, the whole thing. The same function becomes a real
           AppKit control on macOS, UIKit on iOS, Material on Android, and native GTK, Qt, XAML, and
           ArkUI widgets everywhere else. Those are the screenshots in the carousel above: real
           platform components, from this exact kind of code.
         </p>
         <ul class="how-list">
-          <li><b>Just Rust:</b> plain functions and builder calls — no markup language or macros, and no per-platform branches.</li>
-          <li><b>Reactive by binding:</b> change a signal and only the control showing it updates — no re-render, no virtual tree.</li>
+          <li><b>Just Rust:</b> plain functions and builder calls, with no markup language, no macros, and no per-platform branches.</li>
+          <li><b>Reactive by binding:</b> change a signal and only the control showing it updates. No re-render, no virtual tree.</li>
           <li><b>Native on the other side:</b> the widgets it produces are the platform's own, not lookalikes drawn by an engine.</li>
         </ul>
         <div class="hero-cta">
@@ -232,7 +236,7 @@ const compare = [
       </div>
       <div class="codeshow-code">
         <CodeSample code={heroCode} title="counter.rs" />
-        <p class="codeshow-note">One function — a native counter on all twelve targets.</p>
+        <p class="codeshow-note">One function, a native counter on all twelve targets.</p>
       </div>
     </div>
   </section>
@@ -271,21 +275,21 @@ const compare = [
       <p class="eyebrow">Agents & automation</p>
       <h2 class="sec-title">Built <span class="grad-text">for agents and CI</span>.</h2>
       <p class="lead">
-        Every Day app embeds <b>dayscript</b> — the same automation engine that drives Day's own
+        Every Day app embeds <b>dayscript</b>, the same automation engine that drives Day's own
         release pipeline. A YAML script, an agent over MCP, or your CI taps buttons, types text,
-        asserts what's on screen by stable element ids, and captures screenshots — identically on
+        asserts what's on screen by stable element ids, and captures screenshots, identically on
         every platform.
       </p>
       <ul class="how-list">
         <li>
-          <b>Agents that see their work:</b> Claude Code and other MCP clients get the day tools —
-          build, relaunch, drive, screenshot — so an LLM edits your app, drives the running build,
+          <b>Agents that see their work:</b> Claude Code and other MCP clients get the day tools
+          (build, relaunch, drive, screenshot), so an LLM edits your app, drives the running build,
           and shows you pixels to prove the change landed.
         </li>
         <li>
-          <b>Quality assurance that travels:</b> one walkthrough script runs on all twelve
-          targets; run it per theme and locale and the same YAML produces your localized
-          screenshots — the <a href={url('gallery')}>gallery</a> on this site is exactly that.
+          <b>One script, twelve targets:</b> run the walkthrough per theme and locale and the
+          same YAML produces your localized screenshots. The
+          <a href={url('gallery')}>gallery</a> on this site is exactly that.
         </li>
         <li>
           <b>Regressions caught in CI, not in reviews:</b> the walkthrough runs on every push; a
@@ -314,7 +318,7 @@ const compare = [
         ))}
       </div>
       <p class="lead cmp-close">
-        Day keeps the platform's own components <em>and</em> the single codebase. It has real limits
+        Day keeps the platform's own components <em>and</em> the single codebase. It has limits
         too: no hot reload, a young ecosystem, and deliberate constraints on pixel-level branding.
       </p>
       <a class="btn btn-ghost" href={url('docs/benefits')}>Read the comparison →</a>
@@ -330,12 +334,12 @@ const compare = [
         <p class="lead">
           Day builds your interface from real platform components once, then keeps each one
           connected to your application's state. When a value changes, the exact label or control
-          showing it updates — no re-rendering, no shadow copy of the interface to reconcile, no
+          showing it updates. There is no re-rendering, no shadow copy of the interface to reconcile, no
           engine in between. Day apps perform like hand-written platform code because, at runtime,
           that's what they are.
         </p>
         <ul class="how-list">
-          <li><b>Plain Rust:</b> functions and builder calls any engineer can read — no macros, no separate UI language.</li>
+          <li><b>Plain Rust:</b> functions and builder calls any engineer can read, with no macros and no separate UI language.</li>
           <li><b>Native navigation:</b> sidebars, tabs, and back-gestures are the platform's own containers.</li>
           <li><b>Testable end to end:</b> one automation script drives the app identically on every platform.</li>
         </ul>
@@ -429,11 +433,14 @@ const compare = [
     text-transform: uppercase;
     color: color-mix(in srgb, var(--pf) 78%, var(--text));
   }
+  /* The mark sits beside the three title rows, centered against the block as a whole — the same
+     header shape the showcase download cards use. */
+  .pf-head { display: flex; align-items: center; gap: 13px; margin-bottom: 6px; }
+  .pf-headings { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
   /* :global — see the note on .dl-icon in showcase.astro: the svg carries PlatformIcon's scope. */
   .pf-card :global(.pf-icon-mark) {
-    width: 28px;
-    height: 28px;
-    margin-bottom: 12px;
+    width: 34px;
+    height: 34px;
     color: color-mix(in srgb, var(--pf) 78%, var(--text));
   }
   .pf-name { margin: 0 0 6px; font-size: 1.02rem; }

@@ -2,7 +2,7 @@
 
 > **Status: implemented** on every backend (AppKit, UIKit, Android, GTK, Qt, XAML, ArkUI, mock).
 > One primitive carries it all: `Toolkit::scroll_to(handle, rect, animated)` with
-> scrollRectToVisible semantics — day-core composes edges, offsets, and reveal-element targets
+> scrollRectToVisible semantics: day-core composes edges, offsets, and reveal-element targets
 > into content-space rects, so each backend only implements "minimal scroll to make this rect
 > visible". Verified by mock-toolkit unit tests (`crates/day-pieces/tests/mock_e2e.rs`) and the
 > showcase Scrolling page + walkthrough.
@@ -22,7 +22,7 @@ button("Item 100").action(move || jump.set(Some(ScrollTarget::Id("row-100".into(
 ```
 
 `.scroll_target(sig)` takes a `Signal<Option<ScrollTarget>>`: each `Some(target)` written to it
-scrolls there (animated), then the signal resets to `None` — write-and-forget, so the same
+scrolls there (animated), then the signal resets to `None`: write-and-forget, so the same
 target can be sent twice in a row. `ScrollTarget` is:
 
 | target | meaning |
@@ -34,10 +34,10 @@ target can be sent twice in a row. `ScrollTarget` is:
 
 Lower-level, `day_core::scroll_to(node, target)` drives any scroll node directly, and
 `TreeOps::scroll_reveal(node, animated)` scrolls an element's nearest scroll ancestor so the
-element is visible — the same call keyboard avoidance uses (docs/focus.md). Reveals are minimal:
+element is visible, the same call keyboard avoidance uses (docs/focus.md). Reveals are minimal:
 content already in view doesn't move.
 
-The showcase's List page is the live reference (`apps/showcase/src/pages/list.rs`) — its scroll
+The showcase's List page is the live reference (`apps/showcase/src/pages/list.rs`): its scroll
 buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, docs/list.md);
 `scroll_target` on a plain `scroll` piece works the same way with a `ScrollTarget`.
 
@@ -50,7 +50,7 @@ buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, 
 ```
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a
-presence check (realized + nonzero frame — DESIGN Appendix C); it does not test whether an
+presence check (realized + nonzero frame; DESIGN Appendix C); it does not test whether an
 element is inside the viewport, so pair `scroll_to` with screenshots when the point of the test
 is what's on screen.
 

@@ -64,6 +64,11 @@ pub struct Sbom {
     pub repository: Option<String>,
     /// Commit the build came from. `None` for a checkout with no commits.
     pub commit: Option<String>,
+    /// Where the project sits inside that repository, as a slash-separated relative path
+    /// (`apps/showcase`; empty when the project IS the repository root). A repository may hold
+    /// several Day apps — plus scaffold templates that look like one — so a rebuild that only had
+    /// the commit would have to guess which directory to pack.
+    pub project_path: Option<String>,
     /// True when the working tree had uncommitted changes — a rebuild cannot match this artifact.
     pub dirty: bool,
     pub components: Vec<Component>,
@@ -114,7 +119,7 @@ pub fn normalize_license(raw: &str) -> String {
 }
 
 /// The git remote and commit for a project directory, when it is a checkout.
-fn git_source(root: &Path) -> (Option<String>, Option<String>, bool) {
+fn git_source(root: &Path) -> (Option<String>, Option<String>, bool, Option<String>) {
     let git = |args: &[&str]| -> Option<String> {
         let out = Command::new("git")
             .current_dir(root)
@@ -137,7 +142,13 @@ fn git_source(root: &Path) -> (Option<String>, Option<String>, bool) {
     });
     let commit = git(&["rev-parse", "HEAD"]);
     let dirty = git(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
-    (remote, commit, dirty)
+    // `--show-prefix` is exactly this: the path from the repository root to the current directory,
+    // slash-separated and empty at the root. Asking git avoids re-deriving it from two paths that
+    // may differ in symlinks or case.
+    let project_path = git(&["rev-parse", "--show-prefix"])
+        .map(|p| p.trim_end_matches('/').to_string())
+        .or_else(|| commit.as_ref().map(|_| String::new()));
+    (remote, commit, dirty, project_path)
 }
 
 /// Rust dependency components, read from `cargo metadata`.
@@ -188,7 +199,7 @@ fn cargo_components(root: &Path) -> Vec<Component> {
 
 /// Collect the SBOM for a project. Deterministic: every field is a property of the source.
 pub fn collect_sbom(project: &Project) -> Sbom {
-    let (repository, commit, dirty) = git_source(&project.root);
+    let (repository, commit, dirty, project_path) = git_source(&project.root);
     Sbom {
         schema: SCHEMA.into(),
         app_id: project.manifest.app.id.clone(),
@@ -198,125 +209,145 @@ pub fn collect_sbom(project: &Project) -> Sbom {
         repository,
         commit,
         dirty,
+        project_path,
         components: cargo_components(&project.root),
+    }
+}
+
+/// Every tool `collect_buildinfo` may record, as (key, display name, how to install it). The
+/// VERSION is not here: it comes from `tool_version`, so the packing side and the verifying side
+/// can never drift apart.
+fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> {
+    let mut t: Vec<(&str, &str, &str)> = vec![
+        (
+            "rust",
+            "rustc",
+            "rustup toolchain install <version> && rustup override set <version>",
+        ),
+        (
+            "cargo",
+            "cargo",
+            "ships with the matching rustc toolchain (rustup)",
+        ),
+        (
+            "day",
+            "day CLI",
+            "cargo install day-cli --version <version>",
+        ),
+    ];
+    match toolkit {
+        "appkit" | "uikit" => t.extend([
+            (
+                "xcode",
+                "Xcode",
+                "https://developer.apple.com/download/all/?q=Xcode — install, then \
+                 sudo xcode-select -s /Applications/Xcode_<version>.app",
+            ),
+            (
+                "clang",
+                "Apple clang",
+                "ships with Xcode; selected by xcode-select",
+            ),
+        ]),
+        "mdc" => t.extend([
+            (
+                "gradle",
+                "Gradle",
+                "https://gradle.org/releases/ (or the project's ./gradlew wrapper)",
+            ),
+            (
+                "java",
+                "JDK",
+                "brew install openjdk@<major> / apt install openjdk-<major>-jdk",
+            ),
+            (
+                "ndk",
+                "Android NDK",
+                "sdkmanager 'ndk;<version>' — https://developer.android.com/ndk/downloads",
+            ),
+        ]),
+        "arkui" => t.extend([
+            (
+                "ohos-sdk",
+                "OpenHarmony SDK",
+                "https://gitee.com/openharmony/docs — see docs/harmonyos.md for the layout",
+            ),
+            (
+                "hvigor",
+                "hvigor",
+                "ships with the OpenHarmony command-line-tools",
+            ),
+        ]),
+        "xaml" => t.extend([
+            (
+                "msvc",
+                "MSVC toolchain",
+                "https://visualstudio.microsoft.com/downloads/ (Desktop development with C++)",
+            ),
+            (
+                "nsis",
+                "NSIS",
+                "choco install nsis / winget install NSIS.NSIS",
+            ),
+        ]),
+        "gtk" | "qt" => t.extend([
+            (
+                "flatpak-builder",
+                "flatpak-builder",
+                "apt install flatpak-builder / dnf install flatpak-builder",
+            ),
+            ("cc", "C compiler", "apt install build-essential"),
+        ]),
+        _ => {}
+    }
+    t
+}
+
+/// This machine's version of a tool, by the key `tool_table` names it under.
+///
+/// ONE function for both sides: `day pack` records what it returns, `day rebuild` compares against
+/// what it returns. They used to be separate probes in separate files, and a key present in one but
+/// not the other could never match — `ndk` and `ohos-sdk` were both recorded and then unverifiable
+/// on every machine, including the one that had just built the artifact.
+pub fn tool_version(key: &str) -> Option<String> {
+    match key {
+        "rust" => probe("rustc", &["--version"]),
+        "cargo" => probe("cargo", &["--version"]),
+        "day" => Some(env!("DAY_VERSION_LONG").to_string()),
+        "xcode" => probe("xcodebuild", &["-version"]),
+        "clang" => probe("clang", &["--version"]),
+        "gradle" => probe("gradle", &["--version"]).or_else(|| probe("gradle", &["-v"])),
+        "java" => probe("javac", &["-version"]),
+        "ndk" => std::env::var("ANDROID_NDK_HOME")
+            .ok()
+            .and_then(|p| ndk_version(&p)),
+        "ohos-sdk" => std::env::var("OHOS_BASE_SDK_HOME")
+            .ok()
+            .and_then(|p| ohos_sdk_version(&p)),
+        "hvigor" => probe("hvigorw", &["--version"]),
+        "msvc" => probe("cl", &["/?"]),
+        "nsis" => probe("makensis", &["/VERSION"]).or_else(|| probe("makensis", &["-VERSION"])),
+        "flatpak-builder" => probe("flatpak-builder", &["--version"]),
+        "cc" => probe("cc", &["--version"]),
+        _ => None,
     }
 }
 
 /// Collect the build environment for a target. Every value here is machine-specific.
 pub fn collect_buildinfo(target: &Target, profile: &str) -> BuildInfo {
-    let mut tools = Vec::new();
-    let mut add = |key: &str, name: &str, version: Option<String>, hint: &str| {
-        if let Some(v) = version {
-            tools.push(ToolRecord {
+    let tools = tool_table(target.toolkit)
+        .into_iter()
+        .filter_map(|(key, name, hint)| {
+            // A tool that is not installed is simply not recorded: provenance states what a
+            // machine had, and an absence is a fact rather than an error.
+            Some(ToolRecord {
                 key: key.into(),
                 name: name.into(),
-                version: v,
+                version: tool_version(key)?,
                 install_hint: hint.into(),
-            });
-        }
-    };
-
-    add(
-        "rust",
-        "rustc",
-        probe("rustc", &["--version"]),
-        "rustup toolchain install <version> && rustup override set <version>",
-    );
-    add(
-        "cargo",
-        "cargo",
-        probe("cargo", &["--version"]),
-        "ships with the matching rustc toolchain (rustup)",
-    );
-    add(
-        "day",
-        "day CLI",
-        Some(env!("DAY_VERSION_LONG").to_string()),
-        "cargo install day-cli --version <version>",
-    );
-
-    match target.toolkit {
-        "appkit" | "uikit" => {
-            add(
-                "xcode",
-                "Xcode",
-                probe("xcodebuild", &["-version"]),
-                "https://developer.apple.com/download/all/?q=Xcode — install, then \
-                 sudo xcode-select -s /Applications/Xcode_<version>.app",
-            );
-            add(
-                "clang",
-                "Apple clang",
-                probe("clang", &["--version"]),
-                "ships with Xcode; selected by xcode-select",
-            );
-        }
-        "mdc" => {
-            add(
-                "gradle",
-                "Gradle",
-                probe("gradle", &["--version"]).or_else(|| probe("gradle", &["-v"])),
-                "https://gradle.org/releases/ (or the project's ./gradlew wrapper)",
-            );
-            add(
-                "java",
-                "JDK",
-                probe("javac", &["-version"]),
-                "brew install openjdk@<major> / apt install openjdk-<major>-jdk",
-            );
-            add(
-                "ndk",
-                "Android NDK",
-                std::env::var("ANDROID_NDK_HOME")
-                    .ok()
-                    .and_then(|p| ndk_version(&p)),
-                "sdkmanager 'ndk;<version>' — https://developer.android.com/ndk/downloads",
-            );
-        }
-        "arkui" => {
-            add(
-                "ohos-sdk",
-                "OpenHarmony SDK",
-                std::env::var("OHOS_BASE_SDK_HOME").ok(),
-                "https://gitee.com/openharmony/docs — see docs/harmonyos.md for the layout",
-            );
-            add(
-                "hvigor",
-                "hvigor",
-                probe("hvigorw", &["--version"]),
-                "ships with the OpenHarmony command-line-tools",
-            );
-        }
-        "xaml" => {
-            add(
-                "msvc",
-                "MSVC toolchain",
-                probe("cl", &["/?"]),
-                "https://visualstudio.microsoft.com/downloads/ (Desktop development with C++)",
-            );
-            add(
-                "nsis",
-                "NSIS",
-                probe("makensis", &["/VERSION"]).or_else(|| probe("makensis", &["-VERSION"])),
-                "choco install nsis / winget install NSIS.NSIS",
-            );
-        }
-        "gtk" | "qt" => {
-            add(
-                "flatpak-builder",
-                "flatpak-builder",
-                probe("flatpak-builder", &["--version"]),
-                "apt install flatpak-builder / dnf install flatpak-builder",
-            );
-            add(
-                "cc",
-                "C compiler",
-                probe("cc", &["--version"]),
-                "apt install build-essential",
-            );
-        }
-        _ => {}
-    }
+            })
+        })
+        .collect();
 
     BuildInfo {
         schema: SCHEMA.into(),
@@ -327,6 +358,29 @@ pub fn collect_buildinfo(target: &Target, profile: &str) -> BuildInfo {
         tools,
         artifacts: Vec::new(),
     }
+}
+
+/// The OpenHarmony SDK's version, read from the `oh-uni-package.json` its toolchains ship.
+///
+/// NOT the value of `OHOS_BASE_SDK_HOME`: that is a path on the machine that built the artifact
+/// (`/home/runner/ohos-ohsdk`), which no other machine can match and which says nothing about what
+/// was actually installed. The layout is `<base>/<api>/toolchains/oh-uni-package.json`; the highest
+/// api level present is the one a build resolves to.
+fn ohos_sdk_version(base: &str) -> Option<String> {
+    let mut apis: Vec<(u32, PathBuf)> = std::fs::read_dir(base)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().parse::<u32>().ok()?;
+            Some((n, e.path()))
+        })
+        .collect();
+    apis.sort_by_key(|(n, _)| *n);
+    let (api, dir) = apis.pop()?;
+    let text = std::fs::read_to_string(dir.join("toolchains/oh-uni-package.json")).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let version = doc.get("version")?.as_str()?;
+    Some(format!("{version} (API {api})"))
 }
 
 /// The NDK version from its `source.properties`, which is the only place it is recorded.
@@ -379,13 +433,16 @@ pub fn cyclonedx(sbom: &Sbom) -> serde_json::Value {
 
 /// The SBOM as SPDX 2.3 JSON.
 pub fn spdx(sbom: &Sbom) -> serde_json::Value {
-    // `sourceInfo` carries the same repository/commit CycloneDX puts in properties. Without it an
-    // SPDX-only SBOM could not drive `day rebuild`, and `sbom = "sidecar spdx"` is a valid choice.
+    // `sourceInfo` carries the same source facts CycloneDX puts in properties — including which
+    // project in the repository this is, and its app id. Without them an SPDX-only SBOM could not
+    // drive `day rebuild`, and `sbom = "sidecar spdx"` is a valid choice.
     let source_info = format!(
-        "repository={} commit={} dirty={}",
+        "repository={} commit={} dirty={} project={} app-id={}",
         sbom.repository.as_deref().unwrap_or("NOASSERTION"),
         sbom.commit.as_deref().unwrap_or("NOASSERTION"),
-        sbom.dirty
+        sbom.dirty,
+        sbom.project_path.as_deref().unwrap_or("NOASSERTION"),
+        sbom.app_id,
     );
     let mut packages = vec![serde_json::json!({
         "SPDXID": "SPDXRef-Application",
@@ -444,6 +501,9 @@ fn source_properties(sbom: &Sbom) -> Vec<serde_json::Value> {
     }
     if let Some(c) = &sbom.commit {
         props.push(serde_json::json!({"name": "day:commit", "value": c}));
+    }
+    if let Some(p) = &sbom.project_path {
+        props.push(serde_json::json!({"name": "day:project", "value": p}));
     }
     props
 }
@@ -526,6 +586,42 @@ pub fn write_buildinfo(path: &Path, info: &BuildInfo) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// The OpenHarmony SDK's recorded version must be the SDK's, not the path it happens to live
+    /// at: `/home/runner/ohos-ohsdk` matched nothing on any other machine, so every `day rebuild`
+    /// of a `.hap` refused with "ohos-sdk: not found on this machine".
+    #[test]
+    fn the_ohos_sdk_version_comes_from_its_package_manifest() {
+        let tmp = std::env::temp_dir().join(format!("day-ohos-sdk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for (api, version) in [("18", "5.1.0.107"), ("12", "4.1.0.500")] {
+            let dir = tmp.join(api).join("toolchains");
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            std::fs::write(
+                dir.join("oh-uni-package.json"),
+                format!("{{\"apiVersion\": \"{api}\", \"version\": \"{version}\"}}"),
+            )
+            .expect("write");
+        }
+        // Highest API level present is the one a build resolves to.
+        assert_eq!(
+            ohos_sdk_version(&tmp.to_string_lossy()).as_deref(),
+            Some("5.1.0.107 (API 18)")
+        );
+        assert_eq!(ohos_sdk_version("/nonexistent/sdk"), None);
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        // A real SDK, where one is configured, must parse too — the layout above is from
+        // OpenHarmony 5.1.0 and this is the only check that it still matches reality.
+        if let Ok(real) = std::env::var("OHOS_BASE_SDK_HOME")
+            && Path::new(&real).is_dir()
+        {
+            assert!(
+                ohos_sdk_version(&real).is_some(),
+                "the SDK at {real} did not parse"
+            );
+        }
+    }
+
     #[test]
     fn cargo_slash_separators_become_spdx_or() {
         assert_eq!(normalize_license("MIT/Apache-2.0"), "MIT OR Apache-2.0");
@@ -552,6 +648,7 @@ mod tests {
             repository: None,
             commit: None,
             dirty: false,
+            project_path: Some("apps/showcase".into()),
             components: Vec::new(),
         };
         let doc = spdx(&sbom);
@@ -713,6 +810,7 @@ mod debian_tests {
             repository: Some("https://github.com/daybrite/day".into()),
             commit: Some("3cf799cb9c9dc4bc045bc9f1457aed2838bf5e1d".into()),
             dirty: false,
+            project_path: Some("apps/showcase".into()),
             components: Vec::new(),
         };
         let info = BuildInfo {

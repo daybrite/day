@@ -5,7 +5,7 @@ order: 11
 section: Concepts
 ---
 
-A **Piece** is Day's unit of UI composition — the thing SwiftUI calls a View and Flutter calls a
+A **Piece** is Day's unit of UI composition: the thing SwiftUI calls a View and Flutter calls a
 Widget. You compose your interface as a tree of Pieces, and Day realizes each one as a real
 native widget: a `label` becomes an `NSTextField` on macOS, a `TextView` on Android, a `GtkLabel`
 on Linux.
@@ -16,7 +16,7 @@ the faster read; come back here for the model behind it.
 
 ## A Piece is a description, built once
 
-In code, a Piece is a small plain value — usually a builder struct returned by a free function:
+In code, a Piece is a small plain value, usually a builder struct returned by a free function:
 
 ```rust
 use day::prelude::*;
@@ -37,7 +37,7 @@ pub trait Piece: 'static {
 Two things in that signature shape everything else about Day:
 
 - **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
-  view description that Day re-runs and diffs against the last frame — the builder is spent the
+  view description that Day re-runs and diffs against the last frame. The builder is spent the
   moment the native widget exists.
 - **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
   owns the native widget, its layout state, and the reactive scope its bindings live in.
@@ -74,7 +74,7 @@ let stars: Vec<AnyPiece> = (0..5).map(|i| star(i)).collect();
 row(PieceVec(stars)).spacing(4.0)
 ```
 
-`AnyPiece` is the type-erased form — a boxed build closure. You'll use it whenever a function
+`AnyPiece` is the type-erased form: a boxed build closure. You'll use it whenever a function
 returns "some Piece" without naming the concrete builder type, which in practice is every page
 and component function you write:
 
@@ -106,14 +106,14 @@ The `day` prelude ships a deliberately small set of Pieces. Roughly grouped:
 | Navigation | `selector`, `stack`, `nav_link` |
 | Presentation | `alert`, `confirm`, `prompt`, menus |
 
-Anything beyond this vocabulary — a combo box, a map, a web view, a Lottie animation — lives in
+Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation) lives in
 a separate *piece crate* (`day-piece-*`) that you add as an ordinary Cargo dependency. That
 split is intentional: the core stays small enough to audit and port, and optional widgets don't
 cost you anything unless you use them. The [extension model](/docs/extending) explains how those
 crates plug in without touching Day itself.
 
 Each built-in has a reference page with per-platform notes under
-[internal reference](/docs/reference) — for example [text](/docs/internal/text),
+[internal reference](/docs/reference), for example [text](/docs/internal/text),
 [lists](/docs/internal/list), and [dialogs](/docs/internal/dialogs).
 
 ## What happens at build
@@ -137,13 +137,13 @@ When a Piece's `build` runs, three things are created together and live together
 - The **node** records the Piece's kind, its place in the tree, its layout behavior, and its
   accessibility annotations.
 - The **native widget** is created immediately through the toolkit backend (an `NSButton`, a
-  `GtkEntry`, …) and inserted into its native parent at the right index. Layout-only Pieces —
-  `column`, `row`, `padding` wrappers — get no widget at all; they exist purely in Day's tree.
+  `GtkEntry`, …) and inserted into its native parent at the right index. Layout-only Pieces
+  (`column`, `row`, `padding` wrappers) get no widget at all; they exist purely in Day's tree.
 - The **scope** owns every binding and event handler the build created. When the node is later
   removed (a `when` arm switches, an `each` row disappears), disposing the scope tears down its
   bindings and handlers in one step, and the native widget is released. No manual unsubscription.
 
-The details of that machinery — the tree structure, measurement, and how events travel back —
+The details of that machinery (the tree structure, measurement, and how events travel back)
 are on [How rendering works](/docs/rendering).
 
 ## Conditional and repeated structure
@@ -167,8 +167,8 @@ each(
 
 This is the one place Day does anything diff-like, and it diffs *keys*, not widget trees: `each`
 compares the old and new key sequences to decide which rows to keep, which to build, and which to
-dispose. A `when` flip or a row removal is a real structural edit — native widgets are added and
-removed — so it costs more than a bound-attribute update. For long scrolling data, prefer
+dispose. A `when` flip or a row removal is a real structural edit (native widgets are added and
+removed), so it costs more than a bound-attribute update. For long scrolling data, prefer
 [`list`](/docs/internal/list), which hands rows to the platform's recycling list widget instead
 of materializing every row.
 
@@ -183,7 +183,7 @@ button(tr("save")).action(save).id("save-button")
 Ids serve three audiences at once: [dayscript](/docs/dayscript) targets elements by id,
 [accessibility](/docs/accessibility) uses them as stable automation identifiers, and you'll see
 them in debug output. They're optional everywhere, but pages you intend to test should id their
-interactive elements — `day lint` will point out interactive Pieces without one.
+interactive elements; `day lint` will point out interactive Pieces without one.
 
 ## Where Pieces come from
 
@@ -200,9 +200,9 @@ There are exactly three kinds of Piece, and you can write all three:
    [native piece tutorial](/docs/tutorial-native-piece).
 
 Composite pieces are frictionless; native pieces cost one implementation per toolkit you care
-about (a piece that only implements AppKit and UIKit renders a labeled placeholder elsewhere —
+about (a piece that only implements AppKit and UIKit renders a labeled placeholder elsewhere:
 visible, not a crash).
 
 ---
 
-Next: [Reactivity](/docs/reactivity) — the signals that make a built-once tree move.
+Next: [Reactivity](/docs/reactivity), the signals that make a built-once tree move.

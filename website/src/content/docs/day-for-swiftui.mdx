@@ -76,7 +76,7 @@ fn counter() -> AnyPiece {
 
 The structure is nearly identical, but the runtime behavior differs. SwiftUI re-evaluates `body` when
 `count` changes and diffs the result; Day re-runs only the label's closure and sets one native
-string. The distinction you notice day to day is that *you* mark what's dynamic — a closure
+string. The distinction you notice day to day is that *you* mark what's dynamic: a closure
 makes text live, a bare value doesn't. In exchange, an update's cost is proportional to what
 observes the change, never to the size of the view. [Reactivity](/docs/reactivity) explains the
 model.
@@ -123,7 +123,7 @@ fn settings_form() -> impl Piece {
 
 </Compare>
 
-Where you'd reach for `@Observable`, group signals in a plain struct and pass it around — every
+Where you'd reach for `@Observable`, group signals in a plain struct and pass it around. Every
 field is independently observable, and there's no macro or conformance:
 
 ```rust
@@ -197,11 +197,11 @@ navigate("album-42");
 
 </Compare>
 
-`NavigationSplitView` maps to `selector(…).style(SelectorStyle::Sidebar)` — a real
+`NavigationSplitView` maps to `selector(…).style(SelectorStyle::Sidebar)`: a real
 `NSSplitView` source list on macOS, and the platform's own idiom elsewhere (a pushing list on
 phones, libadwaita's split view on GTK). On top of the signals sits a thin route layer:
 `navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
-navigation, state restoration, and deep links with one set of strings — the job
+navigation, state restoration, and deep links with one set of strings: the job
 `onOpenURL` and scene restoration do separately. See [Navigation](/docs/navigation).
 
 ## Modifiers, fonts, and the layout protocol
@@ -238,7 +238,7 @@ column((
 </Compare>
 
 The semantic font roles (`Title`, `Headline`, `Body`, `Caption`, …) map to each platform's
-typography scale — on Apple targets, the same text styles you use today. One gap:
+typography scale (on Apple targets, the same text styles you use today). One gap:
 SwiftUI's semantic *colors* (`Color.primary`, automatic dark-mode adaptation for your own
 colors) don't have a Day equivalent yet. Native widget chrome follows the system appearance on
 its own, but hardcoded custom colors are yours to switch per appearance for now.
@@ -248,7 +248,7 @@ its own, but hardcoded custom colors are yours to switch per appearance for now.
 
 `day::task` plays the role of `Task` with `@MainActor` semantics: the future's continuations
 run on the UI thread, so touching state after an `await` is ordinary code. The compiler
-enforces the boundary the way Swift 6 strict concurrency does — `Signal` is `!Send`, so a
+enforces the boundary the way Swift 6 strict concurrency does: `Signal` is `!Send`, so a
 background thread can't touch one; it gets a `Setter`, a `Send` write-only handle that marshals
 to the main thread and silently drops the write if the owning page is gone (the
 task-outlives-view case).
@@ -263,13 +263,13 @@ day::task(async move {
 });
 ```
 
-Dropping the future cancels the request — the same cooperative-cancellation shape as a Swift
+Dropping the future cancels the request: the same cooperative-cancellation shape as a Swift
 `Task`, tied to scope lifetime instead of `task { }` modifiers.
 
 ## Package configuration
 
 An Xcode project holds targets, build settings, signing, capabilities, and package
-dependencies. Day splits that into two small text files — both diffable, no `.pbxproj` merges:
+dependencies. Day splits that into two small text files (both diffable, no `.pbxproj` merges):
 
 <Compare lhs="SwiftUI — Xcode + SPM">
 
@@ -313,8 +313,8 @@ height = 640
 
 </Compare>
 
-There is still an Xcode project — `platform/ios/` holds a thin host that links the Rust static
-library — but it's a shell you rarely touch: identity, version, icons, and permissions flow
+There is still an Xcode project (`platform/ios/` holds a thin host that links the Rust static
+library), but it's a shell you rarely touch: identity, version, icons, and permissions flow
 from `Day.toml` at build time. Opening it and pressing Run works (Xcode calls back into `day`
 for the Rust half), so Instruments and the debugger stay available.
 
@@ -354,11 +354,11 @@ let data = day::resource("stations.json")?;
 </Compare>
 
 On Apple targets, `resource/images/` is staged into a real asset catalog and compiled by
-`actool` — the same optimized `Assets.car` you'd get from Xcode — and fonts land in the bundle
+`actool` (the same optimized `Assets.car` you'd get from Xcode), and fonts land in the bundle
 with the `UIAppFonts` plist entry written for you. Localization uses
 [Mozilla Fluent](https://projectfluent.org/) instead of String Catalogs: plural rules live in
 the message, `res::str::*` accessors are generated so a bad key is a compile error, and adding
-a language is adding a `resource/locales/<lang>/` directory. The locale is a signal — switching
+a language is adding a `resource/locales/<lang>/` directory. The locale is a signal. Switching
 re-renders live, and RTL mirrors the layout. See [Resources](/docs/resources) and
 [Localization](/docs/localization).
 
@@ -380,7 +380,7 @@ field-notes/
 └── build/day/            # everything generated
 ```
 
-Per-platform configuration is a `Day.toml` override, not a target's build settings pane — and
+Per-platform configuration is a `Day.toml` override, not a target's build settings pane, and
 it extends to platforms Xcode doesn't build for:
 
 ```toml
@@ -396,7 +396,7 @@ id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
 One macOS difference: SwiftUI on the Mac adapts iOS-shaped views; Day's macOS target is an
-AppKit app — `NSButton`, `NSSplitView` source lists, real menu bar items — because AppKit is
+AppKit app (`NSButton`, `NSSplitView` source lists, real menu bar items) because AppKit is
 what Day's macOS toolkit speaks natively.
 
 ## Building and shipping

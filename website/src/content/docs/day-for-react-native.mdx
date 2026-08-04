@@ -9,7 +9,7 @@ import Compare from '../../components/Compare.astro';
 
 React Native and Day both render the platform's real widgets: an RN `<Button>` is a `UIButton`,
 and so is a Day `button()` on iOS. This guide maps the
-rest — components to Pieces, hooks to signals, npm to Cargo — and shows where the architectures
+rest (components to Pieces, hooks to signals, npm to Cargo) and shows where the architectures
 differ.
 
 They differ in two places. The first is the runtime: React Native runs your JavaScript in a VM
@@ -17,7 +17,7 @@ and talks to native views through JSI and a shadow tree; Day is ahead-of-time co
 calling toolkit APIs directly, and layout is computed in the same process rather than in a
 separate shadow tree. The second is the
 update model: React re-renders components and reconciles; Day builds the tree once and re-runs
-only the closures that read a changed signal — there are no dependency arrays because
+only the closures that read a changed signal. There are no dependency arrays because
 dependencies are tracked automatically. And where RN targets iOS and Android with community
 forks for desktop, Day's eight primary targets (macOS, Windows, Linux GTK and Qt, iOS, Android,
 HarmonyOS, web) come from one repository.
@@ -83,7 +83,7 @@ Both wire the tap the same way; what follows it differs. React re-runs `Counter`
 element
 trees, and diffs them against the shadow tree before committing to native views. Day re-runs the
 one closure inside `label` and calls one native setter. The function itself never runs again, so
-`memo()` and `useCallback` have no equivalent, and stale closures can't happen — a closure that
+`memo()` and `useCallback` have no equivalent, and stale closures can't happen: a closure that
 reads a signal reads the current value.
 
 ## Controlled components vs. two-way signals
@@ -128,15 +128,15 @@ column((
 
 </Compare>
 
-(`Slider` isn't in RN core anymore — it lives in `@react-native-community/slider`. Day ships
-sliders, toggles, progress, pickers, and a recycling list as built-ins — there's no
+(`Slider` isn't in RN core anymore; it lives in `@react-native-community/slider`. Day ships
+sliders, toggles, progress, pickers, and a recycling list as built-ins. There's no
 split between "core" and "community" widgets.)
 
 ## Lists
 
 `FlatList` maps to `list`: both virtualize, both want a key. Day's rows recycle real native
 cells (`UITableView`-style), and the key function is a required argument rather than an optional
-`keyExtractor` — reconciliation is always by identity.
+`keyExtractor`. Reconciliation is always by identity.
 
 <Compare lhs="React Native">
 
@@ -207,7 +207,7 @@ Deep links need no separate `linking` config: the same route strings serve navig
 ## Styling and layout
 
 RN styles are flexbox via Yoga. Day also owns its layout engine, but with the
-proposal/negotiation protocol (parent proposes, child chooses) instead of flexbox — closer to
+proposal/negotiation protocol (parent proposes, child chooses) instead of flexbox, closer to
 SwiftUI than to CSS. The daily vocabulary translates directly:
 
 <Compare lhs="React Native">
@@ -245,14 +245,14 @@ column((
 </Compare>
 
 There are two differences. `flex: 1` becomes `.grow()`, and containers don't stretch
-children by default — a column is as wide as its widest child. And fonts are semantic-first:
+children by default: a column is as wide as its widest child. And fonts are semantic-first:
 `Font::Title` resolves to each platform's typography scale, so text sits correctly next to
 native controls without per-platform size tables. [Layout](/docs/layout) and
 [Styling](/docs/styling) cover both systems.
 
 ## State management and async
 
-The hooks rules — call order, dependency arrays, exhaustive-deps lint — exist because React
+The hooks rules (call order, dependency arrays, exhaustive-deps lint) exist because React
 re-runs your function and must reattach state each time. Day's function runs once, so none of
 that machinery exists. Signals are created wherever you like, read anywhere, and dependencies
 are discovered by tracking the reads:
@@ -302,7 +302,7 @@ day::task(async move {
 
 The cancellation bookkeeping on the left is built in on the right: writes to a signal whose page
 was disposed are silent no-ops, and dropping the future cancels the request. HTTP goes through
-each platform's own networking stack ([`day-part-http`](/docs/parts)) — system proxies, VPN
+each platform's own networking stack ([`day-part-http`](/docs/parts)). System proxies, VPN
 routing, and certificate stores apply, with no `fetch` polyfill in between.
 
 ## Package configuration
@@ -346,18 +346,18 @@ targets = ["ios-uikit", "android-mdc", "macos-appkit"]
 </Compare>
 
 Cargo resolves and builds everything, including packages with native halves; there is no
-separate bundler and no autolinking step. A package that needs platform code — the Turbo Module
-case — is a [part](/docs/parts) (headless capability) or a [piece](/docs/extending) (a widget):
+separate bundler and no autolinking step. A package that needs platform code, the Turbo Module
+case, is a [part](/docs/parts) (headless capability) or a [piece](/docs/extending) (a widget):
 it declares its Swift, Java, or C++ in its own crate metadata, and `day build` folds that into
 the app's platform builds. Calls into it are ordinary Rust function calls compiled together with
-your app — no codegen'd specs, no serialization boundary.
+your app: no codegen'd specs, no serialization boundary.
 
 ## Resources and localization
 
 Metro resolves `require('./logo.png')` at bundle time and picks `@2x`/`@3x` variants; Day stages
 `resource/images/` into each platform's native store (asset catalogs, `res/drawable-*`,
 GResource), and the platform picks the density. For Metro's can't-miss guarantee, use the
-generated constants — `image(res::images::wave)` — where a renamed or deleted file is a compile
+generated constants (`image(res::images::wave)`), where a renamed or deleted file is a compile
 error.
 
 <Compare lhs="React Native">
@@ -388,7 +388,7 @@ label(res::str::unread(count))           // generated, compile-checked
 
 </Compare>
 
-`res::str::unread` is a function generated from the `.ftl` catalogs at build time — a missing
+`res::str::unread` is a function generated from the `.ftl` catalogs at build time. A missing
 key or wrong argument count fails the compile instead of rendering a placeholder at runtime.
 The locale is a signal: switching languages re-renders every string live, and RTL locales
 mirror the whole layout. See [Localization](/docs/localization) and
@@ -429,7 +429,7 @@ field-notes/
 </Compare>
 
 Both projects carry `android/` and `ios/` directories; the difference is what lives in them.
-Day's hosts are thin shells that load the Rust library — app-level configuration (id, title,
+Day's hosts are thin shells that load the Rust library. App-level configuration (id, title,
 version, window, permissions, signing) lives in `Day.toml`, with per-platform overrides instead
 of edits to the native projects:
 
@@ -445,7 +445,7 @@ title = "Field Notes Mobile"        # only iOS sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-That's the role `app.json` plays in Expo — except it covers all eight primary targets, desktop
+That's the role `app.json` plays in Expo, except it covers all eight primary targets, desktop
 included, and there's no eject: the hosts are already in your repository, already minimal.
 
 ## Building and shipping

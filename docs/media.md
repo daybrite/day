@@ -1,7 +1,7 @@
 # Media player (external piece)
 
 > **Status: implemented** as `day-piece-media`, an external Day Piece (like `day-piece-webview`),
-> registered into each backend's renderer slice without touching day — link-time on the eight native
+> registered into each backend's renderer slice without touching day: link-time on the eight native
 > backends, runtime on web-dom (wasm has no `linkme`, so the piece registers itself from `media()`).
 > It wraps each toolkit's native media player for audio/video playback and fills the space it's
 > offered (constrain it with `.frame(w, h)`).
@@ -34,7 +34,7 @@ string accepts either a local file path or an http(s)/file URL; each backend pic
 loader (`fileURLWithPath` vs `URLWithString`, `QUrl::fromUserInput`, `Uri.parse`,
 `gio::File::for_path/for_uri`), and anything containing `://` is treated as a URL. The initial value
 loads when the view is created. (Web is the exception on paths: a page can only fetch a URL, so
-web-dom needs an http(s) one — see the Web note below.) Transport is imperative with `Copy` `Trigger`s: `.play()` /
+web-dom needs an http(s) one; see the Web note below.) Transport is imperative with `Copy` `Trigger`s: `.play()` /
 `.pause()` resume and pause, and `.load()` re-reads the bound url and plays it (track switching). There
 is deliberately no two-way "playing" binding in v1: native chrome mutates play state behind
 day's back, so state readback would need an observer rail on every backend (the `Event::custom`
@@ -82,11 +82,11 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
   Homebrew's gtk4 ships no media backend, so on macos-gtk GtkVideo shows its own "no media backend"
   error UI (the same caveat class as webkitgtk, a Linux-first backend). GtkVideo's overlay controls
   cannot be hidden, so `.controls(false)` is a no-op.
-- **Web**: the one backend where the player is *less* work than the native arms — the browser
+- **Web**: the one backend where the player is *less* work than the native arms. The browser
   supplies transport chrome, buffering, scrubbing, fullscreen, captions and picture-in-picture, and
   every `MediaProps` field is an attribute of the same name. Two web-only rules follow from browser
   policy, not from day: a **file path will not load** (a page can only fetch a URL, and a
-  cross-origin one needs CORS — serve it from the app's own `dist/` or use a permissive remote), and
+  cross-origin one needs CORS; serve it from the app's own `dist/` or use a permissive remote), and
   **autoplay with sound is blocked** until the user has interacted with the page, so `.muted(true)`
   is what makes `.autoplay(true)` actually start. Registration is the other difference: `linkme`'s
   `#[distributed_slice]` does not compile for `wasm32-unknown-unknown`, so day-dom keeps a runtime

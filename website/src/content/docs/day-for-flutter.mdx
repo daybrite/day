@@ -12,8 +12,8 @@ four places the workflow differs: state, packages, resources, and builds.
 
 **Flutter draws its own widgets; Day uses the platform's.** Flutter ships a renderer
 (Impeller/Skia) and repaints every pixel, so your app looks identical everywhere. Day creates
-each platform's real widgets — `NSButton` on macOS, a Material button on Android, GTK, Qt,
-WinUI, and ArkUI widgets elsewhere — so your app looks native everywhere instead.
+each platform's real widgets (`NSButton` on macOS, a Material button on Android, GTK, Qt,
+WinUI, and ArkUI widgets elsewhere), so your app looks native everywhere instead.
 [Why Day](/docs/benefits) lists what each approach costs and when Flutter is the better pick.
 
 ## Flutter terms in Day
@@ -92,7 +92,7 @@ through the signal graph. [Reactivity](/docs/reactivity) explains the machinery.
 ## Form controls: controllers vs. two-way signals
 
 Flutter's text input wants a `TextEditingController` you create, dispose, and listen to. Day's
-input Pieces bind a signal directly — edits write the signal, signal writes update the widget,
+input Pieces bind a signal directly: edits write the signal, signal writes update the widget,
 with no echo loop.
 
 <Compare lhs="Flutter">
@@ -147,7 +147,7 @@ created it goes away, the scope tears it all down.
 
 ## Lists
 
-`ListView.builder` maps to `list`, Day's recycling list — rows are built on demand and reuse
+`ListView.builder` maps to `list`, Day's recycling list. Rows are built on demand and reuse
 native cells, so a long feed doesn't build a widget per item. For short, fully-materialized
 collections, `each` is the keyed non-recycling form.
 
@@ -179,15 +179,15 @@ list(
 
 </Compare>
 
-The second argument is the key function — the job Flutter's `Key`s do, made mandatory so
+The second argument is the key function: the job Flutter's `Key`s do, made mandatory so
 reconciliation is always by identity, never by index.
 
 ## Navigation
 
 go_router declares routes as configuration. Day models navigation as state you own: a `selector`
 projects a one-of-N signal onto a sidebar or tabs, and a `stack` projects a `Vec<String>` path
-onto the platform's push/pop container — `UINavigationController` on iOS, the Android back
-stack, so the edge-swipe and back button come from the OS, not a package.
+onto the platform's push/pop container (`UINavigationController` on iOS, the Android back
+stack), so the edge-swipe and back button come from the OS, not a package.
 
 <Compare lhs="Flutter">
 
@@ -226,7 +226,7 @@ path.update(|p| p.push("album-42".into()));
 </Compare>
 
 Because the path is a plain signal, deep links, state restoration, and tests are all string
-writes — `DAY_DEEPLINK=library/album-42` on launch, `assert_route` in a
+writes: `DAY_DEEPLINK=library/album-42` on launch, `assert_route` in a
 [dayscript](/docs/dayscript) test. The [navigation guide](/docs/navigation) covers typed route
 enums that make the keys compile-checked.
 
@@ -269,7 +269,7 @@ column((
 
 Each framework limits styling differently. Flutter can restyle anything because it draws
 everything. Day styles
-content and space — fonts, colors, padding, backgrounds, canvas drawing — and leaves control
+content and space (fonts, colors, padding, backgrounds, canvas drawing) and leaves control
 chrome (slider tracks, focus rings, checkbox shapes) to the platform on purpose.
 [Styling](/docs/styling) lists what you can restyle and what stays native. If your design
 system needs every pixel identical on every platform, Flutter fights you less.
@@ -277,7 +277,7 @@ system needs every pixel identical on every platform, Flutter fights you less.
 ## State management
 
 Flutter needs Provider, Riverpod, or Bloc to scope rebuilds and to move state out of the widget
-tree; Day doesn't, because there are no rebuilds. Signals live wherever you put them —
+tree; Day doesn't, because there are no rebuilds. Signals live wherever you put them:
 module statics, structs, function locals. A derived value is a `Memo`; a side effect is an
 `Effect`; an expensive list keeps its identity through `each`.
 
@@ -290,8 +290,8 @@ label(move || format!("{:.2} €", total.get()))
 ```
 
 Background work uses the same discipline as Dart isolates, with the compiler enforcing it:
-`Signal` is `!Send`, so a worker thread can't touch one. You hand the thread a `Setter` — a
-`Send`, write-only handle that marshals back to the UI thread:
+`Signal` is `!Send`, so a worker thread can't touch one. You hand the thread a `Setter` (a
+`Send`, write-only handle that marshals back to the UI thread):
 
 ```rust
 let progress = Signal::new(0.0);
@@ -306,7 +306,7 @@ std::thread::spawn(move || {
 ```
 
 For async, `day::task` runs a future whose continuations land on the UI thread, so completions
-are plain signal writes — the role a `FutureBuilder` plays, without the builder.
+are plain signal writes: the role a `FutureBuilder` plays, without the builder.
 
 ## Package configuration
 
@@ -368,12 +368,12 @@ The Day side has no assets or fonts list: files under `resource/` are found
 by convention, so adding an image never touches a manifest. Dependencies are ordinary Cargo
 dependencies; a package with native platform code (the equivalent of a plugin) declares its
 per-platform pieces in its own crate metadata, and `day build` folds them into the app's Xcode
-and Gradle builds — the app never re-declares plugin wiring.
+and Gradle builds. The app never re-declares plugin wiring.
 
 ## Resources and localization
 
 Both frameworks generate typed accessors from your translation files. The formats differ: ARB
-plus `intl` on one side, [Mozilla Fluent](https://projectfluent.org/) on the other — Fluent
+plus `intl` on one side, [Mozilla Fluent](https://projectfluent.org/) on the other. Fluent
 handles plural and gender grammar in the message itself rather than in code.
 
 <Compare lhs="Flutter — ARB + intl">
@@ -400,7 +400,7 @@ label(res::str::unread_count(unread))   // generated, compile-checked
 
 </Compare>
 
-`res::str::unread_count` is generated at build time from the `.ftl` files — wrong key or wrong
+`res::str::unread_count` is generated at build time from the `.ftl` files. Wrong key or wrong
 argument count is a compile error, and a `$count` used as a plural selector is typed numeric so
 you can't pass a string. Adding a language is adding a `resource/locales/<lang>/` directory;
 `res::locales::install()` registers whatever directories exist. The locale is a signal, so
@@ -455,7 +455,7 @@ my-app/
 The philosophy is the same; Day moves the configuration out: per-app settings live in
 `Day.toml`, so the scaffolds rarely change. Where
 Flutter uses flavors and per-platform folders for variant config, any `Day.toml` app property
-can be overridden per platform, per toolkit, or per target — most specific wins:
+can be overridden per platform, per toolkit, or per target (most specific wins):
 
 ```toml
 [app]
@@ -489,13 +489,13 @@ platform's own tools, and writes an installable artifact plus checksum to `build
 | Windows | `flutter build windows` (then package yourself) | `day pack -p windows-xaml` → `.msix` + NSIS installer |
 | doctor | `flutter doctor` | `day doctor` |
 
-Day has no hot reload. A change is a Rust rebuild —
-incremental, a few seconds on a warm build — but not sub-second stateful patching, and losing
-that is real if you live in it. The replacement loop is `day relaunch` to apply changes, plus
+Day has no hot reload. A change is a Rust rebuild
+(incremental, a few seconds on a warm build), but not sub-second stateful patching, and losing
+that you feel on every edit. The replacement loop is `day relaunch` to apply changes, plus
 [dayscript](/docs/dayscript) to script the app to the screen you're iterating on instead of
 clicking back to it.
 
-Signing config lives in `Day.toml` with secrets as `${ENV_VAR}` references — a missing variable
+Signing config lives in `Day.toml` with secrets as `${ENV_VAR}` references. A missing variable
 degrades that platform to a dev-signed artifact with a warning instead of failing the build.
 [Packaging & distribution](/docs/packaging) has the full per-target table.
 

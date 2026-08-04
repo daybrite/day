@@ -7,11 +7,11 @@ section: Guides
 
 A **part** is Day's name for a headless platform capability: no UI, just functions whose
 implementation differs per operating system. Battery level, the clipboard, preference storage,
-sensors — the things every cross-platform app eventually needs and every platform spells
+sensors: the things every cross-platform app eventually needs and every platform spells
 differently.
 
 Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
-platform code runs because each function's body dispatches on `#[cfg(target_os)]` — IOKit on
+platform code runs because each function's body dispatches on `#[cfg(target_os)]`: IOKit on
 macOS, `BatteryManager` over JNI on Android, sysfs on Linux, Win32 on Windows. There is no
 plugin registry or runtime lookup; the target selects the implementation at compile time.
 
@@ -49,7 +49,7 @@ day_part_prefs::set("theme", "dark");
 let theme = day_part_prefs::get("theme");            // Option<String>
 ```
 
-Wiring a part into UI is the usual reactive pattern — read into a signal, bind the signal:
+Wiring a part into UI is the usual reactive pattern (read into a signal, bind the signal):
 
 ```rust
 let battery = Signal::new(day_part_battery::status());
@@ -65,25 +65,25 @@ column((
 
 Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a
 denied clipboard read reports `None`, and your UI decides what that means. Check each part's
-reference page for the per-platform support matrix — not every capability exists everywhere, and
+reference page for the per-platform support matrix; not every capability exists everywhere, and
 each function's reference lists per-platform support rather than implying uniform coverage.
 
 ## Writing your own
 
-When you need a platform API Day doesn't cover — Bluetooth, a payment SDK, notification badges —
+When you need a platform API Day doesn't cover (Bluetooth, a payment SDK, notification badges),
 you write a part. The pattern scales from trivial to involved:
 
 - Pure-Rust platforms are a `#[cfg]` branch and a system crate (`objc2` on Apple, `windows` on
   Windows, sysfs/D-Bus on Linux).
 - Android usually needs a small Java shim; a part can carry its own Java sources and Gradle
-  dependencies, which `day build` aggregates into the app's Gradle project automatically — no
-  manual scaffold edits.
+  dependencies, which `day build` aggregates into the app's Gradle project automatically (no
+  manual scaffold edits).
 - Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
   the Android manifest the same way.
 
 `day new part my-part` scaffolds the whole shape with per-OS stubs. The
-[part tutorial](/docs/tutorial-part) walks through a complete real example — a battery part with
-six platform implementations — and is the best template for your own.
+[part tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with
+six platform implementations) and is the best template for your own.
 
 One boundary worth respecting: parts are for *headless* capabilities. The moment your capability
 needs to render something, it's a [piece](/docs/extending), and a different set of tools applies.

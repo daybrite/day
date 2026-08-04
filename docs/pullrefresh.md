@@ -1,8 +1,8 @@
 # Pull-to-refresh (external piece)
 
 > **Status: implemented** as `day-piece-pullrefresh`, an external Day Piece registered link-time
-> into each backend's renderer slice without touching day. It is the reference **container piece**
-> — the first external piece whose native view hosts a Day child (the wrapped scrollable) — and a
+> into each backend's renderer slice without touching day. It is the reference **container piece**,
+> the first external piece whose native view hosts a Day child (the wrapped scrollable), and a
 > reference for the native-where-possible / emulated-elsewhere pattern. Modeled on SwiftUI's
 > `refreshable(action:)`.
 
@@ -31,11 +31,11 @@ The bound `refreshing: Signal<bool>` is **two-way** (the same contract as `UIRef
 `SwipeRefreshLayout.setRefreshing`, and ArkUI `Refresh`):
 
 - a **user pull** sets it `true` (and runs the optional `.on_refresh(f)` sugar);
-- the app sets it **`false`** when the reload completes — from a thread via `Signal::setter`, or
-  inside `day::task`;
+- the app sets it **`false`** when the reload completes (from a thread via `Signal::setter`, or
+  inside `day::task`);
 - the app may set it **`true`** to begin a refresh programmatically (a toolbar button, ⌘R, …).
 
-Prefer the `watch`-on-the-signal idiom above over `.on_refresh` when a programmatic path exists —
+Prefer the `watch`-on-the-signal idiom above over `.on_refresh` when a programmatic path exists;
 it makes every begin take the same route. `day_piece_pullrefresh::support()` reports the compiled
 backend's tier (`Native` / `Emulated`).
 
@@ -61,13 +61,13 @@ The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the
 | qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only — native tier is a follow-up for touch devices). |
 | mock | Emulated | Composition path; drives the piece's tests via `ToggleChanged`. |
 
-The emulated indicator is the built-in `spinner()` in a floating chip, shown while `refreshing` —
+The emulated indicator is the built-in `spinner()` in a floating chip, shown while `refreshing`:
 pure composition (`when` + overlay container), no per-backend code.
 
 ## The container-piece recipe
 
 On the wrap-based platforms the realized node IS the native refresh wrapper and day mounts the
-scrollable **as a Day child inside it** — see docs/extending.md ("Container pieces") for the
+scrollable **as a Day child inside it**; see docs/extending.md ("Container pieces") for the
 `cx.native` + fill-layout + `cx.under` recipe this piece establishes.
 
 ## Limits

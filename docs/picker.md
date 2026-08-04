@@ -2,7 +2,7 @@
 
 > **Status: implemented** as a built-in piece (`kinds::PICKER`; moved in from the satellite
 > `day-piece-picker` 2026-07). One API, three SwiftUI-style stylings, each a distinct native
-> control per toolkit, bound two-way to a selection. In `day::prelude::*` — no dependency to add.
+> control per toolkit, bound two-way to a selection. In `day::prelude::*`, with no dependency to add.
 
 ## Authoring
 
@@ -29,7 +29,7 @@ widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(Pick
 | **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` | `TextPicker` wheel |
 
 HarmonyOS has no segmented control, so ArkUI renders every style as the native `ARKUI_NODE_TEXT_PICKER`
-wheel — the platform's option-selection idiom. The Qt and XAML renderers each carry a C++ shim in the
+wheel, the platform's option-selection idiom. The Qt and XAML renderers each carry a C++ shim in the
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
 `toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
 through the `day_xaml_box`/`day_xaml_unbox` seam. Android's Java factory

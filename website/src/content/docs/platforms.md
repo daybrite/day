@@ -27,7 +27,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](/showcase/web-dom/) on this site is the CI artifact — see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
-[dayscript](/docs/dayscript) walkthrough — navigation, inputs, dialogs, screenshots — on that
+[dayscript](/docs/dayscript) walkthrough (navigation, inputs, dialogs, screenshots) on that
 target on every push, with the captures feeding the [gallery](/gallery).
 
 Beyond CI, the strongest evidence for the first five rows is a real application: a Matrix chat
@@ -36,9 +36,8 @@ client (login, encrypted rooms, live timeline, media) built on Day runs its full
 
 The GTK/Qt-on-macOS/Windows combos exist so one development machine can run five desktop
 toolkits, and because some teams standardize on Qt across Linux and Windows. They are not
-supported shipping targets —
-packaging for them is deliberately deferred, and `macos-gtk`/`windows-gtk` have no accessibility
-tree.
+supported shipping targets. Packaging for them is deliberately deferred, and
+`macos-gtk`/`windows-gtk` have no accessibility tree.
 
 ## Per-platform notes
 
@@ -53,7 +52,7 @@ produces a signed, notarized `.dmg` when credentials are configured
 
 ### iOS (`ios-uikit`) — [full page](/docs/platforms/ios-uikit)
 The scaffold is a real, checked-in Xcode project whose build phase calls back into `day` for the
-Rust static library — so Xcode, `day launch`, and CI all build the same way. Day-to-day
+Rust static library, so Xcode, `day launch`, and CI all build the same way. Day-to-day
 development targets the Simulator; App Store `.ipa` export exists in `day pack` and needs your
 Apple credentials. Physical-device debugging workflows are still young compared to Simulator use.
 
@@ -66,13 +65,13 @@ start unless your app persists its own state.
 
 ### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/platforms/linux-gtk), [Qt](/docs/platforms/linux-qt)
 GTK 4 + libadwaita via `gtk4-rs`; Qt 6 Widgets via a small compiled C++ shim. Both run the full
-walkthrough headlessly in CI. Flatpak is the packaging story for both — the runtime supplies the
+walkthrough headlessly in CI. Flatpak is the packaging story for both. The runtime supplies the
 toolkit, so bundles stay app-sized. GTK is the default recommendation; Qt matters when its
 cross-OS accessibility bridge or ecosystem is the deciding factor. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
 ### Windows (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
-XAML through XAML Islands — the XAML stack that ships with Windows 10/11 itself, not the
+XAML through XAML Islands: the XAML stack that ships with Windows 10/11 itself, not the
 WinAppSDK runtime, so there's no runtime bootstrap to install. Built with MSVC. The C++/WinRT
 shim pattern is the same as Qt's. This target builds and walks through in CI but has had less
 real-application time than the Apple/Linux/Android targets.
@@ -80,15 +79,15 @@ real-application time than the Apple/Linux/Android targets.
 ### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
 The newest backend: ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
-are the least ergonomic of the supported platforms to install — `day doctor --toolkit harmonyos`
+are the least ergonomic of the supported platforms to install; `day doctor --toolkit harmonyos`
 and the [HarmonyOS notes](/docs/internal/harmonyos) exist for exactly this. Emulator behavior in
 CI is tolerated-flaky.
 
 ### Web (`web-dom`) — [full page](/docs/platforms/web-dom)
-The same Rust compiled to WebAssembly, driving real DOM elements — `<button>`, `<dialog>`,
-`<input type="range">` — with no canvas renderer and no npm in the build. `day build -p web-dom`
+The same Rust compiled to WebAssembly, driving real DOM elements (`<button>`, `<dialog>`,
+`<input type="range">`) with no canvas renderer and no npm in the build. `day build -p web-dom`
 emits a self-contained static `dist/` you can host anywhere; there is no `day pack` step because
-`dist/` is already the artifact. It is **experimental**, and the gaps are real: most external
+`dist/` is already the artifact. It is **experimental**: most external
 pieces (web view, map, Lottie, pickers, search field) render placeholders, there are no file
 dialogs or context menus, the list is emulated rather than recycled, and accessibility is thinner
 than on native because pieces that realize as `<div>`s carry no compensating ARIA roles. The
@@ -108,8 +107,8 @@ list:
   ([styling](/docs/styling#color-backgrounds-shape))
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.
 - **Gestures**: tap and drag are wired; pinch, rotation, and long-press are not.
-- **Forms**: no validation framework — roll your own with signals and memos.
+- **Forms**: no validation framework; roll your own with signals and memos.
 - **Hot reload**: not present; see [the tradeoffs page](/docs/benefits#what-you-give-up).
 
 If something you need is on this list, that's useful information *before* you adopt the
-framework — and if it's not on the list and doesn't work, that's a bug worth reporting.
+framework, and if it's not on the list and doesn't work, that's a bug worth reporting.

@@ -114,7 +114,7 @@ replaces the previous app menu.
 
 ### Claiming a standard slot
 
-Each desktop fills the standard menu-bar slots it knows — Edit, View, Help — with its own stock menu
+Each desktop fills the standard menu-bar slots it knows (Edit, View, Help) with its own stock menu
 for any slot the app did not claim, so an app never restates the platform's furniture. **Tag your own
 version with `.bar_role(...)` to take a slot:**
 
@@ -123,20 +123,20 @@ sub_menu("View", vec![ /* … */ ]).bar_role(MenuBarRole::View)
 ```
 
 A tagged menu replaces the stock one *in place*, so it also lands where the platform expects that
-menu to sit — `File`, `Edit`, `View` in the bar's leading order rather than adrift after them.
+menu to sit: `File`, `Edit`, `View` in the bar's leading order rather than adrift after them.
 
 The tag, not the title, is what identifies the slot, and localization is why: day's catalog and your
 app's may translate the same menu differently (day's `day-view` is *Présentation*; the showcase's is
 *Affichage*), so a bar matched on titles would show both under `--locale fr`. An untagged submenu
-whose title *does* equal the slot's standard name still takes the slot — that stops the most common
-accidental duplicate — but it is a safety net, not the contract. Tag the menu.
+whose title *does* equal the slot's standard name still takes the slot (that stops the most common
+accidental duplicate), but it is a safety net, not the contract. Tag the menu.
 
 Where each backend puts the bar:
 
 - **AppKit**: the system menu bar. Day prepends the standard **App menu** (About/Quit) automatically,
   so your `sub_menu`s start at *File*.
 - **GTK**: a `GtkPopoverMenuBar` at the top of the window; accelerators registered on the
-  `GtkApplication`. On macOS the model goes to `gtk_application_set_menubar` instead — GTK's quartz
+  `GtkApplication`. On macOS the model goes to `gtk_application_set_menubar` instead; GTK's quartz
   backend renders it in the system menu bar, and the stock GTK app menu's *Settings…* item enables
   through an `app.preferences` action wired to the Preferences dispatch id.
 - **Qt**: a `QMenuBar` (the native global bar on macOS-qt).
@@ -170,7 +170,7 @@ just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 `app_menu(vec)` resolves labels once, in the install-time locale. An app whose language can
 change at runtime (a preferences language picker, docs/windows.md) installs with
 `app_menu_reactive(builder)` instead: the builder re-runs whenever a locale-tracked read
-inside it changes (`menu_role` labels, `res::str` titles, `day::tr` — all read the locale
+inside it changes (`menu_role` labels, `res::str` titles, and `day::tr` all read the locale
 signal), re-lowering and re-installing the whole bar in the new language. Replacement drops
 the previous install's action closures; context menus share the dispatch map and are
 untouched, and the durable Preferences/New Window dispatch ids always survive.
@@ -180,7 +180,7 @@ untouched, and the durable Preferences/New Window dispatch ids always survive.
 `day::register_preferences*` enables a Settings…/Preferences item with the platform
 shortcut (⌘, / Ctrl+comma) with zero menu code: day-core injects it into an installed
 menu's first submenu when absent (an app-placed `menu_role(MenuRole::Preferences)` is
-rewired instead — an explicit `.action` always wins), and the backend default menus carry
+rewired instead; an explicit `.action` always wins), and the backend default menus carry
 it too. macOS hoists the item into the App menu under About, its standard home, and also
 auto-installs the standard Window menu (Minimize ⌘M / Zoom / Bring All to Front,
 registered as `windowsMenu` so AppKit appends the open-window list and tab commands) unless
@@ -190,11 +190,11 @@ the app's model owns `MenuRole::Minimize`. `MenuRole::NewWindow` lowers to the
 ## Driving menus from dayscript
 
 `menu: { item: "Save" }` invokes a unique app-menu action by exact label;
-`menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable
-— app keys and the `day-*` role keys both work, so the auto Preferences item is
+`menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable:
+app keys and the `day-*` role keys both work, so the auto Preferences item is
 `key: day-preferences`, with or without an installed app menu). `path: [File]`
-disambiguates by ancestor submenu — each entry matches a submenu's literal label OR its
+disambiguates by ancestor submenu: each entry matches a submenu's literal label OR its
 Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
 `key: menu_file` does and one script stays valid in every language. The step dispatches the
-registered day action directly — toolkit-uniform, no native menu automation — so role-only
+registered day action directly (toolkit-uniform, no native menu automation), so role-only
 items that run a native selector (Cut, Quit, …) are not invokable this way.

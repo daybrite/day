@@ -59,22 +59,22 @@ Android sensors need no manifest permission at the shim's `SENSOR_DELAY_UI` rate
 read and caches `{x, y, z}` for Rust to poll via a `double[]` JNI round-trip.
 
 HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
-and uses the native SensorServiceKit C API instead — pure FFI, no Day runtime. **Permissions**: the
+and uses the native SensorServiceKit C API instead: pure FFI, no Day runtime. **Permissions**: the
 accelerometer requires `ohos.permission.ACCELEROMETER` and the gyroscope
 `ohos.permission.GYROSCOPE` in the app's `module.json5` `requestPermissions`; the magnetometer needs
 none. A failed subscribe (e.g. missing permission) is released and retried on a later read.
 
 ## Why a stream, and what the rate is
 
-Every platform's sensor API is already PUSH — `SensorEventListener`, CoreMotion handlers,
-`OH_Sensor_Subscribe`, `devicemotion` — so the older `read()` poll was an adapter pointing the wrong
+Every platform's sensor API is already PUSH (`SensorEventListener`, CoreMotion handlers,
+`OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll was an adapter pointing the wrong
 way: each per-OS arm had to cache the newest event purely so a caller could ask for it. `watch`
 removes that inversion, and "no sample yet" stops being a poll artifact.
 
 Samples are delivered at a steady ~20 Hz (`day_part_sensors::SAMPLE_MS`), not at the sensor's own
 rate: enough for a readout or a chart, and it keeps a fast sensor from flooding an app's UI thread.
 Natively, one thread per watched sensor drives that cadence. **On the web there is no thread to
-sample on** — `std::thread::spawn` panics on wasm32 — so the day-dom shim drives the feed with a
+sample on** (`std::thread::spawn` panics on wasm32), so the day-dom shim drives the feed with a
 timer that calls back into the module. `on_sample` therefore runs on an unspecified background
 thread natively and on the sole browser thread on the web; deliver into UI state with a
 `day_reactive::Setter` either way.
@@ -91,20 +91,20 @@ thread natively and on the sole browser thread on the web; deliver into UI state
 
 Three browser realities:
 
-- **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost — both
-  `day launch`'s server and the hosted showcase qualify — and `Permissions-Policy` defaults
+- **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost (both
+  `day launch`'s server and the hosted showcase qualify), and `Permissions-Policy` defaults
   `accelerometer`/`gyroscope` to `self`, so a cross-origin iframe embed needs delegation.
 - **iOS Safari needs a user gesture.** `DeviceMotionEvent.requestPermission()` must be called from a
-  live user activation — that is `Permission::Motion` in [day-part-permissions](permissions.md), and
+  live user activation; that is `Permission::Motion` in [day-part-permissions](permissions.md), and
   it must be requested from inside a button's action, where the gesture is still live. Calling it
   after an `.await` does not work.
 - **Availability is only knowable in retrospect.** `'DeviceMotionEvent' in window` is true on a
   desktop browser with no hardware, so the shim reports available until a short grace period passes
-  with no event, and unavailable after — the right answer for a laptop.
+  with no event, and unavailable after. That is the right answer for a laptop.
 
 Because headless WebKit has no motion hardware, CI cannot prove any of this from the walkthrough
 alone. `scripts/ci/webdom-sensor-test.mjs` dispatches a synthetic `devicemotion` with known values
-and asserts the converted numbers, which pins the unit conversion and the axis mapping — the two
+and asserts the converted numbers, which pins the unit conversion and the axis mapping: the two
 things a browser sensor arm actually gets wrong.
 
 Linux computes `(raw + offset) × scale` from the first iio device exposing the channel triple

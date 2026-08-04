@@ -2,17 +2,17 @@
 
 > **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no
 > UI Piece: request/response HTTP (plus streaming downloads) through each platform's own networking
-> stack — NSURLSession on macOS/iOS, OkHttp on Android (the platform's own frozen engine,
-> current — see the engine note below), WinHTTP on Windows, the browser's `fetch()` on the web
-> (`web-dom`; async entry points only — see the web tier below) — with a
+> stack: NSURLSession on macOS/iOS, OkHttp on Android (the platform's own frozen engine,
+> current; see the engine note below), WinHTTP on Windows, the browser's `fetch()` on the web
+> (`web-dom`, async entry points only; see the web tier below), with a
 > bundled ureq + rustls fallback on Linux and HarmonyOS. Verified end-to-end with a local-server
 > test suite on the real Apple half (macOS) and the real fallback half (Linux), and live on
 > macOS/iOS-sim/Android-emulator/browser via the showcase walkthrough and Day Skies' Open-Meteo
 > fetch.
 
 Why the platform stack instead of a Rust HTTP crate: the OS already knows the things an app can't
-easily discover — system proxies and PAC scripts, per-network VPN routing, Low Data Mode,
-enterprise/MDM certificate stores, user-installed CAs. Apps that fetch through the platform inherit
+easily discover (system proxies and PAC scripts, per-network VPN routing, Low Data Mode,
+enterprise/MDM certificate stores, user-installed CAs). Apps that fetch through the platform inherit
 all of it, and the native targets bundle **no TLS code at all** (rustls compiles only into the
 cfg-gated Linux/OHOS fallback).
 
@@ -39,7 +39,7 @@ Two contract points that differ from ureq-style clients:
   `HttpError`. Errors are transport-level only: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`,
   `Io`, `Unsupported` (the enum is `#[non_exhaustive]`).
 - **`timeout` bounds progress, not the transfer.** It covers connecting, awaiting the response
-  head, and idle gaps — a multi-minute download that keeps moving is never cut off. Default 30 s.
+  head, and idle gaps; a multi-minute download that keeps moving is never cut off. Default 30 s.
 
 ### Async + the Setter idiom
 
@@ -58,11 +58,11 @@ day_part_http::fetch_async(Request::get(url), move |result| {
 `fetch_async(req, on_done)` completes on a background thread by design: the crate never calls
 `day_reactive::on_main` (which requires an installed backend poster and would break plain-`main`
 programs and `cargo test`). Capturing a `Setter` in `on_done` is the standard delivery idiom
-(DESIGN §4.5) — it marshals to the UI thread itself and absorbs late deliveries after disposal.
+(DESIGN §4.5); it marshals to the UI thread itself and absorbs late deliveries after disposal.
 The showcase's Platform services page demonstrates it twice: a deterministic local fetch (a
 one-shot loopback server natively; on web-dom, where a tab can host no listener, the dev
 server's same-origin `/day-http-ok` echo endpoint with identical bodies), and
-a URL checker (type any http(s) URL, tap Check) that prints the response headers and body size —
+a URL checker (type any http(s) URL, tap Check) that prints the response headers and body size.
 `resp.headers` is the full header list, `resp.header(name)` the case-insensitive lookup.
 
 ### Feeding remote-image
@@ -112,12 +112,12 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | HarmonyOS | ureq 3 + rustls — the OSS 5.1 NDK has no HTTP C API (`HMS_Rcp_*` is HarmonyOS-NEXT-SDK-only) | ureq, same `fallback.rs` |
 | unknown/mock | catch-all: every call returns `HttpError::Unsupported` | — |
 
-`tier()` reports which of the three tiers the compiled target uses — `NativeStack`,
-`RustFallback`, or `Unavailable` — so an app (or a doc table) never has to guess:
+`tier()` reports which of the three tiers the compiled target uses (`NativeStack`,
+`RustFallback`, or `Unavailable`), so an app (or a doc table) never has to guess:
 
 - **NativeStack**: system proxy + PAC, VPN routing, platform TLS + certificate stores all apply.
-  The web is this tier — the browser IS the platform stack (proxies, TLS, certificate store,
-  HTTP/2/3 all come from it) — but async-only: on the single browser thread a blocking wait
+  The web is this tier: the browser IS the platform stack (proxies, TLS, certificate store,
+  HTTP/2/3 all come from it). But it is async-only: on the single browser thread a blocking wait
   would starve the event loop the completion needs (docs/web.md), so the blocking entry points
   return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only realities
   apply: CORS governs cross-origin requests (and limits which response headers are visible),
@@ -141,7 +141,7 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 
 The web column is deliberately coarse: browsers collapse DNS, connect, TLS, and CORS failures
 into one opaque `TypeError` (an anti-fingerprinting measure), so every network-level failure
-surfaces as `Io` with the browser's message — `Dns`/`Connect`/`Tls` never occur on this tier.
+surfaces as `Io` with the browser's message; `Dns`/`Connect`/`Tls` never occur on this tier.
 
 ## Options: applied vs accepted
 
@@ -157,13 +157,13 @@ Options that only some platforms can realize are documented, not silently droppe
 ## App Transport Security (iOS/macOS) and Android cleartext
 
 Both mobile platforms restrict plain `http://` by default; the platform stack enforces the
-platform's policy — which is a feature, but needs two notes:
+platform's policy, which is a feature, but needs two notes:
 
 - **ATS** (Apple): `NSURLSession` refuses non-HTTPS URLs unless the app's Info.plist carries an
-  exception (`NSAppTransportSecurity`). Loopback IP fetches (`http://127.0.0.1:…`) are exempt —
+  exception (`NSAppTransportSecurity`). Loopback IP fetches (`http://127.0.0.1:…`) are exempt;
   the showcase's local demo needs no plist changes. For a real cleartext host, add a scoped
   `NSExceptionDomains` entry; don't reach for `NSAllowsArbitraryLoads`.
-- **Android cleartext**: blocked app-wide since targetSdk 28 — including loopback. The showcase
+- **Android cleartext**: blocked app-wide since targetSdk 28, including loopback. The showcase
   scaffold ships a `network_security_config.xml` permitting cleartext to `127.0.0.1` only (plus
   the `android:networkSecurityConfig` manifest attribute); scope any real exception the same way.
 
@@ -177,11 +177,11 @@ reason `tier()` exists.
 `day_android::with_env`; class resolution works from any Rust-spawned thread because day-android's
 `dfind`/`dcall_static` fall back to the app `ClassLoader` cached at init (a bare JNI `FindClass`
 on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
-fire-and-forget wrappers that deliver on a background thread — see the Setter idiom above.
+fire-and-forget wrappers that deliver on a background thread; see the Setter idiom above.
 
 On the web there is exactly one thread, and it must never wait: the blocking calls return
 `Unsupported` there, and `fetch_async`'s completion arrives on that sole (UI) thread from the
-browser event loop. Both delivery idioms work unchanged — a captured `Setter` detects it is
+browser event loop. Both delivery idioms work unchanged: a captured `Setter` detects it is
 already on the UI thread, and `fetch_future` under `day::task` resumes there anyway.
 
 ## Async and cancellation
@@ -198,8 +198,8 @@ day::task(async move {
 ```
 
 `fetch_future(req)` is oneshot plumbing over `fetch_async`'s completion: any executor can await
-it (`day::task`, or a test's ~25-line `block_on` — tests/http.rs). **The future is the cancel
-grip — dropping it cancels the request** where the platform can:
+it (`day::task`, or a test's ~25-line `block_on` in tests/http.rs). **The future is the cancel
+grip; dropping it cancels the request** where the platform can:
 
 | tier | drop-cancel |
 |---|---|
@@ -210,7 +210,7 @@ grip — dropping it cancels the request** where the platform can:
 
 Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
 fetch) drops the future and rides the same rail. The showcase's URL checker aborts its previous
-in-flight check on re-tap — a live demo of drop-cancel.
+in-flight check on re-tap, a live demo of drop-cancel.
 
 ## The Android engine (OkHttp)
 
@@ -219,7 +219,7 @@ The Android half moved from `java.net.HttpURLConnection` to OkHttp 4.12 (2026-07
 lineage to a current engine rather than changing philosophy: the system `ProxySelector`, VPN
 routing, network security config (OkHttp checks `NetworkSecurityPolicy` for cleartext), and the
 platform `TrustManager`/user CA store all still apply. What the engine adds: HTTP/2 (over TLS via
-ALPN), PATCH (the classic `HttpURLConnection` gap — `Request::patch` now works on every
+ALPN), PATCH (the classic `HttpURLConnection` gap; `Request::patch` now works on every
 platform), and thread-safe per-call cancellation. Costs and behavior deltas:
 the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly 1.5–2.5 MB pre-R8 (well under
 1 MB after shrinking; OkHttp ships its own proguard rules); cross-protocol redirects
@@ -241,8 +241,8 @@ Communication Kit's C API reaches the OSS SDK.
 Like `day-part-network`, a headless part: `cfg(target_os)` halves behind one `mod imp`, per-target
 dependencies, part-owned Java staged via `[package.metadata.day.android]` (which also contributes
 `android.permission.INTERNET`), no framework changes. It is the first part with an async surface
-and background completion threads — the shape DESIGN §4.5 blesses — and the first whose Java runs
+and background completion threads (the shape DESIGN §4.5 blesses) and the first whose Java runs
 on Rust-spawned threads, which is what motivated the app-ClassLoader fallback in day-android's
-`DayEnv` helpers. The web arm rides the day-part-prefs precedent — part-declared `extern "C"`
-imports the day-dom shim implements — extended with the shim's request-id callback pattern for
+`DayEnv` helpers. The web arm rides the day-part-prefs precedent (part-declared `extern "C"`
+imports the day-dom shim implements), extended with the shim's request-id callback pattern for
 its async completions; it is the first part to complete back into wasm.

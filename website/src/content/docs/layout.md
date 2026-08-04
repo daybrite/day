@@ -6,7 +6,7 @@ section: Concepts
 ---
 
 Day owns layout. Native toolkits each have their own layout system (Auto Layout, GTK's size
-groups, Android's measure/layout passes), and they don't agree with each other — so Day bypasses
+groups, Android's measure/layout passes), and they don't agree with each other, so Day bypasses
 them, computes every widget's frame itself, and positions widgets absolutely inside their native
 container. What Day does *not* bypass is native measurement: the platform is always the authority
 on how big a piece of text or a control wants to be.
@@ -15,8 +15,8 @@ This page explains the protocol, why it works this way, and where the costs are.
 
 ## Parent proposes, child chooses
 
-Day uses the SwiftUI-style negotiation protocol. A parent offers a child a **proposal** — an
-optional width and optional height — and the child answers with the size it wants:
+Day uses the SwiftUI-style negotiation protocol. A parent offers a child a **proposal** (an
+optional width and optional height), and the child answers with the size it wants:
 
 ```rust
 pub struct Proposal { pub width: Option<f64>, pub height: Option<f64> }
@@ -44,7 +44,7 @@ among flexible ones (`spacer`, anything marked `.grow()`). A child is never forc
 100 points to a label that needs 120, it answers 120, and the parent decides what to do about the
 overflow (usually: let `scroll` handle it, or let the window's minimum size grow).
 
-The `Layout` trait is public and has no private privileges — `column` is implemented with the
+The `Layout` trait is public and has no private privileges; `column` is implemented with the
 same trait a custom masonry or flow container would use.
 
 One consequence worth internalizing early: **containers don't stretch children by default.** A
@@ -55,8 +55,8 @@ collapsing to its content size, or to nothing when it has no content).
 ## Native measurement, especially text
 
 Leaf Pieces answer `measure` by asking the real widget. This matters most for text, which is
-**height-for-width**: propose a width, and the toolkit's own text engine — Core Text, Pango,
-minikin, QFontMetrics — reports the wrapped height. Day never guesses at glyph metrics, so a
+**height-for-width**: propose a width, and the toolkit's own text engine (Core Text, Pango,
+minikin, QFontMetrics) reports the wrapped height. Day never guesses at glyph metrics, so a
 label wraps exactly where the platform would wrap it, in every script and locale.
 
 The cost is that measurement is a real call into the toolkit, and on Android it's a JNI
@@ -67,7 +67,7 @@ a caching regression fails tests.
 
 ## Incremental relayout
 
-When a binding changes something size-affecting — a label's text grows, a font changes — the node
+When a binding changes something size-affecting (a label's text grows, a font changes), the node
 is marked dirty and the dirt bubbles up to the nearest **layout boundary**: a node whose size is
 externally fixed, like the window root, a `scroll`, or a node with an explicit two-axis
 `.frame(w, h)`. At the turn boundary, layout re-enters *there*, not at the root:
@@ -87,7 +87,7 @@ Frames are diffed with a half-pixel epsilon before touching the toolkit, so a te
 doesn't move anything costs one native `set_text` and zero frame updates.
 
 Why boundaries and not "stop wherever the size didn't change"? Because inside a negotiated stack,
-one child's new size changes its *siblings'* proposals — you can only prune safely from a node
+one child's new size changes its *siblings'* proposals; you can only prune safely from a node
 whose own proposal is stable. This is the subtlest part of Day's layout engine, and it's pinned
 down by mock-toolkit golden tests.
 
@@ -107,19 +107,19 @@ zstack((photo, badge)).align(Alignment::TopTrailing)
 scroll(long_column)
 ```
 
-`padding`, `frame`, and friends are layout-only wrapper nodes — they exist in Day's tree but
+`padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
 create no native widget, so nesting them is cheap.
 
 ## Windows, safe areas, and direction
 
 - **Window sizing.** The minimum window size comes from measuring the root under a zero proposal
-  — the smallest the content can actually be — not from its ideal size. (An earlier system in
+  (the smallest the content can actually be), not from its ideal size. (An earlier system in
   Day's lineage used the unconstrained ideal and produced windows that couldn't shrink; this is
   the lesson learned.) The window relayouts on native resize and never auto-shrinks on you.
 - **Safe areas and keyboards** (mobile): the root applies safe-area insets as padding by default;
   a root-level `scroll` converts them to content insets and slides the focused field above the
   keyboard. Backends with an edge-to-edge mode (Android's immersive opt-in) stop clamping the
-  top and report the insets through `day::safe_area()` instead — paint a background unpadded
+  top and report the insets through `day::safe_area()` instead. Paint a background unpadded
   and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
   `Layout` implementations are written direction-naive with leading/trailing coordinates, and the
@@ -128,12 +128,12 @@ create no native widget, so nesting them is cheap.
 
 ## Tradeoffs
 
-Owning layout buys cross-platform predictability — the same negotiation everywhere, testable on
-the [mock toolkit](/docs/rendering#the-mock-toolkit) without a display — and it's what makes
+Owning layout buys cross-platform predictability (the same negotiation everywhere, testable on
+the [mock toolkit](/docs/rendering#the-mock-toolkit) without a display), and it's what makes
 per-locale reflow and RTL a framework feature instead of five platform projects. What it costs:
 
 - **You give up native layout idioms.** Auto Layout constraints, Compose modifiers, GTK size
-  groups — none of that applies inside a Day window. If your team's muscle memory is one
+  groups: none of that applies inside a Day window. If your team's muscle memory is one
   platform's layout system, Day's is a new (if small) one to learn.
 - **Measurement crosses the FFI.** The cache keeps this off the hot path, but a pathological
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
@@ -144,4 +144,4 @@ per-locale reflow and RTL a framework feature instead of five platform projects.
 
 ---
 
-Next: [Styling](/docs/styling) — what you can restyle, and what stays native on purpose.
+Next: [Styling](/docs/styling), what you can restyle and what stays native on purpose.

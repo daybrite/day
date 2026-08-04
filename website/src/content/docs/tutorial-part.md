@@ -202,7 +202,7 @@ objc2 = "0.6"
 objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
 
 # Android reads BatteryManager through a Java shim + day-android's cached JVM/Context. This is the one
-# platform where the headless crate rides on the Day runtime (like the pieces' Android backends).
+# platform where the headless crate runs on the Day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 ```
@@ -296,7 +296,7 @@ caller never knows or cares.
 
 Android is special: reading `BatteryManager` cleanly wants a `Context` and a sticky broadcast, which is
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
-over the bridge. This is the one platform where a part rides on the Day runtime; it borrows the JVM
+over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
 and `Context` that `day-android` already caches.
 
 The Java shim reads the sticky `ACTION_BATTERY_CHANGED` intent and packs the reading into a `long` so
@@ -550,7 +550,7 @@ to review the ~30 lines of FFI that everything else rests on.
 ---
 
 For the full source, see [`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) in the Day repo, and
-[extending.md](/docs/internal/extending) for the shared contribution mechanism that parts and pieces both ride.
+[extending.md](/docs/internal/extending) for the shared contribution mechanism that parts and pieces both use.
 [`parts/day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
 [`parts/day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

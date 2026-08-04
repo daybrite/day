@@ -7,8 +7,8 @@
 > theme-background surface so a cover always occludes the window. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 
-A `cover` presents a Day subtree over the whole window — edge-to-edge, above every other
-surface — the SwiftUI `fullScreenCover(item:)` shape. Like `selector` and `stack`
+A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other
+surface): the SwiftUI `fullScreenCover(item:)` shape. Like `selector` and `stack`
 (docs/navigation.md), it is a projection of an app-owned signal, not an imperative controller:
 
 ```rust
@@ -25,15 +25,15 @@ zstack((
 - `Some(r)` builds `build(&r)` under the cover and presents it (slide-up where the platform
   animates modals). `None` dismisses it. Switching directly from `Some(a)` to `Some(b)`
   swaps the content and re-presents.
-- `.background(f)` paints the surface color edge-to-edge — under the status bar and home
-  indicator — while the content itself is laid out inside the safe area. Without it the
+- `.background(f)` paints the surface color edge-to-edge (under the status bar and home
+  indicator) while the content itself is laid out inside the safe area. Without it the
   platform's default surface color shows in the unsafe regions.
 - The builder runs inside the presented content's scope: state it restores, signals it
   creates, and cleanups it registers (e.g. a save-on-exit) live exactly as long as the
   presentation.
 - The content is disposed only after the backend reports the hide transition finished
   (`Event::custom("cover-hidden", "")` on the cover node), so the surface never blanks
-  mid-animation. Scope cleanups — the natural save-on-exit hook — run at that moment.
+  mid-animation. Scope cleanups (the natural save-on-exit hook) run at that moment.
 
 ### The `cover-hidden` delivery contract
 
@@ -71,8 +71,8 @@ game_page()
   through the `Toolkit::defer_system_gestures` duty on every change.
 - **`interactive_dismiss_disabled()`** blocks the *user-initiated* dismissal of the
   enclosing cover: Android's system back stops closing it (iOS sets
-  `isModalInPresentation`, inert under the fullscreen style). Programmatic writes —
-  `open.set(None)`, dayscript `nav_back` — still close it; ship an explicit close control.
+  `isModalInPresentation`, inert under the fullscreen style). Programmatic writes
+  (`open.set(None)`, dayscript `nav_back`) still close it; ship an explicit close control.
   The state is queryable via `day_core::shield::dismiss_disabled()` (reactive: reads track
   a change counter).
 
@@ -86,7 +86,7 @@ contribution to `current_route()`. Day-Games' walkthrough drives games with plai
 ## How it works
 
 - `kinds::COVER` is realized DETACHED from the visible hierarchy (its `set_frame` is a
-  toolkit no-op — the frame is native-owned). `CoverPatch::Present { background,
+  toolkit no-op: the frame is native-owned). `CoverPatch::Present { background,
   dismiss_disabled }` shows it; `CoverPatch::Dismiss` hides it; `CoverPatch::
   DismissDisabled` tracks the shield while presented.
 - Layout follows the nav-page contract: the backend reports the content container's
@@ -94,7 +94,7 @@ contribution to `current_route()`. Day-Games' walkthrough drives games with plai
   out at that size. In the tree the cover node measures 0×0, so it never disturbs the
   layout it sits in.
 - A native dismissal *request* (Android back) arrives as `Event::NavBack` on the cover
-  node; the piece writes `None` into the signal unless dismissal is disabled — the same
+  node; the piece writes `None` into the signal unless dismissal is disabled, the same
   origin-tagged write-back discipline as every control.
 
 ## Per-toolkit realization

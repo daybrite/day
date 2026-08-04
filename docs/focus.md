@@ -1,13 +1,13 @@
 # Focus
 
-> Status: **implemented** on every backend — AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
-> mock. `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
+> Status: **implemented** on every backend (AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
+> mock). `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
 > behind it, and DESIGN §4.4's controlled-input rule ("the native widget is the source of truth
 > **while it has focus**") now rests on actual focus knowledge. The showcase's Focus page
 > exercises every permutation below; the walkthrough asserts it on every scripted platform.
 
 Day apps need two things from focus: to know when a control gains or loses it, and to move it.
-Both are declarative — one reactive signal per form, no focus-node objects, no view references —
+Both are declarative (one reactive signal per form, no focus-node objects, no view references)
 and both ride the machinery Day already has: the event sink, origin-tagged writes, and per-node
 Toolkit duties.
 
@@ -38,19 +38,19 @@ column((
 ```
 
 - **Native → signal.** When the control gains focus the signal becomes `true` / `Some(K)`; when
-  it loses focus, `false` / `None` — unless another bound control gained it in the same turn, in
+  it loses focus, `false` / `None`, unless another bound control gained it in the same turn, in
   which case the group signal moves straight to that control's value (no `None` in between).
 - **Signal → native.** Writing `Some(K)` / `true` requests native focus for the bound control.
-  Writing `None` / `false` resigns it — on iOS and Android that dismisses the soft keyboard,
+  Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
-- **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other —
+- **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other:
   no separate "is focused" query, no event wiring.
 - **Field chaining** is a write in `on_submit(f)`, which ships with the same change: the native
   end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
 Reserved with names but not implemented: `.focusable()` (opt a custom piece into focus),
 `default_focus(…)` on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab
-traversal stays native — Day wraps real widgets, so platform traversal is already correct
+traversal stays native. Day wraps real widgets, so platform traversal is already correct
 (§13: focus order follows layout order).
 
 ## 2. Semantics — the rules
@@ -59,13 +59,13 @@ traversal stays native — Day wraps real widgets, so platform traversal is alre
    in a turn wins.
 2. **The signal converges on reality.** Backends report the *resulting* state through
    `Event::FocusChanged`, and that report is what lands in the signal (through the echo guard).
-   A request naming a target the platform will not focus produces no event — platform focus is
+   A request naming a target the platform will not focus produces no event: platform focus is
    unchanged, and the next real focus event corrects the signal.
 3. **One-turn latency.** `focus.set(…)` then `focus.get()` in the same turn reads the old
-   value — the same asynchrony every reference framework has, made explicit.
+   value, the same asynchrony every reference framework has, made explicit.
 4. **Mount reconciliation.** When a piece bound to `K::V` mounts and the signal already reads
    `Some(K::V)`, it requests focus. Set the signal, then present the sheet: the field focuses
-   when it appears. (The initial `false`/`None` is *not* applied — resigning focus a control
+   when it appears. (The initial `false`/`None` is *not* applied: resigning focus a control
    never had would steal it from whoever has it.)
 5. **Echo discipline.** A programmatic focus move fires native focus events; those must not
    re-request. The pieces layer keeps a per-binding echo cell of the native state and skips
@@ -102,7 +102,7 @@ traversal stays native — Day wraps real widgets, so platform traversal is alre
 | mock | logged op + `MockWidget.focused` | logged op |
 
 **Focusability in practice:** text fields are focusable everywhere. On desktop, buttons,
-toggles, and sliders are too — with the platform's own keyboard-access rules (macOS buttons
+toggles, and sliders are too, with the platform's own keyboard-access rules (macOS buttons
 join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't observe them; Qt
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
@@ -110,9 +110,9 @@ focusable, and the bindings stay quiet there.
 ## 5. Testing it
 
 - **Unit (mock):** two-way Bool binding, group moves without a `None` blip, mount-time
-  `Some(K)` requests focus, `on_submit` fires — `day-pieces/tests/mock_e2e.rs`.
+  `Some(K)` requests focus, `on_submit` fires (`day-pieces/tests/mock_e2e.rs`).
 - **dayscript:** the showcase walkthrough's Focus block runs `focus` / `assert_focused` against
-  the real duty on every scripted platform (macOS AppKit/GTK/Qt, iOS, Android — 208/208), with
+  the real duty on every scripted platform (macOS AppKit/GTK/Qt, iOS, Android: 208/208), with
   assertions kept to text fields, the one control focusable everywhere.
 - **Showcase:** the Focus page (`apps/showcase/src/pages/focus.rs`) demonstrates the group
   signal steering a form (with Return chaining), the plain Bool binding, and non-text-control
@@ -120,17 +120,17 @@ focusable, and the bindings stay quiet there.
 
 ## 6. Prior art — what Day adopted and rejected
 
-- **SwiftUI** (`@FocusState`, `.focused(_:equals:)`): adopted — the Bool + Optional-of-Hashable
+- **SwiftUI** (`@FocusState`, `.focused(_:equals:)`). Adopted: the Bool + Optional-of-Hashable
   binding shape, `nil` clears focus and dismisses the keyboard, moved focus writes back on loss.
-  Rejected: the unconstructible binding (state can't live outside the view) — Day signals have
+  Rejected: the unconstructible binding (state can't live outside the view); Day signals have
   no such wall.
-- **Flutter** (`FocusNode`/`FocusScope`): rejected as an API (imperative node lifecycle inside a
-  declarative tree); adopted as semantics — "focus changes apply after the build phase" is
+- **Flutter** (`FocusNode`/`FocusScope`). Rejected as an API (imperative node lifecycle inside a
+  declarative tree); adopted as semantics: "focus changes apply after the build phase" is
   rule 3, and the scope-restore behavior informs the reserved focus-scope design.
 - **floem** (nearest cousin): its `request_focus(when)` proved signal-driven focus writes work;
   its event-only *reads* are the asymmetry rule 2 closes.
 - **iced / egui / Slint / GPUI**: converge on last-write-wins, next-frame application, and
-  focus-nowhere being representable — all reflected in the rules.
+  focus-nowhere being representable, all reflected in the rules.
 
 ## 7. Resolved design questions
 
@@ -148,14 +148,14 @@ focusable, and the bindings stay quiet there.
 ## 8. Keyboard avoidance (the keyboard never covers the focused field)
 
 Each mobile backend consumes the soft keyboard natively and resizes the Day root through the
-`WindowResized` rail — the same relayout path a rotation takes — so the whole UI shrinks to the
+`WindowResized` rail (the same relayout path a rotation takes), so the whole UI shrinks to the
 visible area and the focused field is scrolled back into view:
 
 - **Android**: the root's wrapper folds `WindowInsetsCompat.Type.ime()` into the bottom margin
   (alongside the system-bar insets), so a raised keyboard shrinks the root exactly like a taller
   navigation bar would. The resize flows to Day (`DayFixed.onSizeChanged` → `WindowResized`),
   Day relayouts, and the platform `ScrollView` then applies its stock resized-with-focus
-  behavior — scrolling the focused descendant back into view.
+  behavior, scrolling the focused descendant back into view.
 - **iOS**: the app delegate observes `UIKeyboardWillChangeFrame`, clamps the root view's bottom
   to the keyboard's top, emits `WindowResized`, and after Day's relayout reveals the focused
   `UITextField` via `scrollRectToVisible` on its nearest enclosing `UIScrollView`. Show, hide,
@@ -164,6 +164,6 @@ visible area and the focused field is scrolled back into view:
   the page instead of translating it; the host page's `onAreaChange` forwards the new area
   through the `resized()` NAPI export, and Day relayouts into it.
 
-Desktop backends have no soft keyboard; nothing engages. There is no per-app opt-in — a Day app
+Desktop backends have no soft keyboard; nothing engages. There is no per-app opt-in; a Day app
 gets avoidance by existing. The related programmatic primitive is `TreeOps::scroll_reveal`
 (docs/scroll.md), which scrolls any element's nearest scroll ancestor into view.

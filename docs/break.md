@@ -10,7 +10,7 @@
 day-break is Day's answer to Crashlytics / Sentry / Bugsnag / Backtrace, built on one principle:
 **the user is fully informed and nothing leaves the device without an explicit action.** It
 registers standard crash handlers, writes a report when the app dies abnormally, and on the *next*
-launch lets the app show the user exactly what would be sent and ask whether to send it — through
+launch lets the app show the user exactly what would be sent and ask whether to send it, through
 a transport the app chooses (a REST endpoint, a GitHub-issue flow, or a `mailto:` the user sends).
 
 It is an **optional** crate: an app that doesn't depend on it is unaffected. It is a framework
@@ -19,7 +19,7 @@ and parts may not depend on `day-pieces`.
 
 ## Using it
 
-Arm capture as early as possible — the first thing in the app entry, before `day::launch`:
+Arm capture as early as possible (the first thing in the app entry, before `day::launch`):
 
 ```rust
 day_break::Config::new()
@@ -49,7 +49,7 @@ transports section.
 ### The consent rule
 
 There is **no auto-upload mode** in v1. Upload happens only through a transport's `send`, which is
-called by app code — the intended trigger is a user action ("Send report") on a disclosure surface
+called by app code. The intended trigger is a user action ("Send report") on a disclosure surface
 that has shown the full report text. The report the user reads is byte-for-byte what is uploaded;
 there are no hidden fields. A conforming app does not call `send` from a non-interactive path.
 
@@ -64,14 +64,14 @@ there are no hidden fields. A conforming app does not call `send` from a non-int
 **Deferred to a later version** (listed so the limits are on record): Windows
 `SetUnhandledExceptionFilter` (the panic hook still covers Rust panics, the dominant class); iOS
 `NSSetUncaughtExceptionHandler` (an uncaught ObjC exception ends in `abort()`, which the SIGABRT
-handler already records); HarmonyOS `errorManager` (ArkTS-only, no NDK C entry — native crashes
+handler already records); HarmonyOS `errorManager` (ArkTS-only, no NDK C entry; native crashes
 are covered by the signal handlers).
 
 ### Panic vs. contained panic
 
 day-core contains panics at its trampoline boundaries (the event pump, posted main-thread tasks)
 so the app survives (DESIGN.md §8.5, §8). day-break's hook fires for *every* panic, then day-core
-notifies it (`day_core::set_contained_panic_observer`) when it catches one — so a contained panic
+notifies it (`day_core::set_contained_panic_observer`) when it catches one, so a contained panic
 is recorded as a **non-fatal** `contained` report, distinct from a crash. Set
 `Config::keep_contained(false)` to drop them.
 
@@ -88,7 +88,7 @@ platform's own tombstone/faultlog is still produced alongside day-break's report
 ## The report (schema 1)
 
 A finalized report is JSON, grow-only (fields are added, never removed or repurposed; key off
-`schema`). Intermediate on-disk artifacts use a line-oriented `key=value` format instead — the
+`schema`). Intermediate on-disk artifacts use a line-oriented `key=value` format instead. The
 signal handler can only emit ASCII from its constrained context, so nothing in the runtime path
 parses JSON; reconciliation on the next launch turns the kv artifacts into the JSON below.
 
@@ -122,15 +122,15 @@ in; a bare `cargo` build without the CLI falls back to a runtime env lookup, the
 For a native fault, `signal.pc - signal.slide` is the module-relative address to symbolize offline
 against the shipped binary. The release profile ships no debug info by default, so backtraces
 carry symbol names but not `file:line`; an app that wants line tables in release adds, in **its
-own** workspace, `[profile.release] debug = "line-tables-only"` — day-break does not change the
-global profile.
+own** workspace, `[profile.release] debug = "line-tables-only"` (day-break does not change the
+global profile).
 
 ## Session end and the sentinel
 
 At `init` day-break writes a session sentinel and removes it on `Lifecycle::WillTerminate` (a
 clean exit). WillTerminate is reliable on desktop but best-effort on mobile (it does not fire on a
 crash or an OS kill), so the reconciler treats a leftover sentinel **with no handler-written
-artifact** as `SessionEnd::Unknown` — an OS kill or power loss — never a crash. Only a
+artifact** as `SessionEnd::Unknown` (an OS kill or power loss), never a crash. Only a
 handler-written artifact produces a crash report.
 
 ## Transports (`Reporter`)
@@ -164,7 +164,7 @@ backend and hand the final submit to the user.
 
 `cargo test -p day-break` covers the kv/JSON codecs, the reconcile matrix, rotation, and panic-hook
 chaining in-process, plus a **subprocess crash harness** (`tests/crash.rs`) that re-executes the
-test binary to actually panic / abort / segfault a child and asserts the finalized report — run on
-macOS and Linux CI hosts. On-device capture (Android UEH, iOS/HarmonyOS signals) is verified
+test binary to actually panic / abort / segfault a child and asserts the finalized report (run on
+macOS and Linux CI hosts). On-device capture (Android UEH, iOS/HarmonyOS signals) is verified
 through the showcase "Crash Reporting" page and its dayscript (`docs/agent.md`), which uses the
 `expect_exit` step to tolerate the intentional crash.

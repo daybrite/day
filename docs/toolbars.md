@@ -1,6 +1,6 @@
 # Window toolbars
 
-> **Status: implemented** on the four desktop backends — AppKit, GTK, Qt, XAML. A toolbar is
+> **Status: implemented** on the four desktop backends: AppKit, GTK, Qt, XAML. A toolbar is
 > window chrome, not a piece: it does not live in the tree and day does not lay it out. Each
 > backend realizes the model with its platform's own toolbar; where the platform has none, day
 > installs nothing and draws no imitation.
@@ -49,7 +49,7 @@ dayscript target, and the key a targeted update addresses. Ids are unique within
 ### The flexible space is the layout
 
 There is no leading/trailing property. Items before the first `toolbar_flexible_space()` are
-leading and the rest are trailing, and each backend expresses that with its own packing — GTK
+leading and the rest are trailing, and each backend expresses that with its own packing: GTK
 packs start/end, XAML splits `Content` from `PrimaryCommands`, AppKit and Qt insert a real
 expanding spacer. One ordered list, four native layouts.
 
@@ -63,7 +63,7 @@ ride their own bindings and patch a single item instead:
 - a `toolbar_search`'s signal
 - `.enabled_when(…)`
 
-Keep those OUT of a `toolbar_reactive` builder's reactive reads. Put structure there — which
+Keep those OUT of a `toolbar_reactive` builder's reactive reads. Put structure there: which
 items exist, and their labels.
 
 ### Icons
@@ -74,7 +74,7 @@ This is the only way one icon looks native on four desktops; a bundled PNG canno
 one artist's take on all of them. Use `.image(name)` only for something app-specific.
 
 `Symbol` is `#[non_exhaustive]`. A backend that has no glyph for a symbol draws none and the item
-falls back to its label — never to a broken-image placeholder. GTK additionally checks the running
+falls back to its label, never to a broken-image placeholder. GTK additionally checks the running
 icon theme before setting a name, because icon themes vary in completeness and a missing name
 paints GTK's broken-image glyph.
 
@@ -88,7 +88,7 @@ if capability(Cap::Toolbar) == Support::Native { /* toolbar(…) */ } else { /* 
 
 `Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else. A
 phone has no toolbar, so `toolbar(…)` installs nothing there and the app puts those commands in
-the content instead — see Day Sheets, whose search is a toolbar item on the desktops and a
+the content instead; see Day Sheets, whose search is a toolbar item on the desktops and a
 timeline field on a phone.
 
 ## Per-backend native realization
@@ -118,13 +118,13 @@ Notes that are not obvious from the table:
   trailing group is packed in reverse to reach the screen in the order the app wrote it.
 - **Qt** — the bar is a `QToolBar` parented to the window and laid out with the menu bar, not a
   `QMainWindow` dock; the geometry there is already hand-managed. It is a real `QToolBar` either
-  way — it takes its icon size and its icon/text style from the user's Qt settings, which is the
+  way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
   KDE convention and why the backend sets neither. What it does not get is dragging between dock
   areas, which needs `QMainWindow`.
 - **XAML** — `CommandBar` right-aligns `PrimaryCommands` and left-aligns `Content`, which is
   exactly the flexible-space split. With one divergence: system XAML's `PrimaryCommands` accepts
   only `ICommandBarElement`, so a search field, a label or a fixed space cannot go there. Those
-  three always render in `Content` — on the LEADING side — wherever the app placed them. A search
+  three always render in `Content` (on the LEADING side) wherever the app placed them. A search
   item written after the flexible space therefore sits left on Windows and right on the other
   three. This is the toolkit's limit, not a shim shortcut; the alternative would be drawing a
   fake search box, which this design does not do. Windows-only, so XAML is built and exercised in
@@ -154,7 +154,7 @@ search field dispatched an action id day-core had already swept, so typing did n
 ```
 
 The step goes through the same dispatch the native control fires, so it exercises the app's
-wiring end to end. It does **not** prove the native widget drew — a screenshot does. The step
+wiring end to end. It does **not** prove the native widget drew; a screenshot does. The step
 fails on an unknown item (retryable, since a reactive bar may not have installed yet), on a
 disabled item, and on an item with no command.
 
@@ -164,10 +164,10 @@ The showcase **Toolbars** page (`pages/toolbars.rs`) installs the main window's 
 every item kind, and drives the whole API from the page: add and remove an item, enable and
 disable one, write both bound signals, and read back what the bar did. The walkthrough runs a
 button, types into the search field, sets the toggle, adds the optional item and runs it, then
-disables one and clears the search — asserting the page's live readouts after each.
+disables one and clears the search, asserting the page's live readouts after each.
 
 Day Sheets carries the applied version: refresh and mark-all-read, next-unread and a star toggle,
-then search at the trailing edge — with the same search signal moving into the timeline's own
+then search at the trailing edge, with the same search signal moving into the timeline's own
 field on a phone.
 
 Verified by running the showcase and Day Sheets walkthroughs on macos-appkit, macos-gtk and

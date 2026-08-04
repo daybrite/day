@@ -27,7 +27,7 @@ Largest → smallest, mirroring SwiftUI's `Font.TextStyle`:
 `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`,
 `Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size, and
 `Custom("Family", pt)` for a bundled custom font referenced by family name (ship the file in the
-project's `resource/fonts/` directory — see docs/resources.md §18.4 for the packaging and naming rules).
+project's `resource/fonts/` directory; see docs/resources.md §18.4 for the packaging and naming rules).
 
 Each maps to the platform's native text style where one exists, so sizes and weights match the OS:
 
@@ -61,12 +61,12 @@ accessibility text-size setting (iOS runs it through `UIFontMetrics`, Android us
 text-scaling factor, web-dom expresses it as `pt/16` rem so it rides the browser's font-size
 preference), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
-`Font::Custom("Family", pt)` scales the same way — a bundled font never opts out of accessibility
+`Font::Custom("Family", pt)` scales the same way; a bundled font never opts out of accessibility
 sizing.
 
 ## Selectable text
 
-Text is **not** user-selectable by default on any backend — a label, a button's caption, and a
+Text is **not** user-selectable by default on any backend: a label, a button's caption, and a
 table cell all match each platform's native behavior, where static text can't be selected. Opt a
 piece in with `.selectable()`:
 
@@ -88,7 +88,7 @@ modifier routes to `Toolkit::set_selectable`, honored where the toolkit has a na
 | web-dom | `user-select: text` (the `#day-root` default is `none`) |
 | UIKit | not supported on a plain `UILabel` — a no-op |
 
-Selection visuals and the copy shortcut are the platform's own. It's unmanaged — set once at mount,
+Selection visuals and the copy shortcut are the platform's own. It's unmanaged: set once at mount,
 and it survives Day's own text updates.
 
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,

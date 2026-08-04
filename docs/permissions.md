@@ -16,7 +16,7 @@ Every mobile OS requires a **build-time declaration** in addition to the runtime
 and the failure modes are not symmetric:
 
 - **iOS and macOS terminate the process** when it touches a gated API without the matching
-  `NS…UsageDescription` key. Not an exception you can catch — TCC terminates the process.
+  `NS…UsageDescription` key. Not an exception you can catch: TCC terminates the process.
 - **Android** reports an undeclared permission as [`Status::Restricted`]: a request returns denied
   in the same frame, with no dialog, and Settings offers nothing.
 - **HarmonyOS** refuses the request outright.
@@ -79,13 +79,13 @@ lets an ungated platform answer accurately:
 | `Unsupported` | `Gate::Absent` |
 | `Unknown` | the platform answers only asynchronously and hasn't yet (web, and Apple notifications) |
 
-On desktop Linux the camera has no permission gate, so `status` answers **`Granted`** — an app
+On desktop Linux the camera has no permission gate, so `status` answers **`Granted`**: an app
 asking "may I use the camera?" should proceed, and the real failure belongs at `open("/dev/video0")`.
 The structural fact is not lost; it moves to `gate() == Ungated`. Invariants, unit-tested:
 `Ungated ⟹ Granted`, and `Absent ⟹ Unsupported`.
 
 `Granted` is not a promise that the hardware exists. A laptop with no camera still answers
-`Granted`, because no permission stands in the way — ask the capability's own part (e.g.
+`Granted`, because no permission stands in the way; ask the capability's own part (e.g.
 `day_part_sensors::is_available`) about hardware.
 
 ## Reasons are not a runtime parameter
@@ -113,7 +113,7 @@ keeps `IntoText`/`LocalizedText` out of parts (docs/extending.md §4) never has 
 
 Two platform truths worth stating:
 
-- **`request` is callback-and-future only — there is no blocking form.** The OS prompt is drawn by
+- **`request` is callback-and-future only; there is no blocking form.** The OS prompt is drawn by
   the very thread a blocking call would park, so it would deadlock by construction on every platform.
 - **Dropping a `StatusFuture` does not dismiss the prompt.** No platform can dismiss its own
   permission dialog programmatically. Dropping stops you listening; the user's answer is still
@@ -123,8 +123,8 @@ Two platform truths worth stating:
 ### Android cannot tell "never asked" from "permanently denied"
 
 Not without app-side state, and **Day keeps none**. A denied-but-declared permission with no
-rationale flag is reported as `Prompt` either way. That is safe — asking after a permanent refusal
-shows no dialog and resolves `Denied` immediately — but if your app needs the distinction, record it
+rationale flag is reported as `Prompt` either way. That is safe (asking after a permanent refusal
+shows no dialog and resolves `Denied` immediately), but if your app needs the distinction, record it
 yourself when you call `request`:
 
 ```rust
@@ -139,7 +139,7 @@ day_part_permissions::request(perm, move |s| {
 `day launch -p macos-appkit` runs the bare binary, not a bundle. TCC reads usage descriptions from a
 bundle's `Info.plist`, so an unbundled process is denied (or killed) regardless of what Day.toml
 says. Only `day pack -p macos-appkit` produces a bundle that can be granted anything. The crate
-guards every `UNUserNotificationCenter` call behind a bundle check for the same reason — touching it
+guards every `UNUserNotificationCenter` call behind a bundle check for the same reason: touching it
 unbundled aborts the process.
 
 ## What the declaration pipeline generates
@@ -157,7 +157,7 @@ unbundled aborts the process.
 ⚠ `ohos.permission.READ_IMAGEVIDEO` is a `system_basic` permission, which an app signed at the
 default `normal` level cannot hold. Prefer `PhotoViewPicker`, which needs no permission at all.
 
-The table lives in `day_build::permissions` — one source shared by the CLI's generators and this
+The table lives in `day_build::permissions`, one source shared by the CLI's generators and this
 crate's runtime, with a parity test pinning the Rust variant names so `day lint` can map a source
 reference back to a declaration.
 
@@ -170,8 +170,8 @@ ios     = { NSContactsUsageDescription = "Find friends who already use Day." }
 ohos    = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when = "inuse" }]
 ```
 
-A library can declare the machine-facing half itself — `[package.metadata.day.permissions] uses =
-["camera"]` — but never the reason, which is app copy. A contribution with no reason in the app's
+A library can declare the machine-facing half itself (`[package.metadata.day.permissions] uses =
+["camera"]`) but never the reason, which is app copy. A contribution with no reason in the app's
 Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and the lines to paste.
 
 ### Where each file is written, and what Day owns in it
@@ -183,7 +183,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   the keys in the table above plus your `[permissions.raw]` keys; every other byte is preserved, so
   the diff shows only what changed, and a hand-added key Day doesn't model is never touched. Two
   consecutive builds produce a byte-identical file. This is a deliberate exception to "aggregation
-  never mutates the scaffolds" (DESIGN §15.2) — the alternative broke `⌘R` in Xcode.
+  never mutates the scaffolds" (DESIGN §15.2); the alternative broke `⌘R` in Xcode.
 - **HarmonyOS** — a marker region in `module.json5` (`// day:permissions-begin` … `-end`), inserted
   once on an older scaffold and replaced thereafter, plus `day_perm_reason_*` entries in
   `string.json`. Region editing rather than JSON5 parsing, because a round-trip would delete the
@@ -202,7 +202,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 
 The crate registers nothing in any `RENDERERS` slice. Its Android half is bundled with it and folded
 into the app's Gradle build by `[package.metadata.day.android]`, with **zero edits to any core Day
-crate** — including the permission-result callback, which lives in a headless `Fragment` the crate
+crate**, including the permission-result callback, which lives in a headless `Fragment` the crate
 attaches itself rather than in `day-android`'s `DayActivity`. Its `permissions = []` entry is
 deliberately empty and must stay that way: a permissions crate must never force a permission into an
 app's manifest. See [extending.md](extending.md).

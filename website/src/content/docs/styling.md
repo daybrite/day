@@ -11,7 +11,7 @@ where you control every pixel.
 
 **You style content and space; the platform styles controls.** Fonts, text
 color, padding, backgrounds, corner radii, and everything you draw in a `canvas` are yours.
-Button chrome, focus rings, slider tracks, scrollbar appearance, selection highlights — those
+Button chrome, focus rings, slider tracks, scrollbar appearance, selection highlights: those
 belong to the platform, and Day leaves them there rather than reimplementing them.
 
 ## Text
@@ -42,8 +42,8 @@ column((avatar, name, bio))
 ```
 
 `Color` is a plain sRGB value (`Color::rgb`, `Color::rgba`, `Color::hex(0xRRGGBB)`, plus `BLACK`,
-`WHITE`, `CLEAR`). `.background()` accepts a static color or a reactive one — a closure or signal
-— so appearance can follow state:
+`WHITE`, `CLEAR`). `.background()` accepts a static color or a reactive one (a closure or
+signal), so appearance can follow state:
 
 ```rust
 label(move || status.get().to_string())
@@ -56,13 +56,13 @@ appearance on its own (an `NSButton` is correct in dark mode without your help),
 `Color::hex(0xFFFFFF)` background is white in both modes. The design reserves a token system
 (`theme::TEXT`, `theme::CARD`, … resolving to `UIColor.label`, Adwaita named colors, and so on)
 that hasn't landed yet; until it does, apps that want dark-mode-aware custom colors carry their
-own palette and switch it themselves. If you can avoid custom colors on large surfaces, do — the
+own palette and switch it themselves. If you can avoid custom colors on large surfaces, do; the
 platform's defaults are already right.
 
 ## Reusable style: the Modifier trait
 
-There's no stylesheet language. Reuse is ordinary Rust — a function or a `Modifier`, which is
-anything that maps a Piece to a decorated Piece:
+There's no stylesheet language. Reuse is ordinary Rust (a function or a `Modifier`, which is
+anything that maps a Piece to a decorated Piece):
 
 ```rust
 pub struct Card;
@@ -88,7 +88,7 @@ with_environment(Palette::dark(), || {
 
 ## Per-platform divergence
 
-Sometimes the right style differs per platform — denser padding on desktop, larger touch targets
+Sometimes the right style differs per platform: denser padding on desktop, larger touch targets
 on mobile. Today you branch on the compiled toolkit, which is a process constant and costs
 nothing at runtime:
 
@@ -102,9 +102,9 @@ specified but not yet implemented, so `cfg!` branches are the current idiom. Eit
 philosophy is the same: where platforms diverge, Day gives you a targeted override
 rather than pretending the divergence away.
 
-Piece-specific style hooks exist where a control has real variants — `button(...).style(...)`
+Piece-specific style hooks exist where a control has real variants (`button(...).style(...)`
 takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks sidebar vs. tab
-presentation — and these map to native variants, not custom drawing.
+presentation), and these map to native variants, not custom drawing.
 
 ## What you can't restyle (on purpose)
 
@@ -113,19 +113,19 @@ If a property can't be honored by a toolkit, Day logs it once in debug rather th
 approximating it with custom drawing. That constraint is the flip side of every Day control
 behaving, and updating with the OS, exactly like a native one.
 
-When a *specific platform* offers the knob you want — an AppKit bezel style, XAML tick marks —
+When a *specific platform* offers the knob you want (an AppKit bezel style, XAML tick marks),
 [tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit, without leaving the
 native-widget premise. And when you truly need fully custom visuals, that's what
 [`canvas`](/docs/internal/shapes) and [composite pieces](/docs/tutorial-composite-piece) are for:
 draw your own leaf, keep native behavior around it.
 
-If your product requires a heavily branded design system on every pixel — custom controls
-everywhere, identical on all platforms — a renderer-based framework will fight you less. Day is
+If your product requires a heavily branded design system on every pixel (custom controls
+everywhere, identical on all platforms), a renderer-based framework will fight you less. Day is
 for apps that want to look like they belong on each platform. That choice is the subject of
 [Why Day](/docs/benefits).
 
 ---
 
-Next: the [Guides](/docs/navigation) cover the everyday tasks — navigation, localization,
-accessibility, testing — or jump to the [API tour](/docs/api-tour) for the whole surface at a
+Next: the [Guides](/docs/navigation) cover the everyday tasks (navigation, localization,
+accessibility, testing), or jump to the [API tour](/docs/api-tour) for the whole surface at a
 glance.

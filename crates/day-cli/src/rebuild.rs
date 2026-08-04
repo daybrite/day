@@ -43,6 +43,11 @@ struct Provenance {
     repository: String,
     commit: String,
     dirty: bool,
+    /// Where the project sat inside the repository (`apps/showcase`, or empty at the root).
+    /// Absent in artifacts packed before this was recorded — see `find_project_dir`.
+    project: Option<String>,
+    /// The app id the artifact declares, used to identify the project when `project` is absent.
+    app_id: Option<String>,
     /// Present only when the buildinfo sidecar was found; without it tool gating is skipped.
     target: Option<String>,
     profile: Option<String>,
@@ -54,12 +59,23 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-/// Pull repository/commit/dirty from either SBOM format.
+/// What the SBOM says about the source: repository, commit, dirty flag, project path, app id.
+/// The last two are optional — older artifacts predate them.
+#[derive(Debug, PartialEq)]
+struct SourceFacts {
+    repository: String,
+    commit: String,
+    dirty: bool,
+    project: Option<String>,
+    app_id: Option<String>,
+}
+
+/// Pull the source facts from either SBOM format.
 ///
 /// CycloneDX keeps them in `metadata.properties`; SPDX has no property bag, so they ride in the
 /// application package's `sourceInfo`. Both are accepted because either format may be the only one
 /// a project generates.
-fn source_facts(doc: &serde_json::Value) -> Option<(String, String, bool)> {
+fn source_facts(doc: &serde_json::Value) -> Option<SourceFacts> {
     if let Some(v) = cyclonedx_props(doc) {
         return Some(v);
     }
@@ -72,14 +88,24 @@ fn source_facts(doc: &serde_json::Value) -> Option<(String, String, bool)> {
         info.split_whitespace()
             .find_map(|kv| kv.strip_prefix(&format!("{k}=")))
             .map(str::to_string)
+            .filter(|v| v != "NOASSERTION")
     };
-    let repo = field("repository").filter(|v| v != "NOASSERTION")?;
-    let commit = field("commit").filter(|v| v != "NOASSERTION")?;
-    Some((repo, commit, field("dirty").as_deref() == Some("true")))
+    Some(SourceFacts {
+        repository: field("repository")?,
+        commit: field("commit")?,
+        dirty: info.contains("dirty=true"),
+        // An empty prefix is the repository root, which is a real answer — keep it as Some("").
+        project: info
+            .split_whitespace()
+            .find_map(|kv| kv.strip_prefix("project="))
+            .filter(|v| *v != "NOASSERTION")
+            .map(str::to_string),
+        app_id: field("app-id"),
+    })
 }
 
 /// Pull `day:*` properties out of a CycloneDX document.
-fn cyclonedx_props(doc: &serde_json::Value) -> Option<(String, String, bool)> {
+fn cyclonedx_props(doc: &serde_json::Value) -> Option<SourceFacts> {
     let props = doc.get("metadata")?.get("properties")?.as_array()?;
     let get = |k: &str| {
         props
@@ -89,11 +115,13 @@ fn cyclonedx_props(doc: &serde_json::Value) -> Option<(String, String, bool)> {
             .and_then(|v| v.as_str())
             .map(str::to_string)
     };
-    Some((
-        get("day:repository")?,
-        get("day:commit")?,
-        get("day:dirty").as_deref() == Some("true"),
-    ))
+    Some(SourceFacts {
+        repository: get("day:repository")?,
+        commit: get("day:commit")?,
+        dirty: get("day:dirty").as_deref() == Some("true"),
+        project: get("day:project"),
+        app_id: get("day:app-id"),
+    })
 }
 
 /// Find an SBOM either beside the artifact or inside it.
@@ -198,7 +226,7 @@ fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
 /// Gather everything known about how the artifact was produced.
 fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
     let sbom = locate_sbom(artifact, scratch)?;
-    let (repository, commit, dirty) = source_facts(&sbom).ok_or_else(|| {
+    let facts = source_facts(&sbom).ok_or_else(|| {
         "the SBOM has no day:repository / day:commit properties — it was written by a different \
          tool, or by a day-cli too old to record them"
             .to_string()
@@ -248,9 +276,11 @@ fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
     };
 
     Ok(Provenance {
-        repository,
-        commit,
-        dirty,
+        repository: facts.repository,
+        commit: facts.commit,
+        dirty: facts.dirty,
+        project: facts.project,
+        app_id: facts.app_id,
         target,
         profile,
         tools,
@@ -308,31 +338,11 @@ fn which(bin: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Probe the current version of a recorded tool, using the same commands provenance used.
+/// This machine's version of a tool, by the key the buildinfo records it under. Delegates to the
+/// same probe `day pack` used, so "matches" means the two ran identical code rather than two
+/// implementations that agree by luck.
 fn current_version(key: &str) -> Option<String> {
-    let (bin, args): (&str, &[&str]) = match key {
-        "rust" => ("rustc", &["--version"]),
-        "cargo" => ("cargo", &["--version"]),
-        "xcode" => ("xcodebuild", &["-version"]),
-        "clang" => ("clang", &["--version"]),
-        "gradle" => ("gradle", &["--version"]),
-        "java" => ("javac", &["-version"]),
-        "nsis" => ("makensis", &["/VERSION"]),
-        "flatpak-builder" => ("flatpak-builder", &["--version"]),
-        "cc" => ("cc", &["--version"]),
-        "hvigor" => ("hvigorw", &["--version"]),
-        // `day` is this process, and the SDK keys are directory paths rather than commands.
-        "day" => return Some(env!("DAY_VERSION_LONG").to_string()),
-        _ => return None,
-    };
-    let out = Command::new(bin).args(args).output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let text = if text.trim().is_empty() {
-        String::from_utf8_lossy(&out.stderr).to_string()
-    } else {
-        text.to_string()
-    };
-    text.lines().next().map(|l| l.trim().to_string())
+    crate::provenance::tool_version(key)
 }
 
 /// Compare recorded tool versions against this machine. Mismatches are errors unless forced.
@@ -529,8 +539,11 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     let src = scratch.join("src");
     checkout(&prov.repository, &prov.commit, &src)?;
 
-    // The app may live in a subdirectory of the repository; find the Day.toml whose app id matches.
-    let project_dir = find_project_dir(&src, &artifact).unwrap_or(src.clone());
+    // The app may live in a subdirectory of the repository, and a repository may hold SEVERAL
+    // (day's own holds three apps plus the scaffold templates, which carry a Day.toml but no
+    // Cargo.toml). Packing the wrong one produces a confusing failure deep inside cargo, so this
+    // is resolved explicitly rather than by first-hit search.
+    let project_dir = find_project_dir(&src, prov.project.as_deref(), prov.app_id.as_deref())?;
     status(
         "Rebuilding",
         &format!("{} ({profile}) in {}", target.name, project_dir.display()),
@@ -589,27 +602,88 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     })
 }
 
-/// Locate the project inside a checkout. A repository may hold several apps.
-fn find_project_dir(root: &Path, _artifact: &Path) -> Option<PathBuf> {
-    if root.join("Day.toml").is_file() {
-        return Some(root.to_path_buf());
-    }
+/// The app id a `Day.toml` declares, or `None` if it is unreadable or declares none.
+fn day_toml_app_id(day_toml: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(day_toml).ok()?;
+    let doc: toml::Value = toml::from_str(&text).ok()?;
+    doc.get("app")?.get("id")?.as_str().map(str::to_string)
+}
+
+/// Every Day project in a checkout, deepest-last and sorted, so the answer never depends on
+/// filesystem order. A directory qualifies only with BOTH manifests: `crates/day-cli/templates/app`
+/// has a `Day.toml` and no `Cargo.toml`, and packing it fails with a missing-manifest error that
+/// says nothing about the real problem.
+fn day_projects(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
+        if dir.join("Day.toml").is_file() && dir.join("Cargo.toml").is_file() {
+            found.push(dir.clone());
+        }
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() && !p.ends_with(".git") && !p.ends_with("target") {
-                if p.join("Day.toml").is_file() {
-                    return Some(p);
-                }
-                stack.push(p);
-            }
-        }
+        let mut kids: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && !p.ends_with(".git") && !p.ends_with("target"))
+            .collect();
+        kids.sort();
+        stack.extend(kids);
     }
-    None
+    found.sort();
+    found
+}
+
+/// Locate the project to rebuild inside a checkout.
+///
+/// `recorded` is the path the SBOM carries (`apps/showcase`, or empty for the repository root) and
+/// is authoritative: the packing run knew exactly where it stood. `app_id` identifies the project
+/// in artifacts packed before that was recorded — a search, but one that checks the id it finds
+/// rather than taking the first `Day.toml` it trips over.
+fn find_project_dir(
+    root: &Path,
+    recorded: Option<&str>,
+    app_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(rel) = recorded {
+        let dir = if rel.is_empty() {
+            root.to_path_buf()
+        } else {
+            root.join(rel)
+        };
+        if dir.join("Day.toml").is_file() {
+            return Ok(dir);
+        }
+        return Err(format!(
+            "the artifact was packed in `{}` of {}, which does not exist at this commit",
+            if rel.is_empty() { "." } else { rel },
+            root.display(),
+        ));
+    }
+
+    let projects = day_projects(root);
+    if let Some(want) = app_id
+        && let Some(hit) = projects
+            .iter()
+            .find(|p| day_toml_app_id(&p.join("Day.toml")).as_deref() == Some(want))
+    {
+        return Ok(hit.clone());
+    }
+    match projects.len() {
+        0 => Err(format!("no Day project in {}", root.display())),
+        1 => Ok(projects[0].clone()),
+        _ => Err(format!(
+            "this SBOM records neither the project path nor an app id, and the repository holds \
+             {} Day projects ({}). Re-pack with a current day-cli, which records the path.",
+            projects.len(),
+            projects
+                .iter()
+                .map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        )),
+    }
 }
 
 // --- Two-tier comparison (§20.3) -----------------------------------------------------------------
@@ -869,14 +943,80 @@ mod tests {
             repository: Some("https://example.invalid/repo".into()),
             commit: Some("abc123".into()),
             dirty: false,
+            project_path: Some("apps/showcase".into()),
             components: Vec::new(),
         };
         let from_cdx = source_facts(&crate::provenance::cyclonedx(&sbom)).expect("cyclonedx");
         let from_spdx = source_facts(&crate::provenance::spdx(&sbom)).expect("spdx");
         assert_eq!(from_cdx, from_spdx, "the two formats must agree");
-        assert_eq!(from_cdx.0, "https://example.invalid/repo");
-        assert_eq!(from_cdx.1, "abc123");
-        assert!(!from_cdx.2);
+        assert_eq!(from_cdx.repository, "https://example.invalid/repo");
+        assert_eq!(from_cdx.commit, "abc123");
+        assert!(!from_cdx.dirty);
+        // The project path decides WHICH app in the repository gets rebuilt, so it has to survive
+        // both formats — SPDX has no property bag and carries it inside `sourceInfo`.
+        assert_eq!(from_cdx.project.as_deref(), Some("apps/showcase"));
+    }
+
+    /// The bug this replaced: `find_project_dir` returned the first `Day.toml` a directory walk
+    /// tripped over, so rebuilding day's own showcase packed `apps/daylite` on one runner and
+    /// `crates/day-cli/templates/app` (a template with no Cargo.toml) on another.
+    #[test]
+    fn the_project_is_chosen_by_record_then_app_id_never_by_walk_order() {
+        let tmp = std::env::temp_dir().join(format!("day-rebuild-pick-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let mk = |rel: &str, id: Option<&str>| {
+            let dir = tmp.join(rel);
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            if let Some(id) = id {
+                std::fs::write(
+                    dir.join("Day.toml"),
+                    format!("schema = 1\n[app]\nid = \"{id}\"\n"),
+                )
+                .expect("Day.toml");
+                std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\n")
+                    .expect("Cargo.toml");
+            }
+        };
+        // Sorts BEFORE the real app, which is what made first-hit search pick it.
+        mk("apps/daylite", Some("dev.daybrite.daylite"));
+        mk("apps/showcase", Some("dev.daybrite.showcase"));
+        // A scaffold template: Day.toml, no Cargo.toml. Never a rebuild candidate.
+        let tpl = tmp.join("crates/day-cli/templates/app");
+        std::fs::create_dir_all(&tpl).expect("mkdir");
+        std::fs::write(
+            tpl.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"{{app_id}}\"\n",
+        )
+        .expect("template");
+
+        // Recorded path wins outright.
+        assert_eq!(
+            find_project_dir(&tmp, Some("apps/showcase"), None).expect("recorded"),
+            tmp.join("apps/showcase"),
+        );
+        // An empty recorded path is a real answer — the project IS the repository root, which is
+        // how a scaffolded single-app repo looks. It must not be read as "nothing recorded".
+        mk("", Some("dev.example.root"));
+        assert_eq!(find_project_dir(&tmp, Some(""), None).expect("root"), tmp);
+        // Without it, the app id identifies the project among the several in the repository.
+        assert_eq!(
+            find_project_dir(&tmp, None, Some("dev.daybrite.showcase")).expect("by id"),
+            tmp.join("apps/showcase"),
+        );
+        // Neither: refuse and name the candidates rather than pack an arbitrary one.
+        let err = find_project_dir(&tmp, None, None).expect_err("ambiguous");
+        assert!(
+            err.contains("apps/daylite") && err.contains("apps/showcase"),
+            "{err}"
+        );
+        assert!(
+            !err.contains("templates"),
+            "a template is not a candidate: {err}"
+        );
+        // A recorded path that is not in this commit is an error, not a silent fallback.
+        assert!(find_project_dir(&tmp, Some("apps/gone"), None).is_err());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// A dirty build must be refused: its commit does not describe the artifact.
@@ -891,13 +1031,14 @@ mod tests {
             repository: Some("https://example.invalid/repo".into()),
             commit: Some("abc123".into()),
             dirty: true,
+            project_path: Some("apps/showcase".into()),
             components: Vec::new(),
         };
-        assert!(source_facts(&crate::provenance::spdx(&sbom)).unwrap().2);
+        assert!(source_facts(&crate::provenance::spdx(&sbom)).unwrap().dirty);
         assert!(
             source_facts(&crate::provenance::cyclonedx(&sbom))
                 .unwrap()
-                .2
+                .dirty
         );
     }
 

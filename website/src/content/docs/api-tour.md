@@ -6,7 +6,7 @@ section: Concepts
 ---
 
 The whole authoring surface in one pass, for people who learn from code. Everything below is real
-Day API — the snippets are lifted from the showcase app that produces the [gallery](/gallery),
+Day API. The snippets are lifted from the showcase app that produces the [gallery](/gallery),
 and `use day::prelude::*;` brings all of it in. The pages after this one
 ([Pieces](/docs/pieces), [Reactivity](/docs/reactivity), [Layout](/docs/layout)) explain the
 model behind what you'll see here.
@@ -99,7 +99,7 @@ column((
 ```
 
 Keyboard focus is a binding too: `.focused(editing)` ties a control to a `Signal<bool>`, or
-`.focused((field, Field::Name))` binds one control of a form sharing a `Signal<Option<Field>>` —
+`.focused((field, Field::Name))` binds one control of a form sharing a `Signal<Option<Field>>`:
 native focus changes write the signal, writing the signal moves focus (and `None` dismisses the
 soft keyboard on mobile). `text_field(...).on_submit(...)` handles the Return key, so chaining
 fields is one signal write. The [focus reference](/docs/internal/focus) has the rules and the
@@ -171,7 +171,7 @@ Because each surface owns its own signal, nesting costs nothing: a `Tabs` select
 inside a `Sidebar` selector needs no extra wiring. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
 keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the selector to
-`Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>` — same API, compile-checked
+`Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>`. It's the same API, compile-checked
 ([navigation guide](/docs/navigation#typed-routes)).
 
 ## Deep links and dayscript
@@ -221,7 +221,7 @@ let flavor  = Signal::new(Some(0usize));
 combo_box(flavors, flavor).id("flavor-combo")
 ```
 
-Day Pieces ship as ordinary Rust crates — [the extension model](/docs/extending) explains the
+Day Pieces ship as ordinary Rust crates. [The extension model](/docs/extending) explains the
 tiers, from pure composition to per-toolkit native code.
 
 Next: [Pieces](/docs/pieces) for the model behind all of this, or the

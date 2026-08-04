@@ -7,7 +7,7 @@ section: Build & ship
 
 `day pack -p <target>` builds the app in release mode, signs it, and produces a **standalone
 installable artifact** in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the
-result output. One command per platform, the platform's own signing tools underneath — Day
+result output. One command per platform, the platform's own signing tools underneath. Day
 orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
 `flatpak-builder`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`; it never reimplements
 them.
@@ -30,7 +30,7 @@ them.
 
 ## Signing configuration
 
-Signing lives in `Day.toml` under `[signing]`, with every secret referenced as `${ENV_VAR}` —
+Signing lives in `Day.toml` under `[signing]`, with every secret referenced as `${ENV_VAR}`;
 values resolve from the environment at pack time and are **never** stored in the manifest or
 printed by the tool:
 
@@ -73,7 +73,7 @@ echoing a single secret value.
 ## Signing tiers
 
 Every artifact carries a tier: **release**, **dev-signed**, or **unsigned**. When a `${VAR}` is
-unset — a laptop without the release keys, a fork PR without repository secrets — `day pack`
+unset (a laptop without the release keys, a fork PR without repository secrets), `day pack`
 **warns naming the variable and drops that platform to the dev tier** (ad-hoc codesign, a
 generated dev keystore, a self-signed certificate, the Simulator zip) instead of failing. The
 result JSON and the console both say so:
@@ -90,7 +90,7 @@ notarization) is a hard failure with exit code 6.
 ## Continuous integration
 
 Every CI run packs the showcase on each platform job and uploads the results as `dist-<target>`
-artifacts — so the packaging path is exercised on every push, at the dev tier. Adding the `DAY_*`
+artifacts, so the packaging path is exercised on every push, at the dev tier. Adding the `DAY_*`
 repository secrets lights up release signing with no workflow changes. Version tags (`v*`) run the
 `release` workflow, which packs every target and attaches the artifacts plus a `SHA256SUMS` file
 to a draft GitHub Release.

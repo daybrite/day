@@ -17,7 +17,7 @@ myapp/
     icons/     # the app icon (and its per-platform renditions)
 ```
 
-The principle behind all four: **resources ride each platform's native resource system**, not a
+The principle behind all four: **resources use each platform's native resource system**, not a
 custom archive format. On Android your images become real `res/drawable-*` entries crunched by
 aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
 Qt resource file. `day build` does the staging automatically, per target, before the platform
@@ -33,7 +33,7 @@ let parsed: Stations = serde_json::from_slice(bytes.as_slice())?;
 ```
 
 `Resource` is a zero-copy view: on Android it borrows straight from the `AAssetManager` buffer,
-on GTK from the GResource, on desktop from an mmap — no copy into a Vec unless you make one.
+on GTK from the GResource, on desktop from an mmap (no copy into a Vec unless you make one).
 `read_at(offset, buf)` gives random access for large files. During development the same call
 resolves against your project directory, so editing an asset and relaunching picks it up without
 a packaging step.
@@ -48,8 +48,8 @@ image("wave")          // finds wave.png / wave@2x.png / wave@3x.png
     .frame(240.0, 120.0)
 ```
 
-At build time each toolkit gets the format it expects — density buckets on Android
-(`drawable-xhdpi/…`), an asset catalog imageset on iOS, resource bundles on GTK/Qt — and the
+At build time each toolkit gets the format it expects: density buckets on Android
+(`drawable-xhdpi/…`), an asset catalog imageset on iOS, resource bundles on GTK/Qt. The
 platform picks the right density at runtime the same way it does for any native app. The
 [resources reference](/docs/internal/resources) documents the exact per-platform staging.
 
@@ -57,23 +57,23 @@ Two notes:
 
 - **SVG is not a runtime format.** Android and Qt widgets can't render SVG at runtime, so
   runtime images are raster. Keep sources vector, export raster densities into `resource/images/`.
-- **Remote images** (URL-loaded, cached) are a separate piece —
-  [`day-piece-remote-image`](/docs/internal/resources) — because they involve networking and
+- **Remote images** (URL-loaded, cached) are a separate piece,
+  [`day-piece-remote-image`](/docs/internal/resources), because they involve networking and
   cache policy the core deliberately doesn't own.
 
 ## Custom fonts: `resource/fonts/`
 
-Drop `.ttf` or `.otf` files into `resource/fonts/` and reference them **by family name** — the name baked
+Drop `.ttf` or `.otf` files into `resource/fonts/` and reference them **by family name**, the name baked
 into the font file itself (what Font Book or fontconfig report), not the file name:
 
 ```rust
 label("Welcome aboard").font(Font::Custom("Pacifico", 24.0))
 ```
 
-`day build` stages each font where the platform wants it — `res/font/` on Android (with the
+`day build` stages each font where the platform wants it: `res/font/` on Android (with the
 resource-naming rules handled for you), the app bundle plus a `UIAppFonts` Info.plist entry on
 iOS, a fonts directory registered with CoreText / fontconfig / the `QFontDatabase` on the
-desktops, rawfile plus an ArkTS `registerFont` manifest on HarmonyOS — and each backend registers
+desktops, rawfile plus an ArkTS `registerFont` manifest on HarmonyOS. Each backend registers
 everything at startup. The point size scales with the platform's accessibility text size, exactly
 like `Font::System(pt)`.
 
@@ -89,7 +89,7 @@ a confusing runtime-only failure on one platform):
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
   family is "Special Elite" is used as `Font::Custom("Special Elite", 20.0)`.
 
-Beyond the rules: an unknown family never breaks the app — the label
+Beyond the rules: an unknown family never breaks the app. The label
 renders in the system font and the log names the family that didn't resolve. And `.weight(...)` /
 `.italic()` still apply, but a single-face family only gets what the platform can synthesize (a
 heavier stroke, a slant), not true bold or italic cuts.
@@ -100,8 +100,8 @@ heavier stroke, a slant), not true bold or italic cuts.
 `resource/icons/windows/*.ico`, `resource/icons/linux/*.png`, plus mobile catalogs in the
 platform scaffolds). During development,
 `day launch` wires the icon into the running window; at packaging time,
-[`day pack`](/docs/packaging) builds the platform-specific artifacts — the `.icns` inside your
-macOS bundle, hicolor icons inside the flatpak, MSIX logo assets — from these files.
+[`day pack`](/docs/packaging) builds the platform-specific artifacts (the `.icns` inside your
+macOS bundle, hicolor icons inside the flatpak, MSIX logo assets) from these files.
 
 Keeping a single SVG source in `resource/icons/` and exporting the renditions is the current practice; a
 generate-the-whole-matrix-from-one-SVG pipeline is designed but you still export by hand today.
@@ -127,6 +127,6 @@ resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  
    └───────────────────────────────────────────────────────────────────────┘
 ```
 
-Staging is best-effort in development — if a resource compiler is missing (say `rcc` on an
+Staging is best-effort in development: if a resource compiler is missing (say `rcc` on an
 unusual Qt install), the build warns and the app falls back to loading loose files from the
 project directory instead of failing. Packaged builds via `day pack` bundle everything properly.

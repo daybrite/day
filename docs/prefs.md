@@ -10,7 +10,7 @@
 > this is the one part that lives in the reactive layer (`bind`) and backs a core framework feature
 > (`.restore(key)` navigation), so `day` depends on it behind a **default-on `prefs` feature** and
 > re-exports it as `day::prefs`. Apps need no separate dependency. It is still its own crate, so a
-> direct `day-part-prefs` dependency and the `day_part_prefs::…` paths keep working unchanged — the two
+> direct `day-part-prefs` dependency and the `day_part_prefs::…` paths keep working unchanged; the two
 > spellings are the same API. Decline it with `day = { …, default-features = false }`, which drops the
 > Apple `NSUserDefaults` dependency and the Android `SharedPreferences` Java shim.
 
@@ -79,7 +79,7 @@ values modest; large blobs belong in a file.
   returns `false` only when the store file could not be written (e.g. a read-only home). No extra
   dependencies beyond `std`.
 - **Web (web-dom)**: `localStorage`, reached through the day-dom host shim's `day_dom_pref_*`
-  imports under a `day.pref.` key namespace — values survive reloads and browser restarts,
+  imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
   page binds its state through this store, so a reload keeps the counter (docs/web.md). On
@@ -99,11 +99,11 @@ See docs/extending.md.
 ## Settings pieces + the env-wins rule (docs/windows.md)
 
 `pieces/day-piece-settings` packages the theme/language settings rows every app was
-hand-rolling — `appearance_picker`/`language_picker`/`settings_sections` persist through
+hand-rolling. `appearance_picker`/`language_picker`/`settings_sections` persist through
 this part and apply live. Its `apply_startup(theme_key, locale_key)` applies persisted
 overrides at boot with the **env-wins rule**: when `DAY_THEME` or `DAY_LOCALE` is set (a
 `day launch --env`/`--locale` run, every themed CI variant), the persisted value is NOT
-re-applied — the launch override stays deterministic no matter what an earlier run stored.
+re-applied; the launch override stays deterministic no matter what an earlier run stored.
 Live picker changes still apply and persist after boot. Local-run hygiene when testing
 persistence by hand: unbundled macOS binaries store under the process-name defaults domain
-(`defaults delete <name>` clears it — a plist delete alone won't, cfprefsd caches).
+(`defaults delete <name>` clears it; a plist delete alone won't, cfprefsd caches).

@@ -8,7 +8,7 @@ section: Guides
 Day's navigation model is two Pieces and a route registry. `selector` handles "one of several
 top-level sections" (a sidebar on desktop, tabs where that's the platform idiom); `stack` handles
 "drill in, come back" (push/pop with the platform's own transitions and back gestures). Both are
-driven by plain signals, so navigation state is app state — inspectable, settable, testable.
+driven by plain signals, so navigation state is app state: inspectable, settable, testable.
 
 ## Sections: `selector`
 
@@ -23,8 +23,8 @@ selector(section)
     .item("settings", tr("nav-settings"), || settings_page())
 ```
 
-The selection signal holds the active item's key. Set it from anywhere —
-`section.set("settings".into())` — and the selector switches; the UI and programmatic navigation
+The selection signal holds the active item's key. Set it from anywhere
+(`section.set("settings".into())`) and the selector switches; the UI and programmatic navigation
 can't disagree because they're the same state. Residency differs by style: `Tabs` builds every page at mount and keeps them alive, so tab
 pages retain their state (field contents, scroll position) across switches; `Sidebar` builds
 the selected page on demand and disposes it when the selection changes, so sidebar page state
@@ -53,13 +53,13 @@ nav_back();                              // pop
 current_route();                         // Option<String>
 ```
 
-Underneath, `stack` uses the platform's navigation machinery — `UINavigationController` on
-iOS, the androidx Fragment back stack on Android — so you get the iOS edge-swipe back gesture
+Underneath, `stack` uses the platform's navigation machinery (`UINavigationController` on
+iOS, the androidx Fragment back stack on Android), so you get the iOS edge-swipe back gesture
 and Android's back button without writing either. On Android 14+ the back gesture is fully
-**predictive**: the system seeks the actual pop transition under your finger — the page
+**predictive**: the system seeks the actual pop transition under your finger; the page
 tracks it and either completes the pop or springs back when you release (on Android 13/14 the OS gates
 this behind Developer options → "Predictive back animations"; Android 15 enables it by
-default). On desktop, pushed pages get an in-window back header — a chevron and title above
+default). On desktop, pushed pages get an in-window back header: a chevron and title above
 the page on macOS and Qt, libadwaita's own header on GTK.
 
 ## Data-driven items
@@ -75,18 +75,18 @@ selector(current)
 
 Rows are added and removed on the native widget as the signal changes; if the selected item
 disappears the selection resets. A data-driven item is a label plus an optional icon (the native
-row) — for a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list).
+row). For a rich master list (avatar, preview, badge) use a [`list`](/docs/internal/list).
 
 Mark a selector `.local()` when it is a *second* one-of-N control inside an already-routing page (a
 filter strip beside the main tabs). Two routed selectors at the same level both feed
-`current_route()`, so you'd get `section/main/filter` and `navigate` would be ambiguous — `.local()`
+`current_route()`, so you'd get `section/main/filter` and `navigate` would be ambiguous; `.local()`
 keeps the secondary one out of the route. A selector nested one level deeper (a `Tabs` inside a
 `Sidebar` section) should stay routed; that cascade is intended. Debug builds warn when two routed
 one-of-N surfaces share a level.
 
 ## Intercepting back
 
-Guard the user's back — a native gesture, the back button, or `nav_back()` — with `on_back`, for
+Guard the user's back (a native gesture, the back button, or `nav_back()`) with `on_back`, for
 the unsaved-changes-confirm case. A programmatic `path.set` is never guarded (a write is not a
 back); this mirrors Jetpack Compose's `BackHandler`.
 
@@ -110,16 +110,16 @@ stack(path, editor())
 
 Return `Proceed` to pop now or `Handled` to consume it; a `Handled` guard can hold the
 `BackRequest` and call `proceed()` later. While a guard is armed Day stops the toolkit from
-auto-popping on a native gesture and routes the back through your guard instead — on iOS the
+auto-popping on a native gesture and routes the back through your guard instead: on iOS the
 swipe is disabled and the back button is intercepted, on Android a back callback takes priority
 (the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
 
 ## Routes and deep links
 
 A route is `segments/joined/by/slashes` with an optional `?name=value` query. A **single key is
-relative**: the innermost surface that knows it wins, falling through outward — right for a
+relative**: the innermost surface that knows it wins, falling through outward, right for a
 button deep inside a page. A **multi-segment path is absolute**: it anchors at the outermost
-surface that knows the first segment, resets everything inside, and descends — one string
+surface that knows the first segment, resets everything inside, and descends. One string
 reaches a stack several levels deep, even on a cold start where the inner surfaces haven't
 mounted yet:
 
@@ -134,10 +134,10 @@ stack(path, root).destination(|key| {
 ```
 
 `current_route()` returns the **full** path (`"library/album-42"`), and it round-trips through
-`navigate` — so persisting the whole route across launches is: save `current_route()` on the way
+`navigate`, so persisting the whole route across launches is: save `current_route()` on the way
 out, `navigate(&saved)` on the way back in.
 
-For a single surface, `.restore(key)` does that for you — no `current_route()` plumbing:
+For a single surface, `.restore(key)` does that for you (no `current_route()` plumbing):
 
 ```rust
 selector(section).restore("nav.section")   // reopens on the last-viewed section
@@ -146,20 +146,20 @@ stack(path, home).restore("mail.path")     // rebuilds the pushed path
 
 It saves the selected key (or the stack's path) on every change and reads it back at build. A
 launch deep link outranks it, and a saved value that no longer fits is ignored. Persistence runs
-through a store you install once — `day_part_prefs::install_nav_store()` in `main` — which is
+through a store you install once (`day_part_prefs::install_nav_store()` in `main`), which is
 disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
 is a no-op, so you can persist on one target and start fresh on another with the same code.
 
 The same mechanism is what [dayscript](/docs/dayscript) uses: `navigate: { route: controls }` in
 a script performs the write your UI would, and `assert_route` compares the full
-`current_route()`. Testing a navigation flow is asserting on strings — and `day lint` checks
+`current_route()`. Testing a navigation flow is asserting on strings, and `day lint` checks
 that every literal route in your sources and scripts starts with a declared item key, so a typo
 is a lint warning instead of a silently-ignored tap.
 
 ## Typed routes
 
 Strings are the wire format; your code doesn't have to speak it. Declare the keys as an enum
-and both `selector` and `stack` accept it directly — every `.item`, destination match, and
+and both `selector` and `stack` accept it directly; every `.item`, destination match, and
 navigation call site is then compile-checked:
 
 ```rust
@@ -178,8 +178,8 @@ A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs 
 enum since a tab is always selected. Under the hood each variant maps to its declared string, so
 deep links, dayscript, and `current_route()` are unchanged.
 
-Where this earns its keep is **routes that carry data**. Implement the `Route` trait by hand —
-`key()` encodes, `from_key()` parses — and stack destinations receive the typed value:
+Where this earns its keep is **routes that carry data**. Implement the `Route` trait by hand
+(`key()` encodes, `from_key()` parses), and stack destinations receive the typed value:
 
 ```rust
 enum Media { Album { id: u32 }, Track { id: u32 } }   // "album-42" ↔ Album { id: 42 }
@@ -207,7 +207,7 @@ stack(path, library_page()).destination(|m: &Media| match m {
 ```
 
 The encode/parse pair lives in one place instead of being scattered across every push and
-destination, and a typed stack validates incoming deep links — a segment `from_key` rejects
+destination, and a typed stack validates incoming deep links: a segment `from_key` rejects
 stops the navigation instead of pushing a garbage page. Typed navigation helpers mirror the
 string ones:
 
@@ -219,20 +219,20 @@ route(&Section::Library).then(&Media::Album { id: 42 })
 nav_link_to(tr("open-album"), route(&Section::Library).then(&Media::Album { id: 42 }))
 ```
 
-`String` implements `Route` too, so the untyped examples above are the same API — start
+`String` implements `Route` too, so the untyped examples above are the same API: start
 stringly, move to an enum when the app grows, mix the two freely (a typed selector over a
 `String` stack is fine).
 
 ## Patterns and limits
 
 - **Desktop split layouts.** `SelectorStyle::Sidebar` gives the two-pane desktop shape. Give the
-  detail pane `.grow()` or it collapses to its content width — the most common layout mistake in
+  detail pane `.grow()` or it collapses to its content width, the most common layout mistake in
   navigation code.
 - **State restoration.** Persist the two signals (see [parts: prefs](/docs/parts)) and write them
   back at startup, and your app reopens where it closed. Nothing does this automatically.
 - **One window.** Day currently drives a single window per process; multi-window is designed but
   not built. Dialogs and alerts are separate ([dialogs reference](/docs/internal/dialogs)).
-- **Android process death.** If Android kills a backgrounded process, relaunch is a cold start —
+- **Android process death.** If Android kills a backgrounded process, relaunch is a cold start;
   Day doesn't yet snapshot navigation state into the saved-instance mechanism, so restoring is
   your code (the prefs pattern above).
 

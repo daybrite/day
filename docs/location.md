@@ -28,7 +28,7 @@ let watch = day_part_location::watch(Accuracy::Balanced, |fix| match fix {
 
 `Fix` carries `latitude`, `longitude`, and `Option`s for `altitude`, `accuracy_m`,
 `vertical_accuracy_m`, `speed_mps`, `course_deg` and `timestamp_ms`. **A field the platform did not
-measure is `None`, never a plausible-looking zero** — "we don't know the altitude" must not read as
+measure is `None`, never a plausible-looking zero**: "we don't know the altitude" must not read as
 "sea level". `Accuracy` is `Coarse` / `Balanced` / `Best`; ask for the least you need, since higher
 accuracy costs battery and takes longer to acquire.
 
@@ -37,8 +37,8 @@ depends on the OS, not on which widget toolkit is in use.
 `parts/day-part-location/examples/location.rs` is a plain `main` that uses it with no Day framework
 at all.
 
-Callbacks run on an unspecified thread — the platform's delivery thread natively, the sole browser
-thread on the web — so deliver into UI state with a `day_reactive::Setter`. In a Day app, bind the
+Callbacks run on an unspecified thread (the platform's delivery thread natively, the sole browser
+thread on the web), so deliver into UI state with a `day_reactive::Setter`. In a Day app, bind the
 handle to the page's scope so the subscription (and the GPS) ends with it:
 
 ```rust
@@ -49,7 +49,7 @@ day_reactive::Scope::current().on_cleanup(move || drop(watch));
 ## Permissions are a separate crate
 
 This crate never prompts. A platform denial arrives as `LocationError::PermissionDenied`, and the
-app asks through [`day-part-permissions`](permissions.md) (`Permission::Location`) — so neither
+app asks through [`day-part-permissions`](permissions.md) (`Permission::Location`), so neither
 crate depends on the other, and an app that already has permission pays nothing for the machinery
 that requests it. Location also needs the build-time declaration `[permissions]` generates; without
 it, iOS terminates the app on first use.
@@ -90,7 +90,7 @@ stub that looks like an oversight. It could later ride the same ArkTS seam
 
 CoreLocation delivers to the run loop of the thread the manager was created on. In a Day app that is
 the UI thread, and everything works. In a plain `main` or under `cargo test` there is no run loop, so
-no fix is ever delivered — `is_available()` still answers `true`, because CoreLocation exists. The
+no fix is ever delivered; `is_available()` still answers `true`, because CoreLocation exists. The
 example file says so at the top rather than looking broken.
 
 Apple reports "not measured" as a NEGATIVE accuracy and `-1` for speed and course; those become
@@ -101,6 +101,6 @@ passes across alongside the value.
 
 The crate registers nothing in any `RENDERERS` slice. It contributes its Android Java shim through
 `[package.metadata.day.android]` and its `CoreLocation` link through `[package.metadata.day.ios]`,
-with no edits to any core Day crate — and it is the first **part** to define an Objective-C class
+with no edits to any core Day crate. It is the first **part** to define an Objective-C class
 (`objc2::define_class!`), which pieces have always done. Its `permissions = []` entry is deliberately
 empty: the app declares location in its own `Day.toml`. See [extending.md](extending.md).

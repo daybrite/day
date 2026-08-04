@@ -39,7 +39,7 @@ my-app/
 Three rules keep this layout predictable:
 
 - **`Day.toml` is the single manifest.** The app's Day-specific identity (`id`, `title`,
-  `build`), its declared `targets`, and the default window geometry live here — while `name`
+  `build`), its declared `targets`, and the default window geometry live here, while `name`
   and `version` are derived from Cargo.toml's `[package]`, so they can never drift. Any `[app]`
   property can be overridden per platform (`[app.ios]`), per toolkit (`[app.qt]`), or per
   target (`[app.macos-appkit]`); the platform scaffolds read the resolved values at build time.
@@ -180,8 +180,8 @@ hdc install … && aa start EntryAbility                  (day launch)
 
 ### Web: `web-dom`
 
-The shortest pipeline of the eight, and the only one with no host project to check in — the app's
-lib crate is compiled straight to wasm and dropped next to the host page:
+This is the shortest pipeline of the eight, and the only one with no host project to check in. The
+app's lib crate is compiled straight to wasm and dropped next to the host page:
 
 ```text
 day build -p web-dom

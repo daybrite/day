@@ -13,7 +13,7 @@ the mechanism, the framework's behavior is predictable.
 
 ## The realized tree
 
-`day-core` keeps one arena-allocated tree per window — the **realized tree**. Each node records:
+`day-core` keeps one arena-allocated tree per window, the **realized tree**. Each node records:
 
 ```text
 NodeData
@@ -26,7 +26,7 @@ NodeData
 └─ measure cache   proposal → size, plus a needs_measure flag
 ```
 
-The `handle` is whatever the backend wants it to be — a retained `NSView` pointer on AppKit, a
+The `handle` is whatever the backend wants it to be: a retained `NSView` pointer on AppKit, a
 JNI `GlobalRef` on Android, an opaque C++ pointer on Qt. `day-core` never looks inside it; it
 only hands it back to the toolkit.
 
@@ -34,7 +34,7 @@ The tree has no shadow copy for diffing; it is the only representation of the UI
 
 ## Mounting
 
-When a Piece's `build` runs, the node is created, and — for native kinds — the backend is asked
+When a Piece's `build` runs, the node is created, and (for native kinds) the backend is asked
 to realize it:
 
 ```text
@@ -57,8 +57,8 @@ jobs the mock-toolkit golden tests pin down.
 
 ## Updates are patches
 
-Nothing ever re-builds a mounted widget. Changes arrive as **patches** — small enums per kind
-(`LabelPatch::Text(String)`, `SliderPatch::Value(f64)`) — produced by the bindings that
+Nothing ever re-builds a mounted widget. Changes arrive as **patches**, small enums per kind
+(`LabelPatch::Text(String)`, `SliderPatch::Value(f64)`), produced by the bindings that
 [reactivity](/docs/reactivity) re-runs:
 
 ```text
@@ -100,7 +100,7 @@ the framework's controlled-input path owns it.
 
 ## The turn
 
-Everything above is sequenced by the **turn** — Day's unit of "handle things, then settle":
+Everything above is sequenced by the **turn**, Day's unit of "handle things, then settle":
 
 ```text
 native event(s)
@@ -118,20 +118,20 @@ concrete form.
 
 ## Drawing: canvas as a display list
 
-`canvas(|d, size| …)` doesn't hand you a native graphics context — the closure records into a
+`canvas(|d, size| …)` doesn't hand you a native graphics context; the closure records into a
 `Vec<DrawOp>` (fill/stroke shape, text run, transform, clip…), and the backend replays the ops
 through the platform's 2D API: Core Graphics, `android.graphics.Canvas`, cairo, `QPainter`.
 The closure is itself a binding, so a signal it reads re-records and replays just that node; the
 op list's `PartialEq` is the equality gate, so an identical recording skips the replay entirely.
 One FFI hop carries the whole buffer, which matters on JNI. And because text ops go through the
-toolkit's text engine, canvas text gets native fonts, shaping, and bidi — Day still isn't
+toolkit's text engine, canvas text gets native fonts, shaping, and bidi; Day still isn't
 rasterizing anything itself.
 
 ## The mock toolkit
 
 `day-mock` implements the full `Toolkit` trait with no display: handles are plain structs,
 measurement is deterministic (fixed metrics per kind), and every call appends to an op log.
-Tests mount real Pieces against it inside ordinary `cargo test` — this is condensed from Day's
+Tests mount real Pieces against it inside ordinary `cargo test`; this is condensed from Day's
 own test suite:
 
 ```rust
@@ -147,14 +147,14 @@ assert!(muts[0].contains("update day.label"));
 assert!(probe.measure_calls() <= 6);                // relayout stayed on the label's path
 ```
 
-Those assertions are the interesting part: the framework's core promises — one click, one native
-mutation; bounded measure calls per layout pass — are written down as golden tests over the op
+Those assertions are the interesting part: the framework's core promises (one click, one native
+mutation; bounded measure calls per layout pass) are written down as golden tests over the op
 log, so the fine-grained guarantee is checked in CI. Your own component tests run the same way: no simulator, no display server, milliseconds per test.
 
 ## Teardown
 
-When structure changes (`when` flips, an `each` row leaves), the subtree's scope is disposed —
-bindings and handlers die with it — and the nodes go onto a release queue drained at the turn
+When structure changes (`when` flips, an `each` row leaves), the subtree's scope is disposed
+(bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
 boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like
 Qt's `deleteLater`). A signal write racing a disposed binding is a checked no-op. The ownership
 story is short enough to state completely: the scope owns the reactive machinery, the tree owns

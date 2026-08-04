@@ -1,6 +1,6 @@
 ---
 title: Why Day
-description: How Day compares with web-view shells, custom renderers, and per-platform native — including the cases where Day is the wrong choice.
+description: How Day compares with web-view shells, custom renderers, and per-platform native, including the cases where Day is the wrong choice.
 order: 2
 section: Start here
 ---
@@ -17,7 +17,7 @@ Four established ways to ship one app on many platforms:
 |---|---|---|---|
 | Web view shell | Electron, Tauri | Web skills, one DOM UI | Native behavior and feel; memory; platform integration depth |
 | Custom renderer | Flutter, egui, Slint | Pixel-identical UI, hot reload (Flutter) | Native look/behavior; must reimplement text, scrolling, a11y |
-| Shared logic, native UI | Kotlin Multiplatform, Skip | Fully native UI | The single UI codebase — you still write each UI |
+| Shared logic, native UI | Kotlin Multiplatform, Skip | Fully native UI | The single UI codebase; you still write each UI |
 | Native widgets, one codebase | **Day**, React Native* | Native widgets and one UI codebase | Pixel-identical branding; some framework-mediated control |
 
 \* React Native shares the "real native widgets" premise for mobile; it differs in language (JS +
@@ -30,23 +30,23 @@ feels.
 ## What you get
 
 **Native fidelity without per-platform UI code.** Text rendering, input methods, spellcheck,
-scrolling physics, selection, drag, focus behavior, dark-mode chrome, screen readers — these come
+scrolling physics, selection, drag, focus behavior, dark-mode chrome, screen readers: these come
 from the platform's widgets, which means they're correct in ways a reimplementation struggles to
 match, and they improve with OS updates you never ship. The practical consequence: a Day app
 doesn't have a "slightly off" feel to platform-native users, because the parts users touch are
 the platform's own.
 
 **A runtime profile you can reason about.** Day builds the widget tree once and binds state to
-native attributes. A state change re-runs the closures that read that state — typically ending in
-one native setter call — with no re-render and no tree diff on the hot path
+native attributes. A state change re-runs the closures that read that state, typically ending in
+one native setter call, with no re-render and no tree diff on the hot path
 ([how this works](/docs/reactivity)). The compiler monomorphizes your app against exactly one
 toolkit backend per binary, so there's no runtime abstraction layer either. Binaries are ordinary
-Rust binaries linking system libraries — no bundled engine, no bundled browser.
+Rust binaries linking system libraries: no bundled engine, no bundled browser.
 
 **One language for everything.** UI, state, logic, tests, and build tooling are Rust. There's no
 FFI boundary between your view layer and your data layer, no separate template language, and the
 borrow checker applies to your UI code the same way it applies to everything else. Whether that's
-a benefit depends entirely on your team — see the costs below.
+a benefit depends entirely on your team; see the costs below.
 
 ### Localized, accessible, scriptable, extensible
 
@@ -57,7 +57,7 @@ audit, and a screenshot generator. This composition is the part of Day that's ha
 onto other stacks.
 
 1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals, number and date
-   formatting, and collation-aware sorting — locale data thinned to the locales you ship.
+   formatting, and collation-aware sorting, with locale data thinned to the locales you ship.
    The current locale is a signal. ([guide](/docs/localization))
 2. **Accessible** — real native widgets give a real native accessibility tree as the baseline;
    Day adds uniform annotations and stable identifiers, and CI can diff the native tree against
@@ -74,22 +74,22 @@ with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
 ## What you give up
 
 **Hot reload.** Rust compiles ahead of time. The edit loop is an incremental compile plus
-relaunch — seconds on desktop, longer for mobile targets — with dayscript replay to restore UI
+relaunch (seconds on desktop, longer for mobile targets), with dayscript replay to restore UI
 state. Flutter's sub-second stateful hot reload is better for exploratory UI work, and
 nothing in Day currently matches it. (Hot-swapping the app dylib is a researched possibility, not
 a promise.)
 
 **Pixel-level brand control.** Your app looks like a Mac app on macOS and a Material app on
-Android. If the design brief is a bespoke design system rendered identically everywhere — custom
-controls, custom motion, brand color on every surface — Day's native-widget premise works against
+Android. If the design brief is a bespoke design system rendered identically everywhere, with custom
+controls, custom motion, and brand color on every surface, Day's native-widget premise works against
 you, and a renderer (Flutter, or Rust-native options like Slint or egui) will fight you less.
 [Styling](/docs/styling) lists what you can restyle and what stays native.
 
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is deliberately small, some designed
 features aren't implemented yet (semantic color tokens, an animation scheduler, multi-window,
-form validation — [Platform support](/docs/platforms) keeps the current list), and you will hit
-edges. The mitigations are real but partial: the architecture descends from several generations
+form validation; [Platform support](/docs/platforms) keeps the current list), and you will hit
+edges. The mitigations are partial: the architecture descends from several generations
 of working systems, a nontrivial Matrix chat client runs on five targets, and every target is
 exercised in CI with screenshot validation on every push. Judge the risk for your project
 accordingly.
@@ -101,13 +101,13 @@ prevents a whole bug class, and it also means there's no casual shared-state sho
 want one.
 
 **Platform variance is still yours to test.** One codebase does not mean one behavior. Native
-widgets differ — focus order, dialog conventions, text metrics — and while dayscript makes
+widgets differ in focus order, dialog conventions, and text metrics, and while dayscript makes
 cross-platform testing cheap, it doesn't make it unnecessary. Day also can't script what it
 doesn't own: native keyboards, IME composition, and OS dialogs still need occasional manual
 checks per platform.
 
 **Framework-mediated platform access.** When you need a platform API Day doesn't surface, you
-write it yourself — the [parts](/docs/parts) pattern makes this a normal, contained thing to do
+write it yourself; the [parts](/docs/parts) pattern makes this a normal, contained thing to do
 (a few `cfg`-gated functions per platform), but it's work a single-platform app wouldn't have.
 
 ## Choosing

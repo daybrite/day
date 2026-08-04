@@ -5,8 +5,8 @@
 > CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
 > five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
 > playground. ArkUI also delivers `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan
-> recognizer on the shared kind-11 gesture wire) — long-press is still unwired there. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
-> already-replayed `Shape::Line`/`Shape::Polygon` ops — §3.1), fractional placement with
+> recognizer on the shared kind-11 gesture wire); long-press is still unwired there. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
+> already-replayed `Shape::Line`/`Shape::Polygon` ops, §3.1), fractional placement with
 > `.at(fx, fy, fw, fh)`, and the `shape_group`/`shape_group_fn` composites that flatten many
 > shapes into one canvas leaf (§3.6). This document is the SwiftUI
 > `Circle`/`Rectangle`/`Path`/`Shape` analogue for Day; conventions follow DESIGN.md.
@@ -115,18 +115,18 @@ impl ShapeKind {
 }
 ```
 
-`resolve` maps each kind to the existing `day_spec::Shape`, so no `day-spec` change is required —
-including `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every backend already
+`resolve` maps each kind to the existing `day_spec::Shape`, so no `day-spec` change is required,
+including for `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every backend already
 replays. `line((fx, fy), (fx, fy))` and `polygon([(fx, fy), …])` are the tuple-friendly sugar.
 Line/Polygon semantics, deliberately different from the closed kinds:
 
 - **Unit-point geometry, unclamped.** Points resolve as fractions of the rect (like gradient
-  `UnitPoint`s) and may sit outside 0..1 — a glyph's flourish can poke past its box on purpose.
+  `UnitPoint`s) and may sit outside 0..1; a glyph's flourish can poke past its box on purpose.
 - **No stroke-half inset.** Closed kinds inset by `stroke/2` so a centered stroke stays inside the
   frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
   points, and a stroked segment touching the frame edge may clip on the clipping backends
   (Qt/Android/XAML), exactly as raw canvas does.
-- **Line is stroke-only** (`.fill` records nothing — a segment has no interior), and its rect may
+- **Line is stroke-only** (`.fill` records nothing; a segment has no interior), and its rect may
   be degenerate (a horizontal line in a zero-height sub-rect), so it skips the empty-rect bail.
 - **Polygon hit-testing is path-precise** (even-odd ray cast), keeping the D5 promise.
 
@@ -134,9 +134,9 @@ A regular n-gon (`Polygon { sides, rotation }` in earlier drafts) is future suga
 inscribed unit points; the point-list form subsumes it.
 
 Placement: **`.at(fx, fy, fw, fh)`** resolves the shape inside that fractional sub-rect of its
-bounds (applied before `.inset`). It exists for composition — hand-drawn glyph code full of
+bounds (applied before `.inset`). It exists for composition: hand-drawn glyph code full of
 `Rect::new(ox + fx * s, oy + fy * s, fw * s, fh * s)` translates 1:1 into `.at(fx, fy, fw, fh)`
-children of a group (§3.6) — and works on a standalone shape too.
+children of a group (§3.6). It works on a standalone shape too.
 
 ### 3.2 Style: `Paint` and `Stroke` (data, growable)
 
@@ -296,10 +296,10 @@ shape_group([
 ```
 
 Groups reuse the whole shape pipeline: each child is the same `ShapePiece` description
-(fill/stroke/inset/rotate/scale/offset/`.at`, all reactive — a tracked read in any child
+(fill/stroke/inset/rotate/scale/offset/`.at`, all reactive; a tracked read in any child
 re-records the group), and both composites lower through the same `canvas_leaf` as `canvas()` and
 standalone shapes. Two intentional limits: child `.on_tap`/`.on_drag` are **not** wired inside a
-group (put gestures on the group via `Decorate::on_tap`), and a group has no per-child identity —
+group (put gestures on the group via `Decorate::on_tap`), and a group has no per-child identity;
 it is one leaf.
 
 Density guidance: **a backdrop is a shape; a glyph is a group; hundreds of shapes is a
@@ -358,8 +358,8 @@ Linear and radial gradients are implemented end-to-end: `Paint::Linear`/`Paint::
 `Fill` op, `Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)`/`.fill_radial(...)`
 on shape pieces (reactive), and native replay on every backend (radial: NSGradient center-draw,
 CGContextDrawRadialGradient, cairo radial pattern, QRadialGradient in ObjectMode, Android
-RadialGradient shader + local matrix, XAML RadialGradientBrush — OS 1903+, now the msix
-MinVersion — and OH_Drawing radial shader with local matrix). Radial geometry is unit-space and
+RadialGradient shader + local matrix, XAML RadialGradientBrush (OS 1903+, now the msix
+MinVersion), and OH_Drawing radial shader with local matrix). Radial geometry is unit-space and
 stretches elliptically to non-square bounds on every backend. `Paint` still grows to `Angular` +
 semantic `Token`s later.
 This is the one place the

@@ -9,7 +9,7 @@ what every native toolkit has converged on:
   `.style` picks the native chrome.
 - **`stack`**: a push/pop stack, bound to a `Signal<Vec<_>>` **path**.
 
-Both are generic over the key type — any [`Route`](#typed-routes): plain `String`s for
+Both are generic over the key type, any [`Route`](#typed-routes): plain `String`s for
 stringly-keyed quick starts, or an app-defined enum for compile-checked navigation whose
 variants can carry data. A thin string-route adapter (`navigate`, `nav_back`, `current_route`)
 sits underneath so deep links and dayscript address surfaces by key either way, but the
@@ -83,18 +83,18 @@ selector(current)
 The row set re-derives whenever a block's signal changes: rows are added/removed on the native
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
-rows in place — static `.item`s included.
+rows in place, static `.item`s included.
 `item(key, title).icon(name)` is the row spec, and `.immersive()` on it marks that row's pushed
 page immersive-chrome, same as the static form above. A selector used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
-**A data-driven item is a label + optional icon** — the native sidebar/tab row. It is NOT an
+**A data-driven item is a label + optional icon**: the native sidebar/tab row. It is NOT an
 arbitrary rich row (an avatar + preview + badge); a master list that needs those is a `list`, and
 combining a rich master list with native master-detail push is a separate, not-yet-built feature.
 
 **Backend support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
-`linux-qt`, and `web-dom` (and their host variants) — verified in the showcase walkthrough. The
+`linux-qt`, and `web-dom` (and their host variants), verified in the showcase walkthrough. The
 `ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/XAML
 tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
 still shows). The item logic is backend-independent and covered by
@@ -102,8 +102,8 @@ still shows). The item logic is backend-independent and covered by
 
 ## Back interception (`on_back`)
 
-`Stack::on_back` intercepts the user's back affordance — a native gesture/button, or `nav_back()`
-— to run a policy before the pop. It does NOT run for a programmatic `path.set` (a write is not a
+`Stack::on_back` intercepts the user's back affordance (a native gesture/button, or `nav_back()`)
+to run a policy before the pop. It does NOT run for a programmatic `path.set` (a write is not a
 back), matching Jetpack Compose's `BackHandler`.
 
 ```rust
@@ -127,7 +127,7 @@ stack(path, home_view)
 ```
 
 The guard returns `Proceed` (pop now) or `Handled` (consume; the pop does not happen). A `Handled`
-guard may hold the `BackRequest` and call `proceed()` later — the unsaved-changes → confirm → leave
+guard may hold the `BackRequest` and call `proceed()` later: the unsaved-changes → confirm → leave
 flow. `proceed()` performs exactly the pop `Proceed` would have.
 
 While a guard is armed above the root, Day tells the toolkit to stop auto-popping on a native
@@ -158,25 +158,25 @@ query    = name "=" value *( "&" name "=" value )     (params for the destinatio
 Reserved characters inside a segment or param value (`/ ? & = %`) are percent-encoded;
 `day_core::nav::{parse_route, encode_route}` do this for you. Two addressing modes:
 
-- **A single key is RELATIVE** — `navigate("inbox")` reaches the innermost surface first and
+- **A single key is RELATIVE**: `navigate("inbox")` reaches the innermost surface first and
   falls through outward. For a `selector`/tabs it sets the active key; a `stack` claims only
   `""` (pop to root), so sibling keys fall through to the enclosing surface. This is what a
   button deep inside a page wants: address the nearest thing that knows the key.
-- **A `/`-separated path is ABSOLUTE** — `navigate("mail/inbox/msg-42")` anchors at the
+- **A `/`-separated path is ABSOLUTE**: `navigate("mail/inbox/msg-42")` anchors at the
   outermost surface that knows the first segment, resets every surface inside the anchor to its
   root, then feeds the remaining segments inward. Segments for surfaces that only mount as the
-  outer switch takes effect are queued and consumed as those surfaces register — one string
+  outer switch takes effect are queued and consumed as those surfaces register. One string
   reaches a stack three levels deep on a cold start. A stack consumes absolute segments
   unconditionally (its destinations are open-ended); the explicit path IS the stack's state
   (set-semantics: navigating `mail/inbox` while `mail/inbox/msg-42` shows pops the detail).
 
 **Params** ride the query string: `route_param("hint")` / `route_params()` inside a destination
 builder return the values of the navigation being applied. They describe the navigation in
-flight — a push you perform by writing the path signal directly carries its data in your own
+flight; a push you perform by writing the path signal directly carries its data in your own
 state instead.
 
 - `nav_back()`: pops the innermost surface, falling through when it is already at its root.
-- `current_route()`: the **full** path — every mounted surface's contribution, outermost to
+- `current_route()`: the **full** path, every mounted surface's contribution from outermost to
   innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
   route by hand is two lines: save `current_route()` on the way out (day-part-prefs works),
   `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
@@ -184,10 +184,10 @@ state instead.
   full path.
 - Startup deep links (`DAY_DEEPLINK`) and Android warm links (`Custom("deeplink")`) route the
   same way. On hosts with no process environment the platform entry records the launch route
-  with `day_core::set_launch_deeplink` instead — web-dom seeds it from the page's URL hash
+  with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
   (docs/web.md), so `…/#controls` opens on that section.
 - The URL stays live both ways on web-dom: day-core reports every route change to the backend
-  (`Toolkit::set_route` — the hash updates as you navigate, one history entry per step), and a
+  (`Toolkit::set_route`: the hash updates as you navigate, one history entry per step), and a
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
   `Event::RouteRequested` and navigates. Other backends inherit the no-op default.
 
@@ -196,21 +196,21 @@ Because each surface owns its own signal, a `selector(Tabs)` or a `stack` nests 
 to arbitrate, only this string adapter for addressing.
 
 **Sibling one-of-N surfaces need `.local()`.** Every routed surface contributes to the full
-route, so *two* `selector`/tabs at the **same level** — a filter tab strip beside a main tab bar —
+route, so *two* `selector`/tabs at the **same level** (a filter tab strip beside a main tab bar)
 both feed `current_route()`: you get `section/mainKey/filterKey`, and `navigate("filterKey")` is
 ambiguous. Mark all but the primary one `.local()`; it then drives its own signal without touching
 the route. A selector nested one level *deeper* (a `Tabs` inside a `Sidebar` section) is the
-opposite case and should stay routed — that cascade is the whole point of nesting. In debug builds,
+opposite case and should stay routed; that cascade is the whole point of nesting. In debug builds,
 two routed one-of-N surfaces at the same level log a warning naming this fix.
 
 **Ordering caveat**: relative dispatch and the full route walk the registry in mount order,
 which equals nesting depth for a single active chain. Two *sibling* surfaces mounted at once
-(two independent stacks visible in one window) are ordered by mount time, not focus — prefer
+(two independent stacks visible in one window) are ordered by mount time, not focus. Prefer
 absolute routes (or drive the signals directly) in such layouts.
 
 `day lint` cross-checks literal `navigate("…")` calls and dayscript `navigate:`/`assert_route:`
-routes against the declared keys in your sources — `.item("key", …)` call sites and
-`routes! { … => "key" }` blocks: a route whose first segment nothing declares is reported
+routes against the declared keys in your sources (`.item("key", …)` call sites and
+`routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
 (`day::lint::unknown-route`) rather than failing silently at runtime.
 
 ## Restoring state across launches (`.restore`)
@@ -223,11 +223,11 @@ selector(section).restore("nav.section")   // reopens on the last-viewed section
 stack(path, home).restore("mail.path")     // rebuilds the pushed path
 ```
 
-The selected key — or the stack's `/`-joined path — is saved under `key` on every change and read
+The selected key (or the stack's `/`-joined path) is saved under `key` on every change and read
 back at build. A pending launch deep link **wins**: a `DAY_DEEPLINK` (or a `set_launch_deeplink`
 hint) routes one turn after mount, so `.restore` steps aside and the link decides where the app
-opens. A saved value that no longer fits — a selector key whose item is gone, a stack segment that
-no longer parses — is ignored rather than restoring a broken state.
+opens. A saved value that no longer fits (a selector key whose item is gone, a stack segment that
+no longer parses) is ignored rather than restoring a broken state.
 
 `.restore` reads and writes through a store the app installs once at startup; nothing persists
 until you install one:
@@ -239,7 +239,7 @@ fn main() {
 }
 ```
 
-The prefs store is disk-backed, so restore also survives an **Android process death** — the OS
+The prefs store is disk-backed, so restore also survives an **Android process death**: the OS
 reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no
 store installed, `.restore` is a silent no-op, so the same code compiles and runs on a target
 where you don't want persistence: the Showcase installs the store on web only, where a reload is
@@ -263,7 +263,7 @@ pub trait Route: Clone + PartialEq + 'static {
 for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
 is not presentable (e.g. a route that carries only an id can look the name up from your data).
 
-`String` implements it (the untyped baseline — every segment parses), and for plain enums the
+`String` implements it (the untyped baseline: every segment parses), and for plain enums the
 `routes!` macro writes both sides:
 
 ```rust
@@ -282,7 +282,7 @@ tabs always have a selection, so they key on the bare enum (`Signal::new(Tab::On
 impls cover both: `Option<R>` is a `Route` whenever `R` is, and `.item` takes the bare variant
 either way.
 
-**Variants carry data** — this is the point where typed routes beat string encoding. Implement
+**Variants carry data**: this is the point where typed routes beat string encoding. Implement
 `Route` by hand and put the payload in the variant:
 
 ```rust
@@ -298,7 +298,7 @@ stack(path, root).destination(|d: &Drill| match d {
 
 The destination builder receives the parsed value; encode/decode lives in exactly one place
 (the `Route` impl). A typed stack also **validates** absolute routes: a segment `from_key`
-rejects is refused (the navigation stops there) instead of pushing a garbage key — a `String`
+rejects is refused (the navigation stops there) instead of pushing a garbage key; a `String`
 stack keeps its open-ended accept-anything behavior.
 
 Typed absolute paths compose with `route(…)`, and `navigate_to` is the typed relative form:
@@ -313,7 +313,7 @@ nav_link_to(tr("open-42"), route(&Section::Stack).then(&Drill::Item { id: 42 }))
 
 Everything downstream is unchanged: `current_route()` still returns the encoded string (which
 is what you persist), deep links and dayscript still speak segments, and the two layers meet
-only at `key`/`from_key`. Mixed trees are fine — a typed selector over a `String` stack, or
+only at `key`/`from_key`. Mixed trees are fine: a typed selector over a `String` stack, or
 vice versa.
 
 ## Composition
@@ -331,11 +331,11 @@ drills down. Each surface owns its signal.
 **Nested stacks share one native container on mobile.** When the enclosing host presents as a
 push stack (mobile, where `Cap::NavSplit` is unsupported and a `Sidebar` collapses to a
 list-that-pushes), a `stack` built inside one of its pages does **not** mint a second native
-navigation controller — it pushes its own pages onto the enclosing host, so the whole chain
+navigation controller; it pushes its own pages onto the enclosing host, so the whole chain
 (list → section → drill-down) is one native stack with a single back button. The inner `stack`
 keeps its own path signal and route registration (so `current_route()`, deep links, and
 `nav_back()` fall-through are unchanged); only the native container is shared. On desktop the
-enclosing host presents as split panes (`split == true`), so a nested `stack` is *not* merged —
+enclosing host presents as split panes (`split == true`), so a nested `stack` is *not* merged;
 it renders in the detail pane with its own back-header, which is the right desktop shape. A
 resident container (`selector(Tabs)`) is a merge barrier: a `stack` inside a tab keeps its own
 host.
@@ -352,17 +352,17 @@ host.
   `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
 - **macOS `NSSplitView` / Qt `QSplitter`** honor a `split` flag: `Sidebar` shows both panes; a
   `stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
-  with a **back header** (chevron + centered title, hidden at the root) above the pages —
+  with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button
   emits the same `NavBack` event mobile back does, writing the pop into the path signal.
 - **Android** hosts each page in an androidx **Fragment** that retains its Day-owned view
-  (the react-native-screens pattern — the FragmentManager owns WHEN a page shows, Day owns
+  (the react-native-screens pattern: the FragmentManager owns WHEN a page shows, Day owns
   WHAT it shows). A push is a `replace()` back-stack transaction carrying `MaterialSharedAxis`
   transitions, which buys the whole back story from the platform with no hand-rolled gesture
   code: `OnBackPressedDispatcher` dispatches hardware/gesture back on every API level, the
   FragmentManager **seeks the pop transition live under the predictive back gesture** on API
   34+ (progress, cancel, commit), and its back callback is enabled only while the back stack
-  is non-empty — so the system's predictive back-to-home animation stays available at the
+  is non-empty, so the system's predictive back-to-home animation stays available at the
   root (apps opt in with `android:enableOnBackInvokedCallback="true"`; the scaffold does).
   Native pops are reported to Rust as `NavBack { already_popped: true }`; Rust-initiated pops
   run `popBackStack`. Note for testing: on Android 13/14 (API 33/34) the system gates
@@ -371,7 +371,7 @@ host.
   active; Android 15+ enables it by default.
 - **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `stack`. A
   `stack` nested inside such a host's page merges into it (one `UINavigationController` /
-  `DayNavHost`, one back button) rather than nesting a second controller — see Composition. No
+  `DayNavHost`, one back button) rather than nesting a second controller; see Composition. No
   backend change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
   surface and the inner stack identically to a single-surface stack.
 

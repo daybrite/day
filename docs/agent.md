@@ -1,6 +1,6 @@
 # Agentic development
 
-How coding agents (VS Code agent mode, Claude Code, any MCP client) build, run, and — uniquely —
+How coding agents (VS Code agent mode, Claude Code, any MCP client) build, run, and (uniquely)
 **drive and see** Day apps. The design rule throughout: every capability lives in the day CLI
 behind stable commands, so all agents and editors share one implementation; editor extensions
 only register it.
@@ -15,7 +15,7 @@ Every `day launch` records its app's dayscript-engine coordinates in
    "enginePort": 34832, "engineToken": "…", "startedAt": 1783961597094 }]
 ```
 
-The engine now rides **every** launch (loopback TCP, token-gated), not just `--script` runs —
+The engine now rides **every** launch (loopback TCP, token-gated), not just `--script` runs,
 so an app the developer opened an hour ago is still drivable. One session per target; entries
 drop on `day stop` and are replaced by a new launch of the same target. A launch's engine env
 (`DAYSCRIPT_PORT`/`DAYSCRIPT_TOKEN`) reaches the app the same way scripted runs always did
@@ -67,7 +67,7 @@ back into the day CLI, so the server is transport, not logic. Tools:
 | `day_lint` | `lint` |
 
 VS Code: the Day extension registers the server automatically for Day workspaces
-(`day.mcp.enabled`, default on) — agent mode then has all ten tools. Other MCP clients point
+(`day.mcp.enabled`, default on). Agent mode then has all ten tools. Other MCP clients point
 at `day --project <root> mcp-server`.
 
 ## The loop agents should follow
@@ -76,7 +76,7 @@ at `day --project <root> mcp-server`.
    `day new`) for the page/localization/id conventions.
 2. Edit code with normal file tools.
 3. `day_relaunch` → compile errors come back in the result; fix; repeat.
-4. `day_drive` → navigate to the changed screen, assert ids/text, `screenshot` — and **look**
+4. `day_drive` → navigate to the changed screen, assert ids/text, `screenshot`, and **look**
    at it. On every affected target.
 5. `day launch -p <target> --script dayscript/walkthrough.yaml` when the change touches
    walkthrough-covered flows.
@@ -86,4 +86,4 @@ at `day --project <root> mcp-server`.
 The engine binds loopback only and requires the per-launch token; sessions.json holds that
 token, scoped to the project's own build directory. MCP clients surface tool calls for user
 confirmation per their own policy (VS Code agent mode does). The VS Code extension declares
-`untrustedWorkspaces: false` — none of this runs in Restricted Mode.
+`untrustedWorkspaces: false`; none of this runs in Restricted Mode.

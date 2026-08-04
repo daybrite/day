@@ -1,6 +1,6 @@
 # Tweaks — per-toolkit configuration of built-in pieces
 
-A **tweak** configures the native widget behind a Day-created piece — the extra `NSButton` or
+A **tweak** configures the native widget behind a Day-created piece: the extra `NSButton` or
 XAML `Button` method call that doesn't justify a whole custom piece. A piece with a tweak applied is
 a **Tweaked Piece**. Day keeps owning the widget's lifecycle, layout, and managed properties; the
 tweak reaches in through the same handle Day manages.
@@ -70,7 +70,7 @@ button("Save").appkit(|view, class, _mtm| {
 A tweak has to know *what* it is poking. Day realizes each piece as a specific native widget, and
 the accessor hands you that widget's concrete class name:
 
-- **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class — objc
+- **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class: objc
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
   the real object, it stays correct even when a piece has a **conditional backing**: if a future
   rich-text `label` is realized as `UITextView` instead of `UILabel`, the class tells you, and a
@@ -84,8 +84,8 @@ the accessor hands you that widget's concrete class name:
   });
   ```
 
-- **Raw tiers** (Qt/XAML/ArkUI) can't be introspected from Rust — the handle is an opaque
-  pointer — so Day reports the class it realized for the node's kind (`"QSlider"`, `"Slider"`).
+- **Raw tiers** (Qt/XAML/ArkUI) can't be introspected from Rust (the handle is an opaque
+  pointer), so Day reports the class it realized for the node's kind (`"QSlider"`, `"Slider"`).
   This is the piece of metadata that lets your C++ cast the pointer *knowingly*: pass the class
   across the FFI and guard the cast instead of a blind `static_cast` (see the recipes below).
 
@@ -96,7 +96,7 @@ kinds whose stored handle is a container rather than a single leaf widget.
 ## Packaged tweaks (`day-tweak-*` crates)
 
 For anything reusable, package the tweak: an ordinary crate whose modifier applies the native
-calls per toolkit and **no-ops where it has no coverage** — the consuming app writes zero
+calls per toolkit and **no-ops where it has no coverage**; the consuming app writes zero
 `#[cfg]`. Three in-tree examples span the range:
 
 | crate | scope | demonstrates |
@@ -112,13 +112,13 @@ The Cargo shape mirrors piece crates: per-backend `[features]` gating optional d
 backends = ["appkit", "gtk", "mdc", "qt", "xaml", "arkui"]
 ```
 
-so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2 —
+so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2,
 `crates/day-cli/src/pieces.rs`). Apps that build with bare cargo wire the features explicitly,
 as `apps/showcase/Cargo.toml` does.
 
 ## Bring-your-own native code (the raw tiers)
 
-Pass the `class` the accessor gave you across the FFI so your C++ can guard the cast — Rust can't
+Pass the `class` the accessor gave you across the FFI so your C++ can guard the cast; Rust can't
 type the pointer for you, but it can tell you what it is.
 
 **Qt.** The handle IS the `QWidget*`. Compile a few lines of C++ in your crate's `build.rs` with
@@ -144,7 +144,7 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 
 **XAML.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
 seam, plus the class. In your C++/WinRT (compiled with `cc` against the Windows SDK's cppwinrt
-headers — mirror `tweaks/day-tweak-slider-tickmarks/build.rs`):
+headers; mirror `tweaks/day-tweak-slider-tickmarks/build.rs`):
 
 ```cpp
 #include <cstring>
@@ -164,14 +164,14 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 ## Rules
 
 - **Main thread only.** Tweaks run at mount (already on the main thread); `NativeRef::with` from
-  anywhere else is a checked no-op on Apple (`MainThreadMarker`) and undefined elsewhere — don't.
+  anywhere else is a checked no-op on Apple (`MainThreadMarker`) and undefined elsewhere; don't.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
-  handle clones past the call — hold a `NativeRef` and re-resolve.
+  handle clones past the call; hold a `NativeRef` and re-resolve.
 - **Managed properties can be clobbered.** Day re-applies what it manages (title, value, enabled,
-  frame, a11y) on its next patch of that node. Unmanaged properties — bezel styles, tick marks,
-  selectability — are stable. If you must re-assert, do it from an `Effect` or event handler via
+  frame, a11y) on its next patch of that node. Unmanaged properties (bezel styles, tick marks,
+  selectability) are stable. If you must re-assert, do it from an `Effect` or event handler via
   `NativeRef`.
-- **Size changes need `invalidate_size(node)`** — Day cannot see native mutations it didn't make.
+- **Size changes need `invalidate_size(node)`**: Day cannot see native mutations it didn't make.
 - **Report reality.** A packaged tweak documents per-toolkit coverage (and quirks like "Material
   sliders always snap when stepped") instead of pretending uniformity; where it has no coverage
   it must be a silent, safe no-op.
@@ -179,12 +179,12 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 ## How it works
 
 `Toolkit::Handle` is `Clone + 'static`; the object-safe tree seam exposes
-`node_handle_any(node) -> Option<Box<dyn Any>>` (a CLONE of the handle — a retain / gobject ref /
+`node_handle_any(node) -> Option<Box<dyn Any>>` (a CLONE of the handle: a retain / gobject ref /
 `GlobalRef` clone / `Copy` pointer), and each toolkit's `ext` module downcasts to its concrete
 handle type. The **class name** rides alongside with no new trait method: typed tiers introspect
 the downcast handle directly (objc `object_getClass`, GTK `type_().name()`), and raw tiers read the
 node's semantic kind from the same seam (`node_kind`) and map it to the native class Day realized
-for it. `.tweak` is an ordinary decorator: build the piece, hand the node to the closure — by which
+for it. `.tweak` is an ordinary decorator: build the piece, hand the node to the closure, by which
 point `realize` has already run. `NativeRef` is a `Cell<Option<RNode>>` plus a reactive `Trigger`,
 set at build and cleared by the piece's scope cleanup; slotmap generations make a stale node a
 clean `None` rather than a dangling pointer.

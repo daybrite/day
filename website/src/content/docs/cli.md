@@ -26,7 +26,7 @@ day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 ```
 
-`day pack` produces a standalone, installable package per target — see
+`day pack` produces a standalone, installable package per target. See
 [Packaging & distribution](/docs/packaging) for formats, signing, and CI:
 
 | target | artifact |
@@ -46,13 +46,13 @@ can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --to
 remote (the framework crates are not yet published to crates.io); once they are, `--registry`
 pins them to your CLI's version from crates.io and will become the default.
 
-`day new app` scaffolds a working starter — a typed-route sidebar over four sample panels (a
+`day new app` scaffolds a working starter: a typed-route sidebar over four sample panels (a
 reactive counter, a controls tour, a canvas dial, and a drill-down stack), with locales, a
 dayscript smoke test (`day launch -p <target> --script dayscript/smoke.yaml`), and the thin native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
-directory tree whose file contents *and paths* are rendered with mustache-style placeholders —
-`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
-`{{day_dep}}`, `{{targets_toml}}`, `{{first_target}}`. The built-in template is embedded in the
+directory tree whose file contents *and paths* are rendered with mustache-style placeholders
+(`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
+`{{day_dep}}`, `{{targets_toml}}`, `{{first_target}}`). The built-in template is embedded in the
 CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
 
 ```bash
@@ -94,11 +94,11 @@ variants.
 
 ## The conventional project
 
-A Day project is a normal Cargo package plus a small `Day.toml` — the project marker and the
+A Day project is a normal Cargo package plus a small `Day.toml`: the project marker and the
 home of everything Day-specific. Two rules prevent drift: `name` and `version` are **derived
 from Cargo.toml's `[package]`** (never restated, so identity can't drift), and any `[app]`
-property can be **overridden per platform, per toolkit, or per target** — `[app.ios]`,
-`[app.qt]`, `[app.macos-appkit]` — with the most specific table winning. The build tool reads
+property can be **overridden per platform, per toolkit, or per target** (`[app.ios]`,
+`[app.qt]`, `[app.macos-appkit]`), with the most specific table winning. The build tool reads
 the resolved values when it derives platform metadata (an Android build's label and
 applicationId, for example).
 
@@ -130,7 +130,7 @@ title = "Showcase Mobile"
 `day metadata` prints the project's identity, targets, and per-target resolved values;
 `--json` emits a versioned, machine-readable envelope (this is what the VS Code extension
 consumes instead of parsing Day.toml itself, and it also carries the full target catalog).
-`day lint` validates the manifest's structure — unknown targets and override tables that name
+`day lint` validates the manifest's structure. Unknown targets and override tables that name
 no known platform/toolkit/target are findings.
 
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
@@ -148,7 +148,7 @@ identically everywhere. It has its own guide: [Testing with dayscript](/docs/day
 ## Continuous integration
 
 Every push builds the showcase on every target and runs the walkthrough, uploading each target's
-screenshots — and its installable packages — as artifacts. This site's [gallery](/gallery) is
+screenshots (and its installable packages) as artifacts. This site's [gallery](/gallery) is
 assembled from those screenshot artifacts, so it always shows the latest captures from each
 platform that succeeded. [Packaging & distribution](/docs/packaging) covers the artifact
 pipeline, and [Platform support](/docs/platforms) reports what that CI shows, per target.

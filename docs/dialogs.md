@@ -102,7 +102,7 @@ main loop keeps running and dayscript stays live while a modal is up.
 - **Native integration pickers** (contacts / photos / share): same present→result model with
   richer result payloads and `Cap`-gated fallbacks; designed here, implemented after the dialog
   family lands. (File open/save pickers have landed; see [files.md](./files.md).)
-- **New windows**: SHIPPED since (docs/windows.md) — and the sketch above aged: the
+- **New windows**: SHIPPED since (docs/windows.md), and the sketch above aged: the
   implementation kept ONE tree with multiple adopted roots (no tree-per-window refactor),
   and non-desktop backends degrade to a fullscreen cover instead of missing out. Dialogs
   now attach to the key window at present time.

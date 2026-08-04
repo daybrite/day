@@ -21,7 +21,7 @@ The whole extensibility story rests on two mechanisms:
    dispatches an unknown `kind` to the piece's `make`/`update`/`measure` with no registry edits.
    (web-dom is the one exception: `linkme` has no wasm32 implementation, so `day-dom` keeps a
    runtime registry and the piece calls `day_dom::register_renderer` from its own constructor. Same
-   three functions, same dispatch, different moment — see [media.md](media.md).)
+   three functions, same dispatch, different moment; see [media.md](media.md).)
 2. **Native backend assets** (C++ shims, Android Java, Gradle deps) are declared in the crate's own
    `Cargo.toml` / `build.rs` and folded into the app's native build automatically.
 
@@ -52,7 +52,7 @@ realize payload; a sparse `Patch` enum carries changes.
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice, the same
 slice the built-ins use, so no Day edit is needed. Declare the per-toolkit glue modules with one
-line — `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml)` expands to the
+line: `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml)` expands to the
 feature-and-target-gated `mod` block binding each `lib-<toolkit>.rs` (list only the toolkits you
 implement; a non-standard gate, like webview's Linux-only GTK, stays a hand-written block beside
 it). Then write typed `make`/`update` (no `&dyn Any`
@@ -134,7 +134,7 @@ manifest. `day-piece-webview` is the reference. (A piece can only add a permissi
 removes or narrows the app's own.)
 
 **Release minification (R8/ProGuard).** A `day build --profile release` (and `day pack`) minifies with
-R8 — it shrinks unused code and **renames** classes and methods. But Day reaches Java from native
+R8: it shrinks unused code and **renames** classes and methods. But Day reaches Java from native
 (Rust) code *by name*: JNI `FindClass("dev/daybrite/day/piece/searchfield/DaySearch")`, `dcall_static` on a
 method name, WorkManager instantiating a `Worker` from its class-name string, Room looking up a
 `<Database>_Impl`. A renamed class breaks every one of those lookups, so an un-kept release APK
@@ -143,16 +143,16 @@ installs and then crashes at launch (`NoClassDefFound` / `ClassNotFoundException
 Two layers keep the right names:
 
 - **The framework keeps its own namespace.** `day-android` ships a `proguard-rules.pro` (bundled by
-  `day build` from the crate, like the Java shim) that keeps all of `dev.daybrite.day.**` — the render
-  bridge and *every official Part/Piece shim* — plus every class with `native` methods. So a first-party
+  `day build` from the crate, like the Java shim) that keeps all of `dev.daybrite.day.**` (the render
+  bridge and *every official Part/Piece shim*) plus every class with `native` methods. So a first-party
   piece needs no rules of its own. It also sets `-dontoptimize`: AGP forces the `proguard-android-optimize`
   base, whose aggressive optimizations break reflection-heavy libraries (WorkManager's Room database is
   the classic casualty), and Day would rather ship predictable release builds than squeeze the last few
-  percent — R8 still shrinks and renames everything a keep rule doesn't protect.
+  percent. R8 still shrinks and renames everything a keep rule doesn't protect.
 
 - **Everything outside `dev.daybrite.day.**` keeps itself.** An **app**'s own JNI classes (its install
   bridge, a background `Worker`) live in the *app's* package, and a **third-party piece** lives in its
-  own namespace — neither is covered by the framework rule. Each ships a `proguard-rules.pro` and lists
+  own namespace. Neither is covered by the framework rule. Each ships a `proguard-rules.pro` and lists
   it in `proguard = [...]`. `day build` collects all of them (framework + every piece + the app) into
   the release build's proguard configuration, exactly like it collects Java dirs and Gradle deps. An app
   also keeps here anything its *dependencies* reach reflectively that their own consumer rules miss
@@ -210,7 +210,7 @@ Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodep
 ### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
 
 Some HarmonyOS components exist **only in ArkTS**: the ArkUI **C** node API (`arkui/native_node.h`)
-stops at the container kinds, so there is no way to construct a declarative `Web` — or `Map` — from
+stops at the container kinds, so there is no way to construct a declarative `Web` (or `Map`) from
 native code at all. A piece wrapping one carries its own ArkTS the way an Android piece carries Java.
 
 ```toml
@@ -234,18 +234,18 @@ export const dayPiece: DayPieceModule = {
 `day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
 `DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim ONE factory, command sink,
-and disposer for all pieces. The scaffold's host page calls it once, before `start()` — so adding an
+and disposer for all pieces. The scaffold's host page calls it once, before `start()`, so adding an
 ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
 
 On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
-to build — `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:
+to build. `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:
 
 ```rust
 fn make(_b: &mut ArkUi, p: &WebProps, id: NodeId) -> AHandle { piece::make(KIND, id, &p.url) }
 fn update(_b: &mut ArkUi, h: &AHandle, patch: &WebPatch) { piece::update(h, "load", url) }
 ```
 
-Events come back through the shim's `pieceEvent(id, text)` as `Event::Custom` — the same open channel
+Events come back through the shim's `pieceEvent(id, text)` as `Event::Custom`, the same open channel
 (§8.2) the Android bridge uses, payload only. Two rules the bridge enforces: a declined `make` yields
 Day's placeholder leaf rather than a null handle (a null would take the whole parent's layout down),
 and `release` routes an ArkTS-owned node to `dispose` instead of disposing it natively.
@@ -264,7 +264,7 @@ Guarantees a part or piece can rely on when its Rust calls its Java sidecar (all
 `day-android`, all exercised in production by `day-part-http`):
 
 - **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
-  JVM (and detaches scoped attachments). Blocking Java work runs on the CALLER's thread — keep
+  JVM (and detaches scoped attachments). Blocking Java work runs on the CALLER's thread; keep
   it off the UI thread, exactly like any other blocking Rust.
 - **App classes resolve from any thread.** `env.dfind`/`dcall_static`/`dfield` fall back to the
   app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
@@ -307,10 +307,10 @@ violating dependency fails `cargo test` rather than knotting the graph quietly.
 ## 5. Container pieces (hosting a Day child)
 
 A piece is not limited to leaves: it can be a **container** whose native view hosts a Day-built
-subtree. day-core mounts children **by handle, not by kind** — the tree walks to the nearest native
+subtree. day-core mounts children **by handle, not by kind** (the tree walks to the nearest native
 ancestor and calls `Toolkit::insert(ancestor_handle, child_handle, index)` without consulting the
-ancestor's kind — so a piece-realized node is a valid insertion parent on every backend. The recipe
-(established by `pieces/day-piece-pullrefresh`, the reference container piece — docs/pullrefresh.md):
+ancestor's kind), so a piece-realized node is a valid insertion parent on every backend. The recipe
+(established by `pieces/day-piece-pullrefresh`, the reference container piece; see docs/pullrefresh.md):
 
 ```rust
 let node = cx.native(
@@ -323,19 +323,19 @@ let node = cx.native(
 cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Day child inside
 ```
 
-- Supply a **layout** (`FrameLayout`/`PassThrough`, or your own `day_core::Layout`) — a container
+- Supply a **layout** (`FrameLayout`/`PassThrough`, or your own `day_core::Layout`). A container
   node measures/places through its layout, not through the renderer's `measure` fn.
 - Your per-backend `make` must return a **container-capable native view**: any `NSView`/`UIView`,
-  any `QWidget`, any ArkUI FrameNode — but on GTK a `gtk4::Fixed`-backed view, on Android a
+  any `QWidget`, any ArkUI FrameNode, but on GTK a `gtk4::Fixed`-backed view, on Android a
   `ViewGroup`, and on XAML a `Panel`, or the generic `insert` silently drops the child.
   (Conveniently, native wrappers like Android's `SwipeRefreshLayout` ARE ViewGroups.)
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
-  through `with_tree(|t| t.patch(node, …))` — identical to leaf pieces.
+  through `with_tree(|t| t.patch(node, …))`, identical to leaf pieces.
 
 ## External toolkits — registering a platform-toolkit pair (experimental)
 
-> **The toolkit SPI is unstable.** Everything a backend implements — day-spec's `Toolkit` and
-> `Platform` traits, `Event`, `Cap`, the per-kind props structs — evolves with this repository and
+> **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
+> `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and
 > is not published to crates.io. An external toolkit pins the day crates to a **git revision** and
 > expects breakage between revisions. This section describes the registration seam, which is the
 > part that will stay; the contract behind it firms up at SPI stabilization.
@@ -354,7 +354,7 @@ doctor = "wx-config --version" # optional: `day doctor` probe (command + space-s
 The CLI resolves `-p <name>` against the builtin catalog first, then against declarations found in
 the app's dependency graph (via `cargo metadata --all-features`, since the toolkit crate sits
 behind the very feature its declaration names). A declared target inherits the **desktop**
-pipeline — that is the only `kind` accepted today, deliberately: a new pipeline kind (another
+pipeline. That is the only `kind` accepted today, deliberately: a new pipeline kind (another
 mobile OS) means new build/launch/pack code in the CLI, which cannot come from a crate.
 
 The app wires the toolkit the same way it would a builtin, plus one entry call:
@@ -388,7 +388,7 @@ What a declared target does **not** get:
 - **The in-repo pieces' native renderers.** `day-piece-webview` has no `wxwidgets` feature arm, so
   extension-piece kinds render Day's visible `⟨kind⟩` placeholders unless the external ecosystem
   ships renderer crates for its backend (the `Registry`/`renderer!` seam is the same one in-repo
-  pieces use). The BUILT-IN vocabulary is the backend's own `realize` — cover what you support and
+  pieces use). The BUILT-IN vocabulary is the backend's own `realize`: cover what you support and
   placeholder the rest; `assert_no_placeholders` allow-lists keep the gap ledger honest.
 
 ## Reference

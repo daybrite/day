@@ -1,10 +1,10 @@
 # Forms (form / section / labeled)
 
-> **Status: implemented** in `day-pieces` (portable — no per-backend renderer code beyond the
+> **Status: implemented** in `day-pieces` (portable: no per-backend renderer code beyond the
 > section-card surface below). A settings-style grouped form: `form` holds `section` cards, and
 > `labeled` rows inside them share one right-aligned label column across the whole form, with
-> their controls starting on a common left edge — the aligned-labels look every settings UI
-> converges on.
+> their controls starting on a common left edge. That's the aligned-labels look every settings
+> UI converges on.
 
 ## Authoring
 
@@ -55,7 +55,7 @@ theming with no app code:
 `form` plants a shared `Rc<Cell<f64>>` column width in the environment; each `LabeledLayout`
 registers its label's unconstrained width during **measure** and reads back the running max in
 **place**. Within one layout pass the enclosing stacks measure every child before placing any,
-so by place time the max is final — alignment is consistent with no invalidation dances. Rows
+so by place time the max is final; alignment is consistent with no invalidation dances. Rows
 report the *proposed* width as their size (labels align form-wide, controls may stretch), so a
 growing column width never changes a row's measured size and can't oscillate the pass.
 

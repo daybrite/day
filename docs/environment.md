@@ -7,7 +7,7 @@ own native shim (day-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the s
 
 1. **An environment variable always wins** over probing.
 2. **No literal install paths.** Defaults derive from the platform's own environment
-   (`%ProgramFiles%`, `$HOME`, `%LOCALAPPDATA%`) — a relocated install needs one variable, not a
+   (`%ProgramFiles%`, `$HOME`, `%LOCALAPPDATA%`): a relocated install needs one variable, not a
    patched source tree.
 
 Build scripts emit `cargo:rerun-if-env-changed=` for their overrides, so changing one re-runs
@@ -72,7 +72,7 @@ readiness without printing a secret value.
 declares (`resource/locales/*` ∪ the framework core catalog): it bakes a data directory under
 `~/.day/icu/baked/<key>/` and sets `ICU4X_DATA_DIR` for its cargo invocations. Baking needs the
 CLDR/ICU source archives, fetched ONCE per pinned tag into `~/.day/icu/src` (~100 MB, then fully
-offline). Every failure degrades to the full all-locale compiled data — never a build failure.
+offline). Every failure degrades to the full all-locale compiled data, never a build failure.
 
 | Variable | Meaning |
 |---|---|

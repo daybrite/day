@@ -10,17 +10,17 @@ import Compare from '../../components/Compare.astro';
 Compose and Day both build on state that tracks its readers: `mutableStateOf` records
 which composables read it and recomposes them; a Day `Signal` records which closures read it
 and re-runs them. This guide maps
-the vocabulary and the toolchain — composables to Pieces, Gradle to Cargo — and covers the two
+the vocabulary and the toolchain (composables to Pieces, Gradle to Cargo) and covers the two
 structural differences.
 
 The first is update granularity. Compose re-executes recomposition scopes and skips what it can;
-Day has no recomposition at all — the tree is built once, and a state change re-runs only the
+Day has no recomposition at all. The tree is built once, and a state change re-runs only the
 closures that read it, each ending in one native setter call. Stability
 annotations and `remember` bookkeeping have no equivalent because there is nothing to skip.
 
 The second is what's on screen. Compose draws its own Material widgets on a canvas (and Compose
 Multiplatform carries that renderer to other platforms). Day creates each platform's real
-widgets — Material Components views on Android, AppKit on macOS, WinUI on Windows, actual DOM
+widgets: Material Components views on Android, AppKit on macOS, WinUI on Windows, actual DOM
 elements on the web. Your app looks native everywhere rather than identical everywhere.
 [Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
 
@@ -82,7 +82,7 @@ fn counter() -> AnyPiece {
 
 </Compare>
 
-There's no `remember` because the function isn't re-executed — state doesn't need rescuing
+There's no `remember` because the function isn't re-executed; state doesn't need rescuing
 from re-execution. The label's closure is the only code that runs on a tap, and it ends in one
 native `setText`. The habits Compose teaches around recomposition (hoisting state, stability
 annotations, skippability) have no Day equivalent, because there is no recomposition to manage.
@@ -134,7 +134,7 @@ column((
 
 </Compare>
 
-On Android these are real Material Components views — `TextInputLayout`, `MaterialSwitch` — so
+On Android these are real Material Components views (`TextInputLayout`, `MaterialSwitch`), so
 they track the OS's Material version rather than your Compose BOM.
 
 ## Lists
@@ -171,8 +171,9 @@ recycled slot rather than per composition.
 ## Navigation
 
 `NavController` owns a back stack you push routes onto. Day turns that inside out: the back
-stack is your `Signal<Vec<String>>`, and the platform container — the androidx Fragment back
-stack on Android, with predictive back (opt-in on 13/14, default on 15) — is reconciled to it.
+stack is your `Signal<Vec<String>>`, and the platform container is reconciled to it. On Android
+that container is the androidx Fragment back stack, with predictive back (opt-in on 13/14,
+default on 15).
 
 <Compare lhs="Compose">
 
@@ -208,7 +209,7 @@ navigate("album-42");
 Because navigation is state, the system back gesture writes a pop into your signal, deep links
 are `DAY_DEEPLINK=library/album-42` at launch, and a UI test asserts `current_route()` as a
 string. Sections (the role of a bottom bar or nav rail) are `selector`, which renders each
-platform's idiom — tabs on phones, a sidebar split view on desktop. See
+platform's idiom: tabs on phones, a sidebar split view on desktop. See
 [Navigation](/docs/navigation).
 
 ## Modifiers and layout
@@ -250,7 +251,7 @@ column((
 
 </Compare>
 
-`Font::Title` resolves to each platform's typography scale, not a theme object you define —
+`Font::Title` resolves to each platform's typography scale, not a theme object you define.
 Day inherits the platform's look rather than shipping a design system. The flip side is a real
 limit: there's no `MaterialTheme` equivalent to recolor control chrome, and no portable way to
 restyle a slider track or checkbox. [Styling](/docs/styling) lists what you can restyle and
@@ -262,7 +263,7 @@ what stays native, and
 The `ViewModel` + `StateFlow` + `collectAsStateWithLifecycle` pipeline exists to move state out
 of recomposition and survive configuration changes. Day needs neither: signals already live
 outside the tree (module statics, structs, wherever), and there's no activity recreation to
-survive — the window is Day's, on every platform.
+survive. The window is Day's, on every platform.
 
 ```rust
 #[derive(Clone, Copy)]
@@ -283,7 +284,7 @@ impl Library {
 }
 ```
 
-Threading is where Rust's compiler does what conventions do in Kotlin. `Signal` is `!Send` — a
+Threading is where Rust's compiler does what conventions do in Kotlin. `Signal` is `!Send`: a
 background thread can't touch one, at compile time. The door back is a `Setter` (a `Send`,
 write-only handle that marshals to the main thread, like `withContext(Dispatchers.Main)` with
 the dispatcher rule enforced by types), or `day::task`, whose continuations land on the UI
@@ -301,7 +302,7 @@ std::thread::spawn(move || {
 });
 ```
 
-A `Setter` write after the owning page is gone is a silent no-op — the case
+A `Setter` write after the owning page is gone is a silent no-op: the case
 `viewModelScope` cancellation handles, done by scope teardown instead.
 
 ## Package configuration
@@ -352,12 +353,12 @@ camera = "Scan shelf barcodes to add albums."
 
 </Compare>
 
-A Gradle project still exists — `platform/android/` is a thin host that loads the Rust
-`cdylib` — but it isn't where configuration lives. `Day.toml` declares identity, version,
+A Gradle project still exists (`platform/android/` is a thin host that loads the Rust
+`cdylib`), but it isn't where configuration lives. `Day.toml` declares identity, version,
 window, and permissions once; `day build` writes the manifest entries (and the iOS plist keys,
 and the HarmonyOS profile) from it. A dependency with native platform code declares its Java
 sources, Gradle dependencies, and Maven repositories in its own crate metadata, and the host
-project reads them generically — adding such a package to `Cargo.toml` is the whole
+project reads them generically. Adding such a package to `Cargo.toml` is the whole
 integration.
 
 ## Resources and localization
@@ -395,7 +396,7 @@ key or wrong argument count is a compile error, and a plural selector is typed n
 Android the staging target *is* the `res/` system: `resource/images/` becomes density-bucketed
 `res/drawable-*` entries crunched by aapt2, fonts land in `res/font/`. The same sources also
 become asset catalogs on iOS and GResource bundles on GTK, from one directory. Unlike
-`strings.xml`, the locale is a runtime signal — switching re-renders live without an activity
+`strings.xml`, the locale is a runtime signal. Switching re-renders live without an activity
 recreation, and RTL mirrors the layout. See [Resources](/docs/resources) and
 [Localization](/docs/localization).
 
@@ -436,8 +437,8 @@ field-notes/
 
 </Compare>
 
-Per-platform values are `Day.toml` overrides — per platform, per toolkit, or per target, most
-specific wins — rather than flavors or source-set forks:
+Per-platform values are `Day.toml` overrides (per platform, per toolkit, or per target, most
+specific wins) rather than flavors or source-set forks:
 
 ```toml
 [app]
@@ -465,8 +466,8 @@ debugger and profilers, and Gradle calls back into `day` to rebuild the Rust hal
 | UI tests | `createComposeRule`, Espresso | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 | environment check | Android Studio / `doctor` scripts | `day doctor` |
 
-Release signing reads the keystore from `${ENV_VAR}` references in `Day.toml` — the same
-`signingConfig` idea, but a missing variable degrades to a dev-signed artifact with a warning
+Release signing reads the keystore from `${ENV_VAR}` references in `Day.toml` (the same
+`signingConfig` idea), but a missing variable degrades to a dev-signed artifact with a warning
 instead of failing, so CI forks and fresh laptops still build.
 [Packaging](/docs/packaging) has the per-target details.
 

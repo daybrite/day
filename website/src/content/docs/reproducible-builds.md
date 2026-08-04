@@ -7,8 +7,8 @@ section: Build & ship
 
 A build is reproducible when the same source, built twice, produces the same bytes. Day builds the
 compiled code of every app reproducibly: rebuild a commit in a different directory, on a different
-day, and the machine code that comes out is identical. The containers those binaries ship in —
-`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak` — are reproducible on some platforms and not on
+day, and the machine code that comes out is identical. The containers those binaries ship in
+(`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak`) are reproducible on some platforms and not on
 others, and this page says which, and why.
 
 Day's CI checks this on every push to `main`. Each platform-toolkit job has a follow-up `validate`
@@ -26,7 +26,7 @@ Reproducibility turns that trust into something you can test. Anyone can rebuild
 tampered artifact has to survive independent verification rather than a single signature. That is
 the argument the [Reproducible Builds project](https://reproducible-builds.org) makes in full, and
 its [documentation](https://reproducible-builds.org/docs/) is the reference for the general
-techniques — `SOURCE_DATE_EPOCH`, path normalization, archive metadata, and the rest. Day follows
+techniques: `SOURCE_DATE_EPOCH`, path normalization, archive metadata, and the rest. Day follows
 those conventions rather than inventing its own.
 
 Reproducibility is not a substitute for signing. A signature says who built an artifact;
@@ -36,11 +36,11 @@ reproducibility says the artifact matches its source. You want both.
 
 Day's CI grades a rebuild in two tiers, and they carry different weight.
 
-**Payload** — the compiled code, extracted from whatever container ships it. A mismatch here fails
+**Payload**: the compiled code, extracted from whatever container ships it. A mismatch here fails
 the build. It means the same sources produced different machine code, or a build path leaked into
 the binary.
 
-**Container** — the shipped file itself. A mismatch is reported but does not fail, because what
+**Container**: the shipped file itself. A mismatch is reported but does not fail, because what
 remains after Day normalizes archive timestamps is either a linker build ID or a signature, and
 neither is something a build controls.
 
@@ -80,17 +80,17 @@ specifically to promote reproducible builds, and that Apple's tools "strive to s
 builds within the constraints imposed by the Mach-O file format".
 
 In practice the UUID still changes when the same commit is built in a different directory, which
-moves 16 bytes of the executable plus the signature covering them — TN3178 notes that a signature
+moves 16 bytes of the executable plus the signature covering them. TN3178 notes that a signature
 covers the build UUID. Day's check normalizes the UUID before comparing, so the payload tier passes
 and the container tier reports the difference. Treat a differing UUID as expected rather than a bug.
 
 The linker's `-no_uuid` option would remove it and make the binary reproducible, and TN3178 says
 plainly why not to: an image without a build UUID cannot be matched to its `.dSYM`, so Apple's crash
-reporter cannot symbolicate it. Day keeps the UUID. There is also no way to set one after the fact —
+reporter cannot symbolicate it. Day keeps the UUID. There is also no way to set one after the fact:
 per TN3178, no Apple command does that.
 
 `hdiutil` is the harder problem. Two DMGs built from identical, timestamp-normalized input differ by
-628 bytes uncompressed under APFS — UUIDs plus a Fletcher-64 checksum on every block — or 151 bytes
+628 bytes uncompressed under APFS (UUIDs plus a Fletcher-64 checksum on every block) or 151 bytes
 under HFS+, spread across GPT GUIDs and their CRC32s, the volume header's dates and UUID, and
 per-file creation dates in the catalog. `hdiutil` stamps copy time as each file's creation date, so
 normalizing the source tree does not reach them. UDZO compression then turns any of that into a
@@ -123,7 +123,7 @@ Swift-heavy app this also makes the binary slightly smaller.
 `ditto -c -k` copies each file's modification time into the ZIP and has no flag to suppress it, so
 Day stamps the staging tree before archiving.
 
-`LC_UUID` still varies, as on macOS — see [TN3178](https://developer.apple.com/documentation/technotes/tn3178-checking-for-and-resolving-build-uuid-problems) and the macos-appkit section above.
+`LC_UUID` still varies, as on macOS. See [TN3178](https://developer.apple.com/documentation/technotes/tn3178-checking-for-and-resolving-build-uuid-problems) and the macos-appkit section above.
 
 ### linux-gtk and linux-qt
 
@@ -149,7 +149,7 @@ The compiled `.so` files are reproducible. The `.apk` and `.aab` are close but n
 
 Gradle stamps each ZIP entry with the file's modification time and walks the tree in filesystem
 order. Day's app template sets `isPreserveFileTimestamps = false` and `isReproducibleFileOrder =
-true` on every archive task, which is the documented fix — see [Gradle's reproducible archives
+true` on every archive task, which is the documented fix. See [Gradle's reproducible archives
 guidance](https://docs.gradle.org/current/userguide/working_with_files.html) and
 [reproducible-builds.org on the JVM](https://reproducible-builds.org/docs/jvm/).
 
@@ -163,7 +163,7 @@ What remains is inside the APK Signing Block. Zip entries and the central direct
 byte-identical, and `apksigner` produces identical output given the same key and input, so this is
 not an inherent property of APK signing the way ECDSA is for HarmonyOS. It is unresolved rather than
 impossible. Note that v2 and v3 signatures cover every byte of the file, so an APK has to be
-identical *before* signing for any of this to hold — the constraint F-Droid documents in its
+identical *before* signing for any of this to hold: the constraint F-Droid documents in its
 [reproducible builds guide](https://f-droid.org/docs/Reproducible_Builds/).
 
 ### harmony-arkui
@@ -208,7 +208,7 @@ place to look.
 Two things are worth knowing about rustc itself. `codegen-units = 1` is the documented baseline for
 deterministic output, and Day sets it. Dependency source paths under `~/.cargo/registry` appear in
 panic locations inside the binary, so two machines with different home directories produce different
-binaries even when everything else matches — Day's CI compares builds on the same runner image,
+binaries even when everything else matches. Day's CI compares builds on the same runner image,
 where that path is constant. `rust-lang/rust#129080` is the [standing list of reproducibility
 hazards](https://github.com/rust-lang/rust/issues/129080) and worth watching.
 
@@ -266,12 +266,12 @@ python3 -c "import json;print(json.load(open('macos-appkit.buildinfo.json'))['ar
 ```
 
 That establishes the artifact is intact. It does not establish that it was built from the source it
-claims — the publisher computed both the file and the hash. To check *that*, rebuild it and compare
+claims: the publisher computed both the file and the hash. To check *that*, rebuild it and compare
 the result against the artifact you were given, which is what `day rebuild` does.
 
 ## Verifying with `day rebuild`
 
-Point `day rebuild` at any artifact that has its SBOM and `.buildinfo` beside it — one you built, or
+Point `day rebuild` at any artifact that has its SBOM and `.buildinfo` beside it: one you built, or
 one you downloaded from someone else. It reads that information back and does the whole check:
 
 ```sh
@@ -298,7 +298,7 @@ it only reports. Pass `--strict` to also fail when the payload could not be comp
 is what you want in CI: a container the machine cannot open means the code went unverified.
 
 The environment check runs before the clone, so a machine that cannot reproduce the artifact says so
-immediately rather than after a long build. It never installs anything — it reports what is missing
+immediately rather than after a long build. It never installs anything; it reports what is missing
 and what to run:
 
 ```

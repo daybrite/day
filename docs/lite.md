@@ -1,7 +1,7 @@
 # day-lite: dynamic miniapps on day (normative)
 
-`day-lite` runs **miniapps** — apps written in JavaScript or TypeScript, distributed as plain
-git repositories, updated remotely — on top of day's native pieces. A host app (a **superapp**)
+`day-lite` runs **miniapps** (apps written in JavaScript or TypeScript, distributed as plain
+git repositories, updated remotely) on top of day's native pieces. A host app (a **superapp**)
 embeds the `day-lite` crate, chooses which native capabilities to expose, and presents dynamic
 apps that were never compiled: the JS layer drives the same pieces, signals, and parts a
 compiled day app uses. The model generally follows the
@@ -37,9 +37,9 @@ miniapp repo (manifest.json + *.ts)      catalog.json (anywhere on the web)
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Engine**: QuickJS via `rquickjs` (bytecode interpreter — no JIT, which iOS forbids
+- **Engine**: QuickJS via `rquickjs` (bytecode interpreter: no JIT, which iOS forbids
   anyway). One `Runtime` + `Context` per running miniapp, created on the main thread and only
-  touched there — the same single-threaded discipline day-reactive already imposes. Async work
+  touched there, the same single-threaded discipline day-reactive already imposes. Async work
   (http, timers) lands back on the main thread via `Platform::post` and resolves JS promises.
 - **TypeScript**: modules are type-stripped at load time with the `oxc` parser/transformer
   (`oxc_parser` + `oxc_semantic` + `oxc_transformer` + `oxc_codegen`). `.ts` files run
@@ -51,7 +51,7 @@ miniapp repo (manifest.json + *.ts)      catalog.json (anywhere on the web)
 
 ## 2. Miniapp package
 
-A miniapp is **any directory shape reachable over HTTP or the local filesystem** — by design,
+A miniapp is **any directory shape reachable over HTTP or the local filesystem**: by design,
 a git repository checked out or served raw (GitHub's `raw.githubusercontent.com/<owner>/<repo>/<branch>/`
 prefix works as-is, as does any static host or a local path during development):
 
@@ -69,7 +69,7 @@ my-weather/
 Fetching is manifest-driven: `install(origin)` downloads `<origin>/manifest.json`, then every
 file in its `files` list, into the package store. There is no zip step (the W3C packaging spec
 allows a container format; day-lite treats the *repo itself* as the container). Local origins
-(`/path/to/dir`) skip the cache and re-read from disk on every launch — the dev loop is
+(`/path/to/dir`) skip the cache and re-read from disk on every launch; the dev loop is
 "edit, relaunch the miniapp".
 
 ## 3. Manifest
@@ -135,13 +135,13 @@ pub fn catalog() -> &'static [PieceSpec];   // introspection: names, arities, mo
   `corner_radius`, `font`, `foreground`, `align`, `grow`, `id`, `on_tap`, `action`,
   `overlay_aligned`, `defers_system_gestures`, …). `DynValue::Fn` carries JS callbacks for
   `action`/`on_tap`/canvas draw.
-- Names are **snake_case throughout** — constructors, modifiers, and string enum values
-  (`label(...).font("large_title")`, `grid_align("top_leading")`) — mirroring day's Rust
+- Names are **snake_case throughout**: constructors, modifiers, and string enum values
+  (`label(...).font("large_title")`, `grid_align("top_leading")`), mirroring day's Rust
   API exactly, so nothing needs re-casing between the two languages.
 - `catalog()` is the introspection surface: JS generates its API (and `day lite test` its
   typings) from the same registry the bridge dispatches through, so the two cannot drift.
   Superapps that compile in extra piece crates extend the registry through the same
-  `register_piece!` / `register_modifier!` macros the built-ins use — their pieces become
+  `register_piece!` / `register_modifier!` macros the built-ins use; their pieces become
   scriptable with no day-lite changes (§10).
 
 The JS side exposes each constructor as a function and each modifier as a chainable method
@@ -166,7 +166,7 @@ page('home', () =>
 A `DynValue::Fn` passed where a reactive value is accepted (`text`, `bind`-style modifier
 args) is wrapped in the piece layer's usual bind/watch: day-reactive re-invokes the JS
 closure when its dependencies change, and only the affected piece patches. There is no
-diffing and no bulk state push — the granularity is identical to a compiled day app.
+diffing and no bulk state push; the granularity is identical to a compiled day app.
 `watch(fn)` and `effect(fn)` are exposed for non-UI reactions; all signal APIs are
 main-thread only (enforced; calls from async callbacks are re-posted).
 
@@ -220,7 +220,7 @@ returns throughout; errors are typed (`PermissionError`, `NetError`, `DbError`, 
 
 Miniapps ship [Fluent](https://projectfluent.org) catalogs at the standardized location
 `i18n/<locale>.ftl` (listed in `day.files` like any other package file). `t(key, args?)`
-formats through a per-app `FluentBundle` for the RUN's locale — `day launch --locale` and
+formats through a per-app `FluentBundle` for the RUN's locale: `day launch --locale` and
 `day lite test` deliver it via `DAY_LOCALE`, else day's live locale signal applies, so a
 `set_locale` in the host re-renders miniapp text reactively. Resolution falls back
 `zh-CN → zh → en`, and a missing key returns the key itself (an unlocalized app keeps
@@ -251,7 +251,7 @@ lite::store::remove(app_id)                                  // db + fs + cache 
 
 The two-step install is what makes permission disclosure structural: the UI cannot install
 without passing the granted set through `confirm`. A **catalog** is any JSON document listing
-origins — the superapp renders it, but installing an entry goes through the same
+origins; the superapp renders it, but installing an entry goes through the same
 `install(origin)`:
 
 ```json
@@ -274,7 +274,7 @@ day-lite installs a bridge into a context only if the manifest declares it AND t
 granted it. Ungranted calls don't half-work: the namespace exists but every entry point
 rejects with `PermissionError` (so feature detection is `day.can('NETWORK')`, not
 try/catch-shaped guessing). `STORAGE` (sqlite) and `PREFS` are granted implicitly at install
-— they touch only app-private data — but still must be declared to be visible in disclosure.
+(they touch only app-private data) but still must be declared to be visible in disclosure.
 Hosts can reclassify (a kiosk superapp may implicit-grant nothing) and define new permission
 ids for their own bridges (§10). Grants persist in the package store and are revocable from
 the superapp's app-detail UI.
@@ -294,7 +294,7 @@ let host = day_lite::Host::builder()
 let surface: AnyPiece = host.launch(app_id)?;         // the miniapp's UI, place it anywhere
 ```
 
-A bridge is `{ namespace, permission, install(ctx, services) }` — the same seam the
+A bridge is `{ namespace, permission, install(ctx, services) }`, the same seam the
 built-ins use. Pieces compiled into the host (any crate using `register_piece!`) are
 automatically scriptable (§4). The daylite superapp is this builder plus catalog UI.
 
@@ -303,7 +303,7 @@ automatically scriptable (§4). The daylite superapp is this builder plus catalo
 > [!NOTE]
 > The `day lite test` CLI subcommand is **not currently built into the published `day` binary**:
 > day-cli must not depend on `day-lite` while `day-lite` stays unpublished (`publish = false`) on
-> crates.io. The runner itself lives in the `day-lite` crate — call `day_lite::run_tests(dir)`
+> crates.io. The runner itself lives in the `day-lite` crate; call `day_lite::run_tests(dir)`
 > directly, or re-add the `Lite` subcommand to day-cli once `day-lite` is publishable.
 
 Headless unit tests ship inside the miniapp (`tests/*.test.ts`):
@@ -360,7 +360,7 @@ Running apps present in a fullscreen cover (docs/cover.md) with the X affordance
 ## 13. Build integration
 
 `rquickjs` (bundled quickjs C) and rusqlite's bundled sqlite3 cross-compile through each
-platform's NDK. The `day` CLI supplies, per target, what their build scripts need — the
+platform's NDK. The `day` CLI supplies, per target, what their build scripts need, the
 same env it already curates for `cc`:
 
 - iOS: the `bindgen` feature (rquickjs ships no prebuilt bindings for `aarch64-apple-ios-sim`).

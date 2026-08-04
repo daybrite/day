@@ -2265,17 +2265,15 @@ jobs:
         with:
           pattern: screenshots-*
           path: website/artifacts
-      - name: Download the showcase app packages
-        # The per-combo `day pack` outputs, for the /showcase/ downloads page — the build's
-        # assembly (scripts/assemble-downloads.mjs) copies them into the site with sizes and
-        # SHA-256 checksums. Missing packages degrade to per-card placeholders.
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          pattern: showcase-dist-*
-          path: website/artifacts
+      # No `showcase-dist-*` download: /showcase/ links the packages attached to the latest
+      # RELEASE, not this run's. Only the release lane's macOS build is signed and notarized (the
+      # signing environment admits `v*` tags alone), and an unsigned .dmg is the one download here
+      # that macOS refuses to open. scripts/assemble-downloads.mjs reads the release over the API.
       - name: Build the site (assembles the gallery from the artifacts)
         working-directory: website
+        env:
+          # Raises the API rate limit for the release lookup above the shared-IP anonymous one.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           npm ci
           npm run build

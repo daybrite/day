@@ -6,7 +6,7 @@ section: Guides
 ---
 
 A Day button is a real
-`NSButton`, a real Material button, a real `GtkButton` — so VoiceOver, TalkBack, Narrator, and
+`NSButton`, a real Material button, a real `GtkButton`, so VoiceOver, TalkBack, Narrator, and
 Orca already know how to focus it, name its role, and activate it. You start from the platform's
 baseline instead of from zero, which is the opposite of the situation in renderer-based
 frameworks, where every accessible behavior must be reimplemented.
@@ -33,14 +33,14 @@ image("hero-banner").a11y(|a| a.decorative())
 ```
 
 The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. Labels are
-ordinary text values, so `tr(...)` works — accessible names are localized like everything else.
+ordinary text values, so `tr(...)` works; accessible names are localized like everything else.
 Built-in Pieces set sensible defaults (a `toggle` is a switch with its title as its name); your
 annotations merge over those defaults.
 
 Two rules Day enforces rather than suggests, via `day lint`:
 
 - an interactive Piece with no derivable label is a warning (an error with `--strict`);
-- an element id leaking into an accessible *label* is an error — ids are for machines, labels are
+- an element id leaking into an accessible *label* is an error: ids are for machines, labels are
   for people, and screen readers reading `"save-button"` aloud is the bug this catches.
 
 ## Identifiers
@@ -57,7 +57,7 @@ platform mapping is uneven:
 | GTK | no public settable AT-SPI id today — inspector-visible only |
 | Web | DOM `id` |
 
-dayscript is unaffected by this table — it resolves ids inside the app, uniformly everywhere.
+dayscript is unaffected by this table; it resolves ids inside the app, uniformly everywhere.
 The table matters only when pointing external tooling (Appium, UIA scrapers) at a Day app.
 
 ## Auditing the native tree
@@ -83,8 +83,8 @@ backends that can't yet read their native tree (Android, GTK) skip rather than f
   platform-native target for real users.
 - **Android annotations are partial** — labels and values map today (`contentDescription`, state
   description); role and hint refinement is still open, and audit read-back isn't implemented.
-- **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** — no other
-  Day backend does that today — which makes `linux-qt` a reasonable choice when Linux
+- **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** (no other
+  Day backend does that today), which makes `linux-qt` a reasonable choice when Linux
   accessibility is a hard requirement.
 - **Reactive values**: an a11y `value` set at build time is a snapshot; live values (a slider
   announcing as it moves) work through the control's native behavior, but custom reactive a11y

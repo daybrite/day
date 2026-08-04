@@ -6,11 +6,11 @@ section: Start here
 ---
 
 **Day** is a Rust framework for building applications that look and behave like native
-applications on every platform — because they are native applications.
+applications on every platform, because they are native applications.
 
 You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View
-and Flutter calls a Widget). Each Piece is realized by a real platform widget — an
-`NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox` —
+and Flutter calls a Widget). Each Piece is realized by a real platform widget (an
+`NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox`)
 through a per-platform **toolkit backend**. Day owns layout, reactivity, localization,
 accessibility policy, and scripting; the platform owns pixels, text input, scrolling physics,
 and assistive technology.
@@ -39,26 +39,27 @@ Every cross-platform approach picks something to sacrifice. Web-view shells sacr
 behavior and memory; custom renderers sacrifice native look-and-feel and inherit the burden of
 reimplementing text, scrolling, and accessibility; per-platform native sacrifices the single
 codebase. Day's bet is that the platform's own widgets already do most things better than any
-framework can imitate — so it keeps them, and spends its effort only on the parts native
+framework can imitate, so it keeps them, and spends its effort only on the parts native
 toolkits are bad at sharing:
 
-- a **layout engine** that works identically everywhere while deferring to native measurement
+- a layout engine that works identically everywhere while deferring to native measurement
   ([Layout](/docs/layout));
-- **fine-grained reactivity** that builds the widget tree once and binds state directly to
+- fine-grained reactivity that builds the widget tree once and binds state directly to
   native attributes, with no virtual tree and no diffing ([Reactivity](/docs/reactivity));
-- **localization** (Fluent), **accessibility**, and **scripting** designed into the core from
+- localization (Fluent), accessibility, and scripting designed into the core from
   the start ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
-- a **CLI** that builds, runs, tests, and [packages](/docs/packaging) for every target from one
+- a CLI that builds, runs, tests, and [packages](/docs/packaging) for every target from one
   machine.
 
-The cost side of the bet is real too — your app looks like a Mac app on a Mac and a Material app
-on Android *whether you want that or not*, and heavy visual branding is the wrong fit.
+That bet has a price. Because the widgets are the platform's own, your app looks like a Mac app
+on a Mac and a Material app on Android *whether you want that or not*, and heavy visual branding
+is the wrong fit.
 [Why Day (and why not)](/docs/benefits) covers the tradeoffs and when to pick something else.
 
 ## The targets
 
 A *target* is an `(OS, toolkit)` pair. One binary is compiled per target, containing only that
-toolkit's backend — the AppKit build has no GTK code in it, and there's no runtime abstraction
+toolkit's backend. The AppKit build has no GTK code in it, and there's no runtime abstraction
 layer to pay for.
 
 | Target | OS | Toolkit |
@@ -74,7 +75,7 @@ layer to pay for.
 | `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |
 | `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 |
 
-The last two rows exist because GTK and Qt are themselves portable — useful for development (all
+The last two rows exist because GTK and Qt are themselves portable, useful for development (all
 five desktop toolkits run side by side on one Mac) and for teams that prefer one toolkit across
 Linux and Windows. Maturity varies by target; [Platform support](/docs/platforms) says exactly
 where each one stands rather than implying they're all equal.
@@ -83,21 +84,21 @@ where each one stands rather than implying they're all equal.
 
 Everything is one Cargo project plus a small `Day.toml` manifest. `day launch -p <target>`
 builds and runs; several `-p` flags launch targets in parallel. Tests run against a headless
-mock toolkit in ordinary `cargo test`, and [dayscript](/docs/dayscript) drives the real app —
-the same YAML script taps buttons and asserts labels on every platform, which is also how the
+mock toolkit in ordinary `cargo test`, and [dayscript](/docs/dayscript) drives the real app.
+The same YAML script taps buttons and asserts labels on every platform, which is also how the
 [gallery](/gallery) screenshots on this site are captured in CI.
 
-Rust compiles ahead of time, so there is no hot reload — the inner loop is an incremental
+Rust compiles ahead of time, so there is no hot reload. The inner loop is an incremental
 compile and relaunch, usually seconds on desktop, with script replay to put you back on the
 screen you were working on. If sub-second hot reload is central to how you work, that is a
-reason to look elsewhere — better to know now than in week two.
+reason to look elsewhere: better to know now than in week two.
 
 ## What Day is not
 
 - **Not a renderer.** Day never rasterizes text or widgets itself. Even the `canvas` Piece
   records drawing commands and replays them through the platform's native 2D API.
 - **Not pixel-identical across platforms.** The goal is consistent behavior and information
-  architecture with native look and feel — not one skin everywhere.
+  architecture with native look and feel, not one skin everywhere.
 - **Not a lowest common denominator.** Where platforms diverge, the API exposes the divergence
   (per-platform styling, capability flags) instead of hiding it; where a platform lacks a
   control, the backend composes one from primitives.

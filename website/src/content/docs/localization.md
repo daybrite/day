@@ -5,7 +5,7 @@ order: 21
 section: Guides
 ---
 
-Day localizes with [Mozilla Fluent](https://projectfluent.org/) — a message format built for the
+Day localizes with [Mozilla Fluent](https://projectfluent.org/), a message format built for the
 grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
 reorder everything. Localization is designed into Day's core rather than added on top: the
 locale is a reactive signal, every built-in string mechanism goes through it, and the test
@@ -50,7 +50,7 @@ label(tr("unread-count").arg("count", unread))     // Fluent picks the plural fo
 button(tr("save")).action(save)
 ```
 
-Because arguments accept signals, a localized message with a live value is one expression — when
+Because arguments accept signals, a localized message with a live value is one expression; when
 `unread` changes, the label re-renders through the same fine-grained binding any other text uses,
 and Fluent re-selects the plural category. For a plain `String` in non-UI code, `t("key")`
 returns the formatted value once, not reactively.
@@ -69,7 +69,7 @@ set_locale("fr");          // every tr() binding re-runs; layout reflows for new
 let l = locale().get();    // read (reactively, if inside a binding)
 ```
 
-A locale switch is an ordinary reactive update — no restart, no tree rebuild. Longer German
+A locale switch is an ordinary reactive update: no restart, no tree rebuild. Longer German
 strings or shorter Chinese ones change measured text sizes, and
 [incremental relayout](/docs/layout#incremental-relayout) handles the reflow.
 
@@ -82,7 +82,7 @@ day launch -p macos-appkit --locale fr --script dayscript/walkthrough.yaml
 day launch -p macos-appkit --locale en-XA
 ```
 
-The first runs your [dayscript](/docs/dayscript) walkthrough under French — the CI configuration
+The first runs your [dayscript](/docs/dayscript) walkthrough under French; the CI configuration
 does exactly this, so the [gallery](/gallery) screenshots double as translation review. Scripts
 can assert by Fluent key rather than literal text, so one script passes in every locale.
 
@@ -96,11 +96,11 @@ missing keys.
 - **What's covered:** your UI strings, and OS-facing metadata (the app's display name and
   similar) conveyed into platform manifests at build time.
 - **What isn't:** text inside out-of-process UI (native file dialogs, permission prompts) follows
-  the *system* locale, not your in-app override — every framework shares this limit, but you'll
+  the *system* locale, not your in-app override; every framework shares this limit, but you'll
   notice it when testing with `--locale`.
 - **RTL:** layout mirroring is designed into the layout engine (leading/trailing resolve at
-  placement), but there's no `ar-XB` RTL pseudolocale yet and RTL hasn't had a dedicated CI leg —
-  treat right-to-left support as present-but-lightly-exercised, and test with a real RTL locale
+  placement), but there's no `ar-XB` RTL pseudolocale yet and RTL hasn't had a dedicated CI leg.
+  Treat right-to-left support as present-but-lightly-exercised, and test with a real RTL locale
   if you ship one.
 - **Number/date formatting** follows the locale through Fluent; for formatting outside messages
   you're in ordinary Rust and choose your own crates.

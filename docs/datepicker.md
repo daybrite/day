@@ -1,9 +1,9 @@
 # Date & time pickers (external piece)
 
 > **Status: implemented** as `day-piece-datetime`, an external Day Piece registered link-time into
-> each backend's renderer slice without touching day — the first external piece with renderers for
-> **all seven** toolkits (including its own ArkUI NDK shim). TWO pieces —
-> `date_picker(Signal<DayDate>)` and `time_picker(Signal<DayTime>)` — because a single combined
+> each backend's renderer slice without touching day: the first external piece with renderers for
+> **all seven** toolkits (including its own ArkUI NDK shim). TWO pieces
+> (`date_picker(Signal<DayDate>)` and `time_picker(Signal<DayTime>)`) because a single combined
 > date-time control exists on only 3 of the 7 toolkits (`NSDatePicker`,
 > `UIDatePicker.dateAndTime`, `QDateTimeEdit`), while separate date and time controls realize
 > natively on all of them. Combined selection is composition: `row((date_picker(d), time_picker(t)))`.
@@ -27,16 +27,16 @@ column((
 ```
 
 The bound signal is **two-way**: a user pick writes it; the app writing it updates the native
-control. Values are **civil (zoneless)** — `DayDate { year, month, day }` (proleptic Gregorian,
+control. Values are **civil (zoneless)**: `DayDate { year, month, day }` (proleptic Gregorian,
 validated constructors, `Display`/`parse_iso` speak ISO-8601) and `DayTime { hour, minute,
 second }`. Day carries no time-zone database: an app that needs zoned instants attaches the zone
 itself (`DayDate::today()` derives from the system clock in UTC). Interchange across native
 boundaries is epoch days / seconds-of-day; every renderer pins its control's calendar to
 proleptic-Gregorian UTC so the civil value never shifts by zone, while the **locale stays the
-user's** — month and weekday names render localized by the platform.
+user's**: month and weekday names render localized by the platform.
 
 `min`/`max` bound the date natively where the control supports it, and the piece clamps every
-pick regardless — an out-of-range synthetic set lands on the nearest bound.
+pick regardless; an out-of-range synthetic set lands on the nearest bound.
 
 ## Styles: the shared subset
 
@@ -44,7 +44,7 @@ Two intents (+ `Automatic`, which is `Compact` everywhere today):
 
 - **`Compact`** — a field/button showing the value that summons a *transient chooser*. The chooser's
   chrome is the platform's own: a popover on iOS, a **modal Material dialog** on Android, a
-  calendar-popup on Qt, a flyout on Windows. Same gesture contract, different chrome — by design.
+  calendar-popup on Qt, a flyout on Windows. Same gesture contract, different chrome (by design).
 - **`Inline`** — an embedded calendar / clock / wheels.
 
 Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity Day does not paper
@@ -96,5 +96,5 @@ assert locale-independently:
   the piece (it dismisses with the activity, and re-opening is guarded by tag).
 - ArkUI hour-cycle follows the node default (`USE_MILITARY_TIME` unset); wiring it to the system
   hour-cycle preference is a follow-up.
-- `DayTime`'s `Display` shows seconds exactly when nonzero (`"09:30"` / `"09:30:07"`) — assert
+- `DayTime`'s `Display` shows seconds exactly when nonzero (`"09:30"` / `"09:30:07"`); assert
   accordingly in scripts.
