@@ -2883,7 +2883,11 @@ of day's, and turned an advisory container diff into a spurious hard failure.
 
 - `windows-xaml` — 24 bytes, all of them the PE `TimeDateStamp` and its copy in the debug
   directory, differing by exactly the gap between the two jobs. `ops.rs` now passes
-  `-Clink-arg=/Brepro`, which substitutes a hash of the input for the wall clock.
+  `-Clink-arg=/Brepro`, which substitutes a hash of the input for the wall clock; the `.exe`
+  inside the `.msix` stopped differing on the next run. What remained was the NSIS `-setup.exe`,
+  a self-extracting installer no comparator here can open — so the job uploads
+  `build/day/pack/windows-payload/` (staged before either container is built, and the input to
+  both) and compares that, the same shape as macOS's `.app` and Linux's `stage/bin`.
 - `harmony-arkui` — not a codegen difference at all: the two `.hap`s carried *different
   architectures*. `ohos_build_arches()` probed connected devices before consulting
   `DAY_OHOS_ARCH`, so a pack run alongside the x86_64 emulator shipped x86_64 while the same
@@ -2895,14 +2899,25 @@ of day's, and turned an advisory container diff into a spurious hard failure.
 - `linux-gtk` / `linux-qt` — two symbols differ only in their `.llvm.<moduleId>` suffix, which
   cascades into `NT_GNU_BUILD_ID` and a two-byte `.strtab` change.
 
-**The Linux/iOS cause is not yet known, and three plausible explanations were measured and
-rejected.** The build is byte-identical across two directories (real showcase, ELF, same sha256),
-identical across `-j1` and `-j8`, and identical for Android's `.so` and macOS's Mach-O in CI. Both
-jobs used the same rustc, runner image, and system library versions. So `trim-paths`, pinning
-`CARGO_TARGET_DIR`, and dropping ThinLTO would all have changed nothing — none is implemented. The
-`linux-repro` and `ios-uikit-repro` jobs carry a temporary second build at a third path on the same
-runner: it varies the directory alone, separating "depends on its path" from "the two runners
-disagreed". Remove it once the answer is in.
+**The Linux cause was ThinLTO symbol promotion**, and finding it took a diagnostic rather than a
+guess. A first round of reasoning rejected path-dependence outright — the real showcase built
+byte-identical across two directories on this machine (same sha256), identical across `-j1` and
+`-j8`, and Android's `.so` and macOS's Mach-O both passed in CI with the same rustc, runner image,
+and system libraries. That reasoning was wrong, and only a second build *at a third path on the same
+runner* showed it: two builds one machine apart still differed.
+
+What differed was narrow. The machine code was identical — same addresses, same sizes — and so were
+the crate disambiguators and CGU names. The whole delta was the `.llvm.<hash>` suffix on two
+promoted symbols, plus what that drags along: the GNU build-id, and four bytes of `.strtab`. That
+suffix is ThinLTO's rename for an internal symbol promoted across module boundaries, and its hash is
+not stable across build directories. `[profile.release] lto = "fat"` merges everything into one
+module, so no promotion happens and the suffix is never emitted — measured on the real app, 53
+occurrences down to zero. Cargo's `trim-paths`, the more targeted fix, is **still unstable as of
+Cargo 1.97** and cannot be used from a stable toolchain. Fat LTO costs roughly 40% more link time on
+a release build.
+
+The `linux-repro` and `ios-uikit-repro` jobs carry a temporary second build at a third path on the
+same runner. It earned its keep once; keep it until iOS is also green, then remove it.
 
 Remaining gaps: on Windows diffoscope installs via pip without most of its comparators and degrades
 to a binary diff. Closing the container tier everywhere means wiring `SOURCE_DATE_EPOCH` through the

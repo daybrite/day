@@ -19,7 +19,7 @@ const targets = [
     name: 'AppKit',
     kind: '.dmg',
     install:
-      'Open the .dmg and drag Day Showcase into Applications. The build is development-signed, not notarized, so Gatekeeper objects the first time: right-click the app and choose Open, and on macOS 15+ additionally allow it under System Settings → Privacy & Security → “Open Anyway”.',
+      'Open the .dmg and drag Day Showcase into Applications. The build is signed and notarized, so it opens like any other Mac app.',
   },
   {
     id: 'ios-uikit',
@@ -89,9 +89,9 @@ const totalFiles = [...byId.values()].reduce((n, f) => n + f.length, 0);
       <h1 class="dl-title">The same app the <a href={url('gallery')}>gallery</a> shows — <span class="grad-text">installed on your machine</span>.</h1>
       <p class="lead">
         Every package below is built and driven end to end by CI from the same commit: one Rust
-        codebase, packaged with <code>day pack</code> for each platform's native format. These
-        are development builds — unsigned or dev-signed — so each card notes how to get past
-        the platform's unsigned-app guard.
+        codebase, packaged with <code>day pack</code> for each platform's native format. The macOS
+        build is signed and notarized; the rest are development builds, so those cards note how to
+        get past the platform's unsigned-app guard.
       </p>
       {totalFiles === 0 && (
         <p class="dl-note">

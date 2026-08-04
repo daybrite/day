@@ -1422,6 +1422,16 @@ jobs:
           name: showcase-dist-windows-xaml
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
+      # The pre-container payload, for windows-xaml-repro (§20.3). The NSIS `-setup.exe` is a
+      # self-extracting installer nothing in the check can open, so comparing containers alone
+      # could only ever return "unverified". msix.rs stages the exe + assets here before either
+      # container is built, and both are built from it — so this is the thing worth comparing.
+      - name: Upload the staged payload (reproducibility)
+        uses: actions/upload-artifact@v7
+        with:
+          name: showcase-payload-windows-xaml
+          path: apps/showcase/build/day/pack/windows-payload/
+          if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1893,7 +1903,7 @@ jobs:
         run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
       - uses: actions/download-artifact@v8
         with:
-          name: showcase-dist-windows-xaml
+          name: showcase-payload-windows-xaml
           path: original
       # diffoscope is a Python package; on Windows most of its external comparators are missing, so
       # it degrades to a binary diff. repro-check.sh reports its absence rather than assuming.
@@ -1903,7 +1913,7 @@ jobs:
           python -m pip install --quiet diffoscope || echo "::warning::diffoscope unavailable on this runner"
           set +e
           bash repro-src/scripts/ci/repro-check.sh windows-xaml \
-            original repro-src/apps/showcase/build/day/dist repro-report
+            original repro-src/apps/showcase/build/day/pack/windows-payload repro-report
           rc=$?
           set -e
           cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"

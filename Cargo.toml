@@ -165,5 +165,12 @@ icu_casemap = { version = "2.2", features = ["compiled_data"] }
 intl-memoizer = "0.5"
 
 [profile.release]
-lto = "thin"
+# `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO promotes internal symbols
+# across module boundaries and renames them with a `.llvm.<hash>` suffix derived from a module hash;
+# that hash is not stable across build directories, so the same commit built twice on ONE machine
+# produced binaries differing in exactly those symbol names (and, downstream, in the GNU build-id
+# and `.strtab` size). Fat LTO merges everything into a single module, so no cross-module promotion
+# happens and the suffix is never emitted. Cargo's `trim-paths`, the other candidate, is still
+# unstable as of Cargo 1.97.
+lto = "fat"
 codegen-units = 1
