@@ -212,9 +212,58 @@ binaries even when everything else matches — Day's CI compares builds on the s
 where that path is constant. `rust-lang/rust#129080` is the [standing list of reproducibility
 hazards](https://github.com/rust-lang/rust/issues/129080) and worth watching.
 
+## Verifying with `day rebuild`
+
+Every artifact `day pack` produces carries the information needed to rebuild it. `day rebuild` reads
+that information back and does the whole check for you:
+
+```sh
+day rebuild "My App.dmg"
+```
+
+It finds the SBOM shipped with the artifact, reads the repository and commit that produced it,
+compares your installed tool versions against the ones recorded at build time, clones that commit
+into a temporary directory, packs it again, and compares the two artifacts.
+
+```
+ Environment 6 tool(s) match the artifact
+    Cloning https://github.com/you/my-app @ 342a2be1606d
+ Rebuilding macos-appkit (release) in /tmp/day-rebuild-My App/src/apps/my-app
+    Payload identical
+  Container differs
+            99517b21e367c5b0… vs 62e8dd94235e3e36…
+```
+
+The two verdicts are the ones described above. `Payload` covers the compiled code pulled out of
+whatever container it ships in, and a mismatch there exits non-zero. `Container` covers the shipped
+file byte for byte, and it differs on formats that embed a signature or a build UUID, which is why
+it only reports. Pass `--strict` to also fail when the payload could not be compared at all, which
+is what you want in CI: a container the machine cannot open means the code went unverified.
+
+The environment check runs before the clone, so a machine that cannot reproduce the artifact says so
+immediately rather than after a long build. It never installs anything — it reports what is missing
+and what to run:
+
+```
+      Error the build environment does not match the artifact:
+  rust: this machine has rustc 1.97.0 (2d8144b78 2026-07-07)
+      the artifact was built with rustc 1.90.0 (1159e78c4 2025-09-14)
+      rustup toolchain install 1.90.0
+
+  Install the versions above, or re-run with --force-tool=<name> for each tool you want to
+  ignore (--force-tool=all ignores every mismatch).
+```
+
+`--force-tool` takes a tool name, repeats, and accepts `all`. It exists for experiments. A forced
+rebuild that differs tells you nothing, because the difference may be the tool you forced.
+
+A rebuild needs the commit to exist in the repository, so an artifact packed from a working tree
+with uncommitted changes is refused. Nothing describes what went into it.
+
 ## Verifying a build yourself
 
-Reproducibility you cannot check is a claim, not a property. To check your own app, build it twice
+`day rebuild` is the short path. Doing it by hand is worth knowing when you want to compare
+something it does not handle, or to see the difference rather than a verdict. Build the app twice
 in two different directories and compare.
 
 ```sh
@@ -258,13 +307,6 @@ Read the output against the sections above before filing a bug. A differing `LC_
 platforms, a differing signature block, or a differing `.dmg` is expected. A differing `.so`, `.exe`,
 or Mach-O executable, once the UUID is accounted for, is not.
 
-Day's own check lives in `scripts/ci/repro-check.sh` and does the same comparison in two tiers. You
-can run it against any two output directories:
-
-```sh
-scripts/ci/repro-check.sh my-combo app-a/build/day/dist app-b/build/day/dist /tmp/report
-```
-
-It exits 0 when the two match, 10 when the code matches and only the container differs, 1 when the
-compiled payload differs, and 2 when the two builds produced different sets of files. On any
-mismatch it writes a diffoscope report into the report directory.
+Day's CI runs `day rebuild --strict` against every artifact it ships, on a clean runner, for all six
+packing platforms. The same command is available to you, and it applies the same two-tier comparison
+described above.

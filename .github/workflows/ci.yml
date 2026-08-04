@@ -491,13 +491,17 @@ jobs:
           for a in build/day/pack/macos-appkit/*.app; do ditto "$a" "$STAGE/$(basename "$a")"; done
           ENT="$(sed -n 's/^entitlements = "\(.*\)".*/\1/p' Day.toml | head -1)"
           if [ -n "$ENT" ]; then cp "$ENT" "$STAGE/entitlements.plist"; fi
-          ditto -c -k "$STAGE" "$RUNNER_TEMP/showcase-app.zip"
+          mkdir -p "$RUNNER_TEMP/appout"
+          ditto -c -k "$STAGE" "$RUNNER_TEMP/appout/showcase-app.zip"
+          # The SBOM and .buildinfo ride along so the notarized .dmg can ship with its provenance
+          # (§20.4) — the signing job never sees this build tree.
+          cp build/day/dist/*.json "$RUNNER_TEMP/appout/" 2>/dev/null || true
       - name: Upload the unsigned .app
         if: ${{ matrix.toolkit == 'appkit' }}
         uses: actions/upload-artifact@v7
         with:
           name: showcase-app-${{ matrix.combo }}
-          path: ${{ runner.temp }}/showcase-app.zip
+          path: ${{ runner.temp }}/appout/
           if-no-files-found: error
       # On tags the release .dmg comes from `notarize` instead — uploading here too would put a
       # second, dev-signed .dmg into the release job's `showcase-dist-*` download.
@@ -655,6 +659,14 @@ jobs:
           # The ticket must satisfy Gatekeeper on a machine that has never seen this app.
           spctl -a -vvv -t open --context context:primary-signature "$DMG"
 
+      # The .dmg is assembled in RUNNER_TEMP, but the SBOM and .buildinfo were written next to the
+      # unsigned output back in the packing job. `day rebuild` reads both from beside the artifact,
+      # so they have to travel with it (§20.4).
+      - name: Stage the provenance beside the .dmg
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/incoming"/*.json "$RUNNER_TEMP/dist/" 2>/dev/null || true
+          ls -1 "$RUNNER_TEMP/dist"
       - name: Upload the notarized package
         uses: actions/upload-artifact@v7
         with:
@@ -892,7 +904,7 @@ jobs:
       - name: Pack (${{ matrix.combo }} → flatpak)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
-      # The pre-bundle payload, for linux-repro (§20.3). A `.flatpak` is an OSTree bundle that no
+      # The pre-bundle payload, kept for manual diffoscope runs (§20.3). A `.flatpak` is an OSTree bundle that no
       # ordinary archiver can open, so comparing the bundle alone could never say whether the CODE
       # matched — and a check that cannot answer must not report success. flatpak.rs stages the
       # real ELF at stage/bin/<name>-bin before bundling; that is what gets compared.
@@ -1386,7 +1398,7 @@ jobs:
           name: showcase-dist-windows-xaml
           path: apps/showcase/build/day/dist/
           if-no-files-found: error
-      # The pre-container payload, for windows-xaml-repro (§20.3). The NSIS `-setup.exe` is a
+      # The pre-container payload, kept for manual diffoscope runs (§20.3). The NSIS `-setup.exe` is a
       # self-extracting installer nothing in the check can open, so comparing containers alone
       # could only ever return "unverified". msix.rs stages the exe + assets here before either
       # container is built, and both are built from it — so this is the thing worth comparing.
@@ -1508,20 +1520,22 @@ jobs:
   # builds the host-portable crates (§20.5).
   # ---------------------------------------------------------------------------
   # === Artifact validation (DESIGN.md §20.3) =========================================
-  # One follow-up job per packing platform-toolkit. Each rebuilds the SAME commit that its parent
-  # job just packed, from a checkout at a DIFFERENT absolute path (`repro-src/`, so the build tree
-  # sits one level deeper than the parent's `$GITHUB_WORKSPACE`), then compares the result against
-  # the parent's uploaded artifact.
+  # One follow-up job per packing platform-toolkit. Stage 1 installs and launches the shipped
+  # artifact on a clean runner. Stage 2 hands that same artifact to `day rebuild --strict`, which
+  # does the rest itself: it reads the SBOM and .buildinfo shipped alongside the artifact, checks
+  # this runner's tool versions against the ones recorded at build time, clones the recorded commit
+  # into a scratch directory at a DIFFERENT absolute path, rebuilds, and compares.
   #
-  # `day pack` hardcodes its output to `<project-root>/build/day/dist` (pack/mod.rs) and
-  # `find_project` canonicalizes the project root to an absolute path, so a checkout at a different
-  # path really does drive every downstream tool from a different prefix — which is the point: a
-  # source path baked into the binary shows up here as a payload mismatch.
+  # The different path matters. `day pack` hardcodes its output to `<project-root>/build/day/dist`
+  # and `find_project` canonicalizes the root, so a checkout elsewhere really does drive every
+  # downstream tool from a different prefix — a source path baked into the binary shows up as a
+  # payload mismatch.
   #
-  # scripts/ci/repro-check.sh decides the outcome. The payload tier (the compiled code, pulled out
-  # of whatever container it ships in) is a HARD failure. The container tier is advisory, because
+  # `day rebuild` decides the outcome. The payload tier (the compiled code, pulled out of whatever
+  # container it ships in) is a HARD failure. The container tier is advisory, because
   # hdiutil/gradle/flatpak-builder/makeappx/makensis all stamp mtimes and nothing is wired to
-  # SOURCE_DATE_EPOCH yet. Exit 10 means "code matched, packaging did not" and only warns.
+  # SOURCE_DATE_EPOCH yet. `--strict` also fails a payload that could not be compared at all, so a
+  # container this runner cannot open reads as red rather than as a silent pass.
   #
   # Pushes to main only. PRs are skipped because these double the build cost across six runner
   # platforms and reproducibility drift is not a review blocker. TAGS are skipped for a harder
@@ -1577,9 +1591,6 @@ jobs:
           echo "launched and still running after 10s (pid $PID)"
           kill "$PID" 2>/dev/null || true
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@stable
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
@@ -1591,43 +1602,18 @@ jobs:
           BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        run: $DAY_BIN pack -p macos-appkit --no-version-in-name --no-notarize --format json
-      # The .app tree, not the .dmg: hdiutil output is nondeterministic by construction, so the
-      # bundle is where the signal is. The parent uploads the same tree on every ref.
-      - name: Download the .app packed by the macos job
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-app-macos-appkit
-          path: incoming
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          mkdir -p original rebuilt
-          ditto -x -k incoming/showcase-app.zip original
-          rm -f original/entitlements.plist
-          for a in repro-src/apps/showcase/build/day/pack/macos-appkit/*.app; do
-            ditto "$a" "rebuilt/$(basename "$a")"
-          done
-          brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh macos-appkit original rebuilt repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::macos-appkit is byte-for-byte reproducible" ;;
-            10) echo "::warning::macos-appkit code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-macos-appkit
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.dmg' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.dmg in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   ios-uikit-validate:
     name: validate (ios-uikit)
@@ -1667,9 +1653,6 @@ jobs:
             || { echo "::error::not built for the iOS device platform"; exit 1; }
           echo "ipa ok: $ID ($EXE), arm64 iOS device build — install needs provisioned hardware"
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
@@ -1682,31 +1665,18 @@ jobs:
           BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh ios-uikit \
-            shipped repro-src/apps/showcase/build/day/dist repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::ios-uikit is byte-for-byte reproducible" ;;
-            10) echo "::warning::ios-uikit code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-ios-uikit
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.ipa' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.ipa in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   linux-validate:
     name: validate (${{ matrix.combo }})
@@ -1753,9 +1723,6 @@ jobs:
           echo "launched and still running after 10s"
           kill "$PID" 2>/dev/null || true
       # --- Stage 2: is the build reproducible? -----------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@stable
       - name: Install toolkit deps
         run: |
@@ -1777,39 +1744,18 @@ jobs:
           BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
-      # The staged ELF, not the .flatpak: the bundle is OSTree and nothing here can open it, so
-      # comparing it could only ever produce an unverifiable verdict (§20.3).
-      - uses: actions/download-artifact@v8
-        with:
-          name: showcase-payload-${{ matrix.combo }}
-          path: original
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          sudo apt-get install -y --no-install-recommends diffoscope \
-            || echo "::warning::diffoscope unavailable; comparison continues without it"
-          echo "::notice::comparing the staged ELF payload; the .flatpak bundle itself is not byte-compared"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }} \
-            original "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::${{ matrix.combo }} is byte-for-byte reproducible" ;;
-            10) echo "::warning::${{ matrix.combo }} code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-${{ matrix.combo }}
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.flatpak' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.flatpak in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   android-mdc-validate:
     name: validate (android-mdc)
@@ -1817,12 +1763,9 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     steps:
-      # One checkout serves both stages: stage 1 runs a script out of it, stage 2 rebuilds from it
-      # (in `repro-src`, a DIFFERENT directory than the job that shipped the artifact used — that
-      # difference is what the reproducibility comparison is testing).
+      # Stage 1 runs a checked-in script on the emulator, so this job needs the repo. Stage 2 does
+      # not: `day rebuild` makes its own checkout, at a path of its choosing.
       - uses: actions/checkout@v7
-        with:
-          path: repro-src
       # --- Stage 1: does the shipped .apk install and start on a device? -------------------------
       # An APK cannot be installed without a device, so this leg boots an emulator. That is the
       # only setup here, and it happens before any Rust toolchain exists on the runner.
@@ -1845,7 +1788,7 @@ jobs:
           disable-animations: true
           # The action runs each script LINE as its own `sh -c` (dash: no `pipefail`, no shared
           # state), so the check is one line invoking one bash script.
-          script: bash repro-src/scripts/ci/validate-apk.sh shipped
+          script: bash scripts/ci/validate-apk.sh shipped
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: dtolnay/rust-toolchain@stable
       - uses: gradle/actions/setup-gradle@v6
@@ -1868,34 +1811,18 @@ jobs:
           BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        env:
-          DAY_ANDROID_ABI: arm64-v8a,x86_64
-        run: $DAY_BIN pack -p android-mdc --no-version-in-name --format json
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends diffoscope \
-            || echo "::warning::diffoscope unavailable; comparison continues without it"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh android-mdc \
-            shipped repro-src/apps/showcase/build/day/dist repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::android-mdc is byte-for-byte reproducible" ;;
-            10) echo "::warning::android-mdc code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-android-mdc
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.apk' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.apk in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   windows-xaml-validate:
     name: validate (windows-xaml)
@@ -1941,9 +1868,6 @@ jobs:
           Write-Host "launched and still running after 10s (pid $($p.Id))"
           Stop-Process -Id $p.Id -Force
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -1959,37 +1883,18 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: choco install nsis -y --no-progress
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
-      - uses: actions/download-artifact@v8
-        with:
-          name: showcase-payload-windows-xaml
-          path: original
-      # diffoscope is a Python package; on Windows most of its external comparators are missing, so
-      # it degrades to a binary diff. repro-check.sh reports its absence rather than assuming.
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          python -m pip install --quiet diffoscope || echo "::warning::diffoscope unavailable on this runner"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh windows-xaml \
-            original repro-src/apps/showcase/build/day/pack/windows-payload repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::windows-xaml is byte-for-byte reproducible" ;;
-            10) echo "::warning::windows-xaml code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-windows-xaml
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.msix' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.msix in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   harmony-arkui-validate:
     name: validate (harmony-arkui)
@@ -2032,9 +1937,6 @@ jobs:
           unzip -l "$HAP" | grep -qiE "Hap|\.RSA|\.EC|CERT" \
             && echo "signature entries present" || echo "::warning::no signature entries found in the .hap"
       # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: actions/checkout@v7
-        with:
-          path: repro-src
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
@@ -2094,34 +1996,18 @@ jobs:
           BIN="$(find "$(pwd)/day-cli" -maxdepth 1 -type f | head -1)"
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Rebuild and pack from a different directory
-        working-directory: repro-src/apps/showcase
-        env:
-          DAY_OHOS_ARCH: arm64
-        run: $DAY_BIN pack -p harmony-arkui --no-version-in-name --format json
-      - name: Compare
+      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
+      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
+      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
+      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
+      # could not compare at all; a container difference only warns (§20.4).
+      - name: Rebuild from the artifact's own provenance
         run: |
           set -euo pipefail
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends diffoscope \
-            || echo "::warning::diffoscope unavailable; comparison continues without it"
-          set +e
-          bash repro-src/scripts/ci/repro-check.sh harmony-arkui \
-            shipped repro-src/apps/showcase/build/day/dist repro-report
-          rc=$?
-          set -e
-          cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
-          case $rc in
-            0)  echo "::notice::harmony-arkui is byte-for-byte reproducible" ;;
-            10) echo "::warning::harmony-arkui code is reproducible; packaging container differs" ;;
-            *)  exit $rc ;;
-          esac
-      - name: Upload the reproducibility report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: repro-report-harmony-arkui
-          path: repro-report
-          if-no-files-found: warn
+          ART="$(find shipped -maxdepth 1 -type f -name '*.hap' | head -1)"
+          [ -n "$ART" ] || { echo "::error::no *.hap in the downloaded dist"; exit 1; }
+          echo "verifying $ART"
+          "$DAY_BIN" rebuild --strict "$ART"
 
   msrv:
     runs-on: ubuntu-24.04

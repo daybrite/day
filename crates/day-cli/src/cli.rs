@@ -103,6 +103,10 @@ enum Cmd {
         /// Keep the temporary checkout and rebuild instead of deleting them
         #[arg(long)]
         keep: bool,
+        /// Fail when the payload could not be compared at all, instead of reporting "not checked".
+        /// CI wants this: an unopenable container means the code went unverified.
+        #[arg(long)]
+        strict: bool,
     },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
@@ -394,10 +398,12 @@ pub fn run() -> i32 {
             artifact,
             force_tool,
             keep,
+            strict,
         } => {
             let opts = crate::rebuild::Options {
                 force_tools: force_tool,
                 keep,
+                strict,
             };
             match crate::rebuild::run(&artifact, &opts) {
                 Ok(code) => code,

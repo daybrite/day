@@ -2843,24 +2843,37 @@ check is `scripts/ci/validate-apk.sh`: the emulator action runs each line of its
 a separate `sh -c`, so a check that needs shell state has to be a file it invokes rather than a
 block it inlines.
 
-**Stage 2 checks reproducibility**, and only runs once stage 1 passes. It rebuilds
-the same commit from a checkout at a different absolute path (`repro-src/`) and compares the result
-against the artifact the parent uploaded. `day pack` hardcodes its output under
+**Stage 2 checks reproducibility**, and only runs once stage 1 passes. The whole stage is one
+command, `day rebuild --strict <artifact>` (§20.4): it reads the SBOM and `.buildinfo` shipped
+beside the artifact, gates on the recorded tool versions, clones the recorded commit into a scratch
+directory, packs it again, and compares. The scratch directory is at a different absolute path than
+the parent job built in, which is the point — `day pack` hardcodes its output under
 `<project-root>/build/day/dist` and `find_project` canonicalizes that root, so the second build
-genuinely drives every downstream tool from a different prefix — a source path baked into a binary
-surfaces as a mismatch rather than hiding.
+genuinely drives every downstream tool from a different prefix, and a source path baked into a
+binary surfaces as a mismatch rather than hiding.
 
-`scripts/ci/repro-check.sh` grades the result in two tiers:
+Stage 2 needs no checkout of its own; only `android-mdc-validate` still checks the repo out, because
+its stage 1 runs `scripts/ci/validate-apk.sh` on the emulator. Each job names the container it
+verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.apk`, `*.msix`, `*.hap`) rather than globbing the dist
+directory: `windows-xaml` also ships a self-extracting `-setup.exe` that nothing here can open, and
+`android-mdc` also ships an `.aab`.
+
+`day rebuild` grades the result in two tiers:
 
 | Tier | What it compares | On mismatch |
 | --- | --- | --- |
 | payload | the compiled code — Mach-O / ELF / PE / `.so` — extracted from whatever container ships it | **fails the job** |
-| container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns, uploads a diffoscope report |
+| container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns |
+
+`--strict` adds a third outcome: a payload that could not be compared at all — a container this host
+has no extractor for — fails rather than reporting "not checked". CI passes it because a green run
+that never opened the artifact is a false pass, and this check has produced two of those before.
 
 The split reflects what was measured, not a preference. On `macos-appkit` the compiled executable
 is byte-identical across build directories once two things are normalized away: the Mach-O
 `LC_UUID`, which Apple's linker derives from the object-file paths, and the ad-hoc signature that
-covers it (`scripts/ci/macho-normalize.py`). The `.dmg` around it differs on *every* build, even
+covers it (`zero_macho_uuid` in `rebuild.rs`, ported from and validated against the earlier
+`scripts/ci/macho-normalize.py`). The `.dmg` around it differs on *every* build, even
 in the same directory, because `hdiutil` stamps mtimes. That was originally true of every container
 — `ditto -c -k`, Gradle's zip writer, `flatpak-builder`'s ostree commit, `makeappx`, `makensis` —
 and failing on it would have made the check permanently red. Those clocks are normalized now (see

@@ -123,13 +123,12 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
         "dmg" if cfg!(target_os = "macos") => mount_dmg(artifact, &inner).is_ok(),
         _ => false,
     };
-    if opened {
-        if let Some(found) = find_file(&inner, "day-sbom.cdx.json")
+    if opened
+        && let Some(found) = find_file(&inner, "day-sbom.cdx.json")
             .or_else(|| find_file(&inner, "day-sbom.spdx.json"))
-            && let Some(doc) = read_json(&found)
-        {
-            return Ok(doc);
-        }
+        && let Some(doc) = read_json(&found)
+    {
+        return Ok(doc);
     }
     Err(format!(
         "no SBOM beside or inside {}.\n  \
@@ -409,14 +408,19 @@ fn digest(path: &Path) -> Result<String, String> {
     crate::pack::sha256_file(path)
 }
 
-/// Compare the original artifact with the rebuilt one, at both tiers.
-fn compare(original: &Path, rebuilt: &Path) -> (Verdict, Verdict) {
+/// Compare the original artifact with the rebuilt one, at both tiers (§20.3).
+///
+/// The container verdict is a plain byte comparison. The payload verdict opens both containers and
+/// compares their members after normalization, which is the only tier that can pass on a platform
+/// whose artifacts carry a signature or a linker build ID.
+fn compare(original: &Path, rebuilt: &Path, scratch: &Path) -> (Verdict, Verdict) {
     let (a, b) = match (digest(original), digest(rebuilt)) {
         (Ok(a), Ok(b)) => (a, b),
         _ => {
+            let why = Verdict::Unchecked("could not hash one of the artifacts".into());
             return (
                 Verdict::Unchecked("could not hash one of the artifacts".into()),
-                Verdict::Unchecked("could not hash one of the artifacts".into()),
+                why,
             );
         }
     };
@@ -425,26 +429,51 @@ fn compare(original: &Path, rebuilt: &Path) -> (Verdict, Verdict) {
     } else {
         Verdict::Differs(format!("{}… vs {}…", &a[..16], &b[..16]))
     };
-    // When the containers match, so does everything inside them.
+    // Identical containers imply identical contents; no need to open them.
     if container == Verdict::Identical {
         return (Verdict::Identical, container);
     }
-    // Otherwise the payload tier needs the container opened, which is format-specific. Rather than
-    // reimplement every extractor here, defer to the shared checker when it is available.
-    (
-        Verdict::Unchecked(
-            "container differs; run scripts/ci/repro-check.sh on the two dist directories for a \
-             payload-tier verdict"
-                .into(),
+
+    let (ua, ub) = (scratch.join("cmp/a"), scratch.join("cmp/b"));
+    let _ = std::fs::remove_dir_all(scratch.join("cmp"));
+    if !unpack(original, &ua) || !unpack(rebuilt, &ub) {
+        return (
+            Verdict::Unchecked(format!(
+                "no extractor for {} on this host — the compiled code was not compared",
+                original
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("this format")
+            )),
+            container,
+        );
+    }
+    match differing_members(&ua, &ub) {
+        Ok(diffs) if diffs.is_empty() => (Verdict::Identical, container),
+        Ok(diffs) => (
+            Verdict::Differs(format!(
+                "{} file(s) differ after normalization: {}",
+                diffs.len(),
+                diffs
+                    .iter()
+                    .take(4)
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            container,
         ),
-        container,
-    )
+        Err(e) => (Verdict::Differs(e), container),
+    }
 }
 
 /// Options for [`run`].
 pub struct Options {
     pub force_tools: Vec<String>,
     pub keep: bool,
+    /// Treat an unverifiable payload as a failure. CI sets this: a format this host cannot open
+    /// means the compiled code went uncompared, and reporting that as success is a false pass.
+    pub strict: bool,
 }
 
 /// Rebuild `artifact` from its provenance and report both verdicts. Returns the process exit code.
@@ -534,7 +563,7 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
         ));
     }
 
-    let (payload, container) = compare(&artifact, &rebuilt);
+    let (payload, container) = compare(&artifact, &rebuilt, &scratch);
     status("Payload", payload.label());
     if let Verdict::Differs(d) | Verdict::Unchecked(d) = &payload {
         status("", d);
@@ -551,9 +580,11 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     }
 
     // Only a payload mismatch is a failure. A container difference is expected on every signed
-    // format and on Apple platforms generally (§20.3).
+    // format and on Apple platforms generally (§20.3). Under --strict an unverifiable payload
+    // fails too: "could not check" is not "checked and matched".
     Ok(match payload {
         Verdict::Differs(_) => 1,
+        Verdict::Unchecked(_) if opts.strict => 1,
         _ => 0,
     })
 }
@@ -579,6 +610,217 @@ fn find_project_dir(root: &Path, _artifact: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+// --- Two-tier comparison (§20.3) -----------------------------------------------------------------
+// Ported from scripts/ci/repro-check.sh so `day rebuild` is self-contained: a verification command
+// that needs a checkout of Day's own CI scripts to reach a verdict is not much use to someone
+// holding only an artifact.
+
+const LC_UUID: u32 = 0x1B;
+
+/// Zero the `LC_UUID` load command in a Mach-O, in place, for thin and fat binaries.
+///
+/// Apple's linker derives the UUID from its inputs including object-file paths, so the same
+/// sources built in two directories differ by these 16 bytes and nothing else. TN3178 documents
+/// the field; zeroing it lets the comparison see the code rather than the build location.
+fn zero_macho_uuid(buf: &mut [u8]) -> usize {
+    fn u32_at(b: &[u8], at: usize, big: bool) -> Option<u32> {
+        let v = b.get(at..at + 4)?.try_into().ok()?;
+        Some(if big {
+            u32::from_be_bytes(v)
+        } else {
+            u32::from_le_bytes(v)
+        })
+    }
+    fn thin(buf: &mut [u8], off: usize) -> usize {
+        // The first word read little-endian identifies both the byte order and the width.
+        let Some(magic) = u32_at(buf, off, false) else {
+            return 0;
+        };
+        let (big, is64) = match magic {
+            0xFEED_FACF => (false, true),
+            0xFEED_FACE => (false, false),
+            0xCFFA_EDFE => (true, true),
+            0xCEFA_EDFE => (true, false),
+            _ => return 0,
+        };
+        let Some(ncmds) = u32_at(buf, off + 16, big) else {
+            return 0;
+        };
+        let mut lc = off + if is64 { 32 } else { 28 };
+        let mut zeroed = 0;
+        for _ in 0..ncmds {
+            let (Some(cmd), Some(size)) = (u32_at(buf, lc, big), u32_at(buf, lc + 4, big)) else {
+                break;
+            };
+            if size < 8 || lc + size as usize > buf.len() {
+                break;
+            }
+            if cmd == LC_UUID && lc + 24 <= buf.len() {
+                buf[lc + 8..lc + 24].fill(0);
+                zeroed += 1;
+            }
+            lc += size as usize;
+        }
+        zeroed
+    }
+    match u32_at(buf, 0, true) {
+        // Fat header: the arch table gives each slice's offset.
+        Some(m @ (0xCAFE_BABE | 0xBEBA_FECA)) => {
+            let big = m == 0xCAFE_BABE;
+            let Some(n) = u32_at(buf, 4, big) else {
+                return 0;
+            };
+            let mut zeroed = 0;
+            for i in 0..n as usize {
+                let arch = 8 + i * 20;
+                let Some(slice_off) = u32_at(buf, arch + 8, big) else {
+                    break;
+                };
+                zeroed += thin(buf, slice_off as usize);
+            }
+            zeroed
+        }
+        _ => thin(buf, 0),
+    }
+}
+
+/// Strip the build-path-derived metadata from a file so the comparison sees code.
+fn normalize(path: &Path) -> Result<(), String> {
+    let Ok(head) = std::fs::read(path) else {
+        return Ok(());
+    };
+    let looks_macho = head.len() > 4
+        && matches!(
+            u32::from_le_bytes(head[0..4].try_into().unwrap_or_default()),
+            0xFEED_FACF | 0xFEED_FACE | 0xCFFA_EDFE | 0xCEFA_EDFE
+        )
+        || head.starts_with(&[0xCA, 0xFE, 0xBA, 0xBE]);
+    if !looks_macho {
+        return Ok(());
+    }
+    // The ad-hoc signature covers the UUID, so it has to go first or it will not match either.
+    let _ = Command::new("codesign")
+        .args(["--remove-signature"])
+        .arg(path)
+        .output();
+    let mut buf = std::fs::read(path).map_err(|e| e.to_string())?;
+    if zero_macho_uuid(&mut buf) > 0 {
+        std::fs::write(path, &buf).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Unpack a container so its members can be compared. `false` when the format cannot be opened here.
+fn unpack(container: &Path, dest: &Path) -> bool {
+    let _ = std::fs::create_dir_all(dest);
+    match container.extension().and_then(|e| e.to_str()) {
+        Some("ipa" | "apk" | "aab" | "hap" | "msix" | "zip") => Command::new("unzip")
+            .args(["-q", "-o"])
+            .arg(container)
+            .arg("-d")
+            .arg(dest)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false),
+        Some("dmg") if cfg!(target_os = "macos") => mount_dmg(container, dest).is_ok(),
+        // A .flatpak is an OSTree static delta, not an archive: import it into a scratch repo and
+        // check the ref out. Needs `flatpak` and `ostree`, which any host that can build one has.
+        Some("flatpak") => unpack_flatpak(container, dest),
+        _ => false,
+    }
+}
+
+/// Import a single-file flatpak bundle into a scratch repo and check its ref out to `dest`.
+fn unpack_flatpak(bundle: &Path, dest: &Path) -> bool {
+    let repo = dest.with_extension("ostree-repo");
+    let _ = std::fs::remove_dir_all(&repo);
+    let ok = Command::new("ostree")
+        .arg("init")
+        .arg("--mode=archive")
+        .arg(format!("--repo={}", repo.display()))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        return false;
+    }
+    let imported = Command::new("flatpak")
+        .args(["build-import-bundle", "--no-update-summary"])
+        .arg(&repo)
+        .arg(bundle)
+        .output();
+    let Ok(out) = imported else { return false };
+    if !out.status.success() {
+        return false;
+    }
+    // build-import-bundle prints the ref it created; fall back to asking the repo.
+    let refs = Command::new("ostree")
+        .arg(format!("--repo={}", repo.display()))
+        .arg("refs")
+        .output();
+    let Ok(refs) = refs else { return false };
+    let Some(r) = String::from_utf8_lossy(&refs.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned)
+    else {
+        return false;
+    };
+    Command::new("ostree")
+        .arg(format!("--repo={}", repo.display()))
+        .args(["checkout", "--union", &r])
+        .arg(dest)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Every regular file under `root`, relative to it, sorted — the comparison unit.
+fn file_list(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            let Ok(meta) = std::fs::symlink_metadata(&p) else {
+                continue;
+            };
+            if meta.is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
+                stack.push(p);
+            } else if let Ok(rel) = p.strip_prefix(root) {
+                out.push(rel.to_path_buf());
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Compare two unpacked trees after normalizing each file. Returns the members that still differ.
+fn differing_members(a: &Path, b: &Path) -> Result<Vec<String>, String> {
+    let (la, lb) = (file_list(a), file_list(b));
+    if la != lb {
+        return Err("the two builds produced different sets of files".into());
+    }
+    let mut diffs = Vec::new();
+    for rel in la {
+        let (pa, pb) = (a.join(&rel), b.join(&rel));
+        normalize(&pa)?;
+        normalize(&pb)?;
+        if std::fs::read(&pa).ok() != std::fs::read(&pb).ok() {
+            diffs.push(rel.display().to_string());
+        }
+    }
+    Ok(diffs)
 }
 
 #[cfg(test)]
@@ -656,6 +898,35 @@ mod tests {
                 .unwrap()
                 .2
         );
+    }
+
+    /// The Rust port must agree with scripts/ci/macho-normalize.py, which was validated against
+    /// two real showcase binaries that differed only in LC_UUID.
+    #[test]
+    fn zeroing_the_uuid_matches_the_python_normalizer() {
+        // A minimal 64-bit little-endian Mach-O with one LC_UUID load command.
+        let mut buf = vec![0u8; 64];
+        buf[0..4].copy_from_slice(&0xFEED_FACFu32.to_le_bytes()); // magic, LE 64-bit
+        buf[16..20].copy_from_slice(&1u32.to_le_bytes()); // ncmds
+        let lc = 32;
+        buf[lc..lc + 4].copy_from_slice(&LC_UUID.to_le_bytes());
+        buf[lc + 4..lc + 8].copy_from_slice(&24u32.to_le_bytes()); // cmdsize
+        buf[lc + 8..lc + 24].copy_from_slice(&[0xAB; 16]); // the uuid
+        assert_eq!(zero_macho_uuid(&mut buf), 1, "one uuid zeroed");
+        assert_eq!(&buf[lc + 8..lc + 24], &[0u8; 16], "uuid cleared");
+        // The magic and load-command header must survive untouched.
+        assert_eq!(&buf[0..4], &0xFEED_FACFu32.to_le_bytes());
+        assert_eq!(&buf[lc..lc + 4], &LC_UUID.to_le_bytes());
+    }
+
+    /// Endianness detection was the bug in the first Python attempt: reading the magic big-endian
+    /// and mapping it backwards corrupted the load-command walk.
+    #[test]
+    fn a_non_macho_file_is_left_alone() {
+        let mut buf = b"#!/bin/sh\necho hello\n".to_vec();
+        let before = buf.clone();
+        assert_eq!(zero_macho_uuid(&mut buf), 0);
+        assert_eq!(buf, before);
     }
 
     #[test]
