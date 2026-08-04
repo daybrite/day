@@ -134,6 +134,13 @@ pub fn build(
                 cmd.arg("--");
                 cmd.arg("-Clink-arg=/MANIFEST:EMBED");
                 cmd.arg(format!("-Clink-arg=/MANIFESTINPUT:{}", manifest.display()));
+                // Reproducible PE output (§20.3): without this the linker stamps the COFF header
+                // and the debug directory with the wall clock, so the same commit built twice
+                // differs by exactly those bytes and nothing else. `/Brepro` substitutes a hash of
+                // the input, which is what makes the .exe comparable across builds. It rides here
+                // rather than in RUSTFLAGS because CI already sets RUSTFLAGS and appending to an
+                // inherited value is easy to get wrong; `cargo rustc --` scopes it to this bin.
+                cmd.arg("-Clink-arg=/Brepro");
             } else {
                 cmd.args([
                     "build",

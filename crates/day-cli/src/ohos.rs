@@ -341,9 +341,29 @@ pub(crate) fn ohos_devices() -> Vec<OhosDevice> {
         .collect()
 }
 
-/// The (triple, abi) set to build for: the distinct arches of the connected targets, or — with none
-/// reachable — the `DAY_OHOS_ARCH` override / emulator default, so `day build` still produces a hap.
+/// Map a `DAY_OHOS_ARCH` value to its (triple, abi).
+fn ohos_arch_override(v: &str) -> (&'static str, &'static str) {
+    match v {
+        "device" | "arm64" | "arm64-v8a" => ("aarch64-unknown-linux-ohos", "arm64-v8a"),
+        _ => ("x86_64-unknown-linux-ohos", "x86_64"),
+    }
+}
+
+/// The (triple, abi) set to build for: an explicit `DAY_OHOS_ARCH`, else the distinct arches of the
+/// connected targets, else the emulator default so `day build` still produces a hap.
+///
+/// The override is checked FIRST, and that ordering is the point. Probing devices first meant a
+/// distribution `day pack` changed shape depending on what happened to be plugged in — CI packs
+/// with `DAY_OHOS_ARCH=arm64` but boots an x86_64 emulator for the walkthrough first, so the hap
+/// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered by
+/// an attached device (§20.3). Dev flows are unaffected: they leave the variable unset and still get
+/// every connected target's arch.
 fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
+    if let Ok(v) = std::env::var("DAY_OHOS_ARCH")
+        && !v.is_empty()
+    {
+        return vec![ohos_arch_override(&v)];
+    }
     let mut arches: Vec<(&'static str, &'static str)> = ohos_devices()
         .into_iter()
         .map(|d| (d.triple, d.abi))
@@ -351,12 +371,7 @@ fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
     arches.sort();
     arches.dedup();
     if arches.is_empty() {
-        arches.push(match std::env::var("DAY_OHOS_ARCH").ok().as_deref() {
-            Some("device") | Some("arm64") | Some("arm64-v8a") => {
-                ("aarch64-unknown-linux-ohos", "arm64-v8a")
-            }
-            _ => ("x86_64-unknown-linux-ohos", "x86_64"),
-        });
+        arches.push(("x86_64-unknown-linux-ohos", "x86_64"));
     }
     arches
 }
@@ -533,6 +548,15 @@ pub fn build_ohos(
     let ndk = find_ohos_ndk()?;
     let (cargo, bin) = rustup_cargo()?;
     let name = project.manifest.app.name.clone();
+    // Drop any previously staged arch before restaging. hvigor packs whatever `entry/libs` holds,
+    // and these directories are never otherwise cleaned — so an earlier x86_64 emulator build left
+    // its .so behind and rode into the hap alongside (or instead of) the arch just built. The hap
+    // must contain exactly what this invocation produced (§20.3).
+    let libs_root = harmony.join("entry/libs");
+    if libs_root.is_dir() {
+        std::fs::remove_dir_all(&libs_root)
+            .map_err(|e| format!("clearing {}: {e}", libs_root.display()))?;
+    }
     for (triple, abi) in ohos_build_arches() {
         let target_dir = project
             .root

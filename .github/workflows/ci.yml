@@ -1647,6 +1647,19 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
+      # DIAGNOSTIC (§20.3): a second build, at a THIRD path, on THIS runner. The cross-job
+      # comparison below cannot tell "the build depends on its directory" apart from "the two
+      # runners disagreed", because it varies both at once. This pair varies only the directory.
+      # Measured locally, the build is path- and parallelism-independent (identical sha256 across
+      # two paths and across -j1/-j8), so a same-machine mismatch here would be new information —
+      # and a same-machine MATCH alongside a cross-job mismatch points at the runner, not the path.
+      # Remove once the ios/linux cause is known.
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src2
+      - name: Pack again on this runner, at a third path
+        working-directory: repro-src2/apps/showcase
+        run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
       - uses: actions/download-artifact@v8
         with:
           name: showcase-dist-ios-uikit
@@ -1655,6 +1668,19 @@ jobs:
         run: |
           set -euo pipefail
           brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
+          # Same runner, two directories — reported, never the verdict.
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh ios-uikit-samehost \
+            repro-src/apps/showcase/build/day/dist \
+            repro-src2/apps/showcase/build/day/dist repro-report-samehost
+          same=$?
+          set -e
+          echo "### same-runner, two directories: exit $same" >> "$GITHUB_STEP_SUMMARY"
+          cat repro-report-samehost/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          case $same in
+            0|10) echo "::notice::ios-uikit is reproducible on a single runner — a cross-job mismatch is runner variance, not path dependence" ;;
+            *)    echo "::warning::ios-uikit differs across two directories on the SAME runner — genuine path dependence" ;;
+          esac
           set +e
           bash repro-src/scripts/ci/repro-check.sh ios-uikit \
             original repro-src/apps/showcase/build/day/dist repro-report
@@ -1671,7 +1697,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: repro-report-ios-uikit
-          path: repro-report
+          path: |
+            repro-report
+            repro-report-samehost
           if-no-files-found: warn
 
   linux-repro:
@@ -1715,6 +1743,15 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
+      # DIAGNOSTIC (§20.3): see the note in ios-uikit-repro. Varies the directory alone, so a
+      # cross-job mismatch can be attributed to the runner or to the path, not both at once.
+      # Remove once the ios/linux cause is known.
+      - uses: actions/checkout@v7
+        with:
+          path: repro-src2
+      - name: Pack again on this runner, at a third path
+        working-directory: repro-src2/apps/showcase
+        run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       # The staged ELF, not the .flatpak: the bundle is OSTree and nothing here can open it, so
       # comparing it could only ever produce an unverifiable verdict (§20.3).
       - uses: actions/download-artifact@v8
@@ -1727,6 +1764,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends diffoscope \
             || echo "::warning::diffoscope unavailable; comparison continues without it"
           echo "::notice::comparing the staged ELF payload; the .flatpak bundle itself is not byte-compared"
+          # Same runner, two directories — reported, never the verdict.
+          set +e
+          bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }}-samehost \
+            "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" \
+            "repro-src2/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report-samehost
+          same=$?
+          set -e
+          echo "### same-runner, two directories: exit $same" >> "$GITHUB_STEP_SUMMARY"
+          cat repro-report-samehost/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          case $same in
+            0|10) echo "::notice::${{ matrix.combo }} is reproducible on a single runner — a cross-job mismatch is runner variance, not path dependence" ;;
+            *)    echo "::warning::${{ matrix.combo }} differs across two directories on the SAME runner — genuine path dependence" ;;
+          esac
           set +e
           bash repro-src/scripts/ci/repro-check.sh ${{ matrix.combo }} \
             original "repro-src/apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin" repro-report
@@ -1743,7 +1793,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: repro-report-${{ matrix.combo }}
-          path: repro-report
+          path: |
+            repro-report
+            repro-report-samehost
           if-no-files-found: warn
 
   android-mdc-repro:

@@ -38,7 +38,7 @@ the affected script instead of keeping stale results.
 |---|---|
 | `OHOS_NDK_HOME` | The SDK's `native` dir (cross-linker + shim compiles); set by CI's setup-ohos-sdk |
 | `OHOS_BASE_SDK_HOME` / `OHOS_SDK_HOME` | SDK root(s) — also probed for `hap-sign-tool.jar` |
-| `DAY_OHOS_ARCH` | Force the build arch (`device` / `arm64` / `x86_64`) when no device is connected |
+| `DAY_OHOS_ARCH` | Force the build arch (`device` / `arm64` / `x86_64`). Takes precedence over any connected device, so a `day pack` produces the same hap whether or not an emulator is running; leave it unset to build for each attached target |
 
 ## Rust toolchain
 

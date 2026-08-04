@@ -2871,10 +2871,34 @@ That second rule is why the `linux` job uploads `stage/bin/` as `showcase-payloa
 what `linux-repro` compares — the same shape as macOS handing over its `.app`. The bundle itself is
 not byte-compared, and the job says so rather than implying coverage it doesn't have.
 
+**What the first enforcing run found.** Five combos failed, and only two were about compiled code:
+
+- `windows-xaml` — 24 bytes, all of them the PE `TimeDateStamp` and its copy in the debug
+  directory, differing by exactly the gap between the two jobs. `ops.rs` now passes
+  `-Clink-arg=/Brepro`, which substitutes a hash of the input for the wall clock.
+- `harmony-arkui` — not a codegen difference at all: the two `.hap`s carried *different
+  architectures*. `ohos_build_arches()` probed connected devices before consulting
+  `DAY_OHOS_ARCH`, so a pack run alongside the x86_64 emulator shipped x86_64 while the same
+  commit packed elsewhere shipped arm64 — and `entry/libs/<abi>/` was never cleared, so a stale
+  arch could ride along. The override now wins, and the libs tree is cleared before staging. A
+  distribution pack must not change shape because a device was attached.
+- `ios-uikit` — the `LC_UUID`/debug-map fix above was necessary but not sufficient; a second
+  cause remains, see below.
+- `linux-gtk` / `linux-qt` — two symbols differ only in their `.llvm.<moduleId>` suffix, which
+  cascades into `NT_GNU_BUILD_ID` and a two-byte `.strtab` change.
+
+**The Linux/iOS cause is not yet known, and three plausible explanations were measured and
+rejected.** The build is byte-identical across two directories (real showcase, ELF, same sha256),
+identical across `-j1` and `-j8`, and identical for Android's `.so` and macOS's Mach-O in CI. Both
+jobs used the same rustc, runner image, and system library versions. So `trim-paths`, pinning
+`CARGO_TARGET_DIR`, and dropping ThinLTO would all have changed nothing — none is implemented. The
+`linux-repro` and `ios-uikit-repro` jobs carry a temporary second build at a third path on the same
+runner: it varies the directory alone, separating "depends on its path" from "the two runners
+disagreed". Remove it once the answer is in.
+
 Remaining gaps: on Windows diffoscope installs via pip without most of its comparators and degrades
-to a binary diff, and the PE `TimeDateStamp` is not normalized, so `windows-xaml` may report payload
-drift that is only a header timestamp. Closing the container tier everywhere means wiring
-`SOURCE_DATE_EPOCH` through the packaging tools.
+to a binary diff. Closing the container tier everywhere means wiring `SOURCE_DATE_EPOCH` through the
+packaging tools.
 
 ### §20.5 Toolchain and dependency governance
 
