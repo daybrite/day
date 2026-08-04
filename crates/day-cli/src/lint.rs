@@ -421,7 +421,7 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                 continue;
             };
             for f in files.flatten() {
-                if !f.path().extension().is_some_and(|x| x == "ftl") {
+                if f.path().extension().is_none_or(|x| x != "ftl") {
                     continue;
                 }
                 let Ok(src) = std::fs::read_to_string(f.path()) else {

@@ -21,7 +21,7 @@ the affected script instead of keeping stale results.
 | `DAY_WINDOWS_KITS_ROOT` | The `…\Windows Kits\10` root (headers **and** bin tools resolve under it) | `WindowsSdkDir`, then `%ProgramFiles(x86)%`/`%ProgramFiles%` + `Windows Kits\10` |
 | `WindowsSdkDir` | MS-standard (set by Visual Studio developer shells) — honored after the DAY_ vars | — |
 | `DAY_WINDOWS_KIT` | A bin directory containing `signtool.exe`/`makeappx.exe` directly (`day pack` tool lookup) | PATH, then `bin\<ver>\<arch>` under the kits roots |
-| `DAY_MAKENSIS` | The `makensis` executable for NSIS installers | PATH, then `%ProgramFiles%\NSIS` |
+| `DAY_MAKENSIS` | The `makensis` executable for NSIS installers | PATH, then `%ProgramFiles(x86)%`/`%ProgramFiles%` + `NSIS`, then chocolatey (`%ChocolateyInstall%\bin` shim, else `…\lib\nsis\tools\<ver>`) |
 
 ## Android / JDK
 

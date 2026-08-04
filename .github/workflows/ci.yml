@@ -1402,7 +1402,17 @@ jobs:
       # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          # `choco` edits the MACHINE PATH, which does not reach later steps: Actions hands every
+          # step the environment captured when the job started. So locate makensis.exe now and hand
+          # it to `day pack` explicitly. Doing it here also fails in seconds if the package moved,
+          # instead of after the six-minute release build that packs the installer.
+          $roots = @("$env:ProgramFiles\NSIS", "${env:ProgramFiles(x86)}\NSIS", "$env:ChocolateyInstall\bin", "$env:ChocolateyInstall\lib\nsis") | Where-Object { $_ -and (Test-Path $_) }
+          $exe = Get-ChildItem -Path $roots -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
+          "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "makensis: $($exe.FullName)"
       - name: Pack (windows-xaml → msix + setup.exe)
         working-directory: apps/showcase
         run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json

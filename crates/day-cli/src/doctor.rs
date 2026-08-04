@@ -348,7 +348,12 @@ fn xaml_group() -> Group {
             .soft(),
             Probe::new(
                 "makensis",
-                which("makensis").map(|p| p.display().to_string()),
+                // The SAME lookup `day pack` uses (DAY_MAKENSIS → PATH → %ProgramFiles%\NSIS →
+                // chocolatey), not a PATH-only `which`: a bare `which` reports missing for the
+                // usual `choco install nsis`, whose shim directory a running process's PATH does
+                // not pick up — so doctor would contradict the pack that then succeeds, or miss
+                // the one that then fails.
+                day_toolchain::makensis().map(|p| p.display().to_string()),
                 "choco install nsis (for `day pack` setup.exe)",
             )
             .soft(),

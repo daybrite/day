@@ -149,6 +149,33 @@ pub fn makensis() -> Option<PathBuf> {
             }
         }
     }
+    // Chocolatey (`choco install nsis`) — the way CI and most Windows devs get it. Its shim lands
+    // in the chocolatey bin dir, which IS on the machine PATH, but a PATH edit made by an install
+    // does not reach an ALREADY-RUNNING process: GitHub Actions hands every step the environment
+    // captured when the job started, so `choco install` in one step leaves the next step's PATH
+    // untouched. Probing the location directly is what makes the install usable in the same job.
+    let choco = std::env::var("ChocolateyInstall")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData\chocolatey"));
+    let shim = choco.join("bin").join("makensis.exe");
+    if shim.is_file() {
+        return Some(shim);
+    }
+    // The package's own tree, when it unpacks rather than shimming. The directory under `tools`
+    // carries the NSIS version, so scan one level instead of guessing it.
+    let tools = choco.join("lib").join("nsis").join("tools");
+    if let Ok(entries) = std::fs::read_dir(&tools) {
+        for entry in entries.flatten() {
+            for candidate in [
+                entry.path().join("makensis.exe"),
+                entry.path().join("Bin").join("makensis.exe"),
+            ] {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
     None
 }
 
@@ -294,5 +321,91 @@ mod tests {
         unsafe { std::env::set_var("DAY_CPPWINRT", "/does/not/exist") };
         assert_eq!(cppwinrt_include(), None); // bad override surfaces, not masked by fallbacks
         unsafe { std::env::remove_var("DAY_CPPWINRT") };
+    }
+
+    #[test]
+    fn explicit_makensis_override_must_validate() {
+        unsafe { std::env::set_var("DAY_MAKENSIS", "/does/not/exist/makensis.exe") };
+        assert_eq!(makensis(), None); // same contract as the other overrides: never masked
+        unsafe { std::env::remove_var("DAY_MAKENSIS") };
+    }
+
+    /// The layouts `choco install nsis` can leave behind. Each is built for real under a temp
+    /// `ChocolateyInstall` so the probe is exercised rather than assumed — this is the lookup that
+    /// failed a release build after NSIS had actually been installed.
+    #[test]
+    fn makensis_found_in_chocolatey_layouts() {
+        let base = std::env::temp_dir().join(format!("day-choco-probe-{}", std::process::id()));
+        let shimmed = base.join("shim");
+        let unpacked = base.join("unpacked");
+        let nested = base.join("nested");
+        let _ = std::fs::remove_dir_all(&base);
+
+        // 1. the shim chocolatey drops in its bin dir
+        let shim_exe = shimmed.join("bin").join("makensis.exe");
+        std::fs::create_dir_all(shim_exe.parent().unwrap()).unwrap();
+        std::fs::write(&shim_exe, b"").unwrap();
+
+        // 2. unpacked under lib/nsis/tools/<versioned dir>/
+        let flat = unpacked
+            .join("lib/nsis/tools")
+            .join("nsis-3.10")
+            .join("makensis.exe");
+        std::fs::create_dir_all(flat.parent().unwrap()).unwrap();
+        std::fs::write(&flat, b"").unwrap();
+
+        // 3. …with the executable one level deeper, in Bin/
+        let deep = nested
+            .join("lib/nsis/tools")
+            .join("nsis-3.10")
+            .join("Bin")
+            .join("makensis.exe");
+        std::fs::create_dir_all(deep.parent().unwrap()).unwrap();
+        std::fs::write(&deep, b"").unwrap();
+
+        // The earlier probes must not answer first, or this proves nothing — and on a machine that
+        // really has NSIS in Program Files they would. Saved and put back below: PATH in particular
+        // is process-global, and leaving it empty would poison every test that runs after this one.
+        let (path, pf, pf86) = (
+            std::env::var_os("PATH"),
+            std::env::var_os("ProgramFiles"),
+            std::env::var_os("ProgramFiles(x86)"),
+        );
+        unsafe {
+            std::env::remove_var("DAY_MAKENSIS");
+            std::env::set_var("PATH", "");
+            std::env::set_var("ProgramFiles", base.join("no-such-pf"));
+            std::env::set_var("ProgramFiles(x86)", base.join("no-such-pf86"));
+        }
+
+        let found: Vec<_> = [(&shimmed, &shim_exe), (&unpacked, &flat), (&nested, &deep)]
+            .iter()
+            .map(|(root, want)| {
+                unsafe { std::env::set_var("ChocolateyInstall", root) };
+                (makensis(), (*want).clone())
+            })
+            .collect();
+
+        unsafe {
+            std::env::remove_var("ChocolateyInstall");
+            match path {
+                Some(v) => std::env::set_var("PATH", v),
+                None => std::env::remove_var("PATH"),
+            }
+            match pf {
+                Some(v) => std::env::set_var("ProgramFiles", v),
+                None => std::env::remove_var("ProgramFiles"),
+            }
+            match pf86 {
+                Some(v) => std::env::set_var("ProgramFiles(x86)", v),
+                None => std::env::remove_var("ProgramFiles(x86)"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&base);
+
+        // Asserted only after the environment is back, so a failure can't take the rest with it.
+        for (got, want) in found {
+            assert_eq!(got.as_ref(), Some(&want), "chocolatey layout {want:?}");
+        }
     }
 }
