@@ -37,6 +37,22 @@ SUMMARY="$REPORT/summary.md"
 
 note() { echo "$*" | tee -a "$SUMMARY"; }
 
+# sha256 of $1, as a bare hex digest. NOT `shasum`: that is a Perl script living in
+# /usr/bin/core_perl on the Windows runners' Git Bash, which the forced PATH above does not
+# include — so it resolved to "command not found" there and the report printed empty hashes.
+# coreutils' sha256sum IS in /usr/bin on every runner; the rest are belt and braces.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else
+    echo "sha256-unavailable"
+  fi
+}
+
 for d in "$DIR_A" "$DIR_B"; do
   [ -d "$d" ] || { echo "::error::not a directory: $d"; exit 2; }
 done
@@ -98,6 +114,27 @@ extract_payload() {
       done < <(find "$tmp/x" \
         \( -path '*/Payload/*.app/*' -o -name '*.so' -o -name '*.exe' -o -name '*.dll' \) \
         -type f | LC_ALL=C sort)
+      ;;
+    *setup.exe)
+      # NSIS installer (windows-xaml). 7-Zip reads the NSIS format; it is preinstalled on the
+      # Windows runners (7zip 26.x) but is not always on PATH inside Git Bash, so the Program Files
+      # locations are probed too. No 7-Zip ⇒ return 1, i.e. the honest "unverified", not a pass.
+      local sevenzip=""
+      for cand in 7z 7za 7zz \
+        "/c/Program Files/7-Zip/7z.exe" "/c/Program Files (x86)/7-Zip/7z.exe"; do
+        if command -v "$cand" >/dev/null 2>&1; then sevenzip="$cand"; break; fi
+      done
+      [ -n "$sevenzip" ] || { rm -rf "$tmp"; return 1; }
+      "$sevenzip" x -y -o"$tmp/x" "$file" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+      while IFS= read -r f; do
+        [ -s "$f" ] || continue
+        cp "$f" "$dest/$(echo "${f#"$tmp/x/"}" | tr '/' '_')"
+      done < <(find "$tmp/x" \( -name '*.exe' -o -name '*.dll' \) -type f \
+        `# NSIS's own furniture, not the app: the plugin DLLs it unpacks at run time, and the` \
+        `# uninstaller makensis generates during the pack. Comparing those would test NSIS's` \
+        `# determinism rather than day's, and the uninstaller is a fresh build each time.` \
+        ! -path '*$PLUGINSDIR*' ! -iname 'uninst*.exe' ! -iname 'Uninstall*.exe' \
+        | LC_ALL=C sort)
       ;;
     *)
       rm -rf "$tmp"
@@ -179,7 +216,7 @@ if [ ${#container_diffs[@]} -eq 0 ]; then
   note '| file | sha256 |'
   note '| --- | --- |'
   while IFS= read -r rel; do
-    note "| \`${rel#./}\` | \`$(shasum -a 256 "$DIR_A/${rel#./}" | cut -d' ' -f1)\` |"
+    note "| \`${rel#./}\` | \`$(sha256 "$DIR_A/${rel#./}")\` |"
   done < "$REPORT/files-a.txt"
   exit 0
 fi
@@ -234,7 +271,7 @@ fi
 note ""
 note "Files whose bytes differ:"
 for f in "${container_diffs[@]}"; do
-  note "- \`$f\` — original \`$(shasum -a 256 "$DIR_A/$f" | cut -c1-16)…\` vs rebuilt \`$(shasum -a 256 "$DIR_B/$f" | cut -c1-16)…\`"
+  note "- \`$f\` — original \`$(sha256 "$DIR_A/$f" | cut -c1-16)…\` vs rebuilt \`$(sha256 "$DIR_B/$f" | cut -c1-16)…\`"
 done
 note ""
 note "See the \`diffoscope-*.html\` files in this report for the byte-level explanation."

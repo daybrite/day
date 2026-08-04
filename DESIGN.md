@@ -2871,6 +2871,14 @@ That second rule is why the `linux` job uploads `stage/bin/` as `showcase-payloa
 what `linux-repro` compares — the same shape as macOS handing over its `.app`. The bundle itself is
 not byte-compared, and the job says so rather than implying coverage it doesn't have.
 
+It is also why `windows-xaml` blocked on its NSIS `-setup.exe` until an extractor existed: the
+`.msix` beside it opened as a zip and verified, but the installer did not, and one unopenable
+artifact is enough to make the whole combo UNVERIFIED. 7-Zip reads the NSIS format (and is
+preinstalled on the Windows runners), so `extract_payload` shells out to it — skipping
+`$PLUGINSDIR` and the generated `uninst.exe`, which are NSIS's own furniture rather than day's
+output and are rebuilt per pack. Comparing those would have graded makensis's determinism instead
+of day's, and turned an advisory container diff into a spurious hard failure.
+
 **What the first enforcing run found.** Five combos failed, and only two were about compiled code:
 
 - `windows-xaml` — 24 bytes, all of them the PE `TimeDateStamp` and its copy in the debug
