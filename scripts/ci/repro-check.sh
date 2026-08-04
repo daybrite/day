@@ -10,10 +10,12 @@
 #               ships in. This is what reproducibility is actually about, and a mismatch here
 #               FAILS: it means the same sources produced different machine code, or a build path
 #               leaked into the binary.
-#   container — the shipped file itself (.dmg/.ipa/.apk/.aab/.hap/.msix/.flatpak/-setup.exe). Every
-#               one of these is produced by a tool that stamps mtimes (hdiutil, ditto -c -k, gradle,
-#               flatpak-builder, makeappx, makensis), and none of them is wired to SOURCE_DATE_EPOCH
-#               yet, so a mismatch here is REPORTED but does not fail.
+#   container — the shipped file itself (.dmg/.ipa/.apk/.aab/.hap/.msix/.flatpak/-setup.exe).
+#               Archive timestamps ARE normalized now (pack/mod.rs), so a mismatch here is no longer
+#               a clock: it is a linker build-id (Mach-O LC_UUID, which the build path feeds), or a
+#               signature block — a signed artifact cannot be byte-identical unless the scheme is
+#               deterministic AND the key is fixed. Still REPORTED rather than failed, because
+#               neither is something a build can control.
 #
 # Exit codes: 0 = both tiers identical. 10 = payload identical, container differs (advisory).
 #             1 = payload differs (hard failure). 2 = structural problem (file lists disagree).
@@ -126,6 +128,7 @@ extract_payload() {
       done
       [ -n "$sevenzip" ] || { rm -rf "$tmp"; return 1; }
       "$sevenzip" x -y -o"$tmp/x" "$file" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+      # shellcheck disable=SC2016 # $PLUGINSDIR is NSIS's literal directory name, not a variable
       while IFS= read -r f; do
         [ -s "$f" ] || continue
         cp "$f" "$dest/$(echo "${f#"$tmp/x/"}" | tr '/' '_')"
@@ -191,7 +194,14 @@ while IFS= read -r rel; do
     fi
   else
     # A bare binary (no container) still gets the payload tier directly.
-    if [ "$(file -b "$a" 2>/dev/null | cut -c1-6)" = "Mach-O" ] || [ "$(file -b "$a" 2>/dev/null | cut -c1-3)" = "ELF" ]; then
+    # Mach-O / ELF / PE. windows-xaml compares a payload dir of bare PEs, so leaving PE out here
+    # would misreport a real .exe difference as "no payload extractor" — an unverifiable verdict
+    # for the one case that IS directly comparable.
+    case "$(file -b "$a" 2>/dev/null)" in
+      *Mach-O*|*ELF*|*PE32*|*"MS Windows"*) bare_binary=yes ;;
+      *) bare_binary=no ;;
+    esac
+    if [ "$bare_binary" = yes ]; then
       mkdir -p "$pa" "$pb"; cp "$a" "$pa/bin"; cp "$b" "$pb/bin"
       normalize "$pa/bin"; normalize "$pb/bin"
       if cmp -s "$pa/bin" "$pb/bin"; then
@@ -258,9 +268,10 @@ elif [ ${#no_extractor[@]} -gt 0 ]; then
 else
   note "## $COMBO — code reproducible, bytes differ"
   note ""
-  note "The compiled code is identical. What differs is metadata that the build path feeds into,"
-  note "and packaging containers whose tools stamp mtimes without honouring \`SOURCE_DATE_EPOCH\`"
-  note "(§20.3)."
+  note "The compiled code is identical. Archive timestamps are normalized (§20.3), so what remains"
+  note "is one of: a linker build-id (Mach-O \`LC_UUID\`, derived from the build path), or a"
+  note "signature block — a signed artifact cannot be byte-identical unless the signing scheme is"
+  note "deterministic AND the key is fixed. Check the listing below for which."
 fi
 if [ ${#metadata_only[@]} -gt 0 ]; then
   note ""

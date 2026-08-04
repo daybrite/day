@@ -173,10 +173,10 @@ pub fn pack(
 
     // --- flatpak-builder → repo → bundle ---------------------------------------
     status("Packing", "flatpak-builder");
+    let mut fb = Command::new("flatpak-builder");
+    crate::ops::apply_determinism(&mut fb);
     run_tool(
-        Command::new("flatpak-builder")
-            .env("SOURCE_DATE_EPOCH", super::reproducible_epoch().to_string())
-            .current_dir(&work)
+        fb.current_dir(&work)
             .args(["--force-clean", "--user", "--install-deps-from=flathub"])
             .arg("--repo=repo")
             .arg("builddir")
@@ -195,9 +195,10 @@ pub fn pack(
     ));
     let _ = std::fs::remove_file(&bundle);
     status("Packing", "flatpak build-bundle");
+    let mut bundle_cmd = Command::new("flatpak");
+    crate::ops::apply_determinism(&mut bundle_cmd);
     run_tool(
-        Command::new("flatpak")
-            .env("SOURCE_DATE_EPOCH", super::reproducible_epoch().to_string())
+        bundle_cmd
             .current_dir(&work)
             .arg("build-bundle")
             .arg("repo")

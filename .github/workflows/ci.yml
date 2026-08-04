@@ -480,7 +480,7 @@ jobs:
       # apply it without checking the repo out; `day pack` is the only other consumer of that key,
       # so the two must be updated together (§16.5).
       # Uploaded on every ref, not just tags: `notarize` consumes it on tags, and
-      # `macos-appkit-repro` compares against it on pushes to main (§20.3).
+      # `macos-appkit-validate` compares against it on pushes to main (§20.3).
       - name: Stage the .app for release signing
         if: ${{ matrix.toolkit == 'appkit' }}
         working-directory: apps/showcase
@@ -1507,7 +1507,7 @@ jobs:
   # msrv: the declared minimum supported Rust (workspace rust-version) still
   # builds the host-portable crates (§20.5).
   # ---------------------------------------------------------------------------
-  # === Reproducible-build verification (DESIGN.md §20.3) =========================================
+  # === Artifact validation (DESIGN.md §20.3) =========================================
   # One follow-up job per packing platform-toolkit. Each rebuilds the SAME commit that its parent
   # job just packed, from a checkout at a DIFFERENT absolute path (`repro-src/`, so the build tree
   # sits one level deeper than the parent's `$GITHUB_WORKSPACE`), then compares the result against
@@ -1531,8 +1531,8 @@ jobs:
   # alternative — handing these jobs the signing secrets so they could produce a matching
   # signature — is exactly the exposure §20.2 exists to prevent, so it is not on the table.
 
-  macos-appkit-repro:
-    name: repro (macos-appkit)
+  macos-appkit-validate:
+    name: validate (macos-appkit)
     needs: [macos]
     # See the note on `notarize`: a sibling matrix leg's failure must not skip this job.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -1540,6 +1540,43 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
+      # --- Stage 1: does the shipped artifact install and run? -----------------------------------
+      # Deliberately first, on a runner with nothing installed yet. If a .dmg only works on a
+      # machine that already has the toolchain, it is broken for the people who download it.
+      - name: Download the .dmg the macos job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-macos-appkit
+          path: shipped
+      - name: Install from the .dmg and launch it
+        run: |
+          set -euo pipefail
+          DMG="$(find shipped -name '*.dmg' | head -1)"
+          [ -n "$DMG" ] || { echo "::error::no .dmg in the artifact"; exit 1; }
+          hdiutil verify "$DMG"
+          MNT="$RUNNER_TEMP/dmg-mount"
+          hdiutil attach -nobrowse -readonly -quiet -mountpoint "$MNT" "$DMG"
+          APP="$(find "$MNT" -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP" ] || { echo "::error::no .app inside the .dmg"; exit 1; }
+          # Install the way a user does: drag to /Applications.
+          sudo ditto "$APP" "/Applications/$(basename "$APP")"
+          hdiutil detach -quiet "$MNT"
+          INSTALLED="/Applications/$(basename "$APP")"
+          codesign -vvv --deep --strict "$INSTALLED"
+          BIN="$INSTALLED/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$INSTALLED/Contents/Info.plist")"
+          # Launch it and confirm it is still alive a few seconds later — a bundle that dies on
+          # startup (a missing dylib, a bad resource path) exits well within that window.
+          "$BIN" &
+          PID=$!
+          sleep 10
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::the installed app exited within 10s of launch"
+            wait "$PID" || echo "exit status $?"
+            exit 1
+          fi
+          echo "launched and still running after 10s (pid $PID)"
+          kill "$PID" 2>/dev/null || true
+      # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1592,14 +1629,44 @@ jobs:
           path: repro-report
           if-no-files-found: warn
 
-  ios-uikit-repro:
-    name: repro (ios-uikit)
+  ios-uikit-validate:
+    name: validate (ios-uikit)
     needs: [ios-uikit]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: macos-26
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
+      # --- Stage 1: what can be checked without a device -----------------------------------------
+      # The .ipa is an `-sdk iphoneos` DEVICE build, so it cannot be installed on a simulator, and
+      # a runner has no provisioned hardware. Validate its structure instead, and say so plainly
+      # rather than implying it was launched.
+      - name: Download the .ipa the ios-uikit job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-ios-uikit
+          path: shipped
+      - name: Validate the .ipa structure
+        run: |
+          set -euo pipefail
+          IPA="$(find shipped -name '*.ipa' | head -1)"
+          [ -n "$IPA" ] || { echo "::error::no .ipa in the artifact"; exit 1; }
+          rm -rf "$RUNNER_TEMP/ipa" && ditto -x -k "$IPA" "$RUNNER_TEMP/ipa"
+          APP="$(find "$RUNNER_TEMP/ipa/Payload" -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP" ] || { echo "::error::no Payload/*.app inside the .ipa"; exit 1; }
+          PLIST="$APP/Info.plist"
+          plutil -lint "$PLIST"
+          EXE="$(plutil -extract CFBundleExecutable raw "$PLIST")"
+          ID="$(plutil -extract CFBundleIdentifier raw "$PLIST")"
+          BIN="$APP/$EXE"
+          [ -f "$BIN" ] || { echo "::error::Info.plist names $EXE but the bundle has no such file"; exit 1; }
+          # A device build must be arm64 and must target iOS, not the simulator.
+          file -b "$BIN" | tee "$RUNNER_TEMP/arch.txt"
+          grep -q "arm64" "$RUNNER_TEMP/arch.txt" || { echo "::error::not an arm64 binary"; exit 1; }
+          vtool -show-build "$BIN" 2>/dev/null | grep -q "platform IOS" \
+            || { echo "::error::not built for the iOS device platform"; exit 1; }
+          echo "ipa ok: $ID ($EXE), arm64 iOS device build — install needs provisioned hardware"
+      # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1618,17 +1685,13 @@ jobs:
       - name: Rebuild and pack from a different directory
         working-directory: repro-src/apps/showcase
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
-      - uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-ios-uikit
-          path: original
       - name: Compare
         run: |
           set -euo pipefail
           brew install diffoscope || echo "::warning::diffoscope unavailable; comparison continues without it"
           set +e
           bash repro-src/scripts/ci/repro-check.sh ios-uikit \
-            original repro-src/apps/showcase/build/day/dist repro-report
+            shipped repro-src/apps/showcase/build/day/dist repro-report
           rc=$?
           set -e
           cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -1645,8 +1708,8 @@ jobs:
           path: repro-report
           if-no-files-found: warn
 
-  linux-repro:
-    name: repro (${{ matrix.combo }})
+  linux-validate:
+    name: validate (${{ matrix.combo }})
     needs: [linux]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
@@ -1659,6 +1722,37 @@ jobs:
           - combo: linux-qt
             toolkit: qt
     steps:
+      # --- Stage 1: does the shipped bundle install and run? ---------------------------------
+      - name: Download the .flatpak the linux job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-${{ matrix.combo }}
+          path: shipped
+      - name: Install the flatpak bundle and launch it
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak xvfb
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          BUNDLE="$(find shipped -name '*.flatpak' | head -1)"
+          [ -n "$BUNDLE" ] || { echo "::error::no .flatpak in the artifact"; exit 1; }
+          # --bundle pulls the runtime it declares from flathub; nothing else is preinstalled here.
+          flatpak install --user -y --noninteractive "$BUNDLE"
+          APPID="$(flatpak list --user --app --columns=application | head -1)"
+          [ -n "$APPID" ] || { echo "::error::the bundle installed no app"; exit 1; }
+          flatpak info --user "$APPID"
+          # Headless: the same renderer and display the walkthrough legs use.
+          xvfb-run -a env GSK_RENDERER=cairo QT_QPA_PLATFORM=xcb flatpak run --user "$APPID" &
+          PID=$!
+          sleep 10
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::the installed app exited within 10s of launch"
+            wait "$PID" || echo "exit status $?"
+            exit 1
+          fi
+          echo "launched and still running after 10s"
+          kill "$PID" 2>/dev/null || true
+      # --- Stage 2: is the build reproducible? -----------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1717,12 +1811,51 @@ jobs:
           path: repro-report
           if-no-files-found: warn
 
-  android-mdc-repro:
-    name: repro (android-mdc)
+  android-mdc-validate:
+    name: validate (android-mdc)
     needs: [android-mdc]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     steps:
+      # --- Stage 1: does the shipped .apk install and start on a device? -------------------------
+      # An APK cannot be installed without a device, so this leg boots an emulator. That is the
+      # only setup here, and it happens before any Rust toolchain exists on the runner.
+      - name: Download the .apk the android-mdc job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-android-mdc
+          path: shipped
+      - name: Enable KVM group perms
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Install the .apk on an emulator and launch it
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            APK="$(find shipped -name '*.apk' | head -1)"
+            [ -n "$APK" ] || { echo "::error::no .apk in the artifact"; exit 1; }
+            adb shell pm list packages | sort > /tmp/pkgs-before
+            adb install -r "$APK"
+            adb shell pm list packages | sort > /tmp/pkgs-after
+            # Whatever appeared is the package we just installed — no aapt needed, and aapt is not
+            # reliably on PATH inside the emulator action.
+            PKG="$(comm -13 /tmp/pkgs-before /tmp/pkgs-after | head -1 | sed 's/^package://' | tr -d '\r')"
+            [ -n "$PKG" ] || { echo "::error::the .apk installed no new package"; exit 1; }
+            adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1
+            sleep 10
+            # `pidof` returns empty when the process died, which is what a crash on startup looks like.
+            PID="$(adb shell pidof "$PKG" | tr -d '\r')"
+            [ -n "$PID" ] || { echo "::error::$PKG is not running 10s after launch"; adb logcat -d -t 200; exit 1; }
+            echo "installed and running: $PKG (pid $PID)"
+            adb uninstall "$PKG" >/dev/null
+      # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1752,10 +1885,6 @@ jobs:
         env:
           DAY_ANDROID_ABI: arm64-v8a,x86_64
         run: $DAY_BIN pack -p android-mdc --no-version-in-name --format json
-      - uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-android-mdc
-          path: original
       - name: Compare
         run: |
           set -euo pipefail
@@ -1763,7 +1892,7 @@ jobs:
             || echo "::warning::diffoscope unavailable; comparison continues without it"
           set +e
           bash repro-src/scripts/ci/repro-check.sh android-mdc \
-            original repro-src/apps/showcase/build/day/dist repro-report
+            shipped repro-src/apps/showcase/build/day/dist repro-report
           rc=$?
           set -e
           cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -1780,8 +1909,8 @@ jobs:
           path: repro-report
           if-no-files-found: warn
 
-  windows-xaml-repro:
-    name: repro (windows-xaml)
+  windows-xaml-validate:
+    name: validate (windows-xaml)
     needs: [windows-xaml]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: windows-latest
@@ -1789,6 +1918,41 @@ jobs:
       run:
         shell: bash
     steps:
+      # --- Stage 1: does the shipped installer install and run? ----------------------------------
+      # The NSIS installer, not the .msix: an .msix needs its signing certificate trusted first,
+      # which is exactly the "pre-installation of components" this leg is meant to avoid.
+      - name: Download the installer the windows-xaml job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-windows-xaml
+          path: shipped
+      - name: Install silently and launch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-ChildItem -Path shipped -Filter *-setup.exe -Recurse | Select-Object -First 1
+          if (-not $setup) { Write-Error "no -setup.exe in the artifact" }
+          $before = Get-ChildItem $env:LOCALAPPDATA -Directory | Select-Object -ExpandProperty Name
+          # /S is NSIS's silent switch; the generated script installs per-user.
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          # nsis.rs sets InstallDir to "$LOCALAPPDATA\<title>". Rather than guess the title, take
+          # whichever directory the installer added — LOCALAPPDATA holds plenty of unrelated .exe
+          # files, so picking the first match would run something else entirely.
+          $added = Compare-Object $before (Get-ChildItem $env:LOCALAPPDATA -Directory | Select-Object -ExpandProperty Name) |
+                   Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
+          if (-not $added) { Write-Error "the installer created no directory under LOCALAPPDATA" }
+          Write-Host "installed into: $added"
+          $exe = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA $added) -Filter *.exe -Recurse |
+                 Where-Object { $_.Name -notmatch 'uninst' } |
+                 Select-Object -First 1
+          if (-not $exe) { Write-Error "the installer left no executable behind" }
+          Write-Host "installed: $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 10
+          if ($p.HasExited) { Write-Error "the installed app exited within 10s (code $($p.ExitCode))" }
+          Write-Host "launched and still running after 10s (pid $($p.Id))"
+          Stop-Process -Id $p.Id -Force
+      # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1839,8 +2003,8 @@ jobs:
           path: repro-report
           if-no-files-found: warn
 
-  harmony-arkui-repro:
-    name: repro (harmony-arkui)
+  harmony-arkui-validate:
+    name: validate (harmony-arkui)
     needs: [harmony-arkui]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
@@ -1852,6 +2016,34 @@ jobs:
       CLT_VERSION: "5.1.0.840"
       CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
     steps:
+      # --- Stage 1: what can be checked without booting the emulator -----------------------------
+      # Installing a .hap needs the Oniro QEMU emulator, which is the slowest and flakiest leg in
+      # this workflow (the parent job is continue-on-error for that reason). Booting a second copy
+      # here would double a 90-minute job to prove what the parent already exercises, so this
+      # validates the archive's structure instead and does not claim to have launched anything.
+      - name: Download the .hap the harmony-arkui job shipped
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-harmony-arkui
+          path: shipped
+      - name: Validate the .hap structure
+        run: |
+          set -euo pipefail
+          HAP="$(find shipped -name '*.hap' | head -1)"
+          [ -n "$HAP" ] || { echo "::error::no .hap in the artifact"; exit 1; }
+          rm -rf "$RUNNER_TEMP/hap" && unzip -q "$HAP" -d "$RUNNER_TEMP/hap"
+          MOD="$RUNNER_TEMP/hap/module.json"
+          [ -f "$MOD" ] || { echo "::error::no module.json in the .hap"; exit 1; }
+          python3 -c "import json,sys; d=json.load(open('$MOD')); print('bundle:', d['app']['bundleName'] if 'app' in d else d['module']['name'])"
+          # The native library the ArkTS host imports, for the arch this hap declares.
+          SO="$(find "$RUNNER_TEMP/hap/libs" -name 'libentry.so' | head -1)"
+          [ -n "$SO" ] || { echo "::error::no libs/<abi>/libentry.so in the .hap"; exit 1; }
+          file -b "$SO" | grep -q ELF || { echo "::error::libentry.so is not an ELF object"; exit 1; }
+          echo "hap ok: $(basename "$(dirname "$SO")") $(file -b "$SO" | cut -d, -f1-2)"
+          # A hap must carry a signature block; an unsigned one will not install on a device.
+          unzip -l "$HAP" | grep -qiE "Hap|\.RSA|\.EC|CERT" \
+            && echo "signature entries present" || echo "::warning::no signature entries found in the .hap"
+      # --- Stage 2: is the build reproducible? ---------------------------------------------------
       - uses: actions/checkout@v7
         with:
           path: repro-src
@@ -1919,10 +2111,6 @@ jobs:
         env:
           DAY_OHOS_ARCH: arm64
         run: $DAY_BIN pack -p harmony-arkui --no-version-in-name --format json
-      - uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-harmony-arkui
-          path: original
       - name: Compare
         run: |
           set -euo pipefail
@@ -1930,7 +2118,7 @@ jobs:
             || echo "::warning::diffoscope unavailable; comparison continues without it"
           set +e
           bash repro-src/scripts/ci/repro-check.sh harmony-arkui \
-            original repro-src/apps/showcase/build/day/dist repro-report
+            shipped repro-src/apps/showcase/build/day/dist repro-report
           rc=$?
           set -e
           cat repro-report/summary.md >> "$GITHUB_STEP_SUMMARY"

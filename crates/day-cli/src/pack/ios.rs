@@ -308,10 +308,10 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
     let symroot = build_dir.join("pack-unsigned");
     let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
     status("Building", "ios-uikit (xcodebuild, iphoneos, unsigned)");
+    let mut cmd = Command::new("xcodebuild");
+    crate::ops::apply_determinism(&mut cmd);
     run_tool(
-        Command::new("xcodebuild")
-            .env("ZERO_AR_DATE", "1")
-            .current_dir(project.root.join("platform/ios"))
+        cmd.current_dir(project.root.join("platform/ios"))
             .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
             .args(["-configuration", "Release", "-sdk", "iphoneos"])
             .args(["-arch", "arm64"])

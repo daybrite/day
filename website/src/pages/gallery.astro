@@ -21,6 +21,33 @@ function platformOf(suite: Suite, id: string) {
   return suite.platforms.find((p) => p.id === id)!;
 }
 const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
+
+// Presentation-only window chrome per desktop platform (docs/testing: captures are the WINDOW
+// CONTENT by design — offscreen snapshots are deterministic, headless, and permission-free,
+// and linux CI runs under bare xvfb where no window manager exists to draw real decorations).
+// The bar below is drawn in CSS at display time so each tile reads instantly as its OS:
+// traffic lights for macOS, caption glyphs for Windows, an Adwaita headerbar for GNOME,
+// Breeze for KDE, and a browser bar for the web build. Mobile tiles keep their REAL device
+// chrome — the status bars are part of the capture.
+// The mobile counterpart: a hardware bezel. The CAPTURES already hold the real screen chrome
+// (status bars; the iOS simulator even renders the Dynamic Island's black pill), so the frame
+// only adds what a screenshot cannot contain — the device around the glass. Differentiated
+// lightly per platform (corner radii, button nubs) rather than imitating one specific model.
+const bezelOf = (id: string): string | undefined =>
+  ({ 'ios-uikit': 'iphone', 'android-mdc': 'android', 'harmony-arkui': 'harmony' })[id];
+
+const chromeOf = (id: string): string | undefined =>
+  ({
+    'macos-appkit': 'macos',
+    'macos-gtk': 'macos',
+    'macos-qt': 'macos',
+    'windows-xaml': 'windows',
+    'windows-gtk': 'windows',
+    'windows-qt': 'windows',
+    'linux-gtk': 'gnome',
+    'linux-qt': 'kde',
+    'web-dom': 'browser',
+  })[id];
 ---
 <BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target — light, dark, and localized — with screenshots taken straight from CI." active="gallery">
   <section class="section gal-hero">
@@ -104,13 +131,52 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                       data-plat={platform.id}
                     >
                       <div class="frame">
-                        {tile.placeholder ? (
-                          <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label} — preview placeholder`}>
-                            <span class="ph-mark">◱</span>
-                            <span class="ph-txt">preview</span>
-                          </div>
-                        ) : (
-                          <>
+                        {(() => {
+                          const chrome = chromeOf(platform.id);
+                          const bar = chrome && (
+                            <div class={`chrome c-${chrome}`} aria-hidden="true">
+                              {chrome === 'macos' && (
+                                <>
+                                  <span class="dots"><i class="d-r" /><i class="d-y" /><i class="d-g" /></span>
+                                  <span class="c-title">{suite.label}</span>
+                                  <span class="c-eq" />
+                                </>
+                              )}
+                              {chrome === 'windows' && (
+                                <>
+                                  <span class="c-title left">{suite.label}</span>
+                                  <span class="caps"><i>—</i><i>▢</i><i>✕</i></span>
+                                </>
+                              )}
+                              {chrome === 'gnome' && (
+                                <>
+                                  <span class="c-eq" />
+                                  <span class="c-title bold">{suite.label}</span>
+                                  <span class="gbtn">✕</span>
+                                </>
+                              )}
+                              {chrome === 'kde' && (
+                                <>
+                                  <span class="c-eq" />
+                                  <span class="c-title">{suite.label}</span>
+                                  <span class="caps"><i>—</i><i>▢</i><i>✕</i></span>
+                                </>
+                              )}
+                              {chrome === 'browser' && (
+                                <>
+                                  <span class="dots plain"><i /><i /><i /></span>
+                                  <span class="c-url">daybrite.dev</span>
+                                  <span class="c-eq" />
+                                </>
+                              )}
+                            </div>
+                          );
+                          const body = tile.placeholder ? (
+                            <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label} — preview placeholder`}>
+                              <span class="ph-mark">◱</span>
+                              <span class="ph-txt">preview</span>
+                            </div>
+                          ) : (
                             <img
                               alt={`${shot.label} — ${platform.os} ${platform.label}`}
                               loading="lazy"
@@ -121,9 +187,21 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                               )}
                               src={url((tile.variants.light ?? variantEntries[0][1]).src)}
                             />
-                            <span class="fb-badge" hidden></span>
-                          </>
-                        )}
+                          );
+                          const bezel = bezelOf(platform.id);
+                          return (
+                            <>
+                              {chrome ? (
+                                <div class="win" data-chrome={chrome}>{bar}{body}</div>
+                              ) : bezel ? (
+                                <div class="dev" data-dev={bezel}>{body}</div>
+                              ) : (
+                                body
+                              )}
+                              {!tile.placeholder && <span class="fb-badge" hidden></span>}
+                            </>
+                          );
+                        })()}
                       </div>
                       <figcaption data-pf={platform.id}>
                         <span class="cap-os">{platform.os}</span>
@@ -217,7 +295,9 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
           break;
         }
       }
-      const badge = img.parentElement?.querySelector<HTMLElement>('.fb-badge');
+      const win = img.closest<HTMLElement>('.win');
+      if (win) win.toggleAttribute('data-dark', chosen !== null && chosen.startsWith('dark'));
+      const badge = img.closest<HTMLElement>('.frame')?.querySelector<HTMLElement>('.fb-badge');
       if (badge) {
         const fellBack = chosen !== null && chosen !== want;
         badge.hidden = !fellBack;
@@ -477,6 +557,113 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .frame:has(.var-img) { cursor: zoom-in; }
   .frame:has(.var-img):hover { border-color: var(--muted); }
   .frame img { max-height: 100%; max-width: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; }
+
+  /* ---- presentational window chrome ------------------------------------------------------- */
+  /* The shell shrink-wraps the IMAGE (flex column, centered cross-axis), so the bar always
+     hugs the window edge-to-edge instead of spanning the whole frame around a letterboxed
+     capture. Colors are hand-held approximations of each desktop's stock decoration — this is
+     display dressing, drawn here precisely because the captures are content-only by design. */
+  .win {
+    display: flex; flex-direction: column; align-items: center;
+    max-width: 100%; max-height: 100%; min-height: 0;
+    border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  }
+  .win:has(.ph) { width: 100%; height: 100%; }
+  .win > .ph { flex: 1 1 auto; min-height: 0; border-radius: 0; }
+  .win > img.var-img { border-radius: 0; flex: 0 1 auto; min-height: 0; }
+  .chrome {
+    align-self: stretch; flex: 0 0 auto;
+    display: flex; align-items: center; gap: 8px;
+    height: 30px; padding: 0 10px;
+    font-size: 0.68rem; line-height: 1; user-select: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  .c-title {
+    flex: 1 1 auto; text-align: center;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .c-title.left { text-align: left; }
+  .c-title.bold { font-weight: 700; }
+  /* An invisible twin of the button cluster, so a centered title stays optically centered. */
+  .c-eq { flex: 0 0 44px; }
+  .dots { display: inline-flex; gap: 7px; flex: 0 0 44px; }
+  .dots i { width: 12px; height: 12px; border-radius: 50%; }
+  .dots .d-r { background: #ff5f57; }
+  .dots .d-y { background: #febc2e; }
+  .dots .d-g { background: #28c840; }
+  .dots.plain i { width: 9px; height: 9px; background: rgba(128, 128, 128, 0.55); }
+  .caps { display: inline-flex; gap: 12px; flex: 0 0 auto; font-size: 0.62rem; }
+  .caps i { font-style: normal; opacity: 0.75; }
+  .gbtn {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; background: rgba(0, 0, 0, 0.09);
+  }
+  /* Per-desktop palettes, light then dark (data-dark follows the tile's APPLIED variant, set
+     by the same script that swaps the image, so chrome and pixels always agree). */
+  .c-macos { background: #ececec; color: #3c3c3e; }
+  .win[data-dark] .c-macos { background: #323234; color: #b9b9bd; border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .c-windows { background: #f3f3f3; color: #1b1b1b; }
+  .win[data-dark] .c-windows { background: #202020; color: #d6d6d6; border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .c-gnome { background: linear-gradient(#f9f8f7, #f0efed); color: #2e3436; }
+  .win[data-dark] .c-gnome { background: linear-gradient(#3a3a3a, #303030); color: #d3d2d0; border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .win[data-dark] .c-gnome .gbtn { background: rgba(255, 255, 255, 0.12); }
+  .c-kde { background: #eff0f1; color: #232629; }
+  .win[data-dark] .c-kde { background: #2a2e32; color: #cfd2d5; border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .c-browser { background: #f1f0f0; color: #444; }
+  .win[data-dark] .c-browser { background: #2c2c2e; color: #bdbdbf; border-bottom-color: rgba(255, 255, 255, 0.08); }
+  .c-url {
+    flex: 1 1 auto; text-align: center;
+    font-size: 0.62rem; letter-spacing: 0.02em;
+    background: rgba(0, 0, 0, 0.06); border-radius: 999px; padding: 4px 12px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .win[data-dark] .c-url { background: rgba(255, 255, 255, 0.09); }
+
+  /* ---- presentational device bezels (mobile tiles) ---------------------------------------- */
+  /* The screen pixels are untouched — the shell only adds the hardware a screenshot cannot
+     contain. Corner radii clip the rectangular capture the way the physical glass does; the
+     nubs are the side buttons, drawn with pseudo-elements (box-shadow doubles the volume
+     rocker) so they poke out of the frame without any overflow clipping. */
+  .dev {
+    position: relative;
+    display: flex;
+    max-width: 100%; max-height: 100%; min-height: 0;
+    padding: 9px;
+    background: linear-gradient(160deg, #1a1a1c, #060607);
+    box-shadow:
+      inset 0 0 0 1.5px rgba(255, 255, 255, 0.08),
+      0 12px 32px rgba(0, 0, 0, 0.28);
+  }
+  /* A hairline at the glass edge, so the screen still reads as a screen when what is behind it is
+     dark — a dark-theme capture or the placeholder would otherwise merge with the bezel into one
+     featureless slab. */
+  .dev > img.var-img, .dev > .ph {
+    min-height: 0;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+  .dev:has(.ph) { width: 100%; height: 100%; }
+  .dev[data-dev='iphone'] { border-radius: 42px; }
+  .dev[data-dev='iphone'] > img.var-img, .dev[data-dev='iphone'] > .ph { border-radius: 33px; }
+  .dev[data-dev='android'] { border-radius: 30px; padding: 7px; }
+  .dev[data-dev='android'] > img.var-img, .dev[data-dev='android'] > .ph { border-radius: 23px; }
+  .dev[data-dev='harmony'] { border-radius: 26px; padding: 8px; }
+  .dev[data-dev='harmony'] > img.var-img, .dev[data-dev='harmony'] > .ph { border-radius: 18px; }
+  /* Side buttons. iPhone: volume rocker left (doubled by the shadow), power right. Android and
+     Harmony: power + volume on the right, the common slab layout. */
+  .dev::before, .dev::after {
+    content: '';
+    position: absolute; width: 3px; border-radius: 2px;
+    background: #212124;
+  }
+  .dev[data-dev='iphone']::before { left: -3px; top: 21%; height: 34px; box-shadow: 0 46px 0 #212124; }
+  .dev[data-dev='iphone']::after { right: -3px; top: 27%; height: 56px; }
+  .dev[data-dev='android']::before,
+  .dev[data-dev='harmony']::before { right: -3px; top: 18%; height: 30px; }
+  .dev[data-dev='android']::after,
+  .dev[data-dev='harmony']::after { right: -3px; top: 28%; height: 52px; }
   .fb-badge {
     position: absolute; right: 8px; bottom: 8px;
     font-size: 0.66rem; font-weight: 650; letter-spacing: 0.04em;

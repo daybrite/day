@@ -2827,7 +2827,20 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 > **Status: shipped, partial by design.** The payload tier is enforced; the container tier reports
 > but does not fail. Nothing in the tree sets `SOURCE_DATE_EPOCH` yet.
 
-Every platform-toolkit job that runs `day pack` has a follow-up `<combo>-repro` job. It rebuilds
+The user-facing version of this section is `website/src/content/docs/reproducible-builds.md`,
+which carries the per-platform caveats and the manual verification recipe; keep the two in step.
+
+Every platform-toolkit job that runs `day pack` has a follow-up `<combo>-validate` job, and it runs
+two stages in order. **Stage 1 installs the shipped artifact and launches it** on a runner with
+nothing else installed — the `.dmg` is mounted and dragged to `/Applications`, the `.flatpak` is
+installed from the bundle, the `.apk` goes onto an emulator, the NSIS installer runs silently — and
+the job stops there if the app does not survive ten seconds. An artifact that only runs on a machine
+which already has the toolchain is broken for whoever downloads it. Two targets cannot be installed
+on a runner at all: an `-sdk iphoneos` `.ipa` needs provisioned hardware, and a `.hap` needs the
+Oniro emulator that makes the parent job the flakiest leg in the workflow. Both get structural
+validation instead, and say so rather than implying a launch.
+
+**Stage 2 checks reproducibility**, and only runs once stage 1 passes. It rebuilds
 the same commit from a checkout at a different absolute path (`repro-src/`) and compares the result
 against the artifact the parent uploaded. `day pack` hardcodes its output under
 `<project-root>/build/day/dist` and `find_project` canonicalizes that root, so the second build
@@ -2845,10 +2858,11 @@ The split reflects what was measured, not a preference. On `macos-appkit` the co
 is byte-identical across build directories once two things are normalized away: the Mach-O
 `LC_UUID`, which Apple's linker derives from the object-file paths, and the ad-hoc signature that
 covers it (`scripts/ci/macho-normalize.py`). The `.dmg` around it differs on *every* build, even
-in the same directory, because `hdiutil` stamps mtimes. The same holds for the other containers —
-`ditto -c -k`, Gradle's zip writer, `flatpak-builder`'s ostree commit, `makeappx`, `makensis` —
-none of which is wired to `SOURCE_DATE_EPOCH` today. Failing on that would make the check
-permanently red and teach everyone to ignore it.
+in the same directory, because `hdiutil` stamps mtimes. That was originally true of every container
+— `ditto -c -k`, Gradle's zip writer, `flatpak-builder`'s ostree commit, `makeappx`, `makensis` —
+and failing on it would have made the check permanently red. Those clocks are normalized now (see
+the table below), so a container mismatch today means a linker build-id or a signature, neither of
+which a build controls. It stays advisory for that reason rather than the original one.
 
 `ios-uikit` needed a real fix to reach that bar, and it is the reason `REPRODUCIBLE_BUILD_SETTINGS`
 exists in `pack/ios.rs`. Xcode is the only linker in the matrix that writes a **debug map** into the
@@ -2884,7 +2898,7 @@ nothing:
 
 That second rule is why the `linux` job uploads `stage/bin/` as `showcase-payload-<combo>`. A
 `.flatpak` is an OSTree bundle no ordinary archiver can open, so `flatpak.rs`'s pre-bundle ELF is
-what `linux-repro` compares — the same shape as macOS handing over its `.app`. The bundle itself is
+what `linux-validate` compares — the same shape as macOS handing over its `.app`. The bundle itself is
 not byte-compared, and the job says so rather than implying coverage it doesn't have.
 
 It is also why `windows-xaml` blocked on its NSIS `-setup.exe` until an extractor existed: the
@@ -2943,13 +2957,13 @@ app, 53 occurrences down to zero, and `linux-gtk`/`linux-qt` went green on the n
 stable toolchain. `codegen-units = 1`, already set, is the documented half of this. Fat LTO costs
 roughly 40% more link time and produced a binary ~9% smaller.
 
-A temporary second build at a third path on the same runner carried `linux-repro` and
-`ios-uikit-repro` through this. It paid for itself twice — proving Linux really was path-dependent
+A temporary second build at a third path on the same runner carried `linux-validate` and
+`ios-uikit-validate` through this. It paid for itself twice — proving Linux really was path-dependent
 when a first round of reasoning said otherwise, and then showing iOS was not — and has been removed
 now that every combo is green. Worth rebuilding if a platform ever regresses: varying the directory
 alone is what separates "depends on its path" from "the two runners disagreed".
 
-`notarize` and `macos-appkit-repro` both `needs: [macos]`, which waits on the WHOLE matrix — so an
+`notarize` and `macos-appkit-validate` both `needs: [macos]`, which waits on the WHOLE matrix — so an
 unrelated leg failing (macos-gtk's walkthrough, in the run that surfaced this) silently SKIPPED
 them. Both now carry `!cancelled()`, so a sibling's failure cannot quietly cancel a release
 signing; if the appkit leg itself fails they fail at download-artifact instead, which is honest.

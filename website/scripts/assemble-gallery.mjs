@@ -57,7 +57,7 @@ function findVariantShot(artifactDir, shotId, variant) {
 
 /**
  * @param {{ artifactsDir?: string, quiet?: boolean }} [opts]
- * @returns {{ hasArtifacts: boolean, manifestPath: string }}
+ * @returns {{ hasArtifacts: boolean, manifestPath: string, unreadable: string[] }}
  */
 export function assembleGallery(opts = {}) {
   const artifactsDir = resolve(WEBSITE_ROOT, opts.artifactsDir ?? process.env.GALLERY_ARTIFACTS_DIR ?? 'artifacts');
@@ -70,6 +70,7 @@ export function assembleGallery(opts = {}) {
   mkdirSync(dataDir, { recursive: true });
 
   let realShots = 0;
+  const unreadable = [];
   const suites = galleryConfig.suites.map((suite) => {
     const suitePlatforms = suite.platforms
       .map((platformId) => galleryConfig.platforms.find((p) => p.id === platformId))
@@ -89,12 +90,21 @@ export function assembleGallery(opts = {}) {
           const dest = join(WEBSITE_ROOT, 'public', rel);
           mkdirSync(dirname(dest), { recursive: true });
           copyFileSync(found, dest);
+          const size = pngSize(dest);
+          if (!size) {
+            // A zero-byte or non-PNG file (a screenshot step that failed on an emulator still
+            // leaves one behind) would otherwise ship as a tile the browser can't decode. Drop it
+            // so the shot falls back to another variant, or to its placeholder.
+            rmSync(dest);
+            unreadable.push(found);
+            log(`skipping unreadable capture ${found}`);
+            continue;
+          }
           realShots += 1;
-          const size = pngSize(dest) ?? {};
           variants[variant.id] = {
             src: rel.split('\\').join('/'), // POSIX for URLs, even on Windows runners
-            width: size.width ?? null,
-            height: size.height ?? null,
+            width: size.width,
+            height: size.height,
           };
         }
         const captured = Object.keys(variants).length > 0;
@@ -142,7 +152,7 @@ export function assembleGallery(opts = {}) {
       ? `assembled ${realShots} screenshot(s) across ${capturedPlatforms} platform-suite(s) from ${artifactsDir}`
       : `no artifacts under ${artifactsDir} — emitted placeholders for every shot (local build)`,
   );
-  return { hasArtifacts, manifestPath };
+  return { hasArtifacts, manifestPath, unreadable };
 }
 
 // Standalone entry point.

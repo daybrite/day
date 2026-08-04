@@ -13,12 +13,15 @@ export default function gallery() {
     name: 'day-gallery',
     hooks: {
       'astro:config:setup': async ({ logger }) => {
-        const { hasArtifacts } = assembleGallery({ quiet: true });
+        const { hasArtifacts, unreadable } = assembleGallery({ quiet: true });
         logger.info(
           hasArtifacts
             ? 'assembled screenshots gallery from artifacts'
             : 'no screenshot artifacts found — gallery uses placeholders (expected for local builds)',
         );
+        // A capture that isn't a decodable PNG is dropped rather than shipped as a broken tile —
+        // say so, or a failed screenshot step downstream looks like a shot nobody ever captured.
+        for (const file of unreadable) logger.warn(`dropped unreadable capture: ${file}`);
         // Build the front-page hero carousel pool from the just-assembled gallery (falling back to
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });
