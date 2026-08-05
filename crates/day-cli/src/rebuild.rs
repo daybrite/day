@@ -496,8 +496,20 @@ fn compare(
         );
     }
     match differing_members(&ua, &ub) {
-        Ok(diffs) if diffs.is_empty() => (Verdict::Identical, container),
-        Ok(diffs) => (
+        Ok((diffs, skipped)) if diffs.is_empty() => {
+            if !skipped.is_empty() {
+                status(
+                    "Excluded",
+                    &format!(
+                        "{} signature file(s), which no build controls: {}",
+                        skipped.len(),
+                        skipped.join(", ")
+                    ),
+                );
+            }
+            (Verdict::Identical, container)
+        }
+        Ok((diffs, _)) => (
             Verdict::Differs(format!(
                 "{} file(s) differ after normalization: {}",
                 diffs.len(),
@@ -1015,8 +1027,45 @@ fn file_list(root: &Path) -> Vec<PathBuf> {
 }
 
 /// Compare two unpacked trees after normalizing each file. Returns the members that still differ.
-fn differing_members(a: &Path, b: &Path) -> Result<Vec<String>, String> {
-    let (la, lb) = (file_list(a), file_list(b));
+/// A member that holds a SIGNATURE rather than build output.
+///
+/// These can never match and their difference says nothing about the build: CI signs Windows
+/// packages with a self-signed certificate generated per run, so `AppxSignature.p7x` and the
+/// `CodeIntegrity.cat` catalog derived from it differ on every pack even when every compiled byte
+/// is identical. Counting them as payload differences would make the Windows leg permanently red
+/// for the one reason §20.3 already classes as advisory. They are reported as excluded, never
+/// silently dropped.
+fn signature_member(rel: &Path) -> bool {
+    // By component, not by prefix: inside an `.ipa` or a `.dmg` this material sits under
+    // `Payload/<App>.app/Contents/`, so anchoring at the root would match none of it.
+    let joined = rel.to_string_lossy().replace('\\', "/");
+    let parts: Vec<&str> = joined.split('/').collect();
+    let Some(name) = parts.last().copied() else {
+        return false;
+    };
+    let in_dir = |d: &str| parts.iter().rev().skip(1).any(|c| *c == d);
+
+    name == "AppxSignature.p7x"
+        || (name == "CodeIntegrity.cat" && in_dir("AppxMetadata"))
+        || in_dir("_CodeSignature")
+        || name == "embedded.mobileprovision"
+        || (in_dir("META-INF")
+            && (name.ends_with(".SF")
+                || name.ends_with(".RSA")
+                || name.ends_with(".DSA")
+                || name.ends_with(".EC")
+                || name == "MANIFEST.MF"))
+}
+
+/// Differing members, and the signature members excluded from the comparison.
+fn differing_members(a: &Path, b: &Path) -> Result<(Vec<String>, Vec<String>), String> {
+    let keep = |l: Vec<PathBuf>| -> (Vec<PathBuf>, Vec<String>) {
+        let (sig, rest): (Vec<PathBuf>, Vec<PathBuf>) =
+            l.into_iter().partition(|p| signature_member(p));
+        (rest, sig.iter().map(|p| p.display().to_string()).collect())
+    };
+    let (la, siga) = keep(file_list(a));
+    let (lb, _) = keep(file_list(b));
     if la != lb {
         return Err("the two builds produced different sets of files".into());
     }
@@ -1029,7 +1078,7 @@ fn differing_members(a: &Path, b: &Path) -> Result<Vec<String>, String> {
             diffs.push(rel.display().to_string());
         }
     }
-    Ok(diffs)
+    Ok((diffs, siga))
 }
 
 #[cfg(test)]
@@ -1195,6 +1244,68 @@ mod tests {
             Verdict::Unchecked(d) => assert!(d.contains("too old"), "{d}"),
             v => panic!("expected Unchecked, got {v:?}"),
         }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// CI signs Windows packages with a per-run self-signed certificate, so the signature block
+    /// differs on every pack. Reporting that as "the compiled code differs" made windows-xaml red
+    /// for the one cause §20.3 classes as advisory.
+    #[test]
+    fn signature_members_are_excluded_from_the_payload_tier() {
+        for p in [
+            "AppxSignature.p7x",
+            "AppxMetadata/CodeIntegrity.cat",
+            "_CodeSignature/CodeResources",
+            "embedded.mobileprovision",
+            "META-INF/CERT.RSA",
+            "META-INF/MANIFEST.MF",
+            // Nested: where this material actually lives in an .ipa and a .dmg.
+            "Payload/Showcase.app/_CodeSignature/CodeResources",
+            "Payload/Showcase.app/embedded.mobileprovision",
+            "content/Day Showcase.app/Contents/_CodeSignature/CodeResources",
+        ] {
+            assert!(signature_member(Path::new(p)), "{p} is signature material");
+        }
+        // Windows hands these over with backslashes.
+        assert!(signature_member(Path::new(
+            r"AppxMetadata\CodeIntegrity.cat"
+        )));
+        // Build output must never be excluded — that would hide a real difference.
+        for p in [
+            "AppxManifest.xml",
+            "AppxBlockMap.xml",
+            "showcase.exe",
+            "lib/arm64-v8a/libshowcase.so",
+            "META-INF/services/foo",
+        ] {
+            assert!(!signature_member(Path::new(p)), "{p} is build output");
+        }
+    }
+
+    /// The exclusion must survive a real comparison: identical payload + differing signature is a
+    /// PASS, and a differing binary still fails.
+    #[test]
+    fn a_differing_signature_alone_is_not_a_payload_difference() {
+        let tmp = std::env::temp_dir().join(format!("day-sigcmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (a, b) = (tmp.join("a"), tmp.join("b"));
+        for (dir, sig) in [(&a, b"sig-one"), (&b, b"sig-two")] {
+            std::fs::create_dir_all(dir.join("AppxMetadata")).expect("mkdir");
+            std::fs::write(dir.join("showcase.exe"), b"identical code").expect("exe");
+            std::fs::write(dir.join("AppxSignature.p7x"), sig).expect("sig");
+            std::fs::write(dir.join("AppxMetadata/CodeIntegrity.cat"), sig).expect("cat");
+        }
+        let (diffs, skipped) = differing_members(&a, &b).expect("compared");
+        assert!(
+            diffs.is_empty(),
+            "signature-only difference is not a payload difference: {diffs:?}"
+        );
+        assert_eq!(skipped.len(), 2, "and both exclusions are reported");
+
+        // Now make the actual binary differ: that must still be caught.
+        std::fs::write(b.join("showcase.exe"), b"different code").expect("exe");
+        let (diffs, _) = differing_members(&a, &b).expect("compared");
+        assert_eq!(diffs, vec!["showcase.exe".to_string()]);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

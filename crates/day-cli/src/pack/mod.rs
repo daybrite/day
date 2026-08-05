@@ -559,12 +559,17 @@ fn normalize_extra_timestamps(buf: &mut [u8], mut at: usize, len: usize, epoch: 
 #[cfg(test)]
 mod repro_tests {
     use super::*;
+    use std::sync::Mutex;
 
-    /// SAFETY-adjacent: these mutate a process-global env var, so they must not run concurrently
-    /// with each other. `cargo test` threads within a module can interleave, so both epoch-sensitive
-    /// assertions live in this single test.
+    /// `SOURCE_DATE_EPOCH` is process-global and these tests write it, so they must not overlap.
+    /// They did: with the harness running them on separate threads, one test's `1234567890` was
+    /// visible to the other, which then read 2009 where it asserted 2020. Same lock pattern as
+    /// mobile.rs's ABI tests; `into_inner` because a panic in one must not cascade into the other.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn epoch_honours_source_date_epoch_above_the_zip_floor() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         assert_eq!(
             reproducible_epoch(),
@@ -588,6 +593,7 @@ mod repro_tests {
 
     #[test]
     fn dos_datetime_packs_the_default_epoch() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         let (date, time) = dos_datetime();
         // 2020-01-01T00:00:00Z → year 2020, month 1, day 1, midnight.

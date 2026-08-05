@@ -2891,6 +2891,14 @@ verdict for those two targets.
 | payload | the compiled code — Mach-O / ELF / PE / `.so` — extracted from whatever container ships it | **fails the job** |
 | container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns |
 
+The payload tier excludes signature material, matched by path component: `AppxSignature.p7x`, the
+`AppxMetadata/CodeIntegrity.cat` catalog, anything under `_CodeSignature/`,
+`embedded.mobileprovision`, and jar signature files under `META-INF/`. CI signs Windows packages
+with a certificate generated per run, so those bytes differ on every pack while every compiled byte
+is identical — counting them as payload differences held windows-xaml red for the one cause this
+section already classes as advisory. Excluded files are named in the output, never dropped
+silently.
+
 `--strict` adds a third outcome: a payload that could not be compared at all — a container this
 host has no extractor for — fails rather than reporting "not checked". CI passes it because a green
 run
