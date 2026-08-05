@@ -2871,6 +2871,19 @@ verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.apk`, `*.msix`, `*.hap`) rather than
 directory: `windows-xaml` also ships a self-extracting `-setup.exe` that nothing here can open, and
 `android-mdc` also ships an `.aab`.
 
+Two build inputs are recorded and replayed, because their defaults depend on the machine rather
+than the commit: `DAY_ANDROID_ABI` and `DAY_OHOS_ARCH` fall back to "whatever device is attached,
+else a fixed default", so a rebuild on a runner with nothing plugged in packs one ABI where the
+shipping job packed two, and the two artifacts differ structurally for a reason no verdict could
+explain. The buildinfo records what the build resolved; `day rebuild` re-applies it.
+
+The payload tier has a second route for containers the verifying host cannot open — a `.flatpak` is
+an OSTree bundle whose import wants privileges a CI runner does not have, and a `.msix` needs a
+working `unzip`. For those, `day pack` records the sha256 of every staged payload file (the compiled
+code as the build wrote it, before packaging) and `day rebuild` hashes what it staged and compares.
+Debian's `.buildinfo` has always done exactly this, and it is what turns "not checked" into a
+verdict for those two targets.
+
 `day rebuild` grades the result in two tiers:
 
 | Tier | What it compares | On mismatch |

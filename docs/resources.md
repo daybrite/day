@@ -12,7 +12,7 @@ uncompressed wherever the platform allows, so the runtime can return a zero-copy
 | `resource/assets/` | arbitrary data | `resource(res::assets::stations_json)` | bundle file + mmap (Apple) · `AAssetManager` (Android) · `g_resources_lookup_data` (GTK) · `QResource` (Qt) · loose file (XAML) · rawfile fd (ArkUI) |
 | `resource/fonts/` | custom fonts | `Font::custom(res::fonts::family, pt)` | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · `QFontDatabase` (Qt) · XAML `ms-appx:///fonts/<file>#family` (XAML) · rawfile + ArkTS `registerFont` (ArkUI) |
 
-## Referencing resources — typed constants (§18.5)
+## Referencing resources: typed constants (§18.5)
 
 You don't reference bundled resources by bare string. An app's `build.rs` (one line, wired into the
 `day new` scaffold) generates a typed constant for every file under `resource/`:
@@ -51,7 +51,7 @@ resource(AssetName::dynamic(format!("page-{n}.json")))
 `logo.png`), or if two files **collide** on one symbol. The same crate is the single source of the
 name→identifier rule the CLI stagers use, so a constant's string is exactly the name staged natively.
 
-## Images — `image(res::images::name)`
+## Images: `image(res::images::name)`
 
 Drop `resource/images/logo.png` (optionally `logo@2x.png`, `logo@3x.png`) in the project. `day build` stages
 each image into the target's native image pipeline; `image(res::images::logo)` (the piece) then
@@ -75,7 +75,7 @@ the backend resolves the name.
 - **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
 
-## Data — `resource(res::assets::name)`
+## Data: `resource(res::assets::name)`
 
 `day::resource(res::assets::stations_json)` returns a `Resource` with efficient random read-only
 access, backed directly by the native store (zero-copy where the platform exposes a stable pointer):
@@ -96,7 +96,7 @@ Backing per platform: Apple = mmap of the bundle file (the "plain file handle");
 opener once via `day_core::set_resource_opener`; absent that, the default mmap-file opener is used
 (which is exactly the Apple path). See `crates/day-core/src/resource.rs`.
 
-## Fonts — `Font::custom(res::fonts::family, pt)` (§18.4)
+## Fonts: `Font::custom(res::fonts::family, pt)` (§18.4)
 
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. The single invariant that makes the name resolve everywhere with no
@@ -145,7 +145,7 @@ unknown family logs `day: unknown font family …` and falls back to the system 
 font is a visual bug, never a crash. Weight overrides on custom fonts map to synthesized bold
 (`>= Semibold`) where the family has no such face.
 
-## Scaling — `image(res::images::logo).content_mode(…)` / `.aspect_ratio(…)`
+## Scaling: `image(res::images::logo).content_mode(…)` / `.aspect_ratio(…)`
 
 Images scale with `ContentMode::Fit` by default (preserve aspect, letterbox, never stretch). Tune
 with `.content_mode(ContentMode::Fill)` (preserve aspect, crop), `.stretch()`, or the shorthands

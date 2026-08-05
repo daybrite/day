@@ -50,6 +50,17 @@ pub struct BuildInfo {
     pub tools: Vec<ToolRecord>,
     /// sha256 of each artifact this pack produced, keyed by file name.
     pub artifacts: Vec<(String, String)>,
+    /// Environment variables that SHAPE the artifact, resolved to what this build actually used.
+    /// `day rebuild` re-applies them, because their defaults depend on the machine: with no device
+    /// attached, `DAY_ANDROID_ABI` resolves to `arm64-v8a` alone and `DAY_OHOS_ARCH` to the
+    /// emulator's `x86_64`, so a rebuild silently packs a different set of `.so`s than shipped.
+    pub inputs: Vec<(String, String)>,
+    /// sha256 of each staged payload file — the compiled code, before it goes into a container —
+    /// keyed by a path relative to the payload root. This is what makes the payload tier decidable
+    /// for containers nothing on the verifying host can open (a `.flatpak` is an OSTree bundle; a
+    /// `.msix` needs a working unzip). Debian's `.buildinfo` records built-file checksums for the
+    /// same reason.
+    pub payload: Vec<(String, String)>,
 }
 
 /// Everything `day rebuild` needs about the source, and everything a license screen needs.
@@ -357,6 +368,8 @@ pub fn collect_buildinfo(target: &Target, profile: &str) -> BuildInfo {
         host_arch: std::env::consts::ARCH.into(),
         tools,
         artifacts: Vec::new(),
+        inputs: Vec::new(),
+        payload: Vec::new(),
     }
 }
 
@@ -523,6 +536,12 @@ pub fn buildinfo_json(info: &BuildInfo) -> serde_json::Value {
         })).collect::<Vec<_>>(),
         "artifacts": info.artifacts.iter().map(|(n, d)| serde_json::json!({
             "name": n, "sha256": d,
+        })).collect::<Vec<_>>(),
+        "inputs": info.inputs.iter().map(|(k, v)| serde_json::json!({
+            "name": k, "value": v,
+        })).collect::<Vec<_>>(),
+        "payload": info.payload.iter().map(|(n, d)| serde_json::json!({
+            "path": n, "sha256": d,
         })).collect::<Vec<_>>(),
     })
 }
@@ -825,9 +844,25 @@ mod debian_tests {
                 version: "1.97.0".into(),
                 install_hint: "rustup".into(),
             }],
+            inputs: vec![("DAY_ANDROID_ABI".into(), "arm64-v8a,x86_64".into())],
+            payload: Vec::new(),
             artifacts: vec![("showcase-gtk-x86_64.flatpak".into(), "abc123".into())],
         };
         (sbom, info)
+    }
+
+    /// Both new records have to survive serialization: `inputs` is what makes an android/harmony
+    /// rebuild pack the same ABI set, and `payload` is the only payload verdict available for a
+    /// container the verifying host cannot open.
+    #[test]
+    fn the_buildinfo_json_carries_inputs_and_payload_digests() {
+        let (_, mut info) = fixture();
+        info.payload = vec![("bin/showcase-bin".into(), "ab".repeat(32))];
+        let json = buildinfo_json(&info);
+        assert_eq!(json["inputs"][0]["name"], "DAY_ANDROID_ABI");
+        assert_eq!(json["inputs"][0]["value"], "arm64-v8a,x86_64");
+        assert_eq!(json["payload"][0]["path"], "bin/showcase-bin");
+        assert_eq!(json["payload"][0]["sha256"], "ab".repeat(32));
     }
 
     /// deb-buildinfo(5) names these as required; a file missing any of them is not a .buildinfo.

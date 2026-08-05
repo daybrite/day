@@ -700,7 +700,7 @@ pub(crate) fn android_devices() -> Vec<AndroidDevice> {
 /// `rustup target add x86_64-linux-android`). Otherwise the ABIs are the distinct ABIs of the
 /// connected devices, or — with nothing connected (e.g. `day build` before the emulator boots) —
 /// the `arm64-v8a` default, so packaging still succeeds.
-fn android_build_abis() -> Vec<String> {
+pub(crate) fn android_build_abis() -> Vec<String> {
     // An explicit `DAY_ANDROID_ABI` wins over device detection: setting it produces exactly that
     // ABI set (e.g. a dual-ABI pack) even when an emulator/device of a different ABI is connected.
     if let Ok(v) = std::env::var("DAY_ANDROID_ABI") {

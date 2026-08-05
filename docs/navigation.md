@@ -15,7 +15,7 @@ variants can carry data. A thin string-route adapter (`navigate`, `nav_back`, `c
 sits underneath so deep links and dayscript address surfaces by key either way, but the
 surfaces themselves run on their signals.
 
-## `selector` — one-of-N
+## `selector`: one-of-N
 
 ```rust
 let section = Signal::new("home".to_string());
@@ -48,7 +48,7 @@ get the standard opaque bar. Every other backend ignores the flag. Pair it with
 `day::safe_area()` (docs/layout.md): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
-## `stack` — push/pop with a value path
+## `stack`: push/pop with a value path
 
 ```rust
 let path = Signal::new(Vec::<String>::new());

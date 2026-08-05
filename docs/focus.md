@@ -53,7 +53,7 @@ Reserved with names but not implemented: `.focusable()` (opt a custom piece into
 traversal stays native. Day wraps real widgets, so platform traversal is already correct
 (§13: focus order follows layout order).
 
-## 2. Semantics — the rules
+## 2. Semantics: the rules
 
 1. **Writes are requests.** A write asks the toolkit on the next main-loop turn; the last write
    in a turn wins.
@@ -118,7 +118,7 @@ focusable, and the bindings stay quiet there.
   signal steering a form (with Return chaining), the plain Bool binding, and non-text-control
   focus with a live readout.
 
-## 6. Prior art — what Day adopted and rejected
+## 6. Prior art: what Day adopted and rejected
 
 - **SwiftUI** (`@FocusState`, `.focused(_:equals:)`). Adopted: the Bool + Optional-of-Hashable
   binding shape, `nil` clears focus and dismisses the keyboard, moved focus writes back on loss.

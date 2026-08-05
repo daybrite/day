@@ -150,6 +150,10 @@ pub fn run(
     }
 
     let mut artifacts: Vec<Artifact> = Vec::new();
+    // The staged compiled code, for the formats whose container cannot be opened on an arbitrary
+    // host (see `BuildInfo::payload`). Left `None` for the zip/dmg formats, which `day rebuild`
+    // extracts and compares file by file.
+    let mut payload_root: Option<std::path::PathBuf> = None;
     match target.name {
         "macos-appkit" => {
             // dmg is the only macOS format today; the .app assembly is its input.
@@ -163,9 +167,11 @@ pub fn run(
         }
         "linux-gtk" | "linux-qt" => {
             artifacts.push(flatpak::pack(project, target, opts, &dist)?);
+            payload_root = payload_root_for(project, target);
         }
         "windows-xaml" => {
             let staged = msix::stage_payload(project, target, opts)?;
+            payload_root = payload_root_for(project, target);
             if formats.iter().any(|f| f == "msix") {
                 artifacts.push(msix::pack(project, opts, &staged, &dist)?);
             }
@@ -210,6 +216,10 @@ pub fn run(
     // The buildinfo sidecar records the machine, so it is deliberately NOT embedded: doing so
     // would make the artifact differ whenever a tool version differs (§20.3).
     let mut info = crate::provenance::collect_buildinfo(target, &opts.profile);
+    info.inputs = build_inputs(target);
+    if let Some(root) = &payload_root {
+        info.payload = payload_digests(root);
+    }
     info.artifacts = artifacts
         .iter()
         .map(|a| {
@@ -627,5 +637,108 @@ mod repro_tests {
         let len = buf.len();
         normalize_extra_timestamps(&mut buf, 0, len, 1_577_836_800);
         assert_eq!(buf, before);
+    }
+}
+
+/// Environment inputs that decided the SHAPE of this artifact, resolved to what the build used.
+///
+/// Only variables whose default is machine-dependent belong here. `DAY_ANDROID_ABI` and
+/// `DAY_OHOS_ARCH` fall back to "whatever device is attached, else a fixed default", so a rebuild
+/// on a runner with nothing plugged in packs a different set of `.so`s than the CI machine that
+/// had an emulator running — the artifacts then differ structurally, for a reason no verdict could
+/// explain (§20.3).
+fn build_inputs(target: &'static Target) -> Vec<(String, String)> {
+    match target.toolkit {
+        "mdc" => vec![(
+            "DAY_ANDROID_ABI".to_string(),
+            crate::mobile::android_build_abis().join(","),
+        )],
+        "arkui" => vec![(
+            "DAY_OHOS_ARCH".to_string(),
+            crate::ohos::build_abis().join(","),
+        )],
+        _ => Vec::new(),
+    }
+}
+
+/// Where a target stages its compiled code before packaging, when it has such a place. `None` for
+/// the formats `day rebuild` can simply open (zip family, dmg).
+fn payload_root_for(project: &Project, target: &'static Target) -> Option<PathBuf> {
+    payload_root(&project.root, target)
+}
+
+pub(crate) fn payload_root(project_root: &Path, target: &'static Target) -> Option<PathBuf> {
+    match target.name {
+        "linux-gtk" | "linux-qt" => Some(
+            project_root
+                .join("build/day/flatpak")
+                .join(target.name)
+                .join("stage/bin"),
+        ),
+        "windows-xaml" => Some(project_root.join("build/day/pack/windows-payload")),
+        _ => None,
+    }
+}
+
+/// sha256 of every file under a staged payload root, keyed by its relative path (sorted, so the
+/// record is stable across filesystems).
+pub(crate) fn payload_digests(root: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Ok(d) = sha256_file(&p)
+                && let Ok(rel) = p.strip_prefix(root)
+            {
+                out.push((rel.to_string_lossy().replace('\\', "/"), d));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    /// Which variables each package's shape depends on. Recording the wrong name (or none) is how
+    /// android shipped two ABIs and rebuilt with one.
+    #[test]
+    fn build_inputs_names_the_variables_that_shape_each_package() {
+        let keys = |name: &str| {
+            build_inputs(crate::targets::find(name).expect("target"))
+                .into_iter()
+                .map(|(k, _)| k)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys("android-mdc"), ["DAY_ANDROID_ABI"]);
+        assert_eq!(keys("harmony-arkui"), ["DAY_OHOS_ARCH"]);
+        assert!(keys("macos-appkit").is_empty());
+        assert!(keys("linux-gtk").is_empty());
+    }
+
+    /// Every target that stages a payload must stage it where `day rebuild` looks.
+    #[test]
+    fn payload_roots_match_where_pack_stages() {
+        let root = Path::new("/proj");
+        assert_eq!(
+            payload_root(root, crate::targets::find("linux-gtk").unwrap()),
+            Some(root.join("build/day/flatpak/linux-gtk/stage/bin"))
+        );
+        assert_eq!(
+            payload_root(root, crate::targets::find("windows-xaml").unwrap()),
+            Some(root.join("build/day/pack/windows-payload"))
+        );
+        assert_eq!(
+            payload_root(root, crate::targets::find("macos-appkit").unwrap()),
+            None
+        );
     }
 }

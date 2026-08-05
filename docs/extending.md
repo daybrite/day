@@ -332,7 +332,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
   through `with_tree(|t| t.patch(node, …))`, identical to leaf pieces.
 
-## External toolkits — registering a platform-toolkit pair (experimental)
+## External toolkits: registering a platform-toolkit pair (experimental)
 
 > **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
 > `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and

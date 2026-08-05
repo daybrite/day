@@ -14,7 +14,7 @@ There are three tiers, ordered by cost. Use the cheapest one that works, and not
 only need to *configure* an existing widget rather than build a new one, that's not an extension
 tier at all but a [tweak](/docs/tweaks), which is cheaper than everything below.
 
-## Tier 0 — composite pieces: pure composition
+## Tier 0: composite pieces, pure composition
 
 A composite piece is Rust code that arranges existing Pieces. No native code, no registration;
 it works on every target automatically because it bottoms out in Pieces that already do.
@@ -30,7 +30,7 @@ Most reusable UI in a Day app is this tier: cards, badges, form rows, charts dra
 `canvas`. The shipped `day-piece-rating` and `day-piece-activity` crates are composite pieces,
 and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one end to end.
 
-## Tier 1 — native pieces: a new leaf widget per toolkit
+## Tier 1: native pieces, a new leaf widget per toolkit
 
 When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
 **native piece**: one cross-platform front end plus a renderer per toolkit you support.
@@ -93,7 +93,7 @@ dependencies, and merged permissions. Your checked-in platform scaffolds never c
 generated, gitignored files do. (This is the same architecture Flutter uses for plugin
 registration, adapted to Cargo.)
 
-## Tier 2 — polyglot pieces: native-language implementations
+## Tier 2: polyglot pieces, native-language implementations
 
 The design reserves a third tier: pieces implemented in a platform's own language (Swift, Kotlin,
 C++) behind **dayffi**, a small versioned C ABI: a vtable of `make`/`update`/`measure`/

@@ -21,7 +21,7 @@ drop on `day stop` and are replaced by a new launch of the same target. A launch
 (`DAYSCRIPT_PORT`/`DAYSCRIPT_TOKEN`) reaches the app the same way scripted runs always did
 (process env on desktop, intent extras on Android, `--ps` want-params on OpenHarmony).
 
-## `day drive` — dayscript against a running app
+## `day drive`: dayscript against a running app
 
 ```sh
 day drive -p macos-appkit --steps-json \

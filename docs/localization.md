@@ -41,7 +41,7 @@ The underlying call is still public and unchanged: `install_locales(default, &[(
 takes any list an app assembles itself (locales fetched at runtime, a subset chosen per build).
 The generated catalog is the zero-maintenance default, not a replacement.
 
-## Checked keys — `res::str::…()` (§18.5)
+## Checked keys: `res::str::…()` (§18.5)
 
 `tr("…")` is stringly-typed: a typo or a wrong `.arg` name only shows up at runtime as `⟨key⟩`. Day's
 `build.rs` (`day_build::generate_resources()`, wired into `day new`) also generates a **function per
@@ -75,7 +75,7 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 > and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
 > resolves at runtime.
 
-## Formatted values — `NUMBER()` and `DATETIME()`
+## Formatted values: `NUMBER()` and `DATETIME()`
 
 Every bundle (app and core, registered automatically by `day-l10n`) provides icu4x-backed
 formatting, so translations render numbers and dates ICU-correctly for their locale with zero app
@@ -108,7 +108,7 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
   (`day::lint::bad-format-option`), and not-yet-supported options
   (`day::lint::unsupported-format-option`).
 
-## Sorting — locale-aware collation
+## Sorting: locale-aware collation
 
 `day::compare(a, b)`, `day::compare_in(locale, a, b)`, and `day::sort_localized(&mut items)`
 (prelude: `sort_localized`) compare with icu4x's collator instead of code points: French sorts
@@ -124,7 +124,7 @@ label(move || {
 })
 ```
 
-## Searching — localized match
+## Searching: localized match
 
 `day::matches_search(text, query)` and `day::matches_search_in(locale, text, query)` answer the
 question a search field asks: does this row match what the user typed? The rule is
@@ -178,7 +178,7 @@ no separate rule: `canvas &` matches "Canvas & shapes".
 The segmenter's `auto` models are the reason this section's data footprint is not free. See the
 next section.
 
-## Locale data — thinned per app
+## Locale data: thinned per app
 
 The icu4x components ship `compiled_data` for every locale (~1.5 MB of a release binary with all
 three formatters linked). `day build` thins that to the locales the app DECLARES (the

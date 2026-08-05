@@ -358,7 +358,15 @@ fn ohos_arch_override(v: &str) -> (&'static str, &'static str) {
 /// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered by
 /// an attached device (§20.3). Dev flows are unaffected: they leave the variable unset and still get
 /// every connected target's arch.
-fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
+/// Just the ABI names of `ohos_build_arches`, for the provenance record.
+pub(crate) fn build_abis() -> Vec<String> {
+    ohos_build_arches()
+        .into_iter()
+        .map(|(_, abi)| abi.to_string())
+        .collect()
+}
+
+pub(crate) fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
     if let Ok(v) = std::env::var("DAY_OHOS_ARCH")
         && !v.is_empty()
     {

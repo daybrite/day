@@ -87,7 +87,7 @@ height = 640
 
 ## Canonical patterns (copy these)
 
-**App skeleton**
+### App skeleton
 
 ```rust
 use day::prelude::*;
@@ -121,7 +121,7 @@ fn root() -> AnyPiece {
 }
 ```
 
-**Inputs (two-way; edits flow back into the Signal)**
+### Inputs (two-way; edits flow back into the Signal)
 
 ```rust
 let name = Signal::new(String::new());
@@ -135,7 +135,7 @@ column((
 ))
 ```
 
-**Conditionals + keyed collections**
+### Conditionals + keyed collections
 
 ```rust
 when(move || !name.with(|s| s.is_empty()),
@@ -151,7 +151,7 @@ each(
 )
 ```
 
-**Navigation (a projection of an app-owned Signal; you own the state)**
+### Navigation (a projection of an app-owned Signal; you own the state)
 
 ```rust
 // one-of-N (Sidebar → split view; Tabs → native tabs):
@@ -172,7 +172,7 @@ navigate("settings");  nav_back();  current_route();   // string-route adapter (
 stack(path, root).on_back(|req| if dirty.get() { BackResponse::Handled } else { BackResponse::Proceed })  // intercept back
 ```
 
-**Text, fonts, color, accessibility**
+### Text, fonts, color, accessibility
 
 ```rust
 label("Chapter").font(Font::Title).bold()               // semantic style + weight
@@ -186,7 +186,7 @@ Semantic `Font` styles (largest→smallest): `LargeTitle, Title, Title2, Title3,
 Body, Callout, Footnote, Caption, Caption2`, plus `System(pt)`. They map to the platform's native text
 styles and scale with the OS accessibility text size.
 
-**External Piece (native widget from a crate; no core edits)**
+### External Piece (native widget from a crate; no core edits)
 
 ```rust
 use day_piece_combobox::combo_box;
@@ -274,7 +274,7 @@ Output is JSON (per-step `ok`/`error`, screenshot paths + base64). Step ops: `na
 If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day
 extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_launch`,
 `day_relaunch`, `day_stop`, `day_running`, `day_drive`, `day_screenshot`, `day_doctor`,
-`day_lint`. `day_drive`/`day_screenshot` return screenshots as images. **Look at them** to
+`day_lint`. `day_drive`/`day_screenshot` return screenshots as images. Look at them to
 verify UI changes on every target you touched. The canonical loop: edit → `day_relaunch`
 (compile errors come back in the result) → `day_drive` (navigate + assert + screenshot).
 

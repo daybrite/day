@@ -11,7 +11,7 @@ Contrast with [`each`](../crates/day-pieces): `each` builds every row eagerly un
 anchor (great for a dozen items, hopeless for ten thousand). `list` builds only the rows the
 native widget currently shows.
 
-## API — shared `ItemSlot` with `each` (DP-16)
+## API: shared `ItemSlot` with `each` (DP-16)
 
 ```rust
 list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message, u64>| {
@@ -57,7 +57,7 @@ follow.notify();
   It does not check whether the user is already near the bottom (no cross-backend scroll-position
   read exists yet); for that finer behavior drive `scroll_to_end` from your own logic instead.
 
-## The seam — `ListSource` (native → Day, synchronous)
+## The seam: `ListSource` (native → Day, synchronous)
 
 Recycling lists *pull*: the native data-source asks, synchronously, "how many rows?" and "fill
 this cell for row N". Day's normal native→Day path is enqueue-only (`EventSink`), so `list` adds

@@ -1,4 +1,4 @@
-# Environment variables — toolchain & SDK discovery
+# Environment variables: toolchain & SDK discovery
 
 Day locates host toolchains and SDKs through one shared implementation
 (`crates/day-toolchain`), used by the `day` CLI, by every crate build script that compiles its

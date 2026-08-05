@@ -52,6 +52,28 @@ struct Provenance {
     target: Option<String>,
     profile: Option<String>,
     tools: Vec<(String, String, String)>,
+    /// Environment that shaped the original build, re-applied to the rebuild.
+    inputs: Vec<(String, String)>,
+    /// Staged payload digests, keyed by path relative to the payload root. The payload tier falls
+    /// back to these when the container cannot be opened here.
+    payload: Vec<(String, String)>,
+}
+
+/// `[{k: …, v: …}, …]` out of a buildinfo array, as pairs.
+fn kv_list(doc: &serde_json::Value, array: &str, k: &str, v: &str) -> Vec<(String, String)> {
+    doc.get(array)
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    Some((
+                        e.get(k)?.as_str()?.to_string(),
+                        e.get(v)?.as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Read a JSON document, tolerating absence.
@@ -244,6 +266,14 @@ fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
         })
         .and_then(|p| read_json(&p));
 
+    let (inputs, payload) = match &info {
+        Some(v) => (
+            kv_list(v, "inputs", "name", "value"),
+            kv_list(v, "payload", "path", "sha256"),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
     let (target, profile, tools) = match info {
         Some(v) => {
             let tools = v
@@ -284,6 +314,8 @@ fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
         target,
         profile,
         tools,
+        inputs,
+        payload,
     })
 }
 
@@ -423,7 +455,14 @@ fn digest(path: &Path) -> Result<String, String> {
 /// The container verdict is a plain byte comparison. The payload verdict opens both containers and
 /// compares their members after normalization, which is the only tier that can pass on a platform
 /// whose artifacts carry a signature or a linker build ID.
-fn compare(original: &Path, rebuilt: &Path, scratch: &Path) -> (Verdict, Verdict) {
+fn compare(
+    original: &Path,
+    rebuilt: &Path,
+    scratch: &Path,
+    recorded_payload: &[(String, String)],
+    project_dir: &Path,
+    target: &'static crate::targets::Target,
+) -> (Verdict, Verdict) {
     let (a, b) = match (digest(original), digest(rebuilt)) {
         (Ok(a), Ok(b)) => (a, b),
         _ => {
@@ -447,14 +486,12 @@ fn compare(original: &Path, rebuilt: &Path, scratch: &Path) -> (Verdict, Verdict
     let (ua, ub) = (scratch.join("cmp/a"), scratch.join("cmp/b"));
     let _ = std::fs::remove_dir_all(scratch.join("cmp"));
     if !unpack(original, &ua) || !unpack(rebuilt, &ub) {
+        // The container could not be opened here — a `.flatpak` is an OSTree bundle whose import
+        // wants privileges the runner does not have, and a `.msix` needs a working unzip. The
+        // payload tier is still decidable: the original recorded the digest of every staged
+        // payload file, so hash what THIS build staged and compare that.
         return (
-            Verdict::Unchecked(format!(
-                "no extractor for {} on this host — the compiled code was not compared",
-                original
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("this format")
-            )),
+            payload_by_digest(recorded_payload, project_dir, target, original),
             container,
         );
     }
@@ -549,10 +586,18 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
         &format!("{} ({profile}) in {}", target.name, project_dir.display()),
     );
     let day = std::env::current_exe().map_err(|e| e.to_string())?;
-    let ok = Command::new(&day)
-        .current_dir(&project_dir)
+    let mut pack = Command::new(&day);
+    pack.current_dir(&project_dir)
         .args(["pack", "-p", target.name, "--profile", &profile])
-        .arg("--no-version-in-name")
+        .arg("--no-version-in-name");
+    // Re-apply the build inputs the artifact recorded. Their defaults are machine-dependent — with
+    // no device attached, the ABI set collapses to one — so without this the rebuild packs a
+    // structurally different artifact and the comparison reports a difference that is ours.
+    for (k, v) in &prov.inputs {
+        status("Input", &format!("{k}={v}"));
+        pack.env(k, v);
+    }
+    let ok = pack
         .status()
         .map_err(|e| format!("running day pack: {e}"))?;
     if !ok.success() {
@@ -576,7 +621,14 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
         ));
     }
 
-    let (payload, container) = compare(&artifact, &rebuilt, &scratch);
+    let (payload, container) = compare(
+        &artifact,
+        &rebuilt,
+        &scratch,
+        &prov.payload,
+        &project_dir,
+        target,
+    );
     status("Payload", payload.label());
     if let Verdict::Differs(d) | Verdict::Unchecked(d) = &payload {
         status("", d);
@@ -788,14 +840,96 @@ fn normalize(path: &Path) -> Result<(), String> {
 }
 
 /// Unpack a container so its members can be compared. `false` when the format cannot be opened here.
+/// Compare the payload this rebuild staged against the digests the artifact recorded.
+///
+/// Not a weaker check than extraction, but a different one: it compares the compiled code as the
+/// original build wrote it, before packaging, rather than as the container preserved it. It is what
+/// Debian's `.buildinfo` has always done, and it is the only tier that can reach a verdict for a
+/// container this host cannot open.
+fn payload_by_digest(
+    recorded: &[(String, String)],
+    project_dir: &Path,
+    target: &'static crate::targets::Target,
+    original: &Path,
+) -> Verdict {
+    let fmt = original
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("this format");
+    if recorded.is_empty() {
+        return Verdict::Unchecked(format!(
+            "no extractor for {fmt} on this host, and the artifact recorded no payload digests \
+             (it was packed by a day-cli too old to write them)"
+        ));
+    }
+    let Some(root) = crate::pack::payload_root(project_dir, target) else {
+        return Verdict::Unchecked(format!(
+            "no extractor for {fmt} on this host, and {} stages no payload to compare",
+            target.name
+        ));
+    };
+    let rebuilt = crate::pack::payload_digests(&root);
+    if rebuilt.is_empty() {
+        return Verdict::Unchecked(format!(
+            "no extractor for {fmt} on this host, and the rebuild staged no payload under {}",
+            root.display()
+        ));
+    }
+    let want: std::collections::BTreeMap<&str, &str> = recorded
+        .iter()
+        .map(|(p, d)| (p.as_str(), d.as_str()))
+        .collect();
+    let got: std::collections::BTreeMap<&str, &str> = rebuilt
+        .iter()
+        .map(|(p, d)| (p.as_str(), d.as_str()))
+        .collect();
+    if want.keys().ne(got.keys()) {
+        return Verdict::Differs(format!(
+            "the two builds staged different payload files ({} vs {})",
+            want.len(),
+            got.len()
+        ));
+    }
+    let diffs: Vec<&str> = want
+        .iter()
+        .filter(|(p, d)| got.get(*p) != Some(d))
+        .map(|(p, _)| *p)
+        .collect();
+    if diffs.is_empty() {
+        Verdict::Identical
+    } else {
+        Verdict::Differs(format!(
+            "{} payload file(s) differ by digest: {}",
+            diffs.len(),
+            diffs.join(", ")
+        ))
+    }
+}
+
+/// A path `unzip` can actually open on Windows.
+///
+/// `canonicalize` returns an extended-length `\\?\D:\a\…` path there, and the MSYS `unzip` on the
+/// runners treats every backslash as an escape: `D:\a\day\day\shipped\showcase.msix` reached it
+/// as `\?D:adaydayshippedshowcase.msix` and it reported the file missing — which the payload tier
+/// then reported as "no extractor for msix on this host". Forward slashes survive both layers, and
+/// Windows accepts them everywhere. No-op off Windows.
+fn portable(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    if cfg!(windows) {
+        s.trim_start_matches("\\\\?\\").replace('\\', "/")
+    } else {
+        s.into_owned()
+    }
+}
+
 fn unpack(container: &Path, dest: &Path) -> bool {
     let _ = std::fs::create_dir_all(dest);
     match container.extension().and_then(|e| e.to_str()) {
         Some("ipa" | "apk" | "aab" | "hap" | "msix" | "zip") => Command::new("unzip")
             .args(["-q", "-o"])
-            .arg(container)
+            .arg(portable(container))
             .arg("-d")
-            .arg(dest)
+            .arg(portable(dest))
             .status()
             .map(|s| s.success())
             .unwrap_or(false),
@@ -1016,6 +1150,51 @@ mod tests {
         // A recorded path that is not in this commit is an error, not a silent fallback.
         assert!(find_project_dir(&tmp, Some("apps/gone"), None).is_err());
 
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The Windows extractor bug: a canonicalized path is verbatim (`\\?\D:\…`), and the MSYS
+    /// `unzip` on the runners ate every backslash, so the `.msix` payload was never compared.
+    #[test]
+    fn windows_paths_reach_unzip_with_forward_slashes() {
+        let p = Path::new("relative/dir/showcase.msix");
+        assert_eq!(portable(p), "relative/dir/showcase.msix");
+        // The transformation itself, spelled out for the platform that needs it.
+        let win = r"\\?\D:\a\day\day\shipped\showcase.msix";
+        let fixed = win.trim_start_matches(r"\\?\").replace('\\', "/");
+        assert_eq!(fixed, "D:/a/day/day/shipped/showcase.msix");
+    }
+
+    /// The payload tier must reach a verdict for containers this host cannot open — and must say
+    /// so plainly when the artifact predates the recorded digests.
+    #[test]
+    fn payload_by_digest_decides_when_there_is_no_extractor() {
+        let tmp = std::env::temp_dir().join(format!("day-payload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let root = tmp.join("build/day/flatpak/linux-gtk/stage/bin");
+        std::fs::create_dir_all(&root).expect("mkdir");
+        std::fs::write(root.join("showcase-bin"), b"compiled code").expect("write");
+        let target = crate::targets::find("linux-gtk").expect("target");
+        let staged = crate::pack::payload_digests(&root);
+        assert_eq!(staged.len(), 1, "one staged payload file");
+
+        let art = Path::new("showcase-gtk-x86_64.flatpak");
+        // Same digests → identical.
+        assert_eq!(
+            payload_by_digest(&staged, &tmp, target, art),
+            Verdict::Identical
+        );
+        // A different digest for the same file → a named difference, not a shrug.
+        let tampered = vec![(staged[0].0.clone(), "0".repeat(64))];
+        match payload_by_digest(&tampered, &tmp, target, art) {
+            Verdict::Differs(d) => assert!(d.contains("showcase-bin"), "{d}"),
+            v => panic!("expected Differs, got {v:?}"),
+        }
+        // No recorded digests (an older artifact) → unchecked, and it says why.
+        match payload_by_digest(&[], &tmp, target, art) {
+            Verdict::Unchecked(d) => assert!(d.contains("too old"), "{d}"),
+            v => panic!("expected Unchecked, got {v:?}"),
+        }
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

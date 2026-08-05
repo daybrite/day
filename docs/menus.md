@@ -165,7 +165,7 @@ just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
   on API 28+).
 - A `context_menu(vec![])` (empty) or a later reconfigure detaches/replaces the menu on the Piece.
 
-## Runtime language changes — `app_menu_reactive`
+## Runtime language changes: `app_menu_reactive`
 
 `app_menu(vec)` resolves labels once, in the install-time locale. An app whose language can
 change at runtime (a preferences language picker, docs/windows.md) installs with
