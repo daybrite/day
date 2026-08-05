@@ -1,1 +1,0 @@
-The demonstration app for Day: every native widget, from one Rust codebase.

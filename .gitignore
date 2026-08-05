@@ -31,3 +31,8 @@ DerivedData/
 *.log
 
 .claude
+
+# CI checks the showcase app out here (daybrite/Day-Showcase) to build the framework against the
+# app it documents. An untracked directory in the workspace would otherwise make `day pack` record
+# a dirty tree, which `day rebuild` then refuses.
+/showcase-src/

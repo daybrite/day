@@ -102,7 +102,7 @@ Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HO
 SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
-cd apps/showcase/platform/ohos
+cd Day-Showcase/platform/ohos
 
 # 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
 ./build.sh both                                # drops entry/libs/<abi>/libentry.so
@@ -135,7 +135,7 @@ In practice you don't run any of the above by hand; `day launch -p harmony-arkui
 day ohos emulator launch
 
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
-day launch --project apps/showcase -p harmony-arkui
+day launch --project Day-Showcase -p harmony-arkui
 ```
 
 ## Multiple devices / architectures

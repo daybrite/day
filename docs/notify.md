@@ -633,7 +633,7 @@ contract every other part keeps.
 
 # The showcase "Notifications" page
 
-A new page under `apps/showcase/src/pages/notify.rs`, registered in `destinations()` in
+A new page under `Day-Showcase/src/pages/notify.rs`, registered in `destinations()` in
 alphabetical position (between Menus and Preferences), with `Section::Notify => "notify"`. It
 follows the `services.rs` shape: `page(title, id, caption, form((section, …)))`, every string a
 `crate::res::str::*` key, every control an `.id()` so dayscript can drive it.
@@ -683,7 +683,7 @@ eight backends is actually worth looking at.
 
 ### Metadata configuration
 
-`apps/showcase/Day.toml` already declares `notifications = true` under `[permissions]`, so consent
+`Day-Showcase/Day.toml` already declares `notifications = true` under `[permissions]`, so consent
 is covered. The page adds:
 
 ```toml

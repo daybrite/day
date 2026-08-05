@@ -114,7 +114,7 @@ backends = ["appkit", "gtk", "mdc", "qt", "xaml", "arkui"]
 
 so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2,
 `crates/day-cli/src/pieces.rs`). Apps that build with bare cargo wire the features explicitly,
-as `apps/showcase/Cargo.toml` does.
+as `Day-Showcase/Cargo.toml` does.
 
 ## Bring-your-own native code (the raw tiers)
 

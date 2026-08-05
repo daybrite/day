@@ -664,7 +664,7 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
             })?;
             let inherited = workspace_package_version(&dir);
             let manifest = parse_manifest(&day_toml, &cargo_toml, inherited.as_deref())?;
-            // Always hand back an ABSOLUTE root. A relative `--project` (e.g. `apps/showcase`) would
+            // Always hand back an ABSOLUTE root. A relative `--project` (e.g. `apps/example`) would
             // otherwise flow into build-tool arguments like xcodebuild's `SYMROOT` as a relative path;
             // xcodebuild resolves relative build paths against each target's own working directory, so
             // the app target and a SwiftPM package dependency scatter their products into different

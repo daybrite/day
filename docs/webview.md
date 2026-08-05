@@ -62,7 +62,7 @@ gallery.
 
 ## CI screenshots + gallery
 
-The dayscript walkthrough (`apps/showcase/dayscript/walkthrough.yaml`) visits the web-view page last,
+The dayscript walkthrough (`Day-Showcase/dayscript/walkthrough.yaml`) visits the web-view page last,
 `pause`s (runner-side) for the page to load, and captures `webview.png`. Each combo uploads its
 `screenshots-<combo>` artifact; `website/gallery.config.mjs` lists a `webview` shot, so the assembled
 gallery on daybrite.dev shows the web view across every platform that produced it.

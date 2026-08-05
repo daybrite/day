@@ -14,6 +14,7 @@
 # never mistaken for "green everywhere". Exit is nonzero if any leg failed.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+ROOT="$PWD"
 
 # CI runs the whole gate under -D warnings; match it so a warning fails here too. Overridable.
 export RUSTFLAGS="${RUSTFLAGS:--D warnings}"
@@ -42,25 +43,46 @@ leg() { # leg <label> <cmd...>
 }
 skip() { printf '\033[33m− SKIP %s — %s\033[0m\n' "$1" "$2"; SKIPPED+=("$1: $2"); }
 
+# The showcase app is its own repository now (daybrite/Day-Showcase). Its clippy legs run in a
+# checkout of it, built against THIS checkout via `day patch`, so a framework change is still
+# linted against the app that exercises every backend. No checkout ⇒ those legs SKIP with a reason
+# rather than silently disappearing, which is the whole contract of this script.
+SHOWCASE="${SHOWCASE:-$ROOT/../Day-Showcase}"
+if [ -f "$SHOWCASE/Day.toml" ]; then
+  cargo run -q -p day-cli -- --project "$SHOWCASE" patch --local "$ROOT" --check >/dev/null 2>&1 \
+    || { printf '\033[33m− the showcase patch table could not be verified; its legs will skip\033[0m\n'; SHOWCASE=""; }
+else
+  SHOWCASE=""
+fi
+# Run a clippy leg inside the showcase checkout (the app is no longer `-p showcase` here).
+app_leg() {
+  local label="$1"; shift
+  if [ -z "$SHOWCASE" ]; then
+    skip "$label" "no showcase checkout — clone daybrite/Day-Showcase beside day/ or set SHOWCASE=<path>"
+    return
+  fi
+  leg "$label" env -C "$SHOWCASE" "$@"
+}
+
 # 1) Formatting — the whole workspace, the exact command CI fails on.
 leg "fmt --all --check" cargo fmt --all -- --check
 
 # 2) Host clippy — the default members plus the CLI, dayscript, and mock-backend showcase.
 leg "clippy host (default members)"    cargo clippy --locked --all-targets
 leg "clippy host day-cli + day-script"  cargo clippy --locked -p day-cli -p day-script --all-targets
-leg "clippy host showcase (mock)"       cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
+app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
 #    day-appkit, …) — the crates a host clippy never compiles.
 if have_target aarch64-linux-android; then
-  leg "clippy android (mdc)" cargo clippy --locked --target aarch64-linux-android -p showcase --lib \
+  app_leg "clippy android (mdc)" cargo clippy --target aarch64-linux-android --lib \
     --no-default-features --features mdc -- "${XCROSS[@]}"
 else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
 
 # arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile — CI exports it;
 # skip (don't fail) when it's absent locally, the same posture as a missing rustup target.
 if have_target aarch64-unknown-linux-ohos && [ -n "${OHOS_NDK_HOME:-}" ]; then
-  leg "clippy harmonyos (arkui)" cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib \
+  app_leg "clippy harmonyos (arkui)" cargo clippy --target aarch64-unknown-linux-ohos --lib \
     --no-default-features --features arkui -- "${XCROSS[@]}"
 elif have_target aarch64-unknown-linux-ohos; then
   skip "clippy harmonyos (arkui)" "export OHOS_NDK_HOME to the OpenHarmony NDK native dir"
@@ -69,14 +91,14 @@ else skip "clippy harmonyos (arkui)" "rustup target add aarch64-unknown-linux-oh
 if have_target wasm32-unknown-unknown; then
   # CI only *builds* web-dom (no clippy leg), so this is a local superset — clippy subsumes the
   # build's warning check and additionally keeps the dom backend clippy-clean.
-  leg "clippy web-dom (dom)" cargo clippy --locked --target wasm32-unknown-unknown -p showcase --lib \
+  app_leg "clippy web-dom (dom)" cargo clippy --target wasm32-unknown-unknown --lib \
     --no-default-features --features dom
 else skip "clippy web-dom (dom)" "rustup target add wasm32-unknown-unknown"; fi
 
 if [ "$OS" = Darwin ]; then
-  leg "clippy appkit" cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
+  app_leg "clippy appkit" cargo clippy --no-default-features --features appkit --all-targets
   if have_target aarch64-apple-ios-sim; then
-    leg "clippy uikit (ios-sim)" cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \
+    app_leg "clippy uikit (ios-sim)" cargo clippy --target aarch64-apple-ios-sim --lib \
       --no-default-features --features uikit
   else skip "clippy uikit (ios-sim)" "rustup target add aarch64-apple-ios-sim"; fi
 else
@@ -86,15 +108,15 @@ fi
 
 # gtk/qt are portable but need their native libs (pkg-config finds them).
 if pkg-config --exists gtk4 2>/dev/null; then
-  leg "clippy gtk" cargo clippy --locked -p showcase --no-default-features --features gtk --all-targets
+  app_leg "clippy gtk" cargo clippy --no-default-features --features gtk --all-targets
 else skip "clippy gtk" "no gtk4 (brew install gtk4 libadwaita)"; fi
 if pkg-config --exists Qt6Core 2>/dev/null; then
-  leg "clippy qt" cargo clippy --locked -p showcase --no-default-features --features qt --all-targets
+  app_leg "clippy qt" cargo clippy --no-default-features --features qt --all-targets
 else skip "clippy qt" "no Qt6 (brew install qt)"; fi
 
 case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
-    leg "clippy xaml" cargo clippy --locked -p showcase --no-default-features --features xaml --all-targets ;;
+    app_leg "clippy xaml" cargo clippy --no-default-features --features xaml --all-targets ;;
   *) skip "clippy xaml" "Windows only" ;;
 esac
 

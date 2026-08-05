@@ -1,0 +1,46 @@
+name: Check out the showcase app
+description: >-
+  Check out daybrite/Day-Showcase and point its day dependencies at THIS checkout, so the
+  framework under test is the one the app builds against.
+
+inputs:
+  ref:
+    description: >-
+      Ref of daybrite/Day-Showcase to build. Defaults to the repository variable
+      DAY_SHOWCASE_REF, then `main`. A framework change that needs a matching app change points
+      this at the branch carrying it.
+    required: false
+    default: ""
+  path:
+    description: Where to put the checkout (gitignored in this repository).
+    required: false
+    default: showcase-src
+  day-bin:
+    description: The day CLI to run `day patch` with.
+    required: false
+    default: day
+
+outputs:
+  path:
+    description: The checkout directory, for `working-directory:`.
+    value: ${{ inputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v7
+      with:
+        repository: daybrite/Day-Showcase
+        ref: ${{ inputs.ref || vars.DAY_SHOWCASE_REF || 'main' }}
+        path: ${{ inputs.path }}
+
+    # The app resolves `day` from git, which is what a user's app does and what its own CI tests.
+    # Here it must resolve from THIS checkout instead, or the walkthrough would exercise a
+    # published framework and report green on a commit it never compiled. `day patch` writes the
+    # [patch] table and then verifies it: a direct dependency without an entry does not fail, it
+    # silently resolves from the git cache.
+    - name: Point the app at this checkout
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ inputs.day-bin }}" --project "${{ inputs.path }}" patch --local "$GITHUB_WORKSPACE" --check

@@ -4336,39 +4336,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
-name = "showcase"
-version = "0.1.4"
-dependencies = [
- "day",
- "day-break",
- "day-build",
- "day-part-battery",
- "day-part-clipboard",
- "day-part-deviceinfo",
- "day-part-fs",
- "day-part-haptics",
- "day-part-http",
- "day-part-location",
- "day-part-network",
- "day-part-permissions",
- "day-part-sensors",
- "day-piece-activity",
- "day-piece-combobox",
- "day-piece-datetime",
- "day-piece-lottie",
- "day-piece-map",
- "day-piece-media",
- "day-piece-pullrefresh",
- "day-piece-rating",
- "day-piece-searchfield",
- "day-piece-settings",
- "day-piece-webview",
- "day-tweak-button-bezel",
- "day-tweak-slider-tickmarks",
- "day-tweak-tooltip",
-]
-
-[[package]]
 name = "signal-hook"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"

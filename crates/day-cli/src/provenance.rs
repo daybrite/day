@@ -76,7 +76,7 @@ pub struct Sbom {
     /// Commit the build came from. `None` for a checkout with no commits.
     pub commit: Option<String>,
     /// Where the project sits inside that repository, as a slash-separated relative path
-    /// (`apps/showcase`; empty when the project IS the repository root). A repository may hold
+    /// (`apps/example`; empty when the project IS the repository root). A repository may hold
     /// several Day apps — plus scaffold templates that look like one — so a rebuild that only had
     /// the commit would have to guess which directory to pack.
     pub project_path: Option<String>,
@@ -667,7 +667,7 @@ mod tests {
             repository: None,
             commit: None,
             dirty: false,
-            project_path: Some("apps/showcase".into()),
+            project_path: Some("apps/example".into()),
             components: Vec::new(),
         };
         let doc = spdx(&sbom);
@@ -829,7 +829,7 @@ mod debian_tests {
             repository: Some("https://github.com/daybrite/day".into()),
             commit: Some("3cf799cb9c9dc4bc045bc9f1457aed2838bf5e1d".into()),
             dirty: false,
-            project_path: Some("apps/showcase".into()),
+            project_path: Some("apps/example".into()),
             components: Vec::new(),
         };
         let info = BuildInfo {

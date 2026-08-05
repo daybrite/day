@@ -2711,10 +2711,11 @@ day/                                # THIS repository
                                     #   -http, -permissions, -location)
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
-  apps/
-    showcase/                       # THE demo: every subsystem, 4 locales, the walkthrough
-    matrix/                         # a full Matrix chat client (matrix-rust-sdk bridge) — the
-                                    #   scale proof; has its own DESIGN.md
+                                    # (the apps live in their own repositories: daybrite/Day-Showcase
+                                    #  is THE demo — every subsystem, 4 locales, the walkthrough —
+                                    #  and daybrite/Day-Matrix is the scale proof, a full Matrix
+                                    #  client with its own DESIGN.md. CI checks the showcase out
+                                    #  to build the framework against the app it documents.)
   docs/                             # the normative subsystem docs (see the index at the top)
   website/                          # Astro site: curated guides + docs/ symlinked as the
                                     #   internal reference (scripts/website.sh builds it)
@@ -3370,9 +3371,10 @@ Mechanism (implemented; docs/tweaks.md is normative):
 
 > [!WARNING]
 > **Status: superseded by the live app.** The design-era single-page sketch this appendix
-> carried is long outgrown — **`apps/showcase/` is the reference**, and it is deliberately
+> carried is long outgrown — **daybrite/Day-Showcase is the reference**, and it is deliberately
 > self-documenting: every page's source comments name the docs/ file and DESIGN section it
-> demonstrates.
+> demonstrates. It moved out of this repository in 2026-08 (§20); CI checks it out to keep testing
+> the framework against it.
 
 What the shipped showcase covers, per navigation destination (a `selector` sidebar on desktop,
 a list-push on mobile — docs/navigation.md): **Controls** (every two-way binding, pickers,

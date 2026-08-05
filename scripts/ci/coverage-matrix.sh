@@ -7,7 +7,7 @@
 # screenshot and no other assertion can see. Prose tables tracking that went stale repeatedly
 # (docs/harmonyos.md claimed images were placeholders long after they were real nodes), so the
 # table is derived from the code instead — and dayscript's `assert_no_placeholders` allow-lists in
-# apps/showcase/dayscript/walkthrough.yaml are the runtime half of the same fact.
+# the showcase's dayscript/walkthrough.yaml (daybrite/Day-Showcase) is the runtime half of the same fact.
 #
 #     scripts/ci/coverage-matrix.sh
 set -euo pipefail
