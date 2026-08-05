@@ -1,0 +1,46 @@
+# {{title}}'s website — built from this file plus data the project already maintains, by the
+# daysite template (https://github.com/daybrite/daysite).
+#
+# When this repository's CI uses the daybrite/actions build-day-app workflow, the presence of
+# this file makes it build and deploy the site to the repo's GitHub Pages on pushes to the
+# default branch: a localized landing page from store/'s listings, a screenshot gallery from the
+# dayscript captures, download links from the latest release, and the web-dom build hosted under
+# /webapp/. One-time repo setup: Settings → Pages → Source = "GitHub Actions", and the workflow
+# permissions shown in the actions README.
+#
+# Preview locally:
+#   cd website
+#   git clone https://github.com/daybrite/daysite .daysite   # gitignored
+#   npm --prefix .daysite install
+#   node .daysite/scripts/preview.mjs
+
+# Required — the site's canonical URL. For GitHub Pages this is
+# https://<owner>.github.io/<repository>; a custom domain works too. A path component becomes
+# the site's base path automatically.
+host = "https://example.github.io/{{name}}"
+
+# Everything below is optional — these are the defaults, spelled out to edit.
+#
+# The app's localized store/ name titles the site; set `title` only to differ from it.
+# title = "{{title}}"
+# tagline = ""
+
+# Brand accent (any CSS color) and starting theme: light | dark | system.
+# accent-color = "#3B82F6"
+# default-theme = "system"
+
+# Which platform the picker preselects (ios, android, macos, windows, linux-gtk, linux-qt,
+# harmony, web) — defaults to the first one the app builds.
+# default-platform = "web"
+
+# The subdirectory hosting the web-dom build ("Open the web app" points there).
+# webapp = "webapp"
+
+# Section toggles.
+# show-gallery = true
+# show-permissions = true
+# show-store-badges = true
+# show-source-link = true
+
+# Footer line; {year} interpolates. Defaults to "© {year} <app name>".
+# footer = "© {year} {{title}}"

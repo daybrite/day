@@ -238,8 +238,10 @@ mod tests {
         let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
         for expected in [
             "Day.toml",
-            "Cargo.toml", // .hbs stripped
-            ".gitignore", // _gitignore mapped
+            "Cargo.toml",        // .hbs stripped
+            ".gitignore",        // _gitignore mapped
+            "website/site.toml", // the daysite config `day new app` ships by default
+            "website/theme.css",
             "src/main.rs",
             "src/lib.rs",
         ] {

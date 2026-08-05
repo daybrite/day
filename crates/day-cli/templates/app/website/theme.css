@@ -1,0 +1,11 @@
+/* {{title}}'s site styling — inlined after the daysite template's own styles, so anything
+ * here wins. The template reads the accent from site.toml; this file is for everything a
+ * single color can't say. A few seams people usually reach for:
+ *
+ *   :root            — override CSS custom properties site-wide
+ *   .rise h1         — the hero title (a brand gradient looks good here)
+ *   .site-header     — the top bar
+ *   [data-platform-picker] — the platform tab strip
+ *
+ * Delete freely; an empty file is fine.
+ */

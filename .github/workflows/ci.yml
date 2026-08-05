@@ -43,6 +43,10 @@ env:
   # (`<theme>` / `<theme>-<locale>`) must list any addition too.
   WALKTHROUGH_THEMES: light dark
   WALKTHROUGH_LOCALES: en fr ar zh-CN
+  # Which ref of daybrite/Day-Showcase every job builds (.github/actions/showcase). Resolved here
+  # because a composite action cannot read the `vars` context; unset is the normal case and means
+  # `main`. Set the repository variable to point a whole run at an app branch.
+  DAY_SHOWCASE_REF: ${{ vars.DAY_SHOWCASE_REF }}
 
 jobs:
   fmt:
@@ -345,6 +349,17 @@ jobs:
     with:
       targets: linux-gtk
       project-path: showcase-src
+      # The app is a different repository, and a reusable workflow only checks out the caller's.
+      # `setup-command` is the generic hook for materializing the project, so the canary uses it
+      # rather than the shared workflow growing an input for one caller. `day patch` then points
+      # the app's day dependencies at THIS commit, so the canary exercises the CLI and the crates
+      # from this run — the same thing the inline jobs do through .github/actions/showcase.
+      # (Setting it also skips the pristine assertion, which is right: the app checkout is
+      # generated here, and `day patch` writes a config file into it.)
+      setup-command: |
+        git clone --depth 1 --branch "${{ vars.DAY_SHOWCASE_REF || 'main' }}" \
+          https://github.com/daybrite/Day-Showcase.git showcase-src
+        "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --check
       day-source: artifact
       artifact-prefix: canary-
       app-id: dev.daybrite.showcase
@@ -428,6 +443,25 @@ jobs:
       - name: Android NDK env
         if: matrix.toolkit == 'mdc'
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: ${{ runner.temp }}/day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      # The app checkout the lint below and the scaffold test both need. `day patch` (inside the
+      # action) points its day dependencies at THIS commit, so clippy lints the framework under
+      # test rather than a published release.
+      # `day new` + build, against THIS checkout (`--local`), so a template that stopped compiling
+      # fails here rather than in a user's first five minutes.
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Clippy (${{ matrix.toolkit }} backend)
         # In the app's checkout, not this workspace: the showcase is its own repository now, and
         # `day patch` (in the checkout step above) points its day dependencies at this commit.
@@ -444,22 +478,6 @@ jobs:
       - name: Clippy (day-part-battery, Windows impl)
         if: matrix.toolkit == 'xaml'
         run: cargo clippy --locked -p day-part-battery --all-targets
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # `day new` + build, against THIS checkout (`--local`), so a template that stopped compiling
-      # fails here rather than in a user's first five minutes.
-      - name: Check out the showcase app
-        uses: ./.github/actions/showcase
-        with:
-          day-bin: ${{ env.DAY_BIN }}
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
           set -euo pipefail
@@ -1077,14 +1095,6 @@ jobs:
       # The one framework check still living in a target job: the arkui cross-clippy needs the whole
       # OpenHarmony SDK, already set up above. Lifting it into `toolkit` would mean a second copy of
       # six setup steps — it belongs in a composite action, not in a duplicate.
-      - name: Clippy (arkui backend, cross-check)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
-        # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
-        # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
-        # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
-        working-directory: showcase-src
-        run: cargo clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -1107,6 +1117,14 @@ jobs:
         uses: ./.github/actions/showcase
         with:
           day-bin: ${{ env.DAY_BIN }}
+      - name: Clippy (arkui backend, cross-check)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
+        # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
+        # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
+        # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
+        working-directory: showcase-src
+        run: cargo clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
       - name: Doctor (harmonyos)
         shell: bash
         run: $DAY_BIN doctor --toolkit harmonyos

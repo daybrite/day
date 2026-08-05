@@ -6,9 +6,10 @@ description: >-
 inputs:
   ref:
     description: >-
-      Ref of daybrite/Day-Showcase to build. Defaults to the repository variable
-      DAY_SHOWCASE_REF, then `main`. A framework change that needs a matching app change points
-      this at the branch carrying it.
+      Ref of daybrite/Day-Showcase to build. Defaults to the DAY_SHOWCASE_REF environment
+      variable, then `main`. A framework change that needs a matching app change points this at
+      the branch carrying it — set the repository variable to move every job at once, or this
+      input to move one.
     required: false
     default: ""
   path:
@@ -28,10 +29,26 @@ outputs:
 runs:
   using: composite
   steps:
+    # `vars` is a workflow context and an action manifest cannot read it (the runner rejects the
+    # whole manifest: "Unrecognized named-value: 'vars'"). So the repository variable is resolved
+    # once in the calling workflow's `env:` and read here as an ordinary environment variable.
+    - name: Pick the ref
+      id: pick
+      shell: bash
+      env:
+        REF_INPUT: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        REF="${REF_INPUT:-}"
+        [ -n "$REF" ] || REF="${DAY_SHOWCASE_REF:-}"
+        [ -n "$REF" ] || REF=main
+        echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        echo "showcase ref: $REF"
+
     - uses: actions/checkout@v7
       with:
         repository: daybrite/Day-Showcase
-        ref: ${{ inputs.ref || vars.DAY_SHOWCASE_REF || 'main' }}
+        ref: ${{ steps.pick.outputs.ref }}
         path: ${{ inputs.path }}
 
     # The app resolves `day` from git, which is what a user's app does and what its own CI tests.

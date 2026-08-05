@@ -8,3 +8,9 @@ Cargo.lock
 xcuserdata/
 DerivedData/
 **/*.xcodeproj/project.xcworkspace/
+
+# The website is generated from repo data: the daysite template clone (local preview) and the
+# synthesized data files. Only website/site.toml and website/theme.css are source.
+website/.daysite/
+website/appindex.json
+website/gallery-manifest.json

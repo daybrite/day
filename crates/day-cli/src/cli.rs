@@ -350,6 +350,10 @@ enum NewKind {
         /// placeholders in contents and paths (see the docs for the full list + conventions).
         #[arg(long)]
         template: Option<String>,
+        /// Skip the website/ scaffold (site.toml + theme.css — the config the daysite template
+        /// and the shared CI workflow turn into a GitHub Pages site).
+        #[arg(long = "no-website")]
+        no_website: bool,
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
@@ -720,6 +724,7 @@ pub fn run() -> i32 {
                 registry,
                 local,
                 no_input,
+                no_website,
             }) => crate::new::app(
                 name.as_deref(),
                 &toolkits,
@@ -733,6 +738,7 @@ pub fn run() -> i32 {
                 git,
                 registry,
                 no_input,
+                no_website,
             ),
         },
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {

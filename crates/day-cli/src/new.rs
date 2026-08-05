@@ -218,6 +218,7 @@ pub fn interactive() -> i32 {
             false,
             false,
             false,
+            false, // interactive scaffolds keep the website — opting out is the flag's job
         ),
         1 => part(None, None, None, None, false, false, false),
         _ => piece(None, None, false, None, None, false, false, false),
@@ -504,6 +505,7 @@ pub fn app(
     git: bool,
     registry: bool,
     no_input: bool,
+    no_website: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
     let Some(name) = resolve_name(&p, name) else {
@@ -603,7 +605,13 @@ pub fn app(
     };
     // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
     // rest from the same template later.
-    let files = crate::template::filter_for_targets(files, &targets);
+    let mut files = crate::template::filter_for_targets(files, &targets);
+    // website/ ships by default: two small files that make the shared CI workflow build and
+    // deploy a project site (daysite). Opting out is one flag, and adding it back later is
+    // copying those two files — nothing else references them.
+    if no_website {
+        files.retain(|f| !f.path.starts_with("website/"));
+    }
     let rendered = match crate::template::render(&files, &ctx) {
         Ok(r) => r,
         Err(e) => {
