@@ -10,6 +10,12 @@ pub(crate) fn home_page() -> AnyPiece {
         // generated from `resource/images/app_logo.png`, so this is a compile error if the file is
         // missing. Replace the placeholder PNG with your own (any name works — the constant follows).
         image(crate::res::images::app_logo).frame(64.0, 64.0),
+        // The opening line, in the device's language: `resource/locales/` ships translations
+        // for every locale the scaffold declares, so a fresh app greets its user correctly on
+        // first launch without a line of locale code.
+        label(crate::res::str::home_greeting())
+            .font(Font::LargeTitle)
+            .id("home-greeting"),
         label(crate::res::str::home_welcome()).font(Font::Title).id("home-title"),
         label(crate::res::str::home_blurb()),
         row((

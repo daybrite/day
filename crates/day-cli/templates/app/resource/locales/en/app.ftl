@@ -9,6 +9,7 @@ nav_controls = Controls
 nav_canvas = Canvas
 nav_items = Items
 
+home_greeting = Hello!
 home_welcome = Welcome to {{title}}
 home_blurb = This app is a Day starter: a typed-route sidebar over four sample panels. Everything below is an app-owned signal projected into native widgets.
 

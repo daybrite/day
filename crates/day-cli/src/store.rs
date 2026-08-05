@@ -161,6 +161,30 @@ pub const LOCALES: &[(&str, Option<&str>, Option<&str>)] = &[
     ("ms", Some("ms"), Some("ms")),
     ("ca", Some("ca"), Some("ca")),
     ("hr", Some("hr"), Some("hr")),
+    // Region-qualified spellings of the locales `day new app` scaffolds. Apple takes a
+    // script subtag for Chinese and a bare language for most others; Play prefers the
+    // region-qualified form. Kept alongside the short tags rather than replacing them, so
+    // a project that spells its locales either way still stages.
+    ("en-US", Some("en-US"), Some("en-US")),
+    ("es-ES", Some("es-ES"), Some("es-ES")),
+    ("fr-FR", Some("fr-FR"), Some("fr-FR")),
+    ("de-DE", Some("de-DE"), Some("de-DE")),
+    ("it-IT", Some("it"), Some("it-IT")),
+    ("nl-NL", Some("nl-NL"), Some("nl-NL")),
+    ("pl-PL", Some("pl"), Some("pl-PL")),
+    ("ru-RU", Some("ru"), Some("ru-RU")),
+    ("tr-TR", Some("tr"), Some("tr-TR")),
+    ("cs-CZ", Some("cs"), Some("cs-CZ")),
+    ("uk-UA", Some("uk"), Some("uk")),
+    ("ar-SA", Some("ar-SA"), Some("ar")),
+    ("ja-JP", Some("ja"), Some("ja-JP")),
+    ("ko-KR", Some("ko"), Some("ko-KR")),
+    ("id-ID", Some("id"), Some("id")),
+    ("ms-MY", Some("ms"), Some("ms")),
+    ("th-TH", Some("th"), Some("th")),
+    ("vi-VN", Some("vi"), Some("vi")),
+    ("zh-Hans-CN", Some("zh-Hans"), Some("zh-CN")),
+    ("zh-Hant-TW", Some("zh-Hant"), Some("zh-TW")),
 ];
 
 /// The store locale for a Day tag, or `None` when that store has no such locale.

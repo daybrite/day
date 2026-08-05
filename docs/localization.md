@@ -41,6 +41,33 @@ The underlying call is still public and unchanged: `install_locales(default, &[(
 takes any list an app assembles itself (locales fetched at runtime, a subset chosen per build).
 The generated catalog is the zero-maintenance default, not a replacement.
 
+## Adding a language: `day localize add`
+
+Adding the directory by hand works, but `day localize add <tag>` does the whole job: the Fluent
+directory, the `store/<tag>/` listing text, the Xcode `knownRegions` entry, and the locale list in
+`website/site.toml`. `day new app --locales <tags>` runs the same code path per tag, so a fresh
+project and an existing one mean the same thing by "add a locale". `day localize list` reports any
+surface that has drifted.
+
+New Fluent files are the default locale's, copied under a `TODO: translate` header: a
+complete-but-untranslated locale that the key lints still track, rather than an empty directory
+nothing checks. The CLI cannot translate an app's own strings, since it does not know what they
+mean.
+
+It does know the strings **it** wrote. For the handful of keys `day new app` scaffolds and shows
+on the opening screen (`home_greeting`, `home_welcome`, and the four `nav_*` labels), the CLI
+carries real translations for 20 languages (`crates/day-cli/src/starter_l10n.rs`) and writes those
+instead of an English copy, interpolating the project's own title. A generated app therefore
+greets its user in their language on first launch, and the header records how many lines arrived
+translated:
+
+```text
+# TODO: translate — 6 starter string(s) translated; the rest copied from en/ by `day localize add ja-JP`.
+```
+
+A tag the table does not carry simply gets the English copy, so the fallback is the old behaviour
+rather than a failure.
+
 ## Checked keys: `res::str::…()` (§18.5)
 
 `tr("…")` is stringly-typed: a typo or a wrong `.arg` name only shows up at runtime as `⟨key⟩`. Day's

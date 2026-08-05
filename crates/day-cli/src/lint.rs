@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::meta::Project;
-use crate::term::{SUCCESS, WARN};
+use crate::term::{DIM, SUCCESS, WARN};
 use anstream::eprintln;
 
 #[derive(Debug)]
@@ -233,7 +233,16 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-pub fn run(project: &Project, strict: bool) -> i32 {
+/// Does `--allow CODE` cover this finding? The `day::lint::` prefix is optional, so
+/// `--allow store-placeholder` and `--allow day::lint::store-placeholder` name the same one.
+fn allowed(code: &str, allow: &[String]) -> bool {
+    allow.iter().any(|a| {
+        let a = a.trim();
+        code == a || code.strip_prefix("day::lint::") == Some(a)
+    })
+}
+
+pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     let mut findings: Vec<Finding> = Vec::new();
 
     // --- Day.toml structure ---
@@ -531,10 +540,23 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         }
     }
 
+    // An allowed code still reports, one summary line per code rather than per finding: a
+    // scaffold's 84 store placeholders would otherwise bury the warnings that do matter. The
+    // count and a sample are enough to see what a stale `--allow` is covering.
+    let mut waived: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
     for f in &findings {
-        eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
+        if allowed(f.code, allow) {
+            let e = waived.entry(f.code).or_insert((0, f.message.as_str()));
+            e.0 += 1;
+        } else {
+            eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
+        }
     }
-    finish(findings.len(), strict)
+    for (code, (n, sample)) in &waived {
+        eprintln!("{DIM}allowed{DIM:#} {code:<32} {n} finding(s), e.g. {sample}");
+    }
+    let waived_n: usize = waived.values().map(|(n, _)| n).sum();
+    finish(findings.len() - waived_n, waived_n, strict)
 }
 
 /// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):
@@ -608,12 +630,16 @@ fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
     out
 }
 
-fn finish(n: usize, strict: bool) -> i32 {
+fn finish(n: usize, waived: usize, strict: bool) -> i32 {
+    let waived_note = match waived {
+        0 => String::new(),
+        w => format!(" ({w} allowed)"),
+    };
     if n == 0 {
-        eprintln!("{SUCCESS}✓{SUCCESS:#} no lint findings");
+        eprintln!("{SUCCESS}✓{SUCCESS:#} no lint findings{waived_note}");
         0
     } else {
-        eprintln!("{n} finding(s)");
+        eprintln!("{n} finding(s){waived_note}");
         if strict { 10 } else { 0 }
     }
 }
@@ -646,6 +672,21 @@ e = { PLATFORM() }
             ],
             "{findings:?}"
         );
+    }
+
+    #[test]
+    fn allow_matches_bare_and_qualified_codes() {
+        let allow = vec![
+            "store-placeholder".into(),
+            " day::lint::duplicate-id ".into(),
+        ];
+        assert!(allowed("day::lint::store-placeholder", &allow));
+        assert!(allowed("day::lint::duplicate-id", &allow));
+        // A prefix is not a code: allowing `store-placeholder` must not waive `store-missing`,
+        // and the bare form must not match some other namespace's same-named finding.
+        assert!(!allowed("day::lint::store-missing", &allow));
+        assert!(!allowed("day::store::store-placeholder", &allow));
+        assert!(!allowed("day::lint::store-placeholder", &[]));
     }
 
     #[test]

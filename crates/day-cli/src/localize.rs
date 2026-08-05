@@ -369,11 +369,49 @@ fn quote_join(entries: &[String]) -> String {
 /// Copy `src`'s files with extension `ext` into a fresh `dst`, prepending `header` (the
 /// translate-me marker) when given. Returns how many files were copied; a missing `src`
 /// copies nothing but still creates `dst`, so the surface exists to survey.
+/// Rewrite the scaffold's opening-screen keys with their translations, leaving every other line
+/// exactly as copied. Returns the new body and how many lines were translated.
+///
+/// Matching is on the key at the start of a line, so a commented-out key or a key inside a value
+/// is untouched. `{app}` in the table is replaced with whatever the default locale already put
+/// there, which keeps the project's own title rather than inventing one.
+fn apply_starter(body: &str, starter: &'static [&'static str; 6]) -> (String, usize) {
+    let keys = crate::starter_l10n::KEYS;
+    // The app's title, read from `app_title` in the file being copied rather than guessed out of
+    // a longer line: taking the last word of "Welcome to Day Sample" yields "Sample", which is
+    // wrong for every multi-word title.
+    let app = body
+        .lines()
+        .find_map(|l| l.strip_prefix("app_title = "))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mut n = 0usize;
+    let out: Vec<String> = body
+        .lines()
+        .map(|line| {
+            let Some((lhs, _)) = line.split_once(" = ") else {
+                return line.to_string();
+            };
+            let Some(i) = keys.iter().position(|k| *k == lhs.trim_end()) else {
+                return line.to_string();
+            };
+            n += 1;
+            format!("{lhs} = {}", starter[i].replace("{app}", &app))
+        })
+        .collect();
+    (
+        out.join("\n") + if body.ends_with('\n') { "\n" } else { "" },
+        n,
+    )
+}
+
 fn copy_locale_files(
     src: &Path,
     dst: &Path,
     ext: &str,
     header: Option<&str>,
+    starter: Option<&'static [&'static str; 6]>,
 ) -> Result<usize, String> {
     std::fs::create_dir_all(dst).map_err(|e| format!("{}: {e}", dst.display()))?;
     let Ok(entries) = std::fs::read_dir(src) else {
@@ -389,7 +427,20 @@ fn copy_locale_files(
     for p in files {
         let Some(name) = p.file_name() else { continue };
         let body = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let (body, translated) = match starter {
+            Some(t) => apply_starter(&body, t),
+            None => (body, 0),
+        };
         let body = match header {
+            // A file that arrived fully translated does not want a translate-me header, and one
+            // that arrived partly translated wants the header to say which part.
+            Some(h) if translated > 0 => format!(
+                "{}{body}",
+                h.replace(
+                    "copied from",
+                    &format!("{translated} starter string(s) translated; the rest copied from")
+                )
+            ),
             Some(h) => format!("{h}{body}"),
             None => body,
         };
@@ -417,7 +468,14 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     if !dst.is_dir() {
         let header =
             format!("# TODO: translate — copied from {default}/ by `day localize add {tag}`.\n");
-        let n = copy_locale_files(&fluent_dir.join(&default), &dst, "ftl", Some(&header))?;
+        let starter = crate::starter_l10n::starter_for(tag);
+        let n = copy_locale_files(
+            &fluent_dir.join(&default),
+            &dst,
+            "ftl",
+            Some(&header),
+            starter,
+        )?;
         done.push(format!(
             "created resource/locales/{tag}/ ({n} file(s) copied from {default}/)"
         ));
@@ -430,7 +488,7 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         let store_dir = project_root.join("store");
         let dst = store_dir.join(tag);
         if !dst.is_dir() {
-            let n = copy_locale_files(&store_dir.join(&default), &dst, "txt", None)?;
+            let n = copy_locale_files(&store_dir.join(&default), &dst, "txt", None, None)?;
             done.push(format!(
                 "created store/{tag}/ ({n} file(s) copied from {default}/)"
             ));

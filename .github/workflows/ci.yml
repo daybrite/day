@@ -108,6 +108,10 @@ jobs:
   # BOTH x86_64 and aarch64 of its OS (fail-fast: false → the two arches are independent) and uploads
   # each as `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64). The per-platform jobs below
   # DOWNLOAD the artifact matching their own runner's os+arch instead of rebuilding day-cli.
+  #
+  # The leg marked `host: true` also runs scripts/ci/scaffold-check.sh, which is the only place CI
+  # runs `day new app` end to end: it scaffolds a 21-locale project and lints it, on all three OSes
+  # because path handling and the Xcode/store/website locale writes differ by platform.
   macos-day:
     name: macos-day (${{ matrix.arch }})
     needs: [fmt, msrv]
@@ -116,8 +120,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `host` marks the leg whose binary this runner can execute — the other arch is
+          # cross-compiled, so only this one can run the scaffold check below. macos-latest is
+          # Apple silicon.
           - { arch: x86_64, target: x86_64-apple-darwin }
-          - { arch: aarch64, target: aarch64-apple-darwin }
+          - { arch: aarch64, target: aarch64-apple-darwin, host: true }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -126,6 +133,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build the day CLI (release, ${{ matrix.target }})
         run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: A fresh 21-locale scaffold lints clean
+        if: matrix.host
+        shell: bash
+        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-macos-${{ matrix.arch }}
@@ -140,7 +151,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, target: x86_64-unknown-linux-gnu }
+          # `host`: see the macos-day matrix. ubuntu-latest is x86_64.
+          - { arch: x86_64, target: x86_64-unknown-linux-gnu, host: true }
           - { arch: aarch64, target: aarch64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v7
@@ -164,6 +176,10 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Build the day CLI (release, ${{ matrix.target }})
         run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: A fresh 21-locale scaffold lints clean
+        if: matrix.host
+        shell: bash
+        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-linux-${{ matrix.arch }}
@@ -178,7 +194,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, target: x86_64-pc-windows-msvc }
+          # `host`: see the macos-day matrix. windows-latest is x86_64.
+          - { arch: x86_64, target: x86_64-pc-windows-msvc, host: true }
           - { arch: aarch64, target: aarch64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v7
@@ -188,6 +205,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build the day CLI (release, ${{ matrix.target }})
         run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: A fresh 21-locale scaffold lints clean
+        if: matrix.host
+        shell: bash
+        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-windows-${{ matrix.arch }}

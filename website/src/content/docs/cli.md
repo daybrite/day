@@ -235,6 +235,11 @@ store, required fields, URL format, leftover `TODO` placeholders, and locale par
 own translations, so translating the app into a new language asks for the listing to follow. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
+In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one
+rule by design: the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let
+that one code stand while every other rule still fails the run. An allowed code is still reported,
+as one line carrying its count and a sample, so an `--allow` nobody has revisited stays visible.
+
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
 the per-target build pipelines, and how resources are packaged are covered in

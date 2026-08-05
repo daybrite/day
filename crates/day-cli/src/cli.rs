@@ -177,6 +177,10 @@ enum Cmd {
         /// Exit non-zero (10) when findings exist
         #[arg(long)]
         strict: bool,
+        /// A finding code that may stand: `store-placeholder`, or the full
+        /// `day::lint::store-placeholder`. Still reported; never fails `--strict`. Repeatable.
+        #[arg(long = "allow", value_name = "CODE")]
+        allow: Vec<String>,
     },
     /// Build a standalone app against a LOCAL day checkout (writes .cargo/config.toml), and
     /// verify no day crate is still resolving from git
@@ -553,8 +557,8 @@ pub fn run() -> i32 {
                 crate::metadata::run(project, json)
             })
         }
-        Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
-            crate::lint::run(project, strict)
+        Cmd::Lint { strict, allow } => with_project(cli.project.as_deref(), |project| {
+            crate::lint::run(project, strict, &allow)
         }),
         Cmd::Patch { local, check } => with_project(cli.project.as_deref(), |project| {
             crate::patch::run(project, local.as_deref(), check)

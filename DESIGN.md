@@ -2325,7 +2325,11 @@ Built-in rules only, source-level and fast: fluent coverage (missing/unused/unkn
 all locales), duplicate element ids, unknown navigation routes, permission declarations (a
 `Permission::X` the app's `[permissions]` table doesn't declare, a missing reason, and drift between
 that table and the checked-in iOS `Info.plist` — docs/permissions.md), `Day.toml` schema validation.
-`day lint` exits nonzero on findings in strict mode. The wider designed rule set (a11y labels,
+`day lint` exits nonzero (10) on findings under `--strict`. `--allow <CODE>` lets one finding code
+stand: repeatable, `day::lint::` prefix optional, and the finding still reports (as one summary
+line per code, with a count and a sample) so a stale `--allow` stays visible. It exists for CI
+gates that have to hold a tree to every rule except one known-outstanding class, as
+[§20](#20-continuous-integration)'s scaffold check does with `store-placeholder`. The wider designed rule set (a11y labels,
 bare literals, scroll nesting, RTL styling) has not been built; `res::str` ([§18.5](#185-typed-resource-constants-docsresourcesmd)) made the
 missing-key class a compile error instead.
 
@@ -2761,7 +2765,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
    failure killed the CLI artifact and with it every Linux-descended combo).
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
-   later job (and the release lane).
+   later job (and the release lane). The leg whose arch matches its runner also runs
+   `scripts/ci/scaffold-check.sh`, the only place CI exercises `day new app` end to end: it
+   scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every
+   rule but the listing TODOs a human still has to write holds against a fresh project. It runs on
+   all three OSes because the four locale surfaces (`resource/locales/`, `store/`, Xcode's
+   `knownRegions`, `website/site.toml`) are written through platform path handling.
 3. **Framework checks** — the crates the framework owns, varied along the two axes a single job
    cannot cover: `test (<os>)` runs the host-portable `cargo test` once per operating system, and
    `toolkit (<backend>)` lints the showcase against one backend crate's feature and scaffolds a

@@ -30,6 +30,7 @@ mod script;
 mod sessions;
 mod sign;
 mod signals;
+mod starter_l10n;
 mod store;
 mod targets;
 mod template;
