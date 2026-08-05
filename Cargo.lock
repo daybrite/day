@@ -726,7 +726,7 @@ dependencies = [
  "day-reactive",
  "day-spec",
  "fluent-bundle",
- "oxc_allocator 0.141.0",
+ "oxc_allocator 0.142.0",
  "oxc_codegen",
  "oxc_parser",
  "oxc_semantic",

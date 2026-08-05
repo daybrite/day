@@ -22,7 +22,7 @@ day-part-prefs = { workspace = true }
 rquickjs = { version = "0.12", features = ["bindgen", "loader"] }
 
 # TypeScript type-stripping at module load (docs/lite.md §1).
-oxc_allocator = "0.141"
+oxc_allocator = "0.142"
 oxc_parser = "0.141"
 oxc_semantic = "0.141"
 oxc_transformer = "0.141"
