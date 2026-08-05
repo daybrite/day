@@ -110,6 +110,7 @@ gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → ap
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
 permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
 proguard = ["android/proguard-rules.pro"]                     # → R8 keep rules (see below)
+manifest-components = ["android/components.xml"]              # → <receiver>/<service> (see below)
 ```
 
 `day build` (for `android-mdc`) runs `cargo metadata`, walks the app's dependency closure, collects
@@ -123,6 +124,24 @@ app, so the piece's Java resolves its own resources by name at runtime:
 `ctx.getResources().getIdentifier("SomeStyleName", "style", ctx.getPackageName())`. Prefix names with
 the piece to avoid collisions (resource names are one flat namespace per app).
 `day-piece-datetime/android/res` is the reference.
+
+**Manifest components.** A part whose Java half is a `BroadcastReceiver` or `Service` needs it
+declared in the manifest, or Android never instantiates it. `manifest-components` names files
+holding ONLY the elements that belong inside `<application>` — no `<manifest>` or `<application>`
+wrapper, which `day build` adds — and every class must be fully qualified, since the overlay merges
+into an app whose package the part cannot know:
+
+```xml
+<!-- android/components.xml -->
+<receiver android:name="dev.daybrite.day.notify.DayNotifyAlarmReceiver"
+          android:exported="false" />
+```
+
+They merge into the same `day-pieces-manifest.xml` overlay the permissions use. Two notes. A
+declared file that is missing is a hard build error rather than a skip-and-warn, because a dropped
+receiver produces an APK that installs, runs, and silently never delivers. And a scaffold generated
+before this key existed gates the overlay on the permission list being non-empty — `day build`
+warns, with the one-line fix, when a part contributes components but no permissions.
 
 **Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
 app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated

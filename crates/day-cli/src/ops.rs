@@ -110,6 +110,24 @@ pub fn reuse_build(
     })
 }
 
+/// Build for a physical device instead of a simulator/emulator. Separate from [`build`] so the
+/// eight callers that can only ever mean "the usual build" keep saying exactly that. Only iOS
+/// differs today; every other target builds one artifact that runs in both places.
+pub fn build_for_device(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+) -> Result<BuildOutcome, String> {
+    let start = std::time::Instant::now();
+    match target.kind {
+        TargetKind::IosSim => {
+            let outcome = crate::mobile::build_ios_for(project, target, profile, start, true)?;
+            Ok(outcome)
+        }
+        _ => build(project, target, profile),
+    }
+}
+
 pub fn build(
     project: &Project,
     target: &'static Target,
@@ -248,13 +266,23 @@ pub struct LaunchSpec {
     pub locale: Option<String>,
     pub envs: Vec<(String, String)>,
     pub attached: bool,
-    /// Which device to launch on, when the target has more than one. Today that means an iOS
-    /// simulator (UDID or name): without it a launch goes to EVERY booted simulator, which is
-    /// right for a capture sweep and wrong for anything that means one specific device — a
-    /// side-by-side comparison against another app, or a machine that keeps several sims booted.
-    /// `None` keeps the every-booted-simulator behaviour. Android already selects with
-    /// `ANDROID_SERIAL`, which adb reads directly.
-    pub device: Option<String>,
+    /// Device selection, one field per runtime, so a single `day launch` can name a different
+    /// one for each `-p` it was given. Left `None`, a target uses every device of its kind it
+    /// can see — right for a capture sweep, wrong when you mean one specific phone.
+    ///
+    /// The split is not cosmetic: an iOS simulator and an iOS device are different runtimes
+    /// (simctl vs devicectl) and, more importantly, different BUILDS — a device needs the
+    /// `iphoneos` SDK and code signing, decided before `build` runs.
+    pub ios_device: Option<String>,
+    pub ios_simulator: Option<String>,
+    pub android_device: Option<String>,
+}
+
+impl LaunchSpec {
+    /// Whether this launch targets a physical iOS device, which the iOS build has to know.
+    pub fn wants_ios_device(&self) -> bool {
+        self.ios_device.is_some()
+    }
 }
 
 /// Launch a built artifact; returns a join handle streaming prefixed logs.

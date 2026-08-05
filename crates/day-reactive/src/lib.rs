@@ -594,6 +594,15 @@ pub fn install_main_poster(post: impl Fn(Box<dyn FnOnce() + Send>) + Send + Sync
     let _ = MAIN_POSTER.set(Box::new(post));
 }
 
+/// Whether a backend has installed the main poster yet — i.e. whether [`on_main`] would work
+/// rather than panic. Platform glue that can be called BEFORE launch (a notification tap that
+/// cold-starts the process) probes this and buffers instead of posting. The poster is set once
+/// and never cleared, so a `false` can only become `true`: a caller that buffers on a false
+/// negative is still correct, provided something drains the buffer at launch.
+pub fn has_main_poster() -> bool {
+    MAIN_POSTER.get().is_some()
+}
+
 /// Schedule `f` on the UI thread (usable from any thread once a backend installed the poster).
 pub fn on_main(f: impl FnOnce() + Send + 'static) {
     match MAIN_POSTER.get() {

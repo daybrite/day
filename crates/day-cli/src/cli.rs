@@ -56,11 +56,24 @@ enum Cmd {
         /// Extra environment K=V passed to the app (repeatable)
         #[arg(long = "env")]
         envs: Vec<String>,
-        /// Device to launch on when the target has more than one: an iOS simulator UDID or
-        /// name. Without it every BOOTED simulator gets the app — right for a capture sweep,
-        /// wrong when you mean one specific device. (Android selects with `ANDROID_SERIAL`.)
+        /// Physical iPhone/iPad to launch on, by name or UDID (`xcrun devicectl list devices`).
+        /// Naming one switches the iOS BUILD to the device SDK and signs it against the
+        /// provisioning profile installed for this app.
+        #[arg(long = "ios-device", value_name = "NAME|UDID")]
+        ios_device: Option<String>,
+        /// Booted iOS simulator to launch on, by name or UDID. Without it every booted simulator
+        /// gets the app — right for a capture sweep, wrong when you mean one.
+        #[arg(long = "ios-simulator", alias = "device", value_name = "NAME|UDID")]
+        ios_simulator: Option<String>,
+        /// Android device or emulator to launch on, by adb serial (`adb devices`). Without it
+        /// every connected one gets the app. Equivalent to setting `ANDROID_SERIAL`.
+        #[arg(long = "android-device", value_name = "SERIAL")]
+        android_device: Option<String>,
+        /// Build for and launch on a PHYSICAL iOS device instead of the simulator. Needs the
+        /// device paired (`xcrun devicectl list devices`) and a development provisioning profile
+        /// that lists it; `--device` picks between several by name or UDID.
         #[arg(long)]
-        device: Option<String>,
+        physical: bool,
         /// Exit after launch instead of staying attached to logs
         #[arg(long)]
         detach: bool,
@@ -572,7 +585,9 @@ pub fn run() -> i32 {
                 attached: false,
                 // A relaunch re-targets whatever the previous launch put on screen, so it keeps
                 // the unfiltered behaviour rather than inventing a device to prefer.
-                device: None,
+                ios_device: None,
+                ios_simulator: None,
+                android_device: None,
             };
             for (ti, name) in names.iter().enumerate() {
                 let target = match crate::external::find_target(project, name) {
@@ -751,6 +766,9 @@ pub fn run() -> i32 {
             profile,
             locale,
             envs,
+            ios_device,
+            ios_simulator,
+            android_device,
             detach,
             keep_alive,
             scripts,
@@ -773,7 +791,9 @@ pub fn run() -> i32 {
             let script_mode = !scripts.is_empty();
             let mut spec = ops::LaunchSpec {
                 locale: locale.clone(),
-                device: device.clone(),
+                ios_device: ios_device.clone(),
+                ios_simulator: ios_simulator.clone(),
+                android_device: android_device.clone(),
                 envs: envs
                     .iter()
                     .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
@@ -844,7 +864,11 @@ pub fn run() -> i32 {
                 let built = if skip_build {
                     ops::reuse_build(project, target, &profile)
                 } else {
-                    ops::build(project, target, &profile)
+                    if spec.wants_ios_device() {
+                        ops::build_for_device(project, target, &profile)
+                    } else {
+                        ops::build(project, target, &profile)
+                    }
                 };
                 let outcome = match built {
                     Ok(o) => o,

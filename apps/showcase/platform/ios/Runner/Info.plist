@@ -52,5 +52,7 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Show how Day asks for Bluetooth — the showcase never connects to a device.</string>
 </dict>
 </plist>

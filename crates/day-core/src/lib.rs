@@ -290,9 +290,7 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
 /// changing via browser back/forward or a hand-edited hash). Echoes of our own `set_route`
 /// match the current route and are dropped.
 fn handle_route_request(route: &str) {
-    if nav::current_route().as_deref() != Some(route) && !nav::navigate(route) {
-        eprintln!("day: requested route {route:?} did not match");
-    }
+    nav::apply_route_request(route);
 }
 
 /// Launch a Day app on the given platform backend: sets up the reactive scheduler and the
@@ -418,6 +416,10 @@ pub fn launch_with<P: Platform>(
                 {
                     eprintln!("day: launch deep link {route:?} did not match a route");
                 }
+                // Consume the `request_route` buffer the line above may have read: a tap that
+                // cold-started the process has now been applied, and leaving it set would
+                // re-navigate on the next request.
+                let _ = nav::take_requested_route();
                 // First reflection runs eagerly — a launch with no deep link ends no turn.
                 let route = nav::current_route().unwrap_or_default();
                 with_tree(|t| t.set_route(&route));

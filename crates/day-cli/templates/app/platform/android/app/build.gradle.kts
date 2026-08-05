@@ -71,11 +71,14 @@ android {
             // Processed images (§18.3): images/ staged into res/drawable* -> R.drawable, crunched by aapt2.
             res.srcDir(rootProject.projectDir.resolve("../../build/day/android/res"))
         }
-        // Android <uses-permission>s contributed by standalone pieces (docs/extending.md) live in a
-        // generated overlay manifest that AGP merges into the app manifest. Point the build-type
-        // source-set manifests at it (a source set has one manifest slot; main keeps the app's).
+        // Android <uses-permission>s AND any <receiver>/<service> components contributed by
+        // standalone pieces (docs/extending.md) live in a generated overlay manifest that AGP merges
+        // into the app manifest. Point the build-type source-set manifests at it (a source set has
+        // one manifest slot; main keeps the app's). Gate on the FILE, not on the permission list:
+        // a part can contribute components without needing a permission, and `day build` removes
+        // the overlay when it has nothing to say.
         val pieceManifest = rootProject.projectDir.resolve("../../build/day/android/day-pieces-manifest.xml")
-        if (piecePermissions.isNotEmpty() && pieceManifest.exists()) {
+        if (pieceManifest.exists()) {
             getByName("debug").manifest.srcFile(pieceManifest)
             getByName("release").manifest.srcFile(pieceManifest)
         }

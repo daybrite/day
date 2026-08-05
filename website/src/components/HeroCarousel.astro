@@ -36,7 +36,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
           <div class:list={['hc-slide', { 'is-active': i === 0 }]}>
             {/* Each shot wears its platform's shell — the same window chrome and phone bezels the
                 gallery draws (src/lib/shells.ts explains why a capture needs one). */}
-            <DeviceShell platform={s.accent}>
+            <DeviceShell platform={s.accent} w={s.width} h={s.height}>
               <img
                 class="hc-img"
                 src={url(s.src)}
@@ -95,6 +95,10 @@ const accents = [...new Set(shots.map((s) => s.accent))];
        PICTURE: a percentage max-height cannot resolve against a shell whose own height is what
        the picture decides, so the screen's height budget is handed down in absolute units. */
     --hc-h: clamp(300px, 34vw, 520px);
+    /* The shell's height budget, the same handshake the gallery's .frame makes: DeviceShell
+       derives the window's width from this and the capture's aspect, which is what puts the
+       title bar exactly edge-to-edge with the picture (and what lets the bar scale with it). */
+    --shell-h: var(--hc-h);
     height: var(--hc-h);
   }
   /* Accent glow tinted by the active platform (var set from JS) — a pool of light UNDER the
@@ -114,10 +118,8 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     transition: opacity 0.7s ease, transform 0.7s ease;
   }
   .hc-slide.is-active { opacity: 1; transform: scale(1); }
-  /* The picture fits the stage minus what its shell adds around it — the 30px title bar, or the
-     bezel's padding. The shell then shrink-wraps that, so the frame hugs the screenshot at every
-     viewport width instead of stretching to the column. */
-  .hc-slide :global(.sh-win > :not(.sh-chrome)) { max-height: calc(var(--hc-h) - 30px); }
+  /* Window shells size themselves from --shell-h + the capture's aspect (see .hc-stage), so
+     they need no height cap here. Bezels still do: they have no data-fit path. */
   .hc-slide :global(.sh-dev > *) { max-height: calc(var(--hc-h) - 18px); }
 
   /* The shells carry a tile-sized shadow in the gallery grid; standing alone at hero size they

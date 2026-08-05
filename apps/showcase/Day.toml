@@ -26,6 +26,12 @@ location-when-in-use = "Show your coordinates live on the Device & sensors page.
 notifications = true
 motion = "Show live accelerometer, gyroscope and magnetometer traces on the Device & sensors page."
 
+# Bluetooth is not in Day's portable permission set (docs/permissions.md), so it goes through the
+# raw escape hatch: the key is written into the iOS Info.plist verbatim. iOS 13+ reads
+# NSBluetoothAlwaysUsageDescription; the older NSBluetoothPeripheralUsageDescription is deprecated.
+[permissions.raw]
+ios = { NSBluetoothAlwaysUsageDescription = "Show how Day asks for Bluetooth — the showcase never connects to a device." }
+
 # The desktop window (docs/cli.md). Kept in lockstep with main.rs's WindowOptions — the CLI
 # sizes headless X servers (xvfb) from THIS, so a mismatch would crop or letterbox the
 # root-capture screenshot fallback on linux-gtk.

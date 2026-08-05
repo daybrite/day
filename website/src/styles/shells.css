@@ -12,6 +12,8 @@
    Colors are hand-held approximations of each desktop's stock decoration — display dressing,
    drawn here precisely because the captures are content-only by design. */
 .sh-win {
+  /* One scaled pixel. Overridden on `[data-fit]`, where the render size is known. */
+  --sh-u: 1px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -32,12 +34,41 @@
    times the aspect ratio. `min()` keeps a wide capture width-bound as before, where it already
    fits edge to edge. */
 .sh-win[data-fit] {
+  /* The chrome is a picture of a window drawn over a picture of its contents, so it has to
+     shrink with the capture: a bar sized for a 715px-wide tile reads as a fat band over the
+     465px-wide render in the hero carousel. `--sh-u` is a scaled pixel — exactly 1px when the
+     window renders at the reference width, proportionally less below it — and every chrome
+     dimension below is a multiple of it.
+
+     `container-type` is what makes `cqw` mean "1% of this window's rendered width". It is safe
+     here and only here, because a data-fit shell's width is computed from `--shell-h` and `--ar`
+     rather than from its contents; on a shrink-wrapping shell the containment would break the
+     very sizing it depends on, so `--sh-u` stays 1px there (see the default on `.sh-win`).
+
+     The clamp keeps the furniture legible on a phone-width tile and stops it outgrowing the
+     hand-tuned 30px on an unusually wide one. */
+  /* NOT scaled, deliberately: this reserves the bar's vertical share inside the width
+     calculation below, and a value derived from `cqw` would depend on the width it is helping
+     to compute. Holding it at the unscaled height only ever over-reserves, which costs a few
+     pixels of slack on a narrow tile and never overflows. */
   --chrome-h: 31px; /* .sh-chrome height + its bottom border */
   /* No fallback for --shell-h on purpose: unset makes the calc invalid, the declaration drops,
      and the width falls back to `auto` — the old shrink-wrap behaviour — rather than resolving a
      percentage against the WIDTH of the containing block, which would be silently wrong. */
   width: min(100%, calc((var(--shell-h) - var(--chrome-h)) * var(--ar)));
 }
+/* Guarded: without container-query support `1cqw` is invalid, which would make `--sh-u` invalid
+   at computed-value time — and an invalid custom property does NOT fall back to the `.sh-win`
+   declaration, it inherits, so every `calc(N * var(--sh-u))` below would collapse. Inside
+   `@supports` the whole scaling scheme is simply absent on such a browser and the unscaled 1px
+   default stands, which is exactly the old fixed-size chrome. */
+@supports (container-type: inline-size) {
+  .sh-win[data-fit] {
+    container-type: inline-size;
+    --sh-u: clamp(0.62px, calc(1cqw / 7.15), 1.05px);
+  }
+}
+
 .sh-win[data-fit] > :not(.sh-chrome) {
   width: 100%;
   height: auto;
@@ -64,10 +95,10 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 10px;
-  font-size: 0.68rem;
+  gap: calc(8 * var(--sh-u));
+  height: calc(30 * var(--sh-u));
+  padding: 0 calc(10 * var(--sh-u));
+  font-size: calc(10.88 * var(--sh-u));
   line-height: 1;
   user-select: none;
   border-bottom: 1px solid rgba(0, 0, 0, 0.12);
@@ -82,16 +113,16 @@
 .sh-title.left { text-align: left; }
 .sh-title.bold { font-weight: 700; }
 /* An invisible twin of the button cluster, so a centered title stays optically centered. */
-.sh-eq { flex: 0 0 44px; }
-.sh-dots { display: inline-flex; gap: 7px; flex: 0 0 44px; }
-.sh-dots i { width: 12px; height: 12px; border-radius: 50%; }
+.sh-eq { flex: 0 0 calc(44 * var(--sh-u)); }
+.sh-dots { display: inline-flex; gap: calc(7 * var(--sh-u)); flex: 0 0 calc(44 * var(--sh-u)); }
+.sh-dots i { width: calc(12 * var(--sh-u)); height: calc(12 * var(--sh-u)); border-radius: 50%; }
 .sh-dots .d-r { background: #ff5f57; }
 .sh-dots .d-y { background: #febc2e; }
 .sh-dots .d-g { background: #28c840; }
-.sh-dots.plain i { width: 9px; height: 9px; background: rgba(128, 128, 128, 0.55); }
+.sh-dots.plain i { width: calc(9 * var(--sh-u)); height: calc(9 * var(--sh-u)); background: rgba(128, 128, 128, 0.55); }
 /* Shared by the Windows and Breeze bars. Windows 11 really does set its buttons in a font
    (Segoe Fluent Icons), so those stay glyphs; Breeze paints its own, and overrides below. */
-.sh-caps { display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto; font-size: 0.62rem; }
+.sh-caps { display: inline-flex; align-items: center; gap: calc(12 * var(--sh-u)); flex: 0 0 auto; font-size: calc(9.92 * var(--sh-u)); }
 .sh-caps i { font-style: normal; opacity: 0.75; }
 
 /* Breeze paints its window buttons rather than setting them in a font, and the shapes are
@@ -99,24 +130,24 @@
    — see drawIcon() in breeze/kdecoration/breezebutton.cpp, which strokes
    (4,7)-(9,12)-(14,7), (4,11)-(9,6)-(14,11) and the two diagonals with a round cap. Drawing
    them here keeps that identity and stays crisp at this size, where a text glyph would not. */
-.c-kde .sh-caps { gap: 13px; }
-.c-kde .sh-caps i { display: block; position: relative; width: 9px; height: 9px; opacity: 0.8; }
+.c-kde .sh-caps { gap: calc(13 * var(--sh-u)); }
+.c-kde .sh-caps i { display: block; position: relative; width: calc(9 * var(--sh-u)); height: calc(9 * var(--sh-u)); opacity: 0.8; }
 .c-kde .sh-caps .b-min::before,
 .c-kde .sh-caps .b-max::before {
   content: '';
   position: absolute;
-  left: 1px;
-  width: 5.5px;
-  height: 5.5px;
-  border-left: 1.1px solid currentColor;
-  border-bottom: 1.1px solid currentColor;
+  left: calc(1 * var(--sh-u));
+  width: calc(5.5 * var(--sh-u));
+  height: calc(5.5 * var(--sh-u));
+  border-left: max(1px, calc(1.1 * var(--sh-u))) solid currentColor;
+  border-bottom: max(1px, calc(1.1 * var(--sh-u))) solid currentColor;
 }
-.c-kde .sh-caps .b-min::before { top: 0.5px; transform: rotate(-45deg); }
-.c-kde .sh-caps .b-max::before { top: 2.5px; transform: rotate(135deg); }
+.c-kde .sh-caps .b-min::before { top: calc(0.5 * var(--sh-u)); transform: rotate(-45deg); }
+.c-kde .sh-caps .b-max::before { top: calc(2.5 * var(--sh-u)); transform: rotate(135deg); }
 .sh-gbtn {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: calc(18 * var(--sh-u));
+  height: calc(18 * var(--sh-u));
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -124,7 +155,7 @@
   background: rgba(0, 0, 6, 0.08);
 }
 /* A drawn cross, shared by both shells: at 9px a glyph renders soft and sits off-centre. */
-.b-close { display: block; position: relative; width: 9px; height: 9px; }
+.b-close { display: block; position: relative; width: calc(9 * var(--sh-u)); height: calc(9 * var(--sh-u)); }
 .b-close::before,
 .b-close::after {
   content: '';
@@ -132,7 +163,7 @@
   top: 50%;
   left: 0;
   width: 100%;
-  height: 1.1px;
+  height: max(1px, calc(1.1 * var(--sh-u)));
   background: currentColor;
   border-radius: 1px;
 }
@@ -162,11 +193,11 @@
 .sh-url {
   flex: 1 1 auto;
   text-align: center;
-  font-size: 0.62rem;
+  font-size: calc(9.92 * var(--sh-u));
   letter-spacing: 0.02em;
   background: rgba(0, 0, 0, 0.06);
   border-radius: 999px;
-  padding: 4px 12px;
+  padding: calc(4 * var(--sh-u)) calc(12 * var(--sh-u));
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

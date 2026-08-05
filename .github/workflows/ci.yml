@@ -342,6 +342,35 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --no-verify --locked
 
+  # --- Canary: the SAME reusable workflow the app repositories use ------------------------------
+  # day's own CI and daybrite/actions' build-day-app.yml are the same pipeline written twice, and
+  # this is the first half of collapsing them. It builds ONE target through the shared workflow,
+  # with `day-source: artifact` so the CLI under test is the one this run just built rather than a
+  # published release — the property day's inline jobs have and app repos previously could not get.
+  #
+  # It runs BESIDE the inline `linux` job (different artifact prefix, so nothing collides), which
+  # is the point: the two produce the same package from the same commit, and any difference is a
+  # gap in the shared workflow to close before the inline jobs are deleted.
+  shared-pipeline:
+    name: shared pipeline (canary)
+    needs: [linux-day]
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      contents: read
+    uses: daybrite/actions/.github/workflows/build-day-app.yml@main
+    with:
+      targets: linux-gtk
+      project-path: apps/showcase
+      day-source: artifact
+      artifact-prefix: canary-
+      app-id: dev.daybrite.showcase
+      scripts: dayscript/walkthrough.yaml
+      themes: light dark
+      locales: en fr
+      # Off for the canary: the inline `validate (linux-gtk)` job already rebuilds this target,
+      # and running both would double a full build for no extra signal.
+      validate-rebuild: false
+
   # --- Framework checks lifted out of the per-target jobs ---------------------------------------
   # These test the FRAMEWORK, not the app, and they used to sit inside the per-target build jobs —
   # `cargo test --locked` ran in six of them (ten times counting matrix combos) to test the same

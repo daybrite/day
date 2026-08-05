@@ -215,8 +215,63 @@ pub fn route_param(name: &str) -> Option<String> {
 /// Record the host's launch deep link before `launch_with` runs (docs/navigation.md).
 /// Platform glue only — apps navigate with [`navigate`]. `DAY_DEEPLINK`, where a process
 /// environment exists, takes precedence.
+///
+/// UI THREAD ONLY: the slot is thread-local, because the web host that seeds it runs on the one
+/// thread there is. Glue that may be called from another thread (a notification tap arriving on a
+/// JNI or delegate thread) wants [`request_route`], which is thread-safe and works at any
+/// lifecycle stage.
 pub fn set_launch_deeplink(route: &str) {
     LAUNCH_DEEPLINK.with(|l| *l.borrow_mut() = Some(route.to_string()));
+}
+
+/// A route requested from outside the reactive turn, at any lifecycle stage, from any thread —
+/// the rail a notification tap navigates through (docs/notify.md).
+///
+/// This is process-global rather than thread-local ([`LAUNCH_DEEPLINK`] is the latter) because the
+/// caller is usually NOT on the UI thread: Android delivers a tap on a JNI thread and Apple on a
+/// delegate callback, and both can arrive before `launch_with` has run at all.
+static REQUESTED_ROUTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn requested_slot() -> std::sync::MutexGuard<'static, Option<String>> {
+    // A panic while holding this lock would otherwise wedge every later navigation; the buffer is
+    // one Option<String>, so recovering the value is always safe.
+    REQUESTED_ROUTE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Ask the app to navigate, from anywhere, at any time.
+///
+/// Cold start (a tap that launches the process) and warm tap (the app is already running) are the
+/// same call: before launch the route is buffered and `launch_with` applies it after the first
+/// mount, so it lands once routes actually exist; after launch it is applied on the UI thread.
+/// An empty route is ignored, and the newest request wins — a user who taps twice gets the second
+/// destination.
+pub fn request_route(route: &str) {
+    if route.is_empty() {
+        return;
+    }
+    *requested_slot() = Some(route.to_string());
+    // Before a backend installs the poster there is no UI thread to post to; the launch drain
+    // picks the buffer up instead.
+    if day_reactive::has_main_poster() {
+        day_reactive::on_main(|| {
+            if let Some(route) = take_requested_route() {
+                apply_route_request(&route);
+            }
+        });
+    }
+}
+
+/// Take the buffered route, if any. `launch_with` drains it after the first mount.
+pub(crate) fn take_requested_route() -> Option<String> {
+    requested_slot().take()
+}
+
+/// Apply a route the backend or a part asked for. Echoes of our own `set_route` match the current
+/// route and are dropped.
+pub(crate) fn apply_route_request(route: &str) {
+    if current_route().as_deref() != Some(route) && !navigate(route) {
+        eprintln!("day: requested route {route:?} did not match");
+    }
 }
 
 /// Whether a launch deep link is pending (`DAY_DEEPLINK` or a platform hint). A nav surface's
@@ -295,6 +350,10 @@ pub(crate) fn launch_deeplink() -> Option<String> {
     std::env::var("DAY_DEEPLINK")
         .ok()
         .filter(|r| !r.is_empty())
+        // A route buffered by `request_route` before launch — a notification tap that cold-started
+        // the process. Peeked, not taken, so `has_launch_deeplink()` keeps answering true for a
+        // nav surface's `.restore` (a tap must beat restored state); `launch_with` takes it.
+        .or_else(|| requested_slot().clone())
         .or_else(|| LAUNCH_DEEPLINK.with(|l| l.borrow().clone()))
         .filter(|r| !r.is_empty())
 }
@@ -428,5 +487,68 @@ mod tests {
             parse_route("?flag").1,
             vec![("flag".to_string(), String::new())]
         );
+    }
+
+    /// `REQUESTED_ROUTE` is process-global (it must be — see `request_route`), so the tests that
+    /// touch it cannot run in parallel with each other. Serialize them rather than making the
+    /// production type thread-local, which would defeat the point of the buffer.
+    static ROUTE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn route_test<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = ROUTE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = take_requested_route();
+        let out = f();
+        let _ = take_requested_route();
+        out
+    }
+
+    /// A tap that cold-starts the process buffers a route, and the launch path sees it — without
+    /// this, `launch_deeplink()` would miss it and the app would open on its default screen.
+    #[test]
+    fn requested_route_before_launch_is_visible_to_the_launch_path() {
+        route_test(|| {
+            let _ = take_requested_route(); // isolate from other tests in this process
+            assert_eq!(launch_deeplink(), None);
+            request_route("clock/timer");
+            assert_eq!(launch_deeplink().as_deref(), Some("clock/timer"));
+            // Peeked, not taken: a nav surface's `.restore` asks this so a tap beats restored state.
+            assert!(has_launch_deeplink());
+            assert_eq!(take_requested_route().as_deref(), Some("clock/timer"));
+            assert_eq!(take_requested_route(), None);
+        });
+    }
+
+    /// The newest tap wins: a user who taps a second notification before launch completes gets
+    /// the second destination, not the first.
+    #[test]
+    fn newest_requested_route_wins() {
+        route_test(|| {
+            let _ = take_requested_route();
+            request_route("mail/inbox");
+            request_route("clock/alarm");
+            assert_eq!(take_requested_route().as_deref(), Some("clock/alarm"));
+        });
+    }
+
+    /// An empty route is not a navigation request — `navigate("")` means "pop to root", which a
+    /// missing intent extra must never trigger.
+    #[test]
+    fn empty_requested_route_is_ignored() {
+        route_test(|| {
+            let _ = take_requested_route();
+            request_route("");
+            assert_eq!(take_requested_route(), None);
+        });
+    }
+
+    /// `request_route` must not panic when no backend has started, which is exactly the state a
+    /// cold-start notification tap arrives in (`on_main` panics without a poster).
+    #[test]
+    fn request_route_does_not_require_a_running_backend() {
+        route_test(|| {
+            assert!(!day_reactive::has_main_poster());
+            request_route("some/route"); // would panic if it posted unconditionally
+            let _ = take_requested_route();
+        });
     }
 }

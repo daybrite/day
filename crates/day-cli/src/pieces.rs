@@ -12,6 +12,7 @@
 //! gradle-repositories = ["https://…", …]  # → extra Maven repos
 //! permissions = ["android.permission.INTERNET", …]  # → <uses-permission>s merged into the manifest
 //! proguard = ["android/proguard-rules.pro"]  # → R8 keep rules for classes native code reaches by name
+//! manifest-components = ["android/components.xml"]  # → <receiver>/<service>/… merged into <application>
 //! ```
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which the app's
 //! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
@@ -92,6 +93,13 @@ pub struct AndroidPieces {
     /// into the release build's proguard configuration so those names survive minification.
     #[serde(rename = "proguardFiles")]
     pub proguard_files: Vec<String>,
+    /// Absolute manifest-fragment files contributed by pieces/parts that need a `<receiver>`,
+    /// `<service>`, or `<activity>` of their own — a scheduled-notification part cannot work
+    /// without one (docs/notify.md). Their contents are inlined into the `<application>` of the
+    /// generated overlay; the paths ride in day-pieces.json so Gradle can gate on them and so a
+    /// build log shows which crate contributed what.
+    #[serde(rename = "manifestComponents")]
+    pub manifest_components: Vec<String>,
 }
 
 // --- `cargo metadata` JSON (only the fields we need) ---
@@ -142,6 +150,12 @@ struct AndroidMeta {
     /// classes kept by name under release minification.
     #[serde(default)]
     proguard: StringOrVec,
+    /// Manifest fragments (relative to the crate) holding the `<receiver>`/`<service>`/`<activity>`
+    /// elements the crate's own Java classes need declared. Each file holds ONLY the elements —
+    /// no `<manifest>` or `<application>` wrapper, which the CLI adds — and must name its classes
+    /// fully-qualified, since the overlay merges into an app whose package it cannot know.
+    #[serde(default, rename = "manifest-components")]
+    manifest_components: StringOrVec,
 }
 
 /// Accept `java = "android/java"` or `java = ["a", "b"]`.
@@ -379,6 +393,22 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 pieces.proguard_files.push(abs);
             }
         }
+        // A missing fragment is a HARD error, unlike the skip-and-warn above: the others degrade to
+        // a smaller build, but a dropped `<receiver>` yields an APK that installs, runs, and then
+        // silently never delivers — the failure mode this key exists to prevent.
+        for rel in &android.manifest_components.0 {
+            let file = crate_dir.join(rel);
+            if !file.is_file() {
+                return Err(format!(
+                    "{}: manifest-components file {:?} not found",
+                    pkg.id, file
+                ));
+            }
+            let abs = file.to_string_lossy().into_owned();
+            if !pieces.manifest_components.contains(&abs) {
+                pieces.manifest_components.push(abs);
+            }
+        }
     }
     Ok(pieces)
 }
@@ -471,17 +501,61 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     // claimed). Widen what this file contains; never move or split it, or permission merging breaks
     // silently in every checked-out app.
     let overlay = dir.join("day-pieces-manifest.xml");
-    if entries.is_empty() {
+    let components = read_manifest_components(&pieces.manifest_components)?;
+    if entries.is_empty() && components.is_empty() {
         let _ = std::fs::remove_file(&overlay);
     } else {
-        std::fs::write(&overlay, permissions_manifest(&entries)).map_err(|e| e.to_string())?;
+        // A scaffold generated before manifest-components existed gates the overlay on the
+        // permission list being non-empty, so a crate contributing ONLY components would have its
+        // receivers silently dropped. Say so, with the one-line fix, rather than shipping an APK
+        // that installs and never delivers.
+        if entries.is_empty() {
+            eprintln!(
+                "day: a dependency contributes Android manifest components but no permissions. \
+                 If this app's platform/android/app/build.gradle.kts still reads \
+                 `if (piecePermissions.isNotEmpty() && pieceManifest.exists())`, change it to \
+                 `if (pieceManifest.exists())` or the components will not be merged."
+            );
+        }
+        std::fs::write(&overlay, pieces_manifest(&entries, &components))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-/// A minimal manifest carrying only the `<uses-permission>`s — merged into the app manifest by AGP's
-/// manifest merger (which also dedups against any the app already declares).
-fn permissions_manifest(permissions: &[crate::permissions::AndroidRaw]) -> String {
+/// Read and validate each contributed manifest fragment. The fragment holds only the elements that
+/// belong inside `<application>`; rejecting a wrapper here turns a confusing AGP merge failure into
+/// a build error naming the file.
+fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for path in paths {
+        let body = std::fs::read_to_string(path)
+            .map_err(|e| format!("manifest-components {path}: {e}"))?;
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            return Err(format!("manifest-components {path}: file is empty"));
+        }
+        // `<manifest` also catches the `<?xml …?>`-prefixed whole-manifest case, since a wrapper
+        // always contains the element somewhere.
+        if trimmed.contains("<manifest") || trimmed.contains("<application") {
+            return Err(format!(
+                "manifest-components {path}: contains a <manifest>/<application> wrapper — the \
+                 file must hold ONLY the elements that go inside <application> (the CLI adds the \
+                 wrapper)"
+            ));
+        }
+        out.push(trimmed.to_string());
+    }
+    Ok(out)
+}
+
+/// The overlay: the `<uses-permission>`s, plus any `<application>` components pieces/parts declared
+/// — merged into the app manifest by AGP's manifest merger (which also dedups against any the app
+/// already declares).
+fn pieces_manifest(
+    permissions: &[crate::permissions::AndroidRaw],
+    components: &[String],
+) -> String {
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
          <!-- Generated by `day build` from Day.toml [permissions] and \
@@ -501,6 +575,21 @@ fn permissions_manifest(permissions: &[crate::permissions::AndroidRaw]) -> Strin
                 perm.name
             )),
         }
+    }
+    if !components.is_empty() {
+        s.push_str("    <application>\n");
+        for frag in components {
+            for line in frag.lines() {
+                if line.trim().is_empty() {
+                    s.push('\n');
+                } else {
+                    s.push_str("        ");
+                    s.push_str(line.trim_end());
+                    s.push('\n');
+                }
+            }
+        }
+        s.push_str("    </application>\n");
     }
     s.push_str("</manifest>\n");
     s
@@ -945,4 +1034,104 @@ fn package_swift(pieces: &IosPieces, has_resources: bool, has_fonts: bool) -> St
          \x20   ]\n\
          )\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::permissions::AndroidRaw;
+
+    fn raw(name: &str) -> AndroidRaw {
+        AndroidRaw {
+            name: name.to_string(),
+            max_sdk: None,
+        }
+    }
+
+    #[test]
+    fn overlay_without_components_is_unchanged() {
+        // The pre-existing shape: permissions only, no <application> element at all. Guards the
+        // compatibility surface — every checked-out app's scaffold already merges this file.
+        let xml = pieces_manifest(&[raw("android.permission.INTERNET")], &[]);
+        assert!(xml.contains("<uses-permission android:name=\"android.permission.INTERNET\" />"));
+        assert!(!xml.contains("<application"));
+        assert!(xml.trim_end().ends_with("</manifest>"));
+    }
+
+    #[test]
+    fn components_are_wrapped_in_application_and_indented() {
+        let frag = "<receiver android:name=\"dev.daybrite.day.notify.DayNotifyAlarmReceiver\"\n    android:exported=\"false\" />";
+        let xml = pieces_manifest(
+            &[raw("android.permission.RECEIVE_BOOT_COMPLETED")],
+            &[frag.to_string()],
+        );
+        assert!(xml.contains("    <application>\n"));
+        assert!(xml.contains("    </application>\n"));
+        assert!(
+            xml.contains(
+                "        <receiver android:name=\"dev.daybrite.day.notify.DayNotifyAlarmReceiver\""
+            ),
+            "fragment should be indented inside <application>:\n{xml}"
+        );
+        // The permission still rides in the same file, above the application block.
+        let perm_at = xml.find("<uses-permission").expect("permission present");
+        let app_at = xml.find("<application").expect("application present");
+        assert!(perm_at < app_at);
+    }
+
+    #[test]
+    fn components_alone_still_produce_an_overlay() {
+        let xml = pieces_manifest(&[], &["<service android:name=\"a.B\" />".to_string()]);
+        assert!(xml.contains("<service android:name=\"a.B\" />"));
+        assert!(!xml.contains("<uses-permission"));
+    }
+
+    #[test]
+    fn wrapper_in_a_fragment_is_rejected() {
+        let dir = std::env::temp_dir().join("day-pieces-frag-wrapper");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("components.xml");
+        std::fs::write(
+            &path,
+            "<manifest><application><receiver android:name=\"a.B\" /></application></manifest>",
+        )
+        .unwrap();
+        let err = read_manifest_components(&[path.to_string_lossy().into_owned()])
+            .expect_err("a wrapped fragment must be rejected");
+        assert!(err.contains("wrapper"), "unhelpful error: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn empty_fragment_is_rejected() {
+        let dir = std::env::temp_dir().join("day-pieces-frag-empty");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("components.xml");
+        std::fs::write(&path, "   \n\t\n").unwrap();
+        let err = read_manifest_components(&[path.to_string_lossy().into_owned()])
+            .expect_err("an empty fragment must be rejected");
+        assert!(err.contains("empty"), "unhelpful error: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn android_meta_parses_the_new_key() {
+        let meta: AndroidMeta = toml::from_str(
+            "java = \"android/java\"\nmanifest-components = [\"android/components.xml\"]\n",
+        )
+        .expect("parses");
+        assert_eq!(meta.java.0, vec!["android/java".to_string()]);
+        assert_eq!(
+            meta.manifest_components.0,
+            vec!["android/components.xml".to_string()]
+        );
+    }
+
+    #[test]
+    fn android_meta_without_the_key_still_parses() {
+        // Every existing part's manifest must keep parsing — the field is additive.
+        let meta: AndroidMeta =
+            toml::from_str("java = [\"android/java\"]\npermissions = []\n").expect("parses");
+        assert!(meta.manifest_components.0.is_empty());
+    }
 }

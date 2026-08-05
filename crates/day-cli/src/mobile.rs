@@ -339,6 +339,79 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     Ok(())
 }
 
+/// An installed provisioning profile that covers a given app id.
+pub(crate) struct InstalledProfile {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// The installed development profile whose app id matches `app_id`. Profiles are CMS signed, so
+/// `security cms -D` does the decoding rather than a plist parse.
+pub(crate) fn installed_profile(app_id: &str) -> Option<InstalledProfile> {
+    let dir = dirs_home()?.join("Library/MobileDevice/Provisioning Profiles");
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("mobileprovision") {
+            continue;
+        }
+        let Ok(out) = Command::new("security")
+            .args(["cms", "-D", "-i"])
+            .arg(&path)
+            .output()
+        else {
+            continue;
+        };
+        if !out.status.success() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        // `<key>application-identifier</key><string>TEAMID.app.bundle.id</string>`
+        let Some(after) = text.split("application-identifier").nth(1) else {
+            continue;
+        };
+        let Some(value) = after
+            .split("<string>")
+            .nth(1)
+            .and_then(|v| v.split("</string>").next())
+        else {
+            continue;
+        };
+        let value = value.trim();
+        if let Some((team, id)) = value.split_once('.')
+            && id == app_id
+        {
+            let name = text
+                .split("<key>Name</key>")
+                .nth(1)
+                .and_then(|v| v.split("<string>").nth(1))
+                .and_then(|v| v.split("</string>").next())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let _ = team;
+            return Some(InstalledProfile {
+                name,
+                path: path.clone(),
+            });
+        }
+    }
+    None
+}
+
+fn dirs_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
+}
+
+/// Whether the app asks for push. `notifications = true` in Day.toml is the app saying it wants
+/// them; on Apple platforms that requires `aps-environment`, which only a provisioning profile can
+/// grant. Used to check the two agree before signing rather than after the app fails to register.
+pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
+    let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
+    let plan = crate::permissions::resolve(&project.manifest, "ios", &contributed)
+        .map_err(|e| format!("Day.toml: {e}"))?;
+    Ok(plan.resolved.iter().any(|r| r.spec.name == "notifications"))
+}
+
 /// Everything the iOS build stages before xcodebuild runs.
 ///
 /// One function, three call sites (`build_ios`, and both `pack::ios` paths) — because they had
@@ -356,6 +429,19 @@ pub fn build_ios(
     profile: &str,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
+    build_ios_for(project, target, profile, start, false)
+}
+
+/// `physical` swaps the simulator SDK for the device one and turns signing on. A simulator build
+/// is unsigned by construction; a device refuses anything that is not signed by a certificate it
+/// trusts, listed in a profile that names the device. Everything below the SDK switch is that.
+pub fn build_ios_for(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+    start: std::time::Instant,
+    physical: bool,
+) -> Result<BuildOutcome, String> {
     let configuration = if profile == "release" {
         "Release"
     } else {
@@ -367,13 +453,23 @@ pub fn build_ios(
     // would fail with "no such file … .bundle". `project.root` is absolute (see meta::find_project),
     // but absolutize here too so this invariant is enforced at the one place that actually matters.
     let symroot = absolute(&project.root.join("build/day/ios-uikit"))?;
+    let sdk = if physical {
+        "iphoneos"
+    } else {
+        "iphonesimulator"
+    };
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     // Stage everything xcodebuild needs: the local DayPieces SwiftPM package the .xcodeproj links,
     // the UIAppFonts array, and the permission usage descriptions (docs/permissions.md).
     prepare_ios(project)?;
+    let prov = if physical {
+        installed_profile(&project.manifest.app.id)
+    } else {
+        None
+    };
     status(
         "Building",
-        &format!("{} (xcodebuild {configuration})", target.name),
+        &format!("{} (xcodebuild {configuration}, {sdk})", target.name),
     );
     let xcodebuild = || {
         let mut cmd = Command::new("xcodebuild");
@@ -384,13 +480,25 @@ pub fn build_ios(
                 "-configuration",
                 configuration,
                 "-sdk",
-                "iphonesimulator",
+                sdk,
                 "-arch",
                 "arm64",
             ])
             .arg(format!("SYMROOT={}", symroot.display()))
-            .arg(format!("DAY_BIN={}", day_bin.display()))
-            .arg("build")
+            .arg(format!("DAY_BIN={}", day_bin.display()));
+        if physical {
+            // Build UNSIGNED and sign the bundle ourselves below. Letting xcodebuild sign means
+            // choosing between two failures: `Automatic` mints its own "iOS Team Provisioning
+            // Profile: *" wildcard, which carries neither this app's certificate nor its push
+            // capability; `Manual` names our profile, but command-line settings reach EVERY
+            // target, and the SwiftPM package targets (Lottie, DayPieces) refuse a profile at all
+            // — "does not support provisioning profiles". Signing afterwards sidesteps both, and
+            // takes the identity and entitlements from the profile itself, so the three can't
+            // disagree.
+            cmd.arg("CODE_SIGNING_ALLOWED=NO")
+                .arg("CODE_SIGNING_REQUIRED=NO");
+        }
+        cmd.arg("build")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         cmd.output().map_err(|e| format!("xcodebuild: {e}"))
@@ -404,22 +512,175 @@ pub fn build_ios(
         out = xcodebuild()?;
     }
     if !out.status.success() {
+        // A device build that fails IN the signing phase still leaves the assembled (unsigned)
+        // bundle behind, and xcodebuild treats it as up to date next time — so the retry that
+        // would have worked silently produces an unsigned app instead. Drop the product.
+        if physical {
+            let _ = std::fs::remove_dir_all(symroot.join(format!("{configuration}-{sdk}")));
+        }
         return Err(format!("xcodebuild failed:\n{}", diagnose_xcodebuild(&out)));
     }
     // The Runner target's product bundle is named after the app's PRODUCT_NAME (per app), so locate
     // the single `.app` in the products dir rather than assuming a fixed name.
-    let products = symroot.join(format!("{configuration}-iphonesimulator"));
+    let products = symroot.join(format!("{configuration}-{sdk}"));
     let app = std::fs::read_dir(&products)
         .map_err(|e| format!("reading {}: {e}", products.display()))?
         .flatten()
         .map(|e| e.path())
         .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
         .ok_or_else(|| format!("no .app bundle in {}", products.display()))?;
+    if physical {
+        let p = prov.ok_or_else(|| {
+            format!(
+                "no installed provisioning profile covers {}. Create a development profile for \
+                 that app id and install it (double-click the .mobileprovision), then retry.",
+                project.manifest.app.id
+            )
+        })?;
+        sign_ios_bundle(project, &app, &p)?;
+    }
     Ok(BuildOutcome {
         target: target.name,
         artifact: app,
         seconds: start.elapsed().as_secs_f64(),
     })
+}
+
+/// Sign a device bundle against the profile that provisions it.
+///
+/// Both inputs come from the profile rather than from configuration: the signing identity is the
+/// certificate the profile lists (matched by SHA-1, so a machine holding several development
+/// certificates picks the right one), and the entitlements are the profile's own. A signature can
+/// only claim entitlements its profile grants, so taking them from there makes that true by
+/// construction instead of by a file someone has to keep in step.
+fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Result<(), String> {
+    let tmp = std::env::temp_dir().join("day-ios-sign");
+    let _ = std::fs::create_dir_all(&tmp);
+    let plist = tmp.join("profile.plist");
+    let out = Command::new("security")
+        .args(["cms", "-D", "-i"])
+        .arg(&prof.path)
+        .arg("-o")
+        .arg(&plist)
+        .output()
+        .map_err(|e| format!("security cms: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "could not decode {}: {}",
+            prof.path.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+
+    // The entitlements the signature will claim.
+    let ents = tmp.join("signing.entitlements");
+    run_logged(
+        Command::new("plutil")
+            .args(["-extract", "Entitlements", "xml1", "-o"])
+            .arg(&ents)
+            .arg(&plist),
+        "plutil -extract Entitlements",
+    )?;
+
+    // What the app declares and what the profile grants have to agree. Catching it here beats
+    // shipping an app to the device that silently cannot register for push.
+    if ios_wants_push(project)? {
+        let text = std::fs::read_to_string(&ents).unwrap_or_default();
+        if !text.contains("aps-environment") {
+            return Err(format!(
+                "Day.toml declares `notifications`, but the profile {:?} does not grant \
+                 aps-environment. Enable Push Notifications on the App ID for {} and regenerate \
+                 the profile.",
+                prof.name, project.manifest.app.id
+            ));
+        }
+    }
+
+    // The certificate the profile lists, by fingerprint.
+    let der = tmp.join("signer.der");
+    run_logged(
+        Command::new("plutil")
+            .args(["-extract", "DeveloperCertificates.0", "raw", "-o"])
+            .arg(tmp.join("signer.b64"))
+            .arg(&plist),
+        "plutil -extract DeveloperCertificates",
+    )?;
+    let b64 = std::fs::read_to_string(tmp.join("signer.b64")).map_err(|e| e.to_string())?;
+    let decoded = Command::new("base64")
+        .args(["-d"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write;
+            c.stdin.take().unwrap().write_all(b64.as_bytes())?;
+            c.wait_with_output()
+        })
+        .map_err(|e| format!("base64: {e}"))?;
+    std::fs::write(&der, &decoded.stdout).map_err(|e| e.to_string())?;
+    let fp = Command::new("openssl")
+        .args(["x509", "-inform", "DER", "-in"])
+        .arg(&der)
+        .args(["-noout", "-fingerprint", "-sha1"])
+        .output()
+        .map_err(|e| format!("openssl: {e}"))?;
+    let sha1 = String::from_utf8_lossy(&fp.stdout)
+        .split('=')
+        .nth(1)
+        .map(|v| v.trim().replace(':', ""))
+        .ok_or("could not read the signing certificate's fingerprint")?;
+
+    std::fs::copy(&prof.path, app.join("embedded.mobileprovision"))
+        .map_err(|e| format!("embedding the profile: {e}"))?;
+
+    // Inside-out: nested code must be signed before the bundle that contains it (§16.5).
+    let mut nested: Vec<PathBuf> = Vec::new();
+    for sub in ["Frameworks", "PlugIns"] {
+        if let Ok(rd) = std::fs::read_dir(app.join(sub)) {
+            nested.extend(rd.flatten().map(|e| e.path()));
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(app) {
+        nested.extend(
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("bundle")),
+        );
+    }
+    nested.sort();
+    for item in &nested {
+        run_logged(
+            Command::new("codesign")
+                .args(["--force", "--timestamp=none", "--sign", &sha1])
+                .arg(item),
+            &format!(
+                "codesign {}",
+                item.file_name().unwrap_or_default().to_string_lossy()
+            ),
+        )?;
+    }
+    status(
+        "Signing",
+        &format!(
+            "{} ({})",
+            app.file_name().unwrap_or_default().to_string_lossy(),
+            prof.name
+        ),
+    );
+    run_logged(
+        Command::new("codesign")
+            .args([
+                "--force",
+                "--timestamp=none",
+                "--sign",
+                &sha1,
+                "--entitlements",
+            ])
+            .arg(&ents)
+            .arg(app),
+        "codesign (app)",
+    )?;
+    Ok(())
 }
 
 /// UDIDs of every currently-booted iOS simulator (`simctl list devices booted`). All simulators on
@@ -488,11 +749,144 @@ fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
     Ok(named)
 }
 
+/// Physical iOS devices, from `devicectl`. A real device's UDID is 25 characters; simulators
+/// report a 36-character GUID through the same list, which is the trap this filter exists for.
+pub(crate) fn physical_ios_devices() -> Vec<(String, String)> {
+    let tmp = std::env::temp_dir().join("day-devicectl-devices.json");
+    let ok = Command::new("xcrun")
+        .args(["devicectl", "list", "devices", "--json-output"])
+        .arg(&tmp)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !ok {
+        return Vec::new();
+    }
+    let Ok(text) = std::fs::read_to_string(&tmp) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for d in json["result"]["devices"].as_array().into_iter().flatten() {
+        let udid = d["hardwareProperties"]["udid"].as_str().unwrap_or_default();
+        let platform = d["hardwareProperties"]["platform"]
+            .as_str()
+            .unwrap_or_default();
+        let name = d["deviceProperties"]["name"].as_str().unwrap_or_default();
+        if platform == "iOS" && udid.len() == 25 {
+            out.push((udid.to_string(), name.to_string()));
+        }
+    }
+    out
+}
+
+/// Install and run on a physical device via `devicectl`. Logs are the device's, so unlike the
+/// simulator path there is no stdout to pipe: the app is launched with its console attached.
+fn launch_ios_physical(
+    project: &Project,
+    outcome: &BuildOutcome,
+    spec: &LaunchSpec,
+) -> Result<std::thread::JoinHandle<i32>, String> {
+    let bundle_id = project.manifest.app.id.clone();
+    let devices = physical_ios_devices();
+    if devices.is_empty() {
+        return Err(
+            "no physical iOS device is paired and reachable. Connect it (or bring it onto \
+                    the same network for a wireless pair) and check `xcrun devicectl list devices`."
+                .to_string(),
+        );
+    }
+    // `--device` may name either the UDID or the device name shown in Xcode.
+    let (udid, name) = match spec.device.as_deref() {
+        None if devices.len() == 1 => devices[0].clone(),
+        None => {
+            return Err(format!(
+                "several iOS devices are available — name one with --device: {}",
+                devices
+                    .iter()
+                    .map(|(_, n)| n.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        Some(want) => devices
+            .iter()
+            .find(|(u, n)| u.eq_ignore_ascii_case(want) || n.eq_ignore_ascii_case(want))
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "--device {want:?} is not a paired iOS device (available: {})",
+                    devices
+                        .iter()
+                        .map(|(_, n)| n.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?,
+    };
+
+    status("Installing", &format!("{} on {name}", outcome.target));
+    let mut install = Command::new("xcrun");
+    install
+        .args(["devicectl", "device", "install", "app", "--device", &udid])
+        .arg(&outcome.artifact);
+    run_logged(&mut install, &format!("devicectl install ({name})"))?;
+
+    status("Launching", &format!("{bundle_id} on {name}"));
+    let mut launch = Command::new("xcrun");
+    launch
+        .args([
+            "devicectl",
+            "device",
+            "process",
+            "launch",
+            "--device",
+            &udid,
+        ])
+        .arg("--console")
+        .arg(&bundle_id);
+    for (k, v) in &spec.envs {
+        launch.arg("--environment-variables");
+        launch.arg(format!("{{\"{k}\":\"{v}\"}}"));
+    }
+    if let Some(loc) = &spec.locale {
+        launch.arg("--environment-variables");
+        launch.arg(format!("{{\"DAY_LOCALE\":\"{loc}\"}}"));
+    }
+    if !spec.attached {
+        // Detached: start it and return, leaving the app running on the device.
+        let mut detached = Command::new("xcrun");
+        detached
+            .args([
+                "devicectl",
+                "device",
+                "process",
+                "launch",
+                "--device",
+                &udid,
+            ])
+            .arg(&bundle_id);
+        run_logged(&mut detached, &format!("devicectl launch ({name})"))?;
+        return Ok(std::thread::spawn(|| 0));
+    }
+    let mut child = launch
+        .spawn()
+        .map_err(|e| format!("devicectl launch: {e}"))?;
+    Ok(std::thread::spawn(move || {
+        child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1)
+    }))
+}
+
 pub fn launch_ios(
     project: &Project,
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
+    if spec.physical {
+        return launch_ios_physical(project, outcome, spec);
+    }
     let bundle_id = project.manifest.app.id.clone();
     let sims = booted_sims();
     if sims.is_empty() {
