@@ -104,68 +104,57 @@ jobs:
   # ===========================================================================
 
   # --- day CLI: cross-compiled release builds, shared as artifacts ----------
-  # Runs right after the fast checks (fmt/msrv). Each host job cross-compiles the day CLI for
-  # BOTH x86_64 and aarch64 of its OS (fail-fast: false → the two arches are independent) and uploads
-  # each as `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64). The per-platform jobs below
-  # DOWNLOAD the artifact matching their own runner's os+arch instead of rebuilding day-cli.
+  # Runs right after the fast checks (fmt/msrv). ONE job per OS — each builds the day CLI for
+  # BOTH of its architectures (the non-native one cross-compiled) and uploads each as
+  # `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64), so the artifact names the
+  # per-platform jobs download are unchanged: still six binaries, from three jobs instead of six.
   #
-  # The leg marked `host: true` also runs scripts/ci/scaffold-check.sh, which is the only place CI
-  # runs `day new app` end to end: it scaffolds a 21-locale project and lints it, on all three OSes
-  # because path handling and the Xcode/store/website locale writes differ by platform.
-  macos-day:
-    name: macos-day (${{ matrix.arch }})
+  # Each job also runs scripts/ci/scaffold-check.sh on the binary its runner can execute — the
+  # only place CI runs `day new app` end to end (a 21-locale scaffold that must lint clean), on
+  # all three OSes because path handling and the Xcode/store/website locale writes differ.
+  day-cli-macos:
+    name: day-cli-macos
     needs: [fmt, msrv]
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # `host` marks the leg whose binary this runner can execute — the other arch is
-          # cross-compiled, so only this one can run the scaffold check below. macos-latest is
-          # Apple silicon.
-          - { arch: x86_64, target: x86_64-apple-darwin }
-          - { arch: aarch64, target: aarch64-apple-darwin, host: true }
+    runs-on: macos-latest # Apple silicon: aarch64 is the host arch, x86_64 the cross build
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - name: Build the day CLI (release, ${{ matrix.target }})
-        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: Build the day CLI (release, both architectures)
+        run: |
+          cargo build --locked --release -p day-cli --target aarch64-apple-darwin
+          cargo build --locked --release -p day-cli --target x86_64-apple-darwin
       - name: A fresh 21-locale scaffold lints clean
-        if: matrix.host
         shell: bash
-        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
+        run: scripts/ci/scaffold-check.sh target/aarch64-apple-darwin/release/day
       - uses: actions/upload-artifact@v7
         with:
-          name: day-macos-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/day
+          name: day-macos-aarch64
+          path: target/aarch64-apple-darwin/release/day
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-macos-x86_64
+          path: target/x86_64-apple-darwin/release/day
           if-no-files-found: error
 
-  linux-day:
-    name: linux-day (${{ matrix.arch }})
+  day-cli-linux:
+    name: day-cli-linux
     needs: [fmt, msrv]
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # `host`: see the macos-day matrix. ubuntu-latest is x86_64.
-          - { arch: x86_64, target: x86_64-unknown-linux-gnu, host: true }
-          - { arch: aarch64, target: aarch64-unknown-linux-gnu }
+    runs-on: ubuntu-latest # x86_64 host; aarch64 is the cross build
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
       # Cross to aarch64 needs a cross-linker (+ C cross-compiler for any build-script C) AND the
       # aarch64 libc dev files — gcc-aarch64-linux-gnu ships the compiler/linker but NOT the target
       # CRT startup objects (Scrt1.o/crti.o/crtn.o) + libc that the final link needs; those live in
-      # libc6-dev-arm64-cross. x86_64 is native to the ubuntu runner.
+      # libc6-dev-arm64-cross.
       - name: Install the aarch64 cross-toolchain
-        if: matrix.arch == 'aarch64'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -174,45 +163,50 @@ jobs:
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
             echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
           } >> "$GITHUB_ENV"
-      - name: Build the day CLI (release, ${{ matrix.target }})
-        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: Build the day CLI (release, both architectures)
+        run: |
+          cargo build --locked --release -p day-cli --target x86_64-unknown-linux-gnu
+          cargo build --locked --release -p day-cli --target aarch64-unknown-linux-gnu
       - name: A fresh 21-locale scaffold lints clean
-        if: matrix.host
         shell: bash
-        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
+        run: scripts/ci/scaffold-check.sh target/x86_64-unknown-linux-gnu/release/day
       - uses: actions/upload-artifact@v7
         with:
-          name: day-linux-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/day
+          name: day-linux-x86_64
+          path: target/x86_64-unknown-linux-gnu/release/day
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-linux-aarch64
+          path: target/aarch64-unknown-linux-gnu/release/day
           if-no-files-found: error
 
-  windows-day:
-    name: windows-day (${{ matrix.arch }})
+  day-cli-windows:
+    name: day-cli-windows
     needs: [fmt, msrv]
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # `host`: see the macos-day matrix. windows-latest is x86_64.
-          - { arch: x86_64, target: x86_64-pc-windows-msvc, host: true }
-          - { arch: aarch64, target: aarch64-pc-windows-msvc }
+    runs-on: windows-latest # x86_64 host; aarch64 is the cross build (MSVC ships the cross linker)
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
-      - name: Build the day CLI (release, ${{ matrix.target }})
-        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
+      - name: Build the day CLI (release, both architectures)
+        run: |
+          cargo build --locked --release -p day-cli --target x86_64-pc-windows-msvc
+          cargo build --locked --release -p day-cli --target aarch64-pc-windows-msvc
       - name: A fresh 21-locale scaffold lints clean
-        if: matrix.host
         shell: bash
-        run: scripts/ci/scaffold-check.sh target/${{ matrix.target }}/release/day
+        run: scripts/ci/scaffold-check.sh target/x86_64-pc-windows-msvc/release/day
       - uses: actions/upload-artifact@v7
         with:
-          name: day-windows-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/day.exe
+          name: day-windows-x86_64
+          path: target/x86_64-pc-windows-msvc/release/day.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: day-windows-aarch64
+          path: target/aarch64-pc-windows-msvc/release/day.exe
           if-no-files-found: error
 
   # --- Release: verify publishability always; publish the GitHub release on a semantic tag ---------
@@ -236,7 +230,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [test, toolkit, macos-day, linux-day, windows-day]
+    needs: [test, toolkit, day-cli-macos, day-cli-linux, day-cli-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -362,7 +356,7 @@ jobs:
   # gap in the shared workflow to close before the inline jobs are deleted.
   shared-pipeline:
     name: shared pipeline (canary)
-    needs: [linux-day]
+    needs: [day-cli-linux]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
@@ -424,7 +418,7 @@ jobs:
   toolkit:
     name: toolkit (${{ matrix.toolkit }})
     runs-on: ${{ matrix.os }}
-    needs: [macos-day, linux-day, windows-day]
+    needs: [day-cli-macos, day-cli-linux, day-cli-windows]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
@@ -529,7 +523,7 @@ jobs:
     # macos-26 (Tahoe image): the newest Apple Silicon runner generation with current Xcode;
     # bumped from macos-15 for build speed and to track the toolchain Day users actually run.
     runs-on: macos-26
-    needs: [macos-day]
+    needs: [day-cli-macos]
     strategy:
       fail-fast: false
       # Tag pushes trim the matrix to appkit — the only leg that packs a release artifact
@@ -661,7 +655,7 @@ jobs:
     name: ios-uikit
     # macos-26: see the macos job note — also gives the walkthrough a current iOS Simulator runtime.
     runs-on: macos-26
-    needs: [macos-day]
+    needs: [day-cli-macos]
     env:
       # Release signing (§20), active on tag pushes only: the distribution cert + App Store
       # Connect API key light up the device .ipa; without them (and on every branch/PR run)
@@ -777,7 +771,7 @@ jobs:
     name: ${{ matrix.combo }}
     # Runs on tag pushes too (pack-only mode) — both legs pack a release .flatpak.
     runs-on: ubuntu-24.04
-    needs: [linux-day]
+    needs: [day-cli-linux]
     strategy:
       fail-fast: false
       matrix:
@@ -889,7 +883,7 @@ jobs:
   android-mdc:
     name: android-mdc
     runs-on: ubuntu-24.04
-    needs: [linux-day]
+    needs: [day-cli-linux]
     # Best-effort on branch/PR runs while the postMain emulator flake is chased; on tag
     # pushes the emulator never runs and the job gates the release HARD (a failed pack
     # must block the release job, not silently ship without the Android packages).
@@ -1030,7 +1024,7 @@ jobs:
     name: harmony-arkui
     runs-on: ubuntu-latest
     continue-on-error: true
-    needs: [linux-day]
+    needs: [day-cli-linux]
     timeout-minutes: 90
     env:
       # hvigor + ohpm are NOT in the public SDK; they come from the OpenHarmony
@@ -1276,7 +1270,7 @@ jobs:
   windows-xaml:
     name: windows-xaml
     runs-on: windows-latest
-    needs: [windows-day]
+    needs: [day-cli-windows]
     defaults:
       run:
         shell: bash
@@ -1382,7 +1376,7 @@ jobs:
     name: ${{ matrix.combo }}
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact — skip on tags
     runs-on: windows-latest
-    needs: [windows-day]
+    needs: [day-cli-windows]
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -2050,7 +2044,7 @@ jobs:
   web-dom:
     name: web-dom
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
-    needs: [linux-day]
+    needs: [day-cli-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -2058,7 +2052,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # Reuse the day CLI linux-day already built (like every other combo) instead of a from-source
+      # Reuse the day CLI day-cli-linux already built (like every other combo) instead of a from-source
       # `cargo run -p day-cli`. The wasm32 toolchain above is still required: `day build` shells out
       # to `cargo rustc --target wasm32-unknown-unknown` on this runner to compile the app.
       - name: Download the day CLI (release, matching this runner's os+arch)

@@ -544,19 +544,92 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     // scaffold's 84 store placeholders would otherwise bury the warnings that do matter. The
     // count and a sample are enough to see what a stale `--allow` is covering.
     let mut waived: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+    let gha = github_actions();
+    let mut active: Vec<&Finding> = Vec::new();
     for f in &findings {
         if allowed(f.code, allow) {
             let e = waived.entry(f.code).or_insert((0, f.message.as_str()));
             e.0 += 1;
         } else {
             eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
+            if gha {
+                // GitHub reads workflow commands off STDOUT (the human report above is stderr,
+                // which never becomes an annotation). `title` carries the finding code so the
+                // annotation list groups legibly. Newlines must be %0A-escaped per the docs.
+                println!(
+                    "::warning title=day lint {}::{}",
+                    f.code,
+                    gha_escape(&f.message)
+                );
+            }
+            active.push(f);
         }
     }
     for (code, (n, sample)) in &waived {
         eprintln!("{DIM}allowed{DIM:#} {code:<32} {n} finding(s), e.g. {sample}");
     }
+    if gha {
+        write_step_summary(&active, &waived);
+    }
     let waived_n: usize = waived.values().map(|(n, _)| n).sum();
     finish(findings.len() - waived_n, waived_n, strict)
+}
+
+/// Whether this process runs inside a GitHub Actions job — the documented signal is
+/// `GITHUB_ACTIONS=true`, set for every step of every runner.
+fn github_actions() -> bool {
+    std::env::var("GITHUB_ACTIONS").is_ok_and(|v| v == "true")
+}
+
+/// Escape a message for a `::warning::` workflow command: GitHub terminates the command at a
+/// literal newline and treats `%` as the escape lead-in.
+fn gha_escape(msg: &str) -> String {
+    msg.replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
+}
+
+/// Append a markdown findings table to the job's run-summary page.
+///
+/// Three GitHub files look alike and do different things: `$GITHUB_OUTPUT` carries `name=value`
+/// step outputs (annotation syntax written there is silently ignored), `$GITHUB_STEP_SUMMARY` is
+/// the markdown the run page renders, and annotations come from `::warning::` commands on stdout
+/// (above). Findings therefore go to the latter two — stdout for the highlighted PR/file
+/// annotations, the summary file for the run page.
+fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)>) {
+    let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") else {
+        return;
+    };
+    use std::fmt::Write as _;
+    let mut md = String::from("## day lint\n\n");
+    if active.is_empty() {
+        md.push_str("✅ no findings");
+    } else {
+        let _ = writeln!(md, "⚠️ {} finding(s)\n", active.len());
+        md.push_str("| code | finding |\n| --- | --- |\n");
+        for f in active {
+            let _ = writeln!(
+                md,
+                "| `{}` | {} |",
+                f.code,
+                f.message.replace('|', "\\|").replace('\n', "<br>")
+            );
+        }
+    }
+    for (code, (n, _)) in waived {
+        let _ = writeln!(md, "\n_{n} `{code}` finding(s) waived by `--allow`_");
+    }
+    md.push('\n');
+    // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort — a
+    // failed summary write must never fail the lint.
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(&path)
+    {
+        use std::io::Write as _;
+        let _ = file.write_all(md.as_bytes());
+    }
 }
 
 /// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):

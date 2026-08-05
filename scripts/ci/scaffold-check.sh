@@ -22,6 +22,11 @@ DAY="${1:-$ROOT/target/release/day}"
     echo "no day binary at ${1:-$ROOT/target/release/day}" >&2
     exit 1
 }
+# Absolutize AFTER the existence check: the scaffold happens in a scratch dir outside the
+# checkout, where a relative target/<triple>/release/day silently stops resolving — bash then
+# fails with 127 on Linux and "No such file or directory" (exit 1) on macOS's bash 3.2, which is
+# exactly how this bug shipped twice-disguised.
+DAY="$(cd "$(dirname "$DAY")" && pwd)/$(basename "$DAY")"
 
 # Outside the checkout: a Day.toml inside it would sit in the cargo workspace, and
 # scripts/ci/assert-pristine.sh would see the tree as dirty.

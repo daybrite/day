@@ -2248,7 +2248,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day app` | add platforms/toolkits to an existing app |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
@@ -2836,7 +2836,7 @@ What holds the boundary:
 
 | Control | Effect |
 | --- | --- |
-| `environment: release-signing` | The six secrets are environment-scoped, so no other job can read them; the environment's rules limit it to `v*` tags and require a reviewer. |
+| `environment: release-signing` | The six secrets are environment-scoped, so no other job in the run can read them, and the environment's deployment rule admits only `v*` tags. A required reviewer is available and deliberately NOT used: a tagged release signs and notarizes without waiting on a human, so the gate is the tag itself. |
 | `github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')` | `workflow_dispatch` cannot aim the job at a chosen ref, and a bare `refs/tags/` prefix would have matched any tag. |
 | No `actions/checkout` | The tagged commit's source never reaches the runner holding the keys. |
 | Apple's tools only | Cargo and the `day` CLI never run here, so a compromised dependency gets no execution beside the credentials — its `build.rs` ran in a job with no secrets. |
