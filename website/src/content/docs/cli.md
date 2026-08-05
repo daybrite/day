@@ -92,6 +92,88 @@ CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en
 exactly this way, and the [gallery](/gallery) lets you flip every screenshot between those
 variants.
 
+### Simulators, emulators, and devices
+
+Without a device flag, a launch goes to **every** runtime of that kind it can see: every booted
+iOS simulator, every connected Android device and emulator. That is what a capture sweep wants.
+When you mean one specific phone, name it. Selection is one flag per runtime, so a single command
+can send each `-p` somewhere different:
+
+| Flag | Selects | Find them with |
+| --- | --- | --- |
+| `--ios-device <name\|udid>` | a physical iPhone or iPad | `xcrun devicectl list devices` |
+| `--ios-simulator <name\|udid>` | one booted simulator | `xcrun simctl list devices booted` |
+| `--android-device <serial>` | one device or emulator | `adb devices` |
+
+`--android-device` is the same selection `ANDROID_SERIAL` makes, so an exported serial keeps
+working. `--device` is an accepted alias for `--ios-simulator`.
+
+```bash
+# every booted simulator — the default, and what a screenshot sweep wants
+day launch -p ios-uikit
+
+# one booted simulator, by name or UDID
+day launch -p ios-uikit --ios-simulator "iPhone 16 Pro"
+
+# a physical iPhone
+day launch -p ios-uikit --ios-device "iPhone 13 mini"
+
+# one Android device or emulator, by adb serial
+day launch -p android-mdc --android-device 19091FDF600BAY
+
+# both phones at once, from one command, with the logs interleaved
+day launch -p ios-uikit    --ios-device "iPhone 13 mini" \
+           -p android-mdc  --android-device 19091FDF600BAY
+
+# start them and get the shell back rather than staying attached to the logs
+day launch -p ios-uikit --ios-device "iPhone 13 mini" --detach
+
+# drive a device run with a dayscript, the same as a simulator run
+day launch -p ios-uikit --ios-device "iPhone 13 mini" --script dayscript/smoke.yaml
+
+# a phone and a desktop together, to compare the same screen side by side
+day launch -p ios-uikit --ios-device "iPhone 13 mini" -p macos-appkit
+```
+
+Every target narrates the same way. Day reports each step itself, and the tools underneath it
+(`adb`, `devicectl`, `simctl`) stay quiet unless they fail, at which point their output is the
+diagnostic. The two-phone command above prints:
+
+```
+     Signing Showcase.app (Day Showcase iOS Development)
+  Installing ios-uikit on iPhone 13 mini
+   Launching ios-uikit (dev.daybrite.showcase) on device iPhone 13 mini
+  Installing android-mdc on 19091FDF600BAY
+   Launching android-mdc (dev.daybrite.showcase) on 19091FDF600BAY (arm64-v8a)
+```
+
+and then streams both apps' stdout and stderr, each line prefixed with the target it came from —
+`[ios-uikit]`, `[android-mdc]` — so two phones running at once read apart. Ctrl-C stops the run
+and takes the log watchers with it.
+
+### What a physical iOS device needs
+
+Naming `--ios-device` changes the build, not just where it lands: the `iphoneos` SDK instead of
+the simulator's, and code signing, which a simulator build does not do at all. Day signs the
+bundle after the build against a **development provisioning profile** installed for the app's
+bundle id — the profile supplies both the signing identity (matched by fingerprint, so a machine
+holding several development certificates picks the right one) and the entitlements, which is what
+keeps the signature from claiming something its profile does not grant.
+
+So the prerequisites are a paired device and a profile that covers this app and lists that device.
+Install one by double-clicking the `.mobileprovision`; without a match, the launch stops and says
+so rather than falling back to a simulator. Push is the case where the two halves have to agree:
+if `Day.toml` declares `notifications`, the build fails when the profile has no `aps-environment`,
+instead of installing an app that cannot register.
+
+One error is worth recognizing on sight, because Apple reports it as `RequestDenied`:
+
+```
+[ios-uikit] the device is locked — unlock it and run again (iOS will not launch an app onto a locked screen)
+```
+
+Installing works on a locked phone; launching does not.
+
 ## The conventional project
 
 A Day project is a normal Cargo package plus a small `Day.toml`: the project marker and the
