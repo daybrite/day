@@ -28,6 +28,7 @@ mod script;
 mod sessions;
 mod sign;
 mod signals;
+mod store;
 mod targets;
 mod template;
 mod term;

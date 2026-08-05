@@ -13,14 +13,26 @@ interface Props {
   title?: string;
   /** Start in the dark palette. Callers that swap captures at runtime toggle `data-dark`. */
   dark?: boolean;
+  /** Intrinsic pixel size of the capture being wrapped. Given both, a window shell sizes itself
+   *  to the screenshot exactly (see `--ar` in shells.css) instead of letting the title bar span
+   *  a frame the letterboxed capture does not fill. */
+  w?: number;
+  h?: number;
 }
 
-const { platform, title = 'Day Showcase', dark = false } = Astro.props;
+const { platform, title = 'Day Showcase', dark = false, w, h } = Astro.props;
+const ratio = w && h ? w / h : undefined;
 const chrome = chromeOf(platform);
 const bezel = chrome ? undefined : bezelOf(platform);
 ---
 {chrome ? (
-  <div class="sh-win" data-chrome={chrome} data-dark={dark ? '' : undefined}>
+  <div
+    class="sh-win"
+    data-chrome={chrome}
+    data-dark={dark ? '' : undefined}
+    data-fit={ratio ? '' : undefined}
+    style={ratio ? `--ar:${ratio.toFixed(6)}` : undefined}
+  >
     <div class={`sh-chrome c-${chrome}`} aria-hidden="true">
       {chrome === 'macos' && (
         <>

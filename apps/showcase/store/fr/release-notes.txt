@@ -1,0 +1,1 @@
+Première version publique. Toutes les pièces Day implémentées, derrière un hôte de navigation natif, en anglais, français, arabe et chinois simplifié.

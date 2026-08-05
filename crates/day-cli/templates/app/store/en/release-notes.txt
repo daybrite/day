@@ -1,0 +1,2 @@
+TODO: what changed in this version. Google Play allows 500 characters, and that is
+the limit that binds for an app shipping to both stores.

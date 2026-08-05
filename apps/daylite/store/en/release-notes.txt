@@ -1,0 +1,1 @@
+First public release. Catalog browsing, permission disclosure on install, in-place updates, and three bundled sample miniapps.

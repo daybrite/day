@@ -1815,6 +1815,101 @@ jobs:
           echo "verifying $ART"
           "$DAY_BIN" rebuild --strict "$ART"
 
+  # --- Store distribution (docs/store.md) ------------------------------------------
+  # Uploads the packaged showcase to App Store Connect and Google Play with fastlane, using the
+  # listing `day store stage` generates from `store/`. Tag pushes only, and each leg SKIPS ITSELF
+  # when its credentials are absent rather than failing: the secrets are optional by design, so a
+  # fork — and this repo before the accounts exist — still gets a green run.
+  #
+  # Neither lane submits for review or releases to users: iOS uploads a build, Android uploads to
+  # the internal track as an unreleased draft. Promotion stays a human decision in the console.
+  distribute:
+    name: distribute (${{ matrix.combo }})
+    needs: [ios-uikit, android-mdc]
+    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # deliver uploads through Apple's Transporter, which is only supported on macOS.
+          - { combo: ios-uikit, os: macos-26 }
+          - { combo: android-mdc, os: ubuntu-24.04 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the package this run built
+        uses: actions/download-artifact@v8
+        with:
+          name: showcase-dist-${{ matrix.combo }}
+          # Where the generated Fastfile looks for the artifact (build/day/store/<t>/fastlane → ../../../dist).
+          path: apps/showcase/build/day/dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: ${{ runner.temp }}/day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Stage the store listing
+        working-directory: apps/showcase
+        run: $DAY_BIN store stage -p ${{ matrix.combo }}
+      - name: Materialize credentials (decides whether this leg runs)
+        id: creds
+        env:
+          ASC_KEY_ID: ${{ secrets.DAY_ASC_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.DAY_ASC_ISSUER }}
+          ASC_KEY_B64: ${{ secrets.DAY_ASC_KEY_B64 }}
+          PLAY_JSON_B64: ${{ secrets.DAY_PLAY_JSON_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ "${{ matrix.combo }}" = ios-uikit ]; then
+            if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER:-}" ] && [ -n "${ASC_KEY_B64:-}" ]; then
+              printf '%s' "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
+              {
+                echo "DAY_ASC_KEY_ID=$ASC_KEY_ID"
+                echo "DAY_ASC_ISSUER=$ASC_ISSUER"
+                echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8"
+              } >> "$GITHUB_ENV"
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::App Store upload skipped — set DAY_ASC_KEY_ID, DAY_ASC_ISSUER and DAY_ASC_KEY_B64 to enable it"
+            fi
+          else
+            if [ -n "${PLAY_JSON_B64:-}" ]; then
+              printf '%s' "$PLAY_JSON_B64" | base64 --decode > "$RUNNER_TEMP/play.json"
+              echo "SUPPLY_JSON_KEY=$RUNNER_TEMP/play.json" >> "$GITHUB_ENV"
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Google Play upload skipped — set DAY_PLAY_JSON_B64 to enable it"
+            fi
+          fi
+      - name: Install fastlane
+        if: steps.creds.outputs.ready == 'true'
+        run: command -v fastlane >/dev/null || gem install fastlane -N --no-document
+      # Validate first: it asks the store to check the build and the listing and rolls back, so a
+      # rejected listing fails here instead of half-way through an upload.
+      - name: fastlane validate
+        if: steps.creds.outputs.ready == 'true'
+        working-directory: apps/showcase/build/day/store/${{ matrix.combo }}
+        run: fastlane ${{ matrix.combo == 'ios-uikit' && 'ios' || 'android' }} validate
+      - name: fastlane upload
+        if: steps.creds.outputs.ready == 'true'
+        working-directory: apps/showcase/build/day/store/${{ matrix.combo }}
+        run: fastlane ${{ matrix.combo == 'ios-uikit' && 'ios' || 'android' }} upload
+      - name: Upload the generated listing (what the store was sent)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-listing-${{ matrix.combo }}
+          path: apps/showcase/build/day/store/${{ matrix.combo }}
+          if-no-files-found: warn
+
   android-mdc-validate:
     name: validate (android-mdc)
     needs: [android-mdc]

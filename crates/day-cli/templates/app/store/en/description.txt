@@ -1,0 +1,4 @@
+TODO: what {{title}} does, who it is for, and what it does not do.
+
+Both stores allow 4000 characters and show the first few lines before a "more" fold, so lead
+with the sentence that would make someone install it.

@@ -1,0 +1,12 @@
+# Store listing metadata that is NOT localized. The localized text lives in store/<locale>/ —
+# one directory per locale in resource/locales/, and `day lint` checks that the two agree.
+#
+# `day store stage` turns this tree into the layouts App Store Connect and Google Play expect,
+# under build/day/fastlane/<target>/, ready for `fastlane deliver` / `fastlane supply`.
+bundle-id = "{{id}}"
+
+# apple-category = "DEVELOPER_TOOLS"    # App Store primary category
+# (Google Play's category is set in the Play Console — `supply` cannot write it.)
+# copyright = "2026 {{title}}"
+# contact-email = "support@example.com" # where a store reviewer writes back
+# review-notes = "How to exercise the app, for the store reviewer."

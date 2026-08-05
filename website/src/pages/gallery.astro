@@ -126,7 +126,12 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                           );
                           return (
                             <>
-                              <DeviceShell platform={platform.id} title={suite.label}>{body}</DeviceShell>
+                              <DeviceShell
+                                platform={platform.id}
+                                title={suite.label}
+                                w={(tile.variants?.light ?? variantEntries[0]?.[1])?.width}
+                                h={(tile.variants?.light ?? variantEntries[0]?.[1])?.height}
+                              >{body}</DeviceShell>
                               {!tile.placeholder && <span class="fb-badge" hidden></span>}
                             </>
                           );
@@ -475,7 +480,11 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
   .tile.mobile { width: 240px; }
   .frame {
     position: relative;
-    height: 500px;
+    --frame-h: 500px;
+    /* What a shell actually gets: the frame minus its padding and borders. DeviceShell derives
+       the window width from this, so the two must stay in step. */
+    --shell-h: calc(var(--frame-h) - 22px);
+    height: var(--frame-h);
     /* An explicit, DEFINITE row: the implicit `auto` track would be sized by the image, so the
        image's `max-height: 100%` would resolve against its own height and never clamp — a
        taller-than-the-frame capture then silently cropped under `overflow: hidden` instead of

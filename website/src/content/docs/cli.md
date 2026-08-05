@@ -133,6 +133,25 @@ consumes instead of parsing Day.toml itself, and it also carries the full target
 `day lint` validates the manifest's structure. Unknown targets and override tables that name
 no known platform/toolkit/target are findings.
 
+## Store listings
+
+An app that ships to the App Store or Google Play keeps its listing under `store/<locale>/`, as
+plain text files named for what they are — `name.txt`, `subtitle.txt`, `short.txt`,
+`description.txt`, `keywords.txt`, `release-notes.txt` — one directory per locale, keyed the same
+way `resource/locales/` is. `day new app` scaffolds it for any app with a mobile target, and
+`day store init` adds it to an existing one.
+
+The two stores disagree about nearly everything: field names, length limits (release notes: 4000
+characters on the App Store, 500 on Google Play), which fields exist, and how a locale is spelled
+(`zh-CN` here is `zh-Hans` to Apple). `day store stage` resolves all of it, generating a ready-to-run
+fastlane project per target under `build/day/store/<target>/`, with `validate` and `upload` lanes.
+`day pack` runs the same generation, so a packaged build already has its listing beside it.
+
+`day lint` holds the listing to the stores' rules before an upload can reject it — length limits per
+store, required fields, URL format, leftover `TODO` placeholders, and locale parity with the app's
+own translations, so translating the app into a new language asks for the listing to follow. See
+[Store listings](/docs/internal/store) for the full field table and the credential variables.
+
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
 the per-target build pipelines, and how resources are packaged are covered in

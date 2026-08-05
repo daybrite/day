@@ -23,6 +23,27 @@
   border: 1px solid var(--border);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
 }
+/* Sizing the window to the capture, exactly.
+   Left to itself the flex column takes its width from the image's INTRINSIC width (clamped to the
+   frame), while the image renders at whatever the leftover height allows — so a capture that is
+   height-bound ends up narrower than the title bar above it, and the bar overhangs on both sides.
+   When the caller passes the capture's dimensions (`--ar`) and the box it must fit (`--shell-h`),
+   the width can be derived instead: whatever height is left once the bar has taken its share,
+   times the aspect ratio. `min()` keeps a wide capture width-bound as before, where it already
+   fits edge to edge. */
+.sh-win[data-fit] {
+  --chrome-h: 31px; /* .sh-chrome height + its bottom border */
+  /* No fallback for --shell-h on purpose: unset makes the calc invalid, the declaration drops,
+     and the width falls back to `auto` — the old shrink-wrap behaviour — rather than resolving a
+     percentage against the WIDTH of the containing block, which would be silently wrong. */
+  width: min(100%, calc((var(--shell-h) - var(--chrome-h)) * var(--ar)));
+}
+.sh-win[data-fit] > :not(.sh-chrome) {
+  width: 100%;
+  height: auto;
+  max-height: none;
+}
+
 /* The screen: whatever was slotted in. It shrinks to fit the space the bar leaves. */
 .sh-win > :not(.sh-chrome) {
   flex: 0 1 auto;

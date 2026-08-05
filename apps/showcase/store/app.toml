@@ -1,0 +1,13 @@
+# Store listing metadata that is NOT localized. The localized text lives in store/<locale>/.
+bundle-id = "dev.daybrite.showcase"
+apple-category = "DEVELOPER_TOOLS"
+copyright = "2026 Daybrite"
+contact-email = "hello@daybrite.dev"
+review-notes = """
+Day Showcase is a demonstration app for the Day UI framework. Every screen is reachable from the
+navigation list on the first launch; no account, network connection, or configuration is needed.
+
+The Device & sensors page requests camera, location and motion permissions to demonstrate how a
+permission prompt looks on this platform. Declining every prompt leaves the rest of the app fully
+usable — the page shows the denied state instead of the sensor values.
+"""

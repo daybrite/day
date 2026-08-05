@@ -1,0 +1,18 @@
+Daylite runs miniapps: small programs written in JavaScript or TypeScript that draw themselves using your device's own native widgets.
+
+There is no web view. Each miniapp runs in an embedded interpreter and drives real native controls, so it looks and behaves like part of the system rather than like a page inside an app.
+
+HOW IT WORKS
+
+• Browse a catalog of miniapps and install the ones you want
+• Every miniapp declares what it needs — which hosts it may contact, whether it stores data — and you see that before installing
+• Installed miniapps open full screen and are updated in place when a new version is published
+• Add from URL installs any miniapp served from a static address, so publishing one needs no store
+
+BUNDLED SAMPLES
+
+• Weather — a live forecast, showing a miniapp that is allowed to reach exactly one host
+• Todo — a list with search, stored in the device's own SQLite database
+• Tic-tac-toe — a grid game whose entire board is one reactive value
+
+Daylite is the reference implementation of the day-lite runtime, published so developers can see the whole install-and-run path working. It is open source: github.com/daybrite/day.

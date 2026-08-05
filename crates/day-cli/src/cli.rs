@@ -170,6 +170,11 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
+    /// Store listings: scaffold `store/`, or stage the fastlane tree a release uploads
+    Store {
+        #[command(subcommand)]
+        cmd: StoreCmd,
+    },
     /// Stop running launches (and drop their sessions)
     Stop {
         /// Target(s) to stop (repeatable)
@@ -232,6 +237,19 @@ enum Cmd {
 /// Scaffolds default to REMOTE (git) day dependencies so they are self-contained; the hidden
 /// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI smoke-tests of a
 /// freshly-scaffolded project against the day tree under test.
+/// `day store …` — the canonical listing under `store/`, and the fastlane trees it generates.
+#[derive(Subcommand)]
+pub enum StoreCmd {
+    /// Write `store/<locale>/` skeletons for every locale the app ships (never overwrites)
+    Init,
+    /// Generate the fastlane metadata tree under `build/day/fastlane/<target>/`
+    Stage {
+        /// Target to stage for (default: every store target in Day.toml)
+        #[arg(short = 'p', long = "platform")]
+        target: Option<String>,
+    },
+}
+
 #[derive(Subcommand)]
 enum NewKind {
     /// Scaffold a Day PIECE crate (a reusable widget). No `--toolkits` ⇒ a COMPOSITE piece.
@@ -494,6 +512,9 @@ pub fn run() -> i32 {
         }
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
+        }),
+        Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
+            crate::store::run(project, &cmd)
         }),
         Cmd::Stop { platforms, all } => with_project(cli.project.as_deref(), |project| {
             let names: Vec<String> = if all {

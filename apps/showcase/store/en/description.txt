@@ -1,0 +1,22 @@
+Day Showcase is the demonstration app for Day, a framework for building apps in Rust that draw themselves with each platform's own native widgets.
+
+Everything you see here is real UIKit on iPhone, real Material Components on Android, real AppKit on a Mac — driven by a single Rust codebase, with no web view and no custom rendering.
+
+WHAT IS INSIDE
+
+• Controls — buttons, toggles, sliders, pickers and text fields, each bound two ways to a signal
+• Text and text areas — styling, selection, and editing
+• Canvas & shapes — paths, gradients, transforms and gestures
+• Grid, List, Tabs and Stack — the native layout and navigation containers
+• Menus & dialogs, Toolbars, Preferences — the platform's own chrome
+• Date & time, Localization, Resources — formatting and assets that follow the system
+• Device & sensors — battery, connectivity and live accelerometer, gyroscope and magnetometer traces
+• Platform services, Focus, Animation, Web View, Map, Refresh and Crash reporting
+
+The whole app is translated into English, French, Arabic and Simplified Chinese, and switching language at runtime relays every screen — including the right-to-left layout Arabic requires.
+
+WHO IT IS FOR
+
+Developers evaluating Day, and anyone curious what a Rust app looks like when it uses the real thing instead of imitating it. It is a catalog, not a product: there is nothing to sign in to and nothing to buy.
+
+Day is open source. The code for every screen in this app is at github.com/daybrite/day.

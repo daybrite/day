@@ -133,15 +133,24 @@ fn file_platform(path: &str) -> Option<&str> {
 pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<TemplateFile> {
     // Resolve through the target table, NOT by splitting the name: `harmony-arkui`'s platform
     // dir is `ohos` (see `Target::os`).
-    let platforms: Vec<&str> = targets
+    let resolved: Vec<&'static crate::targets::Target> = targets
         .iter()
-        .filter_map(|t| crate::targets::find(t).map(|t| t.os))
+        .filter_map(|t| crate::targets::find(t))
         .collect();
+    let platforms: Vec<&str> = resolved.iter().map(|t| t.os).collect();
+    // `store/` is the App Store / Play listing (§16.6). An app that ships to neither store has no
+    // use for it, and scaffolding TODOs nobody will ever fill in is how a lint gets ignored.
+    let ships_to_a_store = resolved.iter().any(|t| crate::store::is_store_target(t));
     files
         .into_iter()
-        .filter(|f| match file_platform(&f.path) {
-            Some(os) => platforms.contains(&os),
-            None => true,
+        .filter(|f| {
+            if f.path == "store" || f.path.starts_with("store/") {
+                return ships_to_a_store;
+            }
+            match file_platform(&f.path) {
+                Some(os) => platforms.contains(&os),
+                None => true,
+            }
         })
         .collect()
 }

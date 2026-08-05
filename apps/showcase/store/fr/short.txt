@@ -1,0 +1,1 @@
+L'app de démonstration de Day : tous les widgets natifs, une base Rust.

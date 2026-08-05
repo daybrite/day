@@ -98,7 +98,7 @@ fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
             let name = e.file_name().to_string_lossy().to_string();
             if matches!(
                 name.as_str(),
-                "target" | "build" | "platform" | "resource" | "dayscript" | ".git"
+                "target" | "build" | "platform" | "resource" | "store" | "dayscript" | ".git"
             ) {
                 continue;
             }
@@ -211,7 +211,15 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
                 }
                 // rfind: `assert_route:` itself contains "route:" — the value's key is last.
                 if let Some(i) = l.rfind("route:") {
-                    let v = l[i + "route:".len()..]
+                    // The value ends at the next key in the inline map, not at the end of the
+                    // line: `{ route: webview, skip_on: [harmony-arkui] }` is a route of
+                    // "webview", and reading to the brace reported the whole tail as an unknown
+                    // route on every scripted step that carries a filter.
+                    let rest = &l[i + "route:".len()..];
+                    let v = rest
+                        .split(',')
+                        .next()
+                        .unwrap_or(rest)
                         .trim()
                         .trim_end_matches(['}', ' '])
                         .trim()
@@ -261,6 +269,24 @@ pub fn run(project: &Project, strict: bool) -> i32 {
                 });
             }
         }
+    }
+
+    // --- Store listings (§16.6) ---
+    // Held to the stores' own rules, because the alternative is learning them from a rejection
+    // days after the upload. Silent for an app that ships to neither store.
+    match crate::store::read(project) {
+        Ok(listing) => {
+            for p in crate::store::lint(project, &listing) {
+                findings.push(Finding {
+                    code: p.code,
+                    message: p.message,
+                });
+            }
+        }
+        Err(e) => findings.push(Finding {
+            code: "day::lint::store-unreadable",
+            message: e,
+        }),
     }
 
     // --- Permission declarations (docs/permissions.md) ---
@@ -645,6 +671,21 @@ e = { PLATFORM() }
         scan_script_routes(&dir, &mut out);
         out.sort();
         assert_eq!(out, ["controls", "stack/1", "tabs"]);
+        // A step carrying a filter is still a route of "webview": the value ends at the next key
+        // in the inline map. Reading to the closing brace made every filtered step a finding.
+        let f = dir.join("filtered.yaml");
+        std::fs::write(
+            &f,
+            "flow:\n  - navigate: { route: webview, skip_on: [harmony-arkui] }\n",
+        )
+        .expect("write");
+        let mut routes = Vec::new();
+        scan_script_routes(&dir, &mut routes);
+        assert!(routes.contains(&"webview".to_string()), "{routes:?}");
+        assert!(
+            !routes.iter().any(|r| r.contains("skip_on")),
+            "the filter is not part of the route: {routes:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

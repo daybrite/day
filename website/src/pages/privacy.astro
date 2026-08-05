@@ -1,0 +1,142 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { url } from '../lib/site';
+
+// The privacy policy the Daybrite apps' store listings point at. Both stores require a reachable
+// privacy URL per app; these apps genuinely collect nothing, so one accurate page serves them all.
+// Per-app rows exist because "collects nothing" is not the same as "contacts nothing" — an app that
+// fetches a forecast sends an IP address to whoever serves it, and that belongs in writing.
+const apps = [
+  {
+    name: 'Day Showcase',
+    id: 'dev.daybrite.showcase',
+    network: 'None. Every screen runs on data built into the app.',
+    permissions:
+      'Camera, location and motion appear on the Device & sensors page to demonstrate how a permission prompt works. The app reads the sensors only while that page is open, shows the values on screen, and stores none of them.',
+  },
+  {
+    name: 'Daylite',
+    id: 'dev.daybrite.daylite',
+    network:
+      'Downloads the miniapps you choose to install, from the catalog or from a URL you enter. A running miniapp may make its own requests, which are declared before you install it.',
+    permissions: 'None required by the app itself.',
+  },
+  {
+    name: 'Day Skies',
+    id: 'dev.daybrite.dayskies',
+    network:
+      'Sends the coordinates of the cities in your list to Open-Meteo (or to a host you configure) to fetch the forecast.',
+    permissions:
+      'Location, only if you use “Use current location”. The coordinates go to the weather service to fetch that forecast and are not stored anywhere else.',
+  },
+  {
+    name: 'Day Tradr',
+    id: 'dev.daybrite.daytradr',
+    network: 'Requests end-of-day quotes from stooq.com for the symbols you track.',
+    permissions: 'None.',
+  },
+  {
+    name: 'Day Sheets',
+    id: 'dev.daybrite.sheets',
+    network: 'Fetches the feeds you subscribe to, from the servers that publish them.',
+    permissions: 'None.',
+  },
+  {
+    name: 'Day Games',
+    id: 'dev.daybrite.games',
+    network: 'None. Every game runs offline.',
+    permissions: 'None.',
+  },
+  {
+    name: 'Day Bench',
+    id: 'dev.daybrite.daybench',
+    network: 'None.',
+    permissions: 'None.',
+  },
+  {
+    name: 'Matrix',
+    id: 'dev.daybrite.matrix',
+    network:
+      'Connects to the Matrix homeserver you sign in to. Messages are end-to-end encrypted by the Matrix protocol; Daybrite operates no server and sees none of your traffic.',
+    permissions: 'None.',
+  },
+];
+---
+<BaseLayout
+  title="Privacy"
+  description="What the Daybrite apps do with your data: they collect nothing, and this page says exactly which of them contact a server and why."
+>
+  <section class="section">
+    <div class="container prose">
+      <p class="eyebrow">Privacy</p>
+      <h1>Privacy policy</h1>
+      <p class="lead">
+        The Daybrite apps collect no personal data. There is no account, no analytics, no
+        advertising, and no tracking of any kind. Nothing you do in these apps is sent to Daybrite,
+        because Daybrite runs no server that could receive it.
+      </p>
+
+      <h2>What stays on your device</h2>
+      <p>
+        Everything you create or configure — your city list, your subscriptions, your watchlist,
+        your game progress, your preferences — is stored on your device. It is included in your
+        device's own backup if you have one enabled, and it is removed when you uninstall the app.
+      </p>
+
+      <h2>What leaves your device</h2>
+      <p>
+        Some of these apps are useful only because they fetch something. When an app makes a
+        request, the service it contacts necessarily sees your IP address and what you asked for,
+        under that service's own policy — not ours. The table says which apps do this and why.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>App</th><th>Network requests</th><th>Permissions</th></tr>
+          </thead>
+          <tbody>
+            {apps.map((a) => (
+              <tr>
+                <td><strong>{a.name}</strong><br /><code>{a.id}</code></td>
+                <td>{a.network}</td>
+                <td>{a.permissions}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Children</h2>
+      <p>
+        These apps are not directed at children and collect nothing from anyone, of any age.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        If this policy changes, the new version replaces this page and the date below changes with
+        it. The apps are open source, so any change to what an app sends is visible in its commit
+        history.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy: <a href="mailto:hello@daybrite.dev">hello@daybrite.dev</a>, or
+        open an issue on <a href="https://github.com/daybrite/day">GitHub</a>.
+      </p>
+      <p class="gen">Last updated 5 August 2026. Applies to the apps listed above.</p>
+      <p><a href={url('')}>← Back to daybrite.dev</a></p>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .prose { max-width: 62rem; }
+  .prose h2 { margin-top: 2rem; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0 2rem; font-size: 0.95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { font-weight: 700; }
+  td code { font-size: 0.8em; color: var(--muted); }
+  .gen { color: var(--muted); font-size: 0.9rem; }
+</style>

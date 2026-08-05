@@ -233,6 +233,31 @@ pub fn run(
             )
         })
         .collect();
+    // Store listing (docs/store.md): the fastlane tree a release lane uploads, generated from `store/`.
+    // Written on every pack of a store target so the deploy step never has to run a second tool to
+    // get it, and skipped silently for a project with no listing.
+    if crate::store::is_store_target(target) {
+        match crate::store::read(project) {
+            Ok(listing) if !listing.is_empty() => {
+                let out = crate::store::stage_dir(project, target);
+                match crate::store::stage(project, target, &listing, &out) {
+                    Ok(files) => status(
+                        "Listing",
+                        &format!(
+                            "{} ({} file(s), {} locale(s))",
+                            out.display(),
+                            files.len(),
+                            listing.locales.len()
+                        ),
+                    ),
+                    Err(e) => status("Warning", &format!("store listing: {e}")),
+                }
+            }
+            Ok(_) => {}
+            Err(e) => status("Warning", &format!("store listing: {e}")),
+        }
+    }
+
     if sbom_cfg.mode == crate::meta::SbomMode::Sidecar {
         for f in &sbom_cfg.formats {
             let from = sbom_dir.join(f.file_name());

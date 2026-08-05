@@ -2247,7 +2247,8 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day app` | add platforms/toolkits to an existing app |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), Day.toml schema — fast, source-level |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level |
+| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
@@ -2773,6 +2774,9 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    (`DAY_WEB_DRIVER` = scripts/ci/webdom-driver.mjs; the dayscript WebSocket bridge, §14.5),
    uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md).
 4. **Release lane** (semver tags) — the `notarize` job ([§20.2](#202-release-signing-isolation)),
+   a `distribute` job that stages the store listing (`day store stage`) and runs fastlane's
+   validate-then-upload lanes for the App Store and Google Play — each leg skipping itself when its
+   credentials are absent, and neither submitting for review (docs/store.md),
    publishability check (`cargo publish --workspace --dry-run`), tag-vs-version check, GitHub
    release with the six CLI binaries, and crates.io Trusted Publishing (wired; crates not yet
    published — [§1](#1-glossary-and-naming)). The release's app packages are also what the
