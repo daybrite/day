@@ -219,6 +219,7 @@ pub fn interactive() -> i32 {
             false,
             false,
             false, // interactive scaffolds keep the website — opting out is the flag's job
+            &[],   // extra locales are the flag's job too — the scaffold's own default is en
         ),
         1 => part(None, None, None, None, false, false, false),
         _ => piece(None, None, false, None, None, false, false, false),
@@ -506,6 +507,7 @@ pub fn app(
     registry: bool,
     no_input: bool,
     no_website: bool,
+    locales: &[String],
 ) -> i32 {
     let p = Prompt::new(no_input);
     let Some(name) = resolve_name(&p, name) else {
@@ -517,6 +519,19 @@ pub fn app(
         return 1;
     }
     let deps = Deps::resolve(local, git, registry);
+
+    // --locales, comma/space-splittable like --toolkit. Validated BEFORE anything is written,
+    // so a bad tag is a clean error rather than a half-localized scaffold.
+    let mut wanted_locales: Vec<String> = Vec::new();
+    for t in crate::cli::split_list(locales) {
+        if let Err(e) = crate::localize::validate_tag(&t) {
+            eprintln!("error: --locales: {e}");
+            return 2;
+        }
+        if !wanted_locales.contains(&t) {
+            wanted_locales.push(t);
+        }
+    }
 
     // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
     let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
@@ -620,10 +635,27 @@ pub fn app(
         }
     };
     let code = write_all_bytes(&dir, &rendered, &name);
-    if code == 0 {
-        eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
+    if code != 0 {
+        return code;
     }
-    code
+    // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
+    // the fresh project, so the flag and the command can never disagree about what adding a
+    // locale means (fluent copies, store copies, knownRegions, site.toml — localize.rs).
+    for tag in wanted_locales.iter().filter(|t| t.as_str() != "en") {
+        match crate::localize::add(&dir, tag) {
+            Ok(lines) => {
+                for l in &lines {
+                    ops::status("Localize", l);
+                }
+            }
+            Err(e) => {
+                eprintln!("error: --locales {tag}: {e}");
+                return 1;
+            }
+        }
+    }
+    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
+    0
 }
 
 /// The template context (docs/cli.md): every {{placeholder}} a template may use — built ONCE

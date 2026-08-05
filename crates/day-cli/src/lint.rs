@@ -289,6 +289,20 @@ pub fn run(project: &Project, strict: bool) -> i32 {
         }),
     }
 
+    // --- Locale surface sync (`day localize`, DESIGN.md §16.5) ---
+    // The four locale surfaces (resource/locales/, store/, Xcode's knownRegions, the website's
+    // locales array) drift the moment one is edited by hand. Each present surface is compared
+    // against the union of all of them, with the same advice `day localize list` prints.
+    {
+        let survey = crate::localize::survey(&project.root);
+        for (message, advice) in crate::localize::sync_findings(&survey) {
+            findings.push(Finding {
+                code: "day::lint::locale-sync",
+                message: format!("{message} — {advice}"),
+            });
+        }
+    }
+
     // --- Permission declarations (docs/permissions.md) ---
     // The backstop for the whole declaration pipeline: an undeclared permission reports Restricted
     // on Android and TERMINATES the app on iOS the first time it touches the API. Catching it here

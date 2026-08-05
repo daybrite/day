@@ -14,6 +14,7 @@ lints, and scripts projects. It works the same driven by hand, from CI, or from 
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website to skip the site config)
 day app add-toolkit android-mdc   # add a target to an existing app
+day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)

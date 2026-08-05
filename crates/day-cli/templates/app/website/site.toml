@@ -33,6 +33,9 @@ host = "https://example.github.io/{{name}}"
 # harmony, web) — defaults to the first one the app builds.
 # default-platform = "web"
 
+# Locale tags the site is kept in sync with — maintained by `day localize add/remove`, not by hand.
+# locales = ["en"]
+
 # The subdirectory hosting the web-dom build ("Open the web app" points there).
 # webapp = "webapp"
 

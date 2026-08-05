@@ -588,7 +588,10 @@ fn list(project: &Project) -> i32 {
             v.join(", ")
         }
     };
-    crate::ops::status("Fluent", &format!("{} — resource/locales/", show(&s.fluent)));
+    crate::ops::status(
+        "Fluent",
+        &format!("{} — resource/locales/", show(&s.fluent)),
+    );
     let opt = |label: &str, path: &str, set: &Option<Vec<String>>| match set {
         Some(v) => crate::ops::status(label, &format!("{} — {path}", show(v))),
         None => crate::ops::status(label, "(not present)"),

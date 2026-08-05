@@ -371,6 +371,10 @@ enum NewKind {
         /// and the shared CI workflow turn into a GitHub Pages site).
         #[arg(long = "no-website")]
         no_website: bool,
+        /// Locales the app ships from day one (Day tags, comma/space-separated, repeatable).
+        /// Each tag beyond `en` is applied to the fresh scaffold via `day localize add`.
+        #[arg(long = "locales")]
+        locales: Vec<String>,
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
@@ -745,6 +749,7 @@ pub fn run() -> i32 {
                 local,
                 no_input,
                 no_website,
+                locales,
             }) => crate::new::app(
                 name.as_deref(),
                 &toolkits,
@@ -759,6 +764,7 @@ pub fn run() -> i32 {
                 registry,
                 no_input,
                 no_website,
+                &locales,
             ),
         },
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
@@ -1131,8 +1137,9 @@ struct CaptureRun {
 }
 
 /// Accept both `--themes light,dark` and `--themes "light dark"` — the CI matrix variables are
-/// space-separated and pass through as one argument.
-fn split_list(raw: &[String]) -> Vec<String> {
+/// space-separated and pass through as one argument. Shared with the other list-valued flags
+/// (`day new app --locales`, `day localize add/remove`) so every list splits the same way.
+pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
     raw.iter()
         .flat_map(|s| s.split([',', ' ']))
         .map(str::trim)
