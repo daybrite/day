@@ -2249,6 +2249,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day app` | add platforms/toolkits to an existing app |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level |
+| `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |

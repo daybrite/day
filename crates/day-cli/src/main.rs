@@ -18,6 +18,7 @@ mod new;
 mod ohos;
 mod ops;
 mod pack;
+mod patch;
 mod permissions;
 mod pieces;
 mod plist;

@@ -178,6 +178,16 @@ enum Cmd {
         #[arg(long)]
         strict: bool,
     },
+    /// Build a standalone app against a LOCAL day checkout (writes .cargo/config.toml), and
+    /// verify no day crate is still resolving from git
+    Patch {
+        /// Path to the day checkout to build against. Omit to only verify the current resolution.
+        #[arg(long)]
+        local: Option<std::path::PathBuf>,
+        /// Exit non-zero when any day crate resolves from git (CI's guard against a stale table)
+        #[arg(long)]
+        check: bool,
+    },
     /// Store listings: scaffold `store/`, or stage the fastlane tree a release uploads
     Store {
         #[command(subcommand)]
@@ -520,6 +530,9 @@ pub fn run() -> i32 {
         }
         Cmd::Lint { strict } => with_project(cli.project.as_deref(), |project| {
             crate::lint::run(project, strict)
+        }),
+        Cmd::Patch { local, check } => with_project(cli.project.as_deref(), |project| {
+            crate::patch::run(project, local.as_deref(), check)
         }),
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::store::run(project, &cmd)
