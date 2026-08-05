@@ -71,7 +71,7 @@ layer to pay for.
 | `linux-qt` | Linux | Qt 6 Widgets |
 | `windows-xaml` | Windows | XAML (XAML Islands) |
 | `harmony-arkui` | OpenHarmony / HarmonyOS | ArkUI |
-| `web-dom` | Web (any modern browser) | the DOM — wasm32 + semantic HTML |
+| `web-dom` | Web (any modern browser) | DOM — wasm32 + semantic HTML |
 | `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |
 | `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 |
 

@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import { url } from '../lib/site';
+import { platformsById } from '../lib/platforms.mjs';
+import { site, url } from '../lib/site';
 import manifest from '../data/downloads.json';
 import PlatformIcon from '../components/PlatformIcon.astro';
 
@@ -16,64 +17,57 @@ const byId = new Map<string, ManifestFile[]>(
 const release = manifest.release as { tag: string; url: string; publishedAt: string } | null;
 
 // web-dom is rendered ahead of these directly in the markup: there is nothing to download.
-const targets = [
+const packaging = [
   {
     id: 'android-mdc',
-    os: 'Android',
-    name: 'Material Components',
     kind: '.apk / .aab',
     install:
       'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
   },
   {
     id: 'ios-uikit',
-    os: 'iOS',
-    name: 'UIKit',
     kind: '.ipa',
     install:
       'An unsigned device .ipa. It can only be sideloaded: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window. It is not App Store distributed.',
   },
   {
     id: 'harmony-arkui',
-    os: 'HarmonyOS',
-    name: 'ArkUI',
     kind: '.hap',
     install:
       'Development-signed for the public OpenHarmony certificate: install on an emulator or developer device with `hdc install <file>.hap`.',
   },
   {
     id: 'macos-appkit',
-    os: 'macOS',
-    name: 'AppKit',
     kind: '.dmg',
     install:
       'Open the .dmg and drag Day Showcase into Applications. The build is signed and notarized, so it opens like any other Mac app.',
   },
   {
     id: 'windows-xaml',
-    os: 'Windows',
-    name: 'XAML (system XAML)',
     kind: '.msix + setup.exe',
     install:
       'Run the -setup.exe. SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”. The .msix package needs the development certificate trusted first, so the setup.exe is the easier path.',
   },
   {
     id: 'linux-gtk',
-    os: 'Linux',
-    name: 'GTK 4',
     kind: '.flatpak',
     install:
       'Install with `flatpak install --user ./<file>.flatpak`. flatpak asks to confirm the unsigned local bundle and offers the Freedesktop runtime if it is missing.',
   },
   {
     id: 'linux-qt',
-    os: 'Linux',
-    name: 'Qt 6 Widgets',
     kind: '.flatpak',
     install:
       'Same as the GTK build: `flatpak install --user ./<file>.flatpak`, confirm the unsigned local bundle, accept the runtime offer if prompted.',
   },
 ];
+// Each card's heading and OS come from the platform table (src/lib/platforms.mjs); this page
+// contributes the artifact kind and the install note, which are download-page concerns.
+const targets = packaging.map((t) => ({
+  ...t,
+  os: platformsById[t.id].os,
+  name: platformsById[t.id].toolkit,
+}));
 
 function human(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -119,7 +113,7 @@ function richInstall(text: string): (string | { code: string })[] {
             <PlatformIcon id="web-dom" class="dl-icon" />
             <div class="dl-headings">
               <p class="dl-os">Web</p>
-              <h2 class="dl-name">The DOM</h2>
+              <h2 class="dl-name">DOM</h2>
               <code class="dl-id">web-dom</code>
             </div>
           </div>
@@ -127,7 +121,7 @@ function richInstall(text: string): (string | { code: string })[] {
             Nothing to install: the WebAssembly build is hosted on this site as static files.
           </p>
           <p class="dl-files">
-            <a class="btn btn-primary dl-btn" href={url('showcase/web-dom/')}>Open the live build →</a>
+            <a class="btn btn-primary dl-btn" href={site.showcaseWeb}>Open the live build →</a>
           </p>
         </article>
         {targets.map((t) => {

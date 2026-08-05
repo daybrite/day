@@ -5,9 +5,6 @@
 #   scripts/website.sh dev        # same as above
 #   scripts/website.sh build      # production build into website/dist
 #   scripts/website.sh preview    # build, then serve the production output
-#   scripts/website.sh webdom     # build the showcase's web-dom dist (docs/web.md) and stage it
-#                                 # at website/public/showcase/web-dom for local /showcase/web-dom/
-#                                 # preview (CI stages it from the web-dom job's artifact instead)
 #
 # Screenshots for the gallery are produced by CI, not locally — the gallery integration emits
 # placeholder tiles for local builds automatically, so no artifacts are required here.
@@ -50,26 +47,8 @@ case "$cmd" in
     npm run build
     exec npm run preview
     ;;
-  webdom)
-    # Same pattern as the local /api preview: generated output rides public/ passthrough
-    # locally (gitignored); in CI the web-dom job's artifact lands in dist/ instead.
-    # The app is its own repository now (daybrite/Day-Showcase). Point SHOWCASE at a checkout of
-    # it; `day patch` there makes it build against THIS checkout rather than the published crates.
-    app="${SHOWCASE:-$here/../Day-Showcase}"
-    if [ ! -f "$app/Day.toml" ]; then
-      echo "no showcase checkout at $app — clone daybrite/Day-Showcase or set SHOWCASE=<path>" >&2
-      exit 1
-    fi
-    echo "==> building the showcase web-dom dist (release) from $app"
-    (cd "$here" && cargo run -q -p day-cli -- --project "$app" patch --local "$here" --check)
-    (cd "$app" && cargo run -q --manifest-path "$here/Cargo.toml" -p day-cli -- build --platform web-dom --profile release)
-    rm -rf "$site/public/showcase/web-dom"
-    mkdir -p "$site/public/showcase"
-    cp -R "$app/build/day/cargo/web-dom/release/dist" "$site/public/showcase/web-dom"
-    echo "==> staged at website/public/showcase/web-dom — preview with scripts/website.sh dev|preview"
-    ;;
   *)
-    echo "usage: scripts/website.sh [dev|build|preview|webdom]" >&2
+    echo "usage: scripts/website.sh [dev|build|preview]" >&2
     exit 2
     ;;
 esac

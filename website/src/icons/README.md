@@ -8,7 +8,7 @@ checkable. The component strips what it does not need at render time rather than
 | --- | --- | --- | --- |
 | `web-dom.svg` | [Material Symbols](https://fonts.google.com/icons) | `language` (outlined) | [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | `android-mdc.svg` | [Simple Icons](https://simpleicons.org) 16.28.0 | Android | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
-| `ios-uikit.svg` | Material Symbols | `phone_iphone` (outlined) | Apache 2.0 |
+| `ios-uikit.svg` | Simple Icons 16.28.0 | iOS | CC0 1.0 |
 | `harmony-arkui.svg` | Simple Icons 16.28.0 | HarmonyOS | CC0 1.0 |
 | `macos-appkit.svg` | Simple Icons 16.28.0 | Apple | CC0 1.0 |
 | `windows-xaml.svg` | [Font Awesome Free](https://fontawesome.com) 7.3.1 | `windows` (brands) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |

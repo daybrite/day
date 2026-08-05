@@ -65,4 +65,10 @@ export const site = {
   description:
     'Day is a framework for Rust app development that builds for Android, iOS, HarmonyOS, Windows, macOS, Linux, and the web using each platform’s native interface components, so your product looks and works the way users of each platform expect.',
   repo: 'https://github.com/daybrite/day',
+  /** The showcase app's repository — it is its own project, released and deployed from there. */
+  showcaseRepo: 'https://github.com/daybrite/Day-Showcase',
+  /** The live web-dom build. Deployed by the showcase's OWN CI to its GitHub Pages site, not
+   *  hosted here: this site documents the framework, and the app publishes itself. Deep links use
+   *  a URL fragment as the app's route (`#canvas`), which the DOM shim reads on load. */
+  showcaseWeb: 'https://daybrite.github.io/Day-Showcase/',
 };
