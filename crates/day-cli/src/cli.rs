@@ -193,6 +193,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: StoreCmd,
     },
+    /// One locale set across the project's surfaces: list it, or add/remove a locale everywhere
+    Localize {
+        #[command(subcommand)]
+        cmd: LocalizeCmd,
+    },
     /// Stop running launches (and drop their sessions)
     Stop {
         /// Target(s) to stop (repeatable)
@@ -266,6 +271,18 @@ pub enum StoreCmd {
         #[arg(short = 'p', long = "platform")]
         target: Option<String>,
     },
+}
+
+/// `day localize …` — the four places a conventional project spells its locale set
+/// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
+#[derive(Subcommand)]
+pub enum LocalizeCmd {
+    /// Print each surface's locales, then any out-of-sync warnings (always exits 0)
+    List,
+    /// Add locale(s) to every surface the project has (Day tags; repeatable / comma-separated)
+    Add { locales: Vec<String> },
+    /// Remove locale(s) from every surface (the default locale is refused)
+    Remove { locales: Vec<String> },
 }
 
 #[derive(Subcommand)]
@@ -540,6 +557,9 @@ pub fn run() -> i32 {
         }),
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::store::run(project, &cmd)
+        }),
+        Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
+            crate::localize::run(project, &cmd)
         }),
         Cmd::Stop { platforms, all } => with_project(cli.project.as_deref(), |project| {
             let names: Vec<String> = if all {

@@ -1,5 +1,10 @@
 [workspace]
 resolver = "2"
+# CI checks daybrite/Day-Showcase out here (.github/actions/showcase) to build the framework
+# against the app it documents. A package nested inside a workspace it is not a member of
+# fails every cargo command, so it is excluded here as well as declaring its own
+# `[workspace]` — this side is what keeps an older app ref building.
+exclude = ["showcase-src"]
 members = [
     "crates/day-geometry",
     "crates/day-fonts",

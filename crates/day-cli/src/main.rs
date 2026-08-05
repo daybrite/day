@@ -10,6 +10,7 @@ mod interactive;
 mod intl;
 mod json5;
 mod lint;
+mod localize;
 mod mcp;
 mod meta;
 mod metadata;
