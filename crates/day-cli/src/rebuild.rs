@@ -1141,7 +1141,7 @@ mod tests {
     }
 
     /// The bug this replaced: `find_project_dir` returned the first `Day.toml` a directory walk
-    /// tripped over, so rebuilding day's own showcase packed `apps/daylite` on one runner and
+    /// tripped over, so rebuilding day's own showcase packed a DIFFERENT app on one runner and
     /// `crates/day-cli/templates/app` (a template with no Cargo.toml) on another.
     #[test]
     fn the_project_is_chosen_by_record_then_app_id_never_by_walk_order() {
@@ -1161,7 +1161,7 @@ mod tests {
             }
         };
         // Sorts BEFORE the real app, which is what made first-hit search pick it.
-        mk("apps/daylite", Some("dev.daybrite.daylite"));
+        mk("apps/other-app", Some("dev.example.other"));
         mk("apps/showcase", Some("dev.daybrite.showcase"));
         // A scaffold template: Day.toml, no Cargo.toml. Never a rebuild candidate.
         let tpl = tmp.join("crates/day-cli/templates/app");
@@ -1189,7 +1189,7 @@ mod tests {
         // Neither: refuse and name the candidates rather than pack an arbitrary one.
         let err = find_project_dir(&tmp, None, None).expect_err("ambiguous");
         assert!(
-            err.contains("apps/daylite") && err.contains("apps/showcase"),
+            err.contains("apps/other-app") && err.contains("apps/showcase"),
             "{err}"
         );
         assert!(

@@ -1,1 +1,0 @@
-Install small JavaScript apps that draw themselves with real native widgets.

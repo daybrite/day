@@ -2120,9 +2120,10 @@ repo/static host) run inside a compiled **superapp** and drive real pieces throu
 `Decorate` modifiers keyed by name, which any compiled-in extension crate joins via the same
 registration macros (so a superapp's custom pieces are scriptable automatically). JS signals
 are day-reactive `Signal`s (one reactive system across both languages), parts are exposed as
-permission-gated bridge modules, and sqlite + a sandboxed filesystem are built in. The
-`apps/daylite` superapp (catalog, install/update, permission disclosure) is the reference
-embedding; day-lite's runner runs a miniapp's own headless tests against day-mock.
+permission-gated bridge modules, and sqlite + a sandboxed filesystem are built in. day-lite's runner runs
+a miniapp's own headless tests against day-mock. The reference superapp embedding (catalog,
+install/update, permission disclosure) lived in `apps/daylite` and was removed from this
+repository in 2026-08; the runtime crate remains, with no in-repo app building against it.
 
 ### §15.5 External toolkits (Stage 0 — experimental)
 
@@ -2713,7 +2714,6 @@ day/                                # THIS repository
     showcase/                       # THE demo: every subsystem, 4 locales, the walkthrough
     matrix/                         # a full Matrix chat client (matrix-rust-sdk bridge) — the
                                     #   scale proof; has its own DESIGN.md
-    day-arkui-demo/                 # HarmonyOS host-app harness
   docs/                             # the normative subsystem docs (see the index at the top)
   website/                          # Astro site: curated guides + docs/ symlinked as the
                                     #   internal reference (scripts/website.sh builds it)

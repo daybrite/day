@@ -102,7 +102,7 @@ Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HO
 SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
-cd apps/day-arkui-demo/platform/ohos
+cd apps/showcase/platform/ohos
 
 # 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
 ./build.sh both                                # drops entry/libs/<abi>/libentry.so
@@ -117,16 +117,14 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 #    install error 9568393, but skips the check entirely for OpenHarmony-declared apps), then signs
 #    the provision profile + the .hap. Run from the platform/ohos/ project (it reads AppScope/app.json5):
 node sign-hap.mjs entry/build/*/outputs/*/entry-default-unsigned.hap \
-  entry/build/day-arkui-demo-signed.hap
+  entry/build/showcase-signed.hap
 
 # 4) Launch the HarmonyOS emulator, then install/run:
-hdc install entry/build/day-arkui-demo-signed.hap
-hdc shell aa start -b dev.daybrite.day.arkui.demo -a EntryAbility
+hdc install entry/build/showcase-signed.hap
+hdc shell aa start -b dev.daybrite.showcase -a EntryAbility
 ```
 
 (Opening `platform/ohos/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
-
-`day-arkui-demo` is a reactive counter that exercises container / label / button + native events.
 
 In practice you don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:

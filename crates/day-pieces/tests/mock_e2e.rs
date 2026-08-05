@@ -2923,7 +2923,7 @@ fn cover_presents_lays_out_and_dismisses() {
     );
 }
 
-// ── the daylite lifecycle: siblings must survive a cover cycle, and a second present must
+// ── the superapp lifecycle: siblings must survive a cover cycle, and a second present must
 //    work — including with adversarial "cover-hidden" orderings (double emit, late emit).
 
 /// (rev, taps, open) — the signals `cover_cycle_root` publishes for the test body.
@@ -2935,7 +2935,7 @@ thread_local! {
 }
 
 fn cover_cycle_root() -> AnyPiece {
-    // rev drives an `each` of "rows" (the daylite catalog shape); taps counts row-button
+    // rev drives an `each` of "rows" (a catalog-list shape); taps counts row-button
     // presses; open drives the cover.
     let rev = Signal::new(0.0f64);
     let taps = Signal::new(0.0f64);
@@ -2996,7 +2996,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     flush_sync();
     let (rev, _taps, open) = CYCLE.with(|c| *c.borrow()).expect("cycle state");
 
-    // Rebuild the rows once BEFORE any cover (the daylite install-confirm shape).
+    // Rebuild the rows once BEFORE any cover (the install-confirm shape).
     rev.set(1.0);
     flush_sync();
     tap_button(&probe, "row-a:1");

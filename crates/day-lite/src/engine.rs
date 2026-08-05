@@ -272,7 +272,7 @@ impl LiteApp {
     }
 
     /// The miniapp's UI: a nav stack whose root is `pages[0]` and whose pushed entries are
-    /// looked up in the page registry. Place it anywhere (the daylite superapp puts it in a
+    /// looked up in the page registry. Place it anywhere (the reference superapp put it in a
     /// fullscreen cover).
     pub fn surface(&self) -> AnyPiece {
         let root_route = self

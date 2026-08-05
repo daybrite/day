@@ -9,7 +9,7 @@ use day_android::{DayEnv, as_jstring, with_env};
 const CRASH_CLASS: &str = "dev/daybrite/day/crash/DayBreak";
 
 /// `Context.getFilesDir().getAbsolutePath()` via day-android's bridge (resolved on the main
-/// thread at init). Mirrors `apps/daylite/src/lib.rs::android_files_dir`.
+/// thread at init).
 pub(crate) fn files_dir() -> Option<std::path::PathBuf> {
     with_env(|env| {
         let obj = env

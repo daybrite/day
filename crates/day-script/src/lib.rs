@@ -7,13 +7,25 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use day_core::{NodeProbe, rnode_to_id, with_tree};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
+
+/// How long ONE dispatch may wait for the main thread before the step is failed.
+///
+/// This is not the step's implicit-wait budget ([`DEFAULT_TIMEOUT_SECS`], §14.3). That one governs
+/// re-asking a question whose answer may change — "is it visible yet?". This one governs a main
+/// thread that has not answered *at all*: a CI runner compositing its first frame on a shared vCPU,
+/// a debug build faulting in pages, a compositor stall. Those are properties of the machine, not of
+/// the script, which is why `DAY_SCRIPT_MAIN_TIMEOUT_SECS` can raise it without editing a
+/// walkthrough. It was a flat 10s, and a single Windows runner hiccup mid-walkthrough was enough to
+/// fail an otherwise perfect 407-step run.
+pub const DEFAULT_MAIN_TIMEOUT_SECS: f64 = 30.0;
 
 // ---------------------------------------------------------------------------
 // Wire protocol (shared with the Day CLI runner)
@@ -415,9 +427,11 @@ fn handle_conn(stream: TcpStream, token: &str) {
 /// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout —
 /// the shared default, or the step's own `timeout_secs` where it declares one.
 fn run_step_with_wait(step: Step) -> Reply {
-    let deadline = Instant::now() + Duration::from_secs_f64(step.wait_budget_secs());
+    let budget = Duration::from_secs_f64(step.wait_budget_secs());
+    let deadline = Instant::now() + budget;
+    let main_budget = main_thread_budget(budget);
     loop {
-        let reply = run_on_main(step.clone());
+        let reply = run_on_main(step.clone(), main_budget);
         if reply.ok || !reply.retryable || Instant::now() > deadline {
             return reply;
         }
@@ -425,13 +439,48 @@ fn run_step_with_wait(step: Step) -> Reply {
     }
 }
 
-fn run_on_main(step: Step) -> Reply {
+/// The main-thread budget for one dispatch: [`DEFAULT_MAIN_TIMEOUT_SECS`], overridable by
+/// `DAY_SCRIPT_MAIN_TIMEOUT_SECS`, and never shorter than the step's own wait budget — a step that
+/// declares `timeout_secs: 60` is saying the app may legitimately take that long.
+fn main_thread_budget(step_budget: Duration) -> Duration {
+    let secs = std::env::var("DAY_SCRIPT_MAIN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(DEFAULT_MAIN_TIMEOUT_SECS);
+    Duration::from_secs_f64(secs).max(step_budget)
+}
+
+fn run_on_main(step: Step, budget: Duration) -> Reply {
     let (tx, rx) = mpsc::sync_channel::<Reply>(1);
+    // A dispatch that times out leaves its closure QUEUED on the main thread, where it would run
+    // later and apply a `navigate`/`tap` the runner has already given up on — moving the app to a
+    // state the rest of the script does not expect, so the real damage shows up as a later step
+    // failing for no visible reason. The flag makes an abandoned dispatch a no-op. (It is checked
+    // before `exec`, so a dispatch that starts in the instant before the timeout still runs; that
+    // window is inherent without cancelling work already on the main thread.)
+    let abandoned = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&abandoned);
     day_reactive::on_main(move || {
+        if flag.load(Ordering::SeqCst) {
+            return;
+        }
         let _ = tx.send(exec(step));
     });
-    rx.recv_timeout(Duration::from_secs(10))
-        .unwrap_or_else(|_| Reply::fail("main thread did not respond", false))
+    match rx.recv_timeout(budget) {
+        Ok(reply) => reply,
+        Err(_) => {
+            abandoned.store(true, Ordering::SeqCst);
+            Reply::fail(
+                format!(
+                    "main thread did not respond within {:.0}s — raise \
+                     DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow",
+                    budget.as_secs_f64()
+                ),
+                false,
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,4 +1185,44 @@ pub fn b64decode(s: &str) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Serialize the env mutation below (`set_var` is unsafe under concurrency in edition 2024).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The budget that decides whether a busy CI runner fails a walkthrough. One
+    /// `main thread did not respond` was enough to fail an otherwise perfect 407-step run, so the
+    /// default is generous, the environment can raise it, and a step that asks for longer gets it.
+    #[test]
+    fn the_main_thread_budget_is_generous_overridable_and_never_below_the_step() {
+        let five = Duration::from_secs(5);
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: the guard above serializes every mutation of this variable in this crate.
+        unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
+        assert_eq!(
+            main_thread_budget(five),
+            Duration::from_secs_f64(DEFAULT_MAIN_TIMEOUT_SECS)
+        );
+        // A step declaring a longer wait is saying the app may legitimately take that long.
+        assert_eq!(
+            main_thread_budget(Duration::from_secs(120)),
+            Duration::from_secs(120)
+        );
+        unsafe { std::env::set_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS", "90") };
+        assert_eq!(main_thread_budget(five), Duration::from_secs(90));
+        // Nonsense is ignored rather than producing a zero budget that fails every step.
+        for bad in ["0", "-3", "abc", ""] {
+            unsafe { std::env::set_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS", bad) };
+            assert_eq!(
+                main_thread_budget(five),
+                Duration::from_secs_f64(DEFAULT_MAIN_TIMEOUT_SECS),
+                "{bad:?} should fall back to the default"
+            );
+        }
+        unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
+    }
 }

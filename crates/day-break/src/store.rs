@@ -27,7 +27,7 @@ use crate::report::{Fields, Kind, Report, SignalInfo, parse_kv};
 
 /// The resolved crash-report directory for `app_id`, honoring an explicit override. Mobile sandbox
 /// roots are already per-app; desktop namespaces under the app id so two apps don't share a dir.
-/// Mirrors `apps/daylite/src/lib.rs::store_root`.
+/// The same layout a day-lite superapp host uses for its package store.
 pub fn store_dir(app_id: &str, override_dir: Option<&Path>) -> PathBuf {
     if let Some(d) = override_dir {
         return d.to_path_buf();

@@ -1,9 +1,0 @@
-{
-  "name": "entry",
-  "version": "1.0.0",
-  "description": "Day ArkUI entry module",
-  "main": "",
-  "dependencies": {
-    "libentry.so": "file:./src/main/cpp/types/libentry"
-  }
-}

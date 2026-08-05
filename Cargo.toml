@@ -24,8 +24,6 @@ members = [
     "toolkits/day-arkui-sys",
     "toolkits/day-dom",
     "apps/showcase",
-    "apps/daylite",
-    "apps/day-arkui-demo",
     "pieces/day-piece-combobox",
     "pieces/day-piece-webview",
     "pieces/day-piece-lottie",

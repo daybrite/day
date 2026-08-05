@@ -39,8 +39,8 @@ simulator has no battery, so you get `level: None, state: Unknown` (the API path
 HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
 and uses the native BasicServicesKit C API instead. That's pure FFI: it needs neither a permission
 nor the Day runtime (unlike Android). The native API exposes capacity + plugged type but no explicit
-charge state, so the state is inferred from whether external power is connected. The `day-arkui-demo`
-app shows a live readout (docs/harmonyos.md).
+charge state, so the state is inferred from whether external power is connected. The showcase's
+Device & sensors page shows a live readout (docs/harmonyos.md).
 
 ## What it shows about the extension system
 

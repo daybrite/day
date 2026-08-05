@@ -61,6 +61,7 @@ the affected script instead of keeping stale results.
 | `DAY_WINDOW` | `<width>x<height>` (e.g. `700x850`) — overrides the app's initial window size for responsive-layout testing on desktop backends; mobile/web size to the screen and ignore it |
 | `DAY_APP_VERSION`, `DAY_SCRIPT` | The app's version and the driving script's file name, set by `day launch` on every run. A DEBUG build appends them to every window title as `(version/toolkit[/script])` — docs/windows.md. Release builds ignore both |
 | `ANDROID_SERIAL` | adb's standard device selector — when set, `day build/launch` and dayscript sessions target ONLY that device instead of every connected one |
+| `DAY_SCRIPT_MAIN_TIMEOUT_SECS` | How long one dayscript step waits for the app's MAIN THREAD before failing (default 30). Not the step's implicit-wait budget — this covers a main thread that has not answered at all, which is a property of the machine (a shared CI vCPU compositing its first frame) rather than of the script. Raise it on a slow runner |
 | `DAY_SIGN_*`, `DAY_NOTARY_*`, `DAY_ASC_*`, `DAY_KS_PASS`, … | Release-signing secrets referenced from `Day.toml`'s `[signing]` tables via `${VAR}` — resolved at pack time, degrade to the dev signing tier when unset (§20) |
 
 Signing variables are listed exhaustively by `day sign --check`, which reports each platform's

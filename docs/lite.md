@@ -9,9 +9,10 @@ compiled day app uses. The model generally follows the
 package of pages with app/page lifecycles, declared permissions, and platform-provided storage,
 network, and sensor services.
 
-`day/apps/daylite` is the reference superapp: a catalog browser that installs, updates, and
-runs miniapps (see §12). Everything it does goes through the public embedding API, so other
-superapps can ship different piece/part/tweak sets and different permission policies (§10).
+The reference superapp — a catalog browser that installs, updates, and runs miniapps (§12) —
+lived at `day/apps/daylite` and was removed from this repository in 2026-08. Everything it did
+went through the public embedding API, which is the point: a superapp ships its own piece/part/
+tweak sets and its own permission policy (§10), and none of that needs to live here.
 
 Initial platform support is the three mobile targets (ios-uikit, android-mdc, harmony-arkui);
 the design has no mobile-specific dependencies, so desktop toolkits can follow later.
@@ -189,7 +190,7 @@ day.nav.navigateBack()                             // pop
 day.nav.reLaunch('home')                           // reset stack
 ```
 
-Pages map to a day `stack` inside the miniapp's host surface (the daylite superapp presents
+Pages map to a day `stack` inside the miniapp's host surface (the reference superapp presented
 that surface in a fullscreen cover with the standard X-to-exit affordance). Each page
 presentation runs its builder inside a fresh reactive `Scope`; `onUnload` coincides with
 scope cleanup, so signals and watches created in a page die with it.
@@ -281,7 +282,7 @@ the superapp's app-detail UI.
 
 ## 10. Embedding in other superapps
 
-The whole system is a library; `apps/daylite` holds no privileged code:
+The whole system is a library — the reference superapp held no privileged code of its own:
 
 ```rust
 let host = day_lite::Host::builder()
@@ -296,7 +297,7 @@ let surface: AnyPiece = host.launch(app_id)?;         // the miniapp's UI, place
 
 A bridge is `{ namespace, permission, install(ctx, services) }`, the same seam the
 built-ins use. Pieces compiled into the host (any crate using `register_piece!`) are
-automatically scriptable (§4). The daylite superapp is this builder plus catalog UI.
+automatically scriptable (§4). A superapp is this builder plus a catalog UI.
 
 ## 11. Testing: `day lite test`
 
@@ -323,15 +324,16 @@ assertable, and screenshot-able through the ordinary engine. The convention is a
 `dayscript/` directory in the miniapp repo whose flows run against the reference host:
 
 ```sh
-cd apps/daylite
+cd <your superapp>
 day launch -p ios-uikit --env DAYLITE_RESET=1 \
   --script miniapps/tictactoe/dayscript/smoke.yaml     # install → open → play → screenshot
 day launch -p ios-uikit --locale fr --variant fr --env DAYLITE_RESET=1 \
   --script dayscript/fr.yaml                            # localized-run screenshots per locale
 ```
 
-`DAYLITE_RESET=1` starts the host from an empty store so install flows are reproducible;
-`--variant` files each locale's screenshots separately, mirroring the showcase galleries.
+The `DAYLITE_RESET=1` in that example was the reference host's own convention for starting from
+an empty store so install flows are reproducible — a superapp reads it itself, the runtime does
+not. `--variant` files each locale's screenshots separately, mirroring the showcase galleries.
 
 `day lite test <path>` (path = miniapp dir, default `.`) runs every test module in a fresh
 context wired to the **day-mock toolkit**: pieces construct and patch for real (assertable
@@ -341,9 +343,10 @@ toEqual/toContain/toThrow`, async tests, and `beforeEach` are provided by the ru
 code 5 on failure, mirroring dayscript. The same runner backs miniapp CI (a plain
 `day lite test` in the repo's workflow).
 
-## 12. The daylite superapp (`day/apps/daylite`)
+## 12. The shape of a superapp
 
-Reference host, three surfaces:
+What the reference host (`day/apps/daylite`, removed 2026-08) implemented, kept here because it
+is the shape a superapp needs rather than a description of one program. Three surfaces:
 
 1. **Catalog** — renders a catalog JSON (default: the daybrite samples catalog; overridable
    in settings). Each entry: icon, name, description, version, and the permission list with
