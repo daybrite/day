@@ -37,10 +37,10 @@ column((
 ))
 ```
 
-- **Native → signal.** When the control gains focus the signal becomes `true` / `Some(K)`; when
+- **Native → signal:** when the control gains focus the signal becomes `true` / `Some(K)`; when
   it loses focus, `false` / `None`, unless another bound control gained it in the same turn, in
   which case the group signal moves straight to that control's value (no `None` in between).
-- **Signal → native.** Writing `Some(K)` / `true` requests native focus for the bound control.
+- **Signal → native:** writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
 - **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other:

@@ -120,9 +120,9 @@ including for `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops eve
 replays. `line((fx, fy), (fx, fy))` and `polygon([(fx, fy), …])` are the tuple-friendly sugar.
 Line/Polygon semantics, deliberately different from the closed kinds:
 
-- **Unit-point geometry, unclamped.** Points resolve as fractions of the rect (like gradient
+- **Unit-point geometry, unclamped:** Points resolve as fractions of the rect (like gradient
   `UnitPoint`s) and may sit outside 0..1; a glyph's flourish can poke past its box on purpose.
-- **No stroke-half inset.** Closed kinds inset by `stroke/2` so a centered stroke stays inside the
+- **No stroke-half inset:** closed kinds inset by `stroke/2` so a centered stroke stays inside the
   frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
   points, and a stroked segment touching the frame edge may clip on the clipping backends
   (Qt/Android/XAML), exactly as raw canvas does.

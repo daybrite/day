@@ -46,7 +46,7 @@ Three rules keep this layout predictable:
 - **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.
-- **Everything generated lands in `build/day/`.** Cargo target directories (one per target and
+- **Everything generated lands in `build/day/`:** Cargo target directories (one per target and
   profile, so parallel builds never contend), staged resources, packed artifacts, and dayscript
   screenshots all live under one ignorable directory.
 

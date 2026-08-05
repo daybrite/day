@@ -225,14 +225,14 @@ stringly, move to an enum when the app grows, mix the two freely (a typed select
 
 ## Patterns and limits
 
-- **Desktop split layouts.** `SelectorStyle::Sidebar` gives the two-pane desktop shape. Give the
+- **Desktop split layouts:** `SelectorStyle::Sidebar` gives the two-pane desktop shape. Give the
   detail pane `.grow()` or it collapses to its content width, the most common layout mistake in
   navigation code.
-- **State restoration.** Persist the two signals (see [parts: prefs](/docs/parts)) and write them
+- **State restoration:** Persist the two signals (see [parts: prefs](/docs/parts)) and write them
   back at startup, and your app reopens where it closed. Nothing does this automatically.
-- **One window.** Day currently drives a single window per process; multi-window is designed but
+- **One window:** Day currently drives a single window per process; multi-window is designed but
   not built. Dialogs and alerts are separate ([dialogs reference](/docs/internal/dialogs)).
-- **Android process death.** If Android kills a backgrounded process, relaunch is a cold start;
+- **Android process death:** if Android kills a backgrounded process, relaunch is a cold start;
   Day doesn't yet snapshot navigation state into the saved-instance mechanism, so restoring is
   your code (the prefs pattern above).
 

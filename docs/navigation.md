@@ -35,9 +35,10 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 | `Sidebar` | a NavigationSplitView: macOS `NSSplitView` sidebar (inset-styled `NSOutlineView`; accent selection, capture-safe — no offscreen-hostile material) + detail; GTK `AdwNavigationSplitView` (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
 | `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` (docs/tabs.md). |
 
-`selector(sel).style(Tabs)` is exactly what used to be `tabs()`; `selector(sel).style(Sidebar)`
-is the old `nav()`. They are one primitive, a selection-bound switcher, differing only in
-chrome and page lifetime (tabs keep every page resident; the sidebar builds the selected detail).
+`selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and
+page lifetime: tabs keep every page resident, the sidebar builds the selected detail.
+
+> Renamed: `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
 
 ### Immersive items (`.immersive()`)
 

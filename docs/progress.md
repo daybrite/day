@@ -97,12 +97,12 @@ progress(move || volume.get() / 100.0)
 
 ## Testing
 
-- **Unit / e2e (`day-mock`).** The op log records `realize day.progress … value=Some(0.25)`
+- **Unit / e2e (`day-mock`):** the op log records `realize day.progress … value=Some(0.25)`
   and `update day.progress … value=Some(0.75)`. The e2e suite
   (`crates/day-pieces/tests/mock_e2e.rs`) asserts: exactly one value patch per reactive
   change, clamping of out-of-range fractions, that a spinner is indeterminate and emits no
   value updates, and that a constant fraction installs no binding.
-- **dayscript.** The determinate fraction is captured in the node probe (like `slider`), so
+- **dayscript:** the determinate fraction is captured in the node probe (like `slider`), so
   a walkthrough can assert it:
 
   ```yaml

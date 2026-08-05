@@ -115,7 +115,7 @@ fact.
 
 ## Not done yet
 
-- **Screenshots.** Both stores take them per locale and per device class, and the dayscript
+- **Screenshots:** both stores take them per locale and per device class, and the dayscript
   walkthrough already captures exactly that shape (`build/day/screenshots/<target>/<variant>/`).
   Wiring those into `fastlane/screenshots/` is the obvious next step and is not built.
 - **Review information** beyond notes and an email: no demo account fields, no phone number.

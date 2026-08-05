@@ -145,7 +145,7 @@ Two sharp edges:
   the value once and forgets it. If you meant "keep this up to date", the read has to be inside a
   binding, memo, or reactive closure. Debug builds warn (once per call site) when a tracked read
   happens with nothing listening.
-- **Disposed handles.** Writing to a signal whose scope is gone is a silent no-op (normal in
+- **Disposed handles:** writing to a signal whose scope is gone is a silent no-op (normal in
   async races, where a background task completes after the page closed). *Reading* one panics in
   debug builds and names the signal's creation site.
 

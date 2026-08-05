@@ -23,6 +23,39 @@ function platformOf(suite: Suite, id: string) {
   return suite.platforms.find((p) => p.id === id)!;
 }
 const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
+
+// Deep links into the live web build. The shim treats the URL fragment as the app's route
+// (`day_dom_set_hash` writes it, a `hashchange` listener reads it back), so /showcase/web-dom/#canvas
+// opens on Canvas & shapes. The route names are the keys of the `Section` enum in
+// apps/showcase/src/lib.rs — mirrored here because a shot id is NOT always a route: several rows
+// capture a STATE of a page rather than a page.
+// `toolbars` and `map` are in the enum but NOT in the web build — asking for either lands on
+// About. Checked by loading each fragment against the built app rather than read off the enum.
+const WEB_ROUTES = new Set([
+  'controls', 'dates', 'focus', 'text', 'textareas', 'localization', 'canvas', 'animation',
+  'grid', 'list', 'refresh', 'tabs', 'stack', 'media', 'webview', 'menus', 'system', 'services',
+  'resources', 'tweaks', 'crash', 'about',
+]);
+// Shots that photograph a state within a page, plus the two that are not routes at all:
+// `preferences` is a separate window and `cover` a fullscreen presentation, so neither can be
+// reached by fragment and neither gets a link.
+const SHOT_ROUTE: Record<string, string | null> = {
+  home: '',
+  'list-item-100': 'list',
+  'stack-detail': 'stack',
+  'tabs-one': 'tabs',
+  'toolbars-filtered': 'toolbars',
+  preferences: null,
+  cover: null,
+  // The web build has no Toolbars page; both toolbar rows would land on About.
+  toolbars: null,
+  'toolbars-filtered': null,
+};
+/** The fragment a shot opens on, or null when the shot is not reachable by one. */
+function webRoute(shotId: string): string | null {
+  if (shotId in SHOT_ROUTE) return SHOT_ROUTE[shotId];
+  return WEB_ROUTES.has(shotId) ? shotId : null;
+}
 ---
 <BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target, light, dark, and localized, with screenshots taken straight from CI." active="gallery">
   <section class="section gal-hero">
@@ -138,7 +171,18 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
                         })()}
                       </div>
                       <figcaption data-pf={platform.id}>
-                        <span class="cap-os">{platform.os}</span>
+                        <span class="cap-os">
+                          {platform.os}
+                          {platform.id === 'web-dom' && webRoute(shot.id) !== null && (
+                            <a
+                              class="cap-launch"
+                              href={url(`showcase/web-dom/${webRoute(shot.id) ? `#${webRoute(shot.id)}` : ''}`)}
+                              target="_blank"
+                              rel="noopener"
+                              title={`Open this screen in the live web build`}
+                            >{webRoute(shot.id) ? `launch #${webRoute(shot.id)}` : 'launch'}</a>
+                          )}
+                        </span>
                         <span class="cap-tk">
                           <PlatformIcon id={platform.id} class="cap-icon" />
                           {platform.label}
@@ -532,6 +576,17 @@ const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
     display: flex; flex-direction: column; gap: 1px;
   }
   .cap-os { color: var(--muted); font-weight: 650; }
+  /* Only the web column carries one: it is the one platform a reader can open from here. */
+  .cap-launch {
+    margin-left: 7px;
+    font-weight: 600;
+    font-size: 0.74rem;
+    font-family: var(--mono);
+    color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--pf, var(--brand)) 45%, transparent);
+  }
+  .cap-launch:hover { border-bottom-color: currentColor; }
   .cap-tk { color: var(--faint); font-size: 0.76rem; }
   /* The mark rides with the toolkit label and inherits its accent. */
   .cap-tk { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }

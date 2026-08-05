@@ -21,8 +21,8 @@ whatever language fits that platform, and all of them sit behind one signature.
 
 A **part** is a *headless capability crate*. It has:
 
-- **No UI.** It renders nothing, registers no renderer, and never touches a toolkit.
-- **A flat cross-platform API.** One or two free functions like `status() -> Option<BatteryStatus>`.
+- **No UI:** it renders nothing, registers no renderer, and never touches a toolkit.
+- **A flat cross-platform API:** one or two free functions like `status() -> Option<BatteryStatus>`.
 - **Per-OS native implementations**, selected at compile time by `#[cfg(target_os = "…")]` rather
   than a Cargo feature, because a battery is an OS concern rather than a toolkit one.
 

@@ -89,13 +89,13 @@ dirty layout) rather than a timeout heuristic.
 
 The same scripts serve several jobs:
 
-- **CI walkthroughs.** Every push builds the showcase on all targets and runs the walkthrough;
+- **CI walkthroughs:** every push builds the showcase on all targets and runs the walkthrough;
   the [gallery](/gallery) is those screenshots. A content-validation step catches blank captures.
-- **Iteration.** With no hot reload, `--script goto-settings.yaml` after each relaunch puts you
+- **Iteration:** with no hot reload, `--script goto-settings.yaml` after each relaunch puts you
   back on the screen you're editing. Cheap and surprisingly effective.
-- **Accessibility audits.** The `a11y_audit` step diffs the native accessibility tree against
+- **Accessibility audits:** the `a11y_audit` step diffs the native accessibility tree against
   your declarations ([details](/docs/accessibility#auditing-the-native-tree)).
-- **Agent verification.** AI coding agents use dayscript to check their own work: write a
+- **Agent verification:** AI coding agents use dayscript to check their own work: write a
   change, run a script, read the assertions ([for agents](/docs/for-agents)).
 
 ## Limits

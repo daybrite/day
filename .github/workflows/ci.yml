@@ -212,7 +212,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [macos-day, linux-day, windows-day, macos, notarize, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml]
+    needs: [test, backend, macos-day, linux-day, windows-day, macos, notarize, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -342,6 +342,122 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --no-verify --locked
 
+  # --- Framework checks lifted out of the per-target jobs ---------------------------------------
+  # These test the FRAMEWORK, not the app, and they used to sit inside the per-target build jobs —
+  # `cargo test --locked` ran in six of them (ten times counting matrix combos) to test the same
+  # host-portable crates on the same three operating systems, and each job also linted the showcase
+  # for its backend and scaffolded a throwaway project. That made every build job framework-shaped:
+  # nothing about it could be reused by an app repo, which is the whole point of daybrite/actions'
+  # build-day-app.yml. Split out, the build jobs below are a generic app pipeline, and these run in
+  # parallel with them instead of in front of them.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One run per host OS, not per target: these crates are host-portable by definition, and
+        # what differs between runs is the operating system, never the toolkit.
+        os: [macos-26, ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
+  backend:
+    name: backend (${{ matrix.toolkit }})
+    runs-on: ${{ matrix.os }}
+    needs: [macos-day, linux-day, windows-day]
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { toolkit: appkit, combo: macos-appkit,  os: macos-26,     rust_target: "",                        clippy: "--all-targets" }
+          - { toolkit: uikit,  combo: ios-uikit,     os: macos-26,     rust_target: aarch64-apple-ios-sim,     clippy: "--lib" }
+          - { toolkit: gtk,    combo: linux-gtk,     os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
+          - { toolkit: qt,     combo: linux-qt,      os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
+          - { toolkit: mdc,    combo: android-mdc,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
+          - { toolkit: xaml,   combo: windows-xaml,  os: windows-latest, rust_target: "",                      clippy: "--all-targets" }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Toolkit deps
+        if: matrix.toolkit == 'gtk' || matrix.toolkit == 'qt'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.toolkit }}" = gtk ]; then
+            sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev
+          else
+            sudo apt-get install -y qt6-base-dev qt6-webengine-dev
+          fi
+      # The android backend links through the NDK, so the cross-clippy and the scaffold build need
+      # cargo-ndk — but not Gradle, which only the packaging step uses.
+      - uses: taiki-e/install-action@v2
+        if: matrix.toolkit == 'mdc'
+        with:
+          tool: cargo-ndk
+      - name: Android NDK env
+        if: matrix.toolkit == 'mdc'
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - name: Clippy (${{ matrix.toolkit }} backend)
+        run: |
+          set -euo pipefail
+          TARGET=""
+          if [ -n "${{ matrix.rust_target }}" ]; then TARGET="--target ${{ matrix.rust_target }}"; fi
+          # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
+          cargo clippy --locked $TARGET -p showcase ${{ matrix.clippy }} \
+            --no-default-features --features ${{ matrix.toolkit }}
+      # day-part-battery's Windows implementation compiles only here, so its lint rides the xaml row
+      # rather than needing a Windows job of its own.
+      - name: Clippy (day-part-battery, Windows impl)
+        if: matrix.toolkit == 'xaml'
+        run: cargo clippy --locked -p day-part-battery --all-targets
+      - uses: actions/download-artifact@v8
+        with:
+          name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+          path: ${{ runner.temp }}/day-cli
+      - name: Locate the day CLI (exports DAY_BIN)
+        run: |
+          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
+          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
+          chmod +x "$BIN" 2>/dev/null || true
+          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
+      # `day new` + build, against THIS checkout (`--local`), so a template that stopped compiling
+      # fails here rather than in a user's first five minutes.
+      - name: Scaffold smoke-test (${{ matrix.combo }})
+        run: |
+          set -euo pipefail
+          DAY=$DAY_BIN
+          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app remote-check
+          TARGET=""
+          LIB=""
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            TARGET="--target ${{ matrix.rust_target }}"
+            LIB="--lib"   # the mobile hosts build the app as a library
+          fi
+          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   smoke-app   --toolkit ${{ matrix.combo }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
+          # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
+          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
+          # shellcheck disable=SC2086
+          ( cd smoke-part  && cargo build $TARGET )
+          # shellcheck disable=SC2086
+          ( cd smoke-app   && cargo build $LIB --features ${{ matrix.toolkit }} $TARGET )
+          # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
+          "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
+          grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
+
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: ${{ matrix.combo }}
@@ -376,12 +492,6 @@ jobs:
             qt) brew install qt pkg-config ;;
             gtk) brew install gtk4 libadwaita pkg-config ;;
           esac
-      - name: Test host-portable crates
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo test --locked
-      - name: Clippy (appkit backend)
-        if: ${{ matrix.toolkit == 'appkit' && !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo clippy --locked -p showcase --no-default-features --features appkit --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -408,25 +518,6 @@ jobs:
       # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to THIS
       # checkout with --local, and build each for this combo — so `day new` output keeps compiling
       # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
-      - name: Scaffold smoke-test (${{ matrix.combo }})
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit macos-${{ matrix.toolkit }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
-          ( cd smoke-part  && cargo build )
-          ( cd smoke-app   && cargo build --features ${{ matrix.toolkit }} )
-          # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
-          rm -rf remote-check
-          "$DAY" new app remote-check --toolkit macos-${{ matrix.toolkit }} --no-input >/dev/null
-          grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
-          rm -rf remote-check
-      # Screenshot variants per combo (docs/testing + website gallery): the walkthrough runs
-      # once per theme × locale (light/dark × en/fr/ar/zh-CN — Arabic exercises RTL), each
-      # saved under its own screenshots/<combo>/<variant>/ subdir for the gallery artifact.
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
@@ -712,14 +803,6 @@ jobs:
           targets: aarch64-apple-ios-sim,aarch64-apple-ios
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Test host-portable crates
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo test --locked
-      - name: Clippy (uikit backend)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          cargo clippy --locked --target aarch64-apple-ios-sim -p showcase --lib \
-            --no-default-features --features uikit
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -744,17 +827,6 @@ jobs:
       # Scaffold a uikit piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for the iOS Simulator — a lib build, so no device/simulator needed here.
       # The app builds `--lib` (its `day::launch` desktop bin is not part of the iOS pipeline).
-      - name: Scaffold smoke-test (ios-uikit)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits uikit --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit ios-uikit --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features uikit --target aarch64-apple-ios-sim )
-          ( cd smoke-part  && cargo build --target aarch64-apple-ios-sim )
-          ( cd smoke-app   && cargo build --lib --features uikit --target aarch64-apple-ios-sim )
       - name: Boot an iOS Simulator
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
@@ -848,14 +920,6 @@ jobs:
             qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config fonts-noto-cjk ;;
             gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk ;;
           esac
-      - name: Test host-portable crates
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo test --locked
-      # Each combo lints its own backend feature (the toolkit dev libs are installed above; a
-      # workspace-wide clippy cannot compile — see the section comment).
-      - name: Clippy (${{ matrix.toolkit }} backend)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo clippy --locked -p showcase --no-default-features --features ${{ matrix.toolkit }} --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -880,30 +944,6 @@ jobs:
       # Scaffold a piece + a part + a full app with `day new` (deps redirected to this checkout via
       # --local) and build each for this combo, so `day new` output keeps compiling against the day
       # tree under test.
-      - name: Scaffold smoke-test (${{ matrix.combo }})
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit linux-${{ matrix.toolkit }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} )
-          ( cd smoke-part  && cargo build )
-          ( cd smoke-app   && cargo build --features ${{ matrix.toolkit }} )
-      # GTK renders under a virtual display: the engine snapshot waits for a real after-paint
-      # frame (day-gtk), and day-cli falls back to an ImageMagick root capture of the xvfb
-      # screen if it still errors. Qt runs on the offscreen platform. Both drive the full
-      # dayscript walkthrough.
-      # The GTK web view (WebKitGTK) needs two env vars in this restricted headless runner:
-      #   WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS — the bubblewrap sandbox can't create a network
-      #     namespace here ("bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"), which
-      #     otherwise kills the WebKit web process and aborts the app.
-      #   WEBKIT_DISABLE_COMPOSITING_MODE — xvfb has no GPU (libEGL/DRI3 warnings), so render the
-      #     page in software instead of via accelerated (GL) compositing.
-      # Screenshot variants per combo: light/dark (DAY_THEME) × en/fr/ar/zh-CN locales.
-      # (Ubuntu 24.04's Qt 6.4 predates QStyleHints::setColorScheme; day-qt-sys falls back to
-      # the canonical Fusion dark palette there, so linux-qt's dark set renders dark.)
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
@@ -995,9 +1035,6 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Test host-portable crates
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo test --locked
       - name: Set up the Android cross-compile targets
         run: |
           # x86_64 for the emulator walkthrough, aarch64 for the arm64-v8a pack.
@@ -1027,20 +1064,6 @@ jobs:
       # Scaffold an mdc piece + a part + a full app (deps redirected to this checkout) and
       # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
-      - name: Scaffold smoke-test (android-mdc)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          rustup target add aarch64-linux-android
-          DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits mdc --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit android-mdc --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features mdc --target aarch64-linux-android )
-          ( cd smoke-part  && cargo build --target aarch64-linux-android )
-          ( cd smoke-app   && cargo build --lib --features mdc --target aarch64-linux-android )
-      # Release-signing material, tag pushes only: the Play upload keystore on disk. Without
-      # the secret this no-ops and pack generates a dev keystore (§20).
       - name: Materialize the upload keystore
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -1201,6 +1224,9 @@ jobs:
           mkdir -p "$BASE"
           ln -sfn "$OH" "$BASE/18"
           echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
+      # The one framework check still living in a target job: the arkui cross-clippy needs the whole
+      # OpenHarmony SDK, already set up above. Lifting it into `backend` would mean a second copy of
+      # six setup steps — it belongs in a composite action, not in a duplicate.
       - name: Clippy (arkui backend, cross-check)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
@@ -1367,16 +1393,6 @@ jobs:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Test host-portable crates
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo test --locked
-      - name: Clippy (xaml backend)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo clippy --locked -p showcase --no-default-features --features xaml --all-targets
-      # Lint the headless day-part-battery crate's Windows impl (GetSystemPowerStatus) on a real Windows host.
-      - name: Clippy (day-part-battery, Windows impl)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: cargo clippy --locked -p day-part-battery --all-targets
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -1401,17 +1417,6 @@ jobs:
       # The only CI job that can compile `day new`'s xaml template branch: scaffold a xaml piece +
       # a part + a full app (deps redirected to this checkout) and build each. xaml is a desktop
       # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
-      - name: Scaffold smoke-test (windows-xaml)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app
-          "$DAY" new piece smoke-piece --toolkits xaml --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit windows-xaml --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
-          ( cd smoke-piece && cargo build --features xaml )
-          ( cd smoke-part  && cargo build )
-          ( cd smoke-app   && cargo build --features xaml )
       - name: Walkthrough (windows-xaml × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: apps/showcase
@@ -1527,6 +1532,8 @@ jobs:
           echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
           echo "CC=$GCC" >> "$GITHUB_ENV"
           echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
+      # Kept here rather than lifted into `test`: this runs under MSYS2's mingw toolchain, so it
+      # covers windows-gnu, which the msvc row of `test` does not.
       - name: Test host-portable crates
         run: cargo test --locked
       - name: Download the day CLI (release, matching this runner's os+arch)

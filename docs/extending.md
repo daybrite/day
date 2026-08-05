@@ -385,7 +385,7 @@ What a declared target does **not** get:
 - **`day pack`** — packaging formats are per-OS CLI code; the guard says so explicitly.
 - **`day new` / `day app add`** — scaffolding stays builtin; the toolkit crate documents its own
   project shape.
-- **The in-repo pieces' native renderers.** `day-piece-webview` has no `wxwidgets` feature arm, so
+- **The in-repo pieces' native renderers:** `day-piece-webview` has no `wxwidgets` feature arm, so
   extension-piece kinds render Day's visible `⟨kind⟩` placeholders unless the external ecosystem
   ships renderer crates for its backend (the `Registry`/`renderer!` seam is the same one in-repo
   pieces use). The BUILT-IN vocabulary is the backend's own `realize`: cover what you support and

@@ -163,7 +163,7 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 
 ## Rules
 
-- **Main thread only.** Tweaks run at mount (already on the main thread); `NativeRef::with` from
+- **Main thread only:** Tweaks run at mount (already on the main thread); `NativeRef::with` from
   anywhere else is a checked no-op on Apple (`MainThreadMarker`) and undefined elsewhere; don't.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
@@ -172,7 +172,7 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
   selectability) are stable. If you must re-assert, do it from an `Effect` or event handler via
   `NativeRef`.
 - **Size changes need `invalidate_size(node)`**: Day cannot see native mutations it didn't make.
-- **Report reality.** A packaged tweak documents per-toolkit coverage (and quirks like "Material
+- **Report reality:** a packaged tweak documents per-toolkit coverage (and quirks like "Material
   sliders always snap when stepped") instead of pretending uniformity; where it has no coverage
   it must be a silent, safe no-op.
 

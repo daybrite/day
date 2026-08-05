@@ -95,14 +95,14 @@ reason to look elsewhere: better to know now than in week two.
 
 ## What Day is not
 
-- **Not a renderer.** Day never rasterizes text or widgets itself. Even the `canvas` Piece
+- **Not a renderer:** Day never rasterizes text or widgets itself. Even the `canvas` Piece
   records drawing commands and replays them through the platform's native 2D API.
-- **Not pixel-identical across platforms.** The goal is consistent behavior and information
+- **Not pixel-identical across platforms:** the goal is consistent behavior and information
   architecture with native look and feel, not one skin everywhere.
-- **Not a lowest common denominator.** Where platforms diverge, the API exposes the divergence
+- **Not a lowest common denominator:** where platforms diverge, the API exposes the divergence
   (per-platform styling, capability flags) instead of hiding it; where a platform lacks a
   control, the backend composes one from primitives.
-- **Not finished.** Day is young. The core model is stable and exercised by a real
+- **Not finished:** Day is young. The core model is stable and exercised by a real
   Matrix chat client (Day-Matrix, a standalone Day app) running on five
   targets, but APIs still move and some designed features aren't built yet. The docs mark those
   explicitly rather than describing the roadmap as the present.

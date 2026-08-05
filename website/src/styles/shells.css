@@ -89,8 +89,30 @@
 .sh-dots .d-y { background: #febc2e; }
 .sh-dots .d-g { background: #28c840; }
 .sh-dots.plain i { width: 9px; height: 9px; background: rgba(128, 128, 128, 0.55); }
-.sh-caps { display: inline-flex; gap: 12px; flex: 0 0 auto; font-size: 0.62rem; }
+/* Shared by the Windows and Breeze bars. Windows 11 really does set its buttons in a font
+   (Segoe Fluent Icons), so those stay glyphs; Breeze paints its own, and overrides below. */
+.sh-caps { display: inline-flex; align-items: center; gap: 12px; flex: 0 0 auto; font-size: 0.62rem; }
 .sh-caps i { font-style: normal; opacity: 0.75; }
+
+/* Breeze paints its window buttons rather than setting them in a font, and the shapes are
+   specific: minimize is a chevron pointing DOWN, maximize a chevron pointing UP, close a cross
+   — see drawIcon() in breeze/kdecoration/breezebutton.cpp, which strokes
+   (4,7)-(9,12)-(14,7), (4,11)-(9,6)-(14,11) and the two diagonals with a round cap. Drawing
+   them here keeps that identity and stays crisp at this size, where a text glyph would not. */
+.c-kde .sh-caps { gap: 13px; }
+.c-kde .sh-caps i { display: block; position: relative; width: 9px; height: 9px; opacity: 0.8; }
+.c-kde .sh-caps .b-min::before,
+.c-kde .sh-caps .b-max::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  width: 5.5px;
+  height: 5.5px;
+  border-left: 1.1px solid currentColor;
+  border-bottom: 1.1px solid currentColor;
+}
+.c-kde .sh-caps .b-min::before { top: 0.5px; transform: rotate(-45deg); }
+.c-kde .sh-caps .b-max::before { top: 2.5px; transform: rotate(135deg); }
 .sh-gbtn {
   flex: 0 0 auto;
   width: 18px;
@@ -99,9 +121,23 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.6rem;
-  background: rgba(0, 0, 0, 0.09);
+  background: rgba(0, 0, 6, 0.08);
 }
+/* A drawn cross, shared by both shells: at 9px a glyph renders soft and sits off-centre. */
+.b-close { display: block; position: relative; width: 9px; height: 9px; }
+.b-close::before,
+.b-close::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1.1px;
+  background: currentColor;
+  border-radius: 1px;
+}
+.b-close::before { transform: rotate(45deg); }
+.b-close::after { transform: rotate(-45deg); }
 
 /* Per-desktop palettes, light then dark. `data-dark` follows the APPLIED capture — the gallery
    sets it from the chosen variant, the carousel from the site theme — so chrome and pixels
@@ -110,11 +146,17 @@
 .sh-win[data-dark] .c-macos { background: #323234; color: #b9b9bd; border-bottom-color: rgba(255, 255, 255, 0.08); }
 .c-windows { background: #f3f3f3; color: #1b1b1b; }
 .sh-win[data-dark] .c-windows { background: #202020; color: #d6d6d6; border-bottom-color: rgba(255, 255, 255, 0.08); }
-.c-gnome { background: linear-gradient(#f9f8f7, #f0efed); color: #2e3436; }
-.sh-win[data-dark] .c-gnome { background: linear-gradient(#3a3a3a, #303030); color: #d3d2d0; border-bottom-color: rgba(255, 255, 255, 0.08); }
-.sh-win[data-dark] .c-gnome .sh-gbtn { background: rgba(255, 255, 255, 0.12); }
-.c-kde { background: #eff0f1; color: #232629; }
-.sh-win[data-dark] .c-kde { background: #2a2e32; color: #cfd2d5; border-bottom-color: rgba(255, 255, 255, 0.08); }
+/* Adwaita's own named colors, not an eyeballed gradient: libadwaita header bars are FLAT, and
+   the line under them is --headerbar-shade-color.
+   https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/css-variables.html */
+.c-gnome { background: #ffffff; color: rgba(0, 0, 6, 0.8); border-bottom-color: rgba(0, 0, 6, 0.12); }
+.sh-win[data-dark] .c-gnome { background: #2e2e32; color: #ffffff; border-bottom-color: rgba(0, 0, 6, 0.36); }
+.sh-win[data-dark] .c-gnome .sh-gbtn { background: rgba(255, 255, 255, 0.1); }
+/* Breeze's [WM] activeBackground/activeForeground, from the shipped colour schemes. The old
+   #eff0f1 was Breeze's INACTIVE titlebar (and its window background), so every window read as
+   unfocused. https://invent.kde.org/plasma/breeze/-/blob/master/colors/ */
+.c-kde { background: #e3e5e7; color: #232629; border-bottom-color: rgba(0, 0, 0, 0.1); }
+.sh-win[data-dark] .c-kde { background: #272c31; color: #fcfcfc; border-bottom-color: rgba(0, 0, 0, 0.28); }
 .c-browser { background: #f1f0f0; color: #444; }
 .sh-win[data-dark] .c-browser { background: #2c2c2e; color: #bdbdbf; border-bottom-color: rgba(255, 255, 255, 0.08); }
 .sh-url {

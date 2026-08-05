@@ -36,7 +36,7 @@ win.close();                              // async: confirmed by the platform, T
 ```
 
 - `key` names the LOGICAL window: opening an already-open key focuses it instead of
-  duplicating: the preferences pattern. `window_by_key` finds it later.
+  duplicating, which is how `day.preferences` stays a singleton. `window_by_key` finds it later.
 - `WindowKind` shapes the chrome: `Normal` is resizable/miniaturizable and joins the
   platform's tabbing group; `Preferences` drops resize/minimize and never tabs (macOS
   convention; other platforms map as fits).

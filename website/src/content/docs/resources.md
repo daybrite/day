@@ -80,10 +80,10 @@ like `Font::System(pt)`.
 The restrictions, all enforced as **hard errors at build time** (each would otherwise surface as
 a confusing runtime-only failure on one platform):
 
-- **`.ttf` and `.otf` only.** Android's `res/font/` accepts nothing else, so Day holds every
+- **`.ttf` and `.otf` only:** Android's `res/font/` accepts nothing else, so Day holds every
   platform to the same rule. Convert collections (`.ttc`) and variable fonts to single static
   faces before bundling.
-- **One face per family.** Staged file names are derived from the family name (lowercased,
+- **One face per family:** Staged file names are derived from the family name (lowercased,
   `[a-z0-9_]`), so a second face of the same family would collide. Ship the regular face; bold
   and italic are synthesized where the platform can.
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded

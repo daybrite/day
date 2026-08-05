@@ -489,9 +489,8 @@ xaml  = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xam
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
 
-**The `backends` marker (Tier A).** Historically an app had to re-list every piece's per-backend
-feature in its own `Cargo.toml`. It no longer does. A piece declares the backends it carries a
-renderer feature for:
+**The `backends` marker (Tier A).** A piece declares the backends it carries a renderer feature
+for, and the app depends on it without re-listing them:
 
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml

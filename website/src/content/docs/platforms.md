@@ -102,7 +102,7 @@ list:
   transform and frame changes natively. Two gaps remain: an animated background *color* interpolates
   on UIKit only (elsewhere it applies at commit, because Day never ticks its own frames for native
   widgets), and the enter/exit `.transition` surface is not implemented.
-- **Multi-window.** One window per process today.
+- **Multi-window:** one window per process today.
 - **Semantic color tokens / automatic dark-mode for custom colors.**
   ([styling](/docs/styling#color-backgrounds-shape))
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.

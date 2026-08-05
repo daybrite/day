@@ -112,7 +112,7 @@ create no native widget, so nesting them is cheap.
 
 ## Windows, safe areas, and direction
 
-- **Window sizing.** The minimum window size comes from measuring the root under a zero proposal
+- **Window sizing:** the minimum window size comes from measuring the root under a zero proposal
   (the smallest the content can actually be), not from its ideal size. (An earlier system in
   Day's lineage used the unconstrained ideal and produced windows that couldn't shrink; this is
   the lesson learned.) The window relayouts on native resize and never auto-shrinks on you.
@@ -135,7 +135,7 @@ per-locale reflow and RTL a framework feature instead of five platform projects.
 - **You give up native layout idioms.** Auto Layout constraints, Compose modifiers, GTK size
   groups: none of that applies inside a Day window. If your team's muscle memory is one
   platform's layout system, Day's is a new (if small) one to learn.
-- **Measurement crosses the FFI.** The cache keeps this off the hot path, but a pathological
+- **Measurement crosses the FFI:** the cache keeps this off the hot path, but a pathological
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
   especially over JNI. The native [`list`](/docs/internal/list) exists precisely so long
   scrolling content doesn't become that case.

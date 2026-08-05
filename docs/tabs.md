@@ -26,12 +26,12 @@ dayscript `navigate {route: settings}` / `assert_route {route: settings}` drive 
 
 ## Semantics
 
-- **Keyed destinations.** Each `.tab(key, title, build)` is addressed by `key`. `title` is the
+- **Keyed destinations:** each `.tab(key, title, build)` is addressed by `key`. `title` is the
   tab label; `build` runs once at mount.
-- **All pages resident.** Every tab's content is built eagerly and kept alive, so each tab
+- **All pages resident:** every tab's content is built eagerly and kept alive, so each tab
   preserves its own state across switches, which is how every native tab container behaves.
 - **`.selected(key)`** picks the initial tab (default: the first). Startup deep links still win.
-- **Nesting & fall-through.** Hosts register on a stack (docs/navigation.md). `tabs()` inside a
+- **Nesting & fall-through:** Hosts register on a stack (docs/navigation.md). `tabs()` inside a
   `nav()` route registers on top: `navigate("<tab-key>")` selects the tab, while
   `navigate("<some-nav-route>")` (a key the tabs host doesn't know) falls through to the
   enclosing `nav()`, which replaces the page (disposing the tabs host, whose scope cleanup

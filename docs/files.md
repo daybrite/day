@@ -25,12 +25,12 @@ button(tr("save")).action(|| day::task(async move {
 A file location crosses back as a **`FileUrl`**, a newtype wrapping a single *locator string*.
 This is a deliberate choice over the obvious alternatives:
 
-- **Not `std::path::PathBuf`.** On Android the Storage Access Framework returns a `content://`
+- **Not `std::path::PathBuf`:** on Android the Storage Access Framework returns a `content://`
   URI rather than a filesystem path; a `PathBuf` cannot represent it and `std::fs` cannot
   open it.
-- **Not a bare `String`.** No type-safety, and every call site would re-implement the same
+- **Not a bare `String`:** no type-safety, and every call site would re-implement the same
   parsing.
-- **Not `url::Url`.** Its parsing normalizes/validates in ways that mangle `content://`
+- **Not `url::Url`:** Its parsing normalizes/validates in ways that mangle `content://`
   authorities, and it pulls in a heavy dependency for no benefit.
 
 `FileUrl` is the lossless union (a filesystem path on desktop/iOS, a `content://` URI on Android)
