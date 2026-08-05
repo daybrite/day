@@ -37,7 +37,7 @@ Lower-level, `day_core::scroll_to(node, target)` drives any scroll node directly
 element is visible, the same call keyboard avoidance uses (docs/focus.md). Reveals are minimal:
 content already in view doesn't move.
 
-The showcase's List page is the live reference (`apps/showcase/src/pages/list.rs`): its scroll
+The showcase's List page is the live reference (`Day-Showcase/src/pages/list.rs`): its scroll
 buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, docs/list.md);
 `scroll_target` on a plain `scroll` piece works the same way with a `ScrollTarget`.
 

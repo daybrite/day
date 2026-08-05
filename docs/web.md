@@ -212,11 +212,12 @@ server byte for byte). On a static host that endpoint does not exist, so the sho
 buttons report what the host returned (a 404 page, or a 405 for PATCH); the URL checker
 and every other HTTP call work anywhere.
 
-The Day website publishes the showcase's web-dom build at
-**`https://daybrite.dev/showcase/web-dom/`**: CI's `web-dom` job uploads the release dist as
-an artifact, and the website job drops it into the built site (see `.github/workflows/ci.yml`
-and [§20](../DESIGN.md#20-continuous-integration)). To preview that page locally, stage the
-dist with `scripts/website.sh webdom`, then `scripts/website.sh dev`.
+The showcase publishes its own web-dom build at
+**`https://daybrite.github.io/Day-Showcase/`**, from the `daybrite/Day-Showcase` repository's CI
+rather than from this one — the app is a separate project, and daybrite.dev links to it. This
+repository's `web-dom` job still builds the dist and drives the walkthrough against it, as the wasm
+build test; it just does not publish the result. To see a local build, `day build --platform web-dom`
+in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -p web-dom`.
 
 Query parameters the host page reads: `theme=light|dark` (else the OS preference),
 `locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.

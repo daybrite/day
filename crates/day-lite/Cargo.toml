@@ -27,7 +27,7 @@ oxc_parser = "0.141"
 oxc_semantic = "0.141"
 oxc_transformer = "0.141"
 oxc_codegen = "0.141"
-oxc_span = "0.141"
+oxc_span = "0.142"
 
 # Built-in persistence (docs/lite.md §7): bundled so every mobile target has the same sqlite.
 rusqlite = { version = "0.32", features = ["bundled"] }

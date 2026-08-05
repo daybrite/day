@@ -67,7 +67,6 @@ jobs:
         run: |
           cargo clippy --locked --all-targets
           cargo clippy --locked -p day-cli -p day-script --all-targets
-          cargo clippy --locked -p showcase --no-default-features --features mock --all-targets
 
   duty-matrix-drift:
     runs-on: ubuntu-latest
@@ -212,7 +211,7 @@ jobs:
   release:
     name: release
     if: ${{ !cancelled() }}
-    needs: [test, backend, macos-day, linux-day, windows-day, macos, notarize, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml]
+    needs: [test, toolkit, macos-day, linux-day, windows-day]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -262,24 +261,9 @@ jobs:
           sh -n dist/day-installer.sh
           pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw dist/day-installer.ps1)); "ps1 parses"'
           ruby -c dist/day.rb
-      - name: Download the app packages (the per-combo jobs' pack steps)
-        if: ${{ env.IS_TAG == 'true' }}
-        uses: actions/download-artifact@v8
-        with:
-          pattern: showcase-dist-*
-          path: dist
-          merge-multiple: true
-      # The download above is a glob: if `notarize` failed, it silently yields no macOS package and
-      # the release would publish without one. `!cancelled()` on this job means a failed need does
-      # not stop us, so check the result explicitly (§20.2).
-      - name: Verify the notarized macOS package arrived
-        if: ${{ env.IS_TAG == 'true' }}
-        run: |
-          if [ "${{ needs.notarize.result }}" != "success" ]; then
-            echo "::error::notarize result is '${{ needs.notarize.result }}' — refusing to publish an un-notarized release"
-            exit 1
-          fi
-          ls dist/*.dmg
+      # No app packages here any more: the showcase is its own repository (daybrite/Day-Showcase)
+      # and publishes its own releases, which is what the website's /showcase/ page reads. This
+      # release is the day CLI — six binaries, the installers, and the Homebrew formula.
       - name: Checksums (one manifest for every release file)
         if: ${{ env.IS_TAG == 'true' }}
         working-directory: dist
@@ -360,7 +344,7 @@ jobs:
     uses: daybrite/actions/.github/workflows/build-day-app.yml@main
     with:
       targets: linux-gtk
-      project-path: apps/showcase
+      project-path: showcase-src
       day-source: artifact
       artifact-prefix: canary-
       app-id: dev.daybrite.showcase
@@ -372,6 +356,12 @@ jobs:
       validate-rebuild: false
 
   # --- Framework checks lifted out of the per-target jobs ---------------------------------------
+  # `test` varies the OPERATING SYSTEM; `toolkit` varies the BACKEND CRATE (§1: the crate
+  # implementing day-spec for one native toolkit), which is the axis a `--workspace` clippy cannot
+  # cover — feature unification would link several backends into one binary and trip the
+  # one-backend-per-binary guard. Each `toolkit` leg lints the app against its backend feature and
+  # scaffolds a piece/part/app for it, so both compile-level checks that must run once per backend
+  # sit in one job instead of riding six device-bound ones.
   # These test the FRAMEWORK, not the app, and they used to sit inside the per-target build jobs —
   # `cargo test --locked` ran in six of them (ten times counting matrix combos) to test the same
   # host-portable crates on the same three operating systems, and each job also linted the showcase
@@ -395,8 +385,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
 
-  backend:
-    name: backend (${{ matrix.toolkit }})
+  toolkit:
+    name: toolkit (${{ matrix.toolkit }})
     runs-on: ${{ matrix.os }}
     needs: [macos-day, linux-day, windows-day]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -439,12 +429,15 @@ jobs:
         if: matrix.toolkit == 'mdc'
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
       - name: Clippy (${{ matrix.toolkit }} backend)
+        # In the app's checkout, not this workspace: the showcase is its own repository now, and
+        # `day patch` (in the checkout step above) points its day dependencies at this commit.
+        working-directory: showcase-src
         run: |
           set -euo pipefail
           TARGET=""
           if [ -n "${{ matrix.rust_target }}" ]; then TARGET="--target ${{ matrix.rust_target }}"; fi
           # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
-          cargo clippy --locked $TARGET -p showcase ${{ matrix.clippy }} \
+          cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
       # day-part-battery's Windows implementation compiles only here, so its lint rides the xaml row
       # rather than needing a Windows job of its own.
@@ -463,6 +456,10 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # `day new` + build, against THIS checkout (`--local`), so a template that stopped compiling
       # fails here rather than in a user's first five minutes.
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
           set -euo pipefail
@@ -507,7 +504,7 @@ jobs:
       # NO signing secrets reach this job on any ref (§20.2). It builds arbitrary repo code —
       # cargo, every dependency's build.rs, dayscript walkthroughs — so it packs at the DEV tier
       # (ad-hoc) even on tags, and the result JSON says so loudly. The Developer ID identity and
-      # the notary key live in the `notarize` job, which runs no repo code at all.
+      # the notary key live in daybrite/actions' `sign-macos` job, which runs no repo code at all.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -541,6 +538,10 @@ jobs:
           echo "day CLI: $BIN"
       # Validate this toolkit's build environment up front — fails the job with setup instructions
       # if a required tool/SDK is missing, rather than deep inside the build.
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (${{ matrix.toolkit }})
         shell: bash
         run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
@@ -549,7 +550,7 @@ jobs:
       # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         # The theme × locale expansion, variant naming, and build-once-reuse live in the CLI now
         # (`day launch --themes/--locales`) — one copy instead of a loop per job per workflow.
         run: |
@@ -561,7 +562,7 @@ jobs:
       # cover-fallback tier elsewhere.
       - name: Windows (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/windows.yaml --skip-build
           if [ "${{ matrix.toolkit }}" != qt ]; then
@@ -571,7 +572,7 @@ jobs:
       # combo (headless Linux has no system clipboard — see dayscript/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/clipboard-roundtrip.yaml
       # Crash reporting (day-break, docs/break.md): crash the app intentionally, then confirm the
       # report shows on the NEXT launch. Two invocations against the SAME app-data dir — the crash
@@ -581,234 +582,42 @@ jobs:
       # smoke). Runs AFTER the walkthrough so the empty-state `crash` screenshot stays deterministic.
       - name: Crash reporting round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash.yaml
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash-report.yaml
-      # Distribution packaging (§16.5): appkit → .dmg, always at the dev tier here (ad-hoc), on
-      # every ref including tags. The tagged release .dmg is rebuilt from the .app below by the
-      # `notarize` job under a real Developer ID identity (§20.2).
+      # Distribution packaging (§16.5): appkit → .dmg, at the dev tier (ad-hoc). Nothing here is
+      # ever distributed — this proves packing works and gives the validate job something to
+      # rebuild. The signed, notarized .dmg is built by daybrite/Day-Showcase's own release, in a
+      # job that runs no repository code (§20.2, daybrite/actions `sign-macos`).
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (${{ matrix.combo }} → dmg)
         if: matrix.toolkit == 'appkit'
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json | tee "$RUNNER_TEMP/pack.json"
           codesign -vvv --deep --strict build/day/pack/macos-appkit/*.app
           hdiutil verify build/day/dist/*.dmg
-      # Hand the UNSIGNED .app onward. Archived rather than uploaded as loose files, because
-      # upload-artifact preserves neither the executable bit nor symlinks — both of which a .app
-      # bundle needs to survive codesign. `ditto -c -k` is the archiver for the job: it is Apple's
-      # own, it keeps the mode bits and symlinks a bundle depends on (a plain `zip` without `-y`
-      # would flatten the symlinks), and pack/ios.rs already uses it to build the unsigned .ipa.
-      # The entitlements file (if [signing.macos] sets one) rides along so the notarize job can
-      # apply it without checking the repo out; `day pack` is the only other consumer of that key,
-      # so the two must be updated together (§16.5).
-      # Uploaded on every ref, not just tags: `notarize` consumes it on tags, and
-      # `macos-appkit-validate` compares against it on pushes to main (§20.3).
-      - name: Stage the .app for release signing
-        if: ${{ matrix.toolkit == 'appkit' }}
-        working-directory: apps/showcase
-        run: |
-          STAGE="$RUNNER_TEMP/appstage"
-          mkdir -p "$STAGE"
-          # ditto, not cp — it is the bundle-aware copy and keeps permissions and symlinks intact.
-          for a in build/day/pack/macos-appkit/*.app; do ditto "$a" "$STAGE/$(basename "$a")"; done
-          ENT="$(sed -n 's/^entitlements = "\(.*\)".*/\1/p' Day.toml | head -1)"
-          if [ -n "$ENT" ]; then cp "$ENT" "$STAGE/entitlements.plist"; fi
-          mkdir -p "$RUNNER_TEMP/appout"
-          ditto -c -k "$STAGE" "$RUNNER_TEMP/appout/showcase-app.zip"
-          # The SBOM and .buildinfo ride along so the notarized .dmg can ship with its provenance
-          # (§20.4) — the signing job never sees this build tree.
-          cp build/day/dist/*.json "$RUNNER_TEMP/appout/" 2>/dev/null || true
-      - name: Upload the unsigned .app
-        if: ${{ matrix.toolkit == 'appkit' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: showcase-app-${{ matrix.combo }}
-          path: ${{ runner.temp }}/appout/
-          if-no-files-found: error
-      # On tags the release .dmg comes from `notarize` instead — uploading here too would put a
-      # second, dev-signed .dmg into the release job's `showcase-dist-*` download.
+      # For `macos-appkit-validate`, which rebuilds this artifact from its own provenance (§20.3).
+      # day publishes no app packages: the showcase releases from its own repository.
       - name: Upload packages
-        if: ${{ matrix.toolkit == 'appkit' && !startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ matrix.toolkit == 'appkit' }}
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-${{ matrix.combo }}
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ matrix.combo }}
-          path: apps/showcase/build/day/screenshots/${{ matrix.combo }}
+          path: showcase-src/build/day/screenshots/${{ matrix.combo }}
           if-no-files-found: warn
 
-  # --- macOS release signing + notarization (semantic tags only) -------------------------------
-  # The ONLY job the Developer ID certificate and the notary API key are reachable from (§20.2).
-  # Its whole design is blast-radius containment, so keep these five properties when editing it:
-  #
-  #   1. No `actions/checkout`. The tagged commit's source never lands on this runner, so nothing
-  #      in the repo — Day.toml, scripts/, dayscript/ — can influence what runs next to the keys.
-  #   2. The only programs invoked are Apple's own (codesign, hdiutil, notarytool, stapler,
-  #      security, plutil) plus `actions/download-artifact`. Cargo never runs here, and neither
-  #      does the `day` CLI, so a malicious dependency gets no execution beside the keys: its
-  #      build.rs ran back in `macos-day`/`macos`, both of which hold no secrets.
-  #   3. `environment: release-signing` — the secrets are ENVIRONMENT secrets, not repository
-  #      secrets, so no other job in this workflow (or any workflow) can read them. The
-  #      environment's deployment rules restrict it to `v*` tags and require a reviewer, which is
-  #      what stops a pushed tag carrying a modified ci.yml from minting a release on its own.
-  #   4. The event is pinned to `push` on a `v*` tag: `workflow_dispatch` cannot select this job's
-  #      ref, and a plain `refs/tags/` prefix test would have matched any tag.
-  #   5. The keychain is created fresh, unlocked only for this job, and deleted in `always()`.
-  #
-  # The stages mirror `day pack`'s macOS lane (assemble → sign inside-out → hdiutil → sign dmg →
-  # notarytool → staple, DESIGN.md §16.5). That duplication is deliberate — it is the price of not
-  # running repo code beside the signing identity — and the two must be changed together.
-  notarize:
-    name: notarize (macos-appkit)
-    needs: [macos]
-    # `!cancelled()` rather than a bare condition: `needs` waits on the WHOLE `macos` matrix, so
-    # without it an unrelated leg (macos-gtk's walkthrough, say) failing would silently SKIP the
-    # release signing. Skipping is the one outcome a release must never take quietly — if the
-    # appkit leg itself failed, this job fails at download-artifact instead, which is honest.
-    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    runs-on: macos-26
-    environment: release-signing
-    permissions:
-      contents: read
-    steps:
-      - name: Download the unsigned .app
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-app-macos-appkit
-          path: ${{ runner.temp }}/incoming
-      - name: Unpack
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/stage"
-          ditto -x -k "$RUNNER_TEMP/incoming/showcase-app.zip" "$RUNNER_TEMP/stage"
-          APP="$(find "$RUNNER_TEMP/stage" -maxdepth 1 -name '*.app' | head -1)"
-          [ -n "$APP" ] || { echo "::error::no .app in the artifact"; exit 1; }
-          {
-            echo "APP=$APP"
-            echo "TITLE=$(basename "$APP" .app)"
-            echo "APPID=$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")"
-          } >> "$GITHUB_ENV"
-
-      # An ephemeral keychain holding only the Developer ID identity, auto-locking after 15
-      # minutes and deleted below. The p12 carries its own chain (Developer ID CA G2), so the
-      # signature verifies without touching the runner's login keychain.
-      - name: Create an ephemeral signing keychain
-        env:
-          CERT_P12: ${{ secrets.DAY_MACOS_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.DAY_MACOS_CERT_PASSWORD }}
-          IDENTITY: ${{ secrets.DAY_SIGN_MACOS_IDENTITY }}
-        run: |
-          set -euo pipefail
-          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASS="$(openssl rand -base64 24)"
-          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
-          security set-keychain-settings -lut 900 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
-          umask 077
-          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
-            -T /usr/bin/codesign -f pkcs12
-          rm -f "$RUNNER_TEMP/cert.p12"
-          # Let codesign use the key without an interactive prompt, then put the keychain on the
-          # search list ahead of the runner's own.
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
-          # shellcheck disable=SC2046 # word splitting is the point: one argument per keychain path
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
-          security find-identity -v -p codesigning "$KEYCHAIN"
-          # Sign by SHA-1, never by common name. Two Developer ID certificates can share a name —
-          # this team has exactly that — and `codesign -s <name>` then fails as "ambiguous" or,
-          # worse, picks the wrong one. The hash pins signing to the cert that came out of OUR p12.
-          COUNT="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -c '^[[:space:]]*[0-9][0-9]*)')"
-          [ "$COUNT" = 1 ] || { echo "::error::expected exactly 1 identity in the keychain, found $COUNT"; exit 1; }
-          SIGN_ID="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/^[[:space:]]*1\)/ {print $2; exit}')"
-          security find-identity -v -p codesigning "$KEYCHAIN" | grep -qF "$IDENTITY" \
-            || { echo "::error::the imported certificate is not '$IDENTITY'"; exit 1; }
-          {
-            echo "KEYCHAIN=$KEYCHAIN"
-            echo "SIGN_ID=$SIGN_ID"
-          } >> "$GITHUB_ENV"
-
-      # Inside-out, never `--deep` — nested code first, the bundle last (DESIGN.md §16.5).
-      - name: Sign the .app (Developer ID)
-        run: |
-          set -euo pipefail
-          xattr -crs "$APP"
-          ENT_ARG=""
-          if [ -f "$RUNNER_TEMP/stage/entitlements.plist" ]; then
-            ENT_ARG="--entitlements $RUNNER_TEMP/stage/entitlements.plist"
-          fi
-          if [ -d "$APP/Contents/Frameworks" ]; then
-            find "$APP/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0 | while IFS= read -r -d '' item; do
-              codesign --force --timestamp --options runtime --keychain "$KEYCHAIN" -s "$SIGN_ID" "$item"
-            done
-          fi
-          # shellcheck disable=SC2086 # ENT_ARG is an intentional two-token flag or empty
-          codesign --force --timestamp --options runtime --keychain "$KEYCHAIN" -s "$SIGN_ID" $ENT_ARG "$APP"
-          codesign -vvv --strict --verify "$APP"
-
-      - name: Build and sign the .dmg
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/dist"
-          rm -f "$RUNNER_TEMP/stage/entitlements.plist"
-          ln -sfn /Applications "$RUNNER_TEMP/stage/Applications"
-          DMG="$RUNNER_TEMP/dist/$TITLE.dmg"
-          hdiutil create -quiet -volname "$TITLE" -srcfolder "$RUNNER_TEMP/stage" -ov -format UDZO "$DMG"
-          codesign --force --timestamp --keychain "$KEYCHAIN" -s "$SIGN_ID" -i "$APPID.dmg" "$DMG"
-          hdiutil verify "$DMG"
-          echo "DMG=$DMG" >> "$GITHUB_ENV"
-
-      - name: Notarize and staple
-        env:
-          NOTARY_KEY_B64: ${{ secrets.DAY_NOTARY_KEY_B64 }}
-          NOTARY_KEY_ID: ${{ secrets.DAY_NOTARY_KEY_ID }}
-          NOTARY_ISSUER: ${{ secrets.DAY_NOTARY_ISSUER }}
-        run: |
-          set -euo pipefail
-          umask 077
-          printf '%s' "$NOTARY_KEY_B64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          trap 'rm -f "$RUNNER_TEMP/notary.p8"' EXIT
-          xcrun notarytool submit "$DMG" \
-            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" \
-            --wait --timeout 30m
-          xcrun stapler staple "$DMG"
-          xcrun stapler validate "$DMG"
-          # The ticket must satisfy Gatekeeper on a machine that has never seen this app.
-          spctl -a -vvv -t open --context context:primary-signature "$DMG"
-
-      # The .dmg is assembled in RUNNER_TEMP, but the SBOM and .buildinfo were written next to the
-      # unsigned output back in the packing job. `day rebuild` reads both from beside the artifact,
-      # so they have to travel with it (§20.4).
-      - name: Stage the provenance beside the .dmg
-        run: |
-          set -euo pipefail
-          cp "$RUNNER_TEMP/incoming"/*.json "$RUNNER_TEMP/dist/" 2>/dev/null || true
-          ls -1 "$RUNNER_TEMP/dist"
-      - name: Upload the notarized package
-        uses: actions/upload-artifact@v7
-        with:
-          name: showcase-dist-macos-appkit
-          path: ${{ runner.temp }}/dist/
-          if-no-files-found: error
-
-      - name: Destroy the signing keychain
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12"
-
-  # --- iOS Simulator: uikit -------------------------------------------------
   ios-uikit:
     name: ios-uikit
     # macos-26: see the macos job note — also gives the walkthrough a current iOS Simulator runtime.
@@ -850,6 +659,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (uikit)
         shell: bash
         run: $DAY_BIN doctor --toolkit uikit
@@ -866,7 +679,7 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
       - name: Walkthrough (ios-uikit)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         # The simulator's app-death flake ("engine connection lost" with zero failed steps) is
         # retried ONCE inside the CLI now — the same signal this step used to grep logs for. One
         # xcodebuild for all eight variants: theme/locale are runtime inputs, so `--skip-build`
@@ -900,24 +713,24 @@ jobs:
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       # Distribution packaging (§16.5): without signing.ios (ASC API key) this is the zipped
       # unsigned device .ipa — a SIGNED .ipa lights up when the ASC secrets are configured (§20).
       - name: Pack (ios-uikit)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-ios-uikit
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-ios-uikit
-          path: apps/showcase/build/day/screenshots/ios-uikit
+          path: showcase-src/build/day/screenshots/ios-uikit
           if-no-files-found: warn
 
   # --- Linux desktop: qt / gtk ----------------------------------------------
@@ -967,6 +780,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (${{ matrix.toolkit }})
         shell: bash
         run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
@@ -975,7 +792,7 @@ jobs:
       # tree under test.
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         # Headless plumbing is the CLI's now: no DISPLAY on this runner, so linux-gtk runs under
         # an xvfb sized from Day.toml [window] (the root-capture fallback frames exactly the app)
         # with the WebKit flags, and linux-qt runs on the offscreen platform.
@@ -993,9 +810,9 @@ jobs:
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (${{ matrix.combo }} → flatpak)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       # The pre-bundle payload, kept for manual diffoscope runs (§20.3). A `.flatpak` is an OSTree bundle that no
       # ordinary archiver can open, so comparing the bundle alone could never say whether the CODE
@@ -1005,10 +822,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: showcase-payload-${{ matrix.combo }}
-          path: apps/showcase/build/day/flatpak/${{ matrix.combo }}/stage/bin/
+          path: showcase-src/build/day/flatpak/${{ matrix.combo }}/stage/bin/
           if-no-files-found: error
       - name: Install + inspect the bundle
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           flatpak install --user -y ./build/day/dist/*.flatpak
           flatpak info dev.daybrite.showcase
@@ -1016,14 +833,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-${{ matrix.combo }}
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ matrix.combo }}
-          path: apps/showcase/build/day/screenshots/${{ matrix.combo }}
+          path: showcase-src/build/day/screenshots/${{ matrix.combo }}
           if-no-files-found: warn
 
   # --- Android emulator: mdc ------------------------------------------------
@@ -1087,6 +904,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (android)
         shell: bash
         run: $DAY_BIN doctor --toolkit android
@@ -1111,9 +932,9 @@ jobs:
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (android-mdc → apk + aab)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         env:
           DAY_ANDROID_ABI: arm64-v8a,x86_64
         run: $DAY_BIN pack -p android-mdc --no-version-in-name --format json
@@ -1121,7 +942,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-android-mdc
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       - name: Emulator walkthrough (android-mdc)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -1139,13 +960,13 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd apps/showcase && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
+          script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-android-mdc
-          path: apps/showcase/build/day/screenshots/android-mdc
+          path: showcase-src/build/day/screenshots/android-mdc
           if-no-files-found: warn
 
   # --- HarmonyOS Next / OpenHarmony ArkUI emulator -------------------------
@@ -1180,7 +1001,7 @@ jobs:
       # toolchains/lib.
       CLT_VERSION: "5.1.0.840"
       CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
-      HARMONY: apps/showcase/platform/ohos
+      HARMONY: showcase-src/platform/ohos
       # Release signing (§20), active on tag pushes only: OHOS keystore/cert/profile.
       # Empty secrets (and every branch/PR run) degrade to the public dev cert.
       DAY_OHOS_KEY_ALIAS: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_OHOS_KEY_ALIAS || '' }}
@@ -1254,7 +1075,7 @@ jobs:
           ln -sfn "$OH" "$BASE/18"
           echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
       # The one framework check still living in a target job: the arkui cross-clippy needs the whole
-      # OpenHarmony SDK, already set up above. Lifting it into `backend` would mean a second copy of
+      # OpenHarmony SDK, already set up above. Lifting it into `toolkit` would mean a second copy of
       # six setup steps — it belongs in a composite action, not in a duplicate.
       - name: Clippy (arkui backend, cross-check)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -1262,7 +1083,8 @@ jobs:
         # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
         # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
         # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
-        run: cargo clippy --locked --target aarch64-unknown-linux-ohos -p showcase --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
+        working-directory: showcase-src
+        run: cargo clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -1281,6 +1103,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (harmonyos)
         shell: bash
         run: $DAY_BIN doctor --toolkit harmonyos
@@ -1329,7 +1155,7 @@ jobs:
       - name: Emulator walkthrough (harmony-arkui × light/dark × en/fr/ar/zh-CN)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true
-        working-directory: apps/showcase
+        working-directory: showcase-src
         # The same theme × locale matrix as the other walkthrough legs (the gallery's non-English
         # ohos tiles fell back to the English captures before these variants existed). Every
         # variant is individually best-effort — one TCG flake must not skip the remaining runs.
@@ -1375,9 +1201,9 @@ jobs:
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (harmony-arkui → hap)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         env:
           DAY_OHOS_ARCH: arm64
         run: $DAY_BIN pack -p harmony-arkui --no-version-in-name --format json
@@ -1385,21 +1211,21 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-harmony-arkui
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-harmony-arkui
-          path: apps/showcase/build/day/screenshots/harmony-arkui
+          path: showcase-src/build/day/screenshots/harmony-arkui
           if-no-files-found: warn
       - name: Upload the .hap (post-mortem)
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: harmony-arkui-artifacts
-          path: apps/showcase/platform/ohos/entry/build/**/*.hap
+          path: showcase-src/platform/ohos/entry/build/**/*.hap
           if-no-files-found: ignore
 
   # --- Windows desktop: xaml (MSVC) ----------------------------------------
@@ -1440,6 +1266,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (xaml)
         shell: bash
         run: $DAY_BIN doctor --toolkit xaml
@@ -1448,7 +1278,7 @@ jobs:
       # day::launch backend, so the app builds fully (its C++/WinRT shim is built on this Windows host).
       - name: Walkthrough (windows-xaml × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           $DAY_BIN launch -p windows-xaml --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
@@ -1470,15 +1300,15 @@ jobs:
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
-        run: bash scripts/ci/assert-pristine.sh
+        run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (windows-xaml → msix + setup.exe)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: $DAY_BIN pack -p windows-xaml --no-version-in-name --format json
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
           name: showcase-dist-windows-xaml
-          path: apps/showcase/build/day/dist/
+          path: showcase-src/build/day/dist/
           if-no-files-found: error
       # The pre-container payload, kept for manual diffoscope runs (§20.3). The NSIS `-setup.exe` is a
       # self-extracting installer nothing in the check can open, so comparing containers alone
@@ -1488,14 +1318,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: showcase-payload-windows-xaml
-          path: apps/showcase/build/day/pack/windows-payload/
+          path: showcase-src/build/day/pack/windows-payload/
           if-no-files-found: error
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-windows-xaml
-          path: apps/showcase/build/day/screenshots/windows-xaml
+          path: showcase-src/build/day/screenshots/windows-xaml
           if-no-files-found: warn
 
   # --- Windows desktop: qt / gtk (gnu toolchain + MSYS2) --------------------
@@ -1583,6 +1413,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Doctor (${{ matrix.toolkit }})
         shell: bash
         run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
@@ -1590,7 +1424,7 @@ jobs:
       # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
       # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" \
@@ -1600,7 +1434,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-${{ matrix.combo }}
-          path: apps/showcase/build/day/screenshots/${{ matrix.combo }}
+          path: showcase-src/build/day/screenshots/${{ matrix.combo }}
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
@@ -1636,7 +1470,8 @@ jobs:
   macos-appkit-validate:
     name: validate (macos-appkit)
     needs: [macos]
-    # See the note on `notarize`: a sibling matrix leg's failure must not skip this job.
+    # `!cancelled()`, not a bare condition: `needs` waits on the WHOLE matrix, so without it an
+    # unrelated leg's failure would silently SKIP this job rather than fail it.
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: macos-26
     env:
@@ -1850,101 +1685,6 @@ jobs:
           [ -n "$ART" ] || { echo "::error::no *.flatpak in the downloaded dist"; exit 1; }
           echo "verifying $ART"
           "$DAY_BIN" rebuild --strict "$ART"
-
-  # --- Store distribution (docs/store.md) ------------------------------------------
-  # Uploads the packaged showcase to App Store Connect and Google Play with fastlane, using the
-  # listing `day store stage` generates from `store/`. Tag pushes only, and each leg SKIPS ITSELF
-  # when its credentials are absent rather than failing: the secrets are optional by design, so a
-  # fork — and this repo before the accounts exist — still gets a green run.
-  #
-  # Neither lane submits for review or releases to users: iOS uploads a build, Android uploads to
-  # the internal track as an unreleased draft. Promotion stays a human decision in the console.
-  distribute:
-    name: distribute (${{ matrix.combo }})
-    needs: [ios-uikit, android-mdc]
-    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # deliver uploads through Apple's Transporter, which is only supported on macOS.
-          - { combo: ios-uikit, os: macos-26 }
-          - { combo: android-mdc, os: ubuntu-24.04 }
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download the package this run built
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-${{ matrix.combo }}
-          # Where the generated Fastfile looks for the artifact (build/day/store/<t>/fastlane → ../../../dist).
-          path: apps/showcase/build/day/dist
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-${{ runner.os == 'macOS' && 'macos' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Stage the store listing
-        working-directory: apps/showcase
-        run: $DAY_BIN store stage -p ${{ matrix.combo }}
-      - name: Materialize credentials (decides whether this leg runs)
-        id: creds
-        env:
-          ASC_KEY_ID: ${{ secrets.DAY_ASC_KEY_ID }}
-          ASC_ISSUER: ${{ secrets.DAY_ASC_ISSUER }}
-          ASC_KEY_B64: ${{ secrets.DAY_ASC_KEY_B64 }}
-          PLAY_JSON_B64: ${{ secrets.DAY_PLAY_JSON_B64 }}
-        run: |
-          set -euo pipefail
-          umask 077
-          if [ "${{ matrix.combo }}" = ios-uikit ]; then
-            if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER:-}" ] && [ -n "${ASC_KEY_B64:-}" ]; then
-              printf '%s' "$ASC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/asc.p8"
-              {
-                echo "DAY_ASC_KEY_ID=$ASC_KEY_ID"
-                echo "DAY_ASC_ISSUER=$ASC_ISSUER"
-                echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8"
-              } >> "$GITHUB_ENV"
-              echo "ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "ready=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::App Store upload skipped — set DAY_ASC_KEY_ID, DAY_ASC_ISSUER and DAY_ASC_KEY_B64 to enable it"
-            fi
-          else
-            if [ -n "${PLAY_JSON_B64:-}" ]; then
-              printf '%s' "$PLAY_JSON_B64" | base64 --decode > "$RUNNER_TEMP/play.json"
-              echo "SUPPLY_JSON_KEY=$RUNNER_TEMP/play.json" >> "$GITHUB_ENV"
-              echo "ready=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "ready=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::Google Play upload skipped — set DAY_PLAY_JSON_B64 to enable it"
-            fi
-          fi
-      - name: Install fastlane
-        if: steps.creds.outputs.ready == 'true'
-        run: command -v fastlane >/dev/null || gem install fastlane -N --no-document
-      # Validate first: it asks the store to check the build and the listing and rolls back, so a
-      # rejected listing fails here instead of half-way through an upload.
-      - name: fastlane validate
-        if: steps.creds.outputs.ready == 'true'
-        working-directory: apps/showcase/build/day/store/${{ matrix.combo }}
-        run: fastlane ${{ matrix.combo == 'ios-uikit' && 'ios' || 'android' }} validate
-      - name: fastlane upload
-        if: steps.creds.outputs.ready == 'true'
-        working-directory: apps/showcase/build/day/store/${{ matrix.combo }}
-        run: fastlane ${{ matrix.combo == 'ios-uikit' && 'ios' || 'android' }} upload
-      - name: Upload the generated listing (what the store was sent)
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: store-listing-${{ matrix.combo }}
-          path: apps/showcase/build/day/store/${{ matrix.combo }}
-          if-no-files-found: warn
 
   android-mdc-validate:
     name: validate (android-mdc)
@@ -2258,9 +1998,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # web-dom: build the showcase for the web-dom backend (docs/web.md) — a wasm32 cdylib plus
-  # the day-dom host page, assembled by `day build` into a fully static dist/. The website job
-  # publishes it at /showcase/web-dom/, so the gallery's "live web build" link opens the real
-  # app straight from GitHub Pages (no server component). Then the SAME walkthrough script the
+  # the day-dom host page, assembled by `day build` into a fully static dist/. The dist is built
+  # here as the wasm build test and to drive the walkthrough, but it is NOT published: the app
+  # deploys its own web build to daybrite.github.io/Day-Showcase from its own repository, and this
+  # site links there. Then the SAME walkthrough script the
   # native combos run drives the page in headless CHROMIUM (scripts/ci/webdom-driver.mjs is
   # the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
   # WebSocket bridge) and uploads gallery screenshots like every other combo. Chromium, not
@@ -2297,18 +2038,13 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      - name: Check out the showcase app
+        uses: ./.github/actions/showcase
+        with:
+          day-bin: ${{ env.DAY_BIN }}
       - name: Build the showcase web-dom dist (release)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         run: $DAY_BIN build --platform web-dom --profile release
-      - name: Upload the web-dom dist
-        uses: actions/upload-artifact@v7
-        with:
-          name: webdom-showcase
-          path: apps/showcase/build/day/cargo/web-dom/release/dist
-          if-no-files-found: error
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
       - name: Install walkthrough tools
         # ubuntu-latest preinstalls neither: ImageMagick's `identify` is the validation
         # script's Linux path, and without Noto CJK the zh-CN captures render tofu boxes
@@ -2323,7 +2059,7 @@ jobs:
           npm install playwright >/dev/null
           npx playwright install --with-deps chromium webkit
       - name: Walkthrough (web-dom × light/dark × en/fr/ar/zh-CN)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         env:
           DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
@@ -2338,7 +2074,7 @@ jobs:
       # beta/gamma/alpha → x/y/z mapping are where a browser sensor arm actually goes wrong
       # (docs/sensors.md).
       - name: Sensors (synthetic devicemotion)
-        working-directory: apps/showcase
+        working-directory: showcase-src
         env:
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
         run: |
@@ -2353,13 +2089,13 @@ jobs:
           fi
           node "$GITHUB_WORKSPACE/scripts/ci/webdom-sensor-test.mjs" "$URL/"
       - name: Validate screenshot content
-        run: scripts/ci/validate-screenshots.sh apps/showcase/build/day/screenshots/web-dom
+        run: scripts/ci/validate-screenshots.sh showcase-src/build/day/screenshots/web-dom
       - name: Upload screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: screenshots-web-dom
-          path: apps/showcase/build/day/screenshots/web-dom
+          path: showcase-src/build/day/screenshots/web-dom
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
@@ -2396,15 +2132,17 @@ jobs:
         with:
           pattern: screenshots-*
           path: website/artifacts
-      # No `showcase-dist-*` download: /showcase/ links the packages attached to the latest
-      # RELEASE, not this run's. Only the release lane's macOS build is signed and notarized (the
-      # signing environment admits `v*` tags alone), and an unsigned .dmg is the one download here
-      # that macOS refuses to open. scripts/assemble-downloads.mjs reads the release over the API.
+      # No `showcase-dist-*` download: /showcase/ links the packages attached to the latest RELEASE
+      # of daybrite/Day-Showcase, not this run's. Only that release lane's macOS build is signed and
+      # notarized, and an unsigned .dmg is the one download here that macOS refuses to open.
+      # scripts/assemble-downloads.mjs reads that release over the API (DAY_RELEASE_REPO below).
       - name: Build the site (assembles the gallery from the artifacts)
         working-directory: website
         env:
           # Raises the API rate limit for the release lookup above the shared-IP anonymous one.
           GITHUB_TOKEN: ${{ github.token }}
+          # /showcase/ offers the app's own releases now that it is its own repository.
+          DAY_RELEASE_REPO: daybrite/Day-Showcase
         run: |
           npm ci
           npm run build
@@ -2417,19 +2155,6 @@ jobs:
         with:
           name: api-docs
           path: website/dist/api
-      - name: Add the live web-dom showcase (dist/showcase/web-dom)
-        # The web-dom job's dist is fully static (docs/web.md "Serving") — drop it into the
-        # built site so /showcase/web-dom/ serves the real app. continue-on-error: a run
-        # without the artifact still deploys — the page 404s until the next green run
-        # (matches the gallery/API resilience; linkcheck skips links into the bundle).
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: webdom-showcase
-          path: website/dist/showcase/web-dom
-      # Validate every internal link on every generated page (external links are skipped — flaky and
-      # not ours; the generated /api rustdoc subtree is skipped — cargo doc validates its own links).
-      # A broken internal link fails the build BEFORE the Pages artifact is uploaded.
       - name: Check for broken links
         working-directory: website
         run: npm run linkcheck

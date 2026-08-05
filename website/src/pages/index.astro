@@ -6,68 +6,38 @@ import InstallCommand from '../components/InstallCommand.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import { url, site } from '../lib/site';
+import { primaryPlatforms } from '../lib/platforms.mjs';
 
 // The eight primary platform-toolkits for the "runs on" grid, in Day's canonical order.
 // Each card wears its platform accent (global.css `--pf-<target>`, iOS-palette light/dark)
 // via data-pf; the blurbs say what the toolkit is and where people actually meet it.
-const targets = [
-  {
-    id: 'macos-appkit',
-    name: 'AppKit',
-    os: 'macOS',
-    blurb:
-      'The Mac’s native toolkit: the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
-  },
-  {
-    id: 'ios-uikit',
-    name: 'UIKit',
-    os: 'iOS & iPadOS',
-    blurb:
-      'Apple’s UI framework for iPhone and iPad: real navigation pushes, tab bars, and system text handling. Ships as a normal .ipa.',
-  },
-  {
-    id: 'android-mdc',
-    name: 'Material Components',
-    os: 'Android',
-    blurb:
-      'Google’s native widgets over android.view, on phones, tablets, and foldables, themed by the OS and packaged as .apk or .aab.',
-  },
-  {
-    id: 'linux-gtk',
-    name: 'GTK 4',
-    os: 'Linux',
-    blurb:
-      'GNOME’s toolkit, styled by libadwaita. It is the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
-  },
-  {
-    id: 'linux-qt',
-    name: 'Qt 6 Widgets',
-    os: 'Linux',
-    blurb:
-      'The toolkit beneath KDE Plasma: the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
-  },
-  {
-    id: 'windows-xaml',
-    name: 'XAML (system XAML)',
-    os: 'Windows',
-    blurb:
-      'Windows 11’s native controls, hosted in a Win32 window with no framework runtime to install. Packs as .msix plus an installer.',
-  },
-  {
-    id: 'harmony-arkui',
-    name: 'ArkUI',
-    os: 'HarmonyOS',
-    blurb:
-      'HarmonyOS Next’s native UI framework, driven through its C node API on Huawei phones and tablets. Packs as a .hap.',
-  },
-  {
-    id: 'web-dom',
-    name: 'The DOM',
-    os: 'Web',
-    blurb:
-      'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files; open the live build.',
-  },
-];
+const blurbs: Record<string, string> = {
+  'macos-appkit':
+    'The Mac’s native toolkit: the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
+  'ios-uikit':
+    'Apple’s UI framework for iPhone and iPad: real navigation pushes, tab bars, and system text handling. Ships as a normal .ipa.',
+  'android-mdc':
+    'Google’s native widgets over android.view, on phones, tablets, and foldables, themed by the OS and packaged as .apk or .aab.',
+  'linux-gtk':
+    'GNOME’s toolkit, styled by libadwaita. It is the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
+  'linux-qt':
+    'The toolkit beneath KDE Plasma: the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
+  'windows-xaml':
+    'Windows 11’s native controls, hosted in a Win32 window with no framework runtime to install. Packs as .msix plus an installer.',
+  'harmony-arkui':
+    'HarmonyOS Next’s native UI framework, driven through its C node API on Huawei phones and tablets. Packs as a .hap.',
+  'web-dom':
+    'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files; open the live build.',
+};
+
+// The grid's eight, named and ordered by the platform table (src/lib/platforms.mjs); this page
+// contributes only the blurb.
+const targets = primaryPlatforms.map((p) => ({
+  id: p.id,
+  name: p.toolkit,
+  os: p.os,
+  blurb: blurbs[p.id],
+}));
 
 const heroCode = `use day::prelude::*;
 
@@ -198,7 +168,7 @@ const compare = [
                 <>
                   The browser’s own widgets: the same Rust compiled to WebAssembly, driving
                   real <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code> elements.
-                  Hosts as static files. <a href={url('showcase/web-dom/')}>Open the live build</a>.
+                  Hosts as static files. <a href={site.showcaseWeb}>Open the live build</a>.
                 </>
               ) : (
                 t.blurb

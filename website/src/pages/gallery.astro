@@ -25,9 +25,9 @@ function platformOf(suite: Suite, id: string) {
 const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
 
 // Deep links into the live web build. The shim treats the URL fragment as the app's route
-// (`day_dom_set_hash` writes it, a `hashchange` listener reads it back), so /showcase/web-dom/#canvas
-// opens on Canvas & shapes. The route names are the keys of the `Section` enum in
-// apps/showcase/src/lib.rs — mirrored here because a shot id is NOT always a route: several rows
+// (`day_dom_set_hash` writes it, a `hashchange` listener reads it back), so appending `#canvas` to
+// the app's own site (site.showcaseWeb) opens on Canvas & shapes. The route names are the keys of the `Section` enum in
+// the showcase's src/lib.rs (daybrite/Day-Showcase) — mirrored here because a shot id is NOT always a route: several rows
 // capture a STATE of a page rather than a page.
 // `toolbars` and `map` are in the enum but NOT in the web build — asking for either lands on
 // About. Checked by loading each fragment against the built app rather than read off the enum.
@@ -176,7 +176,7 @@ function webRoute(shotId: string): string | null {
                           {platform.id === 'web-dom' && webRoute(shot.id) !== null && (
                             <a
                               class="cap-launch"
-                              href={url(`showcase/web-dom/${webRoute(shot.id) ? `#${webRoute(shot.id)}` : ''}`)}
+                              href={`${site.showcaseWeb}${webRoute(shot.id) ? `#${webRoute(shot.id)}` : ''}`}
                               target="_blank"
                               rel="noopener"
                               title={`Open this screen in the live web build`}

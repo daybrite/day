@@ -12,20 +12,6 @@
 // what a screenshot cannot contain — the hardware around the glass. Differentiated lightly by
 // corner radius and button nubs rather than imitating one specific model.
 
-/** The hardware bezel for a phone-class target, if it has one. */
-export const bezelOf = (id: string): string | undefined =>
-  ({ 'ios-uikit': 'iphone', 'android-mdc': 'android', 'harmony-arkui': 'harmony' })[id];
-
-/** The window decoration for a desktop/web target, if it has one. */
-export const chromeOf = (id: string): string | undefined =>
-  ({
-    'macos-appkit': 'macos',
-    'macos-gtk': 'macos',
-    'macos-qt': 'macos',
-    'windows-xaml': 'windows',
-    'windows-gtk': 'windows',
-    'windows-qt': 'windows',
-    'linux-gtk': 'gnome',
-    'linux-qt': 'kde',
-    'web-dom': 'browser',
-  })[id];
+// Which shell each target wears is part of its identity, so it lives with the rest of it in
+// platforms.mjs. This module keeps the two named exports every caller already imports.
+export { bezelOf, chromeOf } from './platforms.mjs';

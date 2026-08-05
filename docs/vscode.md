@@ -19,7 +19,7 @@ target, and stop/restart ride the standard task lifecycle.
 - **Build mode** (`--profile debug|release`), **locale** (`--locale`), and an optional **dayscript**
   (`--script`), all editable from the sidebar or the command palette.
 - **`day` task type**: auto-detected `day: build/run <target>` tasks integrate with `Ctrl+Shift+B`,
-  `tasks.json`, and key bindings (see `apps/showcase/.vscode/tasks.json` for an example). Build errors
+  `tasks.json`, and key bindings (see `Day-Showcase/.vscode/tasks.json` for an example). Build errors
   surface through the `$rustc` problem matcher.
 - **Doctor**: runs `day doctor` to check toolchains.
 

@@ -506,7 +506,7 @@ The result: an app adds the piece with a single plain dependency and wires only 
 with no per-piece feature fan-out:
 
 ```toml
-# apps/showcase/Cargo.toml
+# Day-Showcase/Cargo.toml
 [features]
 appkit = ["day/appkit"]     # the app wires the core backend; the CLI derives the piece's
 gtk    = ["day/gtk"]        # day-piece-searchfield/<backend> from its [package.metadata.day.piece]

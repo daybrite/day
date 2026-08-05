@@ -114,7 +114,7 @@ focusable, and the bindings stay quiet there.
 - **dayscript:** the showcase walkthrough's Focus block runs `focus` / `assert_focused` against
   the real duty on every scripted platform (macOS AppKit/GTK/Qt, iOS, Android: 208/208), with
   assertions kept to text fields, the one control focusable everywhere.
-- **Showcase:** the Focus page (`apps/showcase/src/pages/focus.rs`) demonstrates the group
+- **Showcase:** the Focus page (`Day-Showcase/src/pages/focus.rs`) demonstrates the group
   signal steering a form (with Return chaining), the plain Bool binding, and non-text-control
   focus with a live readout.
 

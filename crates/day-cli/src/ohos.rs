@@ -536,7 +536,7 @@ pub fn build_ohos(
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
             "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/ohos/` \
-             project (the hvigor project + sign-hap.mjs), like apps/showcase/platform/ohos. See \
+             project (the hvigor project + sign-hap.mjs), like daybrite/Day-Showcase's platform/ohos. See \
              docs/harmonyos.md.",
             harmony.display()
         ));

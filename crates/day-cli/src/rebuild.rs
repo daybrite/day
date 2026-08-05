@@ -43,7 +43,7 @@ struct Provenance {
     repository: String,
     commit: String,
     dirty: bool,
-    /// Where the project sat inside the repository (`apps/showcase`, or empty at the root).
+    /// Where the project sat inside the repository (`apps/example`, or empty at the root).
     /// Absent in artifacts packed before this was recorded — see `find_project_dir`.
     project: Option<String>,
     /// The app id the artifact declares, used to identify the project when `project` is absent.
@@ -701,7 +701,7 @@ fn day_projects(root: &Path) -> Vec<PathBuf> {
 
 /// Locate the project to rebuild inside a checkout.
 ///
-/// `recorded` is the path the SBOM carries (`apps/showcase`, or empty for the repository root) and
+/// `recorded` is the path the SBOM carries (`apps/example`, or empty for the repository root) and
 /// is authoritative: the packing run knew exactly where it stood. `app_id` identifies the project
 /// in artifacts packed before that was recorded — a search, but one that checks the id it finds
 /// rather than taking the first `Day.toml` it trips over.
@@ -1126,7 +1126,7 @@ mod tests {
             repository: Some("https://example.invalid/repo".into()),
             commit: Some("abc123".into()),
             dirty: false,
-            project_path: Some("apps/showcase".into()),
+            project_path: Some("apps/example".into()),
             components: Vec::new(),
         };
         let from_cdx = source_facts(&crate::provenance::cyclonedx(&sbom)).expect("cyclonedx");
@@ -1137,7 +1137,7 @@ mod tests {
         assert!(!from_cdx.dirty);
         // The project path decides WHICH app in the repository gets rebuilt, so it has to survive
         // both formats — SPDX has no property bag and carries it inside `sourceInfo`.
-        assert_eq!(from_cdx.project.as_deref(), Some("apps/showcase"));
+        assert_eq!(from_cdx.project.as_deref(), Some("apps/example"));
     }
 
     /// The bug this replaced: `find_project_dir` returned the first `Day.toml` a directory walk
@@ -1162,7 +1162,7 @@ mod tests {
         };
         // Sorts BEFORE the real app, which is what made first-hit search pick it.
         mk("apps/other-app", Some("dev.example.other"));
-        mk("apps/showcase", Some("dev.daybrite.showcase"));
+        mk("apps/example", Some("dev.daybrite.showcase"));
         // A scaffold template: Day.toml, no Cargo.toml. Never a rebuild candidate.
         let tpl = tmp.join("crates/day-cli/templates/app");
         std::fs::create_dir_all(&tpl).expect("mkdir");
@@ -1174,8 +1174,8 @@ mod tests {
 
         // Recorded path wins outright.
         assert_eq!(
-            find_project_dir(&tmp, Some("apps/showcase"), None).expect("recorded"),
-            tmp.join("apps/showcase"),
+            find_project_dir(&tmp, Some("apps/example"), None).expect("recorded"),
+            tmp.join("apps/example"),
         );
         // An empty recorded path is a real answer — the project IS the repository root, which is
         // how a scaffolded single-app repo looks. It must not be read as "nothing recorded".
@@ -1184,12 +1184,12 @@ mod tests {
         // Without it, the app id identifies the project among the several in the repository.
         assert_eq!(
             find_project_dir(&tmp, None, Some("dev.daybrite.showcase")).expect("by id"),
-            tmp.join("apps/showcase"),
+            tmp.join("apps/example"),
         );
         // Neither: refuse and name the candidates rather than pack an arbitrary one.
         let err = find_project_dir(&tmp, None, None).expect_err("ambiguous");
         assert!(
-            err.contains("apps/other-app") && err.contains("apps/showcase"),
+            err.contains("apps/other-app") && err.contains("apps/example"),
             "{err}"
         );
         assert!(
@@ -1321,7 +1321,7 @@ mod tests {
             repository: Some("https://example.invalid/repo".into()),
             commit: Some("abc123".into()),
             dirty: true,
-            project_path: Some("apps/showcase".into()),
+            project_path: Some("apps/example".into()),
             components: Vec::new(),
         };
         assert!(source_facts(&crate::provenance::spdx(&sbom)).unwrap().dirty);

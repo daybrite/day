@@ -17,26 +17,24 @@
 // `screenshots-widgets-<platform>` only needs its own `artifactPattern`. Each variant may fall
 // back to the extra directories listed in `variants` (older artifacts used locale subdirs).
 
+import { platforms as platformTable } from './src/lib/platforms.mjs';
+
 /** @typedef {{ id: string, label: string, os: string, toolkit: string }} Platform */
 /** `source` is the repo-relative path of the code that renders the shot (linked from the row
  *  header, e.g. `apps/showcase/src/pages/controls.rs`).
  *  @typedef {{ id: string, label: string, source?: string }} Shot */
 
-/** The twelve CI targets, grouped by OS for display. Order here is display order. */
-export const platforms = /** @type {Platform[]} */ ([
-  { id: 'macos-appkit', label: 'AppKit', os: 'macOS', toolkit: 'AppKit' },
-  { id: 'macos-gtk', label: 'GTK 4', os: 'macOS', toolkit: 'GTK 4 · libadwaita' },
-  { id: 'macos-qt', label: 'Qt 6', os: 'macOS', toolkit: 'Qt 6 Widgets' },
-  { id: 'ios-uikit', label: 'UIKit', os: 'iOS', toolkit: 'UIKit' },
-  { id: 'android-mdc', label: 'Android', os: 'Android', toolkit: 'Material' },
-  { id: 'linux-gtk', label: 'GTK 4', os: 'Linux', toolkit: 'GTK 4 · libadwaita' },
-  { id: 'linux-qt', label: 'Qt 6', os: 'Linux', toolkit: 'Qt 6 Widgets' },
-  { id: 'windows-xaml', label: 'XAML', os: 'Windows', toolkit: 'System XAML · XAML Islands' },
-  { id: 'windows-gtk', label: 'GTK 4', os: 'Windows', toolkit: 'GTK 4 · libadwaita' },
-  { id: 'windows-qt', label: 'Qt 6', os: 'Windows', toolkit: 'Qt 6 Widgets' },
-  { id: 'harmony-arkui', label: 'ArkUI', os: 'HarmonyOS', toolkit: 'ArkUI · NodeAPI' },
-  { id: 'web-dom', label: 'Web DOM', os: 'Web', toolkit: 'DOM · captured in WebKit' },
-]);
+/** The twelve CI targets, in display order. Names and shells come from the platform table
+ *  (src/lib/platforms.mjs), so a rename lands on the gallery, the landing page and the
+ *  showcase at once; `label` is the gallery's own short chip and stays derived from it. */
+export const platforms = /** @type {Platform[]} */ (
+  platformTable.map((p) => ({
+    id: p.id,
+    label: p.chip ?? p.toolkit,
+    os: p.osShort ?? p.os,
+    toolkit: p.toolkitLong,
+  }))
+);
 
 /**
  * Screenshot suites. Today just the Showcase app; the shape scales to more sample apps and to

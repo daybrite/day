@@ -2711,10 +2711,11 @@ day/                                # THIS repository
                                     #   -http, -permissions, -location)
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
-  apps/
-    showcase/                       # THE demo: every subsystem, 4 locales, the walkthrough
-    matrix/                         # a full Matrix chat client (matrix-rust-sdk bridge) — the
-                                    #   scale proof; has its own DESIGN.md
+                                    # (the apps live in their own repositories: daybrite/Day-Showcase
+                                    #  is THE demo — every subsystem, 4 locales, the walkthrough —
+                                    #  and daybrite/Day-Matrix is the scale proof, a full Matrix
+                                    #  client with its own DESIGN.md. CI checks the showcase out
+                                    #  to build the framework against the app it documents.)
   docs/                             # the normative subsystem docs (see the index at the top)
   website/                          # Astro site: curated guides + docs/ symlinked as the
                                     #   internal reference (scripts/website.sh builds it)
@@ -2760,30 +2761,35 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    failure killed the CLI artifact and with it every Linux-descended combo).
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane).
-3. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
-   dedicated `ios-uikit` Simulator job and an Android emulator job): host-portable `cargo test`
-   (incl. the day-mock e2e suite), per-backend clippy with warnings denied, `day doctor`, a
-   `day new` scaffold smoke test, the **showcase walkthrough × light/dark/fr** with
-   content-validated screenshot uploads, service round-trip scripts (e.g. clipboard), and
-   `day pack`. The macOS leg packs at the dev tier on every ref — its release signature is
-   applied later by the isolated `notarize` job ([§20.2](#202-release-signing-isolation)); the
-   iOS and Android legs still sign in place on tag runs, degrading loudly to dev signing
-   everywhere else. A `web-dom` job builds the showcase's wasm
-   dist (`day build -p web-dom --profile release`), uploads it for the website job (published
-   at `/showcase/web-dom/` — the live, statically-hosted web build linked from the gallery),
-   and runs the SAME walkthrough × light/dark × en/fr/ar/zh-CN in headless WebKit
+3. **Framework checks** — the crates the framework owns, varied along the two axes a single job
+   cannot cover: `test (<os>)` runs the host-portable `cargo test` once per operating system, and
+   `toolkit (<backend>)` lints the showcase against one backend crate's feature and scaffolds a
+   piece/part/app for it. Feature unification is why the second exists — a `--workspace` clippy
+   would link several backends into one binary and trip the one-backend-per-binary guard
+   ([§3](#3-crate-architecture)). These used to run INSIDE the per-combo jobs, which made every
+   build job framework-shaped and unusable as an app pipeline; split out, they run beside it.
+4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
+   dedicated `ios-uikit` Simulator job and an Android emulator job): each checks out
+   daybrite/Day-Showcase, points its day dependencies at this commit (`day patch --check`,
+   [§16.5](#165-subcommands)), and runs `day doctor`, the **showcase walkthrough ×
+   light/dark/fr** with content-validated screenshot uploads, service round-trip scripts (e.g.
+   clipboard), and `day pack` — the generic app pipeline, nothing framework-shaped. Every leg packs at the dev tier: releasing and signing the showcase is its own
+   repository's business ([§20.2](#202-release-signing-isolation)), and these jobs exist for the
+   build/walkthrough/screenshot signal. A `web-dom` job builds the showcase's wasm
+   dist (`day build -p web-dom --profile release`) and runs the SAME walkthrough ×
+   light/dark × en/fr/ar/zh-CN in headless WebKit
    (`DAY_WEB_DRIVER` = scripts/ci/webdom-driver.mjs; the dayscript WebSocket bridge, §14.5),
-   uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md).
-4. **Release lane** (semver tags) — the `notarize` job ([§20.2](#202-release-signing-isolation)),
-   a `distribute` job that stages the store listing (`day store stage`) and runs fastlane's
-   validate-then-upload lanes for the App Store and Google Play — each leg skipping itself when its
-   credentials are absent, and neither submitting for review (docs/store.md),
-   publishability check (`cargo publish --workspace --dry-run`), tag-vs-version check, GitHub
-   release with the six CLI binaries, and crates.io Trusted Publishing (wired; crates not yet
-   published — [§1](#1-glossary-and-naming)). The release's app packages are also what the
-   website's `/showcase/` page offers: the signing identity is scoped to `v*` tags, so a package
-   built on a main push is unsigned by construction, and the page links release assets over the
-   API (`website/scripts/assemble-downloads.mjs`) rather than serving this run's artifacts.
+   uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md). It does not
+   publish the dist — the app deploys its own web build to daybrite.github.io/Day-Showcase from its
+   own repository, and daybrite.dev links there.
+5. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
+   --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries and the installers,
+   and crates.io Trusted Publishing (wired; crates not yet published —
+   [§1](#1-glossary-and-naming)). It ships the CLI and nothing else: signing, notarizing and
+   store distribution of an app all belong to that app's repository, through daybrite/actions
+   ([§20.2](#202-release-signing-isolation), docs/store.md). The website's `/showcase/` page
+   therefore links the release assets of `daybrite/Day-Showcase` over the API
+   (`website/scripts/assemble-downloads.mjs`) rather than serving anything this run built.
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation
@@ -2791,6 +2797,13 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 `appstreamcli` enforces.
 
 ### §20.2 Release signing isolation
+
+> [!NOTE]
+> **Moved 2026-08.** This model now lives in daybrite/actions' `build-day-app.yml` as the
+> `sign-macos` job, so every Day app gets it rather than only the showcase — which is itself an app
+> repository now (daybrite/Day-Showcase). day's own release publishes the CLI: six binaries, the
+> installers and the Homebrew formula, none of which touch a Developer ID. The five properties
+> below are the contract that job keeps; they were written here first and are unchanged.
 
 > [!IMPORTANT]
 > **Status: shipped.** Supersedes the original arrangement, in which the macOS combo job held the
@@ -3370,9 +3383,10 @@ Mechanism (implemented; docs/tweaks.md is normative):
 
 > [!WARNING]
 > **Status: superseded by the live app.** The design-era single-page sketch this appendix
-> carried is long outgrown — **`apps/showcase/` is the reference**, and it is deliberately
+> carried is long outgrown — **daybrite/Day-Showcase is the reference**, and it is deliberately
 > self-documenting: every page's source comments name the docs/ file and DESIGN section it
-> demonstrates.
+> demonstrates. It moved out of this repository in 2026-08 (§20); CI checks it out to keep testing
+> the framework against it.
 
 What the shipped showcase covers, per navigation destination (a `selector` sidebar on desktop,
 a list-push on mobile — docs/navigation.md): **Controls** (every two-way binding, pickers,

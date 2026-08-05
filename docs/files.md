@@ -72,7 +72,7 @@ target.
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
-callback, wired in the ArkTS host's `Index.ets` (`apps/showcase/platform/ohos/entry/src/main/ets/pages/`).
+callback, wired in the ArkTS host's `Index.ets` (`Day-Showcase/platform/ohos/entry/src/main/ets/pages/`).
 
 All backends present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.
@@ -102,5 +102,5 @@ A file picker is a presentation, so a script answers it with a path (docs/dialog
 ```
 
 This makes open/save flows headless-testable and screenshot-able on every backend without touching
-the machine's real filesystem. See `apps/showcase` (the **Platform services** page's Files section) and
-`apps/showcase/dayscript/files.yaml`.
+the machine's real filesystem. See `Day-Showcase` (the **Platform services** page's Files section) and
+`Day-Showcase/dayscript/files.yaml`.
