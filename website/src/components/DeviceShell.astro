@@ -51,14 +51,16 @@ const bezel = chrome ? undefined : bezelOf(platform);
         <>
           <span class="sh-eq" />
           <span class="sh-title bold">{title}</span>
-          <span class="sh-gbtn">✕</span>
+          <span class="sh-gbtn"><i class="b-close" /></span>
         </>
       )}
       {chrome === 'kde' && (
         <>
           <span class="sh-eq" />
           <span class="sh-title">{title}</span>
-          <span class="sh-caps"><i>—</i><i>▢</i><i>✕</i></span>
+          {/* Breeze draws chevrons, not a dash and a square: minimize points down, maximize up
+              (kdecoration/breezebutton.cpp). */}
+          <span class="sh-caps"><i class="b-min" /><i class="b-max" /><i class="b-close" /></span>
         </>
       )}
       {chrome === 'browser' && (
