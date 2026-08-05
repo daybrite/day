@@ -69,11 +69,6 @@ enum Cmd {
         /// every connected one gets the app. Equivalent to setting `ANDROID_SERIAL`.
         #[arg(long = "android-device", value_name = "SERIAL")]
         android_device: Option<String>,
-        /// Build for and launch on a PHYSICAL iOS device instead of the simulator. Needs the
-        /// device paired (`xcrun devicectl list devices`) and a development provisioning profile
-        /// that lists it; `--device` picks between several by name or UDID.
-        #[arg(long)]
-        physical: bool,
         /// Exit after launch instead of staying attached to logs
         #[arg(long)]
         detach: bool,
@@ -776,7 +771,6 @@ pub fn run() -> i32 {
             skip_build,
             locales,
             themes,
-            device,
         } => with_project(cli.project.as_deref(), |project| {
             // No `-p`: run what this machine natively is. Announced rather than assumed — the
             // chosen target decides which toolkit gets built, so a silent pick would be a

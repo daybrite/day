@@ -15,6 +15,26 @@ pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     day_toolchain::rustup_cargo()
 }
 
+/// Run an install/launch step without letting the tool narrate.
+///
+/// `adb`, `devicectl` and friends each describe the same three operations in their own voice
+/// ("Performing Streamed Install", "App installed: • bundleID: …", "Starting: Intent { … }"), on
+/// the same stream the app's own output arrives on. Day already says what is happening through
+/// [`status`], in one format for every target — so the tool's version is captured and shown only
+/// when the step fails, where it is the diagnostic. Build output still streams: there the tool's
+/// narration IS the content.
+pub(crate) fn run_quiet(cmd: &mut Command, what: &str) -> Result<(), String> {
+    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "{what} failed:\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    ))
+}
+
 pub(crate) fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
     let out = cmd.status().map_err(|e| format!("{what}: {e}"))?;
     if out.success() {
@@ -706,7 +726,7 @@ pub(crate) fn booted_sims() -> Vec<String> {
         .collect()
 }
 
-/// Resolve `--device` (a UDID or a device name) against the booted simulators.
+/// Resolve `--ios-simulator` (a UDID or a device name) against the booted simulators.
 ///
 /// Matching is deliberately restricted to BOOTED devices: a name that exists but is shut down is a
 /// clearer error than silently booting something the caller did not ask for, and booting is the
@@ -737,7 +757,7 @@ fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
         .collect();
     if named.is_empty() {
         return Err(format!(
-            "--device {want:?} is not a booted iOS simulator (booted: {}). Boot it first: \
+            "--ios-simulator {want:?} is not a booted iOS simulator (booted: {}). Boot it first: \
              `xcrun simctl boot {want:?}`",
             if booted.is_empty() {
                 "none".to_string()
@@ -784,7 +804,7 @@ pub(crate) fn physical_ios_devices() -> Vec<(String, String)> {
 
 /// Install and run on a physical device via `devicectl`. Logs are the device's, so unlike the
 /// simulator path there is no stdout to pipe: the app is launched with its console attached.
-fn launch_ios_physical(
+fn launch_ios_device(
     project: &Project,
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
@@ -798,12 +818,12 @@ fn launch_ios_physical(
                 .to_string(),
         );
     }
-    // `--device` may name either the UDID or the device name shown in Xcode.
-    let (udid, name) = match spec.device.as_deref() {
+    // `--ios-device` may name either the UDID or the device name shown in Xcode.
+    let (udid, name) = match spec.ios_device.as_deref() {
         None if devices.len() == 1 => devices[0].clone(),
         None => {
             return Err(format!(
-                "several iOS devices are available — name one with --device: {}",
+                "several iOS devices are available — name one with --ios-device: {}",
                 devices
                     .iter()
                     .map(|(_, n)| n.as_str())
@@ -817,7 +837,7 @@ fn launch_ios_physical(
             .cloned()
             .ok_or_else(|| {
                 format!(
-                    "--device {want:?} is not a paired iOS device (available: {})",
+                    "--ios-device {want:?} is not a paired iOS device (available: {})",
                     devices
                         .iter()
                         .map(|(_, n)| n.as_str())
@@ -828,13 +848,21 @@ fn launch_ios_physical(
     };
 
     status("Installing", &format!("{} on {name}", outcome.target));
-    let mut install = Command::new("xcrun");
-    install
-        .args(["devicectl", "device", "install", "app", "--device", &udid])
-        .arg(&outcome.artifact);
-    run_logged(&mut install, &format!("devicectl install ({name})"))?;
+    // Captured, not streamed: devicectl narrates the install in a bullet list (bundleID,
+    // installationURL, databaseUUID …) that says nothing a reader needs and looks nothing like
+    // any other target's output. The status lines above and below say the same thing in Day's
+    // voice; the detail is kept only to be shown if it fails.
+    run_quiet(
+        Command::new("xcrun")
+            .args(["devicectl", "device", "install", "app", "--device", &udid])
+            .arg(&outcome.artifact),
+        &format!("devicectl install ({name})"),
+    )?;
 
-    status("Launching", &format!("{bundle_id} on {name}"));
+    status(
+        "Launching",
+        &format!("{} ({bundle_id}) on device {name}", outcome.target),
+    );
     let mut launch = Command::new("xcrun");
     launch
         .args([
@@ -845,8 +873,11 @@ fn launch_ios_physical(
             "--device",
             &udid,
         ])
-        .arg("--console")
         .arg(&bundle_id);
+    if spec.attached {
+        // Streams the app's own stdout/stderr back, the way `simctl launch --console` does.
+        launch.arg("--console");
+    }
     for (k, v) in &spec.envs {
         launch.arg("--environment-variables");
         launch.arg(format!("{{\"{k}\":\"{v}\"}}"));
@@ -856,27 +887,97 @@ fn launch_ios_physical(
         launch.arg(format!("{{\"DAY_LOCALE\":\"{loc}\"}}"));
     }
     if !spec.attached {
-        // Detached: start it and return, leaving the app running on the device.
-        let mut detached = Command::new("xcrun");
-        detached
-            .args([
-                "devicectl",
-                "device",
-                "process",
-                "launch",
-                "--device",
-                &udid,
-            ])
-            .arg(&bundle_id);
-        run_logged(&mut detached, &format!("devicectl launch ({name})"))?;
+        run_logged(&mut launch, &format!("devicectl launch ({name})"))?;
         return Ok(std::thread::spawn(|| 0));
     }
+
+    launch
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     let mut child = launch
         .spawn()
         .map_err(|e| format!("devicectl launch: {e}"))?;
+    crate::signals::register_child(child.id());
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let label = outcome.target.to_string();
     Ok(std::thread::spawn(move || {
-        child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1)
+        let l2 = label.clone();
+        let t1 = stdout.map(|s| stream_devicectl(label, LogStream::Out, s));
+        let t2 = stderr.map(|s| stream_devicectl(l2, LogStream::Err, s));
+        let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+        if let Some(t) = t1 {
+            let _ = t.join();
+        }
+        if let Some(t) = t2 {
+            let _ = t.join();
+        }
+        code
     }))
+}
+
+/// [`stream_logs_labeled`] with devicectl's own narration filtered out, so what reaches the
+/// terminal is the app's output under the same `[target]` prefix every other platform uses.
+/// devicectl interleaves its progress on the same stream as the app it launched, and those lines
+/// are about devicectl, not about the app.
+fn stream_devicectl(
+    label: String,
+    stream: LogStream,
+    src: impl std::io::Read + Send + 'static,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut failure: Vec<String> = Vec::new();
+        for line in BufReader::new(src).lines().map_while(Result::ok) {
+            let t = line.trim().to_string();
+            // devicectl reports a failed launch as a nested tree of error domains — a dozen lines
+            // whose useful content is one sentence. Buffer from the first ERROR: to the end of the
+            // stream (devicectl exits after it) and summarise once, rather than relaying the tree.
+            if !failure.is_empty() || t.starts_with("ERROR:") {
+                failure.push(t);
+                continue;
+            }
+            let noise = t.is_empty()
+                || t.starts_with("Launched application with")
+                || t.starts_with("Waiting for the application to terminate")
+                || t.starts_with("App installed:")
+                || t.starts_with('•')
+                || t.starts_with("The app is now running")
+                || t.starts_with("Application terminated");
+            if !noise {
+                emit_log(&label, stream, &line);
+            }
+        }
+        if !failure.is_empty() {
+            emit_log(
+                &label,
+                LogStream::Err,
+                &summarize_devicectl_failure(&failure),
+            );
+        }
+    })
+}
+
+/// One line for a devicectl failure tree. The locked screen is called out by name because it is
+/// the common one and the remedy is not obvious from Apple's wording ("RequestDenied").
+fn summarize_devicectl_failure(lines: &[String]) -> String {
+    let joined = lines.join(" ");
+    if joined.contains("could not be, unlocked")
+        || joined.contains("BSErrorCodeDescription = Locked")
+    {
+        return "the device is locked — unlock it and run again (iOS will not launch an app onto \
+                a locked screen)"
+            .to_string();
+    }
+    // Otherwise Apple's own reason, which is the only line in the tree written for a human.
+    for l in lines {
+        if let Some(reason) = l.strip_prefix("NSLocalizedFailureReason = ") {
+            return format!("launch failed: {}", reason.trim());
+        }
+    }
+    lines
+        .first()
+        .map(|l| l.trim_start_matches("ERROR: ").to_string())
+        .unwrap_or_else(|| "launch failed".to_string())
 }
 
 pub fn launch_ios(
@@ -884,8 +985,8 @@ pub fn launch_ios(
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
-    if spec.physical {
-        return launch_ios_physical(project, outcome, spec);
+    if spec.wants_ios_device() {
+        return launch_ios_device(project, outcome, spec);
     }
     let bundle_id = project.manifest.app.id.clone();
     let sims = booted_sims();
@@ -896,8 +997,8 @@ pub fn launch_ios(
                 .into(),
         );
     }
-    // `--device` narrows the launch to one simulator; without it every booted one gets the app.
-    let sims = match spec.device.as_deref() {
+    // `--ios-simulator` narrows to one; without it every booted simulator gets the app.
+    let sims = match spec.ios_simulator.as_deref() {
         Some(want) => select_sim(&sims, want)?,
         None => sims,
     };
@@ -1042,16 +1143,22 @@ fn adb(serial: Option<&str>) -> Command {
 /// override (a device runs one primary ABI — the full list matters to [`android_build_abis`]).
 /// Empty when nothing is connected.
 ///
-/// `ANDROID_SERIAL` (adb's own device-selection variable) narrows the list to that one device —
-/// so launches, installs, and dayscript sessions target it exclusively when several devices are
-/// attached (the default remains all connected devices).
+/// `--android-device`, else `ANDROID_SERIAL` (adb's own device-selection variable), narrows the
+/// list to that one device — so launches, installs, and dayscript sessions target it exclusively
+/// when several are attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
+    android_devices_for(None)
+}
+
+pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
     let forced = std::env::var("DAY_ANDROID_ABI")
         .ok()
         .and_then(|v| parse_abi_list(&v).into_iter().next());
-    let only = std::env::var("ANDROID_SERIAL")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let only = want.map(str::to_string).or_else(|| {
+        std::env::var("ANDROID_SERIAL")
+            .ok()
+            .filter(|s| !s.is_empty())
+    });
     let out = match Command::new("adb").arg("devices").output() {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
@@ -1300,14 +1407,23 @@ pub fn launch_android(
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let app_id = project.manifest.app.id.clone();
-    let devices = android_devices();
+    let devices = android_devices_for(spec.android_device.as_deref());
     if devices.is_empty() {
-        return Err("no Android device/emulator connected (check `adb devices`)".into());
+        return Err(match spec.android_device.as_deref() {
+            Some(serial) => {
+                format!("--android-device {serial:?} is not connected (check `adb devices`)")
+            }
+            None => "no Android device/emulator connected (check `adb devices`)".into(),
+        });
     }
     // Install + launch on EVERY connected device; the one APK already carries each device's ABI.
     let mut log_threads = Vec::new();
     for dev in &devices {
-        run_logged(
+        status(
+            "Installing",
+            &format!("{} on {}", outcome.target, dev.serial),
+        );
+        run_quiet(
             adb(Some(&dev.serial))
                 .args(["install", "-r"])
                 .arg(&outcome.artifact),
@@ -1317,7 +1433,7 @@ pub fn launch_android(
         // run's engine port, theme, and locale (its views were created under the previous
         // configuration). Force-stop first so every launch is a fresh process reading THIS run's
         // extras, mirroring the OHOS launcher.
-        run_logged(
+        run_quiet(
             adb(Some(&dev.serial)).args(["shell", "am", "force-stop", &app_id]),
             &format!("am force-stop ({})", dev.serial),
         )?;
@@ -1398,7 +1514,7 @@ pub fn launch_android(
             "Launching",
             &format!("android-mdc ({app_id}) on {} ({})", dev.serial, dev.abi),
         );
-        run_logged(&mut cmd, &format!("am start ({})", dev.serial))?;
+        run_quiet(&mut cmd, &format!("am start ({})", dev.serial))?;
         if spec.attached {
             // One-device runs keep the bare `[android-mdc]` prefix; multi-device runs append
             // the serial so the interleaved log streams read apart.
