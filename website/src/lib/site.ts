@@ -67,8 +67,9 @@ export const site = {
   repo: 'https://github.com/daybrite/day',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',
-  /** The live web-dom build. Deployed by the showcase's OWN CI to its GitHub Pages site, not
-   *  hosted here: this site documents the framework, and the app publishes itself. Deep links use
-   *  a URL fragment as the app's route (`#canvas`), which the DOM shim reads on load. */
-  showcaseWeb: 'https://daybrite.github.io/Day-Showcase/',
+  /** The live web-dom build, on the showcase's own subdomain. Deployed by the showcase's OWN CI,
+   *  not hosted here: this site documents the framework, and the app publishes itself. Deep links
+   *  use a URL fragment as the app's route (`#canvas`), which the DOM shim reads on load. The
+   *  trailing slash matters — the fragment is appended directly. */
+  showcaseWeb: 'https://showcase.daybrite.dev/webapp/',
 };

@@ -10,7 +10,7 @@ import PlatformIcon from '../components/PlatformIcon.astro';
 // are the packages that install without a fight. Names, sizes, digests and URLs come from
 // src/data/downloads.json (scripts/assemble-downloads.mjs); a platform the release did not ship
 // renders its placeholder instead of a download.
-type ManifestFile = { name: string; bytes: number; sha256: string | null; href: string };
+type ManifestFile = { name: string; bytes: number; href: string };
 const byId = new Map<string, ManifestFile[]>(
   (manifest.platforms ?? []).map((p: { id: string; files: ManifestFile[] }) => [p.id, p.files]),
 );
@@ -92,9 +92,10 @@ function richInstall(text: string): (string | { code: string })[] {
       </p>
       {release ? (
         <p class="dl-note">
-          These are the packages attached to <a href={release.url}>{release.tag}</a>, released{' '}
-          {new Date(release.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}.
-          Downloads are served from GitHub.
+          Every link below downloads from the latest showcase release, whichever that is when you
+          click it. The names and sizes were read from <a href={release.url}>{release.tag}</a> of{' '}
+          {new Date(release.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })},
+          so treat the sizes as approximate. Downloads are served from GitHub.
         </p>
       ) : (
         <p class="dl-note">
@@ -146,8 +147,7 @@ function richInstall(text: string): (string | { code: string })[] {
                   {files.map((f) => (
                     <li>
                       <a class="dl-file" href={f.href}>⤓ {f.name}</a>
-                      <span class="dl-size">{human(f.bytes)}</span>
-                      {f.sha256 && <code class="dl-sha" title="SHA-256">{f.sha256}</code>}
+                      <span class="dl-size" title="Size when this page was built">≈{human(f.bytes)}</span>
                     </li>
                   ))}
                 </ul>
@@ -159,9 +159,11 @@ function richInstall(text: string): (string | { code: string })[] {
         })}
       </div>
       <p class="dl-verify">
-        Verify a download: <code>shasum -a 256 &lt;file&gt;</code> (macOS/Linux) or
-        <code>Get-FileHash &lt;file&gt;</code> (Windows PowerShell) must print the checksum
-        shown on its card.
+        Verify a download against the <code>SHA256SUMS</code> file attached to the same release:{' '}
+        <code>shasum -a 256 &lt;file&gt;</code> (macOS/Linux) or{' '}
+        <code>Get-FileHash &lt;file&gt;</code> (Windows PowerShell) must print the digest listed
+        there for that name. The checksums live with the release rather than on this page, so they
+        describe the file you actually downloaded.
       </p>
     </div>
   </section>
@@ -219,15 +221,6 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-files li { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
   .dl-file { font-weight: 650; }
   .dl-size { color: var(--faint); font-size: 0.85rem; }
-  .dl-sha {
-    flex-basis: 100%;
-    font-family: var(--mono);
-    font-size: 0.68rem;
-    color: var(--faint);
-    overflow-wrap: anywhere;
-    background: none;
-    padding: 0;
-  }
   .dl-missing { margin: auto 0 0; color: var(--faint); font-size: 0.88rem; font-style: italic; }
   .dl-btn { align-self: flex-start; }
   .dl-verify { margin-top: 22px; color: var(--muted); font-size: 0.9rem; }

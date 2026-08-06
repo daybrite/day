@@ -1562,7 +1562,7 @@ jobs:
   # web-dom: build the showcase for the web-dom backend (docs/web.md) — a wasm32 cdylib plus
   # the day-dom host page, assembled by `day build` into a fully static dist/. The dist is built
   # here as the wasm build test and to drive the walkthrough, but it is NOT published: the app
-  # deploys its own web build to daybrite.github.io/Day-Showcase from its own repository, and this
+  # deploys its own web build to showcase.daybrite.dev/webapp from its own repository, and this
   # site links there. Then the SAME walkthrough script the
   # native combos run drives the page in headless CHROMIUM (scripts/ci/webdom-driver.mjs is
   # the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's

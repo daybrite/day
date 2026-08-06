@@ -24,7 +24,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI. External piece renderers currently fail to register under the MinGW linker and draw placeholders |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
 | `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
-| `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](https://daybrite.github.io/Day-Showcase/) is deployed by the showcase's own CI — see the [web notes](/docs/internal/web) |
+| `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI — see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
 [dayscript](/docs/dayscript) walkthrough (navigation, inputs, dialogs, screenshots) on that
@@ -91,7 +91,7 @@ emits a self-contained static `dist/` you can host anywhere; there is no `day pa
 pieces (web view, map, Lottie, pickers, search field) render placeholders, there are no file
 dialogs or context menus, the list is emulated rather than recycled, and accessibility is thinner
 than on native because pieces that realize as `<div>`s carry no compensating ARIA roles. The
-[live build](https://daybrite.github.io/Day-Showcase/) is deployed by the showcase's own CI.
+[live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI.
 
 ## Cross-cutting gaps
 

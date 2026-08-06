@@ -1,6 +1,6 @@
 // Assemble the /showcase/ downloads: point each primary target at the showcase package attached
 // to the latest GitHub release, and write the manifest the page renders (file name, byte size,
-// SHA-256, download URL).
+// download URL).
 //
 // Why the release and not this run's CI artifacts: only the release lane's macOS package is signed
 // and NOTARIZED. The signing identity lives in an environment that admits `v*` tags alone, so a
@@ -8,8 +8,14 @@
 // download here that macOS actively refuses to open. Serving the release assets keeps every card
 // honest at the cost of tracking release cadence rather than main.
 //
-// Source : GET /repos/<owner>/<repo>/releases/latest, plus the release's own SHA256SUMS asset for
-//          the digests (authoritative — the same file `gh release` publishes and users verify).
+// Links are SYMBOLIC — `/releases/latest/download/<asset>`, which GitHub resolves at click time —
+// so the page keeps working when the showcase releases and this site has not rebuilt. That is also
+// why no SHA-256 is published: a digest read at build time would name a file the link no longer
+// serves, and a wrong checksum is worse than none. The byte size is kept and presented as
+// approximate, since a stale size misleads nobody about what to expect.
+//
+// Source : GET /repos/<owner>/<repo>/releases/latest — for the asset NAMES and sizes; the hrefs
+//          are constructed, not taken from the response.
 // Output : `src/data/downloads.json` (consumed by src/pages/showcase.astro).
 //
 // Nothing is copied into the site: the links go to GitHub, so the Pages artifact does not carry
@@ -47,32 +53,6 @@ async function api(path) {
   return res.json();
 }
 
-/** `name  digest` pairs from the release's SHA256SUMS asset, keyed by file name.
- *
- *  Keyed under BOTH the name the manifest records and the name GitHub serves it as: the checksums
- *  are computed on disk, where `day pack` names its output after the app title (`Day Showcase.dmg`),
- *  and GitHub rewrites spaces to dots when it accepts an asset (`Day.Showcase.dmg`). Without the
- *  second key the one notarized download on the page is the one with no checksum beside it. */
-async function digests(url) {
-  if (!url) return new Map();
-  try {
-    const res = await fetch(url, { headers: { accept: 'application/octet-stream' } });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const text = await res.text();
-    const map = new Map();
-    for (const line of text.split('\n')) {
-      const m = line.trim().match(/^([0-9a-f]{64})\s+\*?(.+)$/i);
-      if (!m) continue;
-      const [, digest, name] = m;
-      map.set(name, digest.toLowerCase());
-      map.set(name.replace(/\s/g, '.'), digest.toLowerCase());
-    }
-    return map;
-  } catch {
-    return new Map(); // the page renders a file without a checksum line rather than failing
-  }
-}
-
 /**
  * @param {{ quiet?: boolean }} [opts]
  * @returns {{ platforms: number, files: number, tag: string | null, missing: string[] }}
@@ -94,7 +74,6 @@ export async function assembleDownloads(opts = {}) {
   }
 
   const assets = release.assets ?? [];
-  const sums = await digests(assets.find((a) => a.name === 'SHA256SUMS')?.browser_download_url);
 
   const platforms = [];
   const missing = [];
@@ -104,8 +83,8 @@ export async function assembleDownloads(opts = {}) {
       .map((a) => ({
         name: a.name,
         bytes: a.size,
-        sha256: sums.get(a.name) ?? null,
-        href: a.browser_download_url,
+        // Not `a.browser_download_url`, which pins the tag this build happened to see.
+        href: `https://github.com/${REPO}/releases/latest/download/${encodeURIComponent(a.name)}`,
       }));
     if (files.length > 0) platforms.push({ id, files });
     else missing.push(id);

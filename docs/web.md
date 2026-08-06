@@ -213,7 +213,7 @@ buttons report what the host returned (a 404 page, or a 405 for PATCH); the URL 
 and every other HTTP call work anywhere.
 
 The showcase publishes its own web-dom build at
-**`https://daybrite.github.io/Day-Showcase/`**, from the `daybrite/Day-Showcase` repository's CI
+**`https://showcase.daybrite.dev/webapp/`**, from the `daybrite/Day-Showcase` repository's CI
 rather than from this one — the app is a separate project, and daybrite.dev links to it. This
 repository's `web-dom` job still builds the dist and drives the walkthrough against it, as the wasm
 build test; it just does not publish the result. To see a local build, `day build --platform web-dom`
