@@ -70,6 +70,20 @@ pub fn pack(
             ));
         }
     };
+    // Without the ASC key, Automatic signing leans on the local Xcode account session — which
+    // exists on a developer's Mac and never on a CI runner, where the archive can only end in
+    // "No Accounts". A resolved team with an unresolved key trio on CI is therefore not a
+    // signing configuration, it is half of one: degrade to the unsigned device .ipa the same
+    // loud way every other unresolved signing input does (§20), instead of failing the tag
+    // build inside xcodebuild.
+    if asc.is_none() && std::env::var("CI").is_ok_and(|v| !v.is_empty() && v != "false") {
+        status(
+            "Warning",
+            "signing.ios.team is set but key-id/issuer/key-path are not, and this is CI (no \
+             Xcode account session for Automatic signing) — packing an UNSIGNED device .ipa",
+        );
+        return unsigned_ipa(project, opts, dist);
+    }
 
     let name = &project.manifest.app.name;
     let version = &project.manifest.app.version;
