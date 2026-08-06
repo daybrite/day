@@ -157,6 +157,7 @@ pub struct Button {
     title: TextSource,
     action: Option<Rc<dyn Fn()>>,
     native_style: day_spec::props::ButtonStyleSpec,
+    enabled: Reactive<bool>,
 }
 
 pub fn button<M>(title: impl IntoText<M>) -> Button {
@@ -164,6 +165,7 @@ pub fn button<M>(title: impl IntoText<M>) -> Button {
         title: title.into_text(),
         action: None,
         native_style: day_spec::props::ButtonStyleSpec::Automatic,
+        enabled: true.into_reactive(),
     }
 }
 
@@ -183,6 +185,17 @@ impl Button {
     /// The platform's accent-filled / default-action button (iOS bordered-prominent, macOS
     /// return-key blue, GTK suggested-action, XAML accent style). Use for the one primary
     /// action of a view.
+    /// Whether the button is interactive (default `true`; `false` = disabled/greyed by the native
+    /// control). Reactive, so it can follow app state — e.g. `.enabled(move || !busy.get())` to
+    /// lock a control while a long operation runs.
+    ///
+    /// This drives the platform's own disabled rendering through `ButtonPatch::Enabled`; it is not
+    /// a painted imitation, and a disabled button stops delivering `Event::Pressed` at the source.
+    pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = v.into_reactive();
+        self
+    }
+
     pub fn prominent(mut self) -> Self {
         self.native_style = day_spec::props::ButtonStyleSpec::Prominent;
         self
@@ -196,7 +209,12 @@ impl Button {
     /// v1 has no pressed/hover state: the styled body is static. `s.label_color()` (if any) tints
     /// the label before `body` sees it (`body` receives it type-erased and cannot recolor it).
     pub fn style(self, s: impl ButtonStyle + 'static) -> AnyPiece {
-        let Button { title, action, .. } = self;
+        let Button {
+            title,
+            action,
+            enabled,
+            ..
+        } = self;
         let lbl = Label {
             text: title,
             font: Font::Body,
@@ -205,8 +223,20 @@ impl Button {
             color: s.label_color().map(Reactive::Const),
         };
         let styled = s.body(lbl.any());
+        // A styled button is COMPOSED from pieces, so there is no native control to grey out and
+        // `ButtonPatch::Enabled` never reaches it. Honor `enabled` the only way composition can:
+        // gate the tap and dim the body, so `.enabled(…)` is never silently ignored.
+        let gate = enabled.clone();
+        let styled = match &enabled {
+            Reactive::Const(true) => styled,
+            _ => styled.opacity(move || if enabled.get() { 1.0 } else { 0.4 }),
+        };
         match action {
-            Some(action) => styled.on_tap(move || action()),
+            Some(action) => styled.on_tap(move || {
+                if gate.get() {
+                    action()
+                }
+            }),
             None => styled,
         }
     }
@@ -253,14 +283,32 @@ impl Piece for Button {
             kinds::BUTTON,
             &ButtonProps {
                 title: initial,
-                enabled: true,
+                enabled: self.enabled.get_untracked(),
                 style: self.native_style,
             },
             Flex::default(),
         );
+        // A reactive `enabled` patches on change; a constant is applied once at realize — the same
+        // shape `Toggle` uses.
+        let enabled = self.enabled;
+        let enabled_gate = enabled.clone();
+        if let Reactive::Dyn(_) = &enabled {
+            bind(
+                move || enabled.get(),
+                move |e: &bool| {
+                    with_tree(|t| t.patch(node, Box::new(ButtonPatch::Enabled(*e)), false));
+                },
+            );
+        }
         if let Some(action) = self.action {
+            // Gate the action on `enabled` as well as telling the native control. A real touch on a
+            // disabled UIButton/MaterialButton never produces `Pressed`, so this is belt-and-braces
+            // for users — but an event delivered by another route (a dayscript `tap`, which
+            // dispatches to the node rather than simulating a touch) would otherwise fire an action
+            // the user cannot reach. `.enabled(false)` should mean "cannot fire", not "looks grey".
+            let gate = enabled_gate;
             cx.on(node, move |ev| {
-                if matches!(ev, Event::Pressed) {
+                if matches!(ev, Event::Pressed) && gate.get() {
                     action();
                 }
             });
