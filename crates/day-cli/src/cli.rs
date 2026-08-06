@@ -76,6 +76,12 @@ enum Cmd {
         /// the session stays drivable via `day drive`)
         #[arg(long)]
         keep_alive: bool,
+        /// Record the user's actions to a replayable dayscript at PATH for the app's lifetime
+        /// (§14.6): tap, type, and navigate the app yourself, then replay the file with `--script`.
+        /// Combine with a desktop target you drive by hand — the file is rewritten continuously, so
+        /// it survives a kill.
+        #[arg(long = "record", value_name = "PATH")]
+        record: Option<PathBuf>,
         /// dayscript file(s) to execute after launch (repeatable; implies detach)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
@@ -822,6 +828,7 @@ pub fn run() -> i32 {
             android_device,
             detach,
             keep_alive,
+            record,
             scripts,
             variant,
             skip_build,
@@ -866,6 +873,21 @@ pub fn run() -> i32 {
                 "DAY_APP_VERSION".into(),
                 project.manifest.app.version.clone(),
             ));
+            // `--record` (§14.6): the app's `day_script::init` reads `DAY_RECORD` and starts a
+            // headless recorder that flushes a replayable dayscript to the path for its lifetime.
+            // Absolutize against the invoking CWD — the app process runs from the project root, so
+            // a relative path would otherwise land somewhere the user did not mean.
+            if let Some(path) = &record {
+                let abs = if path.is_absolute() {
+                    path.clone()
+                } else {
+                    std::env::current_dir()
+                        .map(|d| d.join(path))
+                        .unwrap_or_else(|_| path.clone())
+                };
+                spec.envs
+                    .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
+            }
             if script_mode {
                 // The app is launched once and the scripts run in sequence against it, so the
                 // title names all of them.

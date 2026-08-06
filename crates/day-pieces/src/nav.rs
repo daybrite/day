@@ -985,6 +985,11 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                 let idx = *i as usize;
                 if let Some(k) = typed_n.borrow().get(idx).cloned() {
                     echo.set(Some(idx));
+                    // Announce the navigation from its source (docs/navigation.md §14.6): the route
+                    // this selection produces changes `NAV_STACK` only after the surface remounts a
+                    // frame later, so a route-recording observer would otherwise miss a sidebar move
+                    // between two pages. Fire synchronously with the intended key.
+                    day_core::note_navigation(&k.key(), None);
                     s.set_rw(k);
                 }
             }
@@ -1168,7 +1173,12 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     );
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     {
-        let (mh, ks, s) = (menu_holder.clone(), typed.clone(), selection.clone());
+        let (mh, ks, s, ts) = (
+            menu_holder.clone(),
+            typed.clone(),
+            selection.clone(),
+            titles.clone(),
+        );
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
         let (badges_init, sections_init) = (rows0.badges.clone(), rows0.sections.clone());
         let menu_piece = piece_fn(move |mcx| {
@@ -1194,6 +1204,11 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 if let Event::SelectionChanged(i) = ev
                     && let Some(k) = ks.borrow().get(*i as usize)
                 {
+                    // Announce the navigation from its source (§14.6) with the row's own title —
+                    // the sidebar changes the route only after a remount, so a route observer would
+                    // otherwise miss the move AND have no label for it. Index the LIVE titles.
+                    let label = ts.borrow().get(*i as usize).cloned();
+                    day_core::note_navigation(&k.key(), label.as_deref());
                     s.set_rw(k.clone());
                 }
             });

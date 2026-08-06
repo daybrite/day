@@ -15,3 +15,9 @@ day-reactive = { workspace = true }
 day-spec = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# YAML (de)serialization for the recorder's on-disk dayscript form (record.rs) — the SAME
+# `serde_norway` fork day-cli's `parse_flow` uses, so a recorded script round-trips through both
+# byte-for-byte. Already in the tree via day-cli, so it adds no new compiled crate to a build that
+# includes the CLI; on the app side it replaces no smaller alternative (hand-emitting YAML would
+# have to re-implement quoting/escaping).
+serde_norway = "0.9"

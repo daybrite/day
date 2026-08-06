@@ -98,6 +98,10 @@ pub struct NodeData<H> {
 /// An event handler registered on a realized node.
 pub type EventHandler = Rc<dyn Fn(&Event)>;
 
+/// The recording/telemetry observer installed via [`set_event_observer`] (§14.6): called with
+/// every dispatched `(NodeId, Event)`, in queue order, before the app receives it.
+pub type EventObserver = dyn Fn(NodeId, &Event);
+
 /// `TreeOps::open_window_root`'s answer — the tree-level face of
 /// [`day_spec::WindowOpenReply`], carrying the adopted (or parked) root node.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -549,6 +553,9 @@ pub trait TreeOps {
     fn child_count(&self, node: RNode) -> usize;
     fn first_child(&self, node: RNode) -> Option<RNode>;
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
+    /// The app-authored `.id()` string on `node` (`find_by_id`'s inverse), or `None` for an id-less
+    /// or disposed node. Backs the free [`id_of`] — the recorder's NodeId → id lookup (§14.6).
+    fn node_id(&self, node: RNode) -> Option<String>;
     /// A CLONE of the node's native handle boxed as `Any` (None for layout-only or disposed
     /// nodes). TreeOps is object-safe, so the generic `Toolkit::Handle` can't appear here —
     /// toolkit ext modules downcast to their concrete Handle type. This is the tweaks door
@@ -1154,6 +1161,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.nodes.get(node).map(|n| n.kind)
     }
 
+    fn node_id(&self, node: RNode) -> Option<String> {
+        self.nodes.get(node).and_then(|n| n.id.clone())
+    }
+
     fn node_handle_any(&self, node: RNode) -> Option<Box<dyn Any>> {
         self.nodes
             .get(node)
@@ -1483,6 +1494,15 @@ thread_local! {
     static TREE: RefCell<Option<Box<dyn TreeOps>>> = const { RefCell::new(None) };
     static EVENTS: RefCell<VecDeque<(NodeId, Event)>> = const { RefCell::new(VecDeque::new()) };
     static PUMP_PENDING: Cell<bool> = const { Cell::new(false) };
+    /// The event observer installed by [`set_event_observer`] and consulted by [`enqueue_events`].
+    /// `Rc`, not `Box`, so the handle can be cloned out and invoked with no borrow held (the
+    /// observer may re-enter Day — read the tree, or stop recording — safely).
+    static EVENT_OBSERVER: RefCell<Option<Rc<EventObserver>>> = const { RefCell::new(None) };
+    /// Monotonic pump counter — bumped once per [`pump_events_inner`]. The recorder ages its
+    /// coalescing candidate by it: a tap folds into a navigation caused in the SAME or the NEXT
+    /// pump (a signal-bound sidebar remount settles one pump late), but never a later, unrelated
+    /// navigation.
+    static PUMP_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 pub fn install_tree(tree: Box<dyn TreeOps>) {
@@ -1498,6 +1518,9 @@ pub fn uninstall_tree() {
     TREE.with(|t| *t.borrow_mut() = None);
     EVENTS.with(|e| e.borrow_mut().clear());
     PUMP_PENDING.set(false);
+    // The event observer (§14.6) is thread-local state too — a test that installed one must not
+    // leak it into the next tree on this thread.
+    EVENT_OBSERVER.with(|o| *o.borrow_mut() = None);
 }
 
 /// Access the installed tree. Tree methods never run user code, so nesting cannot occur
@@ -1577,13 +1600,76 @@ pub fn enqueue_event(id: NodeId, ev: Event) {
 /// deliver the loss+gain pair through this so the pump can dispatch the gain first and a
 /// shared group signal never passes through `None` (docs/focus.md).
 pub fn enqueue_events(evs: impl IntoIterator<Item = (NodeId, Event)>) {
-    EVENTS.with(|e| e.borrow_mut().extend(evs));
+    // Recording/telemetry seam (§14.6): when an observer is installed, let it see every event in
+    // the exact order — and the exact form — the app is about to receive, BEFORE it is dispatched,
+    // so it observes precisely what the app receives. This is the single point EVERY backend
+    // funnels native events through, so the observer needs no per-toolkit code. The handle is
+    // cloned out first (a cheap `Rc` bump) so NO thread-local borrow is held across the call: the
+    // observer may re-enter Day — resolve an id via `id_of`, or even remove itself (stop
+    // recording) — without a borrow conflict. A `None` observer costs one `Option` check and takes
+    // the original zero-copy `extend` path.
+    let observer = EVENT_OBSERVER.with(|o| o.borrow().clone());
+    match observer {
+        Some(obs) => {
+            let batch: Vec<(NodeId, Event)> = evs.into_iter().collect();
+            for (id, ev) in &batch {
+                obs(*id, ev);
+            }
+            EVENTS.with(|e| e.borrow_mut().extend(batch));
+        }
+        None => EVENTS.with(|e| e.borrow_mut().extend(evs)),
+    }
     let tree_free = TREE.with(|t| t.try_borrow_mut().is_ok());
     if tree_free {
         pump_events();
     } else {
         PUMP_PENDING.set(true);
     }
+}
+
+/// The current pump generation (see `PUMP_GEN`). Read by the recorder's nav coalescing.
+pub fn pump_generation() -> u64 {
+    PUMP_GEN.with(|g| g.get())
+}
+
+/// Install (or clear, with `None`) an observer that sees every event day-core dispatches, in queue
+/// order, at the one point EVERY backend funnels native events through ([`enqueue_events`], §8.3) —
+/// BEFORE the event reaches the app, so it observes exactly what the app receives. This is the
+/// recording/telemetry seam behind [`day::record`](../day_script/record/index.html) (§14.6): a
+/// higher layer captures user actions into a replayable dayscript without touching any of the
+/// backends. Main-thread only; a `None` observer adds no cost to the event path. The boxed closure
+/// is adopted into an `Rc` internally so [`enqueue_events`] can call it with no borrow held.
+pub fn set_event_observer(observer: Option<Box<EventObserver>>) {
+    EVENT_OBSERVER.with(|o| *o.borrow_mut() = observer.map(Rc::from));
+}
+
+/// Resolve a dispatched [`NodeId`] back to the app-authored `.id()` string that named its node
+/// (`find_by_id`'s inverse, §5.5), or `None` for an id-less node or one no longer in the tree. The
+/// recorder ([`day::record`](../day_script/record/index.html), §14.6) calls this from inside its
+/// event observer to label a tap/input with the id an app would target in a dayscript step.
+/// Borrow-safe: returns `None` rather than panicking if the tree is momentarily borrowed by a
+/// re-entrant backend call.
+pub fn id_of(node: NodeId) -> Option<String> {
+    try_with_tree(|t| t.node_id(id_to_rnode(node))).flatten()
+}
+
+/// A human-readable label for a node, for annotating a recorded script (§14.6): the accessibility
+/// label if one is set (`.a11y(label = …)`, the localized string the screen reader speaks),
+/// otherwise the control's own visible text. `None` when the node carries neither.
+pub fn label_of(node: NodeId) -> Option<String> {
+    try_with_tree(|t| {
+        let rnode = id_to_rnode(node);
+        let a11y = t
+            .node_a11y(rnode)
+            .and_then(|a| a.label)
+            .filter(|s| !s.is_empty());
+        a11y.or_else(|| {
+            t.node_probe(rnode)
+                .map(|p| p.text)
+                .filter(|s| !s.is_empty())
+        })
+    })
+    .flatten()
 }
 
 /// Dispatch queued native events (see [`pump_events_inner`]), CONTAINING any panic. Native event
@@ -1614,6 +1700,12 @@ pub fn pump_events() {
 }
 
 fn pump_events_inner() {
+    // A new pump: bump the generation, then record any route change that a PREVIOUS pump left
+    // pending (a signal-bound sidebar/stack remount settles into NAV_STACK a tick after the pump
+    // that triggered it, so the tail check below reads a stale route — this start check catches it
+    // at the next pump boundary, still fresh enough to fold its triggering select/tap). §14.6.
+    PUMP_GEN.with(|g| g.set(g.get() + 1));
+    crate::nav::maybe_notify_route_change();
     loop {
         let item = EVENTS.with(|e| e.borrow_mut().pop_front());
         let Some((id, ev)) = item else { break };
@@ -1661,6 +1753,13 @@ fn pump_events_inner() {
         dispatch_to_node(id, &ev);
     }
     day_reactive::flush_sync();
+    // The route has settled now that every queued event is dispatched and reactive writes have
+    // flushed. A sidebar click, a nav_link, a stack push, and a native back all change the route
+    // by calling `navigate`/`pop` from an event handler — none of which pass back through
+    // `enqueue_events` — so the event observer never sees them. Notifying here (deduped against
+    // the last route) is how the recorder captures navigation regardless of what triggered it
+    // (docs/navigation.md, §14.6).
+    crate::nav::maybe_notify_route_change();
 }
 
 /// Mirror a focus event into the node's dayscript probe (`assert_focused` reads it).

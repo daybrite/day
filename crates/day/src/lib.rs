@@ -95,6 +95,26 @@ pub use day_pieces::NativeRef;
 pub use day_pieces::routes;
 pub use day_spec::{Lifecycle, WindowOptions};
 
+/// dayscript **recording** (docs/dayscript.md "Recording", DESIGN §14.6): install a recorder that
+/// captures the user's taps, edits, selections, and navigation into a replayable dayscript.
+/// `day::record::{start, start_into, start_to_file, stop, is_recording, recording_signal, script,
+/// steps, save, clear, exclude_prefix}`. A recorder also arms headlessly from `day launch --record
+/// <file>` (the `DAY_RECORD` env, honored inside `day_script::init`). What it records is an ordinary
+/// dayscript, so it replays cross-toolkit through [`play_script`] or `day launch -p <target>
+/// --script <file>`.
+pub mod record {
+    pub use day_script::record::*;
+}
+
+/// Replay a dayscript against the running app, in-process (docs/dayscript.md "Recording"): parse
+/// `yaml` and run each step through the embedded engine, on the main thread between flushes — the
+/// same executor `day launch --script` drives. Returns an error while a recording is live (a replay
+/// must not record itself) and on web (no background thread — drive the page over the WebSocket
+/// transport there). See [`record`].
+pub fn play_script(yaml: &str) -> Result<(), String> {
+    day_script::play(yaml)
+}
+
 /// The display name of the toolkit compiled into THIS binary — `"AppKit"`, `"GTK"`, `"Qt"`,
 /// `"UIKit"`, `"Android"`, `"XAML"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
 /// title that names its backend.

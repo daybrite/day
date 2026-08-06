@@ -87,6 +87,10 @@ day launch -p macos-gtk --script dayscript/walkthrough.yaml --variant dark --env
 # `--skip-build` reuses the artifact — on iOS this pays xcodebuild once instead of per variant
 day build -p ios-uikit
 day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
+
+# --record captures what YOU do into a replayable dayscript: drive the app by hand, and the file
+# is rewritten continuously (see the dayscript "Recording" guide)
+day launch -p macos-appkit --record recording.yaml
 ```
 
 CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN)

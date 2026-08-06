@@ -65,7 +65,7 @@ the architecture-level view and the rationale.
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | docs/async.md | [§4.5](#45-async) |
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| scripting & agents — dayscript, `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
+| scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md, docs/fs.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -625,8 +625,11 @@ context lookup, and locale/theme handles. `build` for a leaf: create native hand
 renderer registry, create updater-effect bindings for each dynamic attribute, insert into parent.
 `build` for a container: create the container node (native container view), enter it, build
 children. Concrete piece structs (`Label`, `Button`, `Column`…) are public so builder methods are
-inherent methods (good rustdoc, good autocomplete) — the common modifier set (`padding`, `style`,
-`id`, `a11y`, `disabled`, `visible`, `on_key`…) comes from a blanket `Decorate` extension trait.
+inherent methods (good rustdoc, good autocomplete) — the modifiers that apply to ANY piece
+(`padding`, `id`, `a11y`, `background`, `on_tap`…) come from a blanket `Decorate` extension trait,
+while a modifier only some pieces can honor stays an inherent method on those pieces: `style` is
+typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `PickerStyle`), and
+`enabled` needs a control to grey out (`Button::enabled`, `Toggle::enabled`).
 
 ### §5.3 Built-in pieces (MVP set)
 
@@ -635,8 +638,13 @@ inherent methods (good rustdoc, good autocomplete) — the common modifier set (
 > below, which reflects the prelude as it exists in day-pieces. Deltas from the original text:
 > `stack_z` shipped as `zstack`; `piece_dyn` was never needed (structure is `when`/`each` plus
 > the navigation containers); the gesture decorators shipped as `.on_tap`/`.on_drag` (context
-> menus are declarative — `.context_menu(items)`, docs/menus.md). Per-subsystem detail lives in
-> the docs/ files named in the subsystem index.
+> menus are declarative — `.context_menu(items)`, docs/menus.md). Three modifiers the design-era
+> §5.2 text listed as `Decorate` members never shipped there: `disabled` is spelled `enabled` and
+> is per-piece (`Button`, `Toggle`) because it needs a native control to grey out, and `visible`
+> and `on_key` do not exist at all — hide a subtree with `when`, and while `Event::Key` rides the
+> event sink, no piece-level API consumes it yet. `Decorate` did instead grow the
+> transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
+> `.animation()`. Per-subsystem detail lives in the docs/ files named in the subsystem index.
 
 ```rust
 // text & controls — two-way controls take `impl SignalRw<T>` (Signal<T>, or a projection):
@@ -1951,6 +1959,62 @@ registry (`day stop` tears sessions down).
 
 The engine binds `127.0.0.1` only and is **not** a general remote-control surface: the protocol
 allows only the step catalog.
+
+### §14.6 Recording
+
+> [!NOTE]
+> **Status: shipped.** `day::record` (in `day-script`) plus `day launch --record <file>`; the
+> showcase's **Scripting** page records and replays in-process. A recorded script is an ordinary
+> dayscript.
+
+Recording is playback run backwards: instead of turning a script into events, it turns the events
+an app receives back into a script. It hangs off **one seam** — `day_core::set_event_observer`, an
+optional observer that `enqueue_events` ([§8.3](#83-events)) calls for every `(NodeId, Event)` in
+queue order, *before* dispatch, so it sees exactly what the app is about to receive. That is the
+single point every backend funnels native events through, so the recorder needs **no per-toolkit
+code** and no changes to the eight backends; a `None` observer costs nothing on the event path.
+`day_core::id_of(NodeId)` (the inverse of the element index's `find_by_id`,
+[§5.5](#55-node-identity-ids-and-the-element-index)) turns the dispatched node back into the
+app-authored id a step would target.
+
+Scope is **actions only, and only where the step is portable**:
+
+- `Pressed` → `tap`, `TextChanged` → `input` (coalesced per field), `SelectionChanged`/
+  `ToggleChanged` → `select`, `RouteRequested` → `navigate` (coalesced), `NavBack` → `nav_back`.
+- **Dropped, deliberately:** the positional `Tap(Point)` twin of `Pressed` (a coordinate is not
+  portable — the id-carrying `Pressed` is recorded instead), gestures, `ValueChanged` (a slider
+  drag re-records as a storm of intermediate values), multi-select, and every lifecycle/menu/
+  toolbar/window event. An **id-less** action has no portable step, so it is dropped too.
+
+Navigation is captured off a **second seam**, not the event observer: a sidebar row, a `nav_link`,
+and a stack push change the route by calling `navigate`/`pop` from an event handler, none of which
+pass back through `enqueue_events`. So the route is watched instead — the nav hosts call
+`day_core::note_navigation(route, label)` synchronously from their selection handlers, and the
+event pump re-checks `current_route()` at each boundary as a fallback for the signal-bound hosts
+whose route settles a frame late. Each is recorded as one **absolute** `navigate`, which replays a
+multi-level stack (`items/item-1`) in a single step, folding in the tap/select that triggered it.
+
+Every recorded step is **annotated** with the control it came from — a trailing `# "label"` comment
+on the `id:`/`route:` line (`route: focus # "Focus"`, `id: focus-next-button # "Focus next"`),
+naming the element's accessibility label, or its visible text when it has no a11y label, in the
+current locale. Comments are ordinary YAML, so an annotated script parses and replays unchanged;
+`annotate_yaml` renders this form, `steps_to_yaml` the bare one. `day_core::label_of(NodeId)`
+resolves the label.
+
+Known gaps follow from the scope: an element the app never gave an `.id()` cannot be recorded;
+slider values and native OS chrome (the file picker, the IME, permission dialogs) are outside what
+Day observes — the same blind spots playback has ([§14.2](#142-the-embedded-engine)). A recording
+is therefore a **starting point to edit**, not a pixel-exact replay.
+
+The API is small: `record::{start, start_into, start_to_file, stop, is_recording,
+recording_signal, script, steps, save, clear, exclude_prefix}`, with `exclude_prefix` keeping a
+UI's own record/stop controls out of its own recording. `start_into(Signal<String>)` streams the
+script into an editable buffer (the showcase binds a `text_area` to it); `start_to_file` flushes
+continuously, so `DAY_RECORD` / `day launch --record` capture headlessly and survive a kill. The
+on-disk form is the ordinary `flow:` document (`steps_to_yaml`/`steps_from_yaml` are the exact
+inverse of day-cli's `parse_flow`), so a recorded script replays cross-toolkit through
+`day::play_script(yaml)` in-process **or** `day launch -p <other-target> --script <file>` — record
+on one backend, replay on any.
 
 ---
 

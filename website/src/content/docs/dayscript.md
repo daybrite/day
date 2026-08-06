@@ -98,6 +98,35 @@ The same scripts serve several jobs:
 - **Agent verification:** AI coding agents use dayscript to check their own work: write a
   change, run a script, read the assertions ([for agents](/docs/for-agents)).
 
+## Recording
+
+You don't have to write a script from scratch. `day::record` captures the taps, edits, selections,
+and navigation an app receives and turns them back into a dayscript — the reverse of playback,
+riding the one point every backend funnels its events through, so it needs no per-toolkit code.
+
+Record headlessly from the CLI:
+
+```bash
+day launch -p macos-appkit --record recording.yaml
+```
+
+Drive the app by hand; `recording.yaml` is rewritten as you go and holds everything up to the last
+action even if the app is killed. Because it's an ordinary dayscript, you replay it on any target:
+
+```bash
+day launch -p android-mdc --script recording.yaml
+```
+
+Or record and replay inside the app. `day::record::start_into(buffer)` streams the script into a
+`Signal<String>` you can bind a `text_area` to; `day::play_script(&yaml)` replays one in-process
+through the same engine `--script` drives. The showcase's **Scripting** page is a working example —
+Record, move around, Stop, edit, Play. `exclude_prefix` keeps a UI's own record and stop controls
+out of its recording.
+
+The recorder is honest about the same blind spots the engine has. It captures actions on elements
+you gave ids, not positional taps, slider drags, or native OS chrome, so a recording is a starting
+point you edit — not a pixel-exact replay.
+
 ## Limits
 
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software

@@ -14,6 +14,12 @@ use std::time::{Duration, Instant};
 use day_core::{NodeProbe, rnode_to_id, with_tree};
 use serde::{Deserialize, Serialize};
 
+/// The dayscript **recorder** and in-process **playback** (§14.6): capture the events an app
+/// receives back into a replayable dayscript, and replay one against the live UI. See
+/// [`record::start`]/[`record::play`].
+pub mod record;
+pub use record::play;
+
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 
 /// How long ONE dispatch may wait for the main thread before the step is failed.
@@ -296,6 +302,14 @@ impl Reply {
 
 /// Start the engine iff invited via env (call before `launch_with`; inert otherwise).
 pub fn init() {
+    // Recording (§14.6) is independent of the socket engine: `DAY_RECORD=<path>` (from `day launch
+    // --record`, or set directly) starts a headless recorder that continuously flushes a replayable
+    // dayscript to that file for the app's lifetime — no port/token needed. Checked before the
+    // engine gate so `--record` works on an ordinary launch, and on every backend that calls
+    // `init()`.
+    if let Some(path) = std::env::var_os("DAY_RECORD").filter(|p| !p.is_empty()) {
+        record::start_to_file(path);
+    }
     let (Ok(port), Ok(token)) = (
         std::env::var("DAYSCRIPT_PORT"),
         std::env::var("DAYSCRIPT_TOKEN"),

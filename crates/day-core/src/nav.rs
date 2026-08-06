@@ -372,11 +372,13 @@ pub fn navigate(route: &str) -> bool {
     let (segments, params) = parse_route(route);
     PENDING.with(|p| p.borrow_mut().clear());
     PARAMS.with(|p| *p.borrow_mut() = Rc::new(params));
-    match segments.len() {
+    let ok = match segments.len() {
         0 => dispatch(|nav| (nav.push)("")),
         1 => dispatch(|nav| (nav.push)(&segments[0])),
         _ => navigate_absolute(&segments),
-    }
+    };
+    maybe_notify_route_change();
+    ok
 }
 
 /// Anchor + descend for a multi-segment path. See [`navigate`].
@@ -432,7 +434,82 @@ fn navigate_absolute(segments: &[String]) -> bool {
 /// Pop one level, day-initiated (the toolkit presents the pop). Native-initiated pops arrive as
 /// `Event::NavBack` and go through the owning host's `pop` directly.
 pub fn nav_back() -> bool {
-    dispatch(|nav| (nav.pop)(false))
+    let ok = dispatch(|nav| (nav.pop)(false));
+    maybe_notify_route_change();
+    ok
+}
+
+/// A navigation observer (§14.6): called with the new FULL route each time it changes, from any
+/// source — imperative `navigate`/`nav_back`, a nav_link or sidebar row (which navigate from an
+/// event handler, bypassing the event observer), a stack push, or a native back gesture. `""` is
+/// the root. Installed by the recorder in day-script; day-core only fires it.
+pub type NavObserver = dyn Fn(&str, Option<&str>);
+
+thread_local! {
+    static NAV_OBSERVER: RefCell<Option<Rc<NavObserver>>> = const { RefCell::new(None) };
+    /// The last route the observer was told about — dedups the several call sites below (a single
+    /// user navigation reaches `maybe_notify_route_change` from both the event-pump tail and the
+    /// imperative `navigate` tail; only the first, changing, call fires).
+    static LAST_ROUTE: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Install (or clear, with `None`) the navigation observer. Resets the dedup baseline so the next
+/// change fires regardless of where recording started.
+pub fn set_nav_observer(observer: Option<Box<NavObserver>>) {
+    NAV_OBSERVER.with(|o| *o.borrow_mut() = observer.map(Rc::from));
+    // Seed the baseline with the NORMALIZED route (an unmounted surface is `None` == `""`), so the
+    // first real navigation — not the None→"" transition at install — is what fires.
+    LAST_ROUTE.with(|r| *r.borrow_mut() = current_route().unwrap_or_default());
+}
+
+/// Announce a navigation to `route` from its SOURCE — a nav host (the sidebar selector) calls
+/// this the instant it changes the bound selection, so the observer sees it synchronously instead
+/// of waiting for the route to settle into `NAV_STACK` a frame later (which `maybe_notify_route_change`
+/// reads). Deduped like the pump-boundary path. `route` is the host's local key, which replays as a
+/// relative `navigate` (innermost-first) — correct for both a top-level sidebar and a nested one.
+pub fn note_navigation(route: &str, label: Option<&str>) {
+    let changed = LAST_ROUTE.with(|r| {
+        let mut r = r.borrow_mut();
+        if *r == route {
+            false
+        } else {
+            *r = route.to_string();
+            true
+        }
+    });
+    if !changed {
+        return;
+    }
+    let observer = NAV_OBSERVER.with(|o| o.borrow().clone());
+    if let Some(obs) = observer {
+        obs(route, label);
+    }
+}
+
+/// Fire the navigation observer if the full route changed since it was last told. Called at the
+/// tail of the event pump and of the imperative nav helpers; the dedup makes the redundant call a
+/// cheap no-op. The observer handle is cloned out first so it may re-enter (read the route, stop
+/// recording) without holding a borrow (mirrors the event observer in tree.rs).
+pub(crate) fn maybe_notify_route_change() {
+    let now = current_route().unwrap_or_default();
+    let changed = LAST_ROUTE.with(|r| {
+        let mut r = r.borrow_mut();
+        if *r == now {
+            false
+        } else {
+            *r = now.clone();
+            true
+        }
+    });
+    if !changed {
+        return;
+    }
+    let observer = NAV_OBSERVER.with(|o| o.borrow().clone());
+    if let Some(obs) = observer {
+        // No control context here (this is the settled-route fallback path); the source-notifying
+        // `note_navigation` supplies a label when a nav host has one.
+        obs(&now, None);
+    }
 }
 
 /// The FULL current route: every mounted surface's contribution, outermost to innermost,
