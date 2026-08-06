@@ -464,6 +464,9 @@ proguard = ["android/proguard-rules.pro"]   # receivers are resolved by name fro
 frameworks = ["UserNotifications"]
 
 [package.metadata.day.macos]
+# Consumed since 2026-08 by the macOS Swift leg (docs/swiftui.md): `-framework` link args when a
+# build has Swift contributions. This part links UserNotifications through objc2 either way, so
+# the declaration is documentation-plus-belt here rather than the working mechanism.
 frameworks = ["UserNotifications"]
 
 [package.metadata.day.permissions]

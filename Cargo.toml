@@ -32,6 +32,7 @@ members = [
     "pieces/day-piece-webview",
     "pieces/day-piece-lottie",
     "pieces/day-piece-media",
+    "pieces/day-piece-swiftui",
     "parts/day-part-battery",
     "parts/day-part-sensors",
     "parts/day-part-clipboard",

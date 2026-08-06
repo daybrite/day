@@ -226,6 +226,29 @@ per-crate subfolder). The app's checked-in `.xcodeproj` depends on that one loca
 analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
+Two further keys, shared with the macOS table below (docs/swiftui.md has the full story):
+
+- A `swift-packages` entry may be **local** — `{ path = "swiftui", products = ["MyViews"] }`,
+  relative to the declaring crate. The package's transitive SwiftPM dependencies come along, and
+  its public SwiftUI views are scanned and exported: generated hosting glue on this side, generated
+  typed constructors (`crate::swiftui::MyView(…)`) on the Rust side. `products` defaults to the
+  directory name.
+- `platform = "16.0"` raises the generated package's minimum OS (the max across contributions
+  wins). On iOS the CLI conveys it as an `IPHONEOS_DEPLOYMENT_TARGET` command-line setting, which
+  reaches the app and package targets without editing the scaffold — ⌘R builds in Xcode need the
+  pbxproj raised by hand.
+
+### macOS Swift (`[package.metadata.day.macos]`)
+
+The same table shape for the macos-appkit leg — `swift`, `swift-packages` (remote or local),
+`frameworks`, `platform`. macos-appkit has no Xcode scaffold (it is a plain cargo binary), so
+`day build` generates `build/day/macos/DayPieces` with a **static** library product, compiles it
+with `swift build`, and links the archives into the cargo binary directly (`-force_load` on the
+DayPieces archive, so provider classes reached only by name survive the link; the Swift runtime
+resolves against the OS dylibs). Apps that contribute no macOS Swift keep the exact prior cargo
+build and need no Swift toolchain. `day-piece-swiftui` declares the same shim dir under both
+tables — one `DaySwiftUI.swift` with `#if os(...)` arms.
+
 ### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
 
 Some HarmonyOS components exist **only in ArkTS**: the ArkUI **C** node API (`arkui/native_node.h`)

@@ -95,7 +95,7 @@ pub fn pack(
         .unwrap_or_else(|| name.clone());
 
     // The DayPieces SwiftPM package must exist before xcodebuild resolves the project.
-    crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
+    let floor = crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
     ensure_shared_scheme(project).map_err(PackError::Other)?;
 
     let build_dir = project.root.join("build/day/ios-uikit");
@@ -133,8 +133,11 @@ pub fn pack(
         .arg(format!("DAY_BIN={}", day_bin.display()))
         // `archive` already implies DEPLOYMENT_POSTPROCESSING, but state it so the signed and
         // unsigned lanes ship the same shape of binary.
-        .args(REPRODUCIBLE_BUILD_SETTINGS)
-        .arg("archive");
+        .args(REPRODUCIBLE_BUILD_SETTINGS);
+    if let Some(f) = &floor {
+        cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+    }
+    cmd.arg("archive");
     if let Some((k, i, p)) = &asc {
         cmd.args(["-authenticationKeyID", k])
             .args(["-authenticationKeyIssuerID", i])
@@ -326,7 +329,7 @@ fn unsigned_ipa(
     let version = &project.manifest.app.version;
 
     // The same pre-build staging the signed path (and build_ios) performs.
-    crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
+    let floor = crate::mobile::prepare_ios(project).map_err(PackError::Other)?;
 
     let build_dir = project.root.join("build/day/ios-uikit");
     let symroot = build_dir.join("pack-unsigned");
@@ -334,25 +337,24 @@ fn unsigned_ipa(
     status("Building", "ios-uikit (xcodebuild, iphoneos, unsigned)");
     let mut cmd = Command::new("xcodebuild");
     crate::ops::apply_determinism(&mut cmd);
-    run_tool(
-        cmd.current_dir(project.root.join("platform/ios"))
-            .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
-            .args(["-configuration", "Release", "-sdk", "iphoneos"])
-            .args(["-arch", "arm64"])
-            .arg(format!("SYMROOT={}", symroot.display()))
-            .arg("CODE_SIGNING_ALLOWED=NO")
-            .arg("CODE_SIGNING_REQUIRED=NO")
-            .arg(format!("MARKETING_VERSION={version}"))
-            .arg(format!(
-                "CURRENT_PROJECT_VERSION={}",
-                project.manifest.app.build
-            ))
-            .arg(format!("DAY_BIN={}", day_bin.display()))
-            .args(REPRODUCIBLE_BUILD_SETTINGS)
-            .arg("build"),
-        "xcodebuild (iphoneos, unsigned)",
-    )
-    .map_err(PackError::Other)?;
+    cmd.current_dir(project.root.join("platform/ios"))
+        .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+        .args(["-configuration", "Release", "-sdk", "iphoneos"])
+        .args(["-arch", "arm64"])
+        .arg(format!("SYMROOT={}", symroot.display()))
+        .arg("CODE_SIGNING_ALLOWED=NO")
+        .arg("CODE_SIGNING_REQUIRED=NO")
+        .arg(format!("MARKETING_VERSION={version}"))
+        .arg(format!(
+            "CURRENT_PROJECT_VERSION={}",
+            project.manifest.app.build
+        ))
+        .arg(format!("DAY_BIN={}", day_bin.display()))
+        .args(REPRODUCIBLE_BUILD_SETTINGS);
+    if let Some(f) = &floor {
+        cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+    }
+    run_tool(cmd.arg("build"), "xcodebuild (iphoneos, unsigned)").map_err(PackError::Other)?;
 
     let products = symroot.join("Release-iphoneos");
     let app = std::fs::read_dir(&products)

@@ -441,10 +441,24 @@ pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
 /// One function, three call sites (`build_ios`, and both `pack::ios` paths) — because they had
 /// already drifted: the signed-archive path never synced `UIAppFonts`, so a released `.ipa` could
 /// ship a stale font list.
-pub(crate) fn prepare_ios(project: &Project) -> Result<(), String> {
-    crate::pieces::write_ios_pieces(project)?;
+/// Returns the `IPHONEOS_DEPLOYMENT_TARGET` override (docs/swiftui.md): `Some(floor)` when a
+/// piece's `platform` metadata exceeds the scaffold pbxproj's checked-in value. Every xcodebuild
+/// invocation downstream must pass it — a command-line setting reaches the app AND the SwiftPM
+/// package targets, which is the only way to raise both without editing the scaffold.
+pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
+    let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
-    sync_usage_descriptions(project, false)
+    sync_usage_descriptions(project, false)?;
+    if let Some(f) = &floor {
+        status(
+            "Raising",
+            &format!(
+                "iOS deployment target to {f} (a piece requires it; raise it in \
+                 platform/ios/DayApp.xcodeproj for Xcode-IDE builds)"
+            ),
+        );
+    }
+    Ok(floor)
 }
 
 pub fn build_ios(
@@ -485,7 +499,7 @@ pub fn build_ios_for(
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     // Stage everything xcodebuild needs: the local DayPieces SwiftPM package the .xcodeproj links,
     // the UIAppFonts array, and the permission usage descriptions (docs/permissions.md).
-    prepare_ios(project)?;
+    let floor = prepare_ios(project)?;
     let prov = if physical {
         installed_profile(&project.manifest.app.id)
     } else {
@@ -510,6 +524,9 @@ pub fn build_ios_for(
             ])
             .arg(format!("SYMROOT={}", symroot.display()))
             .arg(format!("DAY_BIN={}", day_bin.display()));
+        if let Some(f) = &floor {
+            cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
+        }
         if physical {
             // Build UNSIGNED and sign the bundle ourselves below. Letting xcodebuild sign means
             // choosing between two failures: `Automatic` mints its own "iOS Team Provisioning

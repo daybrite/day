@@ -68,6 +68,7 @@ the architecture-level view and the rationale.
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md, docs/fs.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | docs/swiftui.md | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | docs/picker.md, docs/textarea.md | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | docs/harmonyos.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | web — the `web-dom` backend (wasm32 + DOM) | docs/web.md | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -710,7 +711,8 @@ and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
-`remote_image`) and headless services under `parts/` (battery, network, sensors,
+`remote_image`, `swiftui` — hosted SwiftUI views, docs/swiftui.md) and headless services under
+`parts/` (battery, network, sensors,
 clipboard, prefs, haptics, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
@@ -2085,6 +2087,12 @@ proguard = []                              # R8 keep rules for classes native co
 swift = ["ios/swift"]                      # Swift shim source dirs
 swift-packages = [{ url = "https://github.com/airbnb/lottie-ios", from = "4.0.0", products = ["Lottie"] }]
 frameworks = ["CoreLocation"]              # system frameworks the app must link (xcodebuild ignores Rust #[link])
+platform = "16.0"                          # optional: minimum OS this contribution needs (max across crates wins)
+
+[package.metadata.day.macos]               # the macos-appkit leg (docs/swiftui.md): same shape as .ios,
+swift = ["apple/swift"]                    # compiled by `swift build` and statically linked into the cargo binary
+swift-packages = [{ path = "swiftui", products = ["MyViews"] }]  # local packages allowed on both Apple legs;
+                                           # public SwiftUI views in them are scanned and exported (docs/swiftui.md)
 
 [package.metadata.day.ohos]
 ets = ["ohos/ets"]                         # ArkTS source dirs, staged into the hvigor project
@@ -2136,7 +2144,19 @@ reference generically, exactly once:
   `Package.swift` lists every piece's `swift-packages` and compiles every piece's staged Swift
   shims; the checked-in `.xcodeproj` depends on that one package — adding an iOS piece is pure
   `Cargo.toml` data, no `.xcodeproj` edits. (Flutter's generated-plugin-package pattern,
-  as designed — under the shipped name `DayPieces`.)
+  as designed — under the shipped name `DayPieces`.) `swift-packages` entries may also be **local**
+  (`{ path = "…" }`, relative to the declaring crate): the package's transitive SwiftPM
+  dependencies come along, and its public SwiftUI views are scanned and exported as typed Rust
+  constructors plus generated hosting glue (docs/swiftui.md). A `platform` key raises the
+  generated package's floor and the leg's deployment target (conveyed as an xcodebuild
+  command-line setting — the pbxproj is never edited).
+- **macos** (2026-08, docs/swiftui.md): the same aggregation for `[package.metadata.day.macos]`,
+  scaffold-free because macos-appkit has no scaffold to reference it — the CLI generates
+  `build/day/macos/DayPieces` (static library product), builds it with `swift build`, and
+  statically links the archives into the cargo binary via `cargo rustc -- <link args>`
+  (`-force_load` on the DayPieces archive keeps the by-name-resolved provider classes). Apps with
+  no macOS Swift contributions keep the exact prior cargo build, with no Swift toolchain
+  requirement.
 
 - **harmonyos**: piece `.ets` stages into the hvigor project at `entry/src/main/ets/daypieces/<crate>/`
   beside a generated `DayPieces.ets` aggregator, whose `registerDayPieces(uiContext)` the checked-in
@@ -2344,7 +2364,9 @@ feature wiring.
 Per target: (1) preflight, (2) conveyance generation from `Day.toml` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)), (3) the target's
 pipeline — `xcodebuild` for ios only; `gradle` for android; hvigor for ohos; **cargo + bundle
 assembly for all cargo-driven desktop targets including `macos-appkit`** (their "scaffold" is a
-packaging recipe, not an IDE project); MSBuild-free cargo + C++/WinRT shim for windows. The
+packaging recipe, not an IDE project — since 2026-08 `macos-appkit` adds a conditional `swift
+build` prepass when dependencies contribute macOS Swift, statically linked into the cargo binary;
+[§15.2](#152-package-layout-and-aggregation), docs/swiftui.md); MSBuild-free cargo + C++/WinRT shim for windows. The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
@@ -3686,6 +3708,26 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > slice. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
 > user's locale, so platforms localize month names while the value never shifts by zone; dayscript
 > drives every picker via the existing `input:` step (`Event::TextChanged` with ISO text).
+
+### B.8 SwiftUI embedding (user views inside a Day app)
+
+> [!NOTE]
+> **Shipped (2026-08)** as `pieces/day-piece-swiftui` + build support (docs/swiftui.md). An app
+> points `[package.metadata.day.ios/macos].swift-packages` at a local SwiftPM package; day-build
+> scans its public `View` structs (text parse of a documented subset, validated by the Swift
+> compile of the generated glue) and emits typed constructors (`crate::swiftui::MyView(…)`,
+> arguments `IntoReactive` — the res::str model applied to views), while `day build` generates
+> `@objc(DayView_<Module>_<View>)` provider classes wrapping each view in `NSHostingView` /
+> `UIHostingController`. The providers subclass a hand-written escape hatch
+> (`DaySwiftUIProvider` + `swiftui("name")`) that remains public for views the subset can't
+> express. Params ride one JSON string; reactive changes swap `rootView`, and SwiftUI diffing
+> preserves `@State`; an opt-in `.state_key(…)` retains the hosting view across unmount/remount,
+> so `@State` also survives tab switches and page navigation. This shipped the
+> `[package.metadata.day.macos]` leg (§15.2) — the first
+> Swift compilation on a cargo-driven target — and the provider naming deliberately carries no
+> Apple structure so an android-mdc Compose leg (`Class.forName` + `AbstractComposeView`) stays
+> possible. First consumer: Day-Showcase's Benchmark page, hosting the SwiftUI twin of the
+> Day-Bench Grids benchmark beside the Day-native one under a segmented picker.
 
 ---
 

@@ -249,7 +249,13 @@ fn cargo_metadata_inner(
 ) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
     let mut cmd = Command::new("cargo");
-    cmd.args(["metadata", "--format-version", "1"])
+    // Run from the project root, like every build command: cargo discovers `.cargo/config.toml`
+    // (the `day patch` table) from the CURRENT DIRECTORY, not the manifest path. Without this,
+    // `day` invoked from outside the project resolves the graph without the patch table — a crate
+    // that exists only in the local checkout fails resolution, and every metadata consumer
+    // (feature union, piece staging) silently degrades to "no contributions".
+    cmd.current_dir(&project.root)
+        .args(["metadata", "--format-version", "1"])
         .arg("--manifest-path")
         .arg(&manifest);
     if all_features {
@@ -618,10 +624,18 @@ fn pieces_manifest(
 // iOS — a piece's Swift shims + SwiftPM package dependencies
 // ===========================================================================
 
-/// A SwiftPM package dependency declared by a piece (`[package.metadata.day.ios].swift-packages`).
+/// A SwiftPM package dependency declared by a piece (`[package.metadata.day.ios/macos]
+/// .swift-packages`): **remote** (`url` + a version requirement) or **local** (`path`, relative to
+/// the declaring crate; absolutized at discovery). Local packages are additionally scanned for
+/// exportable public SwiftUI views (docs/swiftui.md) — `day build` generates their provider glue
+/// and day-build generates the app's typed `crate::swiftui::*` bindings from the same scan.
 #[derive(Debug, Clone, Deserialize)]
 struct SwiftPackage {
-    url: String,
+    #[serde(default)]
+    url: Option<String>,
+    /// A local package directory, relative to the declaring crate.
+    #[serde(default)]
+    path: Option<String>,
     #[serde(default)]
     from: Option<String>,
     #[serde(default)]
@@ -635,15 +649,36 @@ struct SwiftPackage {
 }
 
 impl SwiftPackage {
-    /// SwiftPM derives a package's identity from the last path component of its URL (sans `.git`).
+    /// SwiftPM derives a package's identity from the last path component of its URL (sans `.git`)
+    /// — or of its directory, for a local package.
     fn identity(&self) -> String {
-        self.url
-            .trim_end_matches('/')
+        let base = self.path.as_deref().or(self.url.as_deref()).unwrap_or("");
+        base.trim_end_matches('/')
             .rsplit('/')
             .next()
-            .unwrap_or(&self.url)
+            .unwrap_or(base)
             .trim_end_matches(".git")
             .to_string()
+    }
+    /// The library products to link — the declared list, or the package identity by convention
+    /// (the scaffold layout `swift package init` produces).
+    fn product_names(&self) -> Vec<String> {
+        if self.products.is_empty() {
+            vec![self.identity()]
+        } else {
+            self.products.clone()
+        }
+    }
+    /// The `.package(…)` dependency clause.
+    fn dependency_clause(&self) -> String {
+        match &self.path {
+            Some(p) => format!(".package(path: \"{p}\")"),
+            None => format!(
+                ".package(url: \"{}\", {})",
+                self.url.as_deref().unwrap_or(""),
+                self.requirement()
+            ),
+        }
     }
     /// The version requirement clause for `.package(url:, …)`.
     fn requirement(&self) -> String {
@@ -660,9 +695,11 @@ impl SwiftPackage {
     }
 }
 
-/// The `[package.metadata.day.ios]` table, as declared by a piece crate.
+/// The `[package.metadata.day.ios]` / `[package.metadata.day.macos]` table, as declared by a piece
+/// crate — or by the app itself (the app crate is in its own dependency closure, which is how an
+/// app contributes its own Swift sources and packages).
 #[derive(Deserialize, Default)]
-struct IosMeta {
+struct AppleMeta {
     #[serde(default)]
     swift: StringOrVec,
     #[serde(default, rename = "swift-packages")]
@@ -670,11 +707,15 @@ struct IosMeta {
     /// System frameworks to link (e.g. `["WebKit"]`) — so a piece needn't `dlopen` or hand-`#[link]`.
     #[serde(default)]
     frameworks: Vec<String>,
+    /// The minimum platform version this contribution needs (e.g. `"16.0"`). The generated
+    /// package's floor — and the leg's deployment target — is the max across contributions.
+    #[serde(default)]
+    platform: Option<String>,
 }
 
-/// The resolved iOS contributions across all pieces in the app's dependency closure.
+/// The resolved Apple-leg contributions across all pieces in the app's dependency closure.
 #[derive(Default)]
-struct IosPieces {
+struct ApplePieces {
     /// `(namespace, absolute dir)` Swift source dirs to compile — the namespace (the piece's crate
     /// name) subfolders the staged shims so two pieces' files can't collide.
     swift_dirs: Vec<(String, String)>,
@@ -682,22 +723,51 @@ struct IosPieces {
     packages: Vec<SwiftPackage>,
     /// System frameworks the app links (deduped).
     frameworks: Vec<String>,
+    /// The max `platform` floor across contributions (`None` = every contribution is fine with
+    /// the leg's default).
+    platform: Option<String>,
+    /// Local packages to scan for exportable SwiftUI views: `(identity, absolute dir)`.
+    scan_roots: Vec<(String, String)>,
+    /// Whether `day-piece-swiftui` is in the closure — the generated provider glue subclasses the
+    /// base class its shim stages, so without it the view export is skipped (with a warning).
+    has_swiftui_piece: bool,
 }
 
-/// Resolve every piece in the app's iOS dependency closure (features = `["uikit"]`) and collect its
-/// Swift shim dirs + SwiftPM package dependencies.
-fn resolve_ios(project: &Project, features: &[&str]) -> Result<IosPieces, String> {
+/// The higher of two dotted platform versions ("16.0" vs "9.4"), numerically per component.
+fn max_platform(a: &str, b: &str) -> String {
+    fn key(v: &str) -> Vec<u32> {
+        v.split('.')
+            .map(|c| c.trim().parse().unwrap_or(0))
+            .collect()
+    }
+    if key(b) > key(a) {
+        b.to_string()
+    } else {
+        a.to_string()
+    }
+}
+
+/// Resolve every piece in the app's dependency closure for one Apple leg — `("ios", ["uikit"])` or
+/// `("macos", ["appkit"])` — and collect its Swift dirs, SwiftPM packages, frameworks, and floor.
+fn resolve_apple(
+    project: &Project,
+    features: &[&str],
+    platform_key: &str,
+) -> Result<ApplePieces, String> {
     let meta = cargo_metadata(project, features)?;
     let in_closure = closure(&meta);
 
-    let mut pieces = IosPieces::default();
+    let mut pieces = ApplePieces::default();
     let mut seen_dirs = HashSet::new();
     let mut seen_pkgs = HashSet::new();
     for pkg in &meta.packages {
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        let Some(ios) = piece_meta::<IosMeta>(pkg, "ios") else {
+        if pkg.name == "day-piece-swiftui" {
+            pieces.has_swiftui_piece = true;
+        }
+        let Some(apple) = piece_meta::<AppleMeta>(pkg, platform_key) else {
             continue;
         };
         let crate_dir = Path::new(&pkg.manifest_path)
@@ -707,7 +777,7 @@ fn resolve_ios(project: &Project, features: &[&str]) -> Result<IosPieces, String
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "piece".into());
-        for rel in &ios.swift.0 {
+        for rel in &apple.swift.0 {
             let dir = crate_dir.join(rel);
             if !dir.is_dir() {
                 eprintln!("day: {} swift dir {:?} not found — skipping", pkg.id, dir);
@@ -718,29 +788,65 @@ fn resolve_ios(project: &Project, features: &[&str]) -> Result<IosPieces, String
                 pieces.swift_dirs.push((namespace.clone(), abs));
             }
         }
-        for spkg in ios.swift_packages {
-            if seen_pkgs.insert(spkg.identity()) {
-                pieces.packages.push(spkg);
+        for mut spkg in apple.swift_packages {
+            if let Some(rel) = &spkg.path {
+                // Local package: absolutize against the declaring crate, validate, and record it
+                // as a scan root for the SwiftUI view export.
+                let dir = crate_dir.join(rel);
+                if !dir.join("Package.swift").is_file() {
+                    eprintln!(
+                        "day: {} swift package {:?} not found (no Package.swift) — skipping",
+                        pkg.id, dir
+                    );
+                    continue;
+                }
+                let abs = dir.to_string_lossy().into_owned();
+                spkg.path = Some(abs.clone());
+                if seen_pkgs.insert(format!("path:{abs}")) {
+                    pieces.scan_roots.push((spkg.identity(), abs));
+                    pieces.packages.push(spkg);
+                }
+            } else if spkg.url.is_some() {
+                if seen_pkgs.insert(spkg.identity()) {
+                    pieces.packages.push(spkg);
+                }
+            } else {
+                eprintln!(
+                    "day: {} has a swift-packages entry with neither `url` nor `path` — skipping",
+                    pkg.id
+                );
             }
         }
-        for fw in ios.frameworks {
+        for fw in apple.frameworks {
             if !pieces.frameworks.contains(&fw) {
                 pieces.frameworks.push(fw);
             }
+        }
+        if let Some(p) = apple.platform {
+            pieces.platform = Some(match pieces.platform.take() {
+                Some(cur) => max_platform(&cur, &p),
+                None => p,
+            });
         }
     }
     Ok(pieces)
 }
 
-/// Generate the local `DayPieces` SwiftPM package (Package.swift + staged Swift shims) under
-/// `build/day/ios/DayPieces`, from every piece's `[package.metadata.day.ios]`. The app's `.xcodeproj`
-/// depends on this local package, so `day build` (ios) calls this before `xcodebuild`. Always writes
-/// a VALID package (an empty target with a placeholder source when no pieces contribute), so the
-/// project's local-package reference always resolves.
-pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
-    let pieces = resolve_ios(project, &["uikit"]).unwrap_or_else(|e| {
+/// Generate the local `DayPieces` SwiftPM package (Package.swift + staged Swift shims + generated
+/// SwiftUI provider glue) under `build/day/ios/DayPieces`, from every piece's
+/// `[package.metadata.day.ios]`. The app's `.xcodeproj` depends on this local package, so `day
+/// build` (ios) calls this before `xcodebuild`. Always writes a VALID package (an empty target
+/// with a placeholder source when no pieces contribute), so the project's local-package reference
+/// always resolves.
+///
+/// Returns the deployment-target override to pass to xcodebuild: `Some(floor)` when a
+/// contribution's `platform` exceeds the scaffold pbxproj's checked-in value (a command-line
+/// setting raises the app AND the SwiftPM package targets; the pbxproj itself is never edited —
+/// §15.2 "aggregation never mutates the scaffolds").
+pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
+    let pieces = resolve_apple(project, &["uikit"], "ios").unwrap_or_else(|e| {
         eprintln!("day: iOS piece discovery failed ({e}); building with framework pieces only");
-        IosPieces::default()
+        ApplePieces::default()
     });
 
     let pkg_dir = project.root.join("build/day/ios/DayPieces");
@@ -763,6 +869,11 @@ pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
         stage_swift_dir(Path::new(dir), &sources.join(namespace))?;
     }
 
+    // Exported SwiftUI views (docs/swiftui.md): scan local packages, generate provider glue.
+    if let Some(glue) = render_view_glue(&pieces) {
+        std::fs::write(sources.join("_DayViews.swift"), glue).map_err(|e| e.to_string())?;
+    }
+
     // Processed images (§18.3): generate a Media.xcassets from the project's images/ into the target
     // so SwiftPM `.process` compiles it (actool) into the package's Assets.car.
     let images = crate::resources::ResourceSet::scan(project).images;
@@ -782,12 +893,81 @@ pub fn write_ios_pieces(project: &Project) -> Result<(), String> {
         }
     }
 
+    // The package floor: the shipped default unless a contribution needs more. The package floor
+    // may never exceed the effective app target (xcodebuild errors), which is what the returned
+    // override guarantees.
+    let floor = max_platform("15.0", pieces.platform.as_deref().unwrap_or("15.0"));
     std::fs::write(
         pkg_dir.join("Package.swift"),
-        package_swift(&pieces, has_resources, !fonts.is_empty()),
+        package_swift(
+            &pieces,
+            "ios",
+            &format!(".iOS(\"{floor}\")"),
+            false,
+            has_resources,
+            !fonts.is_empty(),
+        ),
     )
     .map_err(|e| e.to_string())?;
-    Ok(())
+
+    // Override only when the contributions exceed the scaffold's checked-in target — and never
+    // lower a value the user raised by hand.
+    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "15.0".into());
+    Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
+}
+
+/// The scaffold pbxproj's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across configurations),
+/// parsed tolerantly — `None` when the file or the setting is missing.
+fn pbxproj_ios_target(project: &Project) -> Option<String> {
+    let text = std::fs::read_to_string(
+        project
+            .root
+            .join("platform/ios/DayApp.xcodeproj/project.pbxproj"),
+    )
+    .ok()?;
+    ios_target_from_pbxproj(&text)
+}
+
+fn ios_target_from_pbxproj(text: &str) -> Option<String> {
+    text.lines()
+        .filter_map(|l| {
+            let (key, value) = l.trim().split_once('=')?;
+            (key.trim() == "IPHONEOS_DEPLOYMENT_TARGET")
+                .then(|| value.trim().trim_end_matches(';').trim().to_string())
+        })
+        .reduce(|a, b| max_platform(&a, &b))
+}
+
+/// Render the generated SwiftUI provider glue for every scan root (docs/swiftui.md), or `None`
+/// when there is nothing to export. Skipped views are reported so a missing binding is never a
+/// silent mystery; a scan failure degrades to a warning (the app still builds without the export).
+fn render_view_glue(pieces: &ApplePieces) -> Option<String> {
+    if pieces.scan_roots.is_empty() {
+        return None;
+    }
+    if !pieces.has_swiftui_piece {
+        eprintln!(
+            "day: local Swift packages are declared but day-piece-swiftui is not a dependency — \
+             skipping the SwiftUI view export (docs/swiftui.md)"
+        );
+        return None;
+    }
+    let mut scans = Vec::new();
+    for (name, dir) in &pieces.scan_roots {
+        match day_build::swiftui::scan_package(Path::new(dir)) {
+            Ok(scan) => {
+                for (view, reason) in &scan.skipped {
+                    eprintln!("day: swiftui: {view} not exported — {reason}");
+                }
+                scans.push((name.clone(), scan));
+            }
+            Err(e) => eprintln!("day: swiftui view scan failed for {name}: {e}"),
+        }
+    }
+    scans
+        .iter()
+        .any(|(_, s)| !s.views.is_empty())
+        .then(|| day_build::swiftui::render_glue(&scans))
 }
 
 /// Copy every `.swift` file under `src` into `dest` (recursively), so a piece's shims join the
@@ -987,28 +1167,31 @@ fn stage_swift_dir(src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Render the generated `DayPieces/Package.swift`. When `has_resources`, the target processes the
-/// generated `Media.xcassets` (§18.3) — SwiftPM runs `actool` → an optimized `Assets.car` in the
-/// package's resource bundle, which `day-uikit` loads images from by name. When `has_fonts`, the
-/// staged `fonts/` directory is `.copy`d verbatim into the same bundle (§18.4).
-fn package_swift(pieces: &IosPieces, has_resources: bool, has_fonts: bool) -> String {
+/// Render the generated `DayPieces/Package.swift` for one Apple leg. When `has_resources`, the
+/// target processes the generated `Media.xcassets` (§18.3) — SwiftPM runs `actool` → an optimized
+/// `Assets.car` in the package's resource bundle, which `day-uikit` loads images from by name.
+/// When `has_fonts`, the staged `fonts/` directory is `.copy`d verbatim into the same bundle
+/// (§18.4). The macOS leg passes `static_product` (its archive is linked into the cargo binary)
+/// and neither resource kind (`pack/macos.rs` ships those via `Contents/Resources`).
+fn package_swift(
+    pieces: &ApplePieces,
+    meta_key: &str,
+    platform_clause: &str,
+    static_product: bool,
+    has_resources: bool,
+    has_fonts: bool,
+) -> String {
     let deps: String = pieces
         .packages
         .iter()
-        .map(|p| {
-            format!(
-                "        .package(url: \"{}\", {}),\n",
-                p.url,
-                p.requirement()
-            )
-        })
+        .map(|p| format!("        {},\n", p.dependency_clause()))
         .collect();
     let products: String = pieces
         .packages
         .iter()
         .flat_map(|p| {
             let id = p.identity();
-            p.products.iter().map(move |prod| {
+            p.product_names().into_iter().map(move |prod| {
                 format!("            .product(name: \"{prod}\", package: \"{id}\"),\n")
             })
         })
@@ -1039,20 +1222,158 @@ fn package_swift(pieces: &IosPieces, has_resources: bool, has_fonts: bool) -> St
     } else {
         format!(", resources: [{}]", entries.join(", "))
     };
+    let product_type = if static_product {
+        "type: .static, "
+    } else {
+        ""
+    };
     format!(
         "// swift-tools-version:5.9\n\
-         // Generated by `day build` from standalone pieces' [package.metadata.day.ios]. Do not edit.\n\
+         // Generated by `day build` from standalone pieces' [package.metadata.day.{meta_key}]. Do not edit.\n\
          import PackageDescription\n\n\
          let package = Package(\n\
          \x20   name: \"DayPieces\",\n\
-         \x20   platforms: [.iOS(.v15)],\n\
-         \x20   products: [.library(name: \"DayPieces\", targets: [\"DayPieces\"])],\n\
+         \x20   platforms: [{platform_clause}],\n\
+         \x20   products: [.library(name: \"DayPieces\", {product_type}targets: [\"DayPieces\"])],\n\
          \x20   dependencies: [\n{deps}    ],\n\
          \x20   targets: [\n\
          \x20       .target(name: \"DayPieces\", dependencies: [\n{products}        ], path: \"Sources/DayPieces\"{resources}{linker}),\n\
          \x20   ]\n\
          )\n"
     )
+}
+
+// ===========================================================================
+// macOS — the appkit leg's Swift contributions (docs/swiftui.md)
+// ===========================================================================
+
+/// The macOS Swift contributions `day build -p macos-appkit` folds into the cargo binary.
+pub struct MacosSwift {
+    /// The generated SwiftPM package to `swift build` and statically link.
+    pub package: std::path::PathBuf,
+    /// System frameworks to link alongside it (from `[package.metadata.day.macos].frameworks`).
+    pub frameworks: Vec<String>,
+    /// The package's platform floor — also the binary's `MACOSX_DEPLOYMENT_TARGET`, so the cargo
+    /// link and the Swift objects agree on the minimum OS.
+    pub platform: String,
+}
+
+/// Generate the local `DayPieces` SwiftPM package under `build/day/macos/DayPieces` from every
+/// piece's `[package.metadata.day.macos]` — the macOS analog of [`write_ios_pieces`], minus the
+/// resource legs (`pack/macos.rs` owns those). Returns `None` when nothing contributes Swift: the
+/// package dir is removed and the cargo build stays byte-identical to today's, with no Swift
+/// toolchain requirement (the zero-cost path).
+///
+/// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest): the
+/// package is rebuilt by `swift build` on every `day build`, and churned mtimes would make that
+/// incremental build recompile from scratch each time (§17.5's touch-only-when-changed rule).
+pub fn write_macos_pieces(project: &Project) -> Result<Option<MacosSwift>, String> {
+    let pieces = resolve_apple(project, &["appkit"], "macos").unwrap_or_else(|e| {
+        eprintln!("day: macOS piece discovery failed ({e}); building without Swift contributions");
+        ApplePieces::default()
+    });
+
+    let pkg_dir = project.root.join("build/day/macos/DayPieces");
+    if pieces.swift_dirs.is_empty() && pieces.packages.is_empty() {
+        let _ = std::fs::remove_dir_all(&pkg_dir);
+        return Ok(None);
+    }
+
+    let sources = pkg_dir.join("Sources/DayPieces");
+    std::fs::create_dir_all(&sources).map_err(|e| e.to_string())?;
+    let mut expected: Vec<std::path::PathBuf> = Vec::new();
+
+    // A placeholder keeps the target valid (≥1 source) even with package-only contributions.
+    let placeholder = sources.join("_DayPieces.swift");
+    write_if_changed(
+        &placeholder,
+        "// Generated by `day build`. The DayPieces local package aggregates every standalone piece's\n\
+         // macOS Swift shims and SwiftPM package dependencies (docs/extending.md). Do not edit.\n\
+         enum _DayPieces {}\n",
+    )?;
+    expected.push(placeholder);
+
+    for (namespace, dir) in &pieces.swift_dirs {
+        sync_swift_dir(Path::new(dir), &sources.join(namespace), &mut expected)?;
+    }
+
+    if let Some(glue) = render_view_glue(&pieces) {
+        let path = sources.join("_DayViews.swift");
+        write_if_changed(&path, &glue)?;
+        expected.push(path);
+    }
+
+    prune_except(&sources, &expected.into_iter().collect());
+
+    // SwiftUI needs a meaningful baseline; 13.0 is the floor of the APIs the docs promise
+    // (Grid, NavigationSplitView-era layout) and of every Mac Day supports.
+    let platform = max_platform("13.0", pieces.platform.as_deref().unwrap_or("13.0"));
+    write_if_changed(
+        &pkg_dir.join("Package.swift"),
+        &package_swift(
+            &pieces,
+            "macos",
+            &format!(".macOS(\"{platform}\")"),
+            true,
+            false,
+            false,
+        ),
+    )?;
+
+    Ok(Some(MacosSwift {
+        package: pkg_dir,
+        frameworks: pieces.frameworks,
+        platform,
+    }))
+}
+
+/// Write `content` only when the file's bytes differ — generated trees must not churn mtimes, or
+/// the incremental Swift build behind them recompiles on every `day build`.
+fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
+    if std::fs::read(path).is_ok_and(|cur| cur == content.as_bytes()) {
+        return Ok(());
+    }
+    std::fs::write(path, content).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Copy every `.swift` file under `src` into `dest` (recursively) via [`write_if_changed`],
+/// recording each destination in `expected` — the mtime-stable counterpart of [`stage_swift_dir`].
+fn sync_swift_dir(
+    src: &Path,
+    dest: &Path,
+    expected: &mut Vec<std::path::PathBuf>,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            sync_swift_dir(&path, &dest.join(entry.file_name()), expected)?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("swift") {
+            let content =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let target = dest.join(entry.file_name());
+            write_if_changed(&target, &content)?;
+            expected.push(target);
+        }
+    }
+    Ok(())
+}
+
+/// Remove every file under `root` not in `expected` (and any directory left empty), so a removed
+/// piece never leaves a stale shim behind — the pruning half of the mtime-stable staging.
+fn prune_except(root: &Path, expected: &HashSet<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            prune_except(&path, expected);
+            if std::fs::read_dir(&path).is_ok_and(|mut d| d.next().is_none()) {
+                let _ = std::fs::remove_dir(&path);
+            }
+        } else if !expected.contains(&path) {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1179,5 +1500,108 @@ mod tests {
         let meta: AndroidMeta =
             toml::from_str("java = [\"android/java\"]\npermissions = []\n").expect("parses");
         assert!(meta.manifest_components.0.is_empty());
+    }
+
+    #[test]
+    fn max_platform_compares_numerically() {
+        assert_eq!(max_platform("15.0", "16.0"), "16.0");
+        assert_eq!(max_platform("16.0", "15.4"), "16.0");
+        // Numeric, not lexicographic: "9.9" < "10.0".
+        assert_eq!(max_platform("9.9", "10.0"), "10.0");
+        assert_eq!(max_platform("13.0", "13.0"), "13.0");
+        assert_eq!(max_platform("13.0.1", "13.0"), "13.0.1");
+    }
+
+    #[test]
+    fn apple_meta_parses_with_and_without_the_new_keys() {
+        // Every existing piece's manifest must keep parsing — the fields are additive.
+        let old: AppleMeta = toml::from_str(
+            "swift = [\"ios/swift\"]\n\
+             swift-packages = [{ url = \"https://github.com/airbnb/lottie-ios\", from = \"4.5.0\", products = [\"Lottie\"] }]\n",
+        )
+        .expect("parses");
+        assert!(old.platform.is_none());
+        assert_eq!(old.swift_packages[0].identity(), "lottie-ios");
+        assert_eq!(old.swift_packages[0].product_names(), vec!["Lottie"]);
+
+        let new: AppleMeta =
+            toml::from_str("platform = \"16.0\"\nswift-packages = [{ path = \"swiftui\" }]\n")
+                .expect("parses");
+        assert_eq!(new.platform.as_deref(), Some("16.0"));
+        let pkg = &new.swift_packages[0];
+        assert_eq!(pkg.identity(), "swiftui");
+        // A local package's products default to its identity (the `swift package init` layout).
+        assert_eq!(pkg.product_names(), vec!["swiftui"]);
+        assert_eq!(pkg.dependency_clause(), ".package(path: \"swiftui\")");
+    }
+
+    #[test]
+    fn ios_target_parses_from_the_scaffold_pbxproj() {
+        // The real template must stay parseable — the floor override maxes against this value.
+        let template = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/templates/app/platform/ios/DayApp.xcodeproj/project.pbxproj"
+        );
+        let text = std::fs::read_to_string(template).expect("template pbxproj");
+        assert_eq!(ios_target_from_pbxproj(&text).as_deref(), Some("15.0"));
+        // Tolerant of spacing, takes the max across configurations.
+        let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 ;\n";
+        assert_eq!(ios_target_from_pbxproj(raw).as_deref(), Some("16.0"));
+        assert_eq!(ios_target_from_pbxproj("nothing here"), None);
+    }
+
+    #[test]
+    fn macos_package_swift_is_static_with_local_deps() {
+        let pieces = ApplePieces {
+            packages: vec![SwiftPackage {
+                url: None,
+                path: Some("/abs/swiftui".into()),
+                from: None,
+                exact: None,
+                branch: None,
+                revision: None,
+                products: vec![],
+            }],
+            frameworks: vec!["UserNotifications".into()],
+            ..Default::default()
+        };
+        let text = package_swift(&pieces, "macos", ".macOS(\"13.0\")", true, false, false);
+        assert!(text.contains("platforms: [.macOS(\"13.0\")]"));
+        assert!(
+            text.contains(".library(name: \"DayPieces\", type: .static, targets: [\"DayPieces\"])")
+        );
+        assert!(text.contains(".package(path: \"/abs/swiftui\"),"));
+        assert!(text.contains(".product(name: \"swiftui\", package: \"swiftui\"),"));
+        assert!(text.contains(".linkedFramework(\"UserNotifications\")"));
+        assert!(text.contains("[package.metadata.day.macos]"));
+    }
+
+    #[test]
+    fn ios_package_swift_keeps_its_shipped_shape() {
+        // The iOS output with no new metadata must stay byte-compatible with what shipped:
+        // url deps + explicit products, non-static product, the .v15-equivalent floor.
+        let pieces = ApplePieces {
+            packages: vec![SwiftPackage {
+                url: Some("https://github.com/airbnb/lottie-ios".into()),
+                path: None,
+                from: Some("4.5.0".into()),
+                exact: None,
+                branch: None,
+                revision: None,
+                products: vec!["Lottie".into()],
+            }],
+            ..Default::default()
+        };
+        let text = package_swift(&pieces, "ios", ".iOS(\"15.0\")", false, true, false);
+        assert!(text.contains("platforms: [.iOS(\"15.0\")]"));
+        assert!(text.contains(".library(name: \"DayPieces\", targets: [\"DayPieces\"])"));
+        assert!(
+            text.contains(
+                ".package(url: \"https://github.com/airbnb/lottie-ios\", from: \"4.5.0\"),"
+            )
+        );
+        assert!(text.contains(".product(name: \"Lottie\", package: \"lottie-ios\"),"));
+        assert!(text.contains(".process(\"Media.xcassets\")"));
+        assert!(text.contains("[package.metadata.day.ios]"));
     }
 }

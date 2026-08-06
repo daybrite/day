@@ -1073,7 +1073,17 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
              # or Swift shim dirs. A plain UITextField needs none — left empty as a template.\n\
              [package.metadata.day.ios]\n\
              frameworks = []\n\
-             # swift = [\"ios/swift\"]\n",
+             # swift = [\"ios/swift\"]\n\
+             # platform = \"16.0\"   # raise the deployment floor when your Swift needs newer APIs\n",
+        );
+    }
+    if has("appkit") {
+        meta.push_str(
+            "\n# Standalone-piece macOS contribution: Swift sources/packages `day build` compiles into\n\
+             # a statically linked SwiftPM package (docs/swiftui.md). A plain AppKit piece needs none.\n\
+             # [package.metadata.day.macos]\n\
+             # swift = [\"apple/swift\"]\n\
+             # platform = \"13.0\"\n",
         );
     }
 

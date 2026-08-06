@@ -33,6 +33,7 @@
 use std::path::{Path, PathBuf};
 
 pub mod permissions;
+pub mod swiftui;
 
 /// A single generated constant: its Rust `symbol`, the `value` string it wraps (the wire name the
 /// backend resolves by), and the `source` file (for the doc comment).
@@ -99,6 +100,11 @@ pub fn generate_resources() -> Result<(), String> {
     for bucket in ["images", "assets", "fonts", "locales"] {
         println!("cargo:rerun-if-changed=resource/{bucket}");
     }
+    // Typed constructors for the SwiftUI views exported by declared local SwiftPM packages
+    // (docs/swiftui.md) — always written, surfaced by an app that wants them via
+    // `pub mod swiftui { include!(concat!(env!("OUT_DIR"), "/day_swiftui.rs")); }`.
+    swiftui::generate_bindings(&root, &out)?;
+    println!("cargo:rerun-if-changed=Cargo.toml");
     Ok(())
 }
 

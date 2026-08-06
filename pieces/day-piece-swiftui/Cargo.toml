@@ -1,0 +1,52 @@
+[package]
+name = "day-piece-swiftui"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A standalone Day Piece hosting CUSTOM SWIFTUI VIEWS — macos-appkit + ios-uikit only. The Rust
+# front-end mounts a leaf by view name; the native half resolves an @objc(DayView_<name>) provider
+# class and wraps its SwiftUI body in NSHostingView (macOS) / UIHostingController (iOS). Apps
+# usually never call `swiftui(...)` directly: they point [package.metadata.day.*] swift-packages at
+# a local SwiftPM package and call the typed bindings day-build generates from its public views
+# (`crate::swiftui::MyView(...)`). See docs/swiftui.md.
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit"]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-ui-kit"]
+
+# Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
+# no per-backend feature fan-out in its own Cargo.toml. (SwiftUI hosting is Apple-native only.)
+[package.metadata.day.piece]
+backends = ["appkit", "uikit"]
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString"] }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# --- Apple backend contributions (docs/extending.md, docs/swiftui.md) ---
+# One shim file serves both platforms (`#if os(...)` selects): the DaySwiftUIProvider base class,
+# the DayView_<name> class lookup, and the hosting-view @_cdecl entry points the Rust renderers
+# call. `day build` stages it into the generated DayPieces package on each Apple leg.
+[package.metadata.day.ios]
+swift = ["apple/swift"]
+
+[package.metadata.day.macos]
+swift = ["apple/swift"]

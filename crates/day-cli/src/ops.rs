@@ -231,6 +231,18 @@ pub fn build(
             // renderer feature, derived from `cargo metadata` — so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).
             let features = feature_selection(project, target.toolkit);
+            // The macos-appkit Swift prepass (docs/swiftui.md): when dependencies contribute
+            // macOS Swift, `swift build` the generated DayPieces package and statically link it.
+            // No contributions → `swift_link` is None and the cargo command below is byte-identical
+            // to a plain build (no Swift toolchain needed).
+            let swift_link = if target.name == "macos-appkit" {
+                match crate::pieces::write_macos_pieces(project)? {
+                    Some(swift) => Some(crate::swift::build_day_pieces(project, profile, &swift)?),
+                    None => None,
+                }
+            } else {
+                None
+            };
             if target.toolkit == "xaml" {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
@@ -251,6 +263,21 @@ pub fn build(
                 // rather than in RUSTFLAGS because CI already sets RUSTFLAGS and appending to an
                 // inherited value is easy to get wrong; `cargo rustc --` scopes it to this bin.
                 cmd.arg("-Clink-arg=/Brepro");
+            } else if let Some(link) = &swift_link {
+                // Statically link the Swift prepass output. `cargo rustc -- <link-args>` scopes
+                // the extra arguments to the final bin (the xaml-manifest precedent above), so
+                // gaining or losing Swift contributions relinks one crate, never rebuilds the
+                // world. MACOSX_DEPLOYMENT_TARGET matches the Swift objects' floor so ld doesn't
+                // warn about mixed minimum versions — an app embedding SwiftUI needs that OS
+                // anyway.
+                cmd.env("MACOSX_DEPLOYMENT_TARGET", &link.platform);
+                cmd.args(["rustc", "--bin", &project.manifest.app.name])
+                    .args(["--no-default-features", "--features", &features]);
+                if profile == "release" {
+                    cmd.arg("--release");
+                }
+                cmd.arg("--");
+                cmd.args(link.rustc_args());
             } else {
                 cmd.args([
                     "build",

@@ -193,14 +193,25 @@ fn appkit_group() -> Group {
         id: "appkit",
         label: "macOS · AppKit",
         hosts: &["macos"],
-        probes: vec![Probe::new(
-            "xcode-clang",
-            run_line("xcrun", &["--find", "clang"]),
-            "install the Xcode command-line tools: `xcode-select --install`",
-        )],
+        probes: vec![
+            Probe::new(
+                "xcode-clang",
+                run_line("xcrun", &["--find", "clang"]),
+                "install the Xcode command-line tools: `xcode-select --install`",
+            ),
+            Probe::new(
+                "swift",
+                run_line("swift", &["--version"]),
+                "install Xcode or the command-line tools — needed only when a dependency embeds \
+                 Swift/SwiftUI (docs/swiftui.md)",
+            )
+            .soft(),
+        ],
         setup: "macOS desktop (AppKit) builds as a plain cargo binary and needs Apple's clang\n\
                 toolchain: `xcode-select --install` (or a full Xcode). No extra Rust target — the\n\
-                host toolchain builds it.",
+                host toolchain builds it. When a dependency contributes macOS Swift (SwiftUI\n\
+                embedding, docs/swiftui.md), `day build` adds a `swift build` prepass and links\n\
+                the result statically — that path also needs the `swift` compiler.",
     }
 }
 
