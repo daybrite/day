@@ -115,6 +115,11 @@ enum Cmd {
         /// CI wants this: an unopenable container means the code went unverified.
         #[arg(long)]
         strict: bool,
+        /// Rebuild from this project directory instead of cloning the commit the SBOM records —
+        /// for artifacts whose source is not in git, e.g. a freshly scaffolded project in CI.
+        /// Tool gating still applies when a .buildinfo.json sits beside the artifact.
+        #[arg(long = "from-dir", value_name = "DIR")]
+        from_dir: Option<std::path::PathBuf>,
     },
     /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
     Pack {
@@ -464,11 +469,13 @@ pub fn run() -> i32 {
             force_tool,
             keep,
             strict,
+            from_dir,
         } => {
             let opts = crate::rebuild::Options {
                 force_tools: force_tool,
                 keep,
                 strict,
+                from_dir,
             };
             match crate::rebuild::run(&artifact, &opts) {
                 Ok(code) => code,

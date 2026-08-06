@@ -317,6 +317,12 @@ rebuild that differs tells you nothing, because the difference may be the tool y
 A rebuild needs the commit to exist in the repository, so an artifact packed from a working tree
 with uncommitted changes is refused. Nothing describes what went into it.
 
+`--from-dir <dir>` rebuilds from a project directory you name instead of cloning the commit the
+SBOM records, for a source tree that is not in git — Day's own CI uses it to verify an artifact
+packed from a freshly scaffolded project. The directory is copied to a scratch path first, minus
+`.git` and any build products, so a build path baked into the binary still surfaces as a payload
+mismatch. The `.buildinfo` beside the artifact still gates tool versions.
+
 ## Verifying a build yourself
 
 `day rebuild` is the short path. Doing it by hand is worth knowing when you want to compare

@@ -2244,6 +2244,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day build -p <target>…` | build for one or more targets, in parallel |
 | `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one, `--android-device` an adb serial. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release]` | build → sign → installable artifact (formats below) |
+| `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day app` | add platforms/toolkits to an existing app |
@@ -2856,7 +2857,12 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 
 > [!NOTE]
 > **Status: shipped, partial by design.** The payload tier is enforced; the container tier reports
-> but does not fail. Nothing in the tree sets `SOURCE_DATE_EPOCH` yet.
+> but does not fail. Nothing in the tree sets `SOURCE_DATE_EPOCH` yet. The six `<combo>-validate`
+> follow-up jobs this section describes were replaced (2026-08) by a scaffold rebuild check inside
+> each packing platform job: `scripts/ci/scaffold-check.sh` scaffolds a fresh 21-locale app, packs
+> it, and verifies it with `day rebuild --from-dir --strict` on the same runner — the desktop
+> combos then smoke-launch the rebuilt copy. Stage 1's install-and-launch of the shipped showcase
+> artifact retired with those jobs.
 
 The user-facing version of this section is `website/src/content/docs/reproducible-builds.md`,
 which carries the per-platform caveats and the manual verification recipe; keep the two in step.

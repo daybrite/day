@@ -45,5 +45,6 @@ host = "https://example.github.io/{{name}}"
 # show-store-badges = true
 # show-source-link = true
 
-# Footer line; {year} interpolates. Defaults to "© {year} <app name>".
+# Footer line, printed under the Day attribution; {year} interpolates. Absent by default: a
+# copyright notice is yours to write, not the scaffold's to guess.
 # footer = "© {year} {{title}}"

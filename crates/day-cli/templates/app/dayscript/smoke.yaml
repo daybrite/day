@@ -8,9 +8,11 @@ flow:
   # selected — desktop auto-selects the first section, mobile starts at the list).
   - wait_for: { id: nav }
 
-  # Home: the counter is a signal; tapping writes it, the label reads it.
+  # Home: the counter is a signal; tapping writes it, the label reads it. The greeting comes
+  # from the fluent catalog (resource/locales/en/app.ftl), so this also proves l10n resolved.
   - navigate: { route: home }
   - assert_visible: { id: home-title }
+  - assert_text: { id: home-greeting, text: "Hello!" }
   - tap: { id: inc }
   - assert_text: { id: count, text: "1" }
 

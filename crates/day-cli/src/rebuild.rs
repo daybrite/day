@@ -245,17 +245,20 @@ fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Gather everything known about how the artifact was produced.
-fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
-    let sbom = locate_sbom(artifact, scratch)?;
-    let facts = source_facts(&sbom).ok_or_else(|| {
-        "the SBOM has no day:repository / day:commit properties — it was written by a different \
-         tool, or by a day-cli too old to record them"
-            .to_string()
-    })?;
+/// What the `.buildinfo.json` sidecar beside an artifact records, parsed into the fields a
+/// rebuild uses. Everything is optional because the sidecar itself is.
+struct Sidecar {
+    target: Option<String>,
+    profile: Option<String>,
+    tools: Vec<(String, String, String)>,
+    inputs: Vec<(String, String)>,
+    payload: Vec<(String, String)>,
+}
 
-    // The buildinfo is always a sidecar, by design: embedding tool versions would make the
-    // artifact differ per machine (§20.3). Without it a rebuild still works, minus tool gating.
+/// Read the buildinfo sidecar next to the artifact. It is always a sidecar, by design: embedding
+/// tool versions would make the artifact differ per machine (§20.3). Without it a rebuild still
+/// works, minus tool gating.
+fn read_sidecar(artifact: &Path) -> Sidecar {
     let dir = artifact.parent().unwrap_or(Path::new("."));
     let info = std::fs::read_dir(dir)
         .ok()
@@ -305,18 +308,55 @@ fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
         None => (None, None, Vec::new()),
     };
 
+    Sidecar {
+        target,
+        profile,
+        tools,
+        inputs,
+        payload,
+    }
+}
+
+/// Gather everything known about how the artifact was produced.
+fn collect(artifact: &Path, scratch: &Path) -> Result<Provenance, String> {
+    let sbom = locate_sbom(artifact, scratch)?;
+    let facts = source_facts(&sbom).ok_or_else(|| {
+        "the SBOM has no day:repository / day:commit properties — it was written by a different \
+         tool, or by a day-cli too old to record them"
+            .to_string()
+    })?;
+    let side = read_sidecar(artifact);
     Ok(Provenance {
         repository: facts.repository,
         commit: facts.commit,
         dirty: facts.dirty,
         project: facts.project,
         app_id: facts.app_id,
-        target,
-        profile,
-        tools,
-        inputs,
-        payload,
+        target: side.target,
+        profile: side.profile,
+        tools: side.tools,
+        inputs: side.inputs,
+        payload: side.payload,
     })
+}
+
+/// Provenance for a `--from-dir` rebuild. The caller names the source directly, so there is no
+/// repository or commit to record and no SBOM is required; the buildinfo sidecar still gates the
+/// tool versions when it sits beside the artifact.
+fn collect_from_dir(artifact: &Path) -> Provenance {
+    let side = read_sidecar(artifact);
+    Provenance {
+        repository: String::new(),
+        commit: String::new(),
+        dirty: false,
+        project: None,
+        app_id: None,
+        target: side.target,
+        profile: side.profile,
+        tools: side.tools,
+        inputs: side.inputs,
+        payload: side.payload,
+    }
 }
 
 /// Refuse early when this machine can never produce the artifact, with the reason and what is
@@ -445,6 +485,47 @@ fn checkout(repository: &str, commit: &str, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Entry names never copied by [`copy_project`], at any depth. `.git` is history the rebuild has
+/// no use for; `build`, `target`, and `node_modules` are build products, and a stale artifact or
+/// object file carried into the copy would poison the rebuild it is meant to check.
+const COPY_EXCLUDES: [&str; 4] = [".git", "build", "target", "node_modules"];
+
+/// Copy a project directory into the scratch tree for a `--from-dir` rebuild.
+///
+/// Copying rather than building in place is deliberate: the copy sits at a different absolute
+/// path, so a source path baked into the binary surfaces as a payload mismatch instead of
+/// reproducing by accident (§20.3, the same reason `checkout` clones to scratch). Symlinks are
+/// skipped, as `file_list` does.
+fn copy_project(src: &Path, dest: &Path) -> Result<(), String> {
+    let mut stack = vec![(src.to_path_buf(), dest.to_path_buf())];
+    while let Some((from, to)) = stack.pop() {
+        std::fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+        let entries = std::fs::read_dir(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        for e in entries.flatten() {
+            let p = e.path();
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if COPY_EXCLUDES.contains(&name) {
+                continue;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(&p) else {
+                continue;
+            };
+            if meta.is_symlink() {
+                continue;
+            }
+            let target = to.join(name);
+            if meta.is_dir() {
+                stack.push((p, target));
+            } else {
+                std::fs::copy(&p, target).map_err(|e| format!("copying {}: {e}", p.display()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// sha256 of a file, reusing pack's implementation so digests agree with what pack recorded.
 fn digest(path: &Path) -> Result<String, String> {
     crate::pack::sha256_file(path)
@@ -533,6 +614,11 @@ pub struct Options {
     /// Treat an unverifiable payload as a failure. CI sets this: a format this host cannot open
     /// means the compiled code went uncompared, and reporting that as success is a false pass.
     pub strict: bool,
+    /// Rebuild from this project directory instead of cloning the commit the SBOM records — for
+    /// artifacts whose source is not in git, e.g. a freshly scaffolded project in CI. The SBOM
+    /// and the dirty check are skipped (the caller vouches for the tree); tool gating still
+    /// applies when a `.buildinfo.json` sits beside the artifact.
+    pub from_dir: Option<std::path::PathBuf>,
 }
 
 /// Rebuild `artifact` from its provenance and report both verdicts. Returns the process exit code.
@@ -554,7 +640,12 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
 
-    let prov = collect(&artifact, &scratch)?;
+    // `--from-dir` skips the SBOM and the dirty refusal: the caller names the source tree, so
+    // there is no recorded commit to hold it against.
+    let prov = match &opts.from_dir {
+        Some(_) => collect_from_dir(&artifact),
+        None => collect(&artifact, &scratch)?,
+    };
     if prov.dirty {
         return Err(
             "this artifact was built from a working tree with uncommitted changes, so its commit \
@@ -586,7 +677,23 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     }
 
     let src = scratch.join("src");
-    checkout(&prov.repository, &prov.commit, &src)?;
+    match &opts.from_dir {
+        Some(dir) => {
+            let dir = dir
+                .canonicalize()
+                .map_err(|e| format!("{}: {e}", dir.display()))?;
+            if !dir.is_dir() {
+                return Err(format!("{} is not a directory", dir.display()));
+            }
+            let name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("project");
+            status("Copying", &format!("{} → {}", dir.display(), src.display()));
+            copy_project(&dir, &src.join(name))?;
+        }
+        None => checkout(&prov.repository, &prov.commit, &src)?,
+    }
 
     // The app may live in a subdirectory of the repository, and a repository may hold SEVERAL
     // (day's own holds three apps plus the scaffold templates, which carry a Day.toml but no
@@ -1366,5 +1473,50 @@ mod tests {
     fn an_unknown_target_is_named_in_the_error() {
         let err = preflight("not-a-target").unwrap_err();
         assert!(err.contains("not-a-target"), "{err}");
+    }
+
+    /// The `--from-dir` copy must carry the source and NOT the build products: a stale artifact
+    /// under `build/` (or an object file under `target/`) carried into the scratch copy would be
+    /// compared against itself, and the verdict would say nothing.
+    #[test]
+    fn the_from_dir_copy_excludes_build_products_and_keeps_the_source() {
+        let tmp = std::env::temp_dir().join(format!("day-fromdir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let src = tmp.join("ci-sample");
+        for dir in [
+            "src",
+            "build/day/dist",
+            ".git/objects",
+            "target/release",
+            "website/node_modules/dep",
+        ] {
+            std::fs::create_dir_all(src.join(dir)).expect("mkdir");
+        }
+        std::fs::write(src.join("Day.toml"), "schema = 1\n").expect("Day.toml");
+        std::fs::write(src.join("src/main.rs"), "fn main() {}\n").expect("main.rs");
+        std::fs::write(src.join("build/day/dist/stale.dmg"), b"stale").expect("stale");
+        std::fs::write(src.join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        std::fs::write(src.join("target/release/app"), b"old binary").expect("old bin");
+        std::fs::write(src.join("website/site.toml"), "locales = []\n").expect("site.toml");
+        std::fs::write(src.join("website/node_modules/dep/index.js"), "x").expect("dep");
+
+        let dest = tmp.join("copy");
+        copy_project(&src, &dest).expect("copy");
+
+        assert!(dest.join("Day.toml").is_file(), "the manifest survives");
+        assert!(dest.join("src/main.rs").is_file(), "the source survives");
+        assert!(
+            !dest.join("build").exists(),
+            "stale build products would poison the rebuild"
+        );
+        assert!(!dest.join(".git").exists(), ".git is excluded");
+        assert!(!dest.join("target").exists(), "target/ is excluded");
+        // At any depth, not just the root — node_modules sits under website/ in a scaffold.
+        assert!(!dest.join("website/node_modules").exists());
+        assert!(
+            dest.join("website/site.toml").is_file(),
+            "…while the directory around it survives"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

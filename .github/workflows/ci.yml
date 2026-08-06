@@ -109,9 +109,9 @@ jobs:
   # `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64), so the artifact names the
   # per-platform jobs download are unchanged: still six binaries, from three jobs instead of six.
   #
-  # Each job also runs scripts/ci/scaffold-check.sh on the binary its runner can execute — the
-  # only place CI runs `day new app` end to end (a 21-locale scaffold that must lint clean), on
-  # all three OSes because path handling and the Xcode/store/website locale writes differ.
+  # scripts/ci/scaffold-check.sh no longer runs here: it moved into the per-platform jobs below,
+  # where each combo scaffolds, lints, packs, and rebuilds (`day rebuild --from-dir`) a fresh
+  # 21-locale project — and the desktop combos drive the rebuilt copy's smoke dayscript too.
   day-cli-macos:
     name: day-cli-macos
     needs: [fmt, msrv]
@@ -126,9 +126,6 @@ jobs:
         run: |
           cargo build --locked --release -p day-cli --target aarch64-apple-darwin
           cargo build --locked --release -p day-cli --target x86_64-apple-darwin
-      - name: A fresh 21-locale scaffold lints clean
-        shell: bash
-        run: scripts/ci/scaffold-check.sh target/aarch64-apple-darwin/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-macos-aarch64
@@ -167,9 +164,6 @@ jobs:
         run: |
           cargo build --locked --release -p day-cli --target x86_64-unknown-linux-gnu
           cargo build --locked --release -p day-cli --target aarch64-unknown-linux-gnu
-      - name: A fresh 21-locale scaffold lints clean
-        shell: bash
-        run: scripts/ci/scaffold-check.sh target/x86_64-unknown-linux-gnu/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-linux-x86_64
@@ -195,9 +189,6 @@ jobs:
         run: |
           cargo build --locked --release -p day-cli --target x86_64-pc-windows-msvc
           cargo build --locked --release -p day-cli --target aarch64-pc-windows-msvc
-      - name: A fresh 21-locale scaffold lints clean
-        shell: bash
-        run: scripts/ci/scaffold-check.sh target/x86_64-pc-windows-msvc/release/day
       - uses: actions/upload-artifact@v7
         with:
           name: day-windows-x86_64
@@ -381,8 +372,9 @@ jobs:
       scripts: dayscript/walkthrough.yaml
       themes: light dark
       locales: en fr
-      # Off for the canary: the inline `validate (linux-gtk)` job already rebuilds this target,
-      # and running both would double a full build for no extra signal.
+      # Off for the canary: the inline linux job already runs the scaffold rebuild check for this
+      # target (scripts/ci/scaffold-check.sh), and running both would double a full build for no
+      # extra signal.
       validate-rebuild: false
 
   # --- Framework checks lifted out of the per-target jobs ---------------------------------------
@@ -569,6 +561,12 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy, per
+      # combo (scripts/ci/scaffold-check.sh). The qt/gtk legs stop after the lint: `day pack`
+      # supports neither combo yet.
+      - name: Scaffold check (new + lint + pack + rebuild + launch)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
       # Validate this toolkit's build environment up front — fails the job with setup instructions
       # if a required tool/SDK is missing, rather than deep inside the build.
       - name: Check out the showcase app
@@ -620,9 +618,9 @@ jobs:
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash.yaml
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash-report.yaml
       # Distribution packaging (§16.5): appkit → .dmg, at the dev tier (ad-hoc). Nothing here is
-      # ever distributed — this proves packing works and gives the validate job something to
-      # rebuild. The signed, notarized .dmg is built by daybrite/Day-Showcase's own release, in a
-      # job that runs no repository code (§20.2, daybrite/actions `sign-macos`).
+      # ever distributed — this proves packing works. The signed, notarized .dmg is built by
+      # daybrite/Day-Showcase's own release, in a job that runs no repository code (§20.2,
+      # daybrite/actions `sign-macos`).
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
@@ -634,7 +632,7 @@ jobs:
           $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json | tee "$RUNNER_TEMP/pack.json"
           codesign -vvv --deep --strict build/day/pack/macos-appkit/*.app
           hdiutil verify build/day/dist/*.dmg
-      # For `macos-appkit-validate`, which rebuilds this artifact from its own provenance (§20.3).
+      # For manual verification (`day rebuild` on the downloaded dist) and post-mortems.
       # day publishes no app packages: the showcase releases from its own repository.
       - name: Upload packages
         if: ${{ matrix.toolkit == 'appkit' }}
@@ -692,6 +690,11 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # smoke launch: the packed .ipa is a device build a runner cannot install.
+      - name: Scaffold check (new + lint + pack + rebuild)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" ios-uikit
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
@@ -813,6 +816,18 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Before the scaffold check, whose pack stage bundles a .flatpak too. ubuntu-24.04 runners
+      # don't preinstall flatpak-builder.
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
+      # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
+      # supplies the headless plumbing itself (xvfb for gtk, the offscreen platform for qt).
+      - name: Scaffold check (new + lint + pack + rebuild + launch)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
@@ -834,12 +849,8 @@ jobs:
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
       # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
-      # install time (--runtime-repo), so the bundle stays app-only. ubuntu-24.04 runners don't
-      # preinstall flatpak-builder.
-      - name: Install flatpak tooling
-        run: |
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      # install time (--runtime-repo), so the bundle stays app-only. flatpak-builder was installed
+      # above, before the scaffold check.
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
@@ -937,6 +948,11 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # smoke launch: the emulator boots later, only for the walkthrough.
+      - name: Scaffold check (new + lint + pack + rebuild)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
@@ -1128,6 +1144,11 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # smoke launch: the Oniro emulator boots later, only for the walkthrough.
+      - name: Scaffold check (new + lint + pack + rebuild)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" harmony-arkui
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
@@ -1299,6 +1320,26 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Before the scaffold check, whose pack stage builds the NSIS -setup.exe too.
+      # windows-2025 runners don't preinstall NSIS.
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          # `choco` edits the MACHINE PATH, which does not reach later steps: Actions hands every
+          # step the environment captured when the job started. So locate makensis.exe now and hand
+          # it to `day pack` explicitly. Doing it here also fails in seconds if the package moved,
+          # instead of after the six-minute release build that packs the installer.
+          $roots = @("$env:ProgramFiles\NSIS", "${env:ProgramFiles(x86)}\NSIS", "$env:ChocolateyInstall\bin", "$env:ChocolateyInstall\lib\nsis") | Where-Object { $_ -and (Test-Path $_) }
+          $exe = Get-ChildItem -Path $roots -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
+          "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "makensis: $($exe.FullName)"
+      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
+      # (scripts/ci/scaffold-check.sh).
+      - name: Scaffold check (new + lint + pack + rebuild + launch)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-xaml
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
@@ -1316,20 +1357,8 @@ jobs:
           $DAY_BIN launch -p windows-xaml --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
       # Distribution packaging (§16.5): .msix (makeappx + signtool, self-signed dev cert without
-      # signing.windows secrets) + NSIS -setup.exe. windows-2025 runners don't preinstall NSIS.
-      - name: Install NSIS
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          # `choco` edits the MACHINE PATH, which does not reach later steps: Actions hands every
-          # step the environment captured when the job started. So locate makensis.exe now and hand
-          # it to `day pack` explicitly. Doing it here also fails in seconds if the package moved,
-          # instead of after the six-minute release build that packs the installer.
-          $roots = @("$env:ProgramFiles\NSIS", "${env:ProgramFiles(x86)}\NSIS", "$env:ChocolateyInstall\bin", "$env:ChocolateyInstall\lib\nsis") | Where-Object { $_ -and (Test-Path $_) }
-          $exe = Get-ChildItem -Path $roots -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
-          "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "makensis: $($exe.FullName)"
+      # signing.windows secrets) + NSIS -setup.exe (NSIS was installed above, before the scaffold
+      # check).
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
@@ -1474,509 +1503,6 @@ jobs:
   # msrv: the declared minimum supported Rust (workspace rust-version) still
   # builds the host-portable crates (§20.5).
   # ---------------------------------------------------------------------------
-  # === Artifact validation (DESIGN.md §20.3) =========================================
-  # One follow-up job per packing platform-toolkit. Stage 1 installs and launches the shipped
-  # artifact on a clean runner. Stage 2 hands that same artifact to `day rebuild --strict`, which
-  # does the rest itself: it reads the SBOM and .buildinfo shipped alongside the artifact, checks
-  # this runner's tool versions against the ones recorded at build time, clones the recorded commit
-  # into a scratch directory at a DIFFERENT absolute path, rebuilds, and compares.
-  #
-  # The different path matters. `day pack` hardcodes its output to `<project-root>/build/day/dist`
-  # and `find_project` canonicalizes the root, so a checkout elsewhere really does drive every
-  # downstream tool from a different prefix — a source path baked into the binary shows up as a
-  # payload mismatch.
-  #
-  # `day rebuild` decides the outcome. The payload tier (the compiled code, pulled out of whatever
-  # container it ships in) is a HARD failure. The container tier is advisory, because
-  # hdiutil/gradle/flatpak-builder/makeappx/makensis all stamp mtimes and nothing is wired to
-  # SOURCE_DATE_EPOCH yet. `--strict` also fails a payload that could not be compared at all, so a
-  # container this runner cannot open reads as red rather than as a silent pass.
-  #
-  # Pushes to main only. PRs are skipped because these double the build cost across six runner
-  # platforms and reproducibility drift is not a review blocker. TAGS are skipped for a harder
-  # reason: on a tag the parent jobs release-sign their output, and `codesign --timestamp` /
-  # `signtool /tr` embed a wall-clock timestamp from Apple's and DigiCert's TSAs, so a signed
-  # artifact cannot be byte-identical to anything, ever. Comparing there would report noise. The
-  # alternative — handing these jobs the signing secrets so they could produce a matching
-  # signature — is exactly the exposure §20.2 exists to prevent, so it is not on the table.
-
-  macos-appkit-validate:
-    name: validate (macos-appkit)
-    needs: [macos]
-    # `!cancelled()`, not a bare condition: `needs` waits on the WHOLE matrix, so without it an
-    # unrelated leg's failure would silently SKIP this job rather than fail it.
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: macos-26
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-    steps:
-      # --- Stage 1: does the shipped artifact install and run? -----------------------------------
-      # Deliberately first, on a runner with nothing installed yet. If a .dmg only works on a
-      # machine that already has the toolchain, it is broken for the people who download it.
-      - name: Download the .dmg the macos job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-macos-appkit
-          path: shipped
-      - name: Install from the .dmg and launch it
-        run: |
-          set -euo pipefail
-          DMG="$(find shipped -name '*.dmg' | head -1)"
-          [ -n "$DMG" ] || { echo "::error::no .dmg in the artifact"; exit 1; }
-          hdiutil verify "$DMG"
-          MNT="$RUNNER_TEMP/dmg-mount"
-          hdiutil attach -nobrowse -readonly -quiet -mountpoint "$MNT" "$DMG"
-          APP="$(find "$MNT" -maxdepth 1 -name '*.app' | head -1)"
-          [ -n "$APP" ] || { echo "::error::no .app inside the .dmg"; exit 1; }
-          # Install the way a user does: drag to /Applications.
-          sudo ditto "$APP" "/Applications/$(basename "$APP")"
-          hdiutil detach -quiet "$MNT"
-          INSTALLED="/Applications/$(basename "$APP")"
-          codesign -vvv --deep --strict "$INSTALLED"
-          BIN="$INSTALLED/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$INSTALLED/Contents/Info.plist")"
-          # Launch it and confirm it is still alive a few seconds later — a bundle that dies on
-          # startup (a missing dylib, a bad resource path) exits well within that window.
-          "$BIN" &
-          PID=$!
-          sleep 10
-          if ! kill -0 "$PID" 2>/dev/null; then
-            echo "::error::the installed app exited within 10s of launch"
-            wait "$PID" || echo "exit status $?"
-            exit 1
-          fi
-          echo "launched and still running after 10s (pid $PID)"
-          kill "$PID" 2>/dev/null || true
-      # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Download the day CLI (release, matching this runner's os+arch)
-        uses: actions/download-artifact@v8
-        with:
-          name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.dmg' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.dmg in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
-  ios-uikit-validate:
-    name: validate (ios-uikit)
-    needs: [ios-uikit]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: macos-26
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-    steps:
-      # --- Stage 1: what can be checked without a device -----------------------------------------
-      # The .ipa is an `-sdk iphoneos` DEVICE build, so it cannot be installed on a simulator, and
-      # a runner has no provisioned hardware. Validate its structure instead, and say so plainly
-      # rather than implying it was launched.
-      - name: Download the .ipa the ios-uikit job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-ios-uikit
-          path: shipped
-      - name: Validate the .ipa structure
-        run: |
-          set -euo pipefail
-          IPA="$(find shipped -name '*.ipa' | head -1)"
-          [ -n "$IPA" ] || { echo "::error::no .ipa in the artifact"; exit 1; }
-          rm -rf "$RUNNER_TEMP/ipa" && ditto -x -k "$IPA" "$RUNNER_TEMP/ipa"
-          APP="$(find "$RUNNER_TEMP/ipa/Payload" -maxdepth 1 -name '*.app' | head -1)"
-          [ -n "$APP" ] || { echo "::error::no Payload/*.app inside the .ipa"; exit 1; }
-          PLIST="$APP/Info.plist"
-          plutil -lint "$PLIST"
-          EXE="$(plutil -extract CFBundleExecutable raw "$PLIST")"
-          ID="$(plutil -extract CFBundleIdentifier raw "$PLIST")"
-          BIN="$APP/$EXE"
-          [ -f "$BIN" ] || { echo "::error::Info.plist names $EXE but the bundle has no such file"; exit 1; }
-          # A device build must be arm64 and must target iOS, not the simulator.
-          file -b "$BIN" | tee "$RUNNER_TEMP/arch.txt"
-          grep -q "arm64" "$RUNNER_TEMP/arch.txt" || { echo "::error::not an arm64 binary"; exit 1; }
-          vtool -show-build "$BIN" 2>/dev/null | grep -q "platform IOS" \
-            || { echo "::error::not built for the iOS device platform"; exit 1; }
-          echo "ipa ok: $ID ($EXE), arm64 iOS device build — install needs provisioned hardware"
-      # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-macos-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.ipa' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.ipa in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
-  linux-validate:
-    name: validate (${{ matrix.combo }})
-    needs: [linux]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - combo: linux-gtk
-            toolkit: gtk
-          - combo: linux-qt
-            toolkit: qt
-    steps:
-      # --- Stage 1: does the shipped bundle install and run? ---------------------------------
-      - name: Download the .flatpak the linux job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-${{ matrix.combo }}
-          path: shipped
-      - name: Install the flatpak bundle and launch it
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak xvfb
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          BUNDLE="$(find shipped -name '*.flatpak' | head -1)"
-          [ -n "$BUNDLE" ] || { echo "::error::no .flatpak in the artifact"; exit 1; }
-          # --bundle pulls the runtime it declares from flathub; nothing else is preinstalled here.
-          flatpak install --user -y --noninteractive "$BUNDLE"
-          APPID="$(flatpak list --user --app --columns=application | head -1)"
-          [ -n "$APPID" ] || { echo "::error::the bundle installed no app"; exit 1; }
-          flatpak info --user "$APPID"
-          # Headless: the same renderer and display the walkthrough legs use.
-          xvfb-run -a env GSK_RENDERER=cairo QT_QPA_PLATFORM=xcb flatpak run --user "$APPID" &
-          PID=$!
-          sleep 10
-          if ! kill -0 "$PID" 2>/dev/null; then
-            echo "::error::the installed app exited within 10s of launch"
-            wait "$PID" || echo "exit status $?"
-            exit 1
-          fi
-          echo "launched and still running after 10s"
-          kill "$PID" 2>/dev/null || true
-      # --- Stage 2: is the build reproducible? -----------------------------------------------
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install toolkit deps
-        run: |
-          sudo apt-get update
-          case "${{ matrix.toolkit }}" in
-            qt)  sudo apt-get install -y qt6-base-dev qt6-webengine-dev pkg-config ;;
-            gtk) sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config ;;
-          esac
-      - name: Install flatpak tooling
-        run: |
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.flatpak' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.flatpak in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
-  android-mdc-validate:
-    name: validate (android-mdc)
-    needs: [android-mdc]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
-    steps:
-      # Stage 1 runs a checked-in script on the emulator, so this job needs the repo. Stage 2 does
-      # not: `day rebuild` makes its own checkout, at a path of its choosing.
-      - uses: actions/checkout@v7
-      # --- Stage 1: does the shipped .apk install and start on a device? -------------------------
-      # An APK cannot be installed without a device, so this leg boots an emulator. That is the
-      # only setup here, and it happens before any Rust toolchain exists on the runner.
-      - name: Download the .apk the android-mdc job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-android-mdc
-          path: shipped
-      - name: Enable KVM group perms
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: Install the .apk on an emulator and launch it
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          target: google_apis
-          disable-animations: true
-          # The action runs each script LINE as its own `sh -c` (dash: no `pipefail`, no shared
-          # state), so the check is one line invoking one bash script.
-          script: bash scripts/ci/validate-apk.sh shipped
-      # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.6.1"
-          add-job-summary: "never"
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-ndk
-      - name: Set up the Android cross-compile targets
-        run: |
-          rustup target add x86_64-linux-android aarch64-linux-android
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.apk' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.apk in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
-  windows-xaml-validate:
-    name: validate (windows-xaml)
-    needs: [windows-xaml]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      # --- Stage 1: does the shipped installer install and run? ----------------------------------
-      # The NSIS installer, not the .msix: an .msix needs its signing certificate trusted first,
-      # which is exactly the "pre-installation of components" this leg is meant to avoid.
-      - name: Download the installer the windows-xaml job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-windows-xaml
-          path: shipped
-      - name: Install silently and launch
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $setup = Get-ChildItem -Path shipped -Filter *-setup.exe -Recurse | Select-Object -First 1
-          if (-not $setup) { Write-Error "no -setup.exe in the artifact" }
-          $before = Get-ChildItem $env:LOCALAPPDATA -Directory | Select-Object -ExpandProperty Name
-          # /S is NSIS's silent switch; the generated script installs per-user.
-          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
-          # nsis.rs sets InstallDir to "$LOCALAPPDATA\<title>". Rather than guess the title, take
-          # whichever directory the installer added — LOCALAPPDATA holds plenty of unrelated .exe
-          # files, so picking the first match would run something else entirely.
-          $added = Compare-Object $before (Get-ChildItem $env:LOCALAPPDATA -Directory | Select-Object -ExpandProperty Name) |
-                   Where-Object { $_.SideIndicator -eq '=>' } | Select-Object -ExpandProperty InputObject
-          if (-not $added) { Write-Error "the installer created no directory under LOCALAPPDATA" }
-          Write-Host "installed into: $added"
-          $exe = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA $added) -Filter *.exe -Recurse |
-                 Where-Object { $_.Name -notmatch 'uninst' } |
-                 Select-Object -First 1
-          if (-not $exe) { Write-Error "the installer left no executable behind" }
-          Write-Host "installed: $($exe.FullName)"
-          $p = Start-Process -FilePath $exe.FullName -PassThru
-          Start-Sleep -Seconds 10
-          if ($p.HasExited) { Write-Error "the installed app exited within 10s (code $($p.ExitCode))" }
-          Write-Host "launched and still running after 10s (pid $($p.Id))"
-          Stop-Process -Id $p.Id -Force
-      # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-windows-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      - name: Install NSIS
-        shell: pwsh
-        run: choco install nsis -y --no-progress
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.msix' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.msix in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
-  harmony-arkui-validate:
-    name: validate (harmony-arkui)
-    needs: [harmony-arkui]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    # Mirrors the parent job, which is continue-on-error at job level: the OHOS toolchain download
-    # is the flakiest leg in this workflow, and a failed SDK fetch is not a reproducibility signal.
-    continue-on-error: true
-    timeout-minutes: 90
-    env:
-      CLT_VERSION: "5.1.0.840"
-      CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
-    steps:
-      # --- Stage 1: what can be checked without booting the emulator -----------------------------
-      # Installing a .hap needs the Oniro QEMU emulator, which is the slowest and flakiest leg in
-      # this workflow (the parent job is continue-on-error for that reason). Booting a second copy
-      # here would double a 90-minute job to prove what the parent already exercises, so this
-      # validates the archive's structure instead and does not claim to have launched anything.
-      - name: Download the .hap the harmony-arkui job shipped
-        uses: actions/download-artifact@v8
-        with:
-          name: showcase-dist-harmony-arkui
-          path: shipped
-      - name: Validate the .hap structure
-        run: |
-          set -euo pipefail
-          HAP="$(find shipped -name '*.hap' | head -1)"
-          [ -n "$HAP" ] || { echo "::error::no .hap in the artifact"; exit 1; }
-          rm -rf "$RUNNER_TEMP/hap" && unzip -q "$HAP" -d "$RUNNER_TEMP/hap"
-          MOD="$RUNNER_TEMP/hap/module.json"
-          [ -f "$MOD" ] || { echo "::error::no module.json in the .hap"; exit 1; }
-          python3 -c "import json,sys; d=json.load(open('$MOD')); print('bundle:', d['app']['bundleName'] if 'app' in d else d['module']['name'])"
-          # The native library the ArkTS host imports, for the arch this hap declares.
-          SO="$(find "$RUNNER_TEMP/hap/libs" -name 'libentry.so' | head -1)"
-          [ -n "$SO" ] || { echo "::error::no libs/<abi>/libentry.so in the .hap"; exit 1; }
-          file -b "$SO" | grep -q ELF || { echo "::error::libentry.so is not an ELF object"; exit 1; }
-          echo "hap ok: $(basename "$(dirname "$SO")") $(file -b "$SO" | cut -d, -f1-2)"
-          # A hap must carry a signature block; an unsigned one will not install on a device.
-          unzip -l "$HAP" | grep -qiE "Hap|\.RSA|\.EC|CERT" \
-            && echo "signature entries present" || echo "::warning::no signature entries found in the .hap"
-      # --- Stage 2: is the build reproducible? ---------------------------------------------------
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-      - uses: openharmony-rs/setup-ohos-sdk@v1
-        id: ohos-sdk
-        with:
-          version: "5.1.0"
-      # These four steps mirror the harmony-arkui job exactly; they are the minimum that makes
-      # `day pack -p harmony-arkui` work at all. Any change there has to be made here too.
-      - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
-        run: |
-          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
-          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
-          {
-            echo "OHOS_NDK_HOME=$NATIVE"
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang"
-            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang"
-          } >> "$GITHUB_ENV"
-      - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
-        uses: actions/cache@v6
-        with:
-          path: ~/ohos-clt
-          key: ohos-clt-${{ env.CLT_VERSION }}
-      - name: Install hvigor/ohpm from the (Linux) command-line-tools via node wrappers
-        run: |
-          set -euo pipefail
-          C="$HOME/ohos-clt/command-line-tools"
-          if [ ! -f "$C/hvigor/bin/hvigorw.js" ]; then
-            mkdir -p ~/ohos-clt && cd ~/ohos-clt
-            curl -fSL -o clt.zip "$CLT_URL"
-            unzip -q -o clt.zip && rm -f clt.zip
-          fi
-          mkdir -p "$HOME/ohos-bin"
-          printf '#!/usr/bin/env bash\nexec node "%s/hvigor/bin/hvigorw.js" "$@"\n' "$C" > "$HOME/ohos-bin/hvigorw"
-          printf '#!/usr/bin/env bash\nexec node "%s/ohpm/bin/pm-cli.js" "$@"\n' "$C" > "$HOME/ohos-bin/ohpm"
-          chmod +x "$HOME/ohos-bin/hvigorw" "$HOME/ohos-bin/ohpm"
-          echo "$HOME/ohos-bin" >> "$GITHUB_PATH"
-          echo "DEVECO_SDK_HOME=$C/sdk" >> "$GITHUB_ENV"
-      - name: Assemble a versioned OpenHarmony SDK for hvigor (OHOS_BASE_SDK_HOME)
-        run: |
-          set -euo pipefail
-          OH="$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")"
-          BASE="$HOME/ohos-ohsdk"
-          mkdir -p "$BASE"
-          ln -sfn "$OH" "$BASE/18"
-          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
-        with:
-          name: day-linux-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
-          path: ${{ runner.temp }}/day-cli
-      - name: Locate the day CLI (exports DAY_BIN)
-        run: |
-          # On Windows $RUNNER_TEMP is a DOS path; cygpath turns it into one `find` can walk.
-          TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
-          BIN="$(find "$TMP/day-cli" -maxdepth 1 -type f | head -1)"
-          chmod +x "$BIN" 2>/dev/null || true
-          echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
-      # One command replaces the checkout + pack + compare that used to live here: `day rebuild`
-      # reads the artifact's own SBOM and .buildinfo (both shipped in dist/), checks this machine's
-      # toolchain against what built it, clones the recorded commit, rebuilds, and reports a payload
-      # and a container verdict. A payload mismatch fails, and under --strict so does a payload it
-      # could not compare at all; a container difference only warns (§20.4).
-      - name: Rebuild from the artifact's own provenance
-        run: |
-          set -euo pipefail
-          ART="$(find shipped -maxdepth 1 -type f -name '*.hap' | head -1)"
-          [ -n "$ART" ] || { echo "::error::no *.hap in the downloaded dist"; exit 1; }
-          echo "verifying $ART"
-          "$DAY_BIN" rebuild --strict "$ART"
-
   msrv:
     runs-on: ubuntu-24.04
     steps:
@@ -2071,6 +1597,11 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
+      # Scaffold + lint (scripts/ci/scaffold-check.sh). `day pack` does not support web-dom yet,
+      # so the script stops after the lint for this combo.
+      - name: Scaffold check (new + lint + pack + rebuild)
+        shell: bash
+        run: scripts/ci/scaffold-check.sh "$DAY_BIN" web-dom
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
         with:
