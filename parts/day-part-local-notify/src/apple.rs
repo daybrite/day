@@ -112,7 +112,9 @@ define_class!(
             // The route rides in userInfo, put there at post time. `request_route` handles both a
             // warm tap and one that cold-started the process (docs/notify.md).
             let content = response.notification().request().content();
-            let route = content.userInfo().objectForKey(&*NSString::from_str(ROUTE_KEY));
+            let route = content
+                .userInfo()
+                .objectForKey(&*NSString::from_str(ROUTE_KEY));
             if let Some(route) = route {
                 let text: Retained<NSString> = unsafe { Retained::cast_unchecked(route) };
                 crate::deliver_tap(&text.to_string());

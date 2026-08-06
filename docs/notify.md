@@ -13,9 +13,17 @@
 > the crate's monochrome icon. Both receivers are present in the merged APK manifest.
 >
 > Not yet implemented: the **Linux** and **web-dom** arms (they fall through to the `Unsupported`
-> stub), tap-to-route on Apple (needs a `UNUserNotificationCenterDelegate` — Android already routes
-> taps through the existing deep-link URI rail), actions and inline reply, and both
-> `day-part-push-notify` and `day-notify`. Those sections below remain a design.
+> stub), actions and inline reply, and both `day-part-push-notify` and `day-notify`. Those sections
+> below remain a design.
+>
+> **Three things a first user hit, all now fixed — worth knowing because they fail SILENTLY.**
+> (1) Nothing requested consent, so Apple accepted every post and dropped it. Consent belongs to
+> day-part-permissions (`Permission::Notifications`), and an app must actually call it.
+> (2) iOS suppresses a notification posted while the app is FOREGROUND unless a
+> `UNUserNotificationCenterDelegate` returns presentation options from `willPresent` — the delegate
+> now does, and its `didReceive` also delivers taps, so `Cap::tap_route` is true on Apple.
+> (3) Android's `IMPORTANCE_DEFAULT` files a notification into the shade with no heads-up banner,
+> which reads as "the button did nothing"; `Importance::High` or above is what shows a banner.
 >
 > Two framework gaps this part needed are DONE and proven by it: `manifest-components` in
 > `[package.metadata.day.android]` (docs/extending.md), which is how the two receivers reach the
