@@ -55,6 +55,7 @@ pub fn stage_payload(
 
 pub fn pack(
     project: &Project,
+    target: &'static Target,
     opts: &PackOptions,
     payload: &Path,
     dist: &Path,
@@ -142,7 +143,13 @@ pub fn pack(
     .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- makeappx pack ---------------------------------------------------------
-    let msix = dist.join(format!("{name}{}.msix", opts.version_tag(version)));
+    let msix = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[],
+        "msix",
+    ));
     let _ = std::fs::remove_file(&msix);
     status("Packing", "makeappx pack");
     run_tool(

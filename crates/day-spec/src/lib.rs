@@ -1695,12 +1695,32 @@ pub mod props {
         Value(Option<f64>),
     }
 
+    /// A trailing action button on the navigation bar (docs/navigation.md) — the phones' and
+    /// HarmonyOS's stand-in for a desktop toolbar button, since those toolkits have no window
+    /// toolbar (`Cap::Toolbar` is `Unsupported`). Rendered upper-right on the nav bar by the
+    /// mobile backends (iOS `rightBarButtonItem`, Android/HarmonyOS a menu action); ignored by
+    /// desktop split presentations, which carry their commands in a real toolbar instead.
+    ///
+    /// `action` is a menu-action dispatch id (`register_menu_action`): the backend emits
+    /// `Event::MenuAction(action)` when the button is tapped, and the tree runs the registered
+    /// closure. `icon` is a bundled image name (resolved via [`resolve_image_file`], the same
+    /// convention as [`NavMenuProps::icons`]); `label` is its accessible name and tooltip.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavBarAction {
+        pub action: u64,
+        pub label: String,
+        pub icon: Option<String>,
+    }
+
     /// Navigation host (docs/navigation.md). `split` = sidebar+detail presentation
     /// (chosen by the pieces layer from `Cap::NavSplit`); false = stack presentation.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavProps {
         pub title: String,
         pub split: bool,
+        /// An optional trailing bar-button command for the mobile nav bar (see [`NavBarAction`]);
+        /// `None` on desktop, where the toolbar carries commands instead.
+        pub bar_action: Option<NavBarAction>,
     }
     /// Applied to the NAV HOST after a page child is attached / before it is removed;
     /// the toolkit animates its native presentation accordingly.

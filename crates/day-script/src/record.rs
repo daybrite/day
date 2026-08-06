@@ -547,6 +547,7 @@ pub fn play(yaml: &str) -> Result<(), String> {
 /// Play with an artificial pause (seconds) between each step — a slow-motion replay for watching a
 /// script drive the UI. Returns `Err` WITHOUT spawning when the script is empty or does not parse,
 /// so a UI can call it to validate (see [`is_playable`]) and to run from one path.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
     if is_recording() {
         return Err("cannot play while recording — stop the recording first".to_string());
@@ -591,10 +592,8 @@ pub fn play_with_delay(_yaml: &str, _step_delay_secs: f64) -> Result<(), String>
     )
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn is_playable(yaml: &str) -> bool {
-    steps_from_yaml(yaml).is_ok_and(|s| !s.is_empty())
-}
+// `is_playable` (above) is pure parsing — no threads, no `Instant` — so it serves every target,
+// wasm included; there is no wasm-specific copy.
 
 #[cfg(test)]
 mod tests {

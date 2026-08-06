@@ -35,7 +35,7 @@ day mcp-server               # serve Day tools to AI agents (Model Context Proto
 | `macos-appkit` | `.dmg` (codesign → notarize → staple) |
 | `ios-uikit` | `.ipa` (App Store export; Simulator `.app.zip` without signing config) |
 | `android-mdc` | `.apk` + `.aab` (release-signed) |
-| `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle |
+| `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
 | `windows-xaml` | `.msix` + NSIS `-setup.exe` |
 | `harmony-arkui` | `.hap` |
 | `web-dom` | none — `day build` already emits a self-contained static `dist/` |

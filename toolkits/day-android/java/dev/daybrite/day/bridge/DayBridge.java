@@ -755,6 +755,20 @@ public final class DayBridge {
     public static View makeNavHost(long id, String title) {
         return new DayNavHost(ctx, id, title);
     }
+
+    // Trailing nav-bar action (docs/navigation.md, NavProps::bar_action): applied AFTER the host is
+    // built, and wrapped so a failure here can never propagate into the native tree build (where it
+    // would abort the whole surface and blank the app). `action == 0` or a non-nav view is a no-op.
+    public static void setNavMenu(View navHost, String icon, String label, long action) {
+        if (action == 0 || !(navHost instanceof DayNavHost)) {
+            return;
+        }
+        try {
+            ((DayNavHost) navHost).setBarAction(icon, label, action);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav bar action setup failed; continuing without it", t);
+        }
+    }
     public static View makeNavPage(final long id) {
         DayFixed page = new DayFixed(ctx);
         page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {

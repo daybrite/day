@@ -41,12 +41,15 @@ export const registerNav: (
   push: (key: number, title: string) => Object,
   pop: () => void,
   setTitle: (title: string) => void,
-  setGuard: (on: boolean) => void
+  setGuard: (on: boolean) => void,
+  setMenu: (icon: string, label: string, action: number) => void
 ) => void;
 export const navPopped: (key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
 export const navBackRequested: () => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
+// The trailing title-bar action was tapped (NavProps::bar_action): dispatch it (docs/navigation.md).
+export const navMenuAction: (action: number) => void;
 
 // Secondary day windows (docs/windows.md). The registered `open` launches a multiton
 // DayWindowAbility (the day node id + title as want parameters); `close` terminates one.

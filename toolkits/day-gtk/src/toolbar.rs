@@ -92,10 +92,11 @@ fn dress_button(button: &impl IsA<gtk4::Button>, item: &ToolbarItem) {
                 dressed = true;
             }
         }
-        // A bundled image: GTK takes it straight as a file-backed paintable.
+        // A bundled image: tint it to the theme foreground like the sidebar icons, so a black
+        // template glyph stays visible on a dark-mode toolbar instead of rendering dark-on-dark.
         Some(Icon::Image(name)) => {
-            if let Some(path) = day_spec::resource::resolve_image_file(name) {
-                button.set_child(Some(&gtk4::Image::from_file(path)));
+            if let Some(img) = crate::tinted_template_icon(name) {
+                button.set_child(Some(&img));
                 dressed = true;
             }
         }

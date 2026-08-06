@@ -1389,7 +1389,7 @@ mod imp {
                 }
                 Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
-                    with_env(|env| {
+                    let host = with_env(|env| {
                         let s = jstr(env, &p.title);
                         AHandle(make_view(
                             env,
@@ -1397,7 +1397,40 @@ mod imp {
                             "(JLjava/lang/String;)Landroid/view/View;",
                             &[JValue::Long(idj), JValue::Object(&s)],
                         ))
-                    })
+                    });
+                    // Optional trailing bar action (docs/navigation.md): set on the host AFTER it
+                    // exists, via a best-effort call that SWALLOWS any failure. A bar button is
+                    // decoration; keeping it off `makeNavHost` (whose failure aborts the whole
+                    // native tree build — `make_view` unwraps) means nothing here can blank the app.
+                    // On tap the item re-enters as `MenuAction(id)`.
+                    if let Some(a) = &p.bar_action {
+                        let (icon, label, action) = (
+                            a.icon.clone().unwrap_or_default(),
+                            a.label.clone(),
+                            a.action as i64,
+                        );
+                        with_env(|env| {
+                            let ic = jstr(env, &icon);
+                            let lb = jstr(env, &label);
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setNavMenu",
+                                "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;J)V",
+                                &[
+                                    JValue::Object(host.0.as_obj()),
+                                    JValue::Object(&ic),
+                                    JValue::Object(&lb),
+                                    JValue::Long(action),
+                                ],
+                            );
+                            // A throw (or an old bridge lacking the method) leaves a pending
+                            // exception — clear it so it can't poison the next JNI call.
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
+                    host
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
                     AHandle(make_view(

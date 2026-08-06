@@ -31,6 +31,12 @@ struct Index {
   // Back guard (docs/navigation.md): true while the top pushed page has a Stack::on_back
   // guard armed — its NavDestination consumes the native back and defers to Rust's guard.
   @State navGuardedTop: boolean = false;
+  // Trailing title-bar action (docs/navigation.md, NavProps::bar_action): the mobile stand-in for
+  // a desktop toolbar button. Set once by registerNav's 5th callback and rendered as a `.menus()`
+  // item on every pushed NavDestination; action 0 = none.
+  @State navMenuAction: number = 0;
+  @State navMenuIcon: string = '';
+  @State navMenuLabel: string = '';
   private navKeys: number[] = [];
 
   // Scripted sessions (dayscript, docs/agent.md) push/pop WITHOUT transition animation: a
@@ -74,6 +80,13 @@ struct Index {
       },
       (on: boolean): void => {
         this.navGuardedTop = on;
+      },
+      // Trailing title-bar action (NavProps::bar_action): store its icon name, label, and dispatch
+      // id — the dayPage builder renders it as a `.menus()` item on every NavDestination.
+      (icon: string, label: string, action: number): void => {
+        this.navMenuIcon = icon;
+        this.navMenuLabel = label;
+        this.navMenuAction = action;
       }
     );
     // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
@@ -227,6 +240,16 @@ struct Index {
       })
     }
     .title(this.navTitles.get(Number(param)) ?? '')
+    // Trailing title-bar action (docs/navigation.md, NavProps::bar_action): a `.menus()` item
+    // drawn upper-right, the mobile counterpart to a desktop toolbar button. Its bundled icon is
+    // the staged rawfile (§18.3, `resources/rawfile/day/<name>.png`); a tap re-enters native.
+    .menus(this.navMenuAction !== 0 ? [
+      {
+        value: this.navMenuLabel,
+        icon: $rawfile('day/' + this.navMenuIcon + '.png'),
+        action: () => { nativeEntry.navMenuAction(this.navMenuAction); }
+      }
+    ] : [])
     .onBackPressed(() => {
       // A guarded top page consumes the native back and routes it to Rust's guard, which
       // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded

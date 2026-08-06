@@ -42,6 +42,7 @@ mod imp {
     // `UIApplication::__main` binding; the classic entry point is what we want.
     use objc2::Message as _;
     use objc2_ui_kit::NSIndexPathUIKitAdditions as _;
+    use objc2_ui_kit::NSObjectUIAccessibility;
     #[allow(deprecated)]
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
@@ -57,8 +58,8 @@ mod imp {
         UITextField, UIView, UIViewAnimationOptions, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
-        UIBarPositioningDelegate, UINavigationBar, UINavigationBarDelegate, UINavigationController,
-        UINavigationItem,
+        UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate, UINavigationBar,
+        UINavigationBarDelegate, UINavigationController, UINavigationItem,
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
@@ -353,6 +354,69 @@ mod imp {
         fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
             unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // DayBarButtonTarget — the target-action sink for a nav bar's trailing action
+    // (docs/navigation.md, NavProps::bar_action). A UIBarButtonItem holds its target
+    // WEAKLY, so one target is retained for the whole nav host (in NavState) and reused by
+    // every page's item; on tap it emits `Event::MenuAction(action)`, which the tree
+    // dispatches to the app's registered closure.
+    // -----------------------------------------------------------------------
+
+    struct BarButtonIvars {
+        host: NodeId,
+        action: u64,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitBarButtonTarget"]
+        #[ivars = BarButtonIvars]
+        struct DayBarButtonTarget;
+
+        unsafe impl NSObjectProtocol for DayBarButtonTarget {}
+
+        impl DayBarButtonTarget {
+            #[unsafe(method(tap:))]
+            fn tap(&self, _sender: &AnyObject) {
+                emit(self.ivars().host, Event::MenuAction(self.ivars().action));
+            }
+        }
+    );
+
+    impl DayBarButtonTarget {
+        fn new(mtm: MainThreadMarker, host: NodeId, action: u64) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(BarButtonIvars { host, action });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// A nav host's resolved trailing bar action (NavProps::bar_action): the downscaled template
+    /// image, its accessible label, and the retained target every page's bar button shares.
+    struct NavBarButton {
+        image: Option<Retained<objc2_ui_kit::UIImage>>,
+        label: String,
+        target: Retained<DayBarButtonTarget>,
+    }
+
+    impl NavBarButton {
+        /// A fresh `UIBarButtonItem` for one page's `navigationItem` (items are not shared across
+        /// controllers), wired to the shared target.
+        fn make_item(&self, mtm: MainThreadMarker) -> Retained<UIBarButtonItem> {
+            let item = unsafe {
+                UIBarButtonItem::initWithImage_style_target_action(
+                    UIBarButtonItem::alloc(mtm),
+                    self.image.as_deref(),
+                    UIBarButtonItemStyle::Plain,
+                    Some(&self.target),
+                    Some(sel!(tap:)),
+                )
+            };
+            unsafe { item.setAccessibilityLabel(Some(&NSString::from_str(&self.label)), mtm) };
+            item
         }
     }
 
@@ -687,6 +751,9 @@ mod imp {
         /// reads `native < vcs.len()` and a phantom NavBack tears down the just-pushed page.
         /// Only an actual DECREASE in the observed native count is a pop.
         last_native: std::cell::Cell<usize>,
+        /// The trailing bar action (NavProps::bar_action), applied to each page's `navigationItem`
+        /// as it joins the stack — `None` when the host declares none (e.g. desktop).
+        bar_action: Option<NavBarButton>,
         _delegate: Retained<DayNavDelegate>,
     }
 
@@ -2218,7 +2285,27 @@ mod imp {
                 }
                 Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
-                    let _ = p;
+                    // Resolve the optional trailing bar action once (docs/navigation.md): downscale
+                    // the shared 96px asset to a bar-sized template glyph (tints with the bar), and
+                    // retain one target the per-page items reuse. Applied in `insert` as pages join.
+                    let bar_action = p.bar_action.as_ref().map(|a| {
+                        let image = a.icon.as_deref().and_then(load_bundled_uiimage).map(|img| {
+                            let sized = unsafe {
+                                img.imageByPreparingThumbnailOfSize(CGSize::new(24.0, 24.0))
+                            }
+                            .unwrap_or(img);
+                            unsafe {
+                                sized.imageWithRenderingMode(
+                                    objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                )
+                            }
+                        });
+                        NavBarButton {
+                            image,
+                            label: a.label.clone(),
+                            target: DayBarButtonTarget::new(mtm, id, a.action),
+                        }
+                    });
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
                     let root_vc = WINDOW
@@ -2244,6 +2331,7 @@ mod imp {
                                 expect_pop: std::cell::Cell::new(false),
                                 native_pops: std::cell::Cell::new(0),
                                 last_native: std::cell::Cell::new(0),
+                                bar_action,
                                 _delegate: delegate,
                             },
                         )
@@ -3020,6 +3108,15 @@ mod imp {
                 let state = m.get_mut(&ptr_of(parent))?;
                 let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
                 state.vcs.push(vc.clone());
+                // The host's trailing bar action rides every page's navigation bar
+                // (docs/navigation.md): a fresh UIBarButtonItem wired to the shared target, set on
+                // this page's navigationItem as it joins the stack (root and each pushed page).
+                if let Some(ba) = state.bar_action.as_ref() {
+                    let mtm =
+                        MainThreadMarker::new().expect("uikit insert runs on the main thread");
+                    let item = ba.make_item(mtm);
+                    unsafe { vc.navigationItem().setRightBarButtonItem(Some(&item)) };
+                }
                 Some((index == 0).then_some((state.nav.clone(), vc)))
             });
             match set_root {

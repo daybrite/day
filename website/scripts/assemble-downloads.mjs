@@ -30,17 +30,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
 const REPO = process.env.DAY_RELEASE_REPO || 'daybrite/day';
 
-// Which release asset belongs to which platform card. `day pack` names its output after the app
-// title, and the release lane flattens every combo's dist into one asset list, so the mapping is
-// by file name. Order within a platform is the order the card lists them.
+// Which release asset belongs to which platform card. `day pack` names every artifact
+// `<stem>-<platform>-<toolkit>[-extra].<ext>` and the release lane flattens every combo's dist
+// into one asset list, so the mapping keys on the combo — never on the stem, which is the app's
+// and changes between apps. The extension anchors the match, which is also what keeps the
+// provenance sidecars (`….dmg.buildinfo.json`) out of the cards. Order within a platform is the
+// order the card lists them.
 const PLATFORM_ASSETS = [
-  { id: 'android-mdc', match: (n) => /^showcase\.(apk|aab)$/i.test(n) },
-  { id: 'ios-uikit', match: (n) => /\.ipa$/i.test(n) },
-  { id: 'harmony-arkui', match: (n) => /\.hap$/i.test(n) },
-  { id: 'macos-appkit', match: (n) => /\.dmg$/i.test(n) },
-  { id: 'windows-xaml', match: (n) => /^showcase.*\.(msix|exe)$/i.test(n) },
-  { id: 'linux-gtk', match: (n) => /^showcase-gtk-.*\.flatpak$/i.test(n) },
-  { id: 'linux-qt', match: (n) => /^showcase-qt-.*\.flatpak$/i.test(n) },
+  { id: 'android-mdc', match: (n) => /-android-mdc\.(apk|aab)$/i.test(n) },
+  { id: 'ios-uikit', match: (n) => /-ios-uikit\.ipa$/i.test(n) },
+  { id: 'harmony-arkui', match: (n) => /-harmony-arkui\.hap$/i.test(n) },
+  { id: 'macos-appkit', match: (n) => /-macos-appkit\.dmg$/i.test(n) },
+  { id: 'windows-xaml', match: (n) => /-windows-xaml(-setup)?\.(msix|exe)$/i.test(n) },
+  { id: 'linux-gtk', match: (n) => /-linux-gtk-.*\.(flatpak|appimage)$/i.test(n) },
+  { id: 'linux-qt', match: (n) => /-linux-qt-.*\.(flatpak|appimage)$/i.test(n) },
 ];
 
 /** Fetch JSON from the GitHub API, authenticated when a token is around (CI rate limits). */

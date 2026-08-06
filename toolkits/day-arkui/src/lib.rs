@@ -642,6 +642,16 @@ mod imp {
         }
     }
 
+    /// The trailing title-bar action was tapped (NavProps::bar_action, docs/navigation.md): run
+    /// its registered closure. Emitted on the nav host so it pumps like any event; `MenuAction`
+    /// is dispatched globally by id, so the host node is just a valid enqueue target.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_nav_menu_action(action: u64) {
+        if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
+            emit(NodeId(host_id), Event::MenuAction(action));
+        }
+    }
+
     /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
     /// rotation, window resize) — routed to Day as a window resize, the shared rail
     /// (docs/focus.md; same shape as Android's kind-15 event).
@@ -880,8 +890,19 @@ mod imp {
                 // transition, title bar, and system back gesture included. Pages carry an opaque
                 // background so transitions don't bleed.
                 Some(Builtin::Nav) => {
+                    let p = props.downcast_ref::<NavProps>().unwrap();
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
+                    // Trailing title-bar action (NavProps::bar_action, docs/navigation.md): the
+                    // ArkTS side stores it and draws it as a `.menus()` item on each NavDestination.
+                    // A tap re-enters as `day_arkui_nav_menu_action` → MenuAction dispatch.
+                    if let Some(a) = &p.bar_action {
+                        let icon = cstr(a.icon.as_deref().unwrap_or(""));
+                        let label = cstr(&a.label);
+                        unsafe {
+                            ffi::day_ark_nav_set_menu(icon.as_ptr(), label.as_ptr(), a.action)
+                        };
+                    }
                     // A REBUILT host invalidates every pointer the old one tracked — a Pushed
                     // patch that then consumed a stale NAV_ATTACHED entry would re-home a
                     // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).

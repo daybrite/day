@@ -664,6 +664,31 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     restore: Option<String>,
     /// A header from [`Selector::section`] waiting to be attached to the next item added.
     pending_section: Option<TextSource>,
+    /// An optional trailing nav-bar action ([`Selector::bar_action`]) — the mobile stand-in for a
+    /// desktop toolbar button. `None` unless set.
+    bar_action: Option<BarActionSpec>,
+}
+
+/// A pending nav-bar action ([`Selector::bar_action`] / [`Stack::bar_action`]): the bundled icon
+/// name, the label source, and the closure to run. Lowered at build into [`NavProps::bar_action`]
+/// (docs/navigation.md) — the closure is registered with day-core for a dispatch id the backend
+/// emits as `Event::MenuAction` on tap.
+struct BarActionSpec {
+    icon: Option<String>,
+    label: TextSource,
+    action: Rc<dyn Fn()>,
+}
+
+impl BarActionSpec {
+    /// Register the closure (getting a dispatch id) and resolve the label, producing the spec
+    /// value the NAV host carries. Called once, at build.
+    fn lower(self) -> day_spec::props::NavBarAction {
+        day_spec::props::NavBarAction {
+            action: day_core::register_menu_action(self.action),
+            label: self.label.initial(),
+            icon: self.icon,
+        }
+    }
 }
 
 pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
@@ -677,6 +702,7 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
         destination: None,
         routed: true,
         restore: None,
+        bar_action: None,
     }
 }
 
@@ -846,6 +872,29 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     /// [`routed`](Self::local).
     pub fn restore(mut self, key: impl Into<String>) -> Self {
         self.restore = Some(key.into());
+        self
+    }
+    /// Add a trailing action button to the navigation bar, for the toolkits that have no window
+    /// toolbar (the phones and HarmonyOS — `Cap::Toolbar` is `Unsupported`): an upper-right bar
+    /// button drawn with the bundled `icon` that runs `action` when tapped (docs/navigation.md).
+    /// `icon` is a bundled-image name (typed [`ImageName`](day_spec::ImageName), like
+    /// [`item_icon`](Self::item_icon)'s); `label` is the button's accessible name and tooltip.
+    ///
+    /// Desktop split presentations ignore it — they have a real toolbar, so put the same command
+    /// there (docs/toolbars.md). The action is app-wide: it rides the current top page's bar, so
+    /// the same handler serves every section (read [`current_route`] inside it to act on whatever
+    /// is showing).
+    pub fn bar_action<M>(
+        mut self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.bar_action = Some(BarActionSpec {
+            icon: Some(icon.into().as_str().to_owned()),
+            label: label.into_text(),
+            action: Rc::new(action),
+        });
         self
     }
 }
@@ -1121,6 +1170,9 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let routed = sel.routed;
     let restore = sel.restore;
     let title_s = sel.title.initial();
+    // Register the optional nav-bar action once (getting its dispatch id) and lower it into the
+    // host props — the mobile backends draw it as an upper-right bar button (docs/navigation.md).
+    let bar_action = sel.bar_action.map(BarActionSpec::lower);
     let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
     // The live row set is reactive: `typed` (index → key) and `titles` are shared mutable state
     // the derive effect updates; the initial derive is untracked (the effect below owns the
@@ -1138,6 +1190,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         &NavProps {
             title: title_s.clone(),
             split,
+            bar_action,
         },
         Rc::new(NavLayout {
             sizes: sizes.clone(),
@@ -1581,6 +1634,9 @@ pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
     /// The persistence key set by [`Stack::restore`]: the path is saved here (its keys `/`-joined)
     /// on every change and restored at build. `None` = not persisted.
     restore: Option<String>,
+    /// An optional trailing nav-bar action ([`Stack::bar_action`]) — the mobile stand-in for a
+    /// desktop toolbar button. `None` unless set.
+    bar_action: Option<BarActionSpec>,
 }
 
 pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
@@ -1593,12 +1649,29 @@ pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<
         }),
         on_back: None,
         restore: None,
+        bar_action: None,
     }
 }
 
 impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = t.into_text();
+        self
+    }
+    /// Add a trailing action button to the navigation bar, for the toolkits with no window toolbar
+    /// (the phones and HarmonyOS): an upper-right bar button drawn with the bundled `icon` that
+    /// runs `action` (docs/navigation.md). Mirrors [`Selector::bar_action`]; ignored on desktop.
+    pub fn bar_action<M>(
+        mut self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.bar_action = Some(BarActionSpec {
+            icon: Some(icon.into().as_str().to_owned()),
+            label: label.into_text(),
+            action: Rc::new(action),
+        });
         self
     }
     /// Build the view for a pushed key (`&String` for raw keys, the typed value otherwise).
@@ -1639,8 +1712,12 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             destination: dest,
             on_back,
             restore,
+            bar_action,
         } = self;
         let title_s = title.initial();
+        // Lower the optional nav-bar action for the standalone host below (a merged stack rides
+        // the enclosing host's bar instead). Registered once; the mobile backends draw it.
+        let bar_action = bar_action.map(BarActionSpec::lower);
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
         // pass. A launch deep link wins (skip). The path is decoded from the SAME percent-encoded
@@ -1693,6 +1770,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                 &NavProps {
                     title: title_s.clone(),
                     split: false, // a stack is a stack (no sidebar)
+                    bar_action,
                 },
                 Rc::new(NavLayout {
                     sizes: sizes.clone(),

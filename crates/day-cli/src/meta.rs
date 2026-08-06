@@ -66,10 +66,23 @@ pub enum SbomFormat {
 }
 
 impl SbomFormat {
+    /// The name the document carries INSIDE an app bundle (`sbom = "embed …"`), and in the
+    /// generator's own staging directory. Fixed, because an embedded document is looked up by
+    /// name at runtime and by `day rebuild` inside a downloaded container.
     pub fn file_name(self) -> &'static str {
         match self {
             SbomFormat::Cyclonedx => "day-sbom.cdx.json",
             SbomFormat::Spdx => "day-sbom.spdx.json",
+        }
+    }
+
+    /// The suffix a SIDECAR copy carries, appended to the artifact's own file name
+    /// (`day-showcase-macos-appkit.dmg.sbom-cdx.json`). Sidecars sit in one release directory
+    /// alongside every other target's, so each has to say which artifact it describes (§20.4).
+    pub fn sidecar_suffix(self) -> &'static str {
+        match self {
+            SbomFormat::Cyclonedx => "sbom-cdx.json",
+            SbomFormat::Spdx => "sbom-spdx.json",
         }
     }
 }
@@ -391,6 +404,11 @@ pub struct App {
     /// Display title (window / app store); default: the crate name.
     #[serde(default)]
     pub title: Option<String>,
+    /// The filename stem every packaged artifact shares, before the `-<target>` suffix
+    /// (`day-showcase` → `day-showcase-macos-appkit.dmg`). Default: [`slug`] of `title`.
+    /// Slugged on use, so a value with spaces or capitals still yields a safe filename.
+    #[serde(default)]
+    pub artifact: Option<String>,
     /// Monotonic build number (versionCode / CFBundleVersion).
     #[serde(default = "default_build")]
     pub build: u64,
@@ -413,6 +431,8 @@ pub struct AppOverride {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
+    pub artifact: Option<String>,
+    #[serde(default)]
     pub build: Option<u64>,
 }
 
@@ -423,6 +443,9 @@ pub struct ResolvedApp {
     pub version: String,
     pub id: String,
     pub title: String,
+    /// The packaged-artifact filename stem, already slugged (`day-showcase`). Release CI reads
+    /// this out of `day metadata --json` to name the web-dom zip, which no `day pack` produces.
+    pub artifact: String,
     pub build: u64,
 }
 
@@ -439,8 +462,12 @@ impl Manifest {
                 .title
                 .clone()
                 .unwrap_or_else(|| self.app.name.clone()),
+            // Filled in after the override loop: its default is derived from `title`, which the
+            // loop may itself override.
+            artifact: String::new(),
             build: self.app.build,
         };
+        let mut artifact = self.app.artifact.clone();
         // `[app.ohos]` is the platform table for harmony-arkui — for BUILTIN targets the key
         // comes from the catalog (`Target::os`), never from splitting the name. An externally
         // declared target (docs/extending.md) is the opposite by contract: its os IS the name
@@ -459,17 +486,46 @@ impl Manifest {
                 if let Some(title) = &o.title {
                     out.title = title.clone();
                 }
+                if let Some(a) = &o.artifact {
+                    artifact = Some(a.clone());
+                }
                 if let Some(build) = o.build {
                     out.build = build;
                 }
             }
         }
+        out.artifact = slug(artifact.as_deref().unwrap_or(&out.title));
         out
     }
 }
 
 fn default_build() -> u64 {
     1
+}
+
+/// A filename-safe slug: lowercase ASCII alphanumerics, every other run folded to a single `-`,
+/// with no leading or trailing `-` (`"Day Showcase"` → `day-showcase`).
+///
+/// Every packaged artifact's name goes through this. Release assets are served from URLs and
+/// listed by shells, and GitHub rewrites a space in an uploaded asset name to a dot
+/// (`Day Skies.dmg` → `Day.Skies.dmg`) — so the safe name is chosen here rather than left to
+/// whatever a `title` happens to contain. A slug that folds away to nothing (a title of only
+/// punctuation, say) yields `app`, because a file still needs a name.
+pub fn slug(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "app".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 #[derive(Debug, Deserialize, serde::Serialize)]

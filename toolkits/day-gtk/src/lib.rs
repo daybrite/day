@@ -642,11 +642,6 @@ fn gtk_animation(
     }
 }
 
-/// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
-/// foreground so it's visible in BOTH light and dark mode — a raw black PNG is invisible on the
-/// dark-mode sidebar. Every RGB pixel is recolored to the foreground; the source ALPHA is kept as
-/// the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage` or `None`
-/// if the name doesn't resolve / the file can't be decoded.
 /// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
 /// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
 fn fill_nav_menu(
@@ -669,7 +664,7 @@ fn fill_nav_menu(
         let icon = icons
             .get(i)
             .and_then(|o| o.as_deref())
-            .and_then(tinted_sidebar_icon);
+            .and_then(tinted_template_icon);
         let badge = badges.get(i).and_then(|o| o.as_deref()).map(|text| {
             let b = gtk4::Label::new(Some(text));
             // `dim-label` is the GNOME treatment for secondary text; numeric alignment keeps a
@@ -710,7 +705,13 @@ fn fill_nav_menu(
     }
 }
 
-fn tinted_sidebar_icon(name: &str) -> Option<gtk4::Image> {
+/// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
+/// foreground so it's visible in BOTH light and dark mode — a raw black PNG vanishes on a
+/// dark-mode sidebar or toolbar. Every RGB pixel is recolored to the foreground; the source ALPHA
+/// is kept as the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage`
+/// or `None` if the name doesn't resolve / the file can't be decoded. Used by the sidebar rows and
+/// by a toolbar button whose icon is a bundled `Icon::Image` (docs/toolbars.md).
+fn tinted_template_icon(name: &str) -> Option<gtk4::Image> {
     let path = day_spec::resource::resolve_image_file(name)?;
     // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template PNGs
     // normally already carry alpha; add_alpha is a cheap no-op-shaped copy otherwise).

@@ -67,6 +67,38 @@ top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode
 data, so deep-linking is "parse the URL into a path and `set` it," and the stack is unit-testable
 without the framework.
 
+## Nav bar action (`bar_action`)
+
+`selector(sel).bar_action(icon, label, action)` — and the same on `stack(…)` — adds one trailing
+button to the navigation bar. It is the counterpart, on the toolkits that have **no window
+toolbar** (the phones and HarmonyOS, where `Cap::Toolbar` is `Unsupported`), to a desktop toolbar
+command (docs/toolbars.md): one app-wide action that belongs on the chrome rather than in the
+page — Settings, Compose, "Show Source".
+
+```rust
+selector(section)
+    .style(SelectorStyle::Sidebar)
+    .bar_action(res::images::show_source, tr("show-source"), open_current_source)
+    // …items…
+```
+
+`icon` is a bundled-image name (the `.item_icon` convention), `label` its accessible name and
+tooltip, `action` runs on tap. The handler is **app-wide** — it rides the current top page's bar,
+so read [`current_route()`](../docs/navigation.md) inside it to act on whatever is showing, rather
+than registering a different action per page.
+
+| Backend | Realization |
+|---------|-------------|
+| iOS (`UINavigationController`) | each page's `navigationItem.rightBarButtonItem`, a template-tinted icon |
+| Android (M3 app bar) | a `MaterialToolbar` menu action (`SHOW_AS_ACTION_ALWAYS`) |
+| HarmonyOS (`Navigation`) | a `.menus()` item on every `NavDestination` |
+| Desktop split (`NavigationSplitView`) | **ignored** — put the command in the window toolbar instead (docs/toolbars.md) |
+
+On tap the backend emits `Event::MenuAction(id)` against the registered closure — the very
+dispatch a toolbar button or a menu item uses, so a bar action, a toolbar button, and a menu item
+that do the same thing are one registered closure. The action lowers into `NavProps::bar_action`;
+a backend that doesn't render it simply ignores the field.
+
 ## Data-driven items (`selector().items`)
 
 `selector` items can come from a signal, so a sidebar or tab set grows and shrinks with your data

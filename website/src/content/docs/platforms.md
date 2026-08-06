@@ -14,8 +14,8 @@ exercised by real applications, and it gets updated when reality changes.
 | Target | Builds in CI | Runs full UI walkthrough in CI | Packaging | Notes |
 |---|---|---|---|---|
 | `macos-appkit` | ✓ | ✓ | `.dmg` | Runs the full CI walkthrough and a shipping Matrix client |
-| `linux-gtk` | ✓ | ✓ (headless X) | `.flatpak` | |
-| `linux-qt` | ✓ | ✓ (offscreen) | `.flatpak` | Strongest Linux accessibility bridge |
+| `linux-gtk` | ✓ | ✓ (headless X) | `.flatpak` + `.appimage` | |
+| `linux-qt` | ✓ | ✓ (offscreen) | `.flatpak` + `.appimage` | Strongest Linux accessibility bridge |
 | `ios-uikit` | ✓ | ✓ (Simulator) | `.ipa` | Development is Simulator-first; `day pack` builds a device `.ipa` — signed with `signing.ios` config, otherwise unsigned (`-unsigned.ipa`, for sideloading or your own signing) |
 | `android-mdc` | ✓ | ✓ (emulator) | `.apk` + `.aab` | Emulator leg tolerates flakes; the build itself gates hard |
 | `macos-gtk` | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |

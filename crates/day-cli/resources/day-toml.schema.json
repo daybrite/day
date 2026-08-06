@@ -25,6 +25,10 @@
           "type": "string",
           "description": "Display title (window / app store). Default: the crate name."
         },
+        "artifact": {
+          "type": "string",
+          "description": "Filename stem shared by every packaged artifact, before the -<target> suffix (day-showcase → day-showcase-macos-appkit.dmg). Default: a slug of `title`. Overridden per run by `day pack --artifact-name`."
+        },
         "build": {
           "type": "integer",
           "description": "Monotonic build number (versionCode / CFBundleVersion).",
@@ -52,6 +56,7 @@
         "properties": {
           "id": { "type": "string" },
           "title": { "type": "string" },
+          "artifact": { "type": "string" },
           "build": { "type": "integer", "minimum": 1 }
         },
         "additionalProperties": false

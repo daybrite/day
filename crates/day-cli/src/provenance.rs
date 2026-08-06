@@ -684,6 +684,12 @@ mod tests {
 // artifact is a `.flatpak`, so `Source`/`Binary`/`Version` carry the app's identity rather than a
 // dpkg source package's. The fields are syntactically what deb-buildinfo(5) specifies; the values
 // describe a Day app.
+//
+// It does NOT take Debian's `${source}_${version}_${arch}.buildinfo` filename. That convention
+// only means anything inside a Debian archive, and here the file ships as a release asset beside
+// artifacts from six other platforms — so it follows Day's own sidecar rule instead
+// (`<artifact>.buildinfo.deb822`, §20.4), which says which download it describes and cannot be
+// confused with the JSON sidecar.
 
 /// The Debian architecture name for the host, or `None` when it has no Debian equivalent.
 fn debian_arch() -> Option<&'static str> {
@@ -805,16 +811,6 @@ pub fn debian_buildinfo(
     out
 }
 
-/// Debian's filename convention: `${source}_${version}_${arch}.buildinfo`.
-pub fn debian_buildinfo_name(sbom: &Sbom) -> String {
-    let source = sbom.app_name.replace(' ', "-").to_lowercase();
-    format!(
-        "{source}_{}_{}.buildinfo",
-        sbom.app_version,
-        debian_arch().unwrap_or("unknown")
-    )
-}
-
 #[cfg(test)]
 mod debian_tests {
     use super::*;
@@ -929,13 +925,5 @@ mod debian_tests {
             "{text}"
         );
         assert!(text.contains("X-Day-Commit: 3cf799cb"), "{text}");
-    }
-
-    #[test]
-    fn the_filename_follows_debian_convention() {
-        let (sbom, _) = fixture();
-        let name = debian_buildinfo_name(&sbom);
-        assert!(name.starts_with("showcase_0.1.2_"), "{name}");
-        assert!(name.ends_with(".buildinfo"), "{name}");
     }
 }

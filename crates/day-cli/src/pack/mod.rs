@@ -5,14 +5,17 @@
 //!
 //! Per-target default formats:
 //!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
-//!   linux-gtk/linux-qt → flatpak · windows-xaml → msix+nsis · harmony-arkui → hap
+//!   linux-gtk/linux-qt → flatpak+appimage · windows-xaml → msix+nsis · harmony-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
 pub(crate) mod android;
+mod appimage;
 mod flatpak;
 mod ios;
+pub(crate) mod linux;
 mod macos;
 mod msix;
+pub mod naming;
 mod nsis;
 mod ohos;
 pub mod settings;
@@ -88,7 +91,9 @@ fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
         "macos-appkit" => vec!["dmg"],
         "ios-uikit" => vec!["ipa"], // falls back to sim-app without ASC signing config
         "android-mdc" => vec!["apk", "aab"],
-        "linux-gtk" | "linux-qt" => vec!["flatpak"],
+        // Both, and in this order: the flatpak is the desktop-integrated install, the AppImage
+        // is the one a `curl … && ./app` line can run with nothing installed (§16.5).
+        "linux-gtk" | "linux-qt" => vec!["flatpak", "appimage"],
         "windows-xaml" => vec!["msix", "nsis"],
         "harmony-arkui" => vec!["hap"],
         "macos-gtk" | "macos-qt" | "windows-gtk" | "windows-qt" => {
@@ -166,17 +171,22 @@ pub fn run(
             artifacts.extend(android::pack(project, target, opts, &dist, &formats)?);
         }
         "linux-gtk" | "linux-qt" => {
-            artifacts.push(flatpak::pack(project, target, opts, &dist)?);
+            if formats.iter().any(|f| f == "flatpak") {
+                artifacts.push(flatpak::pack(project, target, opts, &dist)?);
+            }
+            if formats.iter().any(|f| f == "appimage") {
+                artifacts.push(appimage::pack(project, target, opts, &dist)?);
+            }
             payload_root = payload_root_for(project, target);
         }
         "windows-xaml" => {
             let staged = msix::stage_payload(project, target, opts)?;
             payload_root = payload_root_for(project, target);
             if formats.iter().any(|f| f == "msix") {
-                artifacts.push(msix::pack(project, opts, &staged, &dist)?);
+                artifacts.push(msix::pack(project, target, opts, &staged, &dist)?);
             }
             if formats.iter().any(|f| f == "nsis") {
-                artifacts.push(nsis::pack(project, opts, &staged, &dist)?);
+                artifacts.push(nsis::pack(project, target, opts, &staged, &dist)?);
             }
         }
         "harmony-arkui" => {
@@ -258,40 +268,47 @@ pub fn run(
         }
     }
 
-    if sbom_cfg.mode == crate::meta::SbomMode::Sidecar {
-        for f in &sbom_cfg.formats {
-            let from = sbom_dir.join(f.file_name());
-            if from.is_file() {
-                std::fs::copy(&from, dist.join(f.file_name()))
-                    .map_err(|e| PackError::Other(e.to_string()))?;
+    // Provenance sidecars are named after the artifact they describe, extension included
+    // (`day-showcase-macos-appkit.dmg.buildinfo.json`) — one set PER artifact, because a release
+    // directory merges every target's and a bare `day-sbom.cdx.json` there says nothing about
+    // which download it belongs to (§20.4). A pack that produced both an .apk and an .aab
+    // therefore writes both sets, with identical content.
+    let mut sidecars: Vec<PathBuf> = Vec::new();
+    for a in &artifacts {
+        if sbom_cfg.mode == crate::meta::SbomMode::Sidecar {
+            for f in &sbom_cfg.formats {
+                let from = sbom_dir.join(f.file_name());
+                if from.is_file() {
+                    let to = naming::sidecar(&a.path, f.sidecar_suffix());
+                    std::fs::copy(&from, &to).map_err(|e| PackError::Other(e.to_string()))?;
+                    sidecars.push(to);
+                }
             }
         }
-    }
-    let sidecar = dist.join(format!("{}.buildinfo.json", target.name));
-    crate::provenance::write_buildinfo(&sidecar, &info).map_err(PackError::Other)?;
+        let buildinfo = naming::sidecar(&a.path, "buildinfo.json");
+        crate::provenance::write_buildinfo(&buildinfo, &info).map_err(PackError::Other)?;
+        sidecars.push(buildinfo);
 
-    // Linux targets additionally get a Debian-format .buildinfo (deb-buildinfo(5)), because that is
-    // what Debian's reproducibility tooling consumes. The JSON above stays: it is cross-platform and
-    // is what `day rebuild` reads.
-    if matches!(target.toolkit, "gtk" | "qt") {
-        let deb = crate::provenance::debian_buildinfo(
-            &sbom,
-            &info,
-            &project.root,
-            Some(flatpak::runtime_for(target)),
-        );
-        let name = crate::provenance::debian_buildinfo_name(&sbom);
-        std::fs::write(dist.join(&name), deb).map_err(|e| PackError::Other(e.to_string()))?;
-        status(
-            "Provenance",
-            &format!("{} (deb822)", dist.join(&name).display()),
-        );
+        // Linux targets additionally get a Debian-format buildinfo (deb-buildinfo(5)), because
+        // that is what Debian's reproducibility tooling consumes. The JSON above stays: it is
+        // cross-platform and is what `day rebuild` reads.
+        if matches!(target.toolkit, "gtk" | "qt") {
+            let deb = crate::provenance::debian_buildinfo(
+                &sbom,
+                &info,
+                &project.root,
+                Some(flatpak::runtime_for(target)),
+            );
+            let to = naming::sidecar(&a.path, "buildinfo.deb822");
+            std::fs::write(&to, deb).map_err(|e| PackError::Other(e.to_string()))?;
+            sidecars.push(to);
+        }
     }
     status(
         "Provenance",
         &format!(
-            "{} ({} tools) · sbom: {}",
-            sidecar.display(),
+            "{} file(s), {} tools · sbom: {}",
+            sidecars.len(),
             info.tools.len(),
             if sbom_cfg.is_off() {
                 "none".to_string()
@@ -303,7 +320,10 @@ pub fn run(
                     sbom_cfg
                         .formats
                         .iter()
-                        .map(|f| f.file_name())
+                        .map(|f| match sbom_cfg.mode {
+                            crate::meta::SbomMode::Sidecar => f.sidecar_suffix(),
+                            _ => f.file_name(),
+                        })
                         .collect::<Vec<_>>()
                         .join(" + ")
                 )
@@ -357,11 +377,16 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
         .collect())
 }
 
-/// Run a command, returning a readable error with the failing tool's tail output.
+/// Run a command, returning a readable error with the failing tool's tail output. Under
+/// `--verbose` the tool's raw output streams live (via [`crate::ops::run_capture`]).
 pub(crate) fn run_tool(cmd: &mut std::process::Command, what: &str) -> Result<(), String> {
-    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+    let out = crate::ops::run_capture(cmd, what)?;
     if out.status.success() {
         return Ok(());
+    }
+    if crate::ops::verbose() {
+        // Already streamed live by `--verbose`; don't repeat it.
+        return Err(format!("{what} failed"));
     }
     let text = format!(
         "{}{}",

@@ -17,7 +17,7 @@ use crate::targets::Target;
 
 pub fn pack(
     project: &Project,
-    _target: &'static Target,
+    target: &'static Target,
     opts: &PackOptions,
     dist: &Path,
 ) -> Result<Artifact, PackError> {
@@ -35,7 +35,7 @@ pub fn pack(
                  {team, key-id, issuer, key-path})",
             );
         }
-        return unsigned_ipa(project, opts, dist);
+        return unsigned_ipa(project, target, opts, dist);
     }
     let ios = ios.unwrap();
 
@@ -46,7 +46,7 @@ pub fn pack(
             "Warning",
             "signing.ios.team unresolved — packing an UNSIGNED device .ipa instead of a signed one",
         );
-        return unsigned_ipa(project, opts, dist);
+        return unsigned_ipa(project, target, opts, dist);
     };
     let method = ios
         .export_method
@@ -82,7 +82,7 @@ pub fn pack(
             "signing.ios.team is set but key-id/issuer/key-path are not, and this is CI (no \
              Xcode account session for Automatic signing) — packing an UNSIGNED device .ipa",
         );
-        return unsigned_ipa(project, opts, dist);
+        return unsigned_ipa(project, target, opts, dist);
     }
 
     let name = &project.manifest.app.name;
@@ -177,7 +177,13 @@ pub fn pack(
         .ok_or_else(|| {
             PackError::Other(format!("no .ipa exported under {}", export_dir.display()))
         })?;
-    let out = dist.join(format!("{name}{}.ipa", opts.version_tag(version)));
+    let out = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[],
+        "ipa",
+    ));
     std::fs::copy(&ipa, &out).map_err(|e| PackError::Other(e.to_string()))?;
     Ok(Artifact {
         path: out,
@@ -311,8 +317,12 @@ const REPRODUCIBLE_BUILD_SETTINGS: [&str; 5] = [
 /// disabled, packaged as `Payload/<App>.app` inside a `-unsigned.ipa`. It cannot launch until
 /// signed — AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
 /// developer signs it directly (codesign / Xcode's Devices window).
-fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Artifact, PackError> {
-    let name = &project.manifest.app.name;
+fn unsigned_ipa(
+    project: &Project,
+    target: &'static Target,
+    opts: &PackOptions,
+    dist: &Path,
+) -> Result<Artifact, PackError> {
     let version = &project.manifest.app.version;
 
     // The same pre-build staging the signed path (and build_ios) performs.
@@ -364,7 +374,15 @@ fn unsigned_ipa(project: &Project, opts: &PackOptions, dist: &Path) -> Result<Ar
         "ditto stage",
     )
     .map_err(PackError::Other)?;
-    let out = dist.join(format!("{name}{}-unsigned.ipa", opts.version_tag(version)));
+    // The `unsigned` token survives into the release name; release CI strips it so the
+    // published asset keeps ONE name whether or not the run had signing material.
+    let out = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &["unsigned"],
+        "ipa",
+    ));
     let _ = std::fs::remove_file(&out);
     super::normalize_mtimes(&staging).map_err(PackError::Other)?;
     run_tool(

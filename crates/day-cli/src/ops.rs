@@ -28,6 +28,75 @@ pub fn status(prefix: &str, msg: &str) {
     anstream::eprintln!("{HEADER}{prefix:>12}{HEADER:#} {msg}");
 }
 
+/// `--verbose` (global flag): forward every sub-command's raw stdout/stderr to the terminal as it
+/// runs, instead of capturing it and showing only day's own status lines (and the tool's output on
+/// failure). Set once from the parsed flag in `cli::run`; read by the tool-runner helpers.
+static VERBOSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record whether `--verbose` was passed (called once at startup).
+pub fn set_verbose(on: bool) {
+    VERBOSE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether `--verbose` is in effect — build tools consult this to decide whether to forward their
+/// sub-commands' output.
+pub fn verbose() -> bool {
+    VERBOSE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Run `cmd` to completion, capturing its stdout and stderr. Under [`verbose`] each stream is ALSO
+/// forwarded — verbatim — to day's own logging stream (**stderr**) as it arrives, so a
+/// sub-command's raw output streams live while the captured copy still feeds day's own failure
+/// diagnostics (the `run_quiet`/`run_tool`/gradle/xcodebuild error text). Forwarding goes to stderr
+/// (not stdout) for two reasons: it is where day already writes its status lines, and it keeps
+/// stdout clean for `--format json`'s NDJSON result stream (raw tool bytes there would corrupt it).
+/// Both pipes are drained concurrently — a tool that fills one while day only read the other would
+/// deadlock.
+///
+/// The default (non-verbose) result is byte-identical to [`Command::output`], so callers that
+/// filter on the captured `Output` are unaffected.
+pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process::Output, String> {
+    use std::io::{Read, Write};
+    // stdin closed to match `Command::output`'s contract (a child reading stdin gets immediate EOF
+    // rather than the parent's terminal); these tool calls never read it.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
+    let forward = verbose();
+    // piped just above, so both handles are always Some.
+    let mut child_out = child.stdout.take().expect("stdout was piped");
+    let mut child_err = child.stderr.take().expect("stderr was piped");
+    // Byte-chunk tee (not line-based): forwards output verbatim — partial lines and `\r` progress
+    // redraws included — so `--verbose` is truly unfiltered, and each chunk is flushed so it lands
+    // live rather than sitting in a block buffer when the destination is a pipe.
+    fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = src.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            if forward {
+                let mut w = std::io::stderr().lock();
+                let _ = w.write_all(&chunk[..n]);
+                let _ = w.flush();
+            }
+            collected.extend_from_slice(&chunk[..n]);
+        }
+        collected
+    }
+    let out_reader = std::thread::spawn(move || tee(&mut child_out, forward));
+    let stderr = tee(&mut child_err, forward);
+    let stdout = out_reader.join().unwrap_or_default();
+    let status = child.wait().map_err(|e| format!("{what}: {e}"))?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 /// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-break's
 /// `build.rs` bakes these into the binary so crash reports carry id/version/build without
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the

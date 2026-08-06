@@ -11,9 +11,11 @@ use super::settings::PackOptions;
 use super::{Artifact, PackError, SignTier, run_tool};
 use crate::meta::Project;
 use crate::ops::status;
+use crate::targets::Target;
 
 pub fn pack(
     project: &Project,
+    target: &'static Target,
     opts: &PackOptions,
     payload: &Path,
     dist: &Path,
@@ -36,7 +38,13 @@ pub fn pack(
 
     let work = project.root.join("build/day/pack/windows-nsis");
     std::fs::create_dir_all(&work).map_err(|e| PackError::Other(e.to_string()))?;
-    let setup = dist.join(format!("{name}{}-setup.exe", opts.version_tag(version)));
+    let setup = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &["setup"],
+        "exe",
+    ));
     let _ = std::fs::remove_file(&setup);
 
     let nsi = work.join("installer.nsi");

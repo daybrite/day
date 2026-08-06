@@ -102,8 +102,9 @@ Credentials come from the environment, never from a checked-in file:
 | Google Play | `SUPPLY_JSON_KEY` (path to the service-account JSON) |
 
 Note that the Fastfile finds the artifact by glob rather than by name: `day pack` names an unsigned
-device build `<app>-unsigned.ipa` and a signed one `<app>.ipa`, and a lane that hardcoded either
-would break on the day signing was configured.
+device build `<stem>-ios-uikit-unsigned.ipa` and a signed one `<stem>-ios-uikit.ipa`, and a lane
+that hardcoded either would break on the day signing was configured. `<stem>` is the app's own
+(`[app] artifact` in `Day.toml`, else a slug of its title), which is the other reason for the glob.
 
 ## In CI
 

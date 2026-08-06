@@ -21,9 +21,13 @@ pub fn pack(
     // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build —
     // release signing re-signs THAT, never the dev-signed one.
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
-    let name = &project.manifest.app.name;
-    let version = &project.manifest.app.version;
-    let out = dist.join(format!("{name}{}.hap", opts.version_tag(version)));
+    let out = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[],
+        "hap",
+    ));
     let _ = std::fs::remove_file(&out);
 
     let ohos = project

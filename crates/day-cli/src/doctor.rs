@@ -269,6 +269,21 @@ fn gtk_group() -> Group {
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
             .soft(),
+            // Optional, and the OTHER half of `day pack -p linux-gtk`: the .appimage (§16.5).
+            // Without the gtk plugin an AppImage still builds, but carries no GdkPixbuf loaders
+            // or GSettings schemas — so both are probed, and both are soft.
+            Probe::new(
+                "linuxdeploy",
+                which("linuxdeploy").map(|p| p.display().to_string()),
+                "download linuxdeploy from github.com/linuxdeploy/linuxdeploy/releases (for `day pack` → .appimage)",
+            )
+            .soft(),
+            Probe::new(
+                "linuxdeploy-plugin-gtk",
+                which("linuxdeploy-plugin-gtk").map(|p| p.display().to_string()),
+                "download linuxdeploy-plugin-gtk — without it the AppImage needs a machine that already has GTK",
+            )
+            .soft(),
         ],
         setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
@@ -306,6 +321,21 @@ fn qt_group() -> Group {
                 "flatpak-builder",
                 which("flatpak-builder").map(|p| p.display().to_string()),
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
+            )
+            .soft(),
+            // Optional, and the OTHER half of `day pack -p linux-qt`: the .appimage (§16.5).
+            // Without the qt plugin the image carries no platform plugin, so it cannot open a
+            // window on a machine without Qt — hence probing the plugin, not just the tool.
+            Probe::new(
+                "linuxdeploy",
+                which("linuxdeploy").map(|p| p.display().to_string()),
+                "download linuxdeploy from github.com/linuxdeploy/linuxdeploy/releases (for `day pack` → .appimage)",
+            )
+            .soft(),
+            Probe::new(
+                "linuxdeploy-plugin-qt",
+                which("linuxdeploy-plugin-qt").map(|p| p.display().to_string()),
+                "download linuxdeploy-plugin-qt — without it the AppImage needs a machine that already has Qt",
             )
             .soft(),
         ],

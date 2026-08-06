@@ -9,7 +9,7 @@ section: Build & ship
 installable artifact** in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the
 result output. One command per platform, the platform's own signing tools underneath. Day
 orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
-`flatpak-builder`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`; it never reimplements
+`flatpak-builder`, `linuxdeploy`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`; it never reimplements
 them.
 
 ## Artifacts per target
@@ -20,6 +20,7 @@ them.
 | `ios-uikit` | `.ipa` | `xcodebuild archive` (device, arm64) → `-exportArchive` with a generated `ExportOptions.plist` (`app-store-connect`); without signing config: an unsigned device build, packaged as `<name>-unsigned.ipa` for sideloading or your own signing |
 | `android-mdc` | `.apk` + `.aab` | Gradle `assembleRelease` + `bundleRelease` with a release `signingConfig`; verified with `apksigner` and checked for 16 KB page alignment |
 | `linux-gtk` / `linux-qt` | `.flatpak` | single-file bundle; the runtime supplies the toolkit (GTK 4 ⇒ `org.gnome.Platform`, Qt 6 ⇒ `org.kde.Platform`) and resolves from Flathub at install time — `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak` needs no other setup (the toolkit is part of the name, so the gtk and qt bundles coexist). A Qt app that links QtWebEngine also carries the Qt WebEngine BaseApp, since no runtime ships it — that is ~87 MB of Chromium, so `day pack` adds it only when the binary actually links it |
+| `linux-gtk` / `linux-qt` | `.appimage` | one executable that carries its own GTK/Qt — `chmod +x` and run, with no package manager, no runtime download and no root. `day pack` stages the AppDir and hands the bundling to [`linuxdeploy`](https://github.com/linuxdeploy/linuxdeploy) plus its `gtk`/`qt` plugin, which is what picks up the pieces an `ldd` closure misses (GdkPixbuf loaders, GIO modules, GSettings schemas, Qt platform plugins). Without the plugin the image still builds and still runs, on a machine that already has the toolkit — `day pack` says so loudly rather than letting a user discover it |
 | `windows-xaml` | `.msix` + `-setup.exe` | `makeappx` + `signtool` for the MSIX; an NSIS per-user installer (no elevation, ARP entry, silent `/S`) for classic direct download |
 | `harmony-arkui` | `.hap` | hvigor release build, signed with your release material via `hap-sign-tool` (or the public dev certificate without it) |
 | `web-dom` | — | there is no pack step: `day build -p web-dom` writes a self-contained `dist/` (host page, shim, stylesheet, `.wasm`, images, fonts) that you deploy to any static host as-is |

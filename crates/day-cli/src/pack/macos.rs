@@ -91,7 +91,15 @@ pub fn pack(
             let _ = std::os::unix::fs::symlink("/Applications", &link);
         }
     }
-    let dmg = dist.join(format!("{title}{}.dmg", opts.version_tag(version)));
+    // The .app inside keeps the display title (that is what /Applications shows); the container
+    // takes the shared release name, so it matches every other target's artifact (§20.4).
+    let dmg = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[],
+        "dmg",
+    ));
     let _ = std::fs::remove_file(&dmg);
     status("Packing", "hdiutil create (UDZO)");
     run_tool(

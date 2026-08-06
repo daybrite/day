@@ -148,8 +148,8 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `macos-appkit` | macOS | AppKit | shipped; walkthrough + pack (`.dmg`) in CI |
 | `ios-uikit` | iOS | UIKit | shipped; Simulator walkthrough + pack (`.ipa`) in CI |
 | `android-mdc` | Android | Material Components (M3 Expressive) / android.view | shipped; emulator walkthrough + pack (`.apk`/`.aab`) in CI |
-| `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak) in CI |
-| `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak) in CI |
+| `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
+| `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `windows-xaml` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
 | `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers (docs/harmonyos.md) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server (docs/web.md) |
@@ -2229,15 +2229,18 @@ command tree with flags and descriptions for agent consumption).
 
 > [!IMPORTANT]
 > **Status: shipped smaller.** The global flags are `--project <dir>` (nearest-ancestor
-> `Day.toml` default) and `--format {plain,json}` (NDJSON result events); `--no-input` exists
-> where prompting exists (`day new`, `day app`). `--yes`/`--color`/`-v`/`--log-file` and the
-> full event vocabulary below were not built — the `result` event and stable exit codes were,
-> and `day metadata --json` / `day help` cover machine discovery. The design below remains the
-> target shape for a future `day daemon`.
+> `Day.toml` default), `--format {plain,json}` (NDJSON result events), and `--verbose` (forward
+> every sub-command's raw stdout/stderr to the terminal instead of capturing it — cargo/gradle/
+> xcodebuild/hvigor/adb/codesign/…, so a build/launch/pack shows the full underlying log);
+> `--no-input` exists where prompting exists (`day new`, `day app`). `--yes`/`--color`/`-v`
+> (the short alias)/`--log-file` and the full event vocabulary below were not built — the `result`
+> event and stable exit codes were, and `day metadata --json` / `day help` cover machine
+> discovery. The design below remains the target shape for a future `day daemon`.
 
 ```
 --project <dir>          # default: nearest ancestor with Day.toml
 --format {plain,json}    # json = NDJSON result events on stdout
+--verbose                # forward every sub-command's raw output to the terminal (unfiltered)
 --no-input               # never prompt (new/app); missing required input = error
 ```
 
@@ -2307,7 +2310,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add` |
 | `day build -p <target>…` | build for one or more targets, in parallel |
 | `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one, `--android-device` an adb serial. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
-| `day pack -p <target> [--profile release]` | build → sign → installable artifact (formats below) |
+| `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
@@ -2372,17 +2375,49 @@ target: `.dmg` (macos-appkit: sign `.app` → `hdiutil` → sign dmg → notariz
 (ios; degrades to an UNSIGNED device `.ipa` — `-unsigned.ipa`, for sideloading via
 AltStore/SideStore or the developer's own signing — without App Store Connect signing config;
 changed 2026-07 from the original zipped-Simulator-`.app` fallback),
-`.apk` + `.aab` (android), **flatpak** (linux-gtk/qt — with generated icons at the freedesktop
-policy sizes; the Qt WebEngine BaseApp, which a `base:` copies INTO the bundle at ~87 MB, is
-named only when the packed binary's `DT_NEEDED` list actually links WebEngine — 2026-07, it was
-previously added to every Qt bundle), **`.msix` + an NSIS `setup.exe`** (windows), **`.hap`**
-(ohos via hvigor).
+`.apk` + `.aab` (android), **flatpak + AppImage** (linux-gtk/qt), **`.msix` + an NSIS
+`setup.exe`** (windows), **`.hap`** (ohos via hvigor).
+
+The two Linux formats are siblings, and the split is where the toolkit comes from. The
+**`.flatpak`** takes GTK/Qt from a runtime the user's flatpak installation resolves at install
+time (`org.gnome.Platform` / `org.kde.Platform`), which keeps the bundle app-only and Qt's LGPL
+obligations satisfied by the runtime's relinkable shared libs; icons are generated at the
+freedesktop policy sizes, and the Qt WebEngine BaseApp — which a `base:` copies INTO the bundle at
+~87 MB — is named only when the packed binary's `DT_NEEDED` list actually links WebEngine
+(2026-07; it was previously added to every Qt bundle). The **`.appimage`** carries its toolkit
+inside, so it runs on a machine with nothing installed, which is what a one-line
+`curl … | bash` launcher needs (daybrite/actions ships one per release). Day stages the AppDir
+and delegates the bundling to `linuxdeploy` plus its `gtk`/`qt` plugin: the parts a naive `ldd`
+closure misses — GdkPixbuf loaders, GIO modules, GSettings schemas, Qt's platform plugins — are
+exactly where a hand-rolled bundler goes wrong. Without the plugin the AppImage still builds and
+still runs on a machine that already has the toolkit, and says so loudly (§20). The payload tree
+inside both is staged once (`pack/linux.rs`), so one recorded digest set verifies either (§20.3).
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and
 the designed LGPL/licences-stage guard rails remain future work.
 
-Artifacts are named `<name>-<version>.<ext>` by default; `--no-version-in-name` drops the
-version (`<name>.<ext>`) so a `releases/latest/download/<name>` URL stays stable across releases.
-daybrite/actions' release job packs with that flag ([§20](#20-continuous-integration)).
+Every format lands on one filename pattern (`pack/naming.rs`):
+
+```text
+<stem>[-<version>]-<platform>-<toolkit>[-<extra>].<ext>
+  day-showcase-macos-appkit.dmg          day-showcase-windows-xaml-setup.exe
+  day-showcase-android-mdc.aab           day-showcase-linux-gtk-x86_64.flatpak
+  day-showcase-linux-gtk-x86_64.appimage
+```
+
+`<stem>` is `day pack --artifact-name`, else `Day.toml` `[app] artifact` (overridable per target
+like any `[app]` property, [§17.3](#173-daytoml)), else a slug of `title` — always slugged to
+lowercase `[a-z0-9-]`, because GitHub rewrites a space in an uploaded asset name to a dot.
+`<extra>` distinguishes artifacts that would otherwise collide: `setup` for the NSIS installer,
+the CPU arch for a flatpak or an AppImage, `unsigned` for an `.ipa` packed without signing
+material.
+`--no-version-in-name` drops the version infix so a `releases/latest/download/<name>` URL stays
+stable across releases; daybrite/actions' release job packs with that flag
+([§20](#20-continuous-integration)).
+
+The target combo is written by the CLI rather than spliced in by release CI. That is what lets
+`day rebuild <downloaded-asset>` find its own rebuild (it looks for a file of the same name), and
+what lets the provenance sidecars be named after the artifact they describe
+([§20.4](#204-provenance-sbom--buildinfo)).
 
 #### `day lint`
 
@@ -2480,8 +2515,8 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 
 > [!IMPORTANT]
 > **Status: shipped with a smaller schema.** The shipped manifest keeps the principles below;
-> the concrete sections in real projects are `schema`, `[app]` (id, title, build, targets —
-> any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
+> the concrete sections in real projects are `schema`, `[app]` (id, title, artifact, build,
+> targets — any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
 > `[signing.*]` (env-var interpolated, degrade-loudly), and — added 2026-07 —
 > `[permissions]`, which declares the OS permissions the app uses and the reason each prompt shows;
 > `day build` turns it into every platform's manifest entry (docs/permissions.md). Locales, images,
@@ -2508,6 +2543,8 @@ schema = 1                          # manifest schema version
 [app]
 id = "dev.example.fieldnotes"       # bundle id / application id / app id
 title = "app-title"                 # Fluent key → localized display name (falls back to name)
+artifact = "fieldnotes"             # filename stem for packages: fieldnotes-macos-appkit.dmg
+                                    #   (default: a slug of title; see §16.5's `day pack`)
 build = 42                          # CFBundleVersion / versionCode (int, monotonic)
 targets = ["macos-appkit", "macos-gtk", "macos-qt", "ios-uikit", "android-mdc"]
 
@@ -2815,7 +2852,10 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > carries the whole pipeline, plus `install.yml` (scheduled end-user install checks) in this repo.
 > External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
 > `build-day-app.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
-> tag, and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
+> tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
+> and `launch.ps1` (the Windows per-user installer), which are release ASSETS rather than hosted
+> files so the URL chooses the version and every Day app gets a one-line try-it path without
+> hosting anything — and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
 > app repo's own GitHub Pages (reusing the dist it already built; relative-path so a project-Pages
 > subpath works; a `web-deploy-tag-pattern` input gates publish-on-tag vs publish-on-main;
 > docs/web.md), plus a scaffold-validation workflow. The Gradle/AGP legs use the runner's DEFAULT
@@ -2926,7 +2966,11 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 > each packing platform job: `scripts/ci/scaffold-check.sh` scaffolds a fresh 21-locale app, packs
 > it, and verifies it with `day rebuild --from-dir --strict` on the same runner — the desktop
 > combos then smoke-launch the rebuilt copy. Stage 1's install-and-launch of the shipped showcase
-> artifact retired with those jobs.
+> artifact retired with those jobs — except on Linux, where the packing job still installs the
+> `.flatpak` and RUNS the `.appimage` under xvfb (2026-08). The AppImage's claim is that it works
+> on a machine with nothing installed, and the only check for that is executing it: a GTK or Qt
+> module the bundling failed to carry crashes on launch and nowhere earlier. A rebuild check
+> compares bytes; it cannot notice a missing loader.
 
 The user-facing version of this section is `website/src/content/docs/reproducible-builds.md`,
 which carries the per-platform caveats and the manual verification recipe; keep the two in step.
@@ -2965,7 +3009,7 @@ itself there rather than surfacing a job later as an artifact nothing can rebuil
 
 Stage 2 needs no checkout of its own; only `android-mdc-validate` still checks the repo out, because
 its stage 1 runs `scripts/ci/validate-apk.sh` on the emulator. Each job names the container it
-verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.apk`, `*.msix`, `*.hap`) rather than globbing the dist
+verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.appimage`, `*.apk`, `*.msix`, `*.hap`) rather than globbing the dist
 directory: `windows-xaml` also ships a self-extracting `-setup.exe` that nothing here can open, and
 `android-mdc` also ships an `.aab`.
 
@@ -2975,7 +3019,8 @@ else a fixed default", so a rebuild on a runner with nothing plugged in packs on
 shipping job packed two, and the two artifacts differ structurally for a reason no verdict could
 explain. The buildinfo records what the build resolved; `day rebuild` re-applies it.
 
-The payload tier has a second route for containers the verifying host cannot open — a `.flatpak` is
+The payload tier has a second route for containers the verifying host cannot open — an
+`.appimage` is an ELF with a squashfs appended, a `.flatpak` is
 an OSTree bundle whose import wants privileges a CI runner does not have, and a `.msix` needs a
 working `unzip`. For those, `day pack` records the sha256 of every staged payload file (the compiled
 code as the build wrote it, before packaging) and `day rebuild` hashes what it staged and compares.
@@ -2987,7 +3032,7 @@ verdict for those two targets.
 | Tier | What it compares | On mismatch |
 | --- | --- | --- |
 | payload | the compiled code — Mach-O / ELF / PE / `.so` — extracted from whatever container ships it | **fails the job** |
-| container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `-setup.exe`) | warns |
+| container | the shipped file itself (`.dmg`, `.ipa`, `.apk`, `.aab`, `.hap`, `.msix`, `.flatpak`, `.appimage`, `-setup.exe`) | warns |
 
 The payload tier excludes signature material, matched by path component: `AppxSignature.p7x`, the
 `AppxMetadata/CodeIntegrity.cat` catalog, anything under `_CodeSignature/`,
@@ -3190,6 +3235,48 @@ notarization ticket stapled into it anyway.
 
 On Windows diffoscope also installs via pip without most of its comparators and degrades to a
 binary diff.
+
+### §20.4 Provenance: SBOM + buildinfo
+
+> [!NOTE]
+> **Status: shipped.** Both documents are generated on every `day pack` and `day rebuild` reads
+> them. The artifact-prefixed sidecar naming below replaced a fixed-name scheme in 2026-08.
+
+Two documents travel with every packaged artifact, and they answer different questions. The
+**SBOM** describes what the app was built FROM — the resolved dependency graph, the repository,
+the commit, and which project inside it (`day:project`, from `git rev-parse --show-prefix`).
+It derives only from source, so it is identical on every machine, which is why `day pack` writes
+it before the build and can stage it into the bundle. The **buildinfo** describes what the app
+was built WITH — compiler, SDK and packaging-tool versions, the environment inputs that shaped
+the package ([§20.3](#203-reproducible-build-verification)), and the sha256 of every staged
+payload file. It is machine-specific by nature, so it is never embedded: doing so would make the
+artifact differ whenever a tool version differed.
+
+`[sbom]` in `Day.toml` ([§17.3](#173-daytoml)) picks the mode (`sidecar`, the default; `embed`,
+for an app that shows its own licence screen; `none`) and the formats (CycloneDX 1.5 and SPDX 2.3
+JSON, both by default). The buildinfo is always a sidecar.
+
+**Sidecars are named after the artifact they describe**, whole file name including the extension:
+
+```text
+day-showcase-macos-appkit.dmg
+day-showcase-macos-appkit.dmg.buildinfo.json
+day-showcase-macos-appkit.dmg.sbom-cdx.json
+day-showcase-macos-appkit.dmg.sbom-spdx.json
+```
+
+A release directory merges every target's dist, so a fixed `day-sbom.cdx.json` there says nothing
+about which download it belongs to — and a pack that emits both an `.apk` and an `.aab` needs one
+set per artifact, not one per target. `day rebuild` resolves the sidecar by that exact name rather
+than scanning the directory, which is what makes verifying a downloaded asset among six others
+work. The EMBEDDED spelling stays fixed at `day-sbom.cdx.json` / `day-sbom.spdx.json`, since an
+app looks its own document up by name at runtime.
+
+The Linux targets additionally emit `<artifact>.buildinfo.deb822` — the same facts in Debian's
+deb-buildinfo(5) format, which is what Debian's reproducibility tooling consumes. It does not take
+Debian's `${source}_${version}_${arch}.buildinfo` filename: that convention means something inside
+a Debian archive, and here the file ships as a release asset beside artifacts from six other
+platforms.
 
 ### §20.5 Toolchain and dependency governance
 

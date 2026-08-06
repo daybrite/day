@@ -105,6 +105,8 @@ static napi_ref g_nav_push = nullptr;  // (key: number, title: string) => NodeCo
 static napi_ref g_nav_pop = nullptr;   // () => void — pathStack.pop()
 static napi_ref g_nav_title = nullptr; // (title: string) => void — retitle the top destination
 static napi_ref g_nav_set_guard = nullptr; // (on: boolean) => void — arm the top-page back guard
+static napi_ref g_nav_menu = nullptr; // (icon: string, label: string, action: number) => void —
+                                      // set the trailing title-bar action (NavProps::bar_action)
 // A pushed page's slot: the NodeContent handle PLUS a strong napi_ref on the JS object. The
 // ArkTS side drops its own reference when the NavDestination disappears (onDisAppear), so
 // without the ref the content is GC'd while Rust may still detach the page from it — the
@@ -117,6 +119,7 @@ static std::map<uint64_t, DayNavContent> g_nav_contents;
 extern "C" void day_arkui_nav_popped(uint64_t key);
 extern "C" void day_arkui_nav_back_requested();
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
+extern "C" void day_arkui_nav_menu_action(uint64_t action);
 extern "C" void day_arkui_resized(double w, double h);
 
 // ---- ArkTS-built piece components (docs/extending.md) -----------------------
@@ -725,6 +728,28 @@ void day_ark_nav_set_guard(int on) {
     napi_get_undefined(g_env, &self);
     napi_get_boolean(g_env, on != 0, &arg);
     napi_call_function(g_env, self, cb, 1, &arg, &ret);
+}
+
+// Set the trailing title-bar action (NavProps::bar_action, docs/navigation.md): the ArkTS side
+// stores it and renders it as a `.menus()` item on every NavDestination. No-op if the ArkTS host
+// predates the seam (g_nav_menu null) — the app simply gets no bar action. JS thread only.
+void day_ark_nav_set_menu(const char* icon, const char* label, uint64_t action) {
+    if (!g_env || !g_nav_menu) return;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value cb = nullptr;
+    napi_get_reference_value(g_env, g_nav_menu, &cb);
+    if (cb) {
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[3];
+        napi_create_string_utf8(g_env, icon ? icon : "", NAPI_AUTO_LENGTH, &args[0]);
+        napi_create_string_utf8(g_env, label ? label : "", NAPI_AUTO_LENGTH, &args[1]);
+        napi_create_double(g_env, (double)action, &args[2]);
+        napi_value ret;
+        napi_call_function(g_env, undef, cb, 3, args, &ret);
+    }
+    napi_close_handle_scope(g_env, scope);
 }
 
 void day_ark_nav_set_title(const char* title) {
@@ -1733,12 +1758,12 @@ static napi_value OnFileResult(napi_env env, napi_callback_info info) {
 // ArkTS registers its Navigation bridge: `registerNav(push, pop, setTitle)` — see the
 // Navigation-bridge comment at the top. Re-registration replaces the callbacks.
 static napi_value RegisterNav(napi_env env, napi_callback_info info) {
-    size_t argc = 4;
-    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    size_t argc = 5;
+    napi_value argv[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     g_env = env;
-    napi_ref* refs[4] = {&g_nav_push, &g_nav_pop, &g_nav_title, &g_nav_set_guard};
-    for (size_t i = 0; i < 4; i++) {
+    napi_ref* refs[5] = {&g_nav_push, &g_nav_pop, &g_nav_title, &g_nav_set_guard, &g_nav_menu};
+    for (size_t i = 0; i < 5; i++) {
         if (*refs[i]) {
             napi_delete_reference(env, *refs[i]);
             *refs[i] = nullptr;
@@ -1759,6 +1784,20 @@ static napi_value NavPopped(napi_env env, napi_callback_info info) {
     double key = 0;
     napi_get_value_double(env, argv[0], &key);
     day_arkui_nav_popped((uint64_t)key);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// The trailing title-bar action was tapped (NavProps::bar_action): dispatch its registered
+// closure by id (docs/navigation.md). `navMenuAction(action)`.
+static napi_value NavMenuAction(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double action = 0;
+    napi_get_value_double(env, argv[0], &action);
+    day_arkui_nav_menu_action((uint64_t)action);
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;
@@ -1854,6 +1893,8 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "navPopped", fn);
     napi_create_function(env, "navBackRequested", NAPI_AUTO_LENGTH, NavBackRequested, nullptr, &fn);
     napi_set_named_property(env, exports, "navBackRequested", fn);
+    napi_create_function(env, "navMenuAction", NAPI_AUTO_LENGTH, NavMenuAction, nullptr, &fn);
+    napi_set_named_property(env, exports, "navMenuAction", fn);
     napi_create_function(env, "navPageArea", NAPI_AUTO_LENGTH, NavPageArea, nullptr, &fn);
     napi_set_named_property(env, exports, "navPageArea", fn);
     napi_create_function(env, "registerPiece", NAPI_AUTO_LENGTH, RegisterPiece, nullptr, &fn);

@@ -21,6 +21,10 @@ struct Cli {
     /// Output format: plain (default) or json (NDJSON result events)
     #[arg(long, global = true, default_value = "plain")]
     format: String,
+    /// Forward every sub-command's raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …)
+    /// to the terminal as it runs, instead of capturing it and showing only day's own status lines.
+    #[arg(long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -146,10 +150,14 @@ enum Cmd {
         /// Submit for notarization without waiting (check later: day sign --notarize-status <id>)
         #[arg(long)]
         no_wait: bool,
-        /// Omit the app version from artifact filenames (app.aab, not app-1.0.0.aab) so a
-        /// `releases/latest/download/<name>` URL stays stable across releases
+        /// Omit the app version from artifact filenames (app-android-mdc.aab, not
+        /// app-1.0.0-android-mdc.aab) so a `releases/latest/download/<name>` URL stays stable
         #[arg(long)]
         no_version_in_name: bool,
+        /// Filename stem for every artifact, before the `-<target>` suffix (day-showcase →
+        /// day-showcase-macos-appkit.dmg). Overrides Day.toml `[app] artifact`; always slugged.
+        #[arg(long = "artifact-name", value_name = "STEM")]
+        artifact_name: Option<String>,
     },
     /// Signing utilities: --check validates Day.toml signing config (never prints secrets)
     Sign {
@@ -446,6 +454,8 @@ pub enum EmulatorCmd {
 
 pub fn run() -> i32 {
     let cli = Cli::parse();
+    // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
+    crate::ops::set_verbose(cli.verbose);
     // Kick off the background crates.io update check now, so it runs while the command does. Silent for
     // the build-system plumbing callbacks (Xcode/Gradle) and for machine `--format json` output.
     let update = crate::update::spawn(
@@ -499,6 +509,7 @@ pub fn run() -> i32 {
             no_notarize,
             no_wait,
             no_version_in_name,
+            artifact_name,
         } => with_project(cli.project.as_deref(), |project| {
             let opts = crate::pack::PackOptions {
                 profile,
@@ -509,6 +520,7 @@ pub fn run() -> i32 {
                 no_notarize,
                 no_wait,
                 version_in_name: !no_version_in_name,
+                artifact_name,
             };
             let mut outcomes = Vec::new();
             for p in &platforms {

@@ -13,10 +13,14 @@ pub struct PackOptions {
     pub no_notarize: bool,
     /// Submit for notarization but do not wait for the verdict.
     pub no_wait: bool,
-    /// Embed the app version in artifact filenames (`app-1.0.0.aab`). When false, names are
-    /// version-less (`app.aab`), so a `releases/latest/download/<name>` URL stays stable across
-    /// releases. Defaults to true; `day pack --no-version-in-name` (and CI) turns it off.
+    /// Embed the app version in artifact filenames (`app-1.0.0-android-mdc.aab`). When false,
+    /// names are version-less (`app-android-mdc.aab`), so a `releases/latest/download/<name>`
+    /// URL stays stable across releases. Defaults to true; `day pack --no-version-in-name`
+    /// (and CI) turns it off.
     pub version_in_name: bool,
+    /// `day pack --artifact-name <stem>`: override the filename stem every artifact shares
+    /// (see [`crate::pack::naming`]). None = Day.toml `[app] artifact`, else a slug of the title.
+    pub artifact_name: Option<String>,
 }
 
 impl Default for PackOptions {
@@ -28,6 +32,7 @@ impl Default for PackOptions {
             no_notarize: false,
             no_wait: false,
             version_in_name: true,
+            artifact_name: None,
         }
     }
 }
@@ -128,7 +133,7 @@ mod tests {
     fn version_tag_toggles_with_the_flag() {
         // Default (include): filenames carry a `-<version>` infix.
         assert_eq!(PackOptions::default().version_tag("1.0.0"), "-1.0.0");
-        // --no-version-in-name: no infix, so `format!("{name}{}.aab", tag)` = `name.aab`.
+        // --no-version-in-name: no infix, so the name is `<stem>-<target>.aab`.
         let bare = PackOptions {
             version_in_name: false,
             ..PackOptions::default()

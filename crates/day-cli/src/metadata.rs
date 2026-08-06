@@ -88,6 +88,12 @@ pub fn run(project: &Project, json: bool) -> i32 {
             "version": m.app.version,
             "id": m.app.id,
             "title": m.app.title.clone().unwrap_or_else(|| m.app.name.clone()),
+            // The packaged-artifact filename stem, before any `[app.<target>]` override (those
+            // are under `resolved`). Release CI reads it to name the web-dom zip, which is the
+            // one shipped artifact no `day pack` produces.
+            "artifact": crate::meta::slug(m.app.artifact.as_deref().unwrap_or_else(|| {
+                m.app.title.as_deref().unwrap_or(&m.app.name)
+            })),
             "build": m.app.build,
             "targets": m.app.targets,
             "window": m.window,

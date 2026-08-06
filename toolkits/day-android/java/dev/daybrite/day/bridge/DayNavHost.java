@@ -3,6 +3,8 @@ package dev.daybrite.day.bridge;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -235,6 +237,31 @@ public class DayNavHost extends LinearLayout {
             titles.set(titles.size() - 1, title);
         }
         syncChrome();
+    }
+
+    /** Add the trailing action item to the toolbar's menu: an always-visible icon button
+     *  (docs/navigation.md). The MaterialToolbar keeps its menu across pushes/pops, so it rides
+     *  every page's bar. Over the edge-to-edge blue app bar the glyph is tinted white; on the
+     *  default light surface bar the bundled dark glyph reads as-is. Called by
+     *  {@link DayBridge#setNavMenu} AFTER construction, inside a try/catch — never from the
+     *  constructor — so a failure here can't blank the host. */
+    void setBarAction(String iconName, String label, final long actionId) {
+        MenuItem it = toolbar.getMenu().add(Menu.NONE, 0, 0, label == null ? "" : label);
+        it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        android.graphics.drawable.Drawable icon = DayBridge.drawableByName(getContext(), iconName);
+        if (icon != null) {
+            if (DayActivity.edgeToEdge) {
+                icon = icon.mutate();
+                icon.setTint(0xFFFFFFFF);
+            }
+            it.setIcon(icon);
+        }
+        it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+            @Override public boolean onMenuItemClick(MenuItem item) {
+                DayBridge.nativeOnEvent(actionId, DayBridge.K_MENU_ACTION, 0.0, "");
+                return true;
+            }
+        });
     }
 
     private void syncChrome() {

@@ -106,6 +106,71 @@ function richInstall(text: string): (string | { code: string })[] {
     </div>
   </section>
 
+  <section class="section dl-quick">
+    <div class="container">
+      <h2 class="dl-quick-title">Quick start</h2>
+      <p class="dl-quick-lead">
+        One line downloads the latest release and runs it. Nothing is installed permanently: the
+        app lands in a temporary directory, and the script tells you which one. It picks the build
+        for your system, shows you the exact URL, and asks before downloading anything.
+      </p>
+
+      {/* Radio inputs rather than buttons, so the tabs work with the stylesheet alone — the
+          script below only moves the selection. Without JavaScript the page still switches. */}
+      <div class="qs">
+        <input class="qs-radio" type="radio" name="qs-os" id="qs-unix" checked />
+        <input class="qs-radio" type="radio" name="qs-os" id="qs-win" />
+        <div class="qs-tabs">
+          <label class="qs-tab" for="qs-unix">macOS / Linux</label>
+          <label class="qs-tab" for="qs-win">Windows</label>
+        </div>
+
+        <div class="qs-panel qs-panel-unix">
+          <pre class="dl-quick-cmd"><code>curl -fsSL {site.showcaseRepo}/releases/latest/download/launch.sh | bash</code></pre>
+          <p class="dl-quick-note">
+            macOS gets the signed, notarized <code>.dmg</code>; Linux gets the AppImage, which
+            carries its own GTK or Qt — so there is nothing to install either way. On Linux the
+            script reads your desktop to choose between the GNOME and KDE builds.
+          </p>
+        </div>
+
+        <div class="qs-panel qs-panel-win">
+          <pre class="dl-quick-cmd"><code>irm {site.showcaseRepo}/releases/latest/download/launch.ps1 | iex</code></pre>
+          <p class="dl-quick-note">
+            Windows gets the per-user installer, run silently into a temporary folder rather than
+            into Program Files, so there is no admin prompt and removing it is one command the
+            script prints. It is signed with a development certificate rather than one Windows
+            trusts, so SmartScreen may warn.
+          </p>
+        </div>
+      </div>
+
+      <p class="dl-quick-note">
+        Both scripts ship with each release, so the URL chooses the version: swap <code>latest</code>{' '}
+        for <code>download/v0.1.7</code> to run that one, which is how you get two versions side by
+        side. Read one first by opening the same URL —{' '}
+        <a href={`${site.showcaseRepo}/releases/latest/download/launch.sh`}>launch.sh</a> and{' '}
+        <a href={`${site.showcaseRepo}/releases/latest/download/launch.ps1`}>launch.ps1</a> are both
+        short and do nothing clever.
+      </p>
+    </div>
+  </section>
+
+  {/* Preselect the tab for the visitor's OS. Inline and immediately after the markup, so it runs
+      during parse and the wrong tab is never painted first. `userAgentData` is the modern answer
+      and `platform` the one that still works in Safari and Firefox; the user agent string is the
+      last resort. Anything that is not Windows keeps the default. */}
+  <script is:inline>
+    (function () {
+      var nav = window.navigator;
+      var os = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || nav.userAgent || '';
+      if (/win/i.test(os)) {
+        var win = document.getElementById('qs-win');
+        if (win) win.checked = true;
+      }
+    })();
+  </script>
+
   <section class="section">
     <div class="container">
       <div class="dl-grid">
@@ -174,6 +239,62 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
   .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
   .dl-note { color: var(--faint); font-size: 0.92rem; }
+
+  .dl-quick { padding-top: 12px; padding-bottom: 12px; }
+  .dl-quick-title { font-size: 1.35rem; margin: 0 0 10px; }
+  .dl-quick-lead { margin: 0 0 14px; max-width: 68ch; }
+  /* The command is the point of the section, so it gets the accent edge the download cards use.
+     It scrolls rather than wrapping: a wrapped shell line invites a half-copied paste. */
+  .dl-quick-cmd {
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--brand);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 14px 16px;
+    margin: 0 0 12px;
+    overflow-x: auto;
+  }
+  .dl-quick-cmd code { white-space: pre; font-size: 0.92rem; }
+  .dl-quick-note { color: var(--faint); font-size: 0.92rem; max-width: 68ch; }
+
+  /* The OS picker. The radios drive everything and stay in the accessibility tree — clipped
+     rather than `display: none`, which would take them out of it and off the keyboard. */
+  .qs-radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .qs-tabs { display: flex; gap: 4px; margin: 0 0 12px; flex-wrap: wrap; }
+  .qs-tab {
+    cursor: pointer;
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 0.92rem;
+    color: var(--faint);
+    background: var(--surface);
+    user-select: none;
+  }
+  .qs-tab:hover { color: inherit; }
+  .qs-panel { display: none; }
+  #qs-unix:checked ~ .qs-tabs .qs-tab[for='qs-unix'],
+  #qs-win:checked ~ .qs-tabs .qs-tab[for='qs-win'] {
+    color: inherit;
+    border-color: var(--brand);
+    background: var(--surface-2);
+  }
+  /* Focus follows the radio, which is invisible — so the ring has to be drawn on its label. */
+  #qs-unix:focus-visible ~ .qs-tabs .qs-tab[for='qs-unix'],
+  #qs-win:focus-visible ~ .qs-tabs .qs-tab[for='qs-win'] {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+  #qs-unix:checked ~ .qs-panel-unix,
+  #qs-win:checked ~ .qs-panel-win {
+    display: block;
+  }
 
   .dl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
   @media (max-width: 760px) { .dl-grid { grid-template-columns: 1fr; } }

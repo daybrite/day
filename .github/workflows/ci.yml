@@ -819,12 +819,35 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Before the scaffold check, whose pack stage bundles a .flatpak too. ubuntu-24.04 runners
-      # don't preinstall flatpak-builder.
+      # Before the scaffold check, whose pack stage builds both Linux formats. ubuntu-24.04
+      # runners preinstall neither flatpak-builder nor linuxdeploy.
       - name: Install flatpak tooling
         run: |
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      # linuxdeploy + its toolkit plugin build the .appimage (§16.5). They ship as downloaded
+      # AppImages, so they go to $RUNNER_TEMP — never the workspace, which IS the checkout the
+      # pristine assert covers — and are named through DAY_LINUXDEPLOY* rather than PATH.
+      - name: Install linuxdeploy tooling
+        env:
+          TOOLKIT: ${{ matrix.toolkit }}
+        run: |
+          set -euo pipefail
+          # appimagetool needs FUSE, which a runner does not have; APPIMAGE_EXTRACT_AND_RUN is the
+          # documented way round it. xvfb is for the AppImage launch check below.
+          sudo apt-get install -y --no-install-recommends xvfb
+          sudo apt-get install -y --no-install-recommends fuse3 libfuse2t64 || \
+            sudo apt-get install -y --no-install-recommends fuse libfuse2 || true
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy" \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT" \
+            "https://github.com/linuxdeploy/linuxdeploy-plugin-$TOOLKIT/releases/download/continuous/linuxdeploy-plugin-$TOOLKIT-x86_64.AppImage"
+          chmod +x "$RUNNER_TEMP/linuxdeploy" "$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT"
+          {
+            echo "DAY_LINUXDEPLOY=$RUNNER_TEMP/linuxdeploy"
+            echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT"
+            echo "APPIMAGE_EXTRACT_AND_RUN=1"
+          } >> "$GITHUB_ENV"
       # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
       # supplies the headless plumbing itself (xvfb for gtk, the offscreen platform for qt).
@@ -850,15 +873,15 @@ jobs:
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
-      # Distribution packaging (§16.5): a single-file .flatpak bundle. The runtime supplies the
-      # toolkit (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform) and resolves from Flathub at
-      # install time (--runtime-repo), so the bundle stays app-only. flatpak-builder was installed
-      # above, before the scaffold check.
+      # Distribution packaging (§16.5): both Linux formats. The .flatpak takes its toolkit from a
+      # runtime that resolves from Flathub at install time (--runtime-repo), so the bundle stays
+      # app-only; the .appimage carries its toolkit inside, so it runs on a machine with nothing
+      # installed. Both toolchains were installed above, before the scaffold check.
       # The commit in the SBOM only describes the artifact if the tree it was built from
       # matches that commit exactly — see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
-      - name: Pack (${{ matrix.combo }} → flatpak)
+      - name: Pack (${{ matrix.combo }} → flatpak + appimage)
         working-directory: showcase-src
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       # The pre-bundle payload, kept for manual diffoscope runs (§20.3). A `.flatpak` is an OSTree bundle that no
@@ -876,6 +899,34 @@ jobs:
         run: |
           flatpak install --user -y ./build/day/dist/*.flatpak
           flatpak info dev.daybrite.showcase
+      # The AppImage's claim is "runs where nothing is installed", and only running it checks that.
+      # A missing GTK/Qt module the bundling failed to carry crashes on launch, so `timeout`
+      # having to kill a still-running app (124) is the PASS here.
+      - name: Run the AppImage
+        working-directory: showcase-src
+        run: |
+          set -euo pipefail
+          APP="$(realpath "$(find build/day/dist -maxdepth 1 -name '*.appimage' | head -1)")"
+          [ -n "$APP" ] || { echo "::error::no .appimage in build/day/dist"; exit 1; }
+          chmod +x "$APP"
+          ( cd "$RUNNER_TEMP" && rm -rf squashfs-root && "$APP" --appimage-extract >/dev/null )
+          for required in AppRun usr/bin; do
+            [ -e "$RUNNER_TEMP/squashfs-root/$required" ] \
+              || { echo "::error::the AppImage has no $required"; exit 1; }
+          done
+          ls "$RUNNER_TEMP/squashfs-root"/*.desktop >/dev/null \
+            || { echo "::error::the AppImage has no .desktop at its root"; exit 1; }
+          echo "bundled libraries: $(find "$RUNNER_TEMP/squashfs-root/usr/lib" -name '*.so*' 2>/dev/null | wc -l)"
+          set +e
+          xvfb-run -a timeout 20s "$APP" > "$RUNNER_TEMP/appimage-run.log" 2>&1
+          code=$?
+          set -e
+          if [ "$code" != 124 ] && [ "$code" != 0 ]; then
+            echo "::error::the AppImage exited $code instead of staying up"
+            tail -40 "$RUNNER_TEMP/appimage-run.log"
+            exit 1
+          fi
+          echo "the AppImage stayed up for 20s"
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:

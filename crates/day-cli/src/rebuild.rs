@@ -147,10 +147,21 @@ fn cyclonedx_props(doc: &serde_json::Value) -> Option<SourceFacts> {
 }
 
 /// Find an SBOM either beside the artifact or inside it.
+///
+/// A sidecar is named after the artifact (`<artifact>.sbom-cdx.json`, §20.4), so it is looked up
+/// exactly rather than by scanning the directory — a release directory holds every target's.
+/// The bare `day-sbom.*.json` names are the EMBEDDED spelling, and are also what packs before
+/// this naming existed wrote beside the artifact; both fall back to them.
 fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, String> {
     let dir = artifact.parent().unwrap_or(Path::new("."));
-    for name in ["day-sbom.cdx.json", "day-sbom.spdx.json"] {
-        if let Some(doc) = read_json(&dir.join(name)) {
+    let beside = [
+        crate::pack::naming::sidecar(artifact, "sbom-cdx.json"),
+        crate::pack::naming::sidecar(artifact, "sbom-spdx.json"),
+        dir.join("day-sbom.cdx.json"),
+        dir.join("day-sbom.spdx.json"),
+    ];
+    for path in &beside {
+        if let Some(doc) = read_json(path) {
             return Ok(doc);
         }
     }
@@ -182,10 +193,14 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
     }
     Err(format!(
         "no SBOM beside or inside {}.\n  \
-         A rebuild needs the source repository and commit. Either place day-sbom.cdx.json next to \
-         the artifact, or build the app with `sbom = \"embed cyclonedx\"` in Day.toml so it ships \
-         inside.",
-        artifact.display()
+         A rebuild needs the source repository and commit. Either download the artifact's \
+         {} sidecar into the same directory, or build the app with `sbom = \"embed cyclonedx\"` \
+         in Day.toml so it ships inside.",
+        artifact.display(),
+        crate::pack::naming::sidecar(artifact, "sbom-cdx.json")
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
     ))
 }
 
@@ -258,16 +273,23 @@ struct Sidecar {
 /// Read the buildinfo sidecar next to the artifact. It is always a sidecar, by design: embedding
 /// tool versions would make the artifact differ per machine (§20.3). Without it a rebuild still
 /// works, minus tool gating.
+///
+/// The name is `<artifact>.buildinfo.json` (§20.4), so it resolves exactly. The directory scan
+/// behind it is the fallback for artifacts packed before that naming: it would pick the wrong
+/// target's sidecar out of a release directory holding several, which is precisely why the
+/// artifact's own name is now part of it.
 fn read_sidecar(artifact: &Path) -> Sidecar {
     let dir = artifact.parent().unwrap_or(Path::new("."));
-    let info = std::fs::read_dir(dir)
-        .ok()
-        .and_then(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .find(|p| p.to_string_lossy().ends_with(".buildinfo.json"))
-        })
-        .and_then(|p| read_json(&p));
+    let info = read_json(&crate::pack::naming::sidecar(artifact, "buildinfo.json")).or_else(|| {
+        std::fs::read_dir(dir)
+            .ok()
+            .and_then(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .find(|p| p.to_string_lossy().ends_with(".buildinfo.json"))
+            })
+            .and_then(|p| read_json(&p))
+    });
 
     let (inputs, payload) = match &info {
         Some(v) => (
@@ -734,7 +756,17 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
 
     let rebuilt_dir = project_dir.join("build/day/dist");
     let name = artifact.file_name().unwrap_or_default();
-    let rebuilt = rebuilt_dir.join(name);
+    let mut rebuilt = rebuilt_dir.join(name);
+    // `day pack` names the artifact exactly as it ships, so the rebuild normally lands on the same
+    // file name. The one exception is iOS: pack marks a build with no signing material
+    // `…-unsigned.ipa`, and release CI strips that so the published asset keeps one name either
+    // way. A verifying machine has no signing config, so it packs the marked name — accept it,
+    // rather than report a rebuild that in fact ran.
+    if !rebuilt.is_file()
+        && let Some(stem) = name.to_str().and_then(|n| n.strip_suffix(".ipa"))
+    {
+        rebuilt = rebuilt_dir.join(format!("{stem}-unsigned.ipa"));
+    }
     if !rebuilt.is_file() {
         return Err(format!(
             "the rebuild produced no {}; it made: {}",

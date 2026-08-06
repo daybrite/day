@@ -91,6 +91,12 @@ phone has no toolbar, so `toolbar(…)` installs nothing there and the app puts 
 the content instead; see Day Sheets, whose search is a toolbar item on the desktops and a
 timeline field on a phone.
 
+For a single app-wide command that belongs on the chrome rather than in the page — Settings,
+Compose, "Show Source" — the navigation bar's trailing action is the mobile counterpart:
+`selector(…).bar_action(icon, label, action)` (docs/navigation.md) draws an upper-right bar button
+on iOS/Android/HarmonyOS and is ignored on the desktop split, where the same command rides the
+toolbar. One registered closure can back both — a toolbar button here and a `bar_action` there.
+
 ## Per-backend native realization
 
 | | AppKit | GTK | Qt | XAML |

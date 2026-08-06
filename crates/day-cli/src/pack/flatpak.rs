@@ -51,7 +51,6 @@ pub fn pack(
         .title
         .clone()
         .unwrap_or_else(|| name.clone());
-    let version = &project.manifest.app.version;
 
     let work = project.root.join("build/day/flatpak").join(target.name);
     let stage = work.join("stage");
@@ -59,103 +58,18 @@ pub fn pack(
     std::fs::create_dir_all(&stage).map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- stage the /app payload --------------------------------------------
-    // Real binary at bin/<name>-bin; the exported command is a wrapper exporting the DAY_* env the
-    // desktop launch path would otherwise pass (ops.rs): resource blobs, asset root, icon name.
-    let bin_dir = stage.join("bin");
-    let share_app = stage.join("share").join(&name);
-    std::fs::create_dir_all(&bin_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::create_dir_all(&share_app).map_err(|e| PackError::Other(e.to_string()))?;
-    // SBOM into share/<name>/sbom so the packaged app can read it (§20.4).
-    if project.manifest.sbom.mode == crate::meta::SbomMode::Embed {
-        crate::provenance::embed_into(&project.root.join("build/day/sbom"), &share_app)
-            .map_err(PackError::Other)?;
-    }
-    std::fs::copy(&outcome.artifact, bin_dir.join(format!("{name}-bin")))
+    // The tree is the one every Linux package carries (pack/linux.rs). What is flatpak-specific
+    // is the prefix — a flatpak always mounts at /app — and that the exported command is the
+    // launcher, named after the app id so the .desktop's Exec resolves inside the sandbox.
+    let staged = super::linux::stage_tree(project, target, &outcome.artifact, &stage)
+        .map_err(PackError::Other)?;
+    let launcher_path = stage.join("bin").join(&id);
+    std::fs::write(&launcher_path, super::linux::launcher("/app", "", &staged))
         .map_err(|e| PackError::Other(e.to_string()))?;
-    let assets = project.root.join("resource/assets");
-    if assets.is_dir() {
-        super::copy_tree(&assets, &share_app.join("assets")).map_err(PackError::Other)?;
-    }
-    let images = project.root.join("resource/images");
-    if images.is_dir() {
-        super::copy_tree(&images, &share_app.join("images")).map_err(PackError::Other)?;
-    }
-    // Bundled fonts (§18.4): the backend registers every file under DAY_FONT_ROOT at startup.
-    let fonts = project.root.join("resource/fonts");
-    if fonts.is_dir() {
-        super::copy_tree(&fonts, &share_app.join("fonts")).map_err(PackError::Other)?;
-    }
-    // Compiled resource blobs, when the toolkit's resource compiler produced them (§18.3).
-    let mut wrapper_env = vec![
-        format!("export DAY_ASSET_ROOT=/app/share/{name}/assets"),
-        format!("export DAY_IMAGE_ROOT=/app/share/{name}/images"),
-        format!("export DAY_FONT_ROOT=/app/share/{name}/fonts"),
-        format!("export DAY_ICON_NAME={id}"),
-    ];
-    let gresource = project
-        .root
-        .join("build/day/gtk")
-        .join(format!("{name}.gresource"));
-    if target.toolkit == "gtk" && gresource.exists() {
-        std::fs::copy(&gresource, share_app.join(format!("{name}.gresource")))
-            .map_err(|e| PackError::Other(e.to_string()))?;
-        wrapper_env.push(format!(
-            "export DAY_GRESOURCE=/app/share/{name}/{name}.gresource"
-        ));
-    }
-    let qresource = project
-        .root
-        .join("build/day/qt")
-        .join(format!("{name}.rcc"));
-    if target.toolkit == "qt" && qresource.exists() {
-        std::fs::copy(&qresource, share_app.join(format!("{name}.rcc")))
-            .map_err(|e| PackError::Other(e.to_string()))?;
-        wrapper_env.push(format!("export DAY_QRESOURCE=/app/share/{name}/{name}.rcc"));
-    }
-    let wrapper = format!(
-        "#!/bin/sh\n{}\nexec /app/bin/{name}-bin \"$@\"\n",
-        wrapper_env.join("\n")
-    );
-    let wrapper_path = bin_dir.join(&id);
-    std::fs::write(&wrapper_path, wrapper).map_err(|e| PackError::Other(e.to_string()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| PackError::Other(e.to_string()))?;
-        std::fs::set_permissions(
-            bin_dir.join(format!("{name}-bin")),
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .map_err(|e| PackError::Other(e.to_string()))?;
-    }
+    super::linux::set_executable(&launcher_path).map_err(PackError::Other)?;
 
     // --- exports: icons, .desktop, metainfo (all app-id-named) ---------------
-    stage_icons(project, &stage, &id);
-    let desktop = format!(
-        "[Desktop Entry]\nType=Application\nName={title}\nExec={id}\nIcon={id}\nTerminal=false\nCategories=Utility;\n"
-    );
-    let desktop_dir = stage.join("share/applications");
-    std::fs::create_dir_all(&desktop_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::write(desktop_dir.join(format!("{id}.desktop")), desktop)
-        .map_err(|e| PackError::Other(e.to_string()))?;
-    let metainfo = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop-application">
-  <id>{id}</id>
-  <name>{title}</name>
-  <summary>{title}</summary>
-  <metadata_license>CC0-1.0</metadata_license>
-  <description><p>{title}, built with Day.</p></description>
-  <launchable type="desktop-id">{id}.desktop</launchable>
-  <releases><release version="{version}"/></releases>
-</component>
-"#
-    );
-    let metainfo_dir = stage.join("share/metainfo");
-    std::fs::create_dir_all(&metainfo_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::write(metainfo_dir.join(format!("{id}.metainfo.xml")), metainfo)
-        .map_err(|e| PackError::Other(e.to_string()))?;
+    super::linux::stage_exports(project, &stage, &id, &title, &id).map_err(PackError::Other)?;
 
     // --- manifest -------------------------------------------------------------
     // The WebEngine BaseApp is dead weight for a Qt app that never opens a webview, so ask the
@@ -190,13 +104,16 @@ pub fn pack(
     )
     .map_err(PackError::Other)?;
 
+    // The arch is part of the name because a flatpak is per-arch and a release may carry
+    // several; the target combo (which the shared naming already supplies) separates
+    // linux-gtk's bundle from linux-qt's.
     let arch = flatpak_arch();
-    // The toolkit is part of the name: linux-gtk and linux-qt both pack this format, and
-    // release CI merges every target's dist/ into one directory — identical names collide.
-    let toolkit = target.toolkit;
-    let bundle = dist.join(format!(
-        "{name}{}-{toolkit}-{arch}.flatpak",
-        opts.version_tag(version)
+    let bundle = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[arch],
+        "flatpak",
     ));
     let _ = std::fs::remove_file(&bundle);
     status("Packing", "flatpak build-bundle");
@@ -280,66 +197,6 @@ modules:
         path: stage
 "#
     )
-}
-
-fn stage_icons(project: &Project, stage: &Path, id: &str) {
-    if stage_project_icons(project, stage, id) == 0 {
-        // No project icons: stage the built-in defaults. The .desktop says `Icon={id}` and the
-        // appstream catalog REQUIRES a resolvable icon for a desktop-application component —
-        // flatpak-builder's `appstreamcli compose` fails the whole bundle with `icon-not-found`
-        // otherwise, so an icon-less project must still export one. All the policy sizes are
-        // staged (48/64/128): compose only probes those, so a single off-policy size stays
-        // invisible to it (see resources::DEFAULT_ICONS).
-        status(
-            "Packing",
-            "no resource/icons/*.png — using the default Day icon (add resource/icons/linux/<name>-<size>.png to brand the app)",
-        );
-        for (size, bytes) in crate::resources::DEFAULT_ICONS {
-            let dest_dir = stage
-                .join("share/icons/hicolor")
-                .join(format!("{size}x{size}"))
-                .join("apps");
-            if std::fs::create_dir_all(&dest_dir).is_ok() {
-                let _ = std::fs::write(dest_dir.join(format!("{id}.png")), bytes);
-            }
-        }
-    }
-}
-
-/// Stage the project's own hicolor icons (app-id-named, from icons/linux/*-<N>.png, falling back
-/// to any png). Returns how many were staged.
-fn stage_project_icons(project: &Project, stage: &Path, id: &str) -> usize {
-    let icons_dir = project.root.join("resource/icons/linux");
-    let entries = std::fs::read_dir(&icons_dir)
-        .or_else(|_| std::fs::read_dir(project.root.join("resource/icons/png")))
-        .or_else(|_| std::fs::read_dir(project.root.join("resource/icons")));
-    let Ok(entries) = entries else { return 0 };
-    let mut staged = 0;
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.extension().and_then(|x| x.to_str()) != Some("png") {
-            continue;
-        }
-        // Size from a trailing -<N> in the stem (day-icon-128.png → 128); skip unsized files.
-        let Some(size) = p
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .and_then(|s| s.rsplit('-').next())
-            .and_then(|n| n.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let dest_dir = stage
-            .join("share/icons/hicolor")
-            .join(format!("{size}x{size}"))
-            .join("apps");
-        if std::fs::create_dir_all(&dest_dir).is_ok()
-            && std::fs::copy(&p, dest_dir.join(format!("{id}.png"))).is_ok()
-        {
-            staged += 1;
-        }
-    }
-    staged
 }
 
 /// Does this ELF binary link QtWebEngine? Reads the shared-library names the dynamic linker will

@@ -24,9 +24,13 @@ pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
 /// when the step fails, where it is the diagnostic. Build output still streams: there the tool's
 /// narration IS the content.
 pub(crate) fn run_quiet(cmd: &mut Command, what: &str) -> Result<(), String> {
-    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
+    let out = crate::ops::run_capture(cmd, what)?;
     if out.status.success() {
         return Ok(());
+    }
+    if crate::ops::verbose() {
+        // `--verbose` already streamed the tool's output live — don't echo the wall of text again.
+        return Err(format!("{what} failed"));
     }
     Err(format!(
         "{what} failed:\n{}{}",
@@ -518,10 +522,10 @@ pub fn build_ios_for(
             cmd.arg("CODE_SIGNING_ALLOWED=NO")
                 .arg("CODE_SIGNING_REQUIRED=NO");
         }
-        cmd.arg("build")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        cmd.output().map_err(|e| format!("xcodebuild: {e}"))
+        cmd.arg("build");
+        // Capture for the stale-bundle retry + failure distillation below; `run_capture` also
+        // forwards the raw build log live under `--verbose`.
+        crate::ops::run_capture(&mut cmd, "xcodebuild")
     };
     let mut out = xcodebuild()?;
     if !out.status.success() && is_stale_bundle_failure(&out) {
@@ -1351,7 +1355,12 @@ pub fn build_android(
         .env("DAY_BIN", &day_bin)
         .env("DAY_PROJECT_ROOT", &project.root)
         .env("DAY_PROFILE", profile)
-        .args([task, "-q", "--console=plain"]);
+        .args([task, "--console=plain"]);
+    // Day narrates the phase and surfaces gradle's tail on failure, so gradle runs quiet by default.
+    // `--verbose` drops `-q` so it emits its full build log, forwarded live by `run_capture`.
+    if !crate::ops::verbose() {
+        cmd.arg("-q");
+    }
     // AGP 9's minimum is JDK 17, and Gradle 9.6 runs on 17…26 (the scaffold builds on all of them).
     // Respect the caller's JAVA_HOME (CI pins one via setup-java); default to a discovered 17+ JDK
     // when unset.
@@ -1360,8 +1369,12 @@ pub fn build_android(
     {
         cmd.env("JAVA_HOME", jdk);
     }
-    let out = cmd.output().map_err(|e| format!("gradle: {e}"))?;
+    let out = crate::ops::run_capture(&mut cmd, "gradle")?;
     if !out.status.success() {
+        if crate::ops::verbose() {
+            // Full log already streamed live.
+            return Err("gradle failed".into());
+        }
         let text = String::from_utf8_lossy(&out.stderr);
         let tail: Vec<&str> = text.lines().rev().take(30).collect();
         return Err(format!(

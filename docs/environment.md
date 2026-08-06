@@ -51,6 +51,8 @@ the affected script instead of keeping stale results.
 | Variable | Meaning |
 |---|---|
 | `DAY_GNOME_RUNTIME` / `DAY_KDE_RUNTIME` | Pin the flatpak runtime branch `day pack` targets (GTK ⇒ org.gnome.Platform, Qt ⇒ org.kde.Platform) |
+| `DAY_LINUXDEPLOY` | The `linuxdeploy` executable that builds the `.appimage`. Checked before PATH, because linuxdeploy ships as a downloaded AppImage rather than a package |
+| `DAY_LINUXDEPLOY_PLUGIN_GTK` / `DAY_LINUXDEPLOY_PLUGIN_QT` | Same, for the toolkit plugin. Absent, `day pack` still builds an AppImage and says loudly that it carries no GTK/Qt modules |
 
 ## Scaffolding & signing
 

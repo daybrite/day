@@ -8,7 +8,7 @@ section: Build & ship
 A build is reproducible when the same source, built twice, produces the same bytes. Day builds the
 compiled code of every app reproducibly: rebuild a commit in a different directory, on a different
 day, and the machine code that comes out is identical. The containers those binaries ship in
-(`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak`) are reproducible on some platforms and not on
+(`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak`, `.appimage`) are reproducible on some platforms and not on
 others, and this page says which, and why.
 
 Day's CI checks this on every push to `main`. Each platform-toolkit job has a follow-up `validate`
@@ -127,7 +127,7 @@ Day stamps the staging tree before archiving.
 
 ### linux-gtk and linux-qt
 
-The compiled binary is reproducible. The `.flatpak` bundle is not compared.
+The compiled binary is reproducible. Neither the `.flatpak` bundle nor the `.appimage` is compared.
 
 ThinLTO makes an internal symbol external so it can be inlined across modules, and renames it with a
 `.llvm.<hash>` suffix to avoid collisions. That suffix was not stable across build directories: two
@@ -137,11 +137,18 @@ everything into one module so no cross-module promotion happens and the suffix i
 Cargo's `trim-paths`, the more targeted fix, is [still
 unstable](https://rust-lang.github.io/rfcs/3127-trim-paths.html) as of Cargo 1.97.
 
-A `.flatpak` is an OSTree bundle that ordinary archivers cannot open, so Day's check compares the
-ELF binary staged before bundling rather than the bundle. `flatpak-builder` honors
-`SOURCE_DATE_EPOCH` from version 1.3.1, and Day exports it; OSTree's own support for it is [an open
-issue](https://github.com/ostreedev/ostree/issues/2385). See the [flatpak-builder command
-reference](https://docs.flatpak.org/en/latest/flatpak-builder-command-reference.html).
+A `.flatpak` is an OSTree bundle that ordinary archivers cannot open, and an `.appimage` is an ELF
+with a squashfs image appended, so Day's check compares the ELF binary staged before packaging
+rather than either container. Both Linux formats are built from the same staged tree, so one
+recorded digest set covers both downloads.
+
+`flatpak-builder` honors `SOURCE_DATE_EPOCH` from version 1.3.1, and Day exports it; OSTree's own
+support for it is [an open issue](https://github.com/ostreedev/ostree/issues/2385). See the
+[flatpak-builder command
+reference](https://docs.flatpak.org/en/latest/flatpak-builder-command-reference.html). Day exports
+the same epoch to `linuxdeploy`, but the AppImage runtime it prepends is a downloaded binary that
+tracks its own upstream release, so an AppImage is not expected to be byte-identical across a
+runtime bump.
 
 ### android-mdc
 

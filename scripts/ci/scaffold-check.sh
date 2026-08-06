@@ -79,25 +79,40 @@ if [ -n "$COMBO" ]; then
 
     "$DAY" pack -p "$COMBO" --profile release --no-version-in-name
 
-    # The primary artifact: the installable container, not the SBOM/buildinfo sidecars beside it.
-    # android also packs an .aab and windows also packs a -setup.exe; prefer the format
-    # `day rebuild` extracts.
+    # The installable containers, not the SBOM/buildinfo sidecars beside them (which are named
+    # `<artifact>.sbom-cdx.json` / `.buildinfo.json` / `.buildinfo.deb822`, so matching the
+    # container's extension is what separates them). One per target, except Linux: a .flatpak and
+    # a .appimage are separate downloads that fail in different places, so both get rebuilt.
+    # android's .aab and windows' -setup.exe are deliberately absent — they come from the same
+    # payload as the .apk / .msix beside them, and `day rebuild` extracts those.
     case "$COMBO" in
-        android-*) ART="$(find build/day/dist -maxdepth 1 -type f -name '*.apk' | head -1)" ;;
-        windows-*) ART="$(find build/day/dist -maxdepth 1 -type f -name '*.msix' | head -1)" ;;
-        *) ART="" ;;
+        macos-appkit) EXTS="dmg" ;;
+        ios-uikit) EXTS="ipa" ;;
+        android-*) EXTS="apk" ;;
+        linux-*) EXTS="flatpak appimage" ;;
+        windows-*) EXTS="msix" ;;
+        harmony-*) EXTS="hap" ;;
+        *)
+            echo "no container extension known for $COMBO" >&2
+            exit 1
+            ;;
     esac
-    [ -n "$ART" ] || ART="$(find build/day/dist -maxdepth 1 -type f ! -name '*.json' ! -name '*.buildinfo' | head -1)"
-    [ -n "$ART" ] || {
-        echo "day pack left no artifact in build/day/dist" >&2
-        exit 1
-    }
 
     # `day rebuild` scratches in ${TMPDIR:-/tmp}/day-rebuild-<artifact stem>; clear leftovers so
-    # the find below cannot pick up a copy some earlier run kept.
+    # the find below cannot pick up a copy some earlier run kept. Once, before the loop — the
+    # stems differ per artifact, so the runs do not collide with each other.
     TMP="${TMPDIR:-/tmp}"
     rm -rf "$TMP"/day-rebuild-*
-    "$DAY" rebuild --from-dir "$PWD" --keep --strict "$ART"
+    for EXT in $EXTS; do
+        ART="$(find build/day/dist -maxdepth 1 -type f -name "*.$EXT" | head -1)"
+        [ -n "$ART" ] || {
+            echo "day pack left no .$EXT in build/day/dist" >&2
+            ls -la build/day/dist >&2 || true
+            exit 1
+        }
+        echo "== rebuilding $(basename "$ART")"
+        "$DAY" rebuild --from-dir "$PWD" --keep --strict "$ART"
+    done
 
     case "$COMBO" in
         macos-appkit | macos-gtk | macos-qt | linux-gtk | linux-qt | windows-xaml | windows-gtk | windows-qt)

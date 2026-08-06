@@ -63,13 +63,17 @@ pub fn pack(
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
 
     let mut artifacts = Vec::new();
-    let name = &project.manifest.app.name;
-    let version = &project.manifest.app.version;
 
     if formats.iter().any(|f| f == "apk") {
         let apk = find_output(&outcome.artifact, project, &opts.profile, "apk")?;
         verify_apk(project, &apk);
-        let out = dist.join(format!("{name}{}.apk", opts.version_tag(version)));
+        let out = dist.join(super::naming::artifact_file(
+            project,
+            target,
+            opts,
+            &[],
+            "apk",
+        ));
         std::fs::copy(&apk, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
             path: out,
@@ -103,7 +107,13 @@ pub fn pack(
                 aab.display()
             )));
         }
-        let out = dist.join(format!("{name}{}.aab", opts.version_tag(version)));
+        let out = dist.join(super::naming::artifact_file(
+            project,
+            target,
+            opts,
+            &[],
+            "aab",
+        ));
         std::fs::copy(&aab, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
             path: out,
