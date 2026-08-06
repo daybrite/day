@@ -2933,6 +2933,15 @@ is identical — counting them as payload differences held windows-xaml red for 
 section already classes as advisory. Excluded files are named in the output, never dropped
 silently.
 
+It also excludes the CONTAINER INDEX — `AppxBlockMap.xml` and `[Content_Types].xml`, which
+`makeappx` writes from its own walk of the staging directory and which record member sizes,
+local-file-header sizes, per-block hashes and the extensions present. They describe the ZIP, not
+the app, and two packs of a byte-identical payload have produced differing ones. Excluding them
+cannot mask a payload change: every file they index is compared directly, and a member appearing or
+disappearing is caught first as "different sets of files". The output names the category
+(`signature` / `container index`) beside each excluded file, and a member that still differs is
+reported with its first differing line, since the reader usually cannot open the package.
+
 `--strict` adds a third outcome: a payload that could not be compared at all — a container this
 host has no extractor for — fails rather than reporting "not checked". CI passes it because a green
 run

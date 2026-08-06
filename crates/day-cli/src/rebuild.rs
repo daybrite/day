@@ -582,7 +582,7 @@ fn compare(
                 status(
                     "Excluded",
                     &format!(
-                        "{} signature file(s), which no build controls: {}",
+                        "{} file(s) no build controls: {}",
                         skipped.len(),
                         skipped.join(", ")
                     ),
@@ -590,19 +590,28 @@ fn compare(
             }
             (Verdict::Identical, container)
         }
-        Ok((diffs, _)) => (
-            Verdict::Differs(format!(
-                "{} file(s) differ after normalization: {}",
-                diffs.len(),
-                diffs
-                    .iter()
-                    .take(4)
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )),
-            container,
-        ),
+        Ok((diffs, _)) => {
+            // Name the first actual difference. Without it a verdict of "these XML files differ"
+            // sends the next person guessing at a package they cannot open on their own host.
+            let hint = diffs
+                .first()
+                .and_then(|rel| first_text_difference(&ua.join(rel), &ub.join(rel)))
+                .map(|d| format!("\n        {}: {d}", diffs[0]))
+                .unwrap_or_default();
+            (
+                Verdict::Differs(format!(
+                    "{} file(s) differ after normalization: {}{hint}",
+                    diffs.len(),
+                    diffs
+                        .iter()
+                        .take(4)
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+                container,
+            )
+        }
         Err(e) => (Verdict::Differs(e), container),
     }
 }
@@ -1164,12 +1173,73 @@ fn signature_member(rel: &Path) -> bool {
                 || name == "MANIFEST.MF"))
 }
 
-/// Differing members, and the signature members excluded from the comparison.
+/// A member that indexes the CONTAINER rather than carrying build output.
+///
+/// `AppxBlockMap.xml` records each member's size, local-file-header size and per-block hashes;
+/// `[Content_Types].xml` maps the extensions present to content types. Both are written by
+/// `makeappx` from its own walk of the staging directory, so they describe the .msix ZIP, not the
+/// app — the same tier §20.3 already classes as advisory when the container digest differs.
+///
+/// Excluding them hides nothing. Every file they describe is compared directly, and a member
+/// appearing or disappearing is caught earlier as "different sets of files", so a payload change
+/// cannot reach a verdict through here.
+fn container_index_member(rel: &Path) -> bool {
+    let joined = rel.to_string_lossy().replace('\\', "/");
+    let name = joined.rsplit('/').next().unwrap_or_default();
+    name == "AppxBlockMap.xml" || name == "[Content_Types].xml"
+}
+
+/// Why a member takes no part in the payload comparison, or `None` when it is build output.
+fn excluded_member(rel: &Path) -> Option<&'static str> {
+    if signature_member(rel) {
+        Some("signature")
+    } else if container_index_member(rel) {
+        Some("container index")
+    } else {
+        None
+    }
+}
+
+/// The first line that differs between two text files, for a report that would otherwise say only
+/// that some XML differs. Binary or oversized members yield nothing rather than a wall of bytes.
+fn first_text_difference(a: &Path, b: &Path) -> Option<String> {
+    const MAX: usize = 256 * 1024;
+    const WIDTH: usize = 160;
+    let (ba, bb) = (std::fs::read(a).ok()?, std::fs::read(b).ok()?);
+    if ba.len() > MAX || bb.len() > MAX {
+        return None;
+    }
+    let (ta, tb) = (String::from_utf8(ba).ok()?, String::from_utf8(bb).ok()?);
+    let clip = |l: &str| {
+        let l = l.trim();
+        if l.chars().count() > WIDTH {
+            format!("{}…", l.chars().take(WIDTH).collect::<String>())
+        } else {
+            l.to_string()
+        }
+    };
+    for (n, (la, lb)) in ta.lines().zip(tb.lines()).enumerate() {
+        if la != lb {
+            return Some(format!("line {}: {} | {}", n + 1, clip(la), clip(lb)));
+        }
+    }
+    let (ca, cb) = (ta.lines().count(), tb.lines().count());
+    (ca != cb).then(|| format!("{ca} line(s) vs {cb}"))
+}
+
+/// Differing members, and the members excluded from the comparison.
 fn differing_members(a: &Path, b: &Path) -> Result<(Vec<String>, Vec<String>), String> {
     let keep = |l: Vec<PathBuf>| -> (Vec<PathBuf>, Vec<String>) {
-        let (sig, rest): (Vec<PathBuf>, Vec<PathBuf>) =
-            l.into_iter().partition(|p| signature_member(p));
-        (rest, sig.iter().map(|p| p.display().to_string()).collect())
+        let (skip, rest): (Vec<PathBuf>, Vec<PathBuf>) =
+            l.into_iter().partition(|p| excluded_member(p).is_some());
+        let named = skip
+            .iter()
+            .map(|p| {
+                let why = excluded_member(p).unwrap_or("excluded");
+                format!("{} ({why})", p.display())
+            })
+            .collect();
+        (rest, named)
     };
     let (la, siga) = keep(file_list(a));
     let (lb, _) = keep(file_list(b));
@@ -1387,6 +1457,78 @@ mod tests {
         ] {
             assert!(!signature_member(Path::new(p)), "{p} is build output");
         }
+    }
+
+    /// `makeappx` writes AppxBlockMap.xml and [Content_Types].xml from its own walk of the staging
+    /// directory, so they index the ZIP rather than carry build output — and they differed between
+    /// two packs of a byte-identical payload, which made windows-xaml red. They are excluded as
+    /// container material, NOT as signature material: the distinction is what the report prints.
+    #[test]
+    fn the_container_index_is_excluded_but_still_named_by_category() {
+        for p in ["AppxBlockMap.xml", "[Content_Types].xml"] {
+            assert_eq!(
+                excluded_member(Path::new(p)),
+                Some("container index"),
+                "{p}"
+            );
+            assert!(!signature_member(Path::new(p)), "{p} is not a signature");
+        }
+        assert_eq!(
+            excluded_member(Path::new("AppxSignature.p7x")),
+            Some("signature")
+        );
+        // Build output stays in the comparison, or an exclusion could hide a real difference.
+        for p in ["AppxManifest.xml", "ci-sample.exe", "resources.pri"] {
+            assert_eq!(excluded_member(Path::new(p)), None, "{p} is build output");
+        }
+    }
+
+    /// Excluding the index must not let a payload change through: the files it describes are
+    /// compared directly, so a changed .exe still fails even when the index matches.
+    #[test]
+    fn an_excluded_index_cannot_hide_a_changed_binary() {
+        let tmp = std::env::temp_dir().join(format!("day-idx-{}", std::process::id()));
+        let (a, b) = (tmp.join("a"), tmp.join("b"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d).expect("mkdir");
+            std::fs::write(d.join("AppxBlockMap.xml"), "<BlockMap/>").expect("map");
+        }
+        std::fs::write(a.join("app.exe"), b"MZ-one").expect("exe");
+        std::fs::write(b.join("app.exe"), b"MZ-two").expect("exe");
+        // Same name, different bytes: the index is excluded, the binary is not.
+        std::fs::write(a.join("[Content_Types].xml"), "<Types a=\"1\"/>").expect("ct");
+        std::fs::write(b.join("[Content_Types].xml"), "<Types a=\"2\"/>").expect("ct");
+        let (diffs, skipped) = differing_members(&a, &b).expect("compared");
+        assert_eq!(
+            diffs,
+            vec!["app.exe".to_string()],
+            "the binary must still fail"
+        );
+        assert_eq!(skipped.len(), 2, "{skipped:?}");
+        assert!(
+            skipped.iter().all(|s| s.contains("container index")),
+            "the report names WHY: {skipped:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A verdict that says only "some XML differs" is unactionable on a package the reader cannot
+    /// open, so the first differing line rides along.
+    #[test]
+    fn a_text_difference_is_quoted_in_the_report() {
+        let tmp = std::env::temp_dir().join(format!("day-hint-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        let (a, b) = (tmp.join("a.xml"), tmp.join("b.xml"));
+        std::fs::write(&a, "<Root>\n  <File Name=\"one\"/>\n</Root>\n").expect("a");
+        std::fs::write(&b, "<Root>\n  <File Name=\"two\"/>\n</Root>\n").expect("b");
+        let d = first_text_difference(&a, &b).expect("a difference");
+        assert!(d.starts_with("line 2:"), "{d}");
+        assert!(d.contains("one") && d.contains("two"), "{d}");
+        // Binary members yield nothing rather than a wall of bytes.
+        std::fs::write(&a, [0xFF, 0xFE, 0x00]).expect("a");
+        std::fs::write(&b, [0xFF, 0xFE, 0x01]).expect("b");
+        assert!(first_text_difference(&a, &b).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The exclusion must survive a real comparison: identical payload + differing signature is a
