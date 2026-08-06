@@ -1,12 +1,29 @@
 # Notifications (proposed: two parts + a sending tool)
 
-> [!WARNING]
-> **Status: proposed, not implemented.** This designs `day-part-local-notify` (post and schedule
-> notifications from the app itself), `day-part-push-notify` (server-sent notifications, layered
-> on the local part), and `day-notify` (the sending tool). Nothing here ships yet. It follows the
-> part conventions (docs/permissions.md, docs/clipboard.md, docs/location.md) and the async policy
-> (docs/async.md). When a phase lands, replace its status and add its rows to the capability
-> matrix.
+> [!NOTE]
+> **Status: `day-part-local-notify` phase 1 shipped on Apple and Android; the rest is proposed.**
+> What exists: the crate, its API (`Channel`, `Notification`, `Trigger`, `capabilities`, `cancel`),
+> the **iOS + macOS** arm over `UNUserNotificationCenter`, and the **Android** arm over
+> `NotificationManager` + `AlarmManager` with its own Java shim, alarm receiver, and boot receiver —
+> no Play services, no Firebase.
+>
+> Verified end to end, not inferred: on the iOS Simulator the showcase reports `Posted (#1)`; on an
+> Android emulator `dumpsys notification` shows the created channel (`mImportance=3`, sound set) and
+> the live record `android.title=(Hello from Day)`, and the notification renders in the shade with
+> the crate's monochrome icon. Both receivers are present in the merged APK manifest.
+>
+> Not yet implemented: the **Linux** and **web-dom** arms (they fall through to the `Unsupported`
+> stub), tap-to-route on Apple (needs a `UNUserNotificationCenterDelegate` — Android already routes
+> taps through the existing deep-link URI rail), actions and inline reply, and both
+> `day-part-push-notify` and `day-notify`. Those sections below remain a design.
+>
+> Two framework gaps this part needed are DONE and proven by it: `manifest-components` in
+> `[package.metadata.day.android]` (docs/extending.md), which is how the two receivers reach the
+> APK, and `day_core::request_route`.
+>
+> macOS caveat: `day launch` runs an unbundled binary, where `UNUserNotificationCenter` does not
+> exist. Use `day pack` and run the `.app`; the page reports the difference rather than failing
+> silently.
 
 Notifications are the most-requested capability missing from Day: twelve Modern Apps declare
 `POST_NOTIFICATIONS`, and Clock, Email, and Messages are Blocked on some platform for want of

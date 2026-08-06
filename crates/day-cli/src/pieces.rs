@@ -523,6 +523,23 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
+/// Everything outside `<!-- … -->`. Used for validation only — the comments are kept in the
+/// generated overlay, where they explain to a reader which crate contributed what.
+fn strip_xml_comments(xml: &str) -> String {
+    let mut out = String::with_capacity(xml.len());
+    let mut rest = xml;
+    while let Some(start) = rest.find("<!--") {
+        out.push_str(&rest[..start]);
+        match rest[start..].find("-->") {
+            Some(end) => rest = &rest[start + end + 3..],
+            // An unterminated comment swallows the remainder, which is what a parser would do.
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Read and validate each contributed manifest fragment. The fragment holds only the elements that
 /// belong inside `<application>`; rejecting a wrapper here turns a confusing AGP merge failure into
 /// a build error naming the file.
@@ -535,9 +552,11 @@ fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
         if trimmed.is_empty() {
             return Err(format!("manifest-components {path}: file is empty"));
         }
-        // `<manifest` also catches the `<?xml …?>`-prefixed whole-manifest case, since a wrapper
-        // always contains the element somewhere.
-        if trimmed.contains("<manifest") || trimmed.contains("<application") {
+        // Look for a wrapper only OUTSIDE comments: a fragment's header comment routinely
+        // mentions `<application>` while explaining that it must not contain one, and matching
+        // that would reject a correct file (it rejected this crate's own reference fragment).
+        let code = strip_xml_comments(trimmed);
+        if code.contains("<manifest") || code.contains("<application") {
             return Err(format!(
                 "manifest-components {path}: contains a <manifest>/<application> wrapper — the \
                  file must hold ONLY the elements that go inside <application> (the CLI adds the \
@@ -1100,6 +1119,33 @@ mod tests {
             .expect_err("a wrapped fragment must be rejected");
         assert!(err.contains("wrapper"), "unhelpful error: {err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The wrapper check must not fire on a header comment. This is not hypothetical: this crate's
+    /// own reference fragment explains "only the elements that go inside <application>", and the
+    /// naive substring check rejected it on the first real Android build.
+    #[test]
+    fn wrapper_named_only_inside_a_comment_is_accepted() {
+        let dir = std::env::temp_dir().join("day-pieces-frag-comment");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("components.xml");
+        std::fs::write(
+            &path,
+            "<!-- Only the elements that go inside <application>; no <manifest> wrapper. -->\n\
+             <receiver android:name=\"a.B\" android:exported=\"false\" />",
+        )
+        .unwrap();
+        let out = read_manifest_components(&[path.to_string_lossy().into_owned()])
+            .expect("a comment mentioning the wrapper must not be rejected");
+        assert!(out[0].contains("<receiver"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unterminated_comment_does_not_hide_a_real_wrapper() {
+        // A truncated comment must not become a way to smuggle an <application> past the check.
+        assert!(!strip_xml_comments("<!-- oops <application>").contains("<application"));
+        assert!(strip_xml_comments("<!-- c --><application>").contains("<application"));
     }
 
     #[test]
