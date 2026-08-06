@@ -345,8 +345,11 @@ jobs:
   # It runs BESIDE the inline `linux` job (different artifact prefix, so nothing collides), which
   # is the point: the two produce the same package from the same commit, and any difference is a
   # gap in the shared workflow to close before the inline jobs are deleted.
-  shared-pipeline:
-    name: shared pipeline (canary)
+  build-day-app:
+    # Named for the workflow under test, because that is what a red check here means: the shared
+    # pipeline broke, not this repository's own build. `(canary)` says the single target is
+    # deliberate — it is an early-warning smoke test, not the coverage build.
+    name: build-day-app (canary)
     needs: [day-cli-linux]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:

@@ -122,6 +122,19 @@ pub fn pack(
             }
         }
     }
+    // A normalized identity is not the app id any more, and the difference matters when the
+    // package is registered with the Microsoft Store — so say it rather than let it be discovered.
+    let identity = identity_name(&project.manifest.app.id);
+    if identity != project.manifest.app.id {
+        status(
+            "Packing",
+            &format!(
+                "MSIX Identity Name {identity:?} (the manifest schema allows only [-.A-Za-z0-9], \
+                 so the app id {:?} cannot be used verbatim)",
+                project.manifest.app.id
+            ),
+        );
+    }
     std::fs::write(
         stage.join("AppxManifest.xml"),
         appx_manifest(&project.manifest.app.id, &title, version, name, &publisher),
@@ -158,8 +171,27 @@ pub fn pack(
     })
 }
 
-/// AppxManifest for a full-trust Win32 app. Identity Name must be alphanumeric-dot; MSIX versions
-/// are four-part — pad the semver.
+/// The MSIX `Identity/Name`, which the manifest schema constrains to `[-.A-Za-z0-9]+`.
+///
+/// An app id is reverse-DNS, but the platforms disagree on what may separate words inside a
+/// segment: an underscore is legal in a Java package name, so Android app ids carry them, and it
+/// is rejected here — `makeappx` fails the whole pack with a schema violation rather than a
+/// warning. Every disallowed character maps to `-`, which keeps the name readable and, being a
+/// pure function of the id, stable across rebuilds (`day rebuild` compares the manifest).
+pub(crate) fn identity_name(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// AppxManifest for a full-trust Win32 app. Identity Name is normalized by [`identity_name`];
+/// MSIX versions are four-part — pad the semver.
 pub(crate) fn appx_manifest(
     id: &str,
     title: &str,
@@ -167,6 +199,7 @@ pub(crate) fn appx_manifest(
     exe: &str,
     publisher: &str,
 ) -> String {
+    let id = identity_name(id);
     let four_part = {
         let mut parts: Vec<&str> = version.split(['.', '-', '+']).take(3).collect();
         while parts.len() < 3 {
@@ -408,6 +441,39 @@ pub(crate) fn windows_kit_tool(tool: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The manifest schema's `[-.A-Za-z0-9]+` is narrower than what an app id may contain, and
+    /// `makeappx` fails the whole pack rather than warning — so the normalization is what keeps a
+    /// legal Android id (underscores) packable on Windows. Regression: `dev.example.ci_sample`
+    /// scaffolded by `day new` failed CI with "violates pattern constraint".
+    #[test]
+    fn identity_name_satisfies_the_manifest_schema() {
+        assert_eq!(
+            identity_name("dev.example.ci_sample"),
+            "dev.example.ci-sample"
+        );
+        assert_eq!(
+            identity_name("dev.daybrite.showcase"),
+            "dev.daybrite.showcase"
+        );
+        assert_eq!(identity_name("dev.example.a b"), "dev.example.a-b");
+        for id in [
+            "dev.example.ci_sample",
+            "dev.example.a b",
+            "dev.example.wei\u{df}",
+        ] {
+            let name = identity_name(id);
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'),
+                "{name:?} still violates the schema pattern"
+            );
+        }
+        // The manifest carries the normalized name, not the raw id.
+        let m = appx_manifest("dev.example.ci_sample", "T", "1.2.3", "t", "CN=x");
+        assert!(m.contains(r#"Name="dev.example.ci-sample""#), "{m}");
+        assert!(!m.contains("ci_sample"), "{m}");
+    }
 
     #[test]
     fn appx_manifest_shape() {

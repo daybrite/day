@@ -115,9 +115,7 @@ impl Repl {
     fn new(name: &str, id: Option<&str>) -> Self {
         let snake = snake_ident(name);
         let pascal = pascalize(&snake);
-        let id = id
-            .map(String::from)
-            .unwrap_or_else(|| format!("dev.example.{snake}"));
+        let id = id.map(String::from).unwrap_or_else(|| default_id(name));
         let pkg_slash = id.replace('.', "/");
         Repl {
             crate_name: name.to_string(),
@@ -264,8 +262,28 @@ fn resolve_id(p: &Prompt, question: &str, id: Option<&str>, default: &str) -> St
     }
 }
 
+/// The last segment of a default app id.
+///
+/// A reverse-DNS id has to satisfy two rules at once, and they disagree about separators: Apple
+/// bundle ids allow only alphanumerics, `-` and `.`, while an Android package segment must be a
+/// Java identifier, so `-` is out and `_` is in. The MSIX manifest schema sides with Apple. The
+/// intersection is alphanumerics alone, so a separator in the project name is DROPPED rather than
+/// mapped to a character that is invalid on some platform the scaffold also generates for.
+fn bundle_segment(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    if s.is_empty() || s.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("day{s}")
+    } else {
+        s
+    }
+}
+
 fn default_id(name: &str) -> String {
-    format!("dev.example.{}", snake_ident(name))
+    format!("dev.example.{}", bundle_segment(name))
 }
 
 /// Parse + validate a comma-separated toolkit list for a NATIVE piece.

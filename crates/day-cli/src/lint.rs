@@ -436,6 +436,13 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
             }
         }
         for k in &default_keys {
+            // Convention keys the framework consumes at build time, not from app source:
+            // `language_name` is read by day-build's generated `res::locales::ALL` (each catalog
+            // naming its own language for pickers — docs/localization.md), so no `res::str::` or
+            // `tr("…")` reference exists for the scan to find.
+            if k == "language_name" {
+                continue;
+            }
             if !used.contains(k) {
                 findings.push(Finding {
                     code: "day::lint::unused-key",
