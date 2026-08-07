@@ -69,7 +69,7 @@ pub fn pack(
     for (from, to) in [
         (crate::resources::vector_svg_dir(project), "vectors/svg"),
         (
-            crate::resources::vector_raster_dir(project),
+            crate::resources::vector_fallback_dir(project, target.toolkit),
             "vectors/raster",
         ),
     ] {

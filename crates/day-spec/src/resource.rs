@@ -329,6 +329,27 @@ pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// Resolve a vector NAME to its staged XAML geometry (docs/vectors.md), the form day-xaml draws
+/// as real `Path` geometry — vector at any size, and tintable by brush at runtime.
+/// `DAY_VECTOR_XAML_ROOT` under `day launch`, else `vectors/xaml` beside a flat-layout exe.
+/// `None` (name isn't a vector, the art was outside the convertible subset, or the layout
+/// carries no geometry) means fall back to [`resolve_image_file`]'s raster resolution.
+pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(v) = std::env::var("DAY_VECTOR_XAML_ROOT") {
+        roots.push(PathBuf::from(v));
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        roots.push(dir.join("vectors/xaml"));
+    }
+    roots
+        .into_iter()
+        .map(|r| r.join(format!("{name}.xamlgeom")))
+        .find(|p| p.is_file())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

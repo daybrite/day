@@ -62,7 +62,7 @@ pub(crate) fn stage_tree(
     // dev `day launch` would, so packed resolution matches dev exactly.
     for (from, to) in [
         (
-            crate::resources::vector_raster_dir(project),
+            crate::resources::vector_fallback_dir(project, target.toolkit),
             "vectors/raster",
         ),
         (crate::resources::vector_svg_dir(project), "vectors/svg"),
@@ -326,12 +326,15 @@ mod tests {
         std::fs::create_dir_all(root.join("resource/assets")).expect("assets");
         std::fs::create_dir_all(root.join("resource/images")).expect("images");
         std::fs::create_dir_all(root.join("build/day/gtk")).expect("blob dir");
-        std::fs::create_dir_all(root.join("build/day/vectors/raster")).expect("raster dir");
+        // The rasters a target ships come from its own fallback tree, not the shared cache
+        // (docs/vectors.md) — gtk has no vector arm, so `write_vector_fallbacks` fills it with
+        // every glyph. Staged directly here: this test drives the packer, not the whole build.
+        std::fs::create_dir_all(root.join("build/day/vectors/fallback/gtk")).expect("raster dir");
         std::fs::create_dir_all(root.join("build/day/vectors/svg")).expect("svg dir");
         std::fs::write(root.join("resource/assets/data.txt"), "x").expect("asset");
         std::fs::write(root.join("resource/images/logo.png"), "x").expect("image");
         std::fs::write(root.join("build/day/gtk/demo.gresource"), "x").expect("blob");
-        std::fs::write(root.join("build/day/vectors/raster/home.png"), "x").expect("raster");
+        std::fs::write(root.join("build/day/vectors/fallback/gtk/home.png"), "x").expect("raster");
         std::fs::write(root.join("build/day/vectors/svg/home.svg"), "x").expect("svg");
         let binary = tmp.join("demo");
         std::fs::write(&binary, "#!/bin/sh\n").expect("binary");

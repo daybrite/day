@@ -1039,6 +1039,7 @@ impl Toolkit for Xaml {
                             pending,
                             cstr(&p.items.join("\n")).as_ptr(),
                             cstr(&icons_joined).as_ptr(),
+                            cstr(&join_geoms(&p.icons)).as_ptr(),
                             cstr(&join_tints(&p.tints)).as_ptr(),
                         );
                         ffi::day_xaml_nav_set_selected(
@@ -1203,19 +1204,33 @@ impl Toolkit for Xaml {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
-                    // A tint (`vector(…).tint(…)`, docs/vectors.md) recolors the glyph through
-                    // XAML's monochrome BitmapIcon, which needs the staged file NAME rather than
-                    // the stream URI the plain image path loads. An unresolved glyph returns
-                    // null and falls through, so a tint never costs the image itself.
-                    let tinted = p.tint.and_then(|c| {
-                        let file = icon_file_name(&p.source);
-                        if file.is_empty() {
-                            return None;
-                        }
-                        let h = ffi::day_xaml_image_tinted_new(cstr(&file).as_ptr(), mode, argb(c));
+                    // A `vector(…)` glyph draws as real geometry (docs/vectors.md) — vector at
+                    // any size, and its tint composed as a brush at realize time. Tried FIRST,
+                    // tinted or not; `vector_geometry` is None for a raster `image(…)` name and
+                    // for art the CLI could not convert, which is what falls through below.
+                    let geometry = vector_geometry(&p.source).and_then(|spec| {
+                        let h = ffi::day_xaml_vector_new(
+                            cstr(&spec).as_ptr(),
+                            mode,
+                            p.tint.map(argb).unwrap_or(0),
+                            c_int::from(p.tint.is_some()),
+                        );
                         (!h.is_null()).then_some(h)
                     });
-                    WinHandle(tinted.unwrap_or_else(|| {
+                    // Raster fallbacks: a monochrome BitmapIcon still honours a tint, and a
+                    // plain Image carries the art as authored.
+                    let tinted = || {
+                        p.tint.and_then(|c| {
+                            let file = icon_file_name(&p.source);
+                            if file.is_empty() {
+                                return None;
+                            }
+                            let h =
+                                ffi::day_xaml_image_tinted_new(cstr(&file).as_ptr(), mode, argb(c));
+                            (!h.is_null()).then_some(h)
+                        })
+                    };
+                    WinHandle(geometry.or_else(tinted).unwrap_or_else(|| {
                         ffi::day_xaml_image_new(cstr(&image_uri(&p.source)).as_ptr(), mode)
                     }))
                 }
@@ -1376,6 +1391,7 @@ impl Toolkit for Xaml {
                                         nav,
                                         joined.as_ptr(),
                                         cstr(&icons_joined).as_ptr(),
+                                        cstr(&join_geoms(icons)).as_ptr(),
                                         cstr(&join_tints(tints)).as_ptr(),
                                     );
                                     ffi::day_xaml_nav_set_selected(nav, idx);
@@ -2053,6 +2069,29 @@ fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
     tints
         .iter()
         .map(|t| t.map(argb).unwrap_or(0).to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A vector NAME's staged XAML geometry (docs/vectors.md), or `None` when the name is not a
+/// vector or its art was outside the convertible subset — the caller then draws the raster.
+fn vector_geometry(name: &str) -> Option<String> {
+    let path = day_spec::resource::resolve_vector_xaml(name)?;
+    std::fs::read_to_string(path).ok()
+}
+
+/// Per-row nav geometry, parallel to the rows. The specs are multi-line, and the FFI carries one
+/// row per line, so each spec's newlines ride as `\x1f` (a unit separator cannot occur in path
+/// data or a colour) and the shim puts them back.
+fn join_geoms(icons: &[Option<String>]) -> String {
+    icons
+        .iter()
+        .map(|ic| {
+            ic.as_deref()
+                .and_then(vector_geometry)
+                .map(|s| s.replace('\n', "\x1f"))
+                .unwrap_or_default()
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }

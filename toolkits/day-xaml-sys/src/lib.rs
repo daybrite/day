@@ -134,6 +134,7 @@ unsafe extern "C" {
         nav: *mut c_void,
         items_joined: *const c_char,
         icons_joined: *const c_char,
+        geoms_joined: *const c_char,
         tints_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
@@ -204,8 +205,17 @@ unsafe extern "C" {
 
     pub fn day_xaml_divider_new() -> *mut c_void;
     pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
-    /// A tinted vector glyph as a monochrome `BitmapIcon`; null when the glyph could not be
-    /// resolved or the tint is transparent, so the caller falls back to a plain image.
+    /// A vector glyph as real XAML `Path` geometry inside a scaling `Viewbox` (docs/vectors.md):
+    /// resolution-independent, and `tinted` composes `argb` over the shapes as a brush. Null
+    /// when the spec carried no drawable geometry, so the caller falls back to the raster.
+    pub fn day_xaml_vector_new(
+        spec: *const c_char,
+        mode: c_int,
+        argb: u32,
+        tinted: c_int,
+    ) -> *mut c_void;
+    /// A tinted vector glyph as a monochrome `BitmapIcon` — the raster fallback for art that
+    /// could not be converted to geometry; null when unresolved or the tint is transparent.
     pub fn day_xaml_image_tinted_new(
         icon_file: *const c_char,
         mode: c_int,

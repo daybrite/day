@@ -43,10 +43,13 @@ pub fn stage_payload(
             super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
         }
     }
-    // Vector glyphs (docs/vectors.md): the raster cache MERGES into `images/` — one exe-relative
-    // probe then serves both the `vector(…)` piece and the nav rows' `ms-appx:///images/<file>`
-    // loads (the name namespace is shared, so a stem can't collide with a real image).
-    let rasters = crate::resources::vector_raster_dir(project);
+    // Vector glyphs (docs/vectors.md): the raster FALLBACKS merge into `images/` — one
+    // exe-relative probe then serves both the `vector(…)` piece and the nav rows'
+    // `ms-appx:///images/<file>` loads (the name namespace is shared, so a stem can't collide
+    // with a real image). Only glyphs XAML cannot draw as geometry are here; a convertible glyph
+    // ships once, as geometry, and a failure to draw it shows as missing art rather than as a
+    // silently substituted PNG.
+    let rasters = crate::resources::vector_fallback_dir(project, target.toolkit);
     if rasters.is_dir() {
         let images = stage.join("images");
         std::fs::create_dir_all(&images).map_err(|e| PackError::Other(e.to_string()))?;
@@ -62,6 +65,16 @@ pub fn stage_payload(
                     .map_err(|e| PackError::Other(e.to_string()))?;
             }
         }
+    }
+    // The XAML geometry (docs/vectors.md) rides as its own `vectors/xaml` tree, which is where
+    // `resolve_vector_xaml`'s exe-relative probe looks. It cannot merge into `images/` the way
+    // the raster fallbacks do — these are geometry specs, not loadable images — and without it a
+    // packed app would have no vector form at all. The glyph SVGs deliberately do NOT ship
+    // beside it: this backend renders the geometry, nothing on Windows reads an SVG, and a
+    // second copy of every glyph is exactly the weight the raster cache used to carry.
+    let geometry = crate::resources::vector_xaml_dir(project);
+    if geometry.is_dir() {
+        super::copy_tree(&geometry, &stage.join("vectors/xaml")).map_err(PackError::Other)?;
     }
     if let Some(ico) = crate::resources::app_icon(project, "xaml") {
         let _ = std::fs::copy(&ico, stage.join(format!("{name}.ico")));

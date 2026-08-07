@@ -25,9 +25,17 @@ Text must be outlined (`<text>` is a hard build error; shaping is not compiled i
 
 ## Per-backend staging (§18.3)
 
-At build, every glyph gets a raster cache PNG (`build/day/vectors/raster/`, 256 px) and a
-staged glyph SVG (`build/day/vectors/svg/`); the raster rides each stager's ordinary image
-pipeline under the same name — the universal fallback. On top:
+At build, every glyph gets a raster cache PNG (`build/day/vectors/raster/`, 256 px), a
+staged glyph SVG (`build/day/vectors/svg/`), and — where the art converts — XAML geometry
+(`build/day/vectors/xaml/`).
+
+The raster cache is a build INPUT, not a shipping form. What a target carries is
+`build/day/vectors/fallback/<toolkit>/`: on a toolkit with no vector arm (gtk, qt) that is every
+glyph, and on one that draws vectors it is only the art the vector pipeline could not express —
+usually nothing. Bundling the rest would ship a second copy of every glyph AND let a broken
+vector path go unnoticed behind a raster that still looks right, which is how two XAML bugs
+survived their first review. `day build` reports the split per target
+(`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:
 
 | Backend | Native form |
 |---|---|
@@ -36,6 +44,7 @@ pipeline under the same name — the universal fallback. On top:
 | ios-uikit | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so `UIImage(named:)` renders at display size |
 | web-dom | the **SVG** beside `assets/images/` — day-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
 | harmony-arkui | the **SVG** in `rawfile day/` (same stem as the raster) — day-arkui probes `day/<name>.svg` via the resource manager and ArkUI's Image renders it natively; raster names keep the png |
+| windows-xaml | **XAML geometry** via `DAY_VECTOR_XAML_ROOT` — a `Path` in a scaling `Viewbox` in page content, a `PathIcon` in the nav pane's icon slot, so the glyph is redrawn at every size rather than scaled from a cache. Emitted by the CLI (`day_vector::to_xaml_geometry`) as absolute `M`/`L`/`C`/`Z` only: the grammar is SVG's, but a command XAML's parser rejects fails the WHOLE geometry, so quadratics are elevated to cubics (exact) and arcs are flattened upstream by usvg. Same subset as the VectorDrawable emission — gradients/clips/masks/filters stage no geometry and fall back to the raster |
 
 Packed desktop apps carry the same forms without the launch env: a `.app` ships
 `Contents/Resources/vectors/{svg,raster}` (probed exe-relative — the SVGs by
@@ -43,7 +52,9 @@ Packed desktop apps carry the same forms without the launch env: a `.app` ships
 `share/<name>/vectors/{raster,svg}` with the launcher exporting the same
 `DAY_VECTOR_*_ROOT` roots a dev launch would; the Windows payload merges the raster cache
 into the exe-relative `images/`, where both the piece resolution and the nav rows'
-`ms-appx:///images/` loads already look.
+`ms-appx:///images/` loads already look, and ships `vectors/xaml` beside the exe — geometry
+specs are not loadable images, so they cannot merge into `images/`. The glyph SVGs do not ship
+to Windows at all: that backend draws the geometry and nothing there reads an SVG.
 
 ## Weights
 
@@ -58,16 +69,24 @@ to a missing asset — on every backend, since the suffixed names ride the same 
 
 `.tint(color)` recolors a monochrome glyph where the backend can: template rendering +
 `contentTintColor` on AppKit, `alwaysTemplate` + `tintColor` on UIKit, `setImageTintList` on
-Android, pixel recolor on GTK, SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI. Backends
-without a tint arm yet (Qt, XAML, web) draw the authored colours — the coverage-honest
-degradation. `None` (and every raster `image(…)`) means "as authored".
+Android, pixel recolor on GTK, SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI, and a brush on
+the `Path` shapes on XAML — composed over the geometry when the glyph is realized, so one staged
+glyph serves every tint at every size with no second asset and no recoloured copy. Backends
+without a tint arm yet (Qt, web) draw the authored colours — the coverage-honest degradation.
+`None` (and every raster `image(…)`) means "as authored".
+
+A tint follows the art it was authored with: the colour fills where the glyph filled and strokes
+where it stroked, so an outline glyph stays an outline rather than becoming a silhouette. Where
+XAML has no geometry to draw (art outside the convertible subset) the tint degrades to a
+monochrome `BitmapIcon` over the raster — still tinted, but from the 256 px cache.
 
 Nav-menu rows have their own arm, `item(…).icon_tint(color)` (docs/navigation.md): per-row
 recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (pixel recolor), Qt
 (`QPainter` SourceIn over the pixmap), Android (compound-drawable `setTint`, best-effort after
-the nav host mounts), ArkUI (SVG fill color), and web (the mask painted with the tint instead
-of `currentColor`). Untinted rows keep each backend's template default (theme foreground /
-secondary label); ArkUI's untinted raster rows draw as authored (fill color is SVG-only).
+the nav host mounts), ArkUI (SVG fill color), XAML (`Foreground` on the row's `PathIcon`), and
+web (the mask painted with the tint instead of `currentColor`). Untinted rows keep each
+backend's template default (theme foreground / secondary label); ArkUI's untinted raster rows
+draw as authored (fill color is SVG-only).
 
 ## Lint
 

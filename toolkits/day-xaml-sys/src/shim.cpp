@@ -1394,32 +1394,55 @@ static std::vector<std::string> split_lines(const char* joined) {
 // Rebuild the pane's MenuItems from '\n'-joined destination titles (route order). `icons_joined`
 // is a PARALLEL '\n'-joined list of bundled icon FILE NAMES (empty entry = no icon), staged next to
 // the exe under images/ so a monochrome BitmapIcon can load them via ms-appx and tint to the theme.
-// `tints_joined` is parallel to the rows: an ARGB value per line, "0" (or a short list) meaning
-// "no tint" — that row keeps the theme-adaptive pane foreground.
+// Defined with the other glyph/tree entry points further down; declared here so the nav rows can
+// build their icons out of the same geometry the in-page `vector(…)` pieces use.
+void* day_xaml_vector_icon_new(const char* spec, unsigned int argb, int tinted, double box);
+void day_xaml_delete(void* h);
+
+// The nav pane's icon slot. Three parallel per-row lists, each one line per row:
+//   `icons_joined`  the staged RASTER file name — the fallback when a row has no geometry
+//   `geoms_joined`  the row's `.xamlgeom` spec with newlines escaped as \x1f (see day-xaml),
+//                   empty when the glyph did not convert
+//   `tints_joined`  an ARGB value, 0 meaning "no tint" — that row keeps the theme foreground
+// A row draws as PathIcon geometry wherever it can, so the sidebar is vector at any DPI and its
+// tint is a brush; only unconvertible art falls back to the monochrome raster.
 void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* icons_joined,
-                            const char* tints_joined) {
+                            const char* geoms_joined, const char* tints_joined) {
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
         nv.MenuItems().Clear();
         auto titles = split_lines(items_joined);
         auto icons = split_lines(icons_joined);
+        auto geoms = split_lines(geoms_joined ? geoms_joined : "");
         auto tints = split_lines(tints_joined ? tints_joined : "");
         for (size_t i = 0; i < titles.size(); ++i) {
             WUXC::NavigationViewItem nvi;
             nvi.Content(winrt::box_value(hs(titles[i].c_str())));
-            if (i < icons.size() && !icons[i].empty()) {
+            unsigned int argb =
+                i < tints.size()
+                    ? static_cast<unsigned int>(std::strtoul(tints[i].c_str(), nullptr, 10))
+                    : 0u;
+            // A fully transparent value is the "no tint" encoding, not a real colour.
+            bool tinted = (argb >> 24) != 0;
+            void* icon = nullptr;
+            if (i < geoms.size() && !geoms[i].empty()) {
+                std::string spec = geoms[i];
+                for (auto& c : spec)
+                    if (c == '\x1f') c = '\n';
+                // 16 px is the NavigationViewItem icon box the default template lays out.
+                icon = day_xaml_vector_icon_new(spec.c_str(), argb, tinted ? 1 : 0, 16.0);
+            }
+            if (icon) {
+                if (auto ie = elem(icon).try_as<WUXC::IconElement>()) nvi.Icon(ie);
+                day_xaml_delete(icon); // the NavigationViewItem owns it now
+            } else if (i < icons.size() && !icons[i].empty()) {
                 WUXC::BitmapIcon bicon;
                 bicon.UriSource(WF::Uri{ hs(("ms-appx:///images/" + icons[i]).c_str()) });
                 // ShowAsMonochrome makes the bitmap an alpha mask filled with Foreground, which
                 // is what turns a staged raster glyph into a tintable icon (docs/vectors.md).
                 bicon.ShowAsMonochrome(true); // tint to the pane foreground (theme-adaptive)
-                if (i < tints.size()) {
-                    unsigned int argb =
-                        static_cast<unsigned int>(std::strtoul(tints[i].c_str(), nullptr, 10));
-                    // A fully transparent value is the "no tint" encoding, not a real colour.
-                    if ((argb >> 24) != 0) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
-                }
+                if (tinted) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
                 nvi.Icon(bicon);
             }
             nv.MenuItems().Append(nvi);
@@ -1985,12 +2008,216 @@ static WSS::IRandomAccessStream read_file_stream(const char* path) {
     }
 }
 
-// A tinted glyph (docs/vectors.md) is a BitmapIcon, not an Image: ShowAsMonochrome turns the
-// staged raster into an alpha mask that Foreground fills, so a monochrome glyph recolors without
-// touching its art. XAML's own icon path — the same one the nav rows use — rather than a pixel
-// rewrite like GTK's, which XAML has no need of. `icon_file` is the staged file NAME (BitmapIcon
-// takes only a Uri, and unpackaged islands resolve `ms-appx:///images/<file>` against the exe
-// directory); an empty name or transparent tint falls through to the ordinary Image path.
+// ---- vector glyphs as real XAML geometry (docs/vectors.md) -------------------
+//
+// A `vector(…)` glyph draws as `Path` geometry, not as an image: the CLI converts the staged SVG
+// into the shape list this parses (`build/day/vectors/xaml/<name>.xamlgeom`), so the glyph is
+// resolution-INDEPENDENT — XAML rasterizes the geometry at whatever size the layout gives it,
+// every frame, instead of scaling a 256 px cache. It is also what makes a tint a runtime
+// composition: the colour is a Brush set on the shape when it is realized, so one staged glyph
+// serves every tint at every size. Art the CLI could not convert (gradients, clips, embedded
+// rasters) stages no geometry, and the callers below fall back to the raster.
+
+/// One shape parsed out of a `.xamlgeom` spec.
+struct GeomShape {
+    std::string data;
+    unsigned int fill = 0;   // 0 = no fill
+    bool even_odd = false;
+    unsigned int stroke = 0; // 0 = no stroke
+    double stroke_width = 0;
+    std::string cap, join;
+};
+struct Geom {
+    double w = 0, h = 0;
+    std::vector<GeomShape> shapes;
+};
+
+// "#AARRGGBB" → packed ARGB; "-" (or anything unparsable) → 0, the "absent" encoding.
+static unsigned int geom_color(const std::string& s) {
+    if (s.size() != 9 || s[0] != '#') return 0;
+    return static_cast<unsigned int>(std::strtoul(s.c_str() + 1, nullptr, 16));
+}
+
+static Geom parse_geom(const char* spec) {
+    Geom g;
+    if (!spec) return g;
+    std::string text(spec);
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t nl = text.find('\n', pos);
+        std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+        if (nl == std::string::npos) pos = text.size() + 1; else pos = nl + 1;
+        if (line.empty()) continue;
+        if (line[0] == 'V') {
+            std::sscanf(line.c_str(), "V %lf %lf", &g.w, &g.h);
+        } else if (line[0] == 'P') {
+            // The data is everything after the tab, so it can hold spaces and commas untouched.
+            size_t tab = line.find('\t');
+            if (tab == std::string::npos) continue;
+            GeomShape sh;
+            sh.data = line.substr(tab + 1);
+            char fill[32] = { 0 }, stroke[32] = { 0 }, cap[16] = { 0 }, join[16] = { 0 };
+            int eo = 0;
+            double w = 0;
+            if (std::sscanf(line.substr(0, tab).c_str(), "P %31s %d %31s %lf %15s %15s",
+                            fill, &eo, stroke, &w, cap, join) >= 4) {
+                sh.fill = geom_color(fill);
+                sh.even_odd = eo != 0;
+                sh.stroke = geom_color(stroke);
+                sh.stroke_width = w;
+                sh.cap = cap;
+                sh.join = join;
+                g.shapes.push_back(std::move(sh));
+            }
+        }
+    }
+    return g;
+}
+
+// Build a Geometry from the emitted path data.
+//
+// Assembled object by object rather than handed to XamlReader as `<Path Data="…"/>` markup: the
+// island's Application answers XAML type resolution with its own IXamlMetadataProvider, and
+// under it XamlReader::Load fails to produce a Path at all — which is what silently dropped
+// every glyph to its raster. Nothing is lost by not going through the parser, since day-vector
+// emits a grammar this side already knows: absolute `M`/`L`/`C`/`Z` only, so an unrecognized
+// command means the two ends disagree and the glyph is refused rather than drawn wrong.
+static WUXM::Geometry geometry_from_data(const std::string& data, bool even_odd) {
+    try {
+        WUXM::PathGeometry geo;
+        // SVG's default fill rule is nonzero; XAML's is even-odd. Always stated, never implied.
+        geo.FillRule(even_odd ? WUXM::FillRule::EvenOdd : WUXM::FillRule::Nonzero);
+        auto figures = geo.Figures();
+        WUXM::PathFigure fig{ nullptr };
+        const char* p = data.c_str();
+        auto num = [&p]() -> float {
+            while (*p == ' ' || *p == ',') ++p;
+            char* end = nullptr;
+            float v = std::strtof(p, &end);
+            if (end) p = end;
+            return v;
+        };
+        while (*p) {
+            char cmd = *p;
+            if (cmd == ' ' || cmd == ',') { ++p; continue; }
+            ++p;
+            if (cmd == 'M') {
+                fig = WUXM::PathFigure();
+                float x = num(), y = num();
+                fig.StartPoint(WF::Point{ x, y });
+                fig.IsFilled(true);
+                figures.Append(fig);
+            } else if (cmd == 'L') {
+                if (!fig) return nullptr;
+                WUXM::LineSegment s;
+                float x = num(), y = num();
+                s.Point(WF::Point{ x, y });
+                fig.Segments().Append(s);
+            } else if (cmd == 'C') {
+                if (!fig) return nullptr;
+                WUXM::BezierSegment s;
+                float x1 = num(), y1 = num(), x2 = num(), y2 = num(), x3 = num(), y3 = num();
+                s.Point1(WF::Point{ x1, y1 });
+                s.Point2(WF::Point{ x2, y2 });
+                s.Point3(WF::Point{ x3, y3 });
+                fig.Segments().Append(s);
+            } else if (cmd == 'Z' || cmd == 'z') {
+                if (fig) fig.IsClosed(true);
+            } else {
+                return nullptr;
+            }
+        }
+        if (figures.Size() == 0) return nullptr;
+        return geo;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+// A glyph sized by the layout: the shapes go in a Canvas the size of the source viewport, and a
+// Viewbox scales that to whatever frame day assigns — so one geometry serves every size.
+// `tinted` replaces every authored paint with `argb`; otherwise the art keeps its own colours.
+void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
+    Geom g = parse_geom(spec);
+    if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
+    try {
+        WUXC::Canvas canvas;
+        canvas.Width(g.w);
+        canvas.Height(g.h);
+        bool any = false;
+        for (auto const& sh : g.shapes) {
+            auto geo = geometry_from_data(sh.data, sh.even_odd);
+            if (!geo) continue;
+            WUXSh::Path p;
+            p.Data(geo);
+            if (tinted) {
+                // The tint composes over the geometry: fill where the art filled, stroke where
+                // it stroked, so a glyph drawn as an outline stays an outline.
+                if (sh.fill) p.Fill(WUXM::SolidColorBrush(color_argb(argb)));
+                if (sh.stroke) p.Stroke(WUXM::SolidColorBrush(color_argb(argb)));
+            } else {
+                if (sh.fill) p.Fill(WUXM::SolidColorBrush(color_argb(sh.fill)));
+                if (sh.stroke) p.Stroke(WUXM::SolidColorBrush(color_argb(sh.stroke)));
+            }
+            if (sh.stroke) {
+                p.StrokeThickness(sh.stroke_width);
+                if (sh.cap == "Round") p.StrokeStartLineCap(WUXM::PenLineCap::Round);
+                else if (sh.cap == "Square") p.StrokeStartLineCap(WUXM::PenLineCap::Square);
+                p.StrokeEndLineCap(p.StrokeStartLineCap());
+                if (sh.join == "Round") p.StrokeLineJoin(WUXM::PenLineJoin::Round);
+                else if (sh.join == "Bevel") p.StrokeLineJoin(WUXM::PenLineJoin::Bevel);
+            }
+            canvas.Children().Append(p);
+            any = true;
+        }
+        if (!any) return nullptr;
+        WUXC::Viewbox vb;
+        vb.Child(canvas);
+        // Matches the image content modes: 0=fit, 1=fill (crop), 2=stretch.
+        vb.Stretch(mode == 2 ? WUXM::Stretch::Fill
+                   : mode == 1 ? WUXM::Stretch::UniformToFill
+                               : WUXM::Stretch::Uniform);
+        return boxh(vb);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+// The same geometry as a `PathIcon`, for the slots that demand an IconElement (nav rows).
+// PathIcon draws its geometry in its OWN coordinates with no scaling of its own, so the source
+// viewport is mapped onto `box` here; an untinted icon leaves Foreground alone and inherits the
+// pane's theme colour, which is what keeps unstyled rows theme-adaptive.
+void* day_xaml_vector_icon_new(const char* spec, unsigned int argb, int tinted, double box) {
+    Geom g = parse_geom(spec);
+    if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
+    // One Geometry for the icon: an IconElement carries a single colour anyway, so the shapes
+    // concatenate into one figure list rather than losing their per-shape paints twice over.
+    std::string all;
+    bool even_odd = g.shapes.front().even_odd;
+    for (auto const& sh : g.shapes) all += sh.data;
+    try {
+        auto geo = geometry_from_data(all, even_odd);
+        if (!geo) return nullptr;
+        double s = box / (g.w > g.h ? g.w : g.h);
+        WUXM::ScaleTransform st;
+        st.ScaleX(s);
+        st.ScaleY(s);
+        geo.Transform(st);
+        WUXC::PathIcon icon;
+        icon.Data(geo);
+        if (tinted) icon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+        return boxh(icon);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+// The raster fallback for art the CLI could not convert to geometry (gradients, clips, embedded
+// rasters): ShowAsMonochrome turns the staged PNG into an alpha mask that Foreground fills.
+// Lossier than the geometry path above — it tints a 256 px cache, not the glyph — which is why
+// it is reached only when there is no geometry to draw. `icon_file` is the staged file NAME
+// (BitmapIcon takes only a Uri, and unpackaged islands resolve `ms-appx:///images/<file>`
+// against the exe directory); an empty name or transparent tint falls through to a plain Image.
 void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int argb) {
     if (icon_file && *icon_file && (argb >> 24) != 0) {
         WUXC::BitmapIcon bicon;

@@ -72,13 +72,15 @@ pub fn build_web(
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
-    // Vector glyphs land beside the images twice over (docs/vectors.md): the raster cache PNG
-    // keeps the name contract identical across backends (and answers an older host page), and
-    // the glyph SVG itself is what day-dom actually asks for — the browser renders it at
-    // display size. The page learns which names are vectors via `window.__DAY_VECTORS`
-    // (injected into index.html below), read back through the shim's `vector:` env keys.
+    // Vector glyphs (docs/vectors.md): the SVG is what day-dom asks for and what the browser
+    // renders at display size, so only the raster FALLBACKS land beside the images — art the
+    // vector pipeline could not express. Every browser that can run a wasm app renders SVG, so
+    // a second PNG copy of a convertible glyph is weight that would also hide a broken vector
+    // path behind art that still looks right. The page learns which names are vectors via
+    // `window.__DAY_VECTORS` (injected into index.html below), read back through the shim's
+    // `vector:` env keys.
     let mut vector_names: Vec<String> = Vec::new();
-    let vectors_cache = crate::resources::vector_raster_dir(project);
+    let vectors_cache = crate::resources::vector_fallback_dir(project, target.toolkit);
     if vectors_cache.is_dir() {
         let images = dist.join("assets/images");
         std::fs::create_dir_all(&images).map_err(|e| format!("images dir: {e}"))?;

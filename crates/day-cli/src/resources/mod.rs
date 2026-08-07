@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 
 use crate::meta::Project;
+use crate::ops::status;
 use crate::targets::Target;
 
 mod android;
@@ -47,14 +48,14 @@ pub struct ResourceSet {
 }
 
 impl ResourceSet {
-    /// Scan a project's `images/` and `assets/` directories — plus the vector raster cache
-    /// (docs/vectors.md): every `resource/vectors/` glyph has a build-time PNG under
-    /// `build/day/vectors/raster/`, appended here as an ordinary image so each toolkit's stager
-    /// ships it through its native image pipeline under the same name. Backends with a REAL
-    /// vector form (Android's VectorDrawable) filter these back out and stage that instead.
-    pub fn scan(project: &Project) -> ResourceSet {
+    /// Scan a project's `images/` and `assets/` directories — plus `toolkit`'s vector raster
+    /// FALLBACKS (docs/vectors.md), appended as ordinary images so the stager ships them through
+    /// its native image pipeline under the same name. On a toolkit that draws vectors this adds
+    /// only the glyphs its vector pipeline could not express, which on most projects is none;
+    /// on gtk/qt, which have no vector arm, it is every glyph.
+    pub fn scan(project: &Project, toolkit: &str) -> ResourceSet {
         let mut images = scan_dir(&project.root.join("resource/images"), true);
-        images.extend(scan_dir(&vector_raster_dir(project), true));
+        images.extend(scan_dir(&vector_fallback_dir(project, toolkit), true));
         ResourceSet {
             images,
             data: scan_dir(&project.root.join("resource/assets"), false),
@@ -268,10 +269,12 @@ pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
 pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
-    // Vectors first (docs/vectors.md): each glyph gets its raster-cache PNG, which
-    // `ResourceSet::scan` below then picks up for every toolkit's image pipeline.
+    // Vectors first (docs/vectors.md): every glyph gets its raster-cache PNG, then the cache is
+    // filtered to what THIS toolkit actually needs one for — which `ResourceSet::scan` below
+    // picks up for its image pipeline, and which `day launch`/`day pack` ship.
     let vectors = prepare_vectors(project)?;
-    let set = ResourceSet::scan(project);
+    write_vector_fallbacks(project, target.toolkit, &vectors)?;
+    let set = ResourceSet::scan(project, target.toolkit);
     let fonts = scan_fonts(project)?;
     if set.is_empty() && fonts.is_empty() {
         return Ok(());
@@ -298,12 +301,102 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
 pub struct VectorAsset {
     pub name: String,
     pub glyph: String,
+    /// XAML geometry was emitted for this glyph — windows-xaml draws it without a raster.
+    pub xaml: bool,
+    /// The glyph converts to an Android VectorDrawable — android-mdc needs no raster for it.
+    pub vd: bool,
 }
 
-/// Where the build-time vector rasters live (probed by day-spec's `resolve_image_file` via
-/// `DAY_VECTOR_RASTER_ROOT`, and scanned into every stager's image set).
+/// Where the build-time vector rasters live: EVERY glyph, always, as the build's own cache. This
+/// directory is an input, not a shipping form — what a target actually carries is
+/// [`vector_fallback_dir`], which holds only the glyphs that target cannot draw as a vector.
 pub fn vector_raster_dir(project: &Project) -> PathBuf {
     project.root.join("build/day/vectors/raster")
+}
+
+/// Toolkits that draw `resource/vectors/` glyphs from a REAL vector form (docs/vectors.md).
+///
+/// On these the raster is not a shipping asset at all — bundling it would add a second copy of
+/// every glyph, and, worse, stand in silently when the vector path fails, so a broken renderer
+/// still looks right. Both XAML bugs found while building that backend (quadratics rejected by
+/// the parser, then XamlReader returning nothing under the island's metadata provider) were
+/// invisible for exactly that reason. What ships instead is per-GLYPH: art the vector pipeline
+/// could not express still needs its raster, and only that art gets one.
+fn toolkit_draws_vectors(toolkit: &str) -> bool {
+    matches!(
+        toolkit,
+        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml"
+    )
+}
+
+/// The glyphs `toolkit` must ship a raster for — everything, where it has no vector arm at all
+/// (gtk, qt); otherwise only the art its vector pipeline could not express.
+fn vector_fallback_names(toolkit: &str, vectors: &[VectorAsset]) -> Vec<String> {
+    vectors
+        .iter()
+        .filter(|v| match toolkit {
+            // Staged as SVG, which these render natively for every glyph — nothing falls back.
+            "appkit" | "uikit" | "arkui" | "dom" => false,
+            "xaml" => !v.xaml,
+            "mdc" => !v.vd,
+            // No vector arm: the raster IS the glyph here.
+            _ => true,
+        })
+        .map(|v| v.name.clone())
+        .collect()
+}
+
+/// Where `toolkit`'s raster fallbacks are staged — a per-toolkit directory, so building two
+/// targets never races over one shared tree the way filtering the cache in place would.
+pub fn vector_fallback_dir(project: &Project, toolkit: &str) -> PathBuf {
+    project
+        .root
+        .join("build/day/vectors/fallback")
+        .join(toolkit)
+}
+
+/// Materialize [`vector_fallback_dir`]: the raster cache filtered to what this toolkit actually
+/// needs. Rewritten from empty each time, so a glyph that starts converting stops shipping a
+/// raster on the very next build.
+pub fn write_vector_fallbacks(
+    project: &Project,
+    toolkit: &str,
+    vectors: &[VectorAsset],
+) -> Result<PathBuf, String> {
+    let dir = vector_fallback_dir(project, toolkit);
+    let _ = std::fs::remove_dir_all(&dir);
+    // Always created, even when nothing falls back: the roots that point here (the launch env,
+    // the packed trees) are then an EMPTY directory rather than a missing one, which is the
+    // difference between "this target ships no rasters" and "the path is wrong".
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir vector fallbacks: {e}"))?;
+    let names = vector_fallback_names(toolkit, vectors);
+    let cache = vector_raster_dir(project);
+    for name in &names {
+        let from = cache.join(format!("{name}.png"));
+        if from.is_file() {
+            std::fs::copy(&from, dir.join(format!("{name}.png")))
+                .map_err(|e| format!("vector fallback {name}: {e}"))?;
+        }
+    }
+    // Reported on the toolkits that draw vectors, including when the answer is none: a raster
+    // here is the coverage-honest degradation, so it should be visible in the build rather than
+    // discovered later as a bundle that is bigger than it should be.
+    if toolkit_draws_vectors(toolkit) && !vectors.is_empty() {
+        let detail = if names.is_empty() {
+            "every glyph draws as a vector".to_string()
+        } else {
+            format!("raster fallback: {}", names.join(", "))
+        };
+        status(
+            "Vectors",
+            &format!(
+                "{toolkit}: {}/{} glyph(s) vector — {detail}",
+                vectors.len() - names.len(),
+                vectors.len()
+            ),
+        );
+    }
+    Ok(dir)
 }
 
 /// Where the prepared glyph SVGs live (docs/vectors.md): the Apple catalogs copy these in as
@@ -311,6 +404,15 @@ pub fn vector_raster_dir(project: &Project) -> PathBuf {
 /// (NSImage renders SVG at display size on macOS 11+).
 pub fn vector_svg_dir(project: &Project) -> PathBuf {
     project.root.join("build/day/vectors/svg")
+}
+
+/// Where the prepared XAML geometry lives (docs/vectors.md): day-xaml loads these as real
+/// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size AND
+/// take its tint as a brush at runtime. Converted here, in the CLI, so the backend needs no SVG
+/// parser — the same split Android's VectorDrawable emission uses. A glyph outside the
+/// convertible subset simply has no file here and falls back to the raster cache.
+pub fn vector_xaml_dir(project: &Project) -> PathBuf {
+    project.root.join("build/day/vectors/xaml")
 }
 
 /// The raster edge for cached vector PNGs: sized for icon duty (nav rows, grids) at high-dpi.
@@ -322,9 +424,11 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
     let src = project.root.join("resource/vectors");
     let cache = vector_raster_dir(project);
     let svgs = vector_svg_dir(project);
+    let geom = vector_xaml_dir(project);
     // Regenerate fresh so removed/renamed vectors don't linger in any pipeline.
     let _ = std::fs::remove_dir_all(&cache);
     let _ = std::fs::remove_dir_all(&svgs);
+    let _ = std::fs::remove_dir_all(&geom);
     if !src.is_dir() {
         return Ok(Vec::new());
     }
@@ -393,13 +497,88 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
             std::fs::create_dir_all(&svgs).map_err(|e| format!("mkdir vectors svg: {e}"))?;
             std::fs::write(svgs.join(format!("{staged}.svg")), glyph.as_bytes())
                 .map_err(|e| format!("vector svg {staged}: {e}"))?;
+            // XAML geometry, when the art converts. Unlike the Android emission this is not a
+            // declared-target concern — every project stages it, and a glyph that cannot convert
+            // just leaves day-xaml on the raster, so there is nothing to warn about here.
+            let xaml_ok = match day_vector::to_xaml_geometry(&tree) {
+                Ok(g) => {
+                    std::fs::create_dir_all(&geom)
+                        .map_err(|e| format!("mkdir vectors xaml: {e}"))?;
+                    std::fs::write(geom.join(format!("{staged}.xamlgeom")), g.to_spec())
+                        .map_err(|e| format!("vector xaml {staged}: {e}"))?;
+                    true
+                }
+                Err(_) => false,
+            };
+            // Recorded, not emitted, here: android::stage does the conversion it ships (it needs
+            // the XML and the reason to report). This only answers "does this glyph need a
+            // raster on android", which decides whether one is staged at all.
+            let vd_ok = day_vector::to_vector_drawable(&tree).is_ok();
             out.push(VectorAsset {
                 name: staged,
                 glyph,
+                xaml: xaml_ok,
+                vd: vd_ok,
             });
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::*;
+
+    fn glyphs() -> Vec<VectorAsset> {
+        vec![
+            // Ordinary art: converts everywhere.
+            VectorAsset {
+                name: "plain".into(),
+                glyph: String::new(),
+                xaml: true,
+                vd: true,
+            },
+            // A gradient, say: no geometry on either converting backend.
+            VectorAsset {
+                name: "fancy".into(),
+                glyph: String::new(),
+                xaml: false,
+                vd: false,
+            },
+        ]
+    }
+
+    /// The rule the bundle size depends on: a toolkit that draws vectors ships a raster ONLY
+    /// for art its vector pipeline could not express. Shipping the rest would double every
+    /// glyph and let a broken vector path hide behind a raster that still looks right.
+    #[test]
+    fn drawing_toolkits_ship_rasters_only_for_unconvertible_art() {
+        let g = glyphs();
+        assert_eq!(vector_fallback_names("xaml", &g), ["fancy"]);
+        assert_eq!(vector_fallback_names("mdc", &g), ["fancy"]);
+        // These stage an SVG for every glyph, so nothing falls back at all.
+        for toolkit in ["appkit", "uikit", "arkui", "dom"] {
+            assert!(
+                vector_fallback_names(toolkit, &g).is_empty(),
+                "{toolkit} should ship no rasters"
+            );
+        }
+    }
+
+    /// The other half: a toolkit with no vector arm still needs every glyph as a raster, or its
+    /// icons simply vanish.
+    #[test]
+    fn toolkits_without_a_vector_arm_ship_every_raster() {
+        let g = glyphs();
+        for toolkit in ["gtk", "qt"] {
+            assert_eq!(
+                vector_fallback_names(toolkit, &g),
+                ["plain", "fancy"],
+                "{toolkit} has no vector arm and needs both"
+            );
+            assert!(!toolkit_draws_vectors(toolkit));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -876,7 +876,9 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
 
     // Processed images (§18.3): generate a Media.xcassets from the project's images/ into the target
     // so SwiftPM `.process` compiles it (actool) into the package's Assets.car.
-    let images = crate::resources::ResourceSet::scan(project).images;
+    // uikit renders the imageset SVGs (`preserves-vector-representation`), so the only rasters
+    // this catalog picks up are the fallbacks for art that has no SVG form (docs/vectors.md).
+    let images = crate::resources::ResourceSet::scan(project, "uikit").images;
     let vectors: Vec<(String, std::path::PathBuf)> =
         std::fs::read_dir(crate::resources::vector_svg_dir(project))
             .into_iter()

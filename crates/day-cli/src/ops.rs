@@ -482,15 +482,25 @@ pub fn launch(
                     .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
                     // The vector raster cache (docs/vectors.md): how the file-loading desktop
                     // backends resolve `vector(…)` names — written by resources::stage at build.
+                    // The FALLBACK rasters, not the whole cache: a dev launch has to fail the
+                    // same way a shipped app would, or a broken vector path stays hidden behind
+                    // a stand-in PNG right where it would be caught (docs/vectors.md).
                     .env(
                         "DAY_VECTOR_RASTER_ROOT",
-                        crate::resources::vector_raster_dir(project),
+                        crate::resources::vector_fallback_dir(project, target.toolkit),
                     )
                     // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG
                     // at display size on macOS 11+), so vectors stay vector on the desktop too.
                     .env(
                         "DAY_VECTOR_SVG_ROOT",
                         crate::resources::vector_svg_dir(project),
+                    )
+                    // The XAML geometry — day-xaml draws these as real Path geometry, which is
+                    // what keeps a Windows glyph vector at any size and lets a tint be a brush
+                    // rather than a second asset (docs/vectors.md).
+                    .env(
+                        "DAY_VECTOR_XAML_ROOT",
+                        crate::resources::vector_xaml_dir(project),
                     )
                     // Bundled fonts (§18.4): the desktop backends register every file in this
                     // directory with the platform font system at startup.

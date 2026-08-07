@@ -35,6 +35,7 @@ pub mod icongen;
 mod raster;
 mod symbolset;
 mod vd;
+mod xaml;
 
 /// The render-engine identity stamped into `icons.lock.json` — byte-stable renders hold only
 /// within one engine version, so `day icon --check` compares generators before bytes.
@@ -46,3 +47,4 @@ pub use ico::pack_ico;
 pub use raster::{content_bbox, parse, render_png, render_png_padded};
 pub use symbolset::wrap_symbolset;
 pub use vd::{Unsupported, to_vector_drawable};
+pub use xaml::{XamlGeometry, XamlShape, to_xaml_geometry};

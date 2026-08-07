@@ -323,7 +323,16 @@ pub fn xcode_backend_stage_resources() -> i32 {
     };
     // Refresh the vector caches (raster + glyph SVGs) — cheap and idempotent, and an
     // IDE-initiated build has no earlier `day build` step to have done it.
-    if let Err(e) = crate::resources::prepare_vectors(&project) {
+    let vectors = match crate::resources::prepare_vectors(&project) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("day xcode-backend: vectors: {e}");
+            return 4;
+        }
+    };
+    // This host builds the appkit bundle, which renders the staged SVGs — so the raster tree it
+    // carries is only whatever art could not be reduced to one (docs/vectors.md).
+    if let Err(e) = crate::resources::write_vector_fallbacks(&project, "appkit", &vectors) {
         eprintln!("day xcode-backend: vectors: {e}");
         return 4;
     }
@@ -333,7 +342,7 @@ pub fn xcode_backend_stage_resources() -> i32 {
         (project.root.join("resource/assets"), "assets"),
         (project.root.join("resource/fonts"), "fonts"),
         (
-            crate::resources::vector_raster_dir(&project),
+            crate::resources::vector_fallback_dir(&project, "appkit"),
             "vectors/raster",
         ),
         (crate::resources::vector_svg_dir(&project), "vectors/svg"),
