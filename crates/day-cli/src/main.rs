@@ -29,6 +29,7 @@ mod rebuild;
 mod resources;
 mod script;
 mod sessions;
+mod shortcuts;
 mod sign;
 mod signals;
 mod starter_l10n;

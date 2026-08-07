@@ -32,18 +32,21 @@ export default class EntryAbility extends UIAbility {
     } else if (theme === 'light') {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
     }
-    // Cold deep link (docs/deep-links.md): the launching want's uri. Safe before start() —
-    // the native side buffers it until the first mount, and it wins over `.restore`.
-    if (want.uri) {
-      nativeEntry.deepLink(want.uri);
+    // Cold deep link (docs/deep-links.md): the launching want's uri, or the `day.uri`
+    // parameter a [[shortcuts]] want carries. Safe before start() — the native side buffers
+    // it until the first mount, and it wins over `.restore`.
+    const uri = want.uri || (want.parameters?.['day.uri'] as string | undefined);
+    if (uri) {
+      nativeEntry.deepLink(uri);
     }
   }
 
   // Warm deep link (docs/deep-links.md): the app was running and the system delivered a new
   // want (singleton launch mode). Same call as the cold path; the native side navigates.
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
-    if (want.uri) {
-      nativeEntry.deepLink(want.uri);
+    const uri = want.uri || (want.parameters?.['day.uri'] as string | undefined);
+    if (uri) {
+      nativeEntry.deepLink(uri);
     }
   }
 

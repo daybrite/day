@@ -551,6 +551,12 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                 .into_iter()
                 .map(|r| ("dayscript".to_string(), r)),
         );
+        // [[shortcuts]] routes are saved deep links (docs/deep-links.md) — same check,
+        // query params stripped the way the route parser will strip them.
+        used_routes.extend(project.manifest.shortcuts.iter().map(|s| {
+            let route = s.route.split('?').next().unwrap_or(&s.route).to_string();
+            ("Day.toml [[shortcuts]]".to_string(), route)
+        }));
         for (origin, route) in &used_routes {
             let first = route_first_segment(route);
             if !first.is_empty() && !declared.contains(first) {
@@ -562,6 +568,28 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                     ),
                 });
             }
+        }
+    }
+
+    // --- Shortcut labels (docs/deep-links.md) ---
+    // Every [[shortcuts]] label must be a single-line static message present in EVERY locale:
+    // the native launcher renders the conveyed string with no formatter behind it. `day build`
+    // enforces the same rules; lint catches them without needing a platform build.
+    if !project.manifest.shortcuts.is_empty() {
+        match crate::shortcuts::resolved(project) {
+            Ok(list) if list.len() > 4 => findings.push(Finding {
+                code: "day::lint::shortcut-count",
+                message: format!(
+                    "{} shortcuts declared; launchers show at most about four, so the rest \
+                     may be dropped",
+                    list.len()
+                ),
+            }),
+            Ok(_) => {}
+            Err(e) => findings.push(Finding {
+                code: "day::lint::shortcut-label",
+                message: e,
+            }),
         }
     }
 

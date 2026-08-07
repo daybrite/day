@@ -34,6 +34,13 @@ pub struct Manifest {
     /// may even ask. `#[serde(default)]`, so every Day.toml written before this existed still parses.
     #[serde(default)]
     pub permissions: Permissions,
+    /// `[[shortcuts]]` — launcher shortcuts: labeled, persistent deep links shown on a
+    /// long-press of the app's icon (docs/deep-links.md "Shortcuts are saved deep links").
+    /// `day build` conveys these into each platform's native declaration — iOS
+    /// `UIApplicationShortcutItems`, Android `res/xml` shortcuts, HarmonyOS
+    /// `shortcuts_config.json` — with labels resolved per locale from `resource/locales/`.
+    #[serde(default)]
+    pub shortcuts: Vec<Shortcut>,
     /// `[sbom]` — whether to produce a software bill of materials, in which formats, and whether it
     /// ships inside the app or beside it (§20.4). Defaults to two sidecar documents: sidecars cost
     /// the artifact nothing, whereas embedding both formats adds roughly 400 KB.
@@ -434,6 +441,19 @@ pub struct AppOverride {
     pub artifact: Option<String>,
     #[serde(default)]
     pub build: Option<u64>,
+}
+
+/// One `[[shortcuts]]` entry — a launcher shortcut. Declaration order is display order on
+/// every platform that shows an order.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shortcut {
+    /// The day route the shortcut opens — the part after `scheme://`, query params allowed
+    /// (`mail/inbox?filter=unread`). Validated by `day lint`'s unknown-route check.
+    pub route: String,
+    /// The Fluent message id for the user-visible label. Must be a single-line message with
+    /// no placeables, present in every locale under `resource/locales/`.
+    pub label: String,
 }
 
 /// The app identity a specific target builds with, after applying `[app.<key>]` overrides.

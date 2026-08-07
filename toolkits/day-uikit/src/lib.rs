@@ -4400,7 +4400,7 @@ mod imp {
     // session is a stale restoration — asks the system to destroy itself.
     // -----------------------------------------------------------------------------------
 
-    use objc2_ui_kit::UISceneDelegate;
+    use objc2_ui_kit::{UISceneDelegate, UIWindowSceneDelegate};
 
     define_class!(
         #[unsafe(super(NSObject))]
@@ -4444,6 +4444,10 @@ mod imp {
                         .expect("day-uikit: run() not called");
                     let size = Size::new(inner.size.width, inner.size.height);
                     ready(backend, view_of(root_view), size);
+                    // Cold launch via deep link or quick action (docs/deep-links.md): both
+                    // ride the connection options; `request_route` buffers until the mount
+                    // that `ready` just kicked off completes.
+                    scene_connection_routes(options);
                     return;
                 }
                 let Some(node) = node else {
@@ -4512,8 +4516,59 @@ mod imp {
             fn scene_did_enter_background(&self, _scene: &objc2_ui_kit::UIScene) {
                 note_scene_lifecycle_changed(self.mtm());
             }
+
+            // Warm deep link under the scene lifecycle (docs/deep-links.md): once an app
+            // adopts scenes, URL opens arrive HERE, not at the app delegate's
+            // `application:openURL:options:` (kept for the pre-scene path).
+            #[unsafe(method(scene:openURLContexts:))]
+            fn scene_open_url_contexts(
+                &self,
+                _scene: &objc2_ui_kit::UIScene,
+                contexts: &objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>,
+            ) {
+                for ctx in contexts {
+                    if let Some(s) = unsafe { ctx.URL().absoluteString() } {
+                        day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+                    }
+                }
+            }
+        }
+
+        unsafe impl UIWindowSceneDelegate for DaySceneDelegate {
+            // A home-screen quick action while the app runs (cold arrivals ride the
+            // connection options). Its type string IS the saved deep link
+            // (docs/deep-links.md "Shortcuts are saved deep links").
+            #[unsafe(method(windowScene:performActionForShortcutItem:completionHandler:))]
+            fn perform_shortcut(
+                &self,
+                _scene: &objc2_ui_kit::UIWindowScene,
+                item: &objc2_ui_kit::UIApplicationShortcutItem,
+                completion: &block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
+            ) {
+                day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+                completion.call((objc2::runtime::Bool::YES,));
+            }
         }
     );
+
+    /// Deep links riding a scene's connection options — the URL that launched the app, or a
+    /// quick action's type string. One rail either way: `day_core::request_route`, buffered
+    /// until the first mount (docs/deep-links.md).
+    fn scene_connection_routes(options: &objc2_ui_kit::UISceneConnectionOptions) {
+        // Raw message send: the generated `URLContexts()` binding declares the return
+        // non-null, but a plain launch (no URL) hands back nil and the binding panics —
+        // caught by the dayscript walkthrough on first run.
+        let contexts: Option<Retained<objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>>> =
+            unsafe { objc2::msg_send![options, URLContexts] };
+        for ctx in contexts.into_iter().flatten() {
+            if let Some(s) = unsafe { ctx.URL().absoluteString() } {
+                day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+            }
+        }
+        if let Some(item) = options.shortcutItem() {
+            day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+        }
+    }
 
     /// The day root node a secondary-scene connection carries (`DAY_WINDOW_ACTIVITY`
     /// userActivity, `day.node` userInfo), if any.

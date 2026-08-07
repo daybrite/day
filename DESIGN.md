@@ -51,7 +51,7 @@ the architecture-level view and the rationale.
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | docs/recorder-matrix.md | [§14.6](#146-recording) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
-| deep links — scheme registration, cold/warm delivery, per-platform intake (spec; ios/android/web shipped) | docs/deep-links.md | [§10.5](#105-navigation-and-presentation) |
+| deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | docs/deep-links.md | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
@@ -2357,7 +2357,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`) |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
@@ -2365,7 +2365,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day ohos` | HarmonyOS helpers (emulator management, …; docs/harmonyos.md) |
-| `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) |
+| `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
 
 > [!NOTE]
 > `day lite test` (docs/lite.md §11) is **not** built into the published `day` CLI yet: day-cli must
@@ -2589,7 +2589,10 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 > targets — any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
 > `[signing.*]` (env-var interpolated, degrade-loudly), and — added 2026-07 —
 > `[permissions]`, which declares the OS permissions the app uses and the reason each prompt shows;
-> `day build` turns it into every platform's manifest entry (docs/permissions.md). Locales, images,
+> `day build` turns it into every platform's manifest entry (docs/permissions.md); and — added
+> 2026-08 — `[[shortcuts]]`, launcher shortcuts as saved deep links (a route plus a Fluent label
+> id, resolved per locale at build and conveyed into each platform's native declaration —
+> docs/deep-links.md). Locales, images,
 > assets, and fonts
 > are **convention, not configuration** — the `resource/` tree is scanned ([§18](#18-resources-icons-and-theming)). The extended
 > schema sketched below (`[localization]`, `[assets]`, `[icons]`, `[scripting]`, `[lint]`,

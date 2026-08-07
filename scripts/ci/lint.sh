@@ -82,6 +82,13 @@ else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
 # arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile — CI exports it;
 # skip (don't fail) when it's absent locally, the same posture as a missing rustup target.
 if have_target aarch64-unknown-linux-ohos && [ -n "${OHOS_NDK_HOME:-}" ]; then
+  # ring's `cc` probe never finds the NDK's wrapper clang on its own (it isn't on PATH and
+  # carries the target triple in its NAME, not its location) — without these the leg dies at
+  # `assert.h` from a host clang told to cross-compile. Derive them from the NDK the caller
+  # already pointed at; a caller's own CC_* values win.
+  export CC_aarch64_unknown_linux_ohos="${CC_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang}"
+  export CXX_aarch64_unknown_linux_ohos="${CXX_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang++}"
+  export AR_aarch64_unknown_linux_ohos="${AR_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/llvm-ar}"
   app_leg "clippy harmonyos (arkui)" cargo clippy --target aarch64-unknown-linux-ohos --lib \
     --no-default-features --features arkui -- "${XCROSS[@]}"
 elif have_target aarch64-unknown-linux-ohos; then

@@ -507,7 +507,13 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     // claimed). Widen what this file contains; never move or split it, or permission merging breaks
     // silently in every checked-out app.
     let overlay = dir.join("day-pieces-manifest.xml");
-    let components = read_manifest_components(&pieces.manifest_components)?;
+    let mut components = read_manifest_components(&pieces.manifest_components)?;
+    // Day.toml [[shortcuts]] rides the same overlay: an <activity> fragment the manifest
+    // merger folds into the launcher activity by name (docs/deep-links.md, "Shortcuts are
+    // saved deep links").
+    if let Some(frag) = crate::shortcuts::android_manifest_fragment(project) {
+        components.push(frag);
+    }
     if entries.is_empty() && components.is_empty() {
         let _ = std::fs::remove_file(&overlay);
     } else {
@@ -517,7 +523,8 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
         // that installs and never delivers.
         if entries.is_empty() {
             eprintln!(
-                "day: a dependency contributes Android manifest components but no permissions. \
+                "day: a dependency or Day.toml [[shortcuts]] contributes Android manifest \
+                 components but no permissions. \
                  If this app's platform/android/app/build.gradle.kts still reads \
                  `if (piecePermissions.isNotEmpty() && pieceManifest.exists())`, change it to \
                  `if (pieceManifest.exists())` or the components will not be merged."

@@ -758,6 +758,7 @@ pub fn run() -> i32 {
         Cmd::XcodeBackend { action } => match action.as_str() {
             "build" => crate::mobile::xcode_backend_build(),
             "stage-resources" => crate::mobile::xcode_backend_stage_resources(),
+            "stage-strings" => crate::mobile::xcode_backend_stage_strings(),
             other => {
                 eprintln!("day xcode-backend: unknown action {other:?}");
                 2

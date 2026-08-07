@@ -367,6 +367,35 @@ pub fn xcode_backend_stage_resources() -> i32 {
     0
 }
 
+/// `day xcode-backend stage-strings` — the scaffold's `Stage Day Strings` script phase:
+/// per-locale `InfoPlist.strings` for the `[[shortcuts]]` titles, written into the built
+/// bundle before code signing seals it (docs/deep-links.md).
+pub fn xcode_backend_stage_strings() -> i32 {
+    let get = |k: &str| std::env::var(k).ok();
+    let (Some(tbd), Some(res)) = (
+        get("TARGET_BUILD_DIR"),
+        get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
+    ) else {
+        eprintln!("day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)");
+        return 2;
+    };
+    let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
+    // platform/ios/ → project root two levels up.
+    let project = match find_project(Some(&project_dir.join("../.."))) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("day xcode-backend: {e}");
+            return 2;
+        }
+    };
+    let bundle = PathBuf::from(tbd).join(res);
+    if let Err(e) = crate::shortcuts::stage_ios_strings(&project, &bundle) {
+        eprintln!("day xcode-backend: stage-strings: {e}");
+        return 4;
+    }
+    0
+}
+
 /// Recursive copy (dirs created as needed) — the resource trees are small and flat-ish.
 fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {e}", dst.display()))?;
@@ -511,16 +540,20 @@ pub fn build_macos_xcode(
 /// `write_ios_pieces`), and day-uikit ALSO registers them with CoreText at launch, so a plist
 /// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
 /// build — idempotent, so a committed plist only changes when `fonts/` changes.
-pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
-    // The scaffold's app target is Runner/ (older scaffolds used DayApp/).
-    let plist = [
+/// The committed iOS Info.plist — the scaffold's app target is Runner/ (older scaffolds used
+/// DayApp/). `None` when the app ships no iOS platform dir.
+pub(crate) fn ios_info_plist(project: &Project) -> Option<PathBuf> {
+    [
         "platform/ios/Runner/Info.plist",
         "platform/ios/DayApp/Info.plist",
     ]
     .iter()
     .map(|rel| project.root.join(rel))
-    .find(|p| p.exists());
-    let Some(plist) = plist else {
+    .find(|p| p.exists())
+}
+
+pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
+    let Some(plist) = ios_info_plist(project) else {
         return Ok(());
     };
     let fonts = crate::resources::scan_fonts(project)?;
@@ -696,6 +729,13 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
     sync_usage_descriptions(project, false)?;
+    // Day.toml [[shortcuts]] → UIApplicationShortcutItems, through the same plist editor as
+    // the keys above; localized titles are staged into the bundle by the `stage-strings`
+    // script phase, which older scaffolds get injected here.
+    if let Some(plist) = ios_info_plist(project) {
+        crate::shortcuts::sync_ios(project, &plist)?;
+    }
+    crate::shortcuts::ensure_ios_strings_phase(project)?;
     if let Some(f) = &floor {
         status(
             "Raising",

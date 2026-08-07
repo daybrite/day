@@ -68,6 +68,7 @@
 				DA0000000000000000000041 /* Sources */,
 				DA0000000000000000000042 /* Frameworks */,
 				DA0000000000000000000043 /* Resources */,
+				DA0000000000000000000044 /* Stage Day Strings */,
 			);
 			buildRules = (
 			);
@@ -137,6 +138,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${DAY_BIN:-day}\" xcode-backend build\n";
+		};
+		DA0000000000000000000044 /* Stage Day Strings */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Stage Day Strings";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${DAY_BIN:-day}\" xcode-backend stage-strings\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

@@ -219,6 +219,13 @@ pub fn build(
     if let Err(e) = crate::resources::stage(project, target) {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
+    // Day.toml [[shortcuts]] → staged Android shortcut resources, AFTER the image stage that
+    // wipes the res tree (docs/deep-links.md "Shortcuts are saved deep links"). Unlike the
+    // best-effort staging above, a failure here is a config error (a missing translation, a
+    // manifest with no scheme), so it fails the build.
+    if target.toolkit == "mdc" {
+        crate::shortcuts::sync_android(project)?;
+    }
     // macos-appkit through the Xcode host project when the app carries one (§17.4,
     // platform/macos/): a real bundle with identity, icon, and staged resources — the same
     // build a developer gets pressing Run in Xcode. `DAY_MACOS_XCODE=0` opts back into the

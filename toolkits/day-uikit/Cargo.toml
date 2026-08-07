@@ -27,6 +27,8 @@ objc2-quartz-core = { version = "0.3", features = ["CADisplayLink"] }
 objc2-ui-kit = { version = "0.3", features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UIScene", "UIWindowScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions",
+    # Deep-link + launcher-shortcut intake at the scene delegate (docs/deep-links.md).
+    "UIApplicationShortcutItem", "UIOpenURLContext", "block2",
     "UIButtonConfiguration", "UIBackgroundConfiguration",
     "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch", "UISlider", "UIColor",
     "UIAlertController",

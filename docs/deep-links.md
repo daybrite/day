@@ -60,8 +60,15 @@ However a link arrives, the behavior inside the app is the same:
 
 ### iOS — Shipped, two concerns
 
-Intake is `application:openURL:options:` in day-uikit; cold and warm both arrive there and
-follow the contract. Concerns:
+Under the scene lifecycle the app runs, URLs arrive at the scene delegate, and that is where
+day-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
+`shortcutItem`), warm from `scene:openURLContexts:` (and
+`windowScene:performActionForShortcutItem:`), every arm one call into
+`day_core::request_route`. The app-delegate `application:openURL:options:` intake remains for
+the pre-scene path. One lesson is encoded in the code rather than repeated: `URLContexts` is
+declared non-null but a plain launch returns nil, so the cold arm reads it through a
+nullable send — the strict binding panicked on every ordinary launch until the dayscript
+walkthrough caught it. Concerns:
 
 1. **Scheme exclusivity does not exist.** If two installed apps claim one scheme, iOS picks
    one, silently. The fix at the platform level is Universal Links (below).
@@ -88,7 +95,9 @@ Concerns:
 The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
 one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
 warm `onNewWant` one to the shim's `deepLink(uri)`, which lands in `day_core::request_route`
-— buffered until the first mount, applied on the UI thread after it. Verified on the Oniro
+— buffered until the first mount, applied on the UI thread after it. A want with no URI
+carries `want.uri` as an EMPTY string, not undefined, so the ability also reads the
+`parameters["day.uri"]` fallback a `[[shortcuts]]` want uses through `||`, never `??`. Verified on the Oniro
 emulator with `aa start -U "<scheme>://<route>"`, cold and warm. One concern: `aa start -U`
 is also the only local delivery tool — there is no system browser in the emulator image to
 exercise link-from-a-page flows.
@@ -144,12 +153,59 @@ Windows must build it (above). The contract in all three cases is the same: the 
 invocation hands its URL to the running instance and exits; the running instance treats it as
 a warm link. day should own this in the platform layer so apps never see two processes.
 
-## Shortcuts are saved deep links
+## Shortcuts are saved deep links — Shipped (ios / android / harmony)
 
-The persistent icon-menu surfaces (jump lists, home-screen quick actions, `.desktop` actions —
-docs/menus.md "Future surfaces") each hold a label, an icon, and a URL of exactly this form.
-They add no new delivery machinery; they are declarations that emit these URLs. That is why
-this spec comes first.
+The persistent icon-menu surfaces (home-screen quick actions, launcher shortcuts, jump lists,
+`.desktop` actions — docs/menus.md "Future surfaces") each hold a label and a URL of exactly
+this form. They add no new delivery machinery; they are declarations that emit these URLs
+into the intake above.
+
+Declared in Day.toml, in display order:
+
+```toml
+[[shortcuts]]
+route = "menus"        # the route the shortcut opens; query params allowed
+label = "nav_menus"    # a Fluent message id from resource/locales/
+```
+
+`day build` resolves each label in **every** locale (a missing translation, a multi-line
+message, or a placeable is a build error — the native launcher renders the conveyed string
+with no formatter behind it) and writes the platform's native declaration:
+
+- **Android** — nothing is committed: `res/xml/day_shortcuts.xml` plus per-locale string
+  resources are staged into `build/day/android/res` (already a scaffold res srcDir), and the
+  `<meta-data android:name="android.app.shortcuts">` rides the day-pieces overlay manifest,
+  merged into the launcher activity by name. The shortcut intent is VIEW + the URL, so
+  activation IS the shipped intent-filter intake. Verified on the emulator: the shortcut
+  service parses both demo shortcuts with locale-resolved labels (`dumpsys shortcut`), and
+  the declared intent cold-launches onto the right page.
+- **iOS** — `UIApplicationShortcutItems` is written into the committed `Info.plist` (the same
+  managed-key editor as the permission strings), titled with the default-locale text; the
+  scaffold's `Stage Day Strings` script phase (`day xcode-backend stage-strings`, injected
+  into pre-existing scaffolds on first use) stages `<locale>.lproj/InfoPlist.strings` into
+  the built bundle, keyed by that default text so an unlocalized device falls back to
+  readable English. A quick action's type string is the URL itself; the scene delegate feeds
+  it — warm via `performActionForShortcutItem`, cold via the connection options — into
+  `day_core::request_route`. Conveyance is verified in the built bundle; the tap itself
+  cannot be automated on a simulator (no touch injection, and `simctl openurl` sits behind a
+  confirmation dialog), so OS-delivered activation rides on the same rail the walkthrough
+  and the other platforms prove.
+- **HarmonyOS** — a generated `$profile:shortcuts_config` plus an `ohos.ability.shortcuts`
+  metadata entry on the ability, labels merged into each locale's `string.json`
+  (`day_shortcut_` prefix is the ownership marker, `base/` carries the default locale). The
+  want carries the URL in `parameters["day.uri"]`; EntryAbility forwards it through the same
+  `deepLink` call a `uris` launch uses. Verified cold and warm on the Oniro emulator with
+  the exact want the profile declares (`aa start … --ps day.uri <url>`); the emulator's
+  stock launcher renders no shortcut panel for ANY app, so the panel UI itself needs real
+  hardware.
+- **macOS / Windows / Linux** — not yet: their surfaces (dock menu, jump list, `.desktop`
+  Actions) stay gated on the missing intake above. Declaring `[[shortcuts]]` today conveys
+  nothing there and breaks nothing.
+
+Limits worth knowing: launchers show at most about four entries (`day lint` warns past
+four); per-shortcut icons are not conveyed yet (the platforms render their default glyph);
+and on OpenHarmony `want.uri` arrives as an empty string on non-URI launches, which is why
+the ability checks `want.uri || parameters["day.uri"]`, not `??`.
 
 ## Testing — Shipped pieces, plus a dayscript plan
 
@@ -157,7 +213,11 @@ What works today: the dayscript step below on every backend; `DAY_DEEPLINK=route
 launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
 `adb shell am start -a android.intent.action.VIEW -d <url>`, and
 `hdc shell aa start -U <url>` for real OS delivery on the mobile targets; on web-dom the URL
-hash is the whole story and Playwright drives it.
+hash is the whole story and Playwright drives it. A HarmonyOS launcher-shortcut tap is
+simulated exactly by `aa start -b <bundle> -a EntryAbility --ps day.uri <url>` — the same
+want the generated profile declares. On an iOS 16/17 simulator `simctl openurl` sits behind
+an "Open in …?" confirmation SpringBoard shows headlessly, so automated openurl runs need a
+tap the simulator cannot inject; a device, or an XCUITest runner, gets past it.
 
 **`deep_link: { url: "scheme://route?x=1" }` — Shipped.** An in-process step: the URL maps to
 its route through the same `day_spec::route_of_url` every platform intake uses, then

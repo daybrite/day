@@ -42,6 +42,9 @@ button("Back").enabled(move || history).action(move || back.notify());
 `.back()`, `.forward()` and `.stop()` are no-ops below `Native`, so a button left enabled there is one
 that does nothing when pressed.
 
+Evaluating JavaScript and reading a value back is designed but not implemented — see
+[webview-eval.md](./webview-eval.md) for the per-platform research and the plan.
+
 ## Per-backend native realization
 
 | | AppKit | UIKit | Qt | Android | GTK | XAML |

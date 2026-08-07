@@ -502,7 +502,29 @@ fn write_ohos_reason_strings(
     if !path.exists() {
         return Ok(());
     }
-    let before = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    merge_day_strings(&path, "day_perm_reason_", reasons)
+}
+
+/// Merge day-owned entries into a `string.json`, preserving every other entry in its existing
+/// order. The `prefix` IS the ownership marker: an entry whose source declaration was removed
+/// disappears with no state file to consult. Creates the file (scaffold layout) when it doesn't
+/// exist and there is something to write.
+fn merge_day_strings(
+    path: &std::path::Path,
+    prefix: &str,
+    entries: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    let before = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) if entries.is_empty() => return Ok(()),
+        Err(_) => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+            }
+            "{ \"string\": [\n] }\n".to_string()
+        }
+    };
     let doc: serde_json::Value =
         serde_json::from_str(&before).map_err(|e| format!("{}: {e}", path.display()))?;
     let existing = doc
@@ -518,13 +540,11 @@ fn write_ohos_reason_strings(
         ) else {
             continue;
         };
-        // The prefix IS the ownership marker: a reason whose permission was removed disappears with
-        // no state file to consult.
-        if !name.starts_with("day_perm_reason_") {
+        if !name.starts_with(prefix) {
             kept.push((name.to_string(), value.to_string()));
         }
     }
-    for (k, v) in reasons {
+    for (k, v) in entries {
         kept.push((k.clone(), v.clone()));
     }
 
@@ -541,7 +561,118 @@ fn write_ohos_reason_strings(
     }
     out.push_str("] }\n");
     if out != before {
-        std::fs::write(&path, out).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Day.toml `[[shortcuts]]` → the module's launcher-shortcut declaration: the
+/// `$profile:shortcuts_config` JSON, an `ohos.ability.shortcuts` metadata entry on the main
+/// ability, and `day_shortcut_*` label strings merged into each locale's `string.json`
+/// (docs/deep-links.md "Shortcuts are saved deep links"). Each shortcut's want carries the
+/// deep link in `parameters["day.uri"]`; EntryAbility forwards it through the same `deepLink`
+/// call a `uris`-skill launch uses.
+fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
+    let module = harmony_dir(project).join("entry/src/main/module.json5");
+    if !module.exists() {
+        return Ok(());
+    }
+    let resources = harmony_dir(project).join("entry/src/main/resources");
+    let profile = resources.join("base/profile/shortcuts_config.json");
+    let shortcuts = crate::shortcuts::resolved(project)?;
+    if shortcuts.is_empty() {
+        // Keep an existing metadata reference valid, drop the owned strings everywhere.
+        if profile.exists() {
+            let empty = crate::shortcuts::harmony_shortcuts_config(&[], None, "", "", "");
+            std::fs::write(&profile, empty).map_err(|e| format!("{}: {e}", profile.display()))?;
+            if let Ok(rd) = std::fs::read_dir(&resources) {
+                for entry in rd.flatten() {
+                    let strings = entry.path().join("element/string.json");
+                    if strings.exists() {
+                        merge_day_strings(
+                            &strings,
+                            "day_shortcut_",
+                            &std::collections::BTreeMap::new(),
+                        )?;
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let text =
+        std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+    if !text.contains("\"name\": \"EntryAbility\"") {
+        return Err(format!(
+            "{}: no EntryAbility to attach [[shortcuts]] to",
+            module.display()
+        ));
+    }
+    // The scheme the `uris` skill registered — read from the module so conveyance can't drift
+    // from registration. Absent (no deep-link skill): the want carries the bare route, which
+    // `route_of_url` passes through unchanged.
+    let scheme = text
+        .split("\"scheme\": \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .map(String::from);
+    let module_name = text
+        .split("\"name\": \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or("entry")
+        .to_string();
+    let bundle = project.manifest.resolve("harmony-arkui").id;
+
+    let config = crate::shortcuts::harmony_shortcuts_config(
+        &shortcuts,
+        scheme.as_deref(),
+        &bundle,
+        &module_name,
+        "EntryAbility",
+    );
+    if let Some(parent) = profile.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let stale = std::fs::read_to_string(&profile).ok();
+    if stale.as_deref() != Some(config.as_str()) {
+        std::fs::write(&profile, config).map_err(|e| format!("{}: {e}", profile.display()))?;
+    }
+
+    // Point the ability at the profile, once. Anchored on the ability's own "name" line; the
+    // marker string doubles as the idempotence check.
+    if !text.contains("ohos.ability.shortcuts") {
+        let anchor = text
+            .lines()
+            .find(|l| l.contains("\"name\": \"EntryAbility\""))
+            .map(str::to_string)
+            .ok_or_else(|| format!("{}: EntryAbility anchor line not found", module.display()))?;
+        let indent: String = anchor.chars().take_while(|c| c.is_whitespace()).collect();
+        let insert = format!(
+            "{anchor}\n{indent}// day: [[shortcuts]] — labels and routes live in the generated profile.\n\
+             {indent}\"metadata\": [\n\
+             {indent}  {{ \"name\": \"ohos.ability.shortcuts\", \"resource\": \"$profile:shortcuts_config\" }},\n\
+             {indent}],"
+        );
+        let after = text.replacen(&anchor, &insert, 1);
+        std::fs::write(&module, after).map_err(|e| format!("{}: {e}", module.display()))?;
+    }
+
+    // Labels per locale — `base` carries the default locale, others get their qualifier dir
+    // (created on first use; `merge_day_strings` preserves anything an app put there itself).
+    for loc in shortcuts[0].labels.keys() {
+        let mut entries = std::collections::BTreeMap::new();
+        for sc in &shortcuts {
+            let label = sc.labels.get(loc).unwrap_or(&sc.base);
+            entries.insert(sc.id.clone(), label.clone());
+        }
+        let dir = crate::shortcuts::harmony_resource_dir(loc);
+        merge_day_strings(
+            &resources.join(dir).join("element/string.json"),
+            "day_shortcut_",
+            &entries,
+        )?;
     }
     Ok(())
 }
@@ -696,6 +827,10 @@ pub fn build_ohos(
     //     (docs/permissions.md). HarmonyOS refuses a `reason` that is not a resource reference, so
     //     both files move together or neither does.
     sync_ohos_permissions(project)?;
+
+    // 1c) Day.toml [[shortcuts]] → shortcuts_config.json profile + ability metadata + the
+    //     $string: labels per locale (docs/deep-links.md "Shortcuts are saved deep links").
+    sync_ohos_shortcuts(project)?;
 
     // 2) Assemble the .hap with hvigor (compiles the ArkTS host + packs the native libs + resources).
     //    hvigor + ohpm come from the OpenHarmony command-line-tools (on PATH); the SDK from

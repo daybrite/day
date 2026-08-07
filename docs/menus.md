@@ -199,13 +199,16 @@ does not drive yet, which differ per platform far more in ATTACHMENT than in mod
   which is the real design gap.
 - **iOS/Android/HarmonyOS launcher shortcuts** (`UIApplicationShortcutItem`, `<shortcuts>`,
   ArkTS wants) — the same persist-while-closed model as jump lists, plus per-platform icon
-  vocabularies and hard entry-count caps (≈4).
+  vocabularies and hard entry-count caps (≈4). **Shipped, 2026-08**: these three are exactly
+  what Day.toml `[[shortcuts]]` drives — route-keyed saved deep links with build-time Fluent
+  labels (docs/deep-links.md "Shortcuts are saved deep links").
 
 So a future `app_dock_menu(vec![MenuEntry])` costs one delegate hook on macOS and nothing
-new in the model, while the persistent surfaces (jump lists, launcher shortcuts) need one
-new concept first: durable action identities that survive a relaunch — the natural key is
-the day ROUTE rather than a closure id, which also matches what those surfaces mostly do
-(deep-link into a screen). That is the design line to draw when they land.
+new in the model. The durable-identity question the persistent surfaces posed was settled
+by `[[shortcuts]]`: the key IS the day route, carried as a deep link, and the mobile trio
+ships on it. The dock menu (macOS) and jump lists / `.desktop` Actions (Windows / Linux)
+remain future work — the latter two are gated on their platforms' deep-link intake
+(docs/deep-links.md), which is also the delivery they would use.
 
 ## Runtime language changes: `app_menu_reactive`
 

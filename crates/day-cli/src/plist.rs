@@ -286,6 +286,73 @@ pub fn apply_array_key(text: &str, key: &str, values: Option<&[String]>) -> Resu
     }
 }
 
+/// Set (or remove, with `None`) a top-level array of flat string dicts —
+/// `UIApplicationShortcutItems`. Same placement rules as [`apply_array_key`], and the same
+/// single-writer rationale: every managed Info.plist key goes through this editor so their
+/// relative order never churns.
+pub fn apply_dict_array_key(
+    text: &str,
+    key: &str,
+    dicts: Option<&[Vec<(String, String)>]>,
+) -> Result<String, String> {
+    if !text.trim_start().starts_with("<?xml") {
+        return Err("Info.plist is not XML".to_string());
+    }
+    let entry = scan(text).into_iter().find(|(k, ..)| k == key);
+
+    match (entry, dicts) {
+        // Replace in place, preserving position.
+        (Some((_, _, start, end)), Some(d)) => {
+            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let indent = indent_of(text, start);
+            let mut out = String::with_capacity(text.len() + 256);
+            out.push_str(&text[..line_start]);
+            out.push_str(&dict_array_xml(key, d, &indent));
+            out.push_str(&text[skip_to_next_line(text, end)..]);
+            Ok(out)
+        }
+        // Remove.
+        (Some((_, _, start, end)), None) => {
+            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let mut out = String::with_capacity(text.len());
+            out.push_str(&text[..line_start]);
+            out.push_str(&text[skip_to_next_line(text, end)..]);
+            Ok(out)
+        }
+        // Insert before the root dict's close.
+        (None, Some(d)) => {
+            let anchor = text
+                .rfind("</dict>")
+                .ok_or_else(|| "Info.plist has no closing </dict>".to_string())?;
+            let indent = indent_of(text, anchor) + "\t";
+            let line_start = text[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let mut out = String::with_capacity(text.len() + 256);
+            out.push_str(&text[..line_start]);
+            out.push_str(&dict_array_xml(key, d, &indent));
+            out.push_str(&text[line_start..]);
+            Ok(out)
+        }
+        (None, None) => Ok(text.to_string()),
+    }
+}
+
+fn dict_array_xml(key: &str, dicts: &[Vec<(String, String)>], indent: &str) -> String {
+    let mut s = format!("{indent}<key>{}</key>\n{indent}<array>\n", escape(key));
+    for pairs in dicts {
+        s.push_str(&format!("{indent}\t<dict>\n"));
+        for (k, v) in pairs {
+            s.push_str(&format!(
+                "{indent}\t\t<key>{}</key>\n{indent}\t\t<string>{}</string>\n",
+                escape(k),
+                escape(v)
+            ));
+        }
+        s.push_str(&format!("{indent}\t</dict>\n"));
+    }
+    s.push_str(&format!("{indent}</array>\n"));
+    s
+}
+
 fn array_xml(key: &str, values: &[String], indent: &str) -> String {
     let mut s = format!("{indent}<key>{}</key>\n{indent}<array>\n", escape(key));
     for v in values {
@@ -498,5 +565,34 @@ mod tests {
     fn refuses_a_file_it_does_not_understand() {
         assert!(apply_string_keys("bplist00\u{0}", &BTreeMap::new(), &BTreeSet::new()).is_err());
         assert!(apply_string_keys("{\"a\": 1}", &BTreeMap::new(), &BTreeSet::new()).is_err());
+    }
+
+    #[test]
+    fn dict_array_inserts_replaces_and_removes() {
+        let items = vec![vec![
+            (
+                "UIApplicationShortcutItemType".to_string(),
+                "app://menus".to_string(),
+            ),
+            (
+                "UIApplicationShortcutItemTitle".to_string(),
+                "Menus & dialogs".to_string(),
+            ),
+        ]];
+        let once = apply_dict_array_key(SHOWCASE, "UIApplicationShortcutItems", Some(&items))
+            .expect("insert");
+        assert!(once.contains("<key>UIApplicationShortcutItems</key>"));
+        assert!(once.contains("<string>Menus &amp; dialogs</string>"));
+        // Everything else survived untouched.
+        assert!(once.contains("<key>CFBundleURLName</key>"));
+
+        let twice = apply_dict_array_key(&once, "UIApplicationShortcutItems", Some(&items))
+            .expect("replace");
+        assert_eq!(once, twice, "re-applying the same items must be a no-op");
+
+        let gone =
+            apply_dict_array_key(&twice, "UIApplicationShortcutItems", None).expect("remove");
+        assert!(!gone.contains("UIApplicationShortcutItems"));
+        assert!(gone.contains("<key>CFBundleURLName</key>"));
     }
 }
