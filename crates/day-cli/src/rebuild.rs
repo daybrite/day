@@ -1018,7 +1018,24 @@ fn normalize(path: &Path) -> Result<(), String> {
     // leaves everything that determines behaviour. `day build` also passes `-oso_prefix` to shrink
     // these to project-relative paths at link time (mobile.rs), but it cannot reach the objects a
     // SwiftPM package prelinks with `ld -r`, and this check must not depend on that.
-    let _ = Command::new("strip").arg("-S").arg(path).output();
+    //
+    // Its result is CHECKED, not discarded: `strip` refuses a binary whose signature the edit
+    // would invalidate, and a silent refusal leaves the debug map in place, so the comparison
+    // fails with "differs after normalization" and no hint that normalization is what broke.
+    let stripped = Command::new("strip").arg("-S").arg(path).output();
+    match stripped {
+        Ok(o) if !o.status.success() => {
+            return Err(format!(
+                "`strip -S {}` failed ({}), so the debug map could not be removed and the \
+                 comparison would report a difference that is not in the code: {}",
+                path.display(),
+                o.status,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ));
+        }
+        Err(e) => return Err(format!("running `strip` on {}: {e}", path.display())),
+        Ok(_) => {}
+    }
     let mut buf = std::fs::read(path).map_err(|e| e.to_string())?;
     if zero_macho_uuid(&mut buf) > 0 {
         std::fs::write(path, &buf).map_err(|e| e.to_string())?;

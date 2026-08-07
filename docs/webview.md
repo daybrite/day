@@ -29,6 +29,19 @@ reports the current URL back into the bound signal, so a bound `text_field` foll
 implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via `Decorate`. It's a growing leaf
 (`Flex { grow_w, grow_h }`), so put it last in a `column` and it fills the remaining space.
 
+`day_piece_webview::support()` reports what the running backend realizes. `Native` is an embedded
+browser engine with the full command set. `Emulated` loads pages but cannot drive history or report
+navigation back — web-dom's `<iframe>`, see the note below. `Unsupported` renders day's placeholder
+leaf (macos-gtk and windows-gtk, which have no WebKitGTK). Gate history controls on it:
+
+```rust
+let history = support() == Support::Native;
+button("Back").enabled(move || history).action(move || back.notify());
+```
+
+`.back()`, `.forward()` and `.stop()` are no-ops below `Native`, so a button left enabled there is one
+that does nothing when pressed.
+
 ## Per-backend native realization
 
 | | AppKit | UIKit | Qt | Android | GTK | XAML |
@@ -55,6 +68,22 @@ gallery.
   run it**: its `ArkWebCore.hap` carries arm64-only native libs (`bm install` answers "the Abi type
   supported by the device does not match"), so the engine loads as null and the component's surface
   wedges the window's compositor; the walkthrough skips this page there (docs/harmonyos.md).
+- **web-dom**: an `<iframe>` — the one backend with no engine to embed, because the host page already
+  is one. `Load` and `Reload` work. `Back`, `Forward` and `Stop` are no-ops, and navigation does not
+  report back into the bound signal, because the same-origin policy forbids a parent document from
+  reading or driving a cross-origin child: `contentWindow.history.back()` and
+  `contentWindow.location.href` both throw `SecurityError`. Driving the **top-level** history instead
+  would be worse than doing nothing — day's web router owns that stack (`pushState` on hash routes), so
+  a back press would navigate the app off the page hosting the frame.
+
+  Same-origin content has none of these limits, but a piece cannot know the origin before loading and
+  the failure is silent when it guesses wrong, so the arm reports `Support::Emulated` and behaves
+  identically either way rather than working only sometimes. `Reload` re-assigns the last URL day set,
+  not wherever the frame has since navigated to, and the arm keeps that URL itself because day-dom is
+  write-only (`set_attr` with no getter). No `sandbox` attribute is set: present-but-empty is
+  deny-everything, which breaks scripts and forms on essentially every real site. A site that refuses
+  embedding (`X-Frame-Options`, CSP `frame-ancestors`) renders blank and the parent cannot detect it —
+  the load event fires either way, so no arm of this piece can report it.
 - **XAML**: **WebView2**, hosted windowless. The obvious choice — the UWP-XAML
   `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), already in the base SDK projection day-xaml uses —
   does not work in Day's Win32 XAML-Islands host: it renders blank, never raises

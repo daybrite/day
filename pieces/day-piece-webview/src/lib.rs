@@ -49,6 +49,10 @@ pub struct WebView {
 /// `web_view(url)` — a native web view showing `url`. The initial value loads on creation; call
 /// `.go(trigger)` and fire the trigger to (re)load whatever `url` currently holds.
 pub fn web_view(url: Signal<String>) -> WebView {
+    // Self-register the web renderer. wasm has no link-time renderer slice, and a constructor is
+    // the earliest point the piece is known to be in play — always before its node is realized.
+    #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+    dom_impl::register();
     WebView {
         url,
         go: None,
@@ -84,6 +88,35 @@ impl WebView {
     pub fn reload(mut self, trigger: Trigger) -> Self {
         self.reload = Some(trigger);
         self
+    }
+}
+
+/// What this backend realizes. `Native` is a real embedded browser engine with the full command
+/// set; `Emulated` loads pages but cannot drive history or report navigation back (web-dom's
+/// `<iframe>`, see docs/webview.md); `Unsupported` renders day's placeholder leaf.
+///
+/// Gate history controls on this: `.back()`, `.forward()` and `.stop()` are no-ops below `Native`,
+/// so an app should disable those buttons rather than offer ones that do nothing.
+pub fn support() -> day_spec::Support {
+    // WebKitGTK 6 ships as a package only on Linux, so the gtk arm is compiled out on macos-gtk and
+    // windows-gtk and those two combos realize the placeholder (Cargo.toml scopes `webkit6` to
+    // match). Checked first: the `gtk` feature is on for all three.
+    if cfg!(all(feature = "gtk", any(target_os = "macos", windows))) {
+        day_spec::Support::Unsupported
+    } else if cfg!(all(feature = "dom", target_arch = "wasm32")) {
+        day_spec::Support::Emulated
+    } else if cfg!(any(
+        all(feature = "appkit", target_os = "macos"),
+        all(feature = "uikit", target_os = "ios"),
+        all(feature = "mdc", target_os = "android"),
+        all(feature = "gtk", not(target_os = "macos"), not(windows)),
+        feature = "qt",
+        all(feature = "xaml", windows),
+        all(feature = "arkui", target_env = "ohos"),
+    )) {
+        day_spec::Support::Native
+    } else {
+        day_spec::Support::Unsupported
     }
 }
 
@@ -156,7 +189,7 @@ impl Piece for WebView {
 // files grouped next to lib.rs.
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, qt, uikit, mdc, xaml, arkui);
+day_pieces::glue_modules!(appkit, qt, uikit, mdc, xaml, arkui, dom);
 
 // GTK web view is Linux only — WebKitGTK 6 (webkit6) isn't viable on macOS and has no MSYS2 package
 // on Windows, so both fall back to Day's placeholder leaf (see Cargo.toml's webkit6 target gate).

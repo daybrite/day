@@ -52,7 +52,7 @@ and one arm (`day-piece-webview` on GTK) is further limited to Linux hosts.
 | `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-swiftui` | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
-| `day-piece-webview` | `day.piece.webview` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `day-piece-webview` | `day.piece.webview` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## Capabilities
 

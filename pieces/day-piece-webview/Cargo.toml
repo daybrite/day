@@ -31,12 +31,16 @@ xaml = ["dep:day-xaml", "dep:day-xaml-sys"]     # + build.rs compiles src/lib-xa
 # The ArkUI C node API has no Web node, so this backend is the crate's ArkTS half
 # (ohos/ets/Index.ets) staged by `day build` — no extra Rust dependency beyond the toolkit.
 arkui = ["dep:day-arkui"]        # + [package.metadata.day.ohos]
+# Web: an <iframe>. Registered at RUNTIME rather than link-time — wasm has no `linkme` distributed
+# slice (see lib-dom.rs), so the piece registers itself from its constructor. The same-origin policy
+# makes history and URL readback unreachable, so this arm is Emulated, not Native (docs/webview.md).
+dom = ["dep:day-dom"]
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -52,6 +56,7 @@ day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
+day-dom = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
