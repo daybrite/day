@@ -1705,14 +1705,14 @@ void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tab
         // NumeralAlignment, not as a font swap, so the face is untouched and only the digits
         // change metrics. Tabular == every digit on the same advance.
         //
-        // FontNumeralAlignment sits in Windows.UI.Text alongside the other font primitives
-        // (FontStyle just above), NOT in Windows.UI.Xaml — Typography is the XAML-side attached
-        // property, but the value it takes is not. Naming the Xaml namespace here compiles to a
-        // cascade rather than a clear error: the enum expression fails first, so the two-argument
-        // setter is then reported as "does not take 1 arguments".
+        // FontNumeralAlignment sits in Windows.UI.Xaml, NOT in Windows.UI.Text beside the other
+        // font primitives (FontStyle just above) — the typography enums are the XAML-side half of
+        // the pair, matching the Typography attached property that consumes them. Naming the Text
+        // namespace here compiles to a cascade rather than a clear error: the enum expression
+        // fails first, so the two-argument setter is then reported as "does not take 1 arguments".
         WUXD::Typography::SetNumeralAlignment(
-            tb, tabular ? WUI::Text::FontNumeralAlignment::Tabular
-                        : WUI::Text::FontNumeralAlignment::Normal);
+            tb, tabular ? WUX::FontNumeralAlignment::Tabular
+                        : WUX::FontNumeralAlignment::Normal);
     }
 }
 // Bundled custom font (§18.4): `spec` is a FontFamily source string of the form
