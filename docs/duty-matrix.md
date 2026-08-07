@@ -46,6 +46,7 @@ implement them, and this table proves it.
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
 | `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | · |
 | `set_appearance` | · | ✓ | ✓ | ✓ | · | · | · | · | ✓ | · |
+| `set_app_badge` | · | ✓ | ✓ | · | · | · | · | · | ✓ | · |
 | `on_suspend` | · | · | · | · | · | · | · | · | · | ✓ |
 | `on_resume` | · | · | · | · | · | · | · | · | · | ✓ |
 | `on_memory_warning` | · | · | · | · | · | · | · | · | · | ✓ |

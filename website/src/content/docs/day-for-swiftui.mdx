@@ -16,7 +16,9 @@ each).
 
 SwiftUI also describes your UI to Apple's frameworks, which own the result; Day is open source
 all the way down. When a control misbehaves on some platform, the renderer that placed it is
-code you can read and patch.
+code you can read and patch. And a move to Day doesn't have to be a rewrite: on Apple targets,
+Day [embeds your existing SwiftUI views](#bringing-swiftui-views-with-you) alongside Day-native
+pages.
 
 ## SwiftUI terms in Day
 
@@ -32,7 +34,7 @@ code you can read and patch.
 | `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
 | `NavigationSplitView` | `selector(…).style(SelectorStyle::Sidebar)` |
 | `NavigationStack(path:)` | `stack(path, root)` — same idea, a path signal |
-| `.environment` / `@Environment` | `with_environment` / `use_context` |
+| `.environment` / `@Environment` | `with_environment` / `environment::<T>()` |
 | `Task { }` + `@MainActor` | `day::task` — continuations land on the UI thread |
 | String Catalogs (`.xcstrings`) | Fluent `.ftl` + generated `res::str` functions |
 | asset catalogs | the `resource/` directory, staged per platform |
@@ -115,7 +117,7 @@ fn settings_form() -> impl Piece {
     form((section((
         text_field(name).placeholder("Your name"),
         slider(volume).range(0.0..=100.0),
-        toggle(subscribed),
+        labeled("Subscribe", toggle(subscribed)),
     ))
     .title("Profile"),))
 }
@@ -244,6 +246,41 @@ colors) don't have a Day equivalent yet. Native widget chrome follows the system
 its own, but hardcoded custom colors are yours to switch per appearance for now.
 [Styling](/docs/styling) lists what you can and can't restyle.
 
+## Bringing SwiftUI views with you
+
+You don't have to port every view. On `macos-appkit` and `ios-uikit`, Day embeds your own
+SwiftUI: keep the views in an ordinary local SwiftPM package of `public` `View` structs
+(testable with `swift test`, with their own SwiftPM dependencies), declare the package once in
+`Cargo.toml`, and `day build` compiles it into the app, wrapping each exported view in an
+`NSHostingView` / `UIHostingController`. `build.rs` generates a typed Rust constructor per
+view:
+
+```toml
+# Cargo.toml
+[package.metadata.day.macos]
+swift-packages = [{ path = "swiftui", products = ["MyViews"] }]
+```
+
+```rust
+// generated from `public struct AlbumChart: View { public init(albumId: Int, zoom: Double) }`
+crate::swiftui::AlbumChart(album_id, zoom)
+    .state_key("album-chart")     // keep the hosting view (and its @State) across unmount
+    .frame(320.0, 240.0)
+```
+
+Each argument takes a constant, a `Signal`, or a closure; a reactive argument re-invokes the
+view's initializer live, and SwiftUI reconciles that like any parent-driven update, so the
+view's `@State` survives. A renamed view or a changed parameter is a Rust compile error at the
+call site — the same contract the generated `res::str` accessors give strings. Views the scan
+can't express (delegates, `@ViewBuilder` content) go through the provider escape hatch:
+`swiftui("name")` resolves an `@objc(DayView_name)` provider class you write. The
+[SwiftUI embedding reference](/docs/internal/swiftui) covers the scanned subset, `.state_key`
+rules, and the per-platform build details.
+
+For migration this means moving incrementally: port the shell and shared pages to Day, keep the
+SwiftUI views that matter as they are on Apple targets, and give each a Day-native counterpart
+only when the other platforms need it.
+
 ## Concurrency
 
 `day::task` plays the role of `Task` with `@MainActor` semantics: the future's continuations
@@ -257,14 +294,17 @@ task-outlives-view case).
 let status = Signal::new(String::new());
 
 day::task(async move {
-    let resp = day_part_http::fetch_future(request).await?;   // suspend
-    status.set(resp.text().into_owned());                     // back on the UI thread
-    Ok::<(), day_part_http::HttpError>(())
+    match day_part_http::fetch_future(request).await {         // suspend
+        Ok(resp) => status.set(resp.text().into_owned()),      // back on the UI thread
+        Err(e) => status.set(format!("error: {e}")),
+    }
 });
 ```
 
-Dropping the future cancels the request: the same cooperative-cancellation shape as a Swift
-`Task`, tied to scope lifetime instead of `task { }` modifiers.
+Cancellation is explicit: `day::task` returns a `TaskHandle`, and `handle.abort()` drops the
+future, which cancels an in-flight platform request. Tasks are not tied to the scope that
+spawned them; scope-tied cancellation is what `Resource`, the declarative fetch wrapper, adds
+on top.
 
 ## Package configuration
 
@@ -338,7 +378,7 @@ let data = try Data(contentsOf: url)
 
 ```rust
 // resource/images/wave.png + wave@2x.png + wave@3x.png
-image("wave")
+image(res::images::wave)                 // generated constant; a typo is a compile error
 
 // resource/locales/en/app.ftl:
 //   unread_count = { $count ->
@@ -348,14 +388,15 @@ image("wave")
 label(res::str::unread_count(unread))    // generated, compile-checked
 
 // resource/assets/stations.json — zero-copy view
-let data = day::resource("stations.json")?;
+let data = day::resource(res::assets::stations_json)?;
 ```
 
 </Compare>
 
-On Apple targets, `resource/images/` is staged into a real asset catalog and compiled by
-`actool` (the same optimized `Assets.car` you'd get from Xcode), and fonts land in the bundle
-with the `UIAppFonts` plist entry written for you. Localization uses
+On iOS, `resource/images/` is staged into a real asset catalog and compiled by `actool` (the
+same optimized `Assets.car` you'd get from Xcode), and fonts land in the bundle with the
+`UIAppFonts` plist entry written for you; the macOS app is a plain cargo binary, so its images
+ship as ordinary bundle files. Localization uses
 [Mozilla Fluent](https://projectfluent.org/) instead of String Catalogs: plural rules live in
 the message, `res::str::*` accessors are generated so a bad key is a compile error, and adding
 a language is adding a `resource/locales/<lang>/` directory. The locale is a signal. Switching

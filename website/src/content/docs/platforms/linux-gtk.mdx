@@ -27,16 +27,18 @@ cd my-app
 day launch -p linux-gtk
 ```
 
-Add `libwebkitgtk-6.0-dev` if you use the web view piece. `day doctor --toolkit gtk` checks the
-whole set.
+Add `libwebkitgtk-6.0-dev` if you use the web view piece. `day doctor --toolkit gtk` probes
+GTK 4, libadwaita, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
+`linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
 
 ```sh
-day pack -p linux-gtk        # single-file .flatpak
+day pack -p linux-gtk        # single-file .flatpak AND a portable .appimage
 ```
 
-The flatpak runtime supplies GTK itself (`org.gnome.Platform`), so the bundle carries your app
-and its assets, not the toolkit. `flatpak install ./MyApp-1.0-gtk-x86_64.flatpak`
-is all a user needs.
+`day pack` produces both formats by default. The flatpak runtime supplies GTK itself
+(`org.gnome.Platform`), so that bundle carries your app and its assets, not the toolkit —
+`flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak` is all a user needs. The AppImage carries
+its own GTK: `chmod +x` and run, no package manager involved.
 
 ## Caveats and special considerations
 
@@ -81,6 +83,8 @@ is all a user needs.
 | `nav_menu` | [`GtkListBox`](https://docs.gtk.org/gtk4/class.ListBox.html) (`.navigation-sidebar`) |
 | `tabs` | [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.ViewStack.html) + linked toggle buttons |
 | `image` | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) |
+| `vector` | [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) showing the raster cache PNG (`.tint` recolors the pixels) |
+| `cover()` | emulated: a topmost window-sized child (no transition, programmatic dismissal only) |
 | `canvas` | [`GtkDrawingArea`](https://docs.gtk.org/gtk4/class.DrawingArea.html) (cairo) |
 | dialogs / alerts / prompts | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/class.AlertDialog.html) |
 | file dialogs | [`GtkFileDialog`](https://docs.gtk.org/gtk4/class.FileDialog.html) |

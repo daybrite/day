@@ -27,7 +27,7 @@ rating(stars).max(5).editable(true)
 ```
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
-`canvas`. The shipped `day-piece-rating` and `day-piece-activity` crates are composite pieces,
+`canvas`. The shipped `day-piece-rating` and `day-piece-settings` crates are composite pieces,
 and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one end to end.
 
 ## Tier 1: native pieces, a new leaf widget per toolkit
@@ -35,18 +35,24 @@ and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one en
 When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
 **native piece**: one cross-platform front end plus a renderer per toolkit you support.
 
-The front end defines the piece's identity and its props/patch protocol, and creates a leaf node:
+The front end defines the piece's identity and its props/patch protocol, and creates a leaf node
+(abridged from `pieces/day-piece-combobox`):
 
 ```rust
-const KIND: &str = "combo-box";
+pub const KIND: &str = "day.piece.combobox";
 
-pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> AnyPiece {
-    piece_fn(move |cx| {
-        let node = cx.leaf(KIND, &ComboProps { … }, Flex::default());
-        bind_seeded(…, move |items| tree.patch(node, ComboPatch::Items(items), true));
-        cx.on(node, move |ev| if let Event::TextChanged(t) = ev { … });
+/// A config struct in the usual builder shape; `impl Piece` does the wiring.
+pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox { … }
+
+impl Piece for ComboBox {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let node = cx.leaf(KIND, &ComboProps { … }, Flex { grow_w: true, ..Default::default() });
+        bind_seeded(initial_items, move || items.get(), move |v: &Vec<String>| {
+            with_tree(|t| t.patch(node, Box::new(ComboPatch::Items(v.clone())), true));
+        });
+        cx.on(node, move |ev| if let Event::TextChanged(t) = ev { /* write the signal */ });
         node
-    })
+    }
 }
 ```
 
@@ -65,6 +71,12 @@ distributed slice), so the app that depends on your crate gets your renderer wit
 configuration: no plugin manifest, no runtime discovery, and an app that *doesn't* enable your
 crate's feature for a given toolkit compiles none of it.
 
+Two companion macros round this out. `day_pieces::glue_modules!(appkit, gtk, …)` declares the
+feature-and-target-gated module index binding each `lib-<toolkit>.rs` — the one-liner every
+shipped piece uses instead of a hand-written `#[cfg]`/`#[path]` block. And web is the one
+exception to link-time registration: `linkme` has no wasm32 implementation, so a web-dom
+renderer uses `dom_renderer!` and registers at runtime from the piece's own constructor.
+
 A piece that implements some toolkits and not others renders a labeled placeholder on the rest
 (visible rather than a crash), so coverage can grow toolkit by toolkit. The
 [native piece tutorial](/docs/tutorial-native-piece) walks through all six desktop/mobile
@@ -77,34 +89,54 @@ artifact. A piece crate declares these in its Cargo metadata:
 
 ```toml
 [package.metadata.day.ios]
-swift-packages = [ … ]      # SwiftPM dependencies
+swift = ["ios/swift"]       # Swift shim sources shipped in the crate
+swift-packages = [ … ]      # SwiftPM dependencies; a local entry
+                            # ({ path = "swiftui", products = ["MyViews"] }) is scanned for
+                            # SwiftUI views and exported as typed Rust bindings
 frameworks = ["WebKit"]
+# platform = "16.0"         # minimum-OS floor (max across crates wins)
+
+[package.metadata.day.macos]   # same shape as .ios, for the macos-appkit leg
+swift-packages = [ … ]
 
 [package.metadata.day.android]
-java = ["java/"]            # Java sources shipped in the crate
+java = ["android/java"]     # Java sources shipped in the crate
 gradle-dependencies = ["com.airbnb.android:lottie:6.4.0"]
 permissions = ["android.permission.INTERNET"]
+# also: res, gradle-repositories, proguard, manifest-components
+
+[package.metadata.day.ohos]
+ets = ["ohos/ets"]          # ArkTS components (HarmonyOS)
+
+[package.metadata.day.permissions]
+uses = ["camera"]           # portable permission names, mapped per platform
 ```
+
+The [extending reference](/docs/internal/extending) documents every key.
 
 At build time, `day build` resolves every piece in your app's dependency graph via
 `cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM
 package for the Xcode side, a JSON manifest the Gradle build reads for Java sources,
-dependencies, and merged permissions. Your checked-in platform scaffolds never change; only
+dependencies, and merged permissions. On macos-appkit, which has no Xcode project, the same
+aggregation produces `build/day/macos/DayPieces`, built by a `swift build` prepass and
+statically linked into the cargo binary. Your checked-in platform scaffolds never change; only
 generated, gitignored files do. (This is the same architecture Flutter uses for plugin
 registration, adapted to Cargo.)
 
-## Tier 2: polyglot pieces, native-language implementations
+## Tier 2: native-language halves
 
-The design reserves a third tier: pieces implemented in a platform's own language (Swift, Kotlin,
-C++) behind **dayffi**, a small versioned C ABI: a vtable of `make`/`update`/`measure`/
-`command`/`destroy` plus host callbacks for events and async completion. This is the tier that
-would make "wrap an arbitrary CocoaPod/AAR behind one Rust function" routine without writing any
-FFI by hand.
+The original design reserved a third tier for pieces implemented in a platform's own language
+(Swift, Kotlin, C++) behind **dayffi**, a versioned C ABI. It was never built, and it is now
+retired: none of it turned out to be needed (DESIGN.md §15.3). What shipped instead is the
+ladder above — tweaks, then composition, then Rust renderers — plus **native halves**: the
+crate ships its own Swift, Java, ArkTS, or C++ sources, declares them under
+`[package.metadata.day.<platform>]`, and its tier-1 Rust renderer adopts the views those shims
+create.
 
-Plainly: dayffi is specified in depth but not yet shipped. Today, tier 1 covers the same ground
-with hand-written Rust FFI (`objc2`, `jni`, C++ shims), which is more work per platform but fully
-supported. If your plan depends on tier 2, check the repository's current state before counting
-on it.
+For code that must be *written* in Swift, that need is covered today by
+[SwiftUI embedding](/docs/internal/swiftui): a SwiftPM package's public views become typed Rust
+constructors (`crate::swiftui::MyView(…)`) on macos-appkit and ios-uikit. The matching
+Kotlin/Compose leg is not built yet.
 
 ## Parts: capabilities without UI
 
@@ -124,7 +156,8 @@ does it render anything?
                      ├─ yes → composite piece  (works everywhere, free)
                      └─ no  → native piece     (per-toolkit renderers, placeholder elsewhere)
                                └─ implementation must live in Swift/Kotlin itself?
-                                   → dayffi tier — designed, not yet available
+                                   ├─ Swift  → SwiftUI embedding (/docs/internal/swiftui)
+                                   └─ Kotlin → Compose leg not built yet
 ```
 
 Whichever tier, the packaging story is identical: publish a crate. Consumers add one dependency

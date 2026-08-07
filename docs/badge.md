@@ -1,10 +1,18 @@
 # App icon badge (proposed)
 
-> [!WARNING]
-> **Status: proposed, not implemented.** This designs the app-icon badge — the count on the Dock
-> icon, home-screen icon, or taskbar button. Nothing here ships yet. When a phase lands, replace
-> this alert, add the `Cap` rows to docs/coverage-matrix.md, and regenerate docs/duty-matrix.md in
-> the same change.
+> [!NOTE]
+> **Status: phase 1 shipped.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`, the defaulted
+> `Toolkit::set_app_badge` duty, the `day::set_app_badge` facade, and the **AppKit, UIKit, and
+> web-dom** arms are implemented; docs/duty-matrix.md and docs/coverage-matrix.md carry the rows.
+> Every other backend inherits the default no-op and answers `Unsupported`, which is the honest
+> answer for Android (it has no API) and a to-do for Linux, Windows, and HarmonyOS.
+>
+> The Showcase's Platform services page has an "App badge" group — a stepper, Set/Clear, and a
+> macOS-only "Set text" button that appears only where `Cap::AppBadgeText` is `Native`.
+>
+> One naming decision landed differently from the plan below: the surface is `app_badge`
+> throughout (`Toolkit::set_app_badge`, `Cap::AppBadgeCount`, `day::set_app_badge`), to keep it
+> clear of `SelectorItem::badge`.
 
 ## The recommendation: a Toolkit duty, not a part
 

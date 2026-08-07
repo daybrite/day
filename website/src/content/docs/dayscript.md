@@ -43,7 +43,8 @@ day launch -p android-mdc --script dayscript/walkthrough.yaml --locale fr
 
 `day launch` builds, starts the app with the scripting engine invited, executes the steps, and
 exits nonzero if any assertion fails (exit code 5). Screenshots land under
-`build/day/screenshots/<target>/<locale>/`. Several `--script` flags run in sequence, and
+`build/day/screenshots/<target>/<subdir>/`, where the subdirectory is the `--variant` name when
+given, else the locale, else `default`. Several `--script` flags run in sequence, and
 `--locale` makes the run a localization test at the same time; assertions can reference Fluent
 keys instead of literal strings, so the same script passes in every language.
 
@@ -51,18 +52,28 @@ keys instead of literal strings, so the same script passes in every language.
 
 | Group | Steps |
 |---|---|
-| Waiting | `wait_for` (an id appears), `pause` |
-| Acting | `tap`, `input`, `set_value`, `toggle`, `select`, `focus` |
+| Waiting | `wait_for` (an id appears; `timeout_secs` raises its budget), `wait_idle`, `pause` |
+| Acting | `tap` (`repeat`), `input`, `set_value`, `toggle`, `select`, `submit`, `focus`, `scroll_to` (to an `edge`, an `x`/`y` offset, or an element to reveal), `reorder` (list row `from` → `to`) |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused`, `assert_no_placeholders` |
-| Dialogs | `assert_presented`, `respond` |
-| Evidence | `screenshot`, `a11y_audit` |
+| Window chrome | `menu` (`item`/`key`/`path`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`) |
+| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
+| Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
+| Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit` |
+| Exit | `expect_exit` (the app must terminate within `within` seconds; always the last step) |
+
+`input`, `assert_text`, and `toolbar` accept a Fluent `key` (with `args`) in place of literal
+text, resolved in the run's locale — that is what keeps one script passing in every language.
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, which
 removes the sleep-tuning that makes UI tests flaky. Acting steps synthesize Day events on the
 main thread between flushes, so they are deterministic and behave identically on every toolkit.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
+
+Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits
+(`skip_on: [web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per
+target — an `assert_no_placeholders` allow list, say. One walkthrough then covers every backend
+without forking per platform.
 
 ## How it works
 

@@ -37,11 +37,16 @@ Two optional modules enable two pieces. Both degrade gracefully rather than fail
 | `qt6-webengine-dev` (`Qt6WebEngineWidgets`) | `webview()` | a URL label; navigation calls become no-ops |
 | `qt6-multimedia-dev` (`Qt6MultimediaWidgets`) | `media()` | a URL label; play/pause become no-ops |
 
-`day doctor --toolkit qt` reports the whole set.
+`day doctor --toolkit qt` probes Qt 6 Widgets, `rcc`, and the packaging tools
+(`flatpak-builder`, `linuxdeploy`, `linuxdeploy-plugin-qt`); it does not check WebEngine or
+Multimedia.
 
 ```sh
-day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime)
+day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime) AND a portable .appimage
 ```
+
+`day pack` produces both formats by default: the flatpak resolves Qt from its runtime, the
+AppImage carries its own.
 
 If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp — about 87 MB of
 Chromium — because no runtime ships it. Apps that don't link it stay small; that check is on the
@@ -88,6 +93,7 @@ actual binary, not on a flag.
 | `nav_menu` | [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) |
 | `tabs` | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) |
 | `image` | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
+| `vector` | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG (`.tint` has no Qt arm yet — glyphs draw as authored) |
 | `canvas` | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
 | dialogs / alerts | [`QMessageBox`](https://doc.qt.io/qt-6/qmessagebox.html) |
 | prompts | [`QInputDialog`](https://doc.qt.io/qt-6/qinputdialog.html) |

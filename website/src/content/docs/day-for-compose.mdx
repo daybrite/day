@@ -20,8 +20,8 @@ annotations and `remember` bookkeeping have no equivalent because there is nothi
 
 The second is what's on screen. Compose draws its own Material widgets on a canvas (and Compose
 Multiplatform carries that renderer to other platforms). Day creates each platform's real
-widgets: Material Components views on Android, AppKit on macOS, WinUI on Windows, actual DOM
-elements on the web. Your app looks native everywhere rather than identical everywhere.
+widgets: Material Components views on Android, AppKit on macOS, system XAML on Windows, actual
+DOM elements on the web. Your app looks native everywhere rather than identical everywhere.
 [Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
 
 ## Compose terms in Day
@@ -37,7 +37,7 @@ elements on the web. Your app looks native everywhere rather than identical ever
 | `Modifier.padding(16.dp)` | `.padding(16.0)` — modifiers are builder methods |
 | `LazyColumn` | `list` — recycling rows, key required |
 | `NavHost` + `NavController` | `selector`, `stack`, and string routes |
-| `CompositionLocal` | `with_environment` / `use_context` |
+| `CompositionLocal` | `with_environment` / `environment::<T>()` |
 | `ViewModel` + `StateFlow` | structs of signals; `Setter` for background threads |
 | Gradle + version catalogs | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | `res/drawable`, `res/font` | `resource/images/`, `resource/fonts/` — staged into `res/` at build |
@@ -127,7 +127,7 @@ let subscribed = Signal::new(false);
 column((
     text_field(name).placeholder("Your name"),
     slider(volume).range(0.0..=100.0),
-    toggle(subscribed),
+    labeled("Subscribe", toggle(subscribed)),
 ))
 .spacing(12.0)
 ```
@@ -359,7 +359,8 @@ window, and permissions once; `day build` writes the manifest entries (and the i
 and the HarmonyOS profile) from it. A dependency with native platform code declares its Java
 sources, Gradle dependencies, and Maven repositories in its own crate metadata, and the host
 project reads them generically. Adding such a package to `Cargo.toml` is the whole
-integration.
+integration. On the Apple targets, Day can also embed your own SwiftUI views
+([SwiftUI embedding](/docs/internal/swiftui)).
 
 ## Resources and localization
 
@@ -379,7 +380,7 @@ Text(pluralStringResource(R.plurals.unread, n, n))
 
 ```rust
 // resource/images/wave.png + wave@2x.png …
-image("wave")
+image(res::images::wave)
 
 // resource/locales/en/app.ftl:
 //   unread = { $count ->

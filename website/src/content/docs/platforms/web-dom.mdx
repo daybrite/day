@@ -49,7 +49,8 @@ This backend is a subset. What's missing:
 
 - **Most external pieces have no web arm** and render a `⟨kind⟩` placeholder: web view, map,
   Lottie, search field, combo box, date and time pickers, activity indicator, remote image. Only
-  `media()` is implemented, as a `<video>`.
+  `media()` is implemented, as a `<video>`. Pull-to-refresh has no web arm either — its spinner
+  overlay and programmatic refresh work, but there is no pull gesture.
 - **`media()` needs a URL, not a file path**, and autoplay only starts when muted — both are
   browser policy, not Day's.
 - **No file dialogs**, no context menus, and no application menu bar. `cover()` presents as a
@@ -62,9 +63,10 @@ This backend is a subset. What's missing:
   flows through from `.a11y(...)`. But where a piece realizes as a `<div>` (label, tabs, navigation,
   the nav menu, segmented and radio pickers, the spinner), there is **no compensating ARIA role**.
   If you are shipping to an accessibility requirement, use a native target or budget for tweaks.
-- **Parts are partial.** `http`, `location`, `prefs`, `sensors` and `permissions` have browser
-  arms; battery, clipboard, device info, haptics and network do not. The magnetometer is never
-  available (no cross-browser API).
+- **Parts are partial.** `http`, `location`, `prefs`, `sensors`, `permissions`, and `fs` (backed
+  by the browser's Origin Private File System) have browser arms; battery, clipboard, device
+  info, haptics, network, and local notifications do not. The magnetometer is never available
+  (no cross-browser API).
 - **Piece registration differs.** `linkme`'s distributed slices don't compile for wasm, so web-dom
   keeps a runtime registry and a piece registers itself from its constructor. A piece needs an
   explicit `dom` feature to appear at all — see [extending](/docs/extending).
@@ -89,6 +91,7 @@ This backend is a subset. What's missing:
 | `list` | scrolling `<div>` of absolutely positioned cells |
 | `nav` / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
 | `image` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
+| `vector` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG — day-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
 | `canvas` | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
 | dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
 | *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |

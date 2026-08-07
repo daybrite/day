@@ -980,11 +980,8 @@ fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_
         .map(|ic| {
             let name = ic.as_deref()?;
             // Prefer the glyph SVG (docs/vectors.md): NSImage renders it at display size.
-            let svg = std::env::var("DAY_VECTOR_SVG_ROOT").ok().and_then(|root| {
-                let p = std::path::Path::new(&root).join(format!("{name}.svg"));
-                p.is_file().then_some(p)
-            });
-            let path = svg.or_else(|| day_spec::resource::resolve_image_file(name))?;
+            let path = day_spec::resource::resolve_vector_svg(name)
+                .or_else(|| day_spec::resource::resolve_image_file(name))?;
             use objc2::AllocAnyThread as _;
             let img = unsafe {
                 objc2_app_kit::NSImage::initWithContentsOfFile(
@@ -2115,6 +2112,27 @@ impl Toolkit for AppKit {
             .contains("Dark")
     }
 
+    /// macOS is the one platform whose badge takes arbitrary text: `NSDockTile.badgeLabel` is a
+    /// `String`, so `Text` renders literally and a count is just its decimal form. A nil label
+    /// clears it (docs/badge.md).
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        use day_spec::AppBadge;
+        let label = match badge {
+            AppBadge::None => None,
+            // Zero clears, matching the platform convention the doc states.
+            AppBadge::Count(0) => None,
+            AppBadge::Count(n) => Some(n.to_string()),
+            AppBadge::Text(t) if t.is_empty() => None,
+            AppBadge::Text(t) => Some(t.clone()),
+            // No dedicated dot on the Dock; the smallest honest mark is a single bullet.
+            AppBadge::Dot => Some("\u{2022}".to_string()),
+        };
+        let tile = NSApplication::sharedApplication(self.mtm()).dockTile();
+        let ns = label.map(|l| objc2_foundation::NSString::from_str(&l));
+        unsafe { tile.setBadgeLabel(ns.as_deref()) };
+        tile.display();
+    }
+
     fn set_appearance(&mut self, dark: Option<bool>) {
         let app = NSApplication::sharedApplication(self.mtm());
         let appearance = dark.and_then(|d| {
@@ -2148,6 +2166,11 @@ impl Toolkit for AppKit {
             | Cap::MultiWindow
             // A real NSToolbar in the title bar (docs/toolbars.md).
             | Cap::Toolbar
+            // NSDockTile.badgeLabel is an arbitrary String, so all three payloads render — the
+            // only backend where Text is real (docs/badge.md).
+            | Cap::AppBadgeCount
+            | Cap::AppBadgeText
+            | Cap::AppBadgeDot
             | Cap::Appearance => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
@@ -2619,12 +2642,8 @@ impl Toolkit for AppKit {
                 // size (macOS 11+), so vectors stay vector — no build-time raster resampling.
                 // Then the shared image-file resolver (images/ then assets/ then bundle) —
                 // macOS AppKit's native path is a bundle file loaded straight into NSImage (§18.3).
-                let svg_probe = std::env::var("DAY_VECTOR_SVG_ROOT").ok().and_then(|root| {
-                    let p = std::path::Path::new(&root).join(format!("{}.svg", p.source));
-                    p.is_file().then_some(p)
-                });
-                if let Some(path) =
-                    svg_probe.or_else(|| day_spec::resource::resolve_image_file(&p.source))
+                if let Some(path) = day_spec::resource::resolve_vector_svg(&p.source)
+                    .or_else(|| day_spec::resource::resolve_image_file(&p.source))
                 {
                     use objc2::AllocAnyThread as _;
                     if let Some(img) = unsafe {

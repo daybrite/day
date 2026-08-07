@@ -1,34 +1,51 @@
 ---
 title: Resources, images, fonts & icons
-description: "How resource/assets, resource/images, resource/fonts, and resource/icons travel from your project into each platform's native resource system — and how to read them back."
+description: "How resource/assets, images, vectors, fonts, and icons travel from your project into each platform's native resource system — and how to read them back."
 order: 24
 section: Guides
 ---
 
-A Day project keeps its resources under one conventional `resource/` directory, with four
+A Day project keeps its resources under one conventional `resource/` directory, with five
 subdirectories, each staged differently at build time:
 
 ```text
 myapp/
   resource/
     assets/    # data files: JSON, databases — anything you open as bytes
-    images/    # UI images, with @2x/@3x density variants
+    images/    # raster UI images, with @2x/@3x density variants
+    vectors/   # SVG glyphs, staged natively per backend
     fonts/     # custom fonts (.ttf/.otf), referenced by family name
-    icons/     # the app icon (and its per-platform renditions)
+    icons/     # one app-icon master; day icon generates the renditions
 ```
 
-The principle behind all four: **resources use each platform's native resource system**, not a
+The principle behind all five: **resources use each platform's native resource system**, not a
 custom archive format. On Android your images become real `res/drawable-*` entries crunched by
 aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
 Qt resource file. `day build` does the staging automatically, per target, before the platform
 build runs.
+
+## Typed names, generated at build
+
+You reference bundled resources through generated constants, not bare strings. The scaffold's
+`build.rs` calls `day_build::generate_resources()`, which writes a typed constant per file:
+
+```rust
+image(res::images::wave)                  // ← resource/images/wave.png
+day::resource(res::assets::stations_json) // ← resource/assets/stations.json
+vector(res::vectors::home)                // ← resource/vectors/home.svg
+```
+
+A typo, or a file that was renamed or deleted, is a compile error, and the names autocomplete.
+Dropping a file into `resource/` makes its constant appear on the next build. For a name known
+only at runtime, `ImageName::dynamic(…)` / `AssetName::dynamic(…)` opt out of the presence
+guarantee explicitly.
 
 ## Data files: `resource/assets/`
 
 Anything in `resource/assets/` is packaged and readable at runtime through one call:
 
 ```rust
-let bytes: day::Resource = day::resource("stations.json").expect("packaged asset");
+let bytes: day::Resource = day::resource(res::assets::stations_json).expect("packaged asset");
 let parsed: Stations = serde_json::from_slice(bytes.as_slice())?;
 ```
 
@@ -44,7 +61,7 @@ Drop PNGs (with optional `@2x`/`@3x` density variants) into `resource/images/` a
 name:
 
 ```rust
-image("wave")          // finds wave.png / wave@2x.png / wave@3x.png
+image(res::images::wave)   // finds wave.png / wave@2x.png / wave@3x.png
     .frame(240.0, 120.0)
 ```
 
@@ -55,11 +72,28 @@ platform picks the right density at runtime the same way it does for any native 
 
 Two notes:
 
-- **SVG is not a runtime format.** Android and Qt widgets can't render SVG at runtime, so
-  runtime images are raster. Keep sources vector, export raster densities into `resource/images/`.
+- **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
+  variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
+  vectors.
 - **Remote images** (URL-loaded, cached) are a separate piece,
   [`day-piece-remote-image`](/docs/internal/resources), because they involve networking and
   cache policy the core deliberately doesn't own.
+
+## Vector glyphs: `resource/vectors/`
+
+SVG glyphs (nav and toolbar icons, symbols) go in `resource/vectors/` and render
+resolution-independent through the `vector` piece:
+
+```rust
+vector(res::vectors::home).tint(accent).frame(24.0, 24.0)
+```
+
+Each backend loads the glyph natively where it can: a VectorDrawable on Android, the SVG itself
+on macOS (`NSImage` renders it), a vector-preserving imageset on iOS, the SVG on the web and
+HarmonyOS. A pre-rendered raster cache is the universal fallback (Qt uses it). Vector names
+share the image namespace, so nav items, tab icons, and toolbar buttons accept them unchanged.
+The [vectors reference](/docs/internal/vectors) documents the accepted source forms (plain SVG,
+SF Symbol templates, `.symbolset` bundles) and the per-backend staging.
 
 ## Custom fonts: `resource/fonts/`
 
@@ -96,15 +130,18 @@ heavier stroke, a slant), not true bold or italic cuts.
 
 ## The app icon: `resource/icons/`
 
-`resource/icons/` holds the app icon renditions each platform wants (`resource/icons/macos/`,
-`resource/icons/windows/*.ico`, `resource/icons/linux/*.png`, plus mobile catalogs in the
-platform scaffolds). During development,
-`day launch` wires the icon into the running window; at packaging time,
-[`day pack`](/docs/packaging) builds the platform-specific artifacts (the `.icns` inside your
-macOS bundle, hicolor icons inside the flatpak, MSIX logo assets) from these files.
+`resource/icons/` holds one master (`icon.svg`, `day-icon.svg`, or `icon.png`); `day icon`
+renders it into every platform's icon set — the macOS `.icns`, a multi-size Windows `.ico`,
+Android's adaptive and themed icons, the HarmonyOS layered icon, an Xcode Icon Composer
+package — writing the export tree under `resource/icons/` and the `platform/` copies each build
+consumes. `icons.lock.json` records what was generated, and `day icon --check` fails CI when
+the outputs drift from the master.
 
-Keeping a single SVG source in `resource/icons/` and exporting the renditions is the current practice; a
-generate-the-whole-matrix-from-one-SVG pipeline is designed but you still export by hand today.
+During development, `day launch` wires the icon into the running window; at packaging time,
+[`day pack`](/docs/packaging) bundles the generated artifacts (the `.icns` inside your macOS
+bundle, hicolor icons inside the flatpak, MSIX logo assets). The
+[icons reference](/docs/internal/icons) covers layered SVG masters (separate background,
+foreground, and monochrome layers) and the full output table.
 
 ## Localized strings are resources too
 

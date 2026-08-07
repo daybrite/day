@@ -78,4 +78,7 @@ An app branches on this rather than on the target name.
 | `TextSelectable` | N | N | – | N | E | N | – | N |
 | `TextSpellCheck` | N | N | – | – | N | N | – | N |
 | `MultiWindow` | N | – | N | N | N | N | ? | – |
+| `AppBadgeCount` | N | N | – | – | – | – | – | E |
+| `AppBadgeText` | N | – | – | – | – | – | – | – |
+| `AppBadgeDot` | N | – | – | – | – | – | – | E |
 | `Toolbar` | N | – | N | N | N | – | – | – |

@@ -90,13 +90,18 @@ there is no feedback echo).
 let name = Signal::new(String::new());
 let volume = Signal::new(40.0);
 let subscribed = Signal::new(false);
+let size = Signal::new(0usize);
 
 column((
     text_field(name).placeholder("Your name"),
     slider(volume).range(0.0..=100.0),
     toggle(subscribed),
+    picker(["Small", "Medium", "Large"], size).segmented(),
 ))
 ```
+
+`picker` is one-of-N with three native stylings (`.menu()`, `.segmented()`, `.inline()`);
+`text_area` is the multi-line counterpart of `text_field`.
 
 Keyboard focus is a binding too: `.focused(editing)` ties a control to a `Signal<bool>`, or
 `.focused((field, Field::Name))` binds one control of a form sharing a `Signal<Option<Field>>`:
@@ -132,7 +137,7 @@ canvas(move |d, size| {
     let r = Rect::from_size(size).inset(8.0);
     d.stroke(Shape::Arc { rect: r, start_deg: 135.0, sweep_deg: 270.0 },
              Color::rgba(0.5, 0.5, 0.55, 0.35), 6.0);
-    let frac = (value.get() / 100.0).clamp(0.0, 1.0);
+    let frac = (volume.get() / 100.0).clamp(0.0, 1.0);
     d.stroke(Shape::Arc { rect: r, start_deg: 135.0, sweep_deg: 270.0 * frac },
              Color::hex(0x2F6FDE), 6.0);
 })
@@ -211,18 +216,22 @@ button("Increment").action(move || count.update(|c| *c += 1)).id("increment-butt
 ## Extending with Day Pieces
 
 A native component you write (or install) plugs in like a built-in. The showcase's flavor
-picker is an external `combo_box` Piece from a separate crate:
+picker is an external `combo_box` Piece from a separate crate — free-form text entry plus a
+native dropdown, both bound to signals:
 
 ```rust
 use day_piece_combobox::combo_box;
 
 let flavors = Signal::new(vec!["vanilla".into(), "chocolate".into()]);
-let flavor  = Signal::new(Some(0usize));
+let flavor  = Signal::new(String::new());   // the typed-or-picked text
 combo_box(flavors, flavor).id("flavor-combo")
 ```
 
 Day Pieces ship as ordinary Rust crates. [The extension model](/docs/extending) explains the
-tiers, from pure composition to per-toolkit native code.
+tiers, from pure composition to per-toolkit native code. On macOS and iOS the same mechanism
+hosts your own SwiftUI: declare a local Swift package and call the generated typed constructor
+(`crate::swiftui::MyView(title, count)`) like any other piece
+([SwiftUI embedding](/docs/internal/swiftui)).
 
 Next: [Pieces](/docs/pieces) for the model behind all of this, or the
 [CLI & projects](/docs/cli) that build, launch, and script it.

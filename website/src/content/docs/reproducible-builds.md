@@ -221,12 +221,17 @@ hazards](https://github.com/rust-lang/rust/issues/129080) and worth watching.
 
 ## What ships alongside the artifact
 
-`day pack` writes two files into `build/day/dist` next to the artifact itself:
+`day pack` writes one set of sidecars into `build/day/dist` per artifact, each named after the
+artifact's full file name, extension included, so a release directory sorts them next to what
+they describe:
 
 | File | What it records |
 | --- | --- |
-| `day-sbom.cdx.json` / `day-sbom.spdx.json` | every dependency that went into the build, plus the repository and commit it came from |
-| `<target>.buildinfo.json` | the target and profile, the host OS and architecture, the exact version of every tool that participated, and the SHA-256 of each artifact produced |
+| `<artifact>.sbom-cdx.json` / `<artifact>.sbom-spdx.json` | every dependency that went into the build, plus the repository and commit it came from |
+| `<artifact>.buildinfo.json` | the target and profile, the host OS and architecture, the exact version of every tool that participated, and the SHA-256 of each artifact produced |
+
+`<artifact>` here is the packaged file itself — the dmg's buildinfo is
+`day-showcase-macos-appkit.dmg.buildinfo.json`.
 
 The SBOM answers *what went in*. The `.buildinfo` answers *what built it*:
 
@@ -243,7 +248,7 @@ The SBOM answers *what went in*. The `.buildinfo` answers *what built it*:
       "install": "https://developer.apple.com/download/all/?q=Xcode — install, then sudo xcode-select -s ..." }
   ],
   "artifacts": [
-    { "name": "Day Showcase.dmg",
+    { "name": "day-showcase-macos-appkit.dmg",
       "sha256": "62e8dd94235e3e36202cd0d4a0be2084f24ba4be037d9ae9c93e7baa5d929e9e" }
   ]
 }
@@ -253,11 +258,13 @@ Each tool carries an `install` hint, so a machine that cannot reproduce the buil
 to change. The `.buildinfo` is always a sidecar and never embedded: tool versions differ per machine,
 so baking them into the artifact would make the artifact itself unreproducible.
 
-On `linux-gtk` and `linux-qt` a second file, `<source>_<version>_<arch>.buildinfo`, is written in
-Debian's [deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles)
-alongside the JSON one, so a Debian maintainer has everything the distribution's own tooling expects.
+On `linux-gtk` and `linux-qt` a second buildinfo is written alongside the JSON one, in Debian's
+[deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles). It ships
+as `<artifact>.buildinfo.deb822` — Day's own sidecar naming, not Debian's
+`<source>_<version>_<arch>.buildinfo` convention — so the file says which download it describes,
+and a Debian maintainer still has the fields the distribution's own tooling expects.
 
-Keep both files with the artifact when you publish it. Without the SBOM there is no commit to
+Keep the sidecars with the artifact when you publish it. Without the SBOM there is no commit to
 rebuild from, and without the `.buildinfo` there is no way to tell whether your machine matches the
 one that built it.
 
@@ -268,8 +275,8 @@ The recorded SHA-256 makes the cheapest check a hash comparison. If you download
 anything:
 
 ```sh
-shasum -a 256 "Day Showcase.dmg"
-python3 -c "import json;print(json.load(open('macos-appkit.buildinfo.json'))['artifacts'][0]['sha256'])"
+shasum -a 256 day-showcase-macos-appkit.dmg
+python3 -c "import json;print(json.load(open('day-showcase-macos-appkit.dmg.buildinfo.json'))['artifacts'][0]['sha256'])"
 ```
 
 That establishes the artifact is intact. It does not establish that it was built from the source it
@@ -282,7 +289,7 @@ Point `day rebuild` at any artifact that has its SBOM and `.buildinfo` beside it
 one you downloaded from someone else. It reads that information back and does the whole check:
 
 ```sh
-day rebuild "My App.dmg"
+day rebuild my-app-macos-appkit.dmg
 ```
 
 It finds the SBOM shipped with the artifact, reads the repository and commit that produced it,
@@ -292,7 +299,7 @@ into a temporary directory, packs it again, and compares the two artifacts.
 ```
  Environment 6 tool(s) match the artifact
     Cloning https://github.com/you/my-app @ 342a2be1606d
- Rebuilding macos-appkit (release) in /tmp/day-rebuild-My App/src/apps/my-app
+ Rebuilding macos-appkit (release) in /tmp/day-rebuild-my-app-macos-appkit/src/apps/my-app
     Payload identical
   Container differs
             99517b21e367c5b0… vs 62e8dd94235e3e36…
@@ -349,7 +356,7 @@ Compare the results with [diffoscope](https://diffoscope.org), which recurses in
 decodes binary formats instead of reporting that two files differ:
 
 ```sh
-diffoscope "app-a/build/day/dist/My App.dmg" "app-b/build/day/dist/My App.dmg"
+diffoscope app-a/build/day/dist/my-app-macos-appkit.dmg app-b/build/day/dist/my-app-macos-appkit.dmg
 ```
 
 Install it with `brew install diffoscope`, `apt install diffoscope`, or `pip install diffoscope`.

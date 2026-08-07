@@ -50,11 +50,12 @@ possible, and [step 6](#6-generating-the-backend-bodies) shows how to delegate m
 ## 2. The architecture
 
 Start with the scaffolder. `day new piece --toolkits <list>` generates every file described below:
-the front-end `src/lib.rs` (builder + `KIND` + `Props`/`Patch` + `#[cfg]`/`#[path]` backend index),
-one `src/lib-<backend>.rs` renderer per toolkit, and the `[features]` table. Where a backend needs
-native glue, it also emits the C++ shim + `build.rs` (Qt/XAML), the Java shim +
-`[package.metadata.day.android]` (Android/`mdc`), and the `[package.metadata.day.ios]` block
-(iOS/`uikit`):
+the front-end `src/lib.rs` (builder + `KIND` + `Props`/`Patch` + a `day_pieces::glue_modules!(…)`
+backend index), one `src/lib-<backend>.rs` renderer per toolkit, and the `[features]` table. Where
+a backend needs native glue, it also emits the C++ shim + `build.rs` (Qt/XAML), the Java shim +
+`[package.metadata.day.android]` (Android/`mdc`), and the `[package.metadata.day.ios]` block with
+a commented `platform = "16.0"` floor key (iOS/`uikit`). Choosing `appkit` adds a commented
+`[package.metadata.day.macos]` block for Swift contributions on the macOS leg:
 
 ```bash
 day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,xaml
@@ -241,28 +242,35 @@ That is the entire front-end. Everything else is native.
 
 ## 4. The backends, one per toolkit
 
-Each backend lives in its own file and is wired into `lib.rs` with a `#[cfg]/#[path]` module index,
-so a file is compiled only for its feature+target and the whole native surface for a toolkit sits in
-one place:
+Each backend lives in its own file, compiled only for its feature+target, so the whole native
+surface for a toolkit sits in one place. One macro line at the bottom of `lib.rs` declares them
+all:
 
 ```rust
 // pieces/day-piece-searchfield/src/lib.rs
-#[cfg(all(feature = "appkit", target_os = "macos"))] #[path = "lib-appkit.rs"] mod appkit_impl;
-#[cfg(feature = "gtk")]                               #[path = "lib-gtk.rs"]    mod gtk_impl;
-#[cfg(feature = "qt")]                                #[path = "lib-qt.rs"]     mod qt_impl;
-#[cfg(all(feature = "uikit", target_os = "ios"))]     #[path = "lib-uikit.rs"]  mod uikit_impl;
-#[cfg(all(feature = "mdc", target_os = "android"))]#[path = "lib-android.rs"]mod android_impl;
-#[cfg(all(feature = "xaml", windows))]               #[path = "lib-xaml.rs"]  mod xaml_impl;
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 ```
+
+Each name expands to the house-convention module gate — for `appkit`, for example:
+
+```rust
+#[cfg(all(feature = "appkit", target_os = "macos"))]
+#[path = "lib-appkit.rs"]
+mod appkit_impl;
+```
+
+List only the toolkits you implement; a piece with a non-standard gate (webview's Linux-only GTK,
+say) writes that one block by hand beside the macro.
 
 Every backend implements the same three functions and ends with one `renderer!` line:
 
 - **`make(backend, &Props, NodeId) -> Handle`**: build the native widget, wire its change callback to
-  `day_<backend>::emit(node, Event::TextChanged(..))`, return the toolkit's handle type.
+  `day_<backend>::emit(id, Event::TextChanged(..))` (the `NodeId` handed to `make`), return the
+  toolkit's handle type.
 - **`update(backend, &Handle, &Patch)`**: apply a sparse patch (here, set the text) *guarded on
   equality* so a programmatic sync is a no-op when unchanged.
 - **`measure(backend, &Handle, Proposal) -> Size`**: report the widget's size given a proposal. All
-  five of our backends grow to the proposed width and keep their natural height.
+  six of our backends grow to the proposed width and keep their natural height.
 
 ### AppKit: `NSSearchField` via objc2 (the fully worked backend)
 
@@ -439,7 +447,7 @@ likely not verify it locally.
 For any native piece, each backend is the same three functions:
 
 1. **`make`**: construct the native widget from `Props`; wire its change callback to
-   `day_<backend>::emit(node, event)`; return the toolkit handle.
+   `day_<backend>::emit(id, event)` with the `NodeId` `make` received; return the toolkit handle.
 2. **`update`**: apply a sparse `Patch`, equality-guarded, suppressing the change-callback if the
    toolkit re-emits programmatic edits.
 3. **`measure`**: answer a `Proposal` with a `Size` (grow, natural, or fixed).
@@ -455,6 +463,15 @@ which hand-rolls `AVPlayerViewController`, declares:
 [package.metadata.day.ios]
 frameworks = ["AVKit", "AVFoundation", "CoreMedia"]   # linked via the generated DayPieces SwiftPM pkg
 ```
+
+The same table takes a `platform = "16.0"` key to raise the minimum-OS floor (the max across
+contributing crates wins), and `swift-packages` entries may be **local**
+(`{ path = "swiftui", products = ["MyViews"] }`, relative to the crate): a local package's public
+SwiftUI views are scanned and exported as typed `crate::swiftui::MyView(…)` bindings. A parallel
+`[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg, where there is
+no Xcode project: `day build` compiles the contributions with a `swift build` prepass and
+statically links them into the cargo binary. See the
+[SwiftUI embedding reference](/docs/internal/swiftui).
 
 ## 5. Register and wire the features
 
@@ -527,8 +544,9 @@ search_field(query).placeholder("Search fruit…").id("fruit-search")
 
 If a backend is not registered (say you enabled the piece on a toolkit you have not written yet),
 Day does not fail silently. The backend logs a once-per-kind warning and renders a visible
-placeholder in its place (`warn_missing_renderer` in each toolkit crate); in debug builds the §8.2
-registration check panics first. A half-finished piece degrades noisily instead of vanishing.
+`⟨kind⟩` placeholder in its place (`warn_missing_renderer` in each toolkit crate), in debug and
+release builds alike; dayscript's `assert_no_placeholders` step turns the gap into a test
+failure. A half-finished piece degrades noisily instead of vanishing.
 
 ## 6. Generating the backend bodies
 
@@ -565,7 +583,7 @@ compiles has type-checked `Props`/`Patch` handling; the model cannot silently mi
 the protocol. Second, an unwritten backend degrades to the placeholder rather than breaking
 the app, so you can ship AppKit + Android today and add Qt or XAML later without either half of the
 codebase blocking the other. Write the toolkits you can verify, generate the rest, and let the
-registration check tell you which ones are still stubs.
+placeholder warnings tell you which ones are still stubs.
 
 ---
 

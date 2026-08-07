@@ -46,6 +46,7 @@ unsafe extern "C" {
     fn day_dom_create_tag(tag: *const u8, tag_len: usize) -> u32;
     /// Invoke a zero-argument method on an element (`play`, `pause`, `load`, …).
     fn day_dom_call(el: u32, method: *const u8, method_len: usize);
+    fn day_dom_set_app_badge(count: i32);
     fn day_dom_insert(parent: u32, child: u32, index: u32);
     fn day_dom_remove(child: u32);
     fn day_dom_release(el: u32);
@@ -534,6 +535,22 @@ impl Dom {
 impl Toolkit for Dom {
     type Handle = DomHandle;
 
+    /// `navigator.setAppBadge(n)` / `clearAppBadge()`. A dot is the no-argument form, which is why
+    /// the count is encoded: negative clears, zero means "dot", positive is the number.
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        use day_spec::AppBadge;
+        let encoded: i32 = match badge {
+            AppBadge::None => -1,
+            AppBadge::Count(0) => -1,
+            AppBadge::Count(n) => (*n).min(i32::MAX as u32) as i32,
+            AppBadge::Dot => 0,
+            // No text badge on the web; clearing would be worse than leaving the last value, so
+            // this is the one payload the arm ignores outright.
+            AppBadge::Text(_) => return,
+        };
+        unsafe { day_dom_set_app_badge(encoded) };
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::NavSplit => {
@@ -544,6 +561,10 @@ impl Toolkit for Dom {
                 }
             }
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // The Badging API takes a number or, with no argument, a dot. Emulated rather than
+            // Native because whether anything is DRAWN depends on the browser and on the page
+            // being an installed app — the call itself always succeeds (docs/badge.md).
+            Cap::AppBadgeCount | Cap::AppBadgeDot => Support::Emulated,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
             // Pointer-tracked drag with a CSS gap — the browser has no native list reorder.

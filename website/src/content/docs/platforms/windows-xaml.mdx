@@ -53,8 +53,10 @@ The NSIS installer is per-user: no elevation, a normal Add/Remove Programs entry
 - **No native segmented control exists in system XAML**, so `picker().segmented()` is a horizontal
   row of radio buttons.
 - **The inline time picker falls back to a flyout** — system XAML has no inline clock.
-- **Text-area read-only, selectable and spell-check patches are accepted but do nothing**; those
-  capabilities report unsupported.
+- **Text-area read-only and spell-check are native** (`TextBox.IsReadOnly` /
+  `IsSpellCheckEnabled`). `.selectable(false)` is emulated, because `TextBox` has no
+  selection-enable property: the shim collapses each selection as it is reported and suppresses
+  the context menu.
 - **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - **Radial gradients in a `canvas` are synthesized** into a bitmap brush, because system XAML has
@@ -82,6 +84,7 @@ The NSIS installer is per-user: no elevation, a normal Add/Remove Programs entry
 | `nav_menu` | `NavigationViewItem`s, or a [`ListView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.listview) standalone |
 | `tabs` | [`Pivot`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.pivot) |
 | `image` | [`Image`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.image) |
+| `vector` | [`Image`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.image) showing the raster cache PNG (no SVG arm on XAML; `.tint` draws as authored) |
 | `canvas` | [`Canvas`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.canvas) with a `Path` per shape |
 | dialogs / alerts / prompts | [`ContentDialog`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.contentdialog) |
 | file dialogs | [`FileOpenPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.pickers.fileopenpicker) / `FileSavePicker` |

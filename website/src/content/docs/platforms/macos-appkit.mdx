@@ -30,12 +30,21 @@ day launch -p macos-appkit
 anything missing. Packaging produces a `.dmg`:
 
 ```sh
-day pack -p macos-appkit            # unsigned, for local distribution
+day pack -p macos-appkit            # without signing config: ad-hoc codesign, marked dev-signed
 day pack -p macos-appkit --formats dmg
 ```
 
 Signing and notarization happen when the credentials are configured — see
-[packaging](/docs/packaging).
+[packaging](/docs/packaging). Without them, `day pack` ad-hoc codesigns and warns that the result
+is dev-signed: installable locally, not distributable. `--no-sign` is the only way to get a truly
+unsigned artifact.
+
+When a dependency contributes Swift under `[package.metadata.day.macos]` — the
+[SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package —
+`day build` runs a Swift prepass. It generates a `DayPieces` SwiftPM package under
+`build/day/macos/`, runs `swift build`, and statically links the result into the cargo binary,
+so the target stays cargo-driven with no Xcode project. An app with no Swift contributions
+builds exactly as before, and needs no Swift toolchain.
 
 ## Caveats and special considerations
 
@@ -75,6 +84,8 @@ are only present when you depend on them.
 | `nav_menu` | [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
 | `tabs` | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) |
 | `image` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
+| `vector` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG (`NSImage` draws SVG at display size on macOS 11+) |
+| `cover()` | emulated: a window-sized view re-homed onto the window's content view (no transition, programmatic dismissal only) |
 | `canvas` | a custom `NSView` replaying the display list in `drawRect:` |
 | dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
 | file dialogs | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) / [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) |

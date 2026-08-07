@@ -41,6 +41,26 @@ pub fn pack(
     if assets.is_dir() {
         super::copy_tree(&assets, &res_dir.join("assets")).map_err(PackError::Other)?;
     }
+    // Bundled images (§18.3): day-appkit resolves `image("name")` through the exe-relative
+    // `../Resources/images` probe when the `day launch` env roots are absent.
+    let images = project.root.join("resource/images");
+    if images.is_dir() {
+        super::copy_tree(&images, &res_dir.join("images")).map_err(PackError::Other)?;
+    }
+    // Vector glyphs (docs/vectors.md): the staged SVGs (`Resources/vectors/svg`, what
+    // day-appkit renders — NSImage draws SVG at display size) plus the raster cache
+    // (`Resources/vectors/raster`, the shared fallback resolution).
+    for (from, to) in [
+        (crate::resources::vector_svg_dir(project), "vectors/svg"),
+        (
+            crate::resources::vector_raster_dir(project),
+            "vectors/raster",
+        ),
+    ] {
+        if from.is_dir() {
+            super::copy_tree(&from, &res_dir.join(to)).map_err(PackError::Other)?;
+        }
+    }
     // Bundled fonts (§18.4): day-appkit registers Resources/fonts with CoreText at startup.
     let fonts = project.root.join("resource/fonts");
     if fonts.is_dir() {

@@ -21,7 +21,8 @@ follows a widget through the running system.
       ┌──────────────┐                   ┌──────────────────┐
       │  day-pieces  │  built-in pieces  │ toolkit backend   │  day-appkit / day-uikit /
       │              │  + Decorate API   │ (one per binary)  │  day-gtk / day-qt / day-android /
-      └──────┬───────┘                   └────────┬─────────┘  day-xaml / day-arkui / day-mock
+      └──────┬───────┘                   └────────┬─────────┘  day-xaml / day-arkui / day-dom /
+             │                                    │            day-mock
              ▼                                    │ implements
       ┌──────────────┐   realized tree,           ▼
       │   day-core   │   layout engine,   ┌──────────────┐
@@ -34,7 +35,12 @@ follows a widget through the running system.
       └──────────────┘    └──────────────┘    └──────────────┘
 
    day-cli (the `day` binary)   day-script (dayscript engine, compiled into apps)
+   day-build (each app's build.rs: typed resource constants, SwiftUI bindings)
 ```
+
+Support crates omitted from the diagram: `day-fonts` and `day-vector` (shared resource rules the
+CLI and runtime agree on), `day-toolchain` (SDK discovery), `day-break` (crash reporting), and
+`day-lite` (JS/TS miniapps).
 
 The boundary everything crosses is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
 types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is written against
@@ -62,13 +68,17 @@ linked backend, with no dispatch layer between, and dead-code elimination works 
 The same idea extends to piece renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
 iterates the slice once to build the kind → renderer table. Registration failures are link
-errors, not runtime surprises.
+errors, not runtime surprises. The one exception is `day-dom`: `linkme` has no wasm32
+implementation, so the web backend keeps a runtime registry that pieces register into from
+their constructors.
 
 ## How a build works
 
 `day build -p <target>` orchestrates; platform tools do the platform work. Desktop targets are
 plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds never
-contend). Mobile targets invert control with the **callback pattern**, borrowed deliberately
+contend); the one addition is `macos-appkit`, which runs a `swift build` prepass and statically
+links the result whenever a dependency contributes macOS Swift — the
+[SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed deliberately
 from Flutter: the checked-in platform project drives, and calls back into `day` for the Rust
 part, so building from Xcode/Android Studio and building from the CLI produce identical results
 and neither goes stale.
@@ -88,9 +98,11 @@ and neither goes stale.
 ```
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
-`libentry.so`). Metadata flows one way: `Day.toml` (identity, version) is conveyed into
-generated, gitignored files that the checked-in projects read; the scaffolds themselves are
-never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
+`libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
+`build/day/macos/DayPieces`) when Swift is contributed — with no Xcode project involved, since
+cargo drives the final link. Metadata flows one way: `Day.toml` (identity) and the Cargo
+`version` are conveyed into generated, gitignored files that the checked-in projects read; the
+scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.
 
 ## The native seams
@@ -105,6 +117,7 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | XAML | same pattern with C++/WinRT (`day-xaml-sys`) |
 | Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
+| DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
 
 The shims are deliberately boring: create widget, set property, forward event. All policy (layout, reactivity, when to update what)
 lives on the shared Rust side, which keeps each

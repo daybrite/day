@@ -28,6 +28,13 @@ day launch -p ios-uikit          # boots a Simulator and installs
 Opening `platform/ios/Runner.xcodeproj` in Xcode works too — ⌘R builds the same Rust library
 through the project's build phase.
 
+`day build` also generates a local SwiftPM package at `build/day/ios/DayPieces` — the Swift shims
+pieces contribute, their SwiftPM dependencies, and the generated
+[SwiftUI embedding](/docs/internal/swiftui) glue — which the checked-in Xcode project links. A
+piece's `platform` metadata key raises the deployment floor: `day build` prints a `Raising`
+status and passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild. That setting does not reach
+⌘R builds inside Xcode, so for IDE work raise the value in the pbxproj by hand.
+
 Packaging produces a device `.ipa`:
 
 ```sh
@@ -35,7 +42,7 @@ day pack -p ios-uikit
 ```
 
 With `signing.ios` configured you get a signed App Store export; without it you get an unsigned
-device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
+device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signing. See
 [packaging](/docs/packaging).
 
 ## Caveats and special considerations
@@ -78,6 +85,7 @@ device build (`<name>-unsigned.ipa`) for sideloading or your own signing. See
 | `tabs` | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) |
 | `cover()` | a full-screen modal [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) |
 | `image` | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) |
+| `vector` | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) — the SVG ships in a DayPieces imageset with `preserves-vector-representation`, so it renders at display size |
 | `canvas` | a custom `UIView` replaying the display list through Core Graphics |
 | dialogs / alerts / prompts | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) |
 | file dialogs | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) |

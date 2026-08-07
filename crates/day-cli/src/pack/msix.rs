@@ -43,6 +43,26 @@ pub fn stage_payload(
             super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
         }
     }
+    // Vector glyphs (docs/vectors.md): the raster cache MERGES into `images/` — one exe-relative
+    // probe then serves both the `vector(…)` piece and the nav rows' `ms-appx:///images/<file>`
+    // loads (the name namespace is shared, so a stem can't collide with a real image).
+    let rasters = crate::resources::vector_raster_dir(project);
+    if rasters.is_dir() {
+        let images = stage.join("images");
+        std::fs::create_dir_all(&images).map_err(|e| PackError::Other(e.to_string()))?;
+        for entry in std::fs::read_dir(&rasters)
+            .map_err(|e| PackError::Other(e.to_string()))?
+            .flatten()
+        {
+            let p = entry.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("png")
+                && let Some(file) = p.file_name()
+            {
+                std::fs::copy(&p, images.join(file))
+                    .map_err(|e| PackError::Other(e.to_string()))?;
+            }
+        }
+    }
     if let Some(ico) = crate::resources::app_icon(project, "xaml") {
         let _ = std::fs::copy(&ico, stage.join(format!("{name}.ico")));
     }

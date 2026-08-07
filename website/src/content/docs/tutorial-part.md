@@ -41,7 +41,7 @@ crate. You get native-code contribution without touching any core Day crate.
 
 ## 2. Scaffold: the flat API and the cfg/path dispatch
 
-Start with the scaffolder. `day new part` generates the whole layout below: `Cargo.toml`, a
+Start with the scaffolder. `day new part` generates almost all of the layout below: `Cargo.toml`, a
 `src/lib.rs` with the `#[cfg]`/`#[path]` dispatch already wired (including the mandatory
 `None`-returning fallback), a stub `src/<os>.rs` per platform, an `examples/` runner, and, when you
 target Android, the `android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
@@ -51,7 +51,10 @@ block:
 day new part day-part-battery --platforms macos,ios,android,linux,windows
 ```
 
-Omit `--platforms` to get that same default set. As with pieces, the crate builds immediately against
+Omit `--platforms` to get that same default set — which is also the full set the scaffolder knows
+(`macos`, `ios`, `android`, `linux`, `windows`). The battery crate's HarmonyOS arm below was added
+by hand afterward, the way any extra platform is: one more `#[cfg]`/`#[path]` line and one more
+file. As with pieces, the crate builds immediately against
 a remote Day release; add `--local <path>` to point at a local Day checkout instead. The sections
 below explain each generated file.
 
@@ -69,7 +72,7 @@ parts/day-part-battery/
     ├── android.rs    # calls the Java shim via JNI
     ├── linux.rs      # /sys/class/power_supply (pure std)
     ├── windows.rs    # GetSystemPowerStatus (Rust → C FFI)
-    └── ohos.rs       # libohbattery_info.so (Rust → C FFI)
+    └── ohos.rs       # libohbattery_info.so (Rust → C FFI) — added by hand, not scaffolded
 ```
 
 ### The public surface
@@ -435,10 +438,13 @@ pure-std path, all funnelling into the same `Option<BatteryStatus>`.
 ## 4. Contribute native artifacts to the app build
 
 The Rust FFI paths (macOS, Windows, HarmonyOS, iOS-objc2, Linux) need nothing extra; `cargo` links
-them. But two platforms need assets folded into the app's native build: Android needs the `.java`
-file compiled and (for some parts) a manifest permission; iOS needs certain system frameworks linked.
-A part declares both in its own `Cargo.toml`, and `day build` merges them into the app with no
-edits to any core Day crate, the CLI, or the app scaffold.
+them. But four platforms can need assets folded into the app's native build: Android needs the
+`.java` file compiled and (for some parts) a manifest permission or component; iOS and macOS need
+certain system frameworks linked (or Swift sources compiled); HarmonyOS takes ArkTS sources via
+an `ets` key under `[package.metadata.day.ohos]`. There is also a portable
+`[package.metadata.day.permissions]` table (`uses = ["camera"]`) that maps one permission name to
+each platform's declaration. A part declares all of this in its own `Cargo.toml`, and `day build`
+merges it into the app with no edits to any core Day crate, the CLI, or the app scaffold.
 
 ### Android: staging the Java shim and a permission
 
@@ -446,11 +452,19 @@ edits to any core Day crate, the CLI, or the app scaffold.
 [package.metadata.day.android]
 java = ["android/java"]                                   # → Gradle java srcDirs
 permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission> overlay (if needed)
+manifest-components = ["android/components.xml"]          # → <receiver>/<service> overlay (if needed)
 ```
 
 `day-part-battery` needs no permission (the sticky battery broadcast is unrestricted), so it declares
 only `java = ["android/java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
+
+`manifest-components` matters the moment a part's Java half is a `BroadcastReceiver` or a
+`Service`: Android instantiates those by name from the manifest, so without the declaration the
+receiver never reaches the APK and the part silently does nothing. `day-part-local-notify` (its
+`AlarmManager` receiver) is the reference. The table also takes `res` (piece-shipped Android
+resources), `gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for classes
+native code reaches by name); see the [extending reference](/docs/internal/extending).
 
 When you run `day build -p android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks into
@@ -474,6 +488,12 @@ the app itself must link the framework. `day build -p ios-uikit` generates a loc
 (`build/day/ios/DayPieces`) whose `linkerSettings` list every part's declared frameworks; the app's
 one checked-in `.xcodeproj` depends on that package. So an iOS framework dependency is, again, pure
 `Cargo.toml` data. You never edit the `.xcodeproj`.
+
+A `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
+compiles the contributions with a `swift build` prepass and statically links them into the cargo
+binary. `day-part-local-notify` declares `frameworks = ["UserNotifications"]` under both tables.
+Both also take a `platform` key (`platform = "16.0"`) to raise the minimum-OS floor when the
+native API needs it; the max across contributing crates wins.
 
 `day-part-battery` itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not

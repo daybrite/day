@@ -18,9 +18,9 @@ let section = Signal::new("home".to_string());
 selector(section)
     .style(SelectorStyle::Sidebar)
     .title("My App")
-    .item("home",     tr("nav-home"),     || home_page())
-    .item("library",  tr("nav-library"),  || library_page())
-    .item("settings", tr("nav-settings"), || settings_page())
+    .item("home",     tr("nav_home"),     || home_page())
+    .item("library",  tr("nav_library"),  || library_page())
+    .item("settings", tr("nav_settings"), || settings_page())
 ```
 
 The selection signal holds the active item's key. Set it from anywhere
@@ -38,7 +38,7 @@ matters.
 let path = Signal::new(Vec::<String>::new());
 
 stack(path, library_page())
-    .title(tr("nav-library"))
+    .title(tr("nav_library"))
     .destination(|key| detail_page(key))
 ```
 
@@ -47,7 +47,7 @@ The path signal is the navigation stack: `["album:42"]` means one page pushed ab
 (`path.update(|p| p.push(key))`) or, more commonly, the helpers:
 
 ```rust
-nav_link(tr("open-album"), "album:42")   // a button that pushes
+nav_link(tr("open_album"), "album:42")   // a button that pushes
 navigate("album:42");                    // push from code; returns false if no surface (selector, tabs, or stack) recognizes it
 nav_back();                              // pop
 current_route();                         // Option<String>
@@ -169,9 +169,9 @@ day::routes! {
 
 let section = Signal::new(None::<Section>);      // None = nothing selected (mobile list)
 selector(section)
-    .item(Section::Home,     tr("nav-home"),     || home_page())
-    .item(Section::Library,  tr("nav-library"),  || library_page())
-    .item(Section::Settings, tr("nav-settings"), || settings_page())
+    .item(Section::Home,     tr("nav_home"),     || home_page())
+    .item(Section::Library,  tr("nav_library"),  || library_page())
+    .item(Section::Settings, tr("nav_settings"), || settings_page())
 ```
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
@@ -182,6 +182,7 @@ Where this earns its keep is **routes that carry data**. Implement the `Route` t
 (`key()` encodes, `from_key()` parses), and stack destinations receive the typed value:
 
 ```rust
+#[derive(Clone, PartialEq)]
 enum Media { Album { id: u32 }, Track { id: u32 } }   // "album-42" ↔ Album { id: 42 }
 
 impl Route for Media {
@@ -216,7 +217,7 @@ navigate_to(&Section::Library);                       // relative, ≙ navigate(
 route(&Section::Library).then(&Media::Album { id: 42 })
     .param("hint", "shared")
     .navigate();                                      // absolute, with params
-nav_link_to(tr("open-album"), route(&Section::Library).then(&Media::Album { id: 42 }))
+nav_link_to(tr("open_album"), route(&Section::Library).then(&Media::Album { id: 42 }))
 ```
 
 `String` implements `Route` too, so the untyped examples above are the same API: start
@@ -228,12 +229,17 @@ stringly, move to an enum when the app grows, mix the two freely (a typed select
 - **Desktop split layouts:** `SelectorStyle::Sidebar` gives the two-pane desktop shape. Give the
   detail pane `.grow()` or it collapses to its content width, the most common layout mistake in
   navigation code.
-- **State restoration:** Persist the two signals (see [parts: prefs](/docs/parts)) and write them
-  back at startup, and your app reopens where it closed. Nothing does this automatically.
-- **One window:** Day currently drives a single window per process; multi-window is designed but
-  not built. Dialogs and alerts are separate ([dialogs reference](/docs/internal/dialogs)).
-- **Android process death:** if Android kills a backgrounded process, relaunch is a cold start;
-  Day doesn't yet snapshot navigation state into the saved-instance mechanism, so restoring is
-  your code (the prefs pattern above).
+- **State restoration:** `.restore(key)` persists and restores selection and path through the
+  installed nav store, as described above. Persist your own signals (see
+  [parts: prefs](/docs/parts)) only for custom state beyond navigation.
+- **More windows:** `day::open_window` opens secondary windows on every backend
+  (`WindowKind::Normal` or `Preferences`, plus `register_preferences_with` for the settings
+  window): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
+  abilities; iPhone and the web present them as a fullscreen cover. See
+  [windows](/docs/internal/windows). Dialogs and alerts are separate
+  ([dialogs reference](/docs/internal/dialogs)).
+- **Android process death:** if Android kills a backgrounded process, relaunch is a cold start,
+  but `.restore` reads back through the disk-backed prefs store, so navigation state survives
+  it.
 
 The [navigation reference](/docs/internal/navigation) has the per-platform mapping details.

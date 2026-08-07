@@ -81,7 +81,7 @@ and component function you write:
 ```rust
 fn settings_page() -> AnyPiece {
     column((
-        label(tr("settings-title")).font(Font::Title),
+        label(tr("settings_title")).font(Font::Title),
         toggle(dark_mode),
     ))
     .any()   // Decorate::any() erases the concrete type
@@ -97,17 +97,18 @@ The `day` prelude ships a deliberately small set of Pieces. Roughly grouped:
 
 | Group | Pieces |
 |---|---|
-| Text | `label` |
-| Controls | `button`, `toggle`, `slider`, `text_field`, `progress`, `spinner` |
-| Layout | `column`, `row`, `zstack`, `scroll`, `spacer`, `divider` |
+| Text | `label`, `text_area` |
+| Controls | `button`, `toggle`, `slider`, `text_field`, `picker` (menu/segmented/inline), `progress`, `spinner` |
+| Layout | `column`, `row`, `zstack`, `grid`, `scroll`, `spacer`, `divider`, `form`/`section` |
 | Structure | `when`, `each`, `with_environment` |
 | Collections | `list` (native recycling) |
-| Drawing | `canvas`, `shape` (`rectangle`, `circle`, `capsule`, `arc`, …), `image` |
-| Navigation | `selector`, `stack`, `nav_link` |
-| Presentation | `alert`, `confirm`, `prompt`, menus |
+| Drawing | `canvas`, `shape` (`rectangle`, `circle`, `capsule`, `arc`, …), `image`, `vector` |
+| Navigation | `selector`, `stack`, `nav_link`, `toolbar` |
+| Presentation | `alert`, `confirm`, `prompt`, `cover`, menus |
 
-Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation) lives in
-a separate *piece crate* (`day-piece-*`) that you add as an ordinary Cargo dependency. That
+Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an
+[embedded SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate*
+(`day-piece-*`) that you add as an ordinary Cargo dependency. That
 split is intentional: the core stays small enough to audit and port, and optional widgets don't
 cost you anything unless you use them. The [extension model](/docs/extending) explains how those
 crates plug in without touching Day itself.
@@ -137,8 +138,9 @@ When a Piece's `build` runs, three things are created together and live together
 - The **node** records the Piece's kind, its place in the tree, its layout behavior, and its
   accessibility annotations.
 - The **native widget** is created immediately through the toolkit backend (an `NSButton`, a
-  `GtkEntry`, …) and inserted into its native parent at the right index. Layout-only Pieces
-  (`column`, `row`, `padding` wrappers) get no widget at all; they exist purely in Day's tree.
+  `GtkEntry`, …) and inserted into its native parent at the right index. Containers like
+  `column` and `row` get a plain native container view; decorators (`padding`, `frame`) get no
+  widget at all and exist purely in Day's tree.
 - The **scope** owns every binding and event handler the build created. When the node is later
   removed (a `when` arm switches, an `each` row disappears), disposing the scope tears down its
   bindings and handlers in one step, and the native widget is released. No manual unsubscription.
@@ -183,7 +185,8 @@ button(tr("save")).action(save).id("save-button")
 Ids serve three audiences at once: [dayscript](/docs/dayscript) targets elements by id,
 [accessibility](/docs/accessibility) uses them as stable automation identifiers, and you'll see
 them in debug output. They're optional everywhere, but pages you intend to test should id their
-interactive elements; `day lint` will point out interactive Pieces without one.
+interactive elements; `day lint` catches an id used twice and a `navigate` to a route that
+doesn't exist.
 
 ## Where Pieces come from
 
@@ -192,11 +195,13 @@ There are exactly three kinds of Piece, and you can write all three:
 1. **Built-ins** — the vocabulary above, implemented in `day-pieces` with a renderer in every
    toolkit backend.
 2. **Composite pieces** — plain Rust functions or builder structs that compose existing Pieces.
-   No native code, works on every target automatically. Most of your app is this; so is
-   something like a [star-rating widget](/docs/tutorial-composite-piece).
+   No native code, works on every target automatically. Most of your app is this; so are the
+   in-tree `day-piece-rating` and `day-piece-settings`, and the
+   [star-rating tutorial](/docs/tutorial-composite-piece).
 3. **Native pieces** — a new leaf widget with a per-toolkit implementation, registered at link
-   time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, and how you'd
-   wrap a platform control Day doesn't cover. See the
+   time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, how
+   `day-piece-swiftui` hosts [your own SwiftUI views](/docs/internal/swiftui) on macOS and iOS,
+   and how you'd wrap a platform control Day doesn't cover. See the
    [native piece tutorial](/docs/tutorial-native-piece).
 
 Composite pieces are frictionless; native pieces cost one implementation per toolkit you care

@@ -499,6 +499,8 @@ pub trait TreeOps {
     fn dark_mode(&mut self) -> bool;
     /// Apply an app-level appearance override (see `Toolkit::set_appearance`).
     fn set_appearance(&mut self, dark: Option<bool>);
+    /// Put a badge on the app icon (see `Toolkit::set_app_badge`, docs/badge.md).
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge);
     fn on_event(&mut self, node: RNode, h: EventHandler);
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
     fn set_id(&mut self, node: RNode, id: String);
@@ -687,6 +689,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn set_appearance(&mut self, dark: Option<bool>) {
         self.toolkit.set_appearance(dark);
+    }
+
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        self.toolkit.set_app_badge(badge);
     }
 
     fn defer_system_gestures(&mut self, edges: day_spec::Edges) {

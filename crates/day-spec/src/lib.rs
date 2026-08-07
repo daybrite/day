@@ -801,6 +801,27 @@ pub struct ListReorder {
 // Capabilities, animation, a11y
 // ---------------------------------------------------------------------------
 
+/// What to show on the app's icon in the Dock, launcher, home screen, or taskbar (docs/badge.md).
+///
+/// Distinct from `SelectorItem::badge`, which annotates a sidebar ROW inside the window. This one
+/// decorates the application itself and is drawn by the shell, not by Day.
+///
+/// What each payload needs is asked separately — `Cap::AppBadgeCount`, `AppBadgeText`,
+/// `AppBadgeDot` — because the platforms differ in WHAT they accept more than in whether they have
+/// a badge at all: macOS takes arbitrary text, iOS and the web take a number, Android takes nothing.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum AppBadge {
+    /// Clear the badge.
+    #[default]
+    None,
+    /// A count. Zero clears it, matching every platform's own convention.
+    Count(u32),
+    /// Short arbitrary text (`"99+"`, `"beta"`). Only macOS renders it — probe `Cap::AppBadgeText`.
+    Text(String),
+    /// An indicator with no value.
+    Dot,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
     ListRecycling,
@@ -853,6 +874,15 @@ pub enum Cap {
     /// native title bar or close button, so window content should carry its own close
     /// affordance.
     MultiWindow,
+    /// The toolkit can put a COUNT on the app icon (`Toolkit::set_app_badge`, docs/badge.md).
+    /// `Emulated` where the call is made but the shell may ignore it — desktop Linux, where the
+    /// Unity launcher protocol is honored by Plasma and Dash-to-Dock but not by stock GNOME.
+    AppBadgeCount,
+    /// The toolkit renders `AppBadge::Text` as written. macOS only: `NSDockTile.badgeLabel` is an
+    /// arbitrary string, while every other platform's badge is a number or nothing.
+    AppBadgeText,
+    /// The toolkit can show a valueless indicator (`AppBadge::Dot`).
+    AppBadgeDot,
     /// The toolkit gives a window a native toolbar (`Toolkit::set_toolbar`, docs/toolbars.md):
     /// `Native` on the desktop backends, `Unsupported` elsewhere — a phone has no toolbar, and
     /// day does not draw a fake one. Probe it to decide where a command lives: an app puts its
@@ -2301,6 +2331,14 @@ pub trait Toolkit: Sized + 'static {
     /// surfaces pick it up on their next rebuild. `Cap::Appearance` reports whether the
     /// backend honors this; the default ignores the call.
     fn set_appearance(&mut self, _dark: Option<bool>) {}
+
+    /// Put `badge` on the app's icon in the Dock / launcher / home screen (docs/badge.md).
+    ///
+    /// Fire-and-forget, like `set_appearance`: a payload this toolkit cannot render is IGNORED, and
+    /// the app probes `Cap::AppBadge{Count,Text,Dot}` before choosing one. Never substitute — a
+    /// backend that turned `Text("beta")` into `Count(1)` would put a wrong number on a user's icon,
+    /// which is worse than showing nothing. The default ignores every call.
+    fn set_app_badge(&mut self, _badge: &AppBadge) {}
 
     // app lifecycle (mobile; desktop backends no-op)
     fn on_suspend(&mut self) {}

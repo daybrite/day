@@ -657,10 +657,12 @@ fn stage_bundled_fonts() {
     }
 }
 
-/// Stage bundled images (DAY_IMAGE_ROOT) next to the exe under `images/` so a `BitmapIcon` can load
-/// them via `ms-appx:///images/<file>` (same unpackaged-islands workaround as the fonts). Only nav
-/// icons need this today (regular `image()` loads bytes via a stream); a no-op when packed (src==dst)
-/// or when DAY_IMAGE_ROOT is unset.
+/// Stage bundled images (DAY_IMAGE_ROOT, plus the vector raster cache DAY_VECTOR_RASTER_ROOT —
+/// docs/vectors.md) next to the exe under `images/` so a `BitmapIcon` can load them via
+/// `ms-appx:///images/<file>` (same unpackaged-islands workaround as the fonts). Only nav
+/// icons need this today (regular `image()` loads bytes via a stream); a no-op when packed
+/// (`day pack` already merges both trees into the exe-relative `images/`) or when neither
+/// root is set.
 fn stage_bundled_images() {
     let Some(dst_dir) = std::env::current_exe()
         .ok()
@@ -668,25 +670,28 @@ fn stage_bundled_images() {
     else {
         return;
     };
-    let Some(src_dir) = std::env::var_os("DAY_IMAGE_ROOT").map(std::path::PathBuf::from) else {
-        return;
-    };
-    let Ok(entries) = std::fs::read_dir(&src_dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let src = entry.path();
-        if !src.is_file() {
-            continue;
-        }
-        let Some(dst) = src.file_name().map(|n| dst_dir.join(n)) else {
+    let src_dirs: Vec<std::path::PathBuf> = ["DAY_IMAGE_ROOT", "DAY_VECTOR_RASTER_ROOT"]
+        .iter()
+        .filter_map(|var| std::env::var_os(var).map(std::path::PathBuf::from))
+        .collect();
+    for src_dir in src_dirs {
+        let Ok(entries) = std::fs::read_dir(&src_dir) else {
             continue;
         };
-        if src == dst {
-            continue;
+        for entry in entries.flatten() {
+            let src = entry.path();
+            if !src.is_file() {
+                continue;
+            }
+            let Some(dst) = src.file_name().map(|n| dst_dir.join(n)) else {
+                continue;
+            };
+            if src == dst {
+                continue;
+            }
+            let _ = std::fs::create_dir_all(&dst_dir)
+                .and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
         }
-        let _ =
-            std::fs::create_dir_all(&dst_dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
     }
 }
 

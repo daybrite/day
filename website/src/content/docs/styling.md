@@ -26,8 +26,9 @@ label("Total").font(Font::Body).weight(FontWeight::Semibold)
 label("legalese").italic()
 ```
 
-The semantic roles (`Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body`, `Callout`,
-`Footnote`, `Caption`, `Caption2`) resolve to the platform's typography scale, which is what
+The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`,
+`Body`, `Callout`, `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography
+scale, which is what
 keeps text looking correct next to native controls. `Font::System(18.0)` is the escape hatch when
 you need an exact size, and `Font::Custom("Family", 18.0)` renders a font you bundle in the
 project's `resource/fonts/` directory ([resources guide](/docs/resources)).
@@ -50,14 +51,15 @@ label(move || status.get().to_string())
     .background(move || if error.get() { RED_TINT } else { Color::CLEAR })
 ```
 
-**A limitation to plan around:** Day does not yet ship semantic *color* tokens or automatic
-light/dark adaptation for the colors you specify. Native widget chrome follows the system
-appearance on its own (an `NSButton` is correct in dark mode without your help), but a hardcoded
-`Color::hex(0xFFFFFF)` background is white in both modes. The design reserves a token system
-(`theme::TEXT`, `theme::CARD`, … resolving to `UIColor.label`, Adwaita named colors, and so on)
-that hasn't landed yet; until it does, apps that want dark-mode-aware custom colors carry their
-own palette and switch it themselves. If you can avoid custom colors on large surfaces, do; the
-platform's defaults are already right.
+There is no `theme::` token module, by design. Default appearance is native by construction:
+text, controls, separators, and window grounds take the platform's own dynamic colors inside
+each backend (`NSColor.labelColor`, Material surface attributes, QPalette roles), so dark/light
+tracking needs no app-side tokens. The semantic roles that must cross the spec do so as typed
+values: `SurfaceRole` for grouped-card surfaces, `Font` for typography. Colors *you* specify
+are deliberate: a hardcoded `Color::hex(0xFFFFFF)` background is white in both modes, so an app
+that wants dark-mode-aware custom colors carries its own palette and switches it itself. If you
+can avoid custom colors on large surfaces, do; the platform's defaults are already right. For
+screenshots and CI, `DAY_THEME=light|dark` forces the appearance on every backend.
 
 ## Reusable style: the Modifier trait
 
@@ -81,7 +83,7 @@ type. For app-wide theming, combine this with environment context:
 
 ```rust
 with_environment(Palette::dark(), || {
-    // Anywhere below: let palette: Palette = cx.use_context().unwrap();
+    // Anywhere below: let palette = environment::<Palette>().unwrap();
     home_page()
 })
 ```
@@ -97,10 +99,10 @@ let pad = if cfg!(feature = "uikit") || cfg!(feature = "mdc") { 16.0 } else { 10
 content.padding(pad)
 ```
 
-The design describes a tidier `per_toolkit(12.0).uikit(16.0).qt(8.0)` value type for this; it's
-specified but not yet implemented, so `cfg!` branches are the current idiom. Either way the
-philosophy is the same: where platforms diverge, Day gives you a targeted override
-rather than pretending the divergence away.
+An earlier design sketched a `per_toolkit(12.0).uikit(16.0).qt(8.0)` value type for this; it
+never shipped, and `cfg!` branches are the settled idiom. The philosophy holds either way:
+where platforms diverge, Day gives you a targeted override rather than pretending the
+divergence away.
 
 Piece-specific style hooks exist where a control has real variants (`button(...).style(...)`
 takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks sidebar vs. tab

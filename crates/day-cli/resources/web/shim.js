@@ -583,6 +583,16 @@ const env = {
   day_dom_schedule_delayed: (token, ms) => setTimeout(() => wasm.day_dom_delayed(token), ms),
   day_dom_request_frame: () => requestAnimationFrame((t) => wasm.day_dom_frame(t / 1000)),
   day_dom_set_title(ptr, len) { document.title = str(ptr, len); },
+  // App badge (docs/badge.md). The Badging API is Chromium + Safari-for-installed-PWAs; Firefox
+  // has none, so every call is feature-guarded. `count < 0` clears. The promises are ignored:
+  // a rejection here (not installed, insecure context) is not something the app can act on.
+  day_dom_set_app_badge(count) {
+    try {
+      if (count < 0) { navigator.clearAppBadge?.(); }
+      else if (count === 0) { navigator.setAppBadge?.(); }   // no argument = a dot
+      else { navigator.setAppBadge?.(count); }
+    } catch (_) { /* unsupported or blocked — the cap already says Emulated */ }
+  },
   day_dom_open_url(ptr, len) { window.open(str(ptr, len), '_blank', 'noopener'); },
 
   day_dom_env(k, kl, out, cap) {

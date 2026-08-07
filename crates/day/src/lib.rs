@@ -20,10 +20,11 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{
-    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_appearance, sleep,
-    task,
+    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
+    set_appearance, sleep, task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, VectorName, resource};
+pub use day_spec::AppBadge;
 /// An app-writable scratch directory. The OS temp dir is NOT app-writable on every target
 /// (Android reports `getCacheDir()`), so a backend records the right location at startup and
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,

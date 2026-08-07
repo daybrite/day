@@ -75,9 +75,9 @@ layer to pay for.
 | `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |
 | `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 |
 
-The last two rows exist because GTK and Qt are themselves portable, useful for development (all
-five desktop toolkits run side by side on one Mac) and for teams that prefer one toolkit across
-Linux and Windows. Maturity varies by target; [Platform support](/docs/platforms) says exactly
+The last two rows exist because GTK and Qt are themselves portable, useful for development
+(`macos-appkit`, `macos-gtk`, and `macos-qt` run side by side on one Mac) and for teams that
+prefer one toolkit across Linux and Windows. Maturity varies by target; [Platform support](/docs/platforms) says exactly
 where each one stands rather than implying they're all equal.
 
 ## What it's like day to day
@@ -101,7 +101,10 @@ reason to look elsewhere: better to know now than in week two.
   architecture with native look and feel, not one skin everywhere.
 - **Not a lowest common denominator:** where platforms diverge, the API exposes the divergence
   (per-platform styling, capability flags) instead of hiding it; where a platform lacks a
-  control, the backend composes one from primitives.
+  control, the backend composes one from primitives. And where you need a platform's own UI
+  framework, you can drop into it: on macOS and iOS,
+  [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views inside the Day tree,
+  with typed Rust constructors generated from your Swift package.
 - **Not finished:** Day is young. The core model is stable and exercised by a real
   Matrix chat client (Day-Matrix, a standalone Day app) running on five
   targets, but APIs still move and some designed features aren't built yet. The docs mark those

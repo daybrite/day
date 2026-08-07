@@ -22,8 +22,8 @@ optional width and optional height), and the child answers with the size it want
 pub struct Proposal { pub width: Option<f64>, pub height: Option<f64> }
 
 pub trait Layout {
-    fn measure(&mut ops, children, proposal: Proposal) -> Size;
-    fn place(&mut ops, children, bounds: Rect);
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size;
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect);
 }
 ```
 
@@ -42,7 +42,7 @@ row answers 400×32
 Containers like `row` and `column` measure rigid children first, then divide the remaining space
 among flexible ones (`spacer`, anything marked `.grow()`). A child is never forced: if you propose
 100 points to a label that needs 120, it answers 120, and the parent decides what to do about the
-overflow (usually: let `scroll` handle it, or let the window's minimum size grow).
+overflow (usually: let `scroll` handle it).
 
 The `Layout` trait is public and has no private privileges; `column` is implemented with the
 same trait a custom masonry or flow container would use.
@@ -112,10 +112,10 @@ create no native widget, so nesting them is cheap.
 
 ## Windows, safe areas, and direction
 
-- **Window sizing:** the minimum window size comes from measuring the root under a zero proposal
-  (the smallest the content can actually be), not from its ideal size. (An earlier system in
-  Day's lineage used the unconstrained ideal and produced windows that couldn't shrink; this is
-  the lesson learned.) The window relayouts on native resize and never auto-shrinks on you.
+- **Window sizing:** the minimum window size is the one the app declares
+  (`WindowOptions::min_size`, an `Option<Size>` that defaults to none), applied verbatim; Day
+  doesn't derive a minimum from content measurement. The window relayouts on native resize and
+  never auto-shrinks on you.
 - **Safe areas and keyboards** (mobile): the root applies safe-area insets as padding by default;
   a root-level `scroll` converts them to content insets and slides the focused field above the
   keyboard. Backends with an edge-to-edge mode (Android's immersive opt-in) stop clamping the

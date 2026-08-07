@@ -62,7 +62,9 @@ day new piece day-piece-rating          # no --toolkits ⇒ a composite piece
 The generated crate builds immediately (`cargo build`) and depends on a remote Day release, so it
 works as a standalone repo outside the Day workspace. Pass `--id dev.acme.rating` to set the
 reverse-DNS id (defaults to `dev.example.<name>`), or `--local <path-to-day-checkout>` if you are
-developing against a local Day clone rather than the published crates. The rest of this tutorial walks
+developing against a local Day clone rather than the published crates. `--composite` forces a
+composite piece even when `--toolkits` is present, and `--no-input` skips the interactive prompts
+(scripts and CI). The rest of this tutorial walks
 through what the scaffolder emits and how to flesh it out.
 
 A composite piece is an ordinary library crate. It depends on three Day crates and nothing
@@ -73,7 +75,7 @@ platform-specific: no toolkit crates, no feature table.
 [package]
 name = "day-piece-rating"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 # The framework crates come from git until they're on crates.io (`day new piece` writes this).
@@ -83,6 +85,9 @@ day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re
 
 # Note what is not here: no [features], no dep:day-appkit / day-gtk / day-android,
 # no build.rs. A composed piece needs no per-toolkit code at all.
+
+# The scaffolder appends this so the crate is its own cargo workspace and builds standalone.
+[workspace]
 ```
 
 > In the Day workspace these are `{ workspace = true }` instead of a version. Either way, contrast
@@ -105,10 +110,13 @@ methods return `Self` so calls chain. The two-way value is a `Signal` passed in 
 control reads it to draw and writes it back on tap.
 
 ```rust
+/// The default filled-star tint: a warm gold/amber.
+const GOLD: Color = Color::rgb(1.0, 0.72, 0.0);
+
 /// A star-rating control bound to `value` (the number of filled stars).
 pub struct Rating {
     value: Signal<usize>,
-    max: usize,
+    max: u32,
     star_size: f64,
     editable: bool,
     color: Color,
@@ -121,14 +129,14 @@ pub fn rating(value: Signal<usize>) -> Rating {
         max: 5,
         star_size: 28.0,
         editable: true,
-        color: Color::hex(0xF5A623),
+        color: GOLD,
     }
 }
 
 impl Rating {
-    /// How many stars to show (default 5).
-    pub fn max(mut self, n: usize) -> Self {
-        self.max = n;
+    /// How many stars to show (clamped to at least 1; default 5).
+    pub fn max(mut self, n: u32) -> Self {
+        self.max = n.max(1);
         self
     }
     /// Edge length of each star, in points (default 28).
@@ -148,6 +156,11 @@ impl Rating {
     }
 }
 ```
+
+The shipped crate also has an inherent `.id(prefix)` setter. A rating is several tappable nodes
+rather than one, so a plain `Decorate::id` would tag only the row and leave the stars
+unaddressable; `.id(prefix)` sets the row's id to `prefix` and each star's to `prefix:N`
+(1-based), so a dayscript walkthrough can `tap` a specific star.
 
 ## 4. Compose the body
 
@@ -215,7 +228,7 @@ impl Piece for Rating {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Rating { value, max, star_size, editable, color } = self;
         let stars: Vec<AnyPiece> =
-            (0..max).map(|i| star(i, value, star_size, editable, color)).collect();
+            (0..max as usize).map(|i| star(i, value, star_size, editable, color)).collect();
         row(PieceVec(stars)).spacing(4.0).build(cx)
     }
 }
@@ -281,10 +294,12 @@ let the native leaves do the platform work. The same idea covers most of a desig
   ```
 
   For a one-off you do not even need the type; a plain closure is a `Modifier` via the blanket impl:
-  `my_content.modifier(|c: AnyPiece| c.padding(16.0).corner_radius(12.0))`.
+  `my_content.modifier(|c: AnyPiece| c.padding(16.0).corner_radius(12.0))`. The shipped
+  `day-piece-rating` crate includes a ready-made `Card` of exactly this shape.
 
 - **A badge** is `.overlay_aligned(Alignment::TopTrailing, dot)`, an annotation layered on top of an
-  avatar or icon without disturbing its layout size.
+  avatar or icon without disturbing its layout size. `day-piece-rating` ships one as
+  `badge(count, over)`.
 
 - **A chip** is a labelled `.background(...).corner_radius(...)` capsule; a **pill button** is a
   `ButtonStyle` (`FilledButtonStyle` is the shipped example) applied with `Button::style`.

@@ -67,8 +67,8 @@ onto other stacks.
 4. **Extensible** — new widgets plug in as ordinary crates, from pure composition down to
    per-toolkit native code, without forking Day. ([how](/docs/extending))
 
-**Tooling built for CI and agents as much as humans.** `day doctor` diagnoses five toolchains
-with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
+**Tooling built for CI and agents as much as humans.** `day doctor` diagnoses all eight target
+toolchains with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
 [produces signed installable artifacts](/docs/packaging); everything speaks JSON when asked.
 
 ## What you give up
@@ -83,11 +83,13 @@ a promise.)
 Android. If the design brief is a bespoke design system rendered identically everywhere, with custom
 controls, custom motion, and brand color on every surface, Day's native-widget premise works against
 you, and a renderer (Flutter, or Rust-native options like Slint or egui) will fight you less.
-[Styling](/docs/styling) lists what you can restyle and what stays native.
+[Styling](/docs/styling) lists what you can restyle and what stays native. On macOS and iOS the
+escape hatch is [SwiftUI embedding](/docs/internal/swiftui): a custom control written in SwiftUI
+drops into the Day tree as an ordinary piece.
 
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is deliberately small, some designed
-features aren't implemented yet (semantic color tokens, an animation scheduler, multi-window,
+features aren't implemented yet (semantic color tokens, an animation scheduler,
 form validation; [Platform support](/docs/platforms) keeps the current list), and you will hit
 edges. The mitigations are partial: the architecture descends from several generations
 of working systems, a nontrivial Matrix chat client runs on five targets, and every target is

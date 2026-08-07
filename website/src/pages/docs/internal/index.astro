@@ -15,22 +15,22 @@ const groups: { heading: string; blurb: string; ids: string[] }[] = [
   {
     heading: 'Core & UI',
     blurb: 'Framework-level UI: navigation, lists, layout containers, drawing, text, and the cross-cutting concerns every app touches.',
-    ids: ['navigation', 'list', 'tabs', 'shapes', 'text', 'picker', 'textarea', 'dialogs', 'menus', 'progress', 'files', 'resources', 'accessibility', 'localization', 'lifecycle'],
+    ids: ['navigation', 'list', 'tabs', 'grid', 'forms', 'scroll', 'cover', 'shapes', 'text', 'picker', 'textarea', 'dialogs', 'menus', 'toolbars', 'windows', 'progress', 'files', 'focus', 'resources', 'vectors', 'accessibility', 'localization', 'lifecycle', 'async'],
   },
   {
     heading: 'Pieces',
     blurb: 'Standalone UI Pieces: native widgets that live in their own crates and plug in without any core changes.',
-    ids: ['combobox', 'webview', 'media', 'lottie', 'map', 'searchfield', 'activity'],
+    ids: ['swiftui', 'combobox', 'webview', 'media', 'lottie', 'map', 'searchfield', 'activity', 'pullrefresh', 'datepicker', 'tweaks'],
   },
   {
     heading: 'Parts',
     blurb: 'Headless capability crates, the non-UI counterpart of Pieces. They provide device and system access without any widgets.',
-    ids: ['battery', 'sensors', 'clipboard', 'network', 'http', 'haptics', 'prefs', 'deviceinfo', 'permissions', 'location'],
+    ids: ['battery', 'sensors', 'clipboard', 'network', 'http', 'haptics', 'prefs', 'fs', 'notify', 'deviceinfo', 'permissions', 'location'],
   },
   {
     heading: 'Platform & tooling',
-    blurb: 'Platform backends, the extension model for writing your own Pieces, API conventions, and editor tooling.',
-    ids: ['harmonyos', 'extending', 'api-style', 'vscode'],
+    blurb: 'Platform backends, the extension model for writing your own Pieces, per-backend support matrices, API conventions, and tooling.',
+    ids: ['harmonyos', 'web', 'extending', 'coverage-matrix', 'duty-matrix', 'break', 'lite', 'icons', 'store', 'environment', 'agent', 'api-style', 'vscode'],
   },
 ];
 

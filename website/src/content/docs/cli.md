@@ -15,16 +15,20 @@ day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website to skip the site config)
 day app add-toolkit android-mdc   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
+day icon                     # generate every platform's app-icon set from one master (--check: CI drift gate)
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign    --check          # report release-signing readiness without printing secrets
+day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
 day lint                     # check ids, Fluent coverage, project shape
 day doctor                   # check toolchains for every target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
+day patch <day-checkout>     # build against a local day checkout (--check: no day crate from git)
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
+day version                  # print the CLI version, build profile, and git ref
 ```
 
 `day pack` produces a standalone, installable package per target. See
@@ -33,7 +37,7 @@ day mcp-server               # serve Day tools to AI agents (Model Context Proto
 | target | artifact |
 |---|---|
 | `macos-appkit` | `.dmg` (codesign → notarize → staple) |
-| `ios-uikit` | `.ipa` (App Store export; Simulator `.app.zip` without signing config) |
+| `ios-uikit` | `.ipa` (App Store export; without signing config, an unsigned device `.ipa` named `<stem>-ios-uikit-unsigned.ipa`) |
 | `android-mdc` | `.apk` + `.aab` (release-signed) |
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
 | `windows-xaml` | `.msix` + NSIS `-setup.exe` |
@@ -53,7 +57,7 @@ dayscript smoke test (`day launch -p <target> --script dayscript/smoke.yaml`), a
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders
 (`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
-`{{day_dep}}`, `{{targets_toml}}`, `{{first_target}}`). The built-in template is embedded in the
+`{{day_dep}}`, `{{day_build_dep}}`, `{{targets_toml}}`, `{{first_target}}`). The built-in template is embedded in the
 CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
 
 ```bash
@@ -93,9 +97,10 @@ day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --varia
 day launch -p macos-appkit --record recording.yaml
 ```
 
-CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN)
-exactly this way, and the [gallery](/gallery) lets you flip every screenshot between those
-variants.
+CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN) with
+one command: `day launch --themes light,dark --locales en,fr,ar,zh-CN --script …` builds once and
+expands the matrix internally, naming each run's variant `<theme>` (for the default locale) or
+`<theme>-<locale>`. The [gallery](/gallery) lets you flip every screenshot between those variants.
 
 ### Simulators, emulators, and devices
 

@@ -24,7 +24,7 @@ exercised by real applications, and it gets updated when reality changes.
 | `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI. External piece renderers currently fail to register under the MinGW linker and draw placeholders |
 | `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
 | `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
-| `web-dom` | ✓ | ✓ (headless WebKit) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI — see the [web notes](/docs/internal/web) |
+| `web-dom` | ✓ | ✓ (headless Chromium) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI — see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
 [dayscript](/docs/dayscript) walkthrough (navigation, inputs, dialogs, screenshots) on that
@@ -98,11 +98,15 @@ than on native because pieces that realize as `<div>`s carry no compensating ARI
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation is partial.** `with_animation(spec, || …)` ships and the backends execute opacity,
-  transform and frame changes natively. Two gaps remain: an animated background *color* interpolates
-  on UIKit only (elsewhere it applies at commit, because Day never ticks its own frames for native
-  widgets), and the enter/exit `.transition` surface is not implemented.
-- **Multi-window:** one window per process today.
+- **Animation is partial.** `with_animation(spec, || …)` ships, and four of the eight backends
+  execute opacity, transform, and frame changes natively: AppKit, UIKit, Android, and web. On GTK,
+  Qt, XAML, and ArkUI the changes apply at commit with no animation (`Cap::Animation` reports
+  unsupported), because Day never ticks its own frames for native widgets. An animated background
+  *color* interpolates on UIKit only, and the enter/exit `.transition` surface is not implemented.
+- **Multi-window:** [secondary windows](/docs/internal/windows) work on every backend — native
+  windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
+  HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe
+  `Cap::MultiWindow` to adapt chrome.
 - **Semantic color tokens / automatic dark-mode for custom colors.**
   ([styling](/docs/styling#color-backgrounds-shape))
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.

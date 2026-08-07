@@ -32,12 +32,12 @@ HarmonyOS, web) come from one repository.
 | `useMemo` | `Memo::new` (no dependency array) |
 | `useEffect` | `Effect::new` / `bind` / `watch` (no dependency array) |
 | re-render + reconciliation | no re-render; one binding patches one widget |
-| Context | `with_environment` / `use_context` |
+| Context | `with_environment` / `environment::<T>()` |
 | Redux / Zustand / Jotai | signals in plain Rust — module statics, structs |
 | `<FlatList>` | `list` (recycling), `each` (keyed) |
 | React Navigation | `selector`, `stack`, and string routes |
 | `package.json` + Metro | `Cargo.toml` (package) + `Day.toml` (app manifest) |
-| `require('./logo.png')` | `image("logo")` from `resource/images/` |
+| `require('./logo.png')` | `image(res::images::logo)`, a generated constant |
 | i18next / react-intl | Fluent `.ftl` + generated `res::str` functions |
 | Turbo Modules / native components | [parts](/docs/parts) and [pieces](/docs/extending) |
 | Fast Refresh | none — `day relaunch` rebuilds and relaunches |
@@ -300,8 +300,10 @@ day::task(async move {
 
 </Compare>
 
-The cancellation bookkeeping on the left is built in on the right: writes to a signal whose page
-was disposed are silent no-ops, and dropping the future cancels the request. HTTP goes through
+The `cancelled` flag on the left is unnecessary on the right: writes to a signal whose page was
+disposed are silent no-ops, so a late completion can't touch a closed page. Cancelling the work
+itself is explicit — `day::task` returns a `TaskHandle`, and `handle.abort()` drops the future
+and cancels the in-flight request; nothing auto-cancels on page teardown. HTTP goes through
 each platform's own networking stack ([`day-part-http`](/docs/parts)). System proxies, VPN
 routing, and certificate stores apply, with no `fetch` polyfill in between.
 
@@ -356,9 +358,9 @@ your app: no codegen'd specs, no serialization boundary.
 
 Metro resolves `require('./logo.png')` at bundle time and picks `@2x`/`@3x` variants; Day stages
 `resource/images/` into each platform's native store (asset catalogs, `res/drawable-*`,
-GResource), and the platform picks the density. For Metro's can't-miss guarantee, use the
-generated constants (`image(res::images::wave)`), where a renamed or deleted file is a compile
-error.
+GResource), and the platform picks the density. References are generated constants
+(`image(res::images::wave)`), so a renamed or deleted file is a compile error — Metro's
+can't-miss guarantee, enforced by the Rust compiler.
 
 <Compare lhs="React Native">
 
@@ -375,7 +377,7 @@ const { t } = useTranslation();
 ```
 
 ```rust
-image("wave")            // resource/images/wave.png + @2x/@3x
+image(res::images::wave)   // resource/images/wave.png + @2x/@3x
 
 // resource/locales/en/app.ftl:
 //   unread = { $count ->

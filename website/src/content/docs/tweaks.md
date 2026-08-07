@@ -38,7 +38,7 @@ button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
 })
 ```
 
-`.gtk(|mdc, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
+`.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
 follow the same shape with each platform's own types. Qt, XAML, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe (each tier is spelled out in the
@@ -85,11 +85,11 @@ free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cr
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
-use day_tweak_label_selectable::LabelSelectableTweak;
+use day_tweak_tooltip::TooltipTweak;
 use day_tweak_slider_tickmarks::{SliderTickmarksTweak, Tickmarks};
 
 button("Save").bezel(Bezel::Toolbar);          // AppKit only; stock elsewhere
-label("Copy me").selectable();                 // AppKit, GTK, Android
+button("Save").tooltip("Save your changes (⌘S)");  // AppKit, GTK, Android; no-op elsewhere
 slider(v).tickmarks(Tickmarks::count(11).snap(true));  // six toolkits, incl. its own C++
 ```
 

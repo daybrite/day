@@ -121,6 +121,12 @@ Each run drives the real app and writes content-checked captures under
 (`assert_text: { id: …, key: … }`) instead of literal text and one script passes in every
 language.
 
+You can also record the script instead of writing it:
+`day launch -p macos-appkit --record dayscript/weather.yaml` captures your real taps, typing, and
+navigation into a replayable dayscript while you use the app, rewriting the file continuously so
+it survives a kill. Recording a manual walkthrough is the fastest way to get a first script; add
+the `assert_*` steps by hand afterward.
+
 ## 5. Put it in CI
 
 A minimal GitHub workflow that builds the app headlessly and runs the script on every push:

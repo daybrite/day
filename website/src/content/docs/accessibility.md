@@ -20,28 +20,35 @@ three one API.
 ```rust
 // An icon-only button: its accessible name can't be derived, so provide one.
 button("✕")
-    .a11y(|a| a.label(tr("close")))
+    .a11y(|a| a.label(tr("close").format()))
     .id("close-button")
 
 // A custom-drawn gauge: no native control underneath, so declare role and value.
 canvas(move |d, size| draw_gauge(d, size, value.get()))
+    .a11y(|a| a.role(Role::Meter).label(tr("cpu_usage").format()))
     .frame(120.0, 120.0)
-    .a11y(|a| a.role(Role::Meter).label(tr("cpu-usage")))
 
 // Decorative artwork: remove it from the accessibility tree entirely.
-image("hero-banner").a11y(|a| a.decorative())
+image(res::images::hero_banner).a11y(|a| a.decorative())
 ```
 
+Put `.id` and `.a11y` before `.frame()` and `.padding()` on canvas and leaf pieces: those
+modifiers wrap the piece in a layout-only node, so annotations placed after them don't reach
+the native widget.
+
 The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. Labels are
-ordinary text values, so `tr(...)` works; accessible names are localized like everything else.
-Built-in Pieces set sensible defaults (a `toggle` is a switch with its title as its name); your
-annotations merge over those defaults.
+plain strings (`tr(...).format()` localizes one), taken as a snapshot at build time: they don't
+re-resolve on a locale switch yet (a listed follow-up). Native controls report their roles on
+their own, but no built-in invents a *label* for you — a `toggle` has no title parameter, so a
+titled switch is `labeled("Subscribe", toggle(subscribed))`. Your annotations merge onto the
+node's defaults.
 
-Two rules Day enforces rather than suggests, via `day lint`:
+Two rules to hold yourself to (`day lint` has no a11y rules yet; a missing-label warning for
+interactive pieces is a listed follow-up):
 
-- an interactive Piece with no derivable label is a warning (an error with `--strict`);
-- an element id leaking into an accessible *label* is an error: ids are for machines, labels are
-  for people, and screen readers reading `"save-button"` aloud is the bug this catches.
+- give every interactive Piece whose purpose isn't its text an accessible name;
+- never let an element id double as a label: ids are for machines, labels are for people, and a
+  screen reader reading `"save-button"` aloud is the bug.
 
 ## Identifiers
 
@@ -53,7 +60,7 @@ platform mapping is uneven:
 |---|---|
 | iOS / macOS | `accessibilityIdentifier` — full support (XCUITest etc.) |
 | Windows (XAML, Qt) | UIA `AutomationId` — full support |
-| Android | `uniqueId`, API 33+ only; older versions expose no automation id to Appium/UiAutomator |
+| Android | — (the backend maps label, value, and hidden; it sets no automation id today) |
 | GTK | no public settable AT-SPI id today — inspector-visible only |
 | Web | DOM `id` |
 
@@ -73,8 +80,9 @@ declared:
 
 The audit walks id'd nodes, asks the toolkit for the realized role, label, and value (via each
 backend's read-back hooks), and fails the script on mismatch. Run in CI, this turns "we set the
-labels" into a regression-tested claim. Read-back is implemented on the Apple backends and Qt;
-backends that can't yet read their native tree (Android, GTK) skip rather than fake it.
+labels" into a regression-tested claim. Read-back is implemented on the Apple backends (AppKit
+and UIKit); backends that can't yet read their native tree skip rather than fake it (read-back
+for Qt and GTK is a listed follow-up).
 
 ## Current limits
 

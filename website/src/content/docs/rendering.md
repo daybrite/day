@@ -17,7 +17,7 @@ the mechanism, the framework's behavior is predictable.
 
 ```text
 NodeData
-├─ kind            "label" | "button" | "column" | …
+├─ kind            "day.label" | "day.button" | "day.column" | …
 ├─ handle          Option<toolkit handle>      ← None for layout-only nodes
 ├─ parent/children tree links
 ├─ layout          the node's Layout impl + flex facts (grow, spacer, group)
@@ -38,10 +38,10 @@ When a Piece's `build` runs, the node is created, and (for native kinds) the bac
 to realize it:
 
 ```text
-cx.leaf("button", &ButtonProps { title: "Save" })
+cx.leaf("day.button", &ButtonProps { title: "Save" })
   │
   ├─ insert node into the arena, under the current parent
-  ├─ toolkit.realize("button", props, node_id)      → native NSButton, returns Handle
+  ├─ toolkit.realize("day.button", props, node_id)  → native NSButton, returns Handle
   ├─ compute native insertion index                  (skipping layout-only ancestors:
   │                                                   a column has no native counterpart,
   │                                                   so its children flatten into the

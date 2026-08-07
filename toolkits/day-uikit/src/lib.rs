@@ -8,6 +8,11 @@
 
 #![allow(unused_unsafe)]
 
+// `setBadgeCount:` lives in UserNotifications; the class lookup needs the framework linked.
+#[cfg(target_os = "ios")]
+#[link(name = "UserNotifications", kind = "framework")]
+unsafe extern "C" {}
+
 #[cfg(target_os = "ios")]
 pub use imp::*;
 
@@ -2254,6 +2259,37 @@ mod imp {
     impl Toolkit for Uikit {
         type Handle = Handle;
 
+        /// iOS badges are NUMBERS ONLY, and they are part of the notification grant: without the
+        /// user allowing notifications the count is simply not drawn (docs/badge.md).
+        ///
+        /// `UNUserNotificationCenter.setBadgeCount:` (iOS 16+) rather than the deprecated
+        /// `UIApplication.applicationIconBadgeNumber`. Hand-rolled through `msg_send!` on two
+        /// selectors instead of taking `objc2-user-notifications` as a toolkit dependency — the
+        /// same budget `day-part-permissions` keeps for this exact class.
+        fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+            use day_spec::AppBadge;
+            let count: isize = match badge {
+                AppBadge::None => 0,
+                AppBadge::Count(n) => *n as isize,
+                // No text and no dot on iOS. Substituting a number here would invent a value the
+                // caller never asked for, so these clear instead (Cap says they are unsupported).
+                AppBadge::Text(_) | AppBadge::Dot => return,
+            };
+            let Some(cls) = objc2::runtime::AnyClass::get(c"UNUserNotificationCenter") else {
+                return;
+            };
+            unsafe {
+                let center: *mut objc2::runtime::AnyObject =
+                    msg_send![cls, currentNotificationCenter];
+                if center.is_null() {
+                    return;
+                }
+                // A nil completion handler is allowed; a failure surfaces in the system log, and
+                // there is nothing the caller could do with it synchronously.
+                let _: () = msg_send![center, setBadgeCount: count, withCompletionHandler: std::ptr::null::<objc2::runtime::AnyObject>()];
+            }
+        }
+
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 // UITextView natively honors editable / selectable / spell-check.
@@ -2265,6 +2301,9 @@ mod imp {
                 // destination — content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
                 | Cap::TextEditable
+                // A number on the home-screen icon, gated on the notification grant
+                // (docs/badge.md). Text and Dot have no iOS equivalent.
+                | Cap::AppBadgeCount
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck
                 // UITableView's own drag pipeline: long-press lift + gap, no editing mode.

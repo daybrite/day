@@ -57,6 +57,21 @@ pub(crate) fn stage_tree(
         }
     }
 
+    // Vector glyphs (docs/vectors.md): the raster cache plus the staged SVGs, under
+    // `share/<name>/vectors/` — the launcher exports the same `DAY_VECTOR_*_ROOT` roots a
+    // dev `day launch` would, so packed resolution matches dev exactly.
+    for (from, to) in [
+        (
+            crate::resources::vector_raster_dir(project),
+            "vectors/raster",
+        ),
+        (crate::resources::vector_svg_dir(project), "vectors/svg"),
+    ] {
+        if from.is_dir() {
+            super::copy_tree(&from, &share_app.join(to))?;
+        }
+    }
+
     // Compiled resource blobs, when the toolkit's resource compiler produced them (§18.3).
     let resource_blob = match target.toolkit {
         "gtk" => Some(("DAY_GRESOURCE", "gtk", format!("{name}.gresource"))),
@@ -89,6 +104,8 @@ pub(crate) fn launcher(prefix: &str, preamble: &str, staged: &Staged) -> String 
         format!(r#"export DAY_ASSET_ROOT="{prefix}/share/{name}/assets""#),
         format!(r#"export DAY_IMAGE_ROOT="{prefix}/share/{name}/images""#),
         format!(r#"export DAY_FONT_ROOT="{prefix}/share/{name}/fonts""#),
+        format!(r#"export DAY_VECTOR_RASTER_ROOT="{prefix}/share/{name}/vectors/raster""#),
+        format!(r#"export DAY_VECTOR_SVG_ROOT="{prefix}/share/{name}/vectors/svg""#),
     ];
     if let Some((var, file)) = &staged.resource_blob {
         lines.push(format!(r#"export {var}="{prefix}/share/{name}/{file}""#));
@@ -267,6 +284,10 @@ mod tests {
             "{sh}"
         );
         assert!(
+            sh.contains(r#"export DAY_VECTOR_RASTER_ROOT="/app/share/demo/vectors/raster""#),
+            "{sh}"
+        );
+        assert!(
             sh.trim_end().ends_with(r#"exec "/app/bin/demo-bin" "$@""#),
             "{sh}"
         );
@@ -305,9 +326,13 @@ mod tests {
         std::fs::create_dir_all(root.join("resource/assets")).expect("assets");
         std::fs::create_dir_all(root.join("resource/images")).expect("images");
         std::fs::create_dir_all(root.join("build/day/gtk")).expect("blob dir");
+        std::fs::create_dir_all(root.join("build/day/vectors/raster")).expect("raster dir");
+        std::fs::create_dir_all(root.join("build/day/vectors/svg")).expect("svg dir");
         std::fs::write(root.join("resource/assets/data.txt"), "x").expect("asset");
         std::fs::write(root.join("resource/images/logo.png"), "x").expect("image");
         std::fs::write(root.join("build/day/gtk/demo.gresource"), "x").expect("blob");
+        std::fs::write(root.join("build/day/vectors/raster/home.png"), "x").expect("raster");
+        std::fs::write(root.join("build/day/vectors/svg/home.svg"), "x").expect("svg");
         let binary = tmp.join("demo");
         std::fs::write(&binary, "#!/bin/sh\n").expect("binary");
 
@@ -332,6 +357,8 @@ mod tests {
         assert!(prefix.join("bin/demo-bin").is_file(), "the real binary");
         assert!(prefix.join("share/demo/assets/data.txt").is_file());
         assert!(prefix.join("share/demo/images/logo.png").is_file());
+        assert!(prefix.join("share/demo/vectors/raster/home.png").is_file());
+        assert!(prefix.join("share/demo/vectors/svg/home.svg").is_file());
         assert!(prefix.join("share/demo/demo.gresource").is_file());
         assert_eq!(
             staged.resource_blob,

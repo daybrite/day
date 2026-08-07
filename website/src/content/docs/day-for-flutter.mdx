@@ -13,7 +13,7 @@ four places the workflow differs: state, packages, resources, and builds.
 **Flutter draws its own widgets; Day uses the platform's.** Flutter ships a renderer
 (Impeller/Skia) and repaints every pixel, so your app looks identical everywhere. Day creates
 each platform's real widgets (`NSButton` on macOS, a Material button on Android, GTK, Qt,
-WinUI, and ArkUI widgets elsewhere), so your app looks native everywhere instead.
+system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere instead.
 [Why Day](/docs/benefits) lists what each approach costs and when Flutter is the better pick.
 
 ## Flutter terms in Day
@@ -135,7 +135,7 @@ let subscribed = Signal::new(false);
 column((
     text_field(name).placeholder("Your name"),
     slider(volume).range(0.0..=100.0),
-    toggle(subscribed),
+    labeled("Subscribe", toggle(subscribed)),
 ))
 .spacing(12.0)
 ```
@@ -368,7 +368,8 @@ The Day side has no assets or fonts list: files under `resource/` are found
 by convention, so adding an image never touches a manifest. Dependencies are ordinary Cargo
 dependencies; a package with native platform code (the equivalent of a plugin) declares its
 per-platform pieces in its own crate metadata, and `day build` folds them into the app's Xcode
-and Gradle builds. The app never re-declares plugin wiring.
+and Gradle builds. The app never re-declares plugin wiring. Day can also embed your own SwiftUI
+views on the Apple targets ([SwiftUI embedding](/docs/internal/swiftui)).
 
 ## Resources and localization
 
@@ -411,8 +412,8 @@ resource store (asset catalogs on iOS, `res/drawable-*` on Android, GResource on
 than a custom bundle format:
 
 ```rust
-image("wave")                                  // resource/images/wave.png, wave@2x.png…
-let data = day::resource("stations.json")?;    // resource/assets/, zero-copy bytes
+image(res::images::wave)                       // resource/images/wave.png, wave@2x.png…
+let data = day::resource(res::assets::stations_json)?;  // resource/assets/, zero-copy bytes
 label("Hi").font(Font::Custom("Pacifico", 24.0))  // resource/fonts/, by family name
 ```
 

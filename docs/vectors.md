@@ -37,6 +37,14 @@ pipeline under the same name — the universal fallback. On top:
 | web-dom | the **SVG** beside `assets/images/` — day-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
 | harmony-arkui | the **SVG** in `rawfile day/` (same stem as the raster) — day-arkui probes `day/<name>.svg` via the resource manager and ArkUI's Image renders it natively; raster names keep the png |
 
+Packed desktop apps carry the same forms without the launch env: a `.app` ships
+`Contents/Resources/vectors/{svg,raster}` (probed exe-relative — the SVGs by
+`resolve_vector_svg`, the rasters by `resolve_image_file`); an AppImage/flatpak ships
+`share/<name>/vectors/{raster,svg}` with the launcher exporting the same
+`DAY_VECTOR_*_ROOT` roots a dev launch would; the Windows payload merges the raster cache
+into the exe-relative `images/`, where both the piece resolution and the nav rows'
+`ms-appx:///images/` loads already look.
+
 ## Weights
 
 Every vector stages three weight variants: the canonical **Regular** under its own name, and
@@ -72,6 +80,5 @@ a heads-up that Android ships the raster).
 ## Not yet
 
 Apple-native symbol weights (the `.symbolset` catalog staging that would unlock them — staged
-weights are template-extracted everywhere today, Apple included), packed-desktop staging (dev
-launches and mobile packs carry vectors today), and the opt-in runtime rasterizer for
-downloaded SVGs (`day-piece-remote-image`'s planned svg arm).
+weights are template-extracted everywhere today, Apple included), and the opt-in runtime
+rasterizer for downloaded SVGs (`day-piece-remote-image`'s planned svg arm).

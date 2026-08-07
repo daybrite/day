@@ -603,6 +603,26 @@ pub fn set_appearance(dark: Option<bool>) {
     note_appearance_changed();
 }
 
+/// Put a badge on the app's icon — the Dock, launcher, home screen, or taskbar (docs/badge.md).
+///
+/// Fire-and-forget: a payload the running toolkit cannot render is ignored, so probe
+/// `capability(Cap::AppBadgeCount | AppBadgeText | AppBadgeDot)` first and choose. Nothing is ever
+/// substituted, because a wrong number on a user's icon is worse than no badge.
+///
+/// ```no_run
+/// # use day_core::{set_app_badge};
+/// # use day_spec::AppBadge;
+/// set_app_badge(&AppBadge::Count(7));
+/// set_app_badge(&AppBadge::None); // clear
+/// ```
+///
+/// An iOS badge belongs to the INSTALLED APP and survives termination, so an app that sets one
+/// usually clears it from a `WillTerminate` handler (docs/lifecycle.md); a macOS Dock badge dies
+/// with the process.
+pub fn set_app_badge(badge: &day_spec::AppBadge) {
+    tree::with_tree(|t| t.set_app_badge(badge));
+}
+
 #[cfg(test)]
 mod posted_panic_tests {
     /// A panic inside a posted main-thread task must be CONTAINED (logged + runtime reset), never

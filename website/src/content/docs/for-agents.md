@@ -52,7 +52,7 @@ bind straight to native attributes.
 day new app my-app --toolkit macos-appkit,ios-uikit,android-mdc
 cd my-app
 day launch -p macos-appkit                 # build + run
-day launch -p macos-appkit --script dayscript/walkthrough.yaml   # build + run + assert
+day launch -p macos-appkit --script dayscript/smoke.yaml   # build + run + assert
 ```
 
 `Day.toml` (`name`/`version` come from Cargo.toml's `[package]`):
@@ -195,6 +195,23 @@ let text = Signal::new(String::new());
 combo_box(items, text).id("combo")
 ```
 
+SwiftUI views embed via `day-piece-swiftui` on macos-appkit / ios-uikit only:
+`swiftui("name")` resolves a provider class, or a local SwiftPM package's views become typed
+`crate::swiftui::MyView(…)` constructors. Gate the UI on the probe (`support()` is fixed per
+binary, so a plain `if` at build time is right):
+
+```rust
+if day_piece_swiftui::support() == Support::Native {
+    swiftui("hello").frame(320.0, 240.0).any()
+} else {
+    day_native_fallback()
+}
+```
+
+**Invariant:** `support()` probes are the ONLY correct gate for platform-limited pieces. Never
+gate on `target_os` or backend-feature cfgs — `target_os = "macos"` also covers macos-gtk and
+macos-qt, which have no AppKit view tree.
+
 ## API quick reference
 
 | Need | Use |
@@ -222,6 +239,10 @@ day new app <name> --toolkit <t1,t2>  # scaffold an app (bare `day new` = intera
 day build   -p <target>               # compile
 day launch  -p <target>               # build + run (streams stdout/stderr)
 day launch  -p <target> --script s.yaml   # build + run + drive/assert
+day launch  -p <target> --record s.yaml   # record your manual session as a replayable dayscript
+#   scripted-launch flags: --variant <name> (screenshot set), --locales <l,…> / --themes <t,…>
+#   (capture matrix: one run per theme×locale), --keep-alive, --skip-build,
+#   --ios-device / --ios-simulator / --android-device (pick the device per runtime)
 day pack    -p <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
@@ -267,8 +288,11 @@ day drive -p macos-appkit --steps-json \
 ```
 
 Output is JSON (per-step `ok`/`error`, screenshot paths + base64). Step ops: `navigate`,
-`nav_back`, `tap`, `input`, `set_value`, `toggle`, `select`, `wait_for`, `wait_idle`,
+`nav_back`, `tap`, `input`, `set_value`, `toggle`, `select`, `scroll_to`, `submit`, `reorder`,
+`menu`, `toolbar`, `focus`, `close_window`, `wait_for`, `wait_idle`,
 `assert_visible`, `assert_text`, `assert_value`, `assert_route`, `assert_presented`,
+`assert_focused`, `assert_no_placeholders` (fails if any piece rendered the `⟨kind⟩`
+placeholder — the step that catches a missing renderer), `expect_exit`,
 `respond`, `a11y_audit`, `pause`, `screenshot`.
 
 If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day

@@ -32,8 +32,10 @@ day launch -p harmony-arkui      # installs and starts on an emulator or device
 artifact without a vendor account. `day pack -p harmony-arkui` produces the release `.hap`, signed
 with your own material when configured.
 
-The [`day ohos`](/docs/cli) subcommand wraps the emulator: creating, booting and connecting to the
-QEMU image without leaving the CLI.
+The [`day ohos`](/docs/cli) subcommand wraps the emulator: `day ohos emulator launch` (add
+`--headless` for CI) boots the Oniro QEMU image and connects `hdc` without leaving the CLI. It
+does not download images: point `DAY_OHOS_EMULATOR` at a directory holding the Oniro emulator
+images (default `~/ohos/emulator/images`), or the command errors naming what is missing.
 
 ## Caveats and special considerations
 
@@ -42,9 +44,11 @@ partially. Concretely:
 
 - **No dialogs.** `present()` handles file open/save; alerts and prompts are ignored. If your UI
   depends on a confirmation dialog, it will silently do nothing here.
-- **Most external pieces have no ArkUI arm** — web view, media, map, Lottie, search field, combo
-  box, activity indicator, remote image all render a placeholder. The date/time pickers and
-  pull-to-refresh **do** have native arms.
+- **Several external pieces have no ArkUI arm** — media, map, Lottie, search field, combo box,
+  activity indicator, and remote image all render a placeholder. The date/time pickers and
+  pull-to-refresh have native arms, and the web view has an **ArkTS** arm: the crate ships its own
+  ArkTS component, staged into the host project via `[package.metadata.day.ohos]`, with load,
+  back/forward, stop, and reload working.
 - **All three picker styles collapse to one control** — menu, segmented and inline all become
   `ARKUI_NODE_TEXT_PICKER`.
 - **Layout is measured for very few kinds.** Labels, buttons and the text area ask ArkUI to
@@ -83,10 +87,12 @@ cover a component, the node type links to that guide; the rest link to the OpenH
 | `nav_menu` | a scroll + column of row nodes |
 | `cover()` | `ARKUI_NODE_STACK` re-homed onto the window root |
 | `image` | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| `vector` | [`ARKUI_NODE_IMAGE`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) rendering the staged SVG from `rawfile day/` natively |
 | `canvas` | [`ARKUI_NODE_CUSTOM`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-custom-components#custom-drawing-component) drawn with OH_Drawing |
 | *external* `date_picker()` | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) inline, [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) compact |
 | *external* `time_picker()` | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
 | *external* `pull_refresh()` | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
+| *external* `webview()` | the ArkTS `Web` component — the piece's own ArkTS, staged via `[package.metadata.day.ohos]` (the C node API has no Web node) |
 
 Further reading in the HarmonyOS NDK guides:
 [using NDK APIs to build UIs](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/arkts-use-ndk) (the index),

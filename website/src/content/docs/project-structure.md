@@ -17,18 +17,22 @@ how resources travel from your project into each platform's native store.
 my-app/
 ├── Day.toml                  # the app manifest: id, title, targets, window (name/version come from Cargo.toml)
 ├── Cargo.toml                # a normal Cargo package (bin + rlib)
+├── build.rs                  # day-build codegen: the typed res:: constants src/lib.rs includes
 ├── src/
 │   ├── lib.rs                # the app: pieces, signals, routes; res::locales::install()
 │   └── main.rs               # desktop entry point; mobile entries live in lib.rs macros
 ├── resource/
-│   ├── assets/               # arbitrary data files   → resource("stations.json")
-│   ├── images/               # processed images       → image("logo"), logo@2x.png variants
+│   ├── assets/               # arbitrary data files   → res::assets::stations_json
+│   ├── images/               # processed images       → res::images::logo, logo@2x.png variants
+│   ├── vectors/              # SVG glyphs, staged natively per backend → res::vectors::…
 │   ├── fonts/                # custom fonts (.ttf/.otf), referenced by family name
 │   ├── icons/                # app icon sources, staged per platform (dock, taskbar, launcher)
 │   └── locales/
 │       ├── en/app.ftl        # Fluent translations, embedded at compile time; a new
 │       └── fr/app.ftl        #   directory here IS a new language (res::locales::install())
 ├── dayscript/                # dayscript flows: walkthroughs, screenshots, assertions
+├── store/                    # the canonical store listing `day store` consumes
+├── website/                  # optional app-site scaffold (skip with --no-website)
 ├── platform/
 │   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner
 │   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme
@@ -39,10 +43,12 @@ my-app/
 Three rules keep this layout predictable:
 
 - **`Day.toml` is the single manifest.** The app's Day-specific identity (`id`, `title`,
-  `build`), its declared `targets`, and the default window geometry live here, while `name`
-  and `version` are derived from Cargo.toml's `[package]`, so they can never drift. Any `[app]`
-  property can be overridden per platform (`[app.ios]`), per toolkit (`[app.qt]`), or per
-  target (`[app.macos-appkit]`); the platform scaffolds read the resolved values at build time.
+  `artifact`, `build`), its declared `targets`, the default window geometry, and the
+  `[permissions]`, `[signing]`, and `[sbom]` sections live here, while `name` and `version` are
+  derived from Cargo.toml's `[package]`, so they can never drift. The identity properties
+  (`id`, `title`, `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
+  toolkit (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform scaffolds read the
+  resolved values at build time.
 - **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.
@@ -85,7 +91,9 @@ src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO
                  │
                  ├── GTK: links system GTK 4 / libadwaita
                  ├── Qt / XAML: cc-compiled C++ shim (built by the toolkit crate's build.rs)
-                 └── XAML: embeds a side-by-side manifest (XAML Islands requires it)
+                 ├── XAML: embeds a side-by-side manifest (XAML Islands requires it)
+                 └── macos-appkit: swift build prepass when Swift is contributed
+                     (build/day/macos/DayPieces, statically linked — docs/swiftui)
                  ▼
          build/day/cargo/<target>/<profile>/my-app      ◄── day launch runs this directly
                  ▼
@@ -106,7 +114,11 @@ callback into the `day` CLI:
 day build -p ios-uikit
 │
 ├── generate DayPieces           a local SwiftPM package assembled from every piece's
-│                                [package.metadata.day.ios] (Swift shims, SwiftPM deps)
+│                                [package.metadata.day.ios]: Swift shims, SwiftPM deps
+│                                (remote or local packages), system frameworks, and the
+│                                platform floor. A local package's public SwiftUI views
+│                                are scanned and exported as crate::swiftui::… bindings;
+│                                [package.metadata.day.macos] is the appkit twin
 │
 └── xcodebuild  platform/ios/DayApp.xcodeproj  (Runner target, iphonesimulator arm64)
         │
@@ -180,7 +192,7 @@ hdc install … && aa start EntryAbility                  (day launch)
 
 ### Web: `web-dom`
 
-This is the shortest pipeline of the eight, and the only one with no host project to check in. The
+This is the shortest of the five pipelines, and the only one with no host project to check in. The
 app's lib crate is compiled straight to wasm and dropped next to the host page:
 
 ```text
@@ -207,8 +219,9 @@ opening `index.html` directly.
 
 ## How resources are packaged
 
-`resource/images/` and `resource/assets/` are looked up by name at runtime through `image("logo")` and
-`resource("stations.json")`. Day never rewrites your bytes. Before each platform build it stages
+`resource/images/` and `resource/assets/` are looked up by name at runtime through the generated typed
+constants (`image(res::images::logo)`, `resource(res::assets::stations_json)` — a typo is a
+compile error). Day never rewrites your bytes. Before each platform build it stages
 the files into that target's **native resource store**, so the platform's own machinery does the
 optimizing, and the runtime read is native (and zero-copy wherever the store exposes a stable
 pointer):
@@ -232,14 +245,14 @@ pointer):
 │ ArkUI    rawfile       │ └───────────┬───────────────┘
 └─────┬──────────────────┘             │
       ▼                                ▼
- image("logo")                 resource("stations.json")
+ image(res::images::logo)      resource(res::assets::stations_json)
  native by-name lookup         zero-copy &[u8] view, random access
 ```
 
 At runtime, `resource()` returns a `Resource` backed directly by that store:
 
 ```rust
-let res = day::resource("stations.json").expect("bundled");
+let res = day::resource(res::assets::stations_json).expect("bundled");
 let bytes: &[u8] = res.as_slice();   // zero-copy view into the native store
 let mut header = [0u8; 16];
 res.read_at(0, &mut header);         // random access, no allocation

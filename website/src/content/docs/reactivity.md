@@ -74,8 +74,9 @@ are what Day itself uses to wire widgets, and they're available to you:
 // compute (tracked) → apply (untracked), gated by PartialEq on the computed value.
 bind(move || count.get() * 2, |doubled| println!("{doubled}"));
 
-// watch: like bind, but you get old and new values and nothing runs at setup.
-watch(move || route.get(), |old, new| log::info!("{old} → {new}"));
+// watch: like bind, but you also get the previous value (an Option) and
+// nothing runs at setup.
+watch(move || route.get(), |new, old| log::info!("{old:?} → {new}"));
 ```
 
 Every dynamic attribute in Day is one of these underneath. When you write
@@ -114,8 +115,9 @@ batch(|| {
 ```
 
 The drain is synchronous and ordered (structural changes before attribute updates, outer scopes
-before inner). A cycle (an effect that keeps re-dirtying itself) trips a re-run cap and panics
-in debug builds with the creation site of the offending effect, rather than hanging.
+before inner). A cycle (an effect that keeps re-dirtying itself) trips a re-run cap rather than
+hanging: debug builds panic with the creation site of the offending effect; release builds warn
+and defer.
 
 ## Scopes: ownership and cleanup
 
@@ -135,19 +137,18 @@ root scope
  └─ each(todos) row scopes, one per key ← disposed when the row's key disappears
 ```
 
-Scopes also carry **context**: `scope.provide(value)` makes a value visible to
-`use_context::<T>()` anywhere below, which is how `with_environment` implements ambient
-configuration like theming.
+Scopes also carry **context**: `with_environment(value, || …)` provides a value that
+`environment::<T>()` reads back anywhere below, which is how ambient configuration like theming
+works.
 
 Two sharp edges:
 
 - **A read with no observer never re-runs.** Reading a signal in a plain function body computes
   the value once and forgets it. If you meant "keep this up to date", the read has to be inside a
-  binding, memo, or reactive closure. Debug builds warn (once per call site) when a tracked read
-  happens with nothing listening.
-- **Disposed handles:** writing to a signal whose scope is gone is a silent no-op (normal in
-  async races, where a background task completes after the page closed). *Reading* one panics in
-  debug builds and names the signal's creation site.
+  binding, memo, or reactive closure.
+- **Disposed handles:** writing to a signal whose scope is gone is a defined no-op, warned once
+  per call site (normal in async races, where a background task completes after the page
+  closed). *Reading* one panics — in every build — and names the signal's creation site.
 
 ## Threads
 
@@ -185,8 +186,8 @@ The cost of this build-once model is that *you* mark what's dynamic. A closure m
 live; a bare value doesn't. Structure changes only through `when`, `each`, and `list`. Deriving
 structure from a signal in plain Rust freezes it at build time. In diffing frameworks these
 distinctions don't exist because everything re-runs; here they're the price of nothing
-re-running. In practice the rules are few, `day lint` and the debug diagnostics catch the common
-misses, and the payoff is a UI whose update cost you can reason about line by line.
+re-running. In practice the rules are few, the runtime diagnostics catch the common misses, and
+the payoff is a UI whose update cost you can reason about line by line.
 
 ---
 

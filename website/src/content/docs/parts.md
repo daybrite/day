@@ -22,6 +22,8 @@ plugin registry or runtime lookup; the target selects the implementation at comp
 | `day-part-battery` | charge level and charging state | [battery](/docs/internal/battery) |
 | `day-part-clipboard` | read/write the system clipboard (text) | [clipboard](/docs/internal/clipboard) |
 | `day-part-prefs` | small key-value preference storage in the platform's conventional location | [prefs](/docs/internal/prefs) |
+| `day-part-fs` | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/internal/fs) |
+| `day-part-local-notify` | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/internal/notify) |
 | `day-part-network` | connectivity status | [network](/docs/internal/network) |
 | `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/internal/deviceinfo) |
 | `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/internal/sensors) |
@@ -57,7 +59,7 @@ let battery = Signal::new(day_part_battery::status());
 column((
     label(move || match battery.get() {
         Some(b) => format!("{}%", b.percent().unwrap_or(0)),
-        None => tr("battery-unknown").format(),
+        None => tr("battery_unknown").format(),
     }),
     button(tr("refresh")).action(move || battery.set(day_part_battery::status())),
 ))
@@ -75,11 +77,14 @@ you write a part. The pattern scales from trivial to involved:
 
 - Pure-Rust platforms are a `#[cfg]` branch and a system crate (`objc2` on Apple, `windows` on
   Windows, sysfs/D-Bus on Linux).
-- Android usually needs a small Java shim; a part can carry its own Java sources and Gradle
-  dependencies, which `day build` aggregates into the app's Gradle project automatically (no
-  manual scaffold edits).
+- Android usually needs a small Java shim; a part can carry its own Java sources, Android
+  resources, Gradle dependencies, ProGuard keep rules, and even manifest components (a
+  `BroadcastReceiver` for a scheduled notification), all declared in Cargo metadata and
+  aggregated into the app's Gradle project by `day build` — no manual scaffold edits.
+- The same channel covers the other platforms: system frameworks and Swift for iOS and macOS
+  (`[package.metadata.day.ios]` / `[package.metadata.day.macos]`), ArkTS sources for HarmonyOS.
 - Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
-  the Android manifest the same way.
+  each platform's manifest the same way.
 
 `day new part my-part` scaffolds the whole shape with per-OS stubs. The
 [part tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with

@@ -275,10 +275,15 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
+        // Packed layouts (docs/vectors.md): `day pack` stages the vector raster cache under
+        // `vectors/raster` — inside `Contents/Resources` for a .app, beside the exe for the
+        // flat Windows payload — ordered after `images` to mirror the env-root precedence.
         for rel in [
             "../Resources/images",
+            "../Resources/vectors/raster",
             "../Resources/assets",
             "images",
+            "vectors/raster",
             "assets",
         ] {
             roots.push(dir.join(rel));
@@ -300,6 +305,28 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Resolve a vector NAME to its staged glyph SVG, for backends that render SVG natively
+/// (docs/vectors.md): `DAY_VECTOR_SVG_ROOT` under `day launch`, else the packed layouts —
+/// `Contents/Resources/vectors/svg` in a .app, `vectors/svg` beside a flat-layout exe.
+/// `None` (name isn't a vector, or the layout carries no SVGs) means fall back to
+/// [`resolve_image_file`]'s raster resolution.
+pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(v) = std::env::var("DAY_VECTOR_SVG_ROOT") {
+        roots.push(PathBuf::from(v));
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        roots.push(dir.join("../Resources/vectors/svg"));
+        roots.push(dir.join("vectors/svg"));
+    }
+    roots
+        .into_iter()
+        .map(|r| r.join(format!("{name}.svg")))
+        .find(|p| p.is_file())
 }
 
 #[cfg(test)]

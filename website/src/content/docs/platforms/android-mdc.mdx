@@ -44,8 +44,6 @@ day pack -p android-mdc           # release-signed .apk + .aab
   navigation stack for you.
 - **No map piece.** `day-piece-map` has no Android arm (it would pull in a Google Play services
   dependency); it renders as a placeholder.
-- **The list is a `ListView`, not a `RecyclerView`.** It recycles rows, but it is the framework's
-  older collection widget; very large or heterogeneous lists may want a native tweak.
 - **Runtime permissions are yours to request.** Day generates the manifest entries from your
   `[permissions]` table, and `day-part-permissions` performs the request — but Android's
   never-asked and permanently-denied states are indistinguishable without app-side persistence.
@@ -72,12 +70,13 @@ matters — the table is explicit about it.
 | `spinner()` | Material `LoadingIndicator` (M3 Expressive) |
 | `divider` | [`MaterialDivider`](https://developer.android.com/reference/com/google/android/material/divider/MaterialDivider) |
 | `scroll` | [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) / `HorizontalScrollView` |
-| `list` | [`ListView`](https://developer.android.com/reference/android/widget/ListView) + a `BaseAdapter` |
+| `list` | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) with a `RecyclerView.Adapter` (recycled cells; drag reorder via [`ItemTouchHelper`](https://developer.android.com/reference/androidx/recyclerview/widget/ItemTouchHelper)) |
 | `nav` | [`MaterialToolbar`](https://developer.android.com/reference/com/google/android/material/appbar/MaterialToolbar) over a fragment-driven `FrameLayout` |
 | `nav_menu` | scrolling [`TextView`](https://developer.android.com/reference/android/widget/TextView) rows |
 | `tabs` | [`BottomNavigationView`](https://developer.android.com/reference/com/google/android/material/bottomnavigation/BottomNavigationView) |
 | `cover()` | a full-screen `FrameLayout` shell |
 | `image` | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) |
+| `vector` | [`ImageView`](https://developer.android.com/reference/android/widget/ImageView) loading a [`VectorDrawable`](https://developer.android.com/reference/android/graphics/drawable/VectorDrawable) staged into `res/drawable/` (art outside the VectorDrawable subset ships the raster instead, with a lint heads-up) |
 | `canvas` | a `View` subclass replaying the display list onto [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas) |
 | dialogs / alerts / prompts | [`MaterialAlertDialogBuilder`](https://developer.android.com/reference/com/google/android/material/dialog/MaterialAlertDialogBuilder) |
 | file dialogs | Storage Access Framework intents |
