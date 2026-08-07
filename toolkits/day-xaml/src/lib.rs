@@ -1039,6 +1039,7 @@ impl Toolkit for Xaml {
                             pending,
                             cstr(&p.items.join("\n")).as_ptr(),
                             cstr(&icons_joined).as_ptr(),
+                            cstr(&join_tints(&p.tints)).as_ptr(),
                         );
                         ffi::day_xaml_nav_set_selected(
                             pending,
@@ -1202,10 +1203,21 @@ impl Toolkit for Xaml {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
-                    WinHandle(ffi::day_xaml_image_new(
-                        cstr(&image_uri(&p.source)).as_ptr(),
-                        mode,
-                    ))
+                    // A tint (`vector(…).tint(…)`, docs/vectors.md) recolors the glyph through
+                    // XAML's monochrome BitmapIcon, which needs the staged file NAME rather than
+                    // the stream URI the plain image path loads. An unresolved glyph returns
+                    // null and falls through, so a tint never costs the image itself.
+                    let tinted = p.tint.and_then(|c| {
+                        let file = icon_file_name(&p.source);
+                        if file.is_empty() {
+                            return None;
+                        }
+                        let h = ffi::day_xaml_image_tinted_new(cstr(&file).as_ptr(), mode, argb(c));
+                        (!h.is_null()).then_some(h)
+                    });
+                    WinHandle(tinted.unwrap_or_else(|| {
+                        ffi::day_xaml_image_new(cstr(&image_uri(&p.source)).as_ptr(), mode)
+                    }))
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
@@ -1345,6 +1357,7 @@ impl Toolkit for Xaml {
                         Some(NavMenuPatch::Items {
                             items,
                             icons,
+                            tints,
                             selected,
                             ..
                         }) => {
@@ -1363,6 +1376,7 @@ impl Toolkit for Xaml {
                                         nav,
                                         joined.as_ptr(),
                                         cstr(&icons_joined).as_ptr(),
+                                        cstr(&join_tints(tints)).as_ptr(),
                                     );
                                     ffi::day_xaml_nav_set_selected(nav, idx);
                                 }
@@ -2030,6 +2044,17 @@ fn argb(c: day_spec::Color) -> u32 {
     let g = (c.g.clamp(0.0, 1.0) * 255.0) as u32;
     let b = (c.b.clamp(0.0, 1.0) * 255.0) as u32;
     (a << 24) | (r << 16) | (g << 8) | b
+}
+
+/// Per-row nav icon tints (docs/vectors.md) as one line-joined ARGB list, parallel to the rows.
+/// `0` is the untinted row — fully transparent is not a colour anyone can mean, and it keeps the
+/// list positional so a row without a tint cannot shift the ones after it.
+fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
+    tints
+        .iter()
+        .map(|t| t.map(argb).unwrap_or(0).to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Resolve an image NAME to a `file:///` URI the XAML `BitmapImage` can load (§18.3).

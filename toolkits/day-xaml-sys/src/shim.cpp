@@ -24,6 +24,7 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <functional> // OEM menu-accelerator dispatch (see add_accel)
 #include <fstream> // read local image bytes for BitmapImage.SetSource (file:// URIs don't load)
 #include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
 
@@ -455,6 +456,16 @@ extern "C" void day_xaml_open_url(const char* url) try {
         winrt::Windows::Foundation::Uri(hs(url)));
 } catch (...) {}
 
+// App-menu shortcuts on OEM keys, which never reach XAML's accelerator table (see add_accel):
+// day_xaml_run's message loop matches them itself. Only the app menu fills this — a context
+// menu's shortcuts are labels, and its items come and go with the flyout.
+struct OemAccel {
+    int key;
+    int mods;
+    std::function<void()> fire;
+};
+static std::vector<OemAccel> g_oem_accels;
+
 extern "C" {
 
 void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h) try {
@@ -815,7 +826,23 @@ void day_xaml_run(void* win) {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
         BOOL handled = FALSE;
-        if (interop2) interop2->PreTranslateMessage(&msg, &handled);
+        // Menu shortcuts XAML could not take as accelerators (OEM keys — see add_accel). Checked
+        // ahead of PreTranslateMessage so the island cannot route the keystroke somewhere else
+        // first; every registered combination carries a modifier, so plain typing is untouched.
+        if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) {
+            int mods = 0;
+            if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 1;
+            if (GetKeyState(VK_SHIFT) & 0x8000) mods |= 2;
+            if (GetKeyState(VK_MENU) & 0x8000) mods |= 4;
+            for (auto const& a : g_oem_accels) {
+                if (a.key == static_cast<int>(msg.wParam) && a.mods == mods) {
+                    a.fire();
+                    handled = TRUE;
+                    break;
+                }
+            }
+        }
+        if (!handled && interop2) interop2->PreTranslateMessage(&msg, &handled);
         if (!handled) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -1367,20 +1394,32 @@ static std::vector<std::string> split_lines(const char* joined) {
 // Rebuild the pane's MenuItems from '\n'-joined destination titles (route order). `icons_joined`
 // is a PARALLEL '\n'-joined list of bundled icon FILE NAMES (empty entry = no icon), staged next to
 // the exe under images/ so a monochrome BitmapIcon can load them via ms-appx and tint to the theme.
-void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* icons_joined) {
+// `tints_joined` is parallel to the rows: an ARGB value per line, "0" (or a short list) meaning
+// "no tint" — that row keeps the theme-adaptive pane foreground.
+void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* icons_joined,
+                            const char* tints_joined) {
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
         nv.MenuItems().Clear();
         auto titles = split_lines(items_joined);
         auto icons = split_lines(icons_joined);
+        auto tints = split_lines(tints_joined ? tints_joined : "");
         for (size_t i = 0; i < titles.size(); ++i) {
             WUXC::NavigationViewItem nvi;
             nvi.Content(winrt::box_value(hs(titles[i].c_str())));
             if (i < icons.size() && !icons[i].empty()) {
                 WUXC::BitmapIcon bicon;
                 bicon.UriSource(WF::Uri{ hs(("ms-appx:///images/" + icons[i]).c_str()) });
+                // ShowAsMonochrome makes the bitmap an alpha mask filled with Foreground, which
+                // is what turns a staged raster glyph into a tintable icon (docs/vectors.md).
                 bicon.ShowAsMonochrome(true); // tint to the pane foreground (theme-adaptive)
+                if (i < tints.size()) {
+                    unsigned int argb =
+                        static_cast<unsigned int>(std::strtoul(tints[i].c_str(), nullptr, 10));
+                    // A fully transparent value is the "no tint" encoding, not a real colour.
+                    if ((argb >> 24) != 0) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+                }
                 nvi.Icon(bicon);
             }
             nv.MenuItems().Append(nvi);
@@ -1946,6 +1985,23 @@ static WSS::IRandomAccessStream read_file_stream(const char* path) {
     }
 }
 
+// A tinted glyph (docs/vectors.md) is a BitmapIcon, not an Image: ShowAsMonochrome turns the
+// staged raster into an alpha mask that Foreground fills, so a monochrome glyph recolors without
+// touching its art. XAML's own icon path — the same one the nav rows use — rather than a pixel
+// rewrite like GTK's, which XAML has no need of. `icon_file` is the staged file NAME (BitmapIcon
+// takes only a Uri, and unpackaged islands resolve `ms-appx:///images/<file>` against the exe
+// directory); an empty name or transparent tint falls through to the ordinary Image path.
+void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int argb) {
+    if (icon_file && *icon_file && (argb >> 24) != 0) {
+        WUXC::BitmapIcon bicon;
+        bicon.UriSource(WF::Uri{ hs((std::string("ms-appx:///images/") + icon_file).c_str()) });
+        bicon.ShowAsMonochrome(true);
+        bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+        return boxh(bicon);
+    }
+    return nullptr;
+}
+
 void* day_xaml_image_new(const char* uri, int mode) {
     WUXC::Image img;
     // Scaling (§18.3): 0=fit (Uniform), 1=fill (UniformToFill, cropped), 2=stretch (Fill).
@@ -2246,22 +2302,69 @@ static std::vector<std::string> split_lines(const std::string& s) {
     return out;
 }
 
-static void add_accel(WUXC::MenuFlyoutItem const& item, int key, int mods) {
+// `Windows.System.VirtualKey` names no member for the OEM punctuation codes (0xBA–0xC0,
+// 0xDB–0xDF) — the enum stops naming values well before them — yet those are exactly the codes
+// day's shortcut mapping emits for `,` `.` `-` `=` `/` (win_keycode). XAML derives a
+// MenuFlyoutItem's shortcut text from the accelerator's key when the menu OPENS, and that
+// generator fail-fasts on a value it cannot name: STATUS_STOWED_EXCEPTION (0xC000027B) inside
+// Windows.UI.Xaml.dll, killing the process as the flyout appears rather than when the shortcut
+// is ever pressed. `Ctrl+,` (the standard Settings/Preferences shortcut day auto-injects) means
+// any app with a preferences item crashed on its first File-menu open.
+//
+// Naming the key ourselves keeps that generator out of the path; the accelerator itself is
+// still registered, so the shortcut keeps working.
+static const char* oem_key_name(int key) {
+    switch (key) {
+        case 0xBA: return ";";
+        case 0xBB: return "=";
+        case 0xBC: return ",";
+        case 0xBD: return "-";
+        case 0xBE: return ".";
+        case 0xBF: return "/";
+        case 0xC0: return "`";
+        case 0xDB: return "[";
+        case 0xDC: return "\\";
+        case 0xDD: return "]";
+        case 0xDE: return "'";
+        default: return nullptr;
+    }
+}
+
+static void add_accel(WUXC::MenuFlyoutItem const& item, int key, int mods,
+                      std::function<void()> fire, bool global_accels) {
     if (key == 0) return;
-    WUXIn::KeyboardAccelerator ka;
-    ka.Key(static_cast<WS::VirtualKey>(key));
-    auto m = WS::VirtualKeyModifiers::None;
-    if (mods & 1) m |= WS::VirtualKeyModifiers::Control;
-    if (mods & 2) m |= WS::VirtualKeyModifiers::Shift;
-    if (mods & 4) m |= WS::VirtualKeyModifiers::Menu;
-    ka.Modifiers(m);
-    item.KeyboardAccelerators().Append(ka);
+    // An OEM key never becomes a KeyboardAccelerator: XAML fail-fasts while REGISTERING one
+    // whose key it cannot name — supplying KeyboardAcceleratorTextOverride does NOT avoid it,
+    // the accelerator object itself is the trigger. The item still shows the shortcut, and the
+    // message loop in day_xaml_run dispatches it.
+    const char* oem = oem_key_name(key);
+    if (!oem) {
+        WUXIn::KeyboardAccelerator ka;
+        ka.Key(static_cast<WS::VirtualKey>(key));
+        auto m = WS::VirtualKeyModifiers::None;
+        if (mods & 1) m |= WS::VirtualKeyModifiers::Control;
+        if (mods & 2) m |= WS::VirtualKeyModifiers::Shift;
+        if (mods & 4) m |= WS::VirtualKeyModifiers::Menu;
+        ka.Modifiers(m);
+        item.KeyboardAccelerators().Append(ka);
+        return;
+    }
+    // Windows' own modifier order, matching what XAML generates for the keys it can name.
+    std::string text;
+    if (mods & 1) text += "Ctrl+";
+    if (mods & 2) text += "Shift+";
+    if (mods & 4) text += "Alt+";
+    text += oem;
+    item.KeyboardAcceleratorTextOverride(hs(text.c_str()));
+    // An unmodified OEM key is ordinary typing — claiming it globally would swallow every `,`
+    // headed for a TextBox. Only a modified combination becomes a shortcut.
+    if (global_accels && mods != 0 && fire) g_oem_accels.push_back({ key, mods, std::move(fire) });
 }
 
 // Append the flat menu spec into a MenuFlyoutItemBase collection (a MenuFlyout / MenuFlyoutSubItem /
 // MenuBarItem Items()), tracking submenu depth with a stack.
 static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> root,
-                             const std::string& spec) {
+                             const std::string& spec, bool global_accels = false) {
     std::vector<WF::Collections::IVector<WUXC::MenuFlyoutItemBase>> stack;
     stack.push_back(root);
     for (auto const& line : split_lines(spec)) {
@@ -2282,23 +2385,27 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
         } else { // "A" action, "R" role
             WUXC::MenuFlyoutItem item;
             item.Text(hs(label.c_str()));
-            item.IsEnabled(!(f.size() > 5 && f[5] == "0"));
+            bool enabled = !(f.size() > 5 && f[5] == "0");
+            item.IsEnabled(enabled);
             int key = f.size() > 3 ? std::atoi(f[3].c_str()) : 0;
             int mods = f.size() > 4 ? std::atoi(f[4].c_str()) : 0;
-            add_accel(item, key, mods);
+            // What this item does — shared by the Click handler and, for an OEM shortcut, by
+            // the message loop's own dispatch, so both paths can never drift apart.
+            std::function<void()> fire;
             if (kind == "A") {
                 unsigned long long aid = f.size() > 1 ? std::strtoull(f[1].c_str(), nullptr, 10) : 0;
-                item.Click([aid](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
-                    if (g_menu_cb) g_menu_cb(aid);
-                });
+                fire = [aid] { if (g_menu_cb) g_menu_cb(aid); };
             } else {
                 int role = f.size() > 2 ? std::atoi(f[2].c_str()) : -1;
                 if (role == 8) { // Quit
-                    item.Click([](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
-                        if (g_app && g_app->host) PostMessageW(g_app->host, WM_CLOSE, 0, 0);
-                    });
+                    fire = [] { if (g_app && g_app->host) PostMessageW(g_app->host, WM_CLOSE, 0, 0); };
                 }
             }
+            if (fire) {
+                item.Click([fire](WF::IInspectable const&, WUX::RoutedEventArgs const&) { fire(); });
+            }
+            // A disabled item must not fire from the keyboard either.
+            add_accel(item, key, mods, enabled ? fire : std::function<void()>{}, global_accels);
             cur.Append(item);
         }
     }
@@ -2322,6 +2429,8 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
 extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !app->root) return;
+    // The OEM shortcuts belong to the menu being replaced; drop them with it.
+    g_oem_accels.clear();
     // Remove any prior MenuBar we docked (named "day_menubar"). `Children()` returns the
     // UIElementCollection by value (a projection over the real collection), so bind it by value —
     // a non-const reference can't bind to that rvalue (C2440) — mutations still hit the real one.
@@ -2358,12 +2467,12 @@ extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
                 inner += "\n";
                 ++i;
             }
-            build_menu_items(mbi.Items(), inner);
+            build_menu_items(mbi.Items(), inner, true);
             bar.Items().Append(mbi);
         } else {
             WUXC::MenuBarItem mbi;
             mbi.Title(hs(""));
-            build_menu_items(mbi.Items(), lines[i] + "\n");
+            build_menu_items(mbi.Items(), lines[i] + "\n", true);
             bar.Items().Append(mbi);
             ++i;
         }

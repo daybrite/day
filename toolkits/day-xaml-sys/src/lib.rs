@@ -134,6 +134,7 @@ unsafe extern "C" {
         nav: *mut c_void,
         items_joined: *const c_char,
         icons_joined: *const c_char,
+        tints_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
     pub fn day_xaml_nav_set_header(nav: *mut c_void, title: *const c_char);
@@ -203,6 +204,13 @@ unsafe extern "C" {
 
     pub fn day_xaml_divider_new() -> *mut c_void;
     pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
+    /// A tinted vector glyph as a monochrome `BitmapIcon`; null when the glyph could not be
+    /// resolved or the tint is transparent, so the caller falls back to a plain image.
+    pub fn day_xaml_image_tinted_new(
+        icon_file: *const c_char,
+        mode: c_int,
+        argb: u32,
+    ) -> *mut c_void;
 
     // External-piece / tweaks handle seam (docs/tweaks.md): box a WinRT ABI pointer into a day
     // handle, and borrow the ABI pointer back out. `day_xaml_unbox` returns winrt::get_abi —
