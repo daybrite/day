@@ -838,14 +838,43 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb
           sudo apt-get install -y --no-install-recommends fuse3 libfuse2t64 || \
             sudo apt-get install -y --no-install-recommends fuse libfuse2 || true
+          # dpkg-dev supplies dpkg-architecture, which the GTK plugin exits on when missing
+          # ("Install dpkg-dev then re-run the plugin"). Runners normally have it via
+          # build-essential; asking for it explicitly costs nothing and removes the assumption.
+          sudo apt-get install -y --no-install-recommends dpkg-dev
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy" \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT" \
-            "https://github.com/linuxdeploy/linuxdeploy-plugin-$TOOLKIT/releases/download/continuous/linuxdeploy-plugin-$TOOLKIT-x86_64.AppImage"
-          chmod +x "$RUNNER_TEMP/linuxdeploy" "$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT"
+
+          # The two plugins are NOT distributed the same way, which is what broke this step:
+          #
+          #   qt   ships an AppImage on a rolling `continuous` release.
+          #   gtk  has no releases at all — it is a shell script in its repository. The
+          #        `continuous` download URL therefore 404s, and `curl -f` exits 22.
+          #
+          # linuxdeploy finds a plugin by globbing `linuxdeploy-plugin-<name>*` next to its own
+          # binary and along PATH, so the `.sh` suffix is fine as long as both files land in the
+          # same directory. day-cli only checks the file exists (pack/appimage.rs `tool()`), then
+          # passes `--plugin <name>`; linuxdeploy does the real lookup.
+          case "$TOOLKIT" in
+            qt)
+              PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-qt"
+              curl -fsSL --retry 3 -o "$PLUGIN" \
+                "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+              ;;
+            gtk)
+              # Pinned to a commit rather than `master`: with no releases to track, an unpinned
+              # branch is a third party editing this job's behaviour without a pull request.
+              PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-gtk.sh"
+              curl -fsSL --retry 3 -o "$PLUGIN" \
+                "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh"
+              ;;
+            *)
+              echo "::error::no linuxdeploy plugin known for toolkit '$TOOLKIT'"; exit 1 ;;
+          esac
+          chmod +x "$RUNNER_TEMP/linuxdeploy" "$PLUGIN"
           {
             echo "DAY_LINUXDEPLOY=$RUNNER_TEMP/linuxdeploy"
-            echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$RUNNER_TEMP/linuxdeploy-plugin-$TOOLKIT"
+            echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$PLUGIN"
             echo "APPIMAGE_EXTRACT_AND_RUN=1"
           } >> "$GITHUB_ENV"
       # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
