@@ -2388,7 +2388,9 @@ assembly for the cargo-driven desktop targets; MSBuild-free cargo + C++/WinRT sh
 **`macos-appkit` is dual-mode** (2026-08): an app carrying the `platform/macos/` Xcode host
 project (scaffolded by default; adoptable via `day app add-toolkit macos-appkit`) builds through
 `xcodebuild` into a real `.app` — bundle identity, compiled appiconset, resources staged into
-`Contents/Resources` by the `day xcode-backend stage-resources` script phase — while
+`Contents/Resources` by the `day xcode-backend stage-resources` script phase (host-arch by
+default; `DAY_MACOS_UNIVERSAL=1` builds arm64 + x86_64, which needs both Rust stdlibs
+installed) — while
 `DAY_MACOS_XCODE=0` (or no scaffold) keeps the bare cargo + bundle-assembly path, whose
 conditional `swift build` prepass statically links macOS Swift contributions
 ([§15.2](#152-package-layout-and-aggregation), docs/swiftui.md). The
@@ -2558,7 +2560,8 @@ fieldnotes/
                              #   builds a real .app (debugger/Instruments-ready; §16.5 day build)
     android/                 #   Gradle project; committed build files read the generated
                              #   build/day/android/*.json|properties generically (§17.5)
-    ohos/                    #   hvigor project (docs/harmonyos.md)
+    harmony/                 #   hvigor project (docs/harmonyos.md; pre-rename scaffolds'
+                             #   platform/ohos/ is still read, with a rename hint)
 ```
 
 Rust code layout: the app is a **lib crate** (`fieldnotes`) so mobile targets (which need

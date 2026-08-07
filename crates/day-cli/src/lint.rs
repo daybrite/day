@@ -272,8 +272,11 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         for t in crate::targets::TARGETS {
             known.insert(t.name); // "macos-appkit"
             known.insert(t.toolkit); // "appkit"
-            known.insert(t.os); // "macos" — and "ohos" for harmony-arkui
+            known.insert(t.os); // "macos" — and "harmony" for harmony-arkui
         }
+        // The pre-rename spelling of the harmony platform key — still honored by the
+        // override resolution (meta.rs), so it isn't an unknown table.
+        known.insert("ohos");
         for key in project.manifest.app.overrides.keys() {
             if !known.contains(key.as_str()) {
                 findings.push(Finding {

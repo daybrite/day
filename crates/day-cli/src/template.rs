@@ -281,7 +281,7 @@ mod tests {
         assert!(
             !ios_only
                 .iter()
-                .any(|f| f.path.starts_with("platform/ohos/"))
+                .any(|f| f.path.starts_with("platform/harmony/"))
         );
         assert!(ios_only.iter().any(|f| f.path == "Day.toml")); // agnostic files stay
         assert!(

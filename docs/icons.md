@@ -64,7 +64,7 @@ ships as a true vector.
 | `android/` | adaptive `ic_launcher_{foreground,background}.png` (432), legacy 192, `play-store-512.png` + sync into `platform/android/…/mipmap-xxxhdpi/` |
 | `linux/` | `day-icon-{48,128,256,512}.png` (appstream-compose-safe sizes) |
 | `windows/` | multi-size `day.ico` (16/32/48/256, PNG-compressed) + `day-icon-256.png` |
-| OHOS | `startIcon.png` sync into both `platform/ohos/{entry,AppScope}` media dirs |
+| OHOS | `startIcon.png` sync into both `platform/harmony/{entry,AppScope}` media dirs |
 
 `-p <target>` limits generation to that target's family. Everything renders in memory first, so
 `--check` compares bytes without touching the tree.

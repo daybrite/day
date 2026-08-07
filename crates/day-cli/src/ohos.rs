@@ -1,6 +1,6 @@
 //! HarmonyOS / OpenHarmony (`harmony-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
 //! pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages + signs a `.hap`
-//! via the ArkTS host project under `<project>/platform/ohos/`; `launch_ohos` installs + starts it on a
+//! via the ArkTS host project under `<project>/platform/harmony/`; `launch_ohos` installs + starts it on a
 //! connected emulator/device over `hdc`.
 //!
 //! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an **x86_64**,
@@ -20,6 +20,30 @@ use crate::meta::Project;
 use crate::mobile::{run_logged, rustup_cargo};
 use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status};
 use crate::targets::Target;
+
+/// The HarmonyOS host project's directory: `platform/harmony` (matching the target
+/// identifier `harmony-arkui`, like every other platform dir — docs/harmonyos.md). An older
+/// scaffold's `platform/ohos` still resolves, with a one-time rename hint; a project with
+/// neither answers the modern path (scaffolding, error messages).
+pub fn harmony_dir(project: &Project) -> PathBuf {
+    let modern = project.root.join("platform/harmony");
+    if modern.exists() {
+        return modern;
+    }
+    let legacy = project.root.join("platform/ohos");
+    if legacy.exists() {
+        static HINTED: std::sync::Once = std::sync::Once::new();
+        HINTED.call_once(|| {
+            status(
+                "Warning",
+                "platform/ohos is the pre-rename layout — rename the directory to \
+                 platform/harmony (day reads both for now)",
+            );
+        });
+        return legacy;
+    }
+    modern
+}
 
 /// Bring up the Oniro/OpenHarmony QEMU emulator as a native window (the OHOS analogue of
 /// `skip android emulator launch`). No VNC, no Screen Sharing: on macOS the QEMU `cocoa` backend
@@ -415,9 +439,7 @@ pub(crate) fn find_ohos_ndk() -> Result<String, String> {
 /// what Day owns: a marker region in `module.json5`, and the `day_perm_reason_` prefix in
 /// `string.json`.
 fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
-    let module = project
-        .root
-        .join("platform/ohos/entry/src/main/module.json5");
+    let module = harmony_dir(project).join("entry/src/main/module.json5");
     if !module.exists() {
         return Ok(());
     }
@@ -476,9 +498,7 @@ fn write_ohos_reason_strings(
     project: &Project,
     reasons: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
-    let path = project
-        .root
-        .join("platform/ohos/entry/src/main/resources/base/element/string.json");
+    let path = harmony_dir(project).join("entry/src/main/resources/base/element/string.json");
     if !path.exists() {
         return Ok(());
     }
@@ -532,11 +552,11 @@ pub fn build_ohos(
     profile: &str,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    let harmony = project.root.join("platform/ohos");
+    let harmony = harmony_dir(project);
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
-            "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/ohos/` \
-             project (the hvigor project + sign-hap.mjs), like daybrite/Day-Showcase's platform/ohos. See \
+            "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/harmony/` \
+             project (the hvigor project + sign-hap.mjs), like daybrite/Day-Showcase's platform/harmony. See \
              docs/harmonyos.md.",
             harmony.display()
         ));
@@ -719,7 +739,7 @@ pub fn build_ohos(
     ]);
     run_logged(&mut hv, "hvigorw assembleHap")?;
 
-    // 3) Patch + sign the assembled (unsigned) .hap via platform/ohos/sign-hap.mjs: it rewrites module.json's
+    // 3) Patch + sign the assembled (unsigned) .hap via platform/harmony/sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
     //    then signs with the OpenHarmony public release material.
     let hap = sign_hap(&harmony, &ndk)?;
@@ -733,7 +753,7 @@ pub fn build_ohos(
 
 /// The hvigor-built UNSIGNED hap of `project` (release re-signing input — pack/ohos.rs).
 pub(crate) fn find_unsigned_hap(project: &crate::meta::Project) -> Option<PathBuf> {
-    find_hap(&project.root.join("platform/ohos/entry/build"), |n| {
+    find_hap(&harmony_dir(project).join("entry/build"), |n| {
         n.contains("unsigned")
     })
 }

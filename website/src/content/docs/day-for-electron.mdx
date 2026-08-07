@@ -7,9 +7,9 @@ section: Coming from
 
 import Compare from '../../components/Compare.astro';
 
-Electron and Day solve the same problem — one codebase, every desktop — with opposite materials.
+Electron and Day solve the same problem, one codebase for every desktop, from opposite starting points.
 Electron ships a browser and a Node runtime with each app and renders your UI as a web page; Day
-compiles Rust ahead of time and builds your UI from the platform's own widgets — `NSButton` and
+compiles Rust ahead of time and builds your UI from the platform's own widgets: `NSButton` and
 `NSMenu` on macOS, GTK 4 or Qt 6 on Linux, system XAML on Windows. The result differs in what
 you write (Rust instead of HTML/CSS/JS), what you ship (a native binary instead of a bundled
 Chromium), and what the user sees (their platform's controls instead of a web page in a frame).
@@ -18,8 +18,8 @@ Two structural differences drive everything in this guide. First, the process mo
 app is a Node main process and one Chromium renderer per window, talking over IPC, with a preload
 script policing the boundary; a Day app is one process, and "call the OS" is a function call.
 Second, the reach: Electron targets the three desktops, and Day's twelve targets add iOS,
-Android, HarmonyOS, and the web — the same crate compiles to WebAssembly driving real DOM
-elements — from the same repository.
+Android, HarmonyOS, and the web (the same crate compiles to WebAssembly driving real DOM
+elements) from the same repository.
 
 ## Electron terms in Day
 
@@ -79,7 +79,7 @@ fn counter() -> AnyPiece {
 
 </Compare>
 
-The shapes rhyme — a container, a text node, a click handler — but the right side is not a
+The parts match (a container, a text node, a click handler), but the right side is not a
 document. `label` is a real native text widget, `button` a real native button, and the closure
 inside `label` is a binding: when `count` changes, Day re-runs that one closure and calls one
 native setter. There is no DOM, no style recalculation, and no reconciliation pass. If your
@@ -132,17 +132,17 @@ button("Open…").action(move || {
 
 </Compare>
 
-The three-file round trip on the left is the boundary tax: every capability needs a handler, a
-bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the battery
-is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()` — plain
-functions, typed end to end, with nothing marshalled through strings. When a capability needs
+The three-file round trip on the left is the cost of the process boundary: every capability
+needs a handler, a bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the battery
+is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()`. All are
+plain functions, typed end to end, with nothing marshalled through strings. When a capability needs
 platform code Day doesn't ship (your N-API module case), you write a [part](/docs/parts): the
 platform halves live in one crate and calls into it stay ordinary Rust.
 
-## Real widgets, not a rendered page
+## Form controls are the platform's own
 
-Form controls bind two ways out of the box, and each one is the platform's own control — which
-is also where accessibility, keyboard traversal, right-to-left mirroring, and the user's text
+Form controls bind two ways out of the box, and each one is the platform's own control. That is
+also where accessibility, keyboard traversal, right-to-left mirroring, and the user's text
 size come from, with no ARIA layer to maintain:
 
 ```rust
@@ -163,15 +163,15 @@ column((
 Long lists don't need react-window: [`list`](/docs/internal/list) hands your rows to the
 platform's recycling list widget (`NSTableView`-family, `RecyclerView`), so ten thousand rows
 build only the visible cells. Styling is modifier-based (`.padding`, `.background`,
-`.corner_radius`, semantic `Font::Title`), and [Styling](/docs/styling) is explicit about the
-line Day draws: you adjust spacing, color, and typography, and the controls themselves stay
-native rather than becoming a themeable canvas. If the design brief is a fully bespoke skin on
-every pixel, a web renderer serves that better; if the brief is "a real Mac app on the Mac", the
-line is the point.
+`.corner_radius`, semantic `Font::Title`), and [Styling](/docs/styling) lists what you can
+restyle and what stays native: you adjust spacing, color, and typography; the controls are
+not a themeable canvas. If the design brief is a fully bespoke skin on
+every pixel, a web renderer serves that better. For an app that should look and behave like
+the platform's own, Day keeps the controls native on purpose.
 
 ## Windows, menus, and the chrome
 
-Electron's menus are already native — `Menu.buildFromTemplate` is the part of Electron closest
+Electron's menus are already native: `Menu.buildFromTemplate` is the part of Electron closest
 to Day's model. Day extends that treatment to everything: windows are native windows you open
 directly, the Settings window is a one-call convention, and toolbars live in the real title-bar
 chrome, not a styled `div` strip.
@@ -216,22 +216,22 @@ app_menu((
 
 `register_preferences_with` goes further than the sample: registering a Settings page once puts
 the standard Settings… item (⌘, on macOS) in the right menu on every desktop, and
-platforms without windows — the same code on an iPhone — present a fullscreen cover instead.
+platforms without windows (the same code on an iPhone) present a fullscreen cover instead.
 The [desktop guide](/docs/guide-desktop) walks all three subsystems.
 
-## What ships, and what it weighs
+## One binary, one process
 
 An Electron app carries its own Chromium and Node: the quick-start app is roughly a hundred
 megabytes installed before your first line of code, every window is a renderer process, and
 each Chromium security release is yours to rebuild and redistribute. A Day app is one process
-and one native binary linking the toolkit the OS already has. For scale: the Day Showcase — 26
-pages exercising every widget, chart, and part in this documentation — packs to a 5.7 MB
+and one native binary linking the toolkit the OS already has. For scale: the Day Showcase (26
+pages exercising every widget, chart, and part in this documentation) packs to a 5.7 MB
 notarized `.dmg`.
 
-The security model shrinks with the payload. There is no `nodeIntegration` checklist because
+There is no `nodeIntegration` checklist because
 there is no scriptable renderer: your app doesn't embed a browser, so it can't be XSS'd into
 the filesystem. When you do show remote content, [`day-piece-webview`](/docs/internal/webview)
-hosts the *system* webview — WKWebView, WebView2, WebKitGTK — which the operating system keeps
+hosts the *system* webview (WKWebView, WebView2, WebKitGTK), which the operating system keeps
 patched, on the OS's schedule instead of yours.
 
 ## Your web investment still counts
@@ -239,7 +239,7 @@ patched, on the OS's schedule instead of yours.
 Two escape valves matter for a team coming from the web. Existing web screens can ride along:
 `web_view(url_signal)` embeds them natively while you migrate page by page. And the whole app runs *as*
 a website: `day build -p web-dom` compiles the same crate to WebAssembly driving real DOM
-elements — the demo-without-installing story Electron apps usually rebuild separately. For a
+elements, the try-it-without-installing path Electron apps usually rebuild separately. For a
 team that keeps a foot in TypeScript, [`day-lite`](/docs/internal/lite) runs JS/TS miniapps on
 top of Day's native pieces, though it's a hosting layer, not a general replacement for app code.
 
@@ -283,7 +283,7 @@ targets = ["macos-appkit", "windows-xaml", "linux-gtk",
 
 </Compare>
 
-`Day.toml` plays electron-builder.yml's role — identity, targets, signing, permissions — with
+`Day.toml` plays electron-builder.yml's role (identity, targets, signing, permissions) with
 per-platform overrides (`[app.macos-appkit]`) instead of parallel config trees, and the same
 file covers the mobile targets Electron doesn't have.
 
@@ -321,7 +321,7 @@ field-notes/
 
 The main/preload/renderer trio collapses into `src/`: there is one side. Resources are
 staged natively per platform and referenced through generated constants
-(`image(res::images::logo)` — a renamed file is a compile error, not a broken `src=` at
+(`image(res::images::logo)`; a renamed file is a compile error, not a broken `src=` at
 runtime), and localization is Fluent catalogs compiled to typed functions
 ([Localization](/docs/localization)).
 
@@ -354,7 +354,7 @@ runtime), and localization is Fluent catalogs compiled to typed functions
 - **Tray and global shortcuts.** No API for either yet. Menus carry per-item accelerators, but
   there is no general key-event surface.
 - **Identical pixels everywhere.** Your app will look like a Mac app on macOS and a GTK app on
-  GNOME. That is the trade, not a bug — but if your brand requires one rendering on every OS,
+  GNOME. That trade is deliberate; if your brand requires one rendering on every OS,
   Electron's single renderer serves it better.
 - **JavaScript.** The team writes Rust. Budget real ramp-up time; the compiler catches at build
   time much of what you currently catch in DevTools.

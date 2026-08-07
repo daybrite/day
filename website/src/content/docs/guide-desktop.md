@@ -1,15 +1,15 @@
 ---
 title: Menus, toolbars, and windows
-description: "Install a native menu bar with standard roles and shortcuts, put commands in the window's toolbar, and open secondary windows — including the standard Settings window — from Rust."
+description: "Install a native menu bar with standard roles and shortcuts, put commands in the window's toolbar, and open secondary windows, including the standard Settings window, from Rust."
 order: 32
 section: Guides
 ---
 
 A Day app on the desktop should behave like it was written for the desktop: a menu bar with
 keyboard shortcuts, commands on the window chrome, and a Settings window under ⌘,. Day builds
-all three from small Rust builders and hands them to the platform's real machinery — `NSMenu`
+all three from small Rust builders and hands them to the platform's real machinery (`NSMenu`
 and `NSToolbar` on macOS, `GtkPopoverMenuBar` and the header bar on GTK, `QMenuBar` and
-`QToolBar` on Qt, XAML's `MenuBar` and `CommandBar` on Windows — so one spec is correct
+`QToolBar` on Qt, XAML's `MenuBar` and `CommandBar` on Windows), so one spec is correct
 everywhere:
 
 ```rust
@@ -18,10 +18,10 @@ menu_item("Save").key("s").action(save)     // ⌘S on macOS, Ctrl+S everywhere 
 
 **Works on:** context menus render natively everywhere (`NSMenu`, `GtkPopoverMenu`, `QMenu`,
 `UIMenu`, Android `PopupMenu`, XAML `MenuFlyout`). The app menu is a menu bar on the four
-desktop backends and the app-bar overflow (⋮) on Android; on iPhone it is a no-op by design —
+desktop backends and the app-bar overflow (⋮) on Android; on iPhone it is a no-op by design;
 touch platforms have no global menu bar. Toolbars exist only where the platform has them:
 `Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else.
-Secondary windows work on every backend — native windows on the desktops, iPad, Android, and
+Secondary windows work on every backend: native windows on the desktops, iPad, Android, and
 HarmonyOS; on iPhone and web the same call presents the content as a fullscreen cover.
 
 ## 1. Install the app menu
@@ -55,7 +55,7 @@ Three things to notice:
 
 - **Roles are the platform's own items.** `menu_role(MenuRole::Copy)` emits the native Edit ▸
   Copy: correct localized label, default shortcut, automatic enable/disable, and focus
-  targeting — it copies from whatever control has focus, with no wiring. Custom `menu_item`s
+  targeting: it copies from whatever control has focus, with no wiring. Custom `menu_item`s
   run your closure instead.
 - **`.key("s")` is the primary modifier** (⌘ on Apple, Ctrl elsewhere), so one spec reads
   right on every desktop. For anything else, build a `Shortcut`: `Shortcut::new("s").shift()`
@@ -65,7 +65,7 @@ Three things to notice:
 - **`.bar_role(…)` claims a standard slot.** Each desktop fills the standard menus (Edit,
   View, Help) with its own stock version for any slot you didn't claim. Tagging your submenu
   with `MenuBarRole::File` / `Edit` / `View` replaces the stock menu in place, in the bar's
-  standard order. The tag identifies the slot, not the title — Day's catalog and yours may
+  standard order. The tag identifies the slot, not the title; Day's catalog and yours may
   translate the same menu name differently, and a bar matched on titles would show both.
 
 Where the bar lands: the system menu bar on macOS (Day prepends the standard App menu with
@@ -74,7 +74,7 @@ Windows, a `QMenuBar` on Qt (the native global bar on `macos-qt`), and the app-b
 Android. Android allows one level of submenu; deeper ones flatten.
 
 `app_menu` resolves labels once, in the install-time locale. If your app has a runtime
-language picker, install with `app_menu_reactive(builder)` instead — the builder re-runs on a
+language picker, install with `app_menu_reactive(builder)` instead; the builder re-runs on a
 locale change and reinstalls the bar in the new language.
 
 ## 2. Attach context menus
@@ -120,7 +120,7 @@ search control, `toolbar_label(id, text)` for static text, and `toolbar_separato
 `.image(name)`, `.action(f)`, `.tooltip(t)`, `.placeholder(t)`, `.enabled(bool)`, and
 `.enabled_when(f)`.
 
-There is no leading/trailing property — items before the first `toolbar_flexible_space()` pack
+There is no leading/trailing property: items before the first `toolbar_flexible_space()` pack
 to the leading edge and the rest to the trailing edge, and each backend expresses that with
 its own layout. `.icon(Symbol::Refresh)` names what the icon means; each backend draws its
 platform's own glyph (an SF Symbol on macOS, a freedesktop name on GTK and Qt, a Segoe Fluent
@@ -133,7 +133,7 @@ Windows it is a `CommandBar`, whose one limit is that search fields, labels, and
 always render on the leading side.
 
 Two rules keep a live bar stable. Use `toolbar_reactive(builder)` when the item list or its
-labels derive from state — each pass replaces the bar. Keep the values that change often out
+labels derive from state, each pass replaces the bar. Keep the values that change often out
 of that builder: a toggle's signal, a search field's signal, and `.enabled_when(…)` patch the
 one item in place, so a command greying out never disturbs a search in progress. On mobile,
 the counterpart for a single app-wide command is the navigation bar's trailing
@@ -154,13 +154,13 @@ win.on_close(|| println!("gone"));
 The `key` names the logical window: opening an already-open key focuses it instead of
 duplicating, and `day::window_by_key("detail:AAPL")` finds it later. `WindowKind::Normal` is
 resizable, miniaturizable, and joins the platform's tabbing group; `WindowKind::Preferences`
-drops resize and minimize and never tabs. The window is app-owned — it survives the page that
+drops resize and minimize and never tabs. The window is app-owned: it survives the page that
 opened it. Close is asynchronous everywhere: the title-bar button, a platform gesture, and
 `WindowHandle::close()` all wait for the platform to confirm, then the content is disposed and
 `on_close` runs. Closing the primary window quits the app.
 
-All of this works on every backend. Where the toolkit cannot open windows — iPhone, web, and
-the `Preferences` kind on all mobile — the content presents as a fullscreen cover in the
+All of this works on every backend. Where the toolkit cannot open windows (iPhone, web, and
+the `Preferences` kind on all mobile), the content presents as a fullscreen cover in the
 primary window instead: same API, same keys, same close path. That tier has no native title
 bar or close button, so probe `Cap::MultiWindow` and give cover-tier content its own close
 affordance (the system back button closes it on Android).
@@ -186,10 +186,10 @@ day::register_new_window(|| {
 Preferences item with Ctrl+comma, injected into your first menu if you didn't place a
 `menu_role(MenuRole::Preferences)` yourself. The window opens under the singleton key
 `day.preferences`, so reopening focuses it, and `day::open_preferences()` opens the same
-surface from anywhere — a toolbar gear, say. On the cover tier it presents fullscreen.
+surface from anywhere, a toolbar gear, say. On the cover tier it presents fullscreen.
 
-`register_new_window` names the builder behind `menu_role(MenuRole::NewWindow)` — File ▸ New
-Window with ⌘N/Ctrl+N — and the macOS tab-bar "+". Each call opens an independent `Normal`
+`register_new_window` names the builder behind `menu_role(MenuRole::NewWindow)` (File ▸ New
+Window with ⌘N/Ctrl+N) and the macOS tab-bar "+". Each call opens an independent `Normal`
 window. On macOS, Day also installs the standard Window menu (Minimize, Zoom, Bring All to
 Front, plus the open-window list) unless your own menu claims `MenuRole::Minimize`.
 
@@ -197,8 +197,8 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 
 - **Register windows before the menu.** A `MenuRole::NewWindow` item lowers disabled when no
   builder is registered, and the auto Settings item needs the preferences registration. Call
-  `register_preferences_with` and `register_new_window` before installing the app menu — the
-  showcase's `root()` does exactly this — so the items lower live.
+  `register_preferences_with` and `register_new_window` before installing the app menu (the
+  showcase's `root()` does exactly this), so the items lower live.
 - **Toolbars install per window.** `toolbar(…)` targets the window being built: the primary
   window at startup, and each new window inside its `register_new_window` builder. A builder
   that skips the install opens a window with no bar.

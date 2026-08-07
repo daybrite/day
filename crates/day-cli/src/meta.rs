@@ -477,8 +477,15 @@ impl Manifest {
             .map(|t| t.os)
             .unwrap_or_else(|| target.split_once('-').map(|(os, _)| os).unwrap_or_default());
         let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
-        // Increasing precedence: toolkit, then platform, then the exact target.
-        for key in [toolkit, platform, target] {
+        // `[app.ohos]` is the pre-rename spelling of the harmony platform key — still read,
+        // below the modern key in precedence.
+        let legacy = if platform == "harmony" { "ohos" } else { "" };
+        // Increasing precedence: toolkit, then platform (legacy spelling first), then the
+        // exact target.
+        for key in [toolkit, legacy, platform, target] {
+            if key.is_empty() {
+                continue;
+            }
             if let Some(o) = self.app.overrides.get(key) {
                 if let Some(id) = &o.id {
                     out.id = id.clone();

@@ -439,11 +439,19 @@ fn generate(
         let l_fg = art.ohos_foreground()?;
         let l_bg = art.ohos_background()?;
         const LAYERED: &str = "{\n  \"layered-image\": {\n    \"background\": \"$media:background\",\n    \"foreground\": \"$media:foreground\"\n  }\n}\n";
+        // `platform/harmony`, or the pre-rename `platform/ohos` where that's what the project
+        // has — these relative strings are the lock's output keys, so they follow the layout.
+        let hroot = crate::ohos::harmony_dir(project);
+        let hrel = hroot
+            .strip_prefix(&project.root)
+            .unwrap_or(&hroot)
+            .to_string_lossy()
+            .into_owned();
         for dir in [
-            "platform/ohos/entry/src/main/resources/base/media",
-            "platform/ohos/AppScope/resources/base/media",
+            format!("{hrel}/entry/src/main/resources/base/media"),
+            format!("{hrel}/AppScope/resources/base/media"),
         ] {
-            if project.root.join(dir).is_dir() {
+            if project.root.join(&dir).is_dir() {
                 out.push((format!("{dir}/startIcon.png"), start.clone()));
                 out.push((format!("{dir}/foreground.png"), l_fg.clone()));
                 out.push((format!("{dir}/background.png"), l_bg.clone()));
@@ -454,17 +462,17 @@ fn generate(
             }
         }
         for manifest in [
-            "platform/ohos/AppScope/app.json5",
-            "platform/ohos/entry/src/main/module.json5",
+            format!("{hrel}/AppScope/app.json5"),
+            format!("{hrel}/entry/src/main/module.json5"),
         ] {
-            let path = project.root.join(manifest);
+            let path = project.root.join(&manifest);
             if let Ok(text) = std::fs::read_to_string(&path) {
                 let updated = text.replace(
                     "\"icon\": \"$media:startIcon\"",
                     "\"icon\": \"$media:layered_image\"",
                 );
                 if updated != text {
-                    out.push((manifest.to_string(), updated.into_bytes()));
+                    out.push((manifest, updated.into_bytes()));
                 }
             }
         }

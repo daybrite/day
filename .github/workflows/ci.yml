@@ -112,54 +112,65 @@ jobs:
   # ===========================================================================
 
   # --- day CLI: cross-compiled release builds, shared as artifacts ----------
-  # Runs right after the fast checks (fmt/msrv). ONE job per OS — each builds the day CLI for
-  # BOTH of its architectures (the non-native one cross-compiled) and uploads each as
-  # `day-<os>-<arch>` (e.g. day-macos-x86_64, day-linux-aarch64), so the artifact names the
-  # per-platform jobs download are unchanged: still six binaries, from three jobs instead of six.
+  # Runs right after the fast checks (fmt/msrv). SIX parallel jobs — one per (OS, arch) — because
+  # this is the first phase everything else waits on, and one runner per architecture halves its
+  # wall-clock against building both in sequence on one runner. Each leg builds a single target
+  # (the non-native one cross-compiled) and uploads it as `day-<os>-<arch>` (e.g. day-macos-x86_64,
+  # day-linux-aarch64). Three job IDs with a two-arch matrix each, so the `needs:` below still name
+  # day-cli-macos / -linux / -windows and wait on both of that OS's legs.
+  #
+  # `fail-fast: false`: a broken cross-link on one architecture should not cancel the other, whose
+  # binary the per-platform jobs are waiting on.
   #
   # scripts/ci/scaffold-check.sh no longer runs here: it moved into the per-platform jobs below,
   # where each combo scaffolds, lints, packs, and rebuilds (`day rebuild --from-dir`) a fresh
   # 21-locale project — and the desktop combos drive the rebuilt copy's smoke dayscript too.
   day-cli-macos:
-    name: day-cli-macos
+    name: day-cli-macos (${{ matrix.arch }})
     needs: [fmt, msrv]
     runs-on: macos-latest # Apple silicon: aarch64 is the host arch, x86_64 the cross build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: aarch64, target: aarch64-apple-darwin }
+          - { arch: x86_64, target: x86_64-apple-darwin }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build the day CLI (release, both architectures)
-        run: |
-          cargo build --locked --release -p day-cli --target aarch64-apple-darwin
-          cargo build --locked --release -p day-cli --target x86_64-apple-darwin
+      - name: Build the day CLI (release, ${{ matrix.target }})
+        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: day-macos-aarch64
-          path: target/aarch64-apple-darwin/release/day
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: day-macos-x86_64
-          path: target/x86_64-apple-darwin/release/day
+          name: day-macos-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/day
           if-no-files-found: error
 
   day-cli-linux:
-    name: day-cli-linux
+    name: day-cli-linux (${{ matrix.arch }})
     needs: [fmt, msrv]
     runs-on: ubuntu-latest # x86_64 host; aarch64 is the cross build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, target: x86_64-unknown-linux-gnu }
+          - { arch: aarch64, target: aarch64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       # Cross to aarch64 needs a cross-linker (+ C cross-compiler for any build-script C) AND the
       # aarch64 libc dev files — gcc-aarch64-linux-gnu ships the compiler/linker but NOT the target
       # CRT startup objects (Scrt1.o/crti.o/crtn.o) + libc that the final link needs; those live in
-      # libc6-dev-arm64-cross.
+      # libc6-dev-arm64-cross. x86_64 is native to the ubuntu runner and skips all of it.
       - name: Install the aarch64 cross-toolchain
+        if: matrix.arch == 'aarch64'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -168,44 +179,36 @@ jobs:
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
             echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
           } >> "$GITHUB_ENV"
-      - name: Build the day CLI (release, both architectures)
-        run: |
-          cargo build --locked --release -p day-cli --target x86_64-unknown-linux-gnu
-          cargo build --locked --release -p day-cli --target aarch64-unknown-linux-gnu
+      - name: Build the day CLI (release, ${{ matrix.target }})
+        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: day-linux-x86_64
-          path: target/x86_64-unknown-linux-gnu/release/day
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: day-linux-aarch64
-          path: target/aarch64-unknown-linux-gnu/release/day
+          name: day-linux-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/day
           if-no-files-found: error
 
   day-cli-windows:
-    name: day-cli-windows
+    name: day-cli-windows (${{ matrix.arch }})
     needs: [fmt, msrv]
     runs-on: windows-latest # x86_64 host; aarch64 is the cross build (MSVC ships the cross linker)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, target: x86_64-pc-windows-msvc }
+          - { arch: aarch64, target: aarch64-pc-windows-msvc }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build the day CLI (release, both architectures)
-        run: |
-          cargo build --locked --release -p day-cli --target x86_64-pc-windows-msvc
-          cargo build --locked --release -p day-cli --target aarch64-pc-windows-msvc
+      - name: Build the day CLI (release, ${{ matrix.target }})
+        run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: day-windows-x86_64
-          path: target/x86_64-pc-windows-msvc/release/day.exe
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: day-windows-aarch64
-          path: target/aarch64-pc-windows-msvc/release/day.exe
+          name: day-windows-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/day.exe
           if-no-files-found: error
 
   # --- Release: verify publishability always; publish the GitHub release on a semantic tag ---------

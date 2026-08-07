@@ -78,7 +78,7 @@ The build has two halves with different tool needs:
    the OpenHarmony **command-line-tools** (bundled with DevEco Studio, or the Linux-x64 bundle at
    `repo.huaweicloud.com/harmonyos/ohpm/<ver>/`). Put their `bin/` on `PATH`.
 
-The showcase's `platform/ohos/` project targets **OpenHarmony** (`runtimeOS: "OpenHarmony"`,
+The showcase's `platform/harmony/` project targets **OpenHarmony** (`runtimeOS: "OpenHarmony"`,
 `compileSdkVersion`/`compatibleSdkVersion` = the integer API level), which matches the Oniro emulator
 and avoids the HMS-only `libimage_transcoder_shared` library that only DevEco Studio ships, so the
 whole flow works login-free on macOS and Linux.
@@ -102,7 +102,7 @@ Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HO
 SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
-cd Day-Showcase/platform/ohos
+cd Day-Showcase/platform/harmony
 
 # 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
 ./build.sh both                                # drops entry/libs/<abi>/libentry.so
@@ -115,7 +115,7 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 #    sign-hap.mjs rewrites module.json's compileSdkType to "OpenHarmony" so the emulator skips
 #    code-sign verification (an OpenHarmony device does not trust the public cert's code signature,
 #    install error 9568393, but skips the check entirely for OpenHarmony-declared apps), then signs
-#    the provision profile + the .hap. Run from the platform/ohos/ project (it reads AppScope/app.json5):
+#    the provision profile + the .hap. Run from the platform/harmony/ project (it reads AppScope/app.json5):
 node sign-hap.mjs entry/build/*/outputs/*/entry-default-unsigned.hap \
   entry/build/showcase-signed.hap
 
@@ -124,7 +124,7 @@ hdc install entry/build/showcase-signed.hap
 hdc shell aa start -b dev.daybrite.showcase -a EntryAbility
 ```
 
-(Opening `platform/ohos/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
+(Opening `platform/harmony/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
 
 In practice you don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:

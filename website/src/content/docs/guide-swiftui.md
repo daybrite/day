@@ -89,11 +89,11 @@ That's the whole setup. Your `build.rs` (the scaffold's `day_build::generate_res
 the package and writes one constructor per exported view; `day build` compiles the package into
 the app and generates the hosting glue. On iOS the package joins the generated `DayPieces`
 SwiftPM package the Xcode scaffold already links; on macOS `day build` runs a `swift build`
-prepass and statically links the result — no Xcode project appears.
+prepass and statically links the result, with no Xcode project involved.
 
 ## 3. Call it
 
-The generated constructor mirrors the Swift init exactly — same name, same parameters, in order.
+The generated constructor mirrors the Swift init exactly: same name, same parameters, in order.
 A renamed view or a changed parameter is a Rust compile error, the same contract as the
 generated `res::` resource constants:
 
@@ -115,7 +115,7 @@ Two things to notice:
 
 - **Arguments are reactive.** Each parameter takes a constant, a `Signal`, or a closure. When a
   reactive argument changes, Day re-invokes the view's initializer with the new values, and
-  SwiftUI reconciles it like any parent-driven update — `@State` inside the view survives.
+  SwiftUI reconciles it like any parent-driven update, so `@State` inside the view survives.
 - **Gate with `support()`, not `cfg`.** `day_piece_swiftui::support()` is `Native` only on
   `macos-appkit` and `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also
   true on `macos-gtk` and `macos-qt`, where there is no AppKit view tree to host into.
@@ -125,7 +125,7 @@ The hosted view fills the space it's offered, like `image` or `canvas`; constrai
 
 ## Keeping state across navigation
 
-Leaving the view's branch — a tab switch, a `when()` going false, a page navigation — disposes
+Leaving the view's branch (a tab switch, a `when()` going false, a page navigation) disposes
 the hosting view and the `@State` it owns. When the view should hold its state instead, give it
 a key:
 
@@ -137,13 +137,13 @@ crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
 Day then retains the hosting view under that key and hands the same instance back on the next
 mount: sliders, scroll positions, `@State`, and `@StateObject` all survive, and the mount's
 current arguments are re-applied. Two rules: at most one mounted view per key, and a key pins
-its view for the app's lifetime — use it for the handful of views that want persistence, not
+its view for the app's lifetime; use it for the handful of views that want persistence, not
 per-row content.
 
 ## When the scan isn't enough
 
-Views that need wiring the generated path can't express — an init taking a model type, a
-delegate, dynamic content — use the provider escape hatch. Subclass the provider in Swift, name
+For views the generated path can't express (an init taking a model type, a delegate,
+dynamic content), use the provider escape hatch. Subclass the provider in Swift, name
 it `@objc(DayView_<name>)`, and call it by name from Rust:
 
 ```swift
@@ -167,10 +167,10 @@ this same mechanism with the ceremony generated for you.
 
 - **Localized labels don't localize themselves.** Strings inside the Swift package don't go
   through Fluent. Pass them in as arguments (`res::str::…().format()` closures on the Rust
-  side), so the hosted view follows the app's locale — including right-to-left layout, which the
+  side), so the hosted view follows the app's locale, including right-to-left layout, which the
   hosting view inherits.
-- **The floor is real.** SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
-  and `day build` raises the deployment target for you. Xcode ⌘R builds don't see the override —
+- **Declare the floor you need.** SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
+  and `day build` raises the deployment target for you. Xcode ⌘R builds don't see the override;
   raise `platform/ios/DayApp.xcodeproj` by hand if you build from the IDE.
 - **Provider not found renders `⟨name?⟩`.** A misspelled `@objc(DayView_…)` name or a package
   missing from the metadata shows a visible error view rather than crashing; the

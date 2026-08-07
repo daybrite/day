@@ -20,10 +20,18 @@ pub fn pack(
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
     let name = &project.manifest.app.name;
     // A scaffolded app (platform/macos/, §17.4) builds as a whole `.app`; this packer still
-    // assembles its own bundle, so take the inner binary. (Packing the Xcode bundle as-is is
-    // the planned follow-up — signing/dmg/notarization stay identical either way.)
+    // assembles its own bundle, so take the inner binary — the bundle's single
+    // Contents/MacOS entry, named by the pbxproj's PRODUCT_NAME rather than the crate.
+    // (Packing the Xcode bundle as-is is the planned follow-up — signing/dmg/notarization
+    // stay identical either way.)
     let built_binary = if outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app") {
-        outcome.artifact.join("Contents/MacOS").join(name)
+        let macos_dir = outcome.artifact.join("Contents/MacOS");
+        std::fs::read_dir(&macos_dir)
+            .ok()
+            .and_then(|rd| rd.flatten().map(|e| e.path()).next())
+            .ok_or_else(|| {
+                PackError::Other(format!("no executable under {}", macos_dir.display()))
+            })?
     } else {
         outcome.artifact.clone()
     };

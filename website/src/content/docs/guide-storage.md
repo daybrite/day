@@ -19,12 +19,12 @@ Both persist per app and survive restarts, in the place each platform expects: p
 `NSUserDefaults` on macOS and iOS, `SharedPreferences` on Android, a file under the config
 directory on Linux and Windows, and `localStorage` on the web; files go under an app-private
 data root natively and into the browser's Origin Private File System (OPFS) on the web. The
-dividing line is size and shape — prefs is a small string store for settings, not a database,
+dividing line is size and shape: prefs is a small string store for settings, not a database,
 and anything file-shaped belongs in `day-part-fs`.
 
 **Works on:** both parts cover macOS, iOS, Android, Linux, Windows, HarmonyOS, and `web-dom`.
 On any other target prefs is a no-op store (`get` returns `None`, `set` returns `false`) and
-every fs call returns `FsError::Unsupported`. On the web, fs is async-only — see step 3.
+every fs call returns `FsError::Unsupported`. On the web, fs is async-only; see step 3.
 
 ## 1. Persist a setting
 
@@ -39,7 +39,7 @@ day::prefs::remove("greeting");           // -> bool: existed and was removed
 ```
 
 Writes are synchronous and immediately readable. A stored empty string is `Some("")`, not
-`None`. Keep values modest — a large blob belongs in a file (step 3).
+`None`. Keep values modest: a large blob belongs in a file (step 3).
 
 ## 2. Bind a signal so it survives relaunch
 
@@ -51,7 +51,7 @@ day::prefs::bind("settings.volume", volume);
 ```
 
 `bind(key, signal)` seeds the signal from the store now and persists every later change. Any
-`Signal<T>` works when `T` round-trips through `FromStr`/`ToString` — numbers, bools, strings.
+`Signal<T>` works when `T` round-trips through `FromStr`/`ToString`: numbers, bools, strings.
 Call it right after creating the signal: the write-back is a reactive watch, and it stops when
 the creating scope is disposed.
 
@@ -77,7 +77,7 @@ See [navigation](/docs/navigation).
 day-part-fs = { git = "https://github.com/daybrite/day.git" }
 ```
 
-Paths are relative and sandboxed inside a private per-app root — an absolute path or a `.`/`..`
+Paths are relative and sandboxed inside a private per-app root: an absolute path or a `.`/`..`
 segment is `FsError::BadPath` before any platform code runs. `write` creates missing parent
 directories. Each operation comes in three forms: blocking (`read`, `write`, `remove`, `list`),
 callback (`read_async`, …), and future (`read_future`, …). The blocking calls are real on every
@@ -98,12 +98,12 @@ day::task(async move {
 });
 ```
 
-The `match` stays inside the task because `day::task` takes a future with `Output = ()` — an
+The `match` stays inside the task because `day::task` takes a future with `Output = ()`; an
 async block that returns a `Result` doesn't compile there. Handle both arms and write the
 outcome into signals; the future resumes on the UI thread, so those are plain signal writes.
 
 `list(dir)` returns the entry names directly under `dir`, sorted, with directories suffixed
-`/`; `list("")` is the root, and a never-written directory lists as empty — the ordinary
+`/`; `list("")` is the root, and a never-written directory lists as empty, the ordinary
 first-run state, not an error. Removing a missing path is `FsError::NotFound`.
 
 Where the files land:
@@ -123,14 +123,14 @@ with `day_part_fs::write_future`, so the next launch renders before the network 
 
 Neither store is for secrets. Prefs write to plain platform stores (a plist, a
 `SharedPreferences` file, a flat config file, `localStorage`) and `day-part-fs` writes plain
-files; neither encrypts. Day doesn't cover secret storage yet — there is no keychain or
-keystore part — so keep tokens and passwords out of both until you wire the platform's secure
+files; neither encrypts. Day doesn't cover secret storage yet (there is no keychain or
+keystore part), so keep tokens and passwords out of both until you wire the platform's secure
 store yourself.
 
 ## Pitfalls
 
 - **Prefs is a small string store, not a database.** Keep values modest; large blobs belong in
-  a file. On the web, `localStorage` can throw (private browsing, storage pressure) — failures
+  a file. On the web, `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted writes or absent reads, never a panic.
 - **`bind`'s write-back stops with its scope.** Bind in the scope that owns the signal, right
   after creating it. A signal bound inside a page keeps persisting only while that page's scope
@@ -141,13 +141,13 @@ store yourself.
 - **A file is one buffer.** v1 has no streaming: `read` and `write` move the whole body through
   memory, so don't store anything huge this way.
 - **OPFS is the only web store.** A pre-OPFS browser, or a private-browsing session (WebKit
-  gives ephemeral sessions no storage backing), answers `Unsupported` or `Io` — there is no
+  gives ephemeral sessions no storage backing), answers `Unsupported` or `Io`; there is no
   silent fallback store.
 - **Launch overrides beat stored settings.** The settings pieces apply persisted theme/language
   with an env-wins rule: when `DAY_THEME` or `DAY_LOCALE` is set (a `day launch --env` run, CI
   variants), the persisted value is not re-applied at boot.
 - **Testing persistence by hand on macOS:** an unbundled binary stores under the process-name
-  defaults domain; `defaults delete <name>` clears it (deleting the plist alone won't —
+  defaults domain; `defaults delete <name>` clears it (deleting the plist alone won't;
   `cfprefsd` caches).
 
 ## Reference

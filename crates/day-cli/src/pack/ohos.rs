@@ -1,6 +1,6 @@
 //! harmony-arkui → .hap. With `signing.ohos` config the hvigor-built UNSIGNED hap is release-signed
 //! via the SDK's hap-sign-tool (localSign, user keystore + release cert + provisioning profile);
-//! without it the dev path stands (platform/ohos/sign-hap.mjs + the public OpenHarmony cert —
+//! without it the dev path stands (platform/harmony/sign-hap.mjs + the public OpenHarmony cert —
 //! emulator installs only, dev tier).
 
 use std::path::{Path, PathBuf};
@@ -43,7 +43,9 @@ pub fn pack(
     let tier = match material {
         Some(m) => {
             let unsigned = crate::ohos::find_unsigned_hap(project).ok_or_else(|| {
-                PackError::Other("no unsigned .hap found under platform/ohos/entry/build".into())
+                PackError::Other(
+                    "no unsigned .hap found under the harmony host project's entry/build".into(),
+                )
             })?;
             let signed = project.root.join("build/day/pack/ohos-release.hap");
             std::fs::create_dir_all(signed.parent().unwrap())

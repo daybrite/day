@@ -421,10 +421,15 @@ pub fn build_macos_xcode(
     cmd.current_dir(project.root.join("platform/macos"))
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
         .args(["-configuration", configuration, "-sdk", "macosx"]);
-    if profile != "release" {
+    if std::env::var("DAY_MACOS_UNIVERSAL").is_ok_and(|v| v == "1") {
+        // Universal (arm64 + x86_64): opt-in, because the cargo half needs BOTH Rust
+        // stdlibs installed (`rustup target add x86_64-apple-darwin` on Apple silicon) —
+        // a requirement most dev machines and single-target CI legs don't meet.
+    } else {
         // Legacy `-target` builds have no run destination, so ONLY_ACTIVE_ARCH cannot
-        // resolve an active arch and Xcode builds UNIVERSAL — twice the disk and time for a
-        // dev loop. Pin the host arch for debug; Release stays universal.
+        // resolve an active arch and Xcode builds UNIVERSAL — twice the disk and time, and
+        // a missing cross stdlib fails the build outright (rustc E0463). Pin the arch the
+        // running day binary was built for: it always has a matching stdlib installed.
         let arch = match std::env::consts::ARCH {
             "aarch64" => "arm64",
             other => other,

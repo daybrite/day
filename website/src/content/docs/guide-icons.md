@@ -29,7 +29,7 @@ reference](/docs/internal/vectors).
 
 `day icon` takes an explicit path argument, or finds the master at `resource/icons/icon.svg`,
 then `resource/icons/day-icon.svg`, then `resource/icons/icon.png`. The scaffold from `day new
-app` already ships an `icon.svg` — a generated placeholder seeded by your app id — so replacing
+app` already ships an `icon.svg` (a generated placeholder seeded by your app id), so replacing
 that one file is the whole setup.
 
 An SVG master can mark top-level elements as semantic layers by id:
@@ -74,7 +74,7 @@ limits a run to one target's family.
 
 `day icon --check` renders everything in memory, compares bytes against the tree, and writes
 nothing. When the outputs match it exits 0; when they don't it lists the drifted files and
-exits 5 — the same gate pattern the duty-matrix check uses:
+exits 5, the same gate pattern the duty-matrix check uses:
 
 ```sh
 day icon --check    # exit 5 = someone edited the master and forgot to run `day icon`
