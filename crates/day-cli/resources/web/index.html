@@ -8,6 +8,10 @@
 </head>
 <body>
   <div id="day-root"></div>
+  <!-- The bundled vector-glyph names (docs/vectors.md), filled in by the assemble step; the
+       shim answers day-dom's `vector:` env keys from this list so vector names resolve to
+       their staged .svg files. -->
+  <script>window.__DAY_VECTORS = [/*day:vectors*/];</script>
   <script type="module">
     import { start } from './shim.js';
     start('app.wasm');

@@ -11,8 +11,8 @@ pub use day_geometry::*;
 /// Bundled-resource random-access API + the per-backend opener seam (§18.3).
 pub mod resource;
 pub use resource::{
-    AssetName, FontFamily, ImageName, Resource, ResourceOpener, resolve_image_file, resource,
-    set_resource_opener,
+    AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName, resolve_image_file,
+    resource, set_resource_opener,
 };
 
 /// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution
@@ -1675,6 +1675,11 @@ pub mod props {
         /// Optional width:height ratio the view is constrained to (e.g. `16.0/9.0`). `None` lets the
         /// image take its allocated frame.
         pub aspect_ratio: Option<f64>,
+        /// Monochrome tint for a template/vector glyph (docs/vectors.md): backends that can,
+        /// recolor natively (template rendering on Apple, drawable tint on Android, pixel
+        /// recolor on GTK); backends that can't yet ignore it and draw the source colors.
+        /// `None` (the default, and every raster `image(…)`) means "as authored".
+        pub tint: Option<Color>,
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -1789,6 +1794,9 @@ pub mod props {
         /// A trailing accessory per row — an unread count, a status. Rendered right-aligned and
         /// de-emphasized, opposite the label. Parallel to `items`; `None` draws nothing.
         pub badges: Vec<Option<String>>,
+        /// A per-row icon tint (docs/vectors.md): the row's glyph recolored to this instead of
+        /// the backend's neutral template tint. Parallel to `items`; `None` keeps the default.
+        pub tints: Vec<Option<Color>>,
         /// A section header introducing the row at the same index. `Some` opens a new group
         /// before that row; `None` continues the current one. Parallel to `items`, so adding a
         /// header never shifts the selection indices the rows are addressed by.
@@ -1808,6 +1816,7 @@ pub mod props {
             icons: Vec<Option<String>>,
             badges: Vec<Option<String>>,
             sections: Vec<Option<String>>,
+            tints: Vec<Option<Color>>,
             selected: Option<usize>,
         },
     }

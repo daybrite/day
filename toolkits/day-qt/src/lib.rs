@@ -717,6 +717,25 @@ fn icon_file_path(name: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Per-row nav icon tints as a U+001F-joined list of "#rrggbb" entries (empty entry = no
+/// row tint, the shim falls back to the palette text color), parallel to the icon list
+/// (docs/vectors.md).
+fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
+    tints
+        .iter()
+        .map(|t| match t {
+            Some(c) => format!(
+                "#{:02x}{:02x}{:02x}",
+                (c.r * 255.0) as u8,
+                (c.g * 255.0) as u8,
+                (c.b * 255.0) as u8
+            ),
+            None => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
 /// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
@@ -1011,10 +1030,12 @@ impl Toolkit for Qt {
                         .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
+                    let tints_joined = nav_tints_joined(&p.tints);
                     ffi::day_qt_navlist_set_items(
                         w,
                         cstr(&joined).as_ptr(),
                         cstr(&icons_joined).as_ptr(),
+                        cstr(&tints_joined).as_ptr(),
                     );
                     ffi::day_qt_navlist_set_selected(
                         w,
@@ -1185,6 +1206,7 @@ impl Toolkit for Qt {
                     if let Some(NavMenuPatch::Items {
                         items,
                         icons,
+                        tints,
                         selected,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
@@ -1197,10 +1219,12 @@ impl Toolkit for Qt {
                             .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
+                        let tints_joined = nav_tints_joined(tints);
                         ffi::day_qt_navlist_set_items(
                             h.0,
                             cstr(&joined).as_ptr(),
                             cstr(&icons_joined).as_ptr(),
+                            cstr(&tints_joined).as_ptr(),
                         );
                         ffi::day_qt_navlist_set_selected(
                             h.0,

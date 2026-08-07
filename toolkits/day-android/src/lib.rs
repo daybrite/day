@@ -1160,6 +1160,16 @@ mod imp {
     }
 
     /// Day `Color` (0–1 floats) → a packed `0xAARRGGBB` int for `android.graphics.Color`.
+    /// Per-row nav icon tints as an index-aligned joined string ("0" = untinted) — the
+    /// best-effort `setNavMenuTints` wire format (docs/vectors.md).
+    fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
+        tints
+            .iter()
+            .map(|t| t.map(argb_i32).unwrap_or(0).to_string())
+            .collect::<Vec<_>>()
+            .join("\u{1f}")
+    }
+
     fn argb_i32(c: day_spec::Color) -> i32 {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u32;
         ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
@@ -1489,15 +1499,30 @@ mod imp {
                         .map(|o| o.clone().unwrap_or_default())
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
+                    let joined_tints = nav_tints_joined(&p.tints);
                     with_env(|env| {
                         let s = jstr(env, &joined);
                         let si = jstr(env, &joined_icons);
-                        AHandle(make_view(
+                        let handle = AHandle(make_view(
                             env,
                             "makeNavMenu",
                             "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
                             &[JValue::Long(idj), JValue::Object(&s), JValue::Object(&si)],
-                        ))
+                        ));
+                        // Per-row icon tints ride a best-effort follow-up (docs/vectors.md) —
+                        // decoration stays OFF makeNavMenu's critical path, so a tint problem
+                        // can never abort the tree build (the navhost lesson).
+                        let st = jstr(env, &joined_tints);
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setNavMenuTints",
+                            "(Landroid/view/View;Ljava/lang/String;)V",
+                            &[JValue::Object(handle.0.as_obj()), JValue::Object(&st)],
+                        );
+                        if env.exception_check() {
+                            env.exception_clear();
+                        }
+                        handle
                     })
                 }
                 Some(Builtin::Label) => {
@@ -1628,13 +1653,16 @@ mod imp {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
+                    // Vector-glyph tint (docs/vectors.md) as ARGB; 0 = none (a real tint always
+                    // has alpha 0xFF, so 0 is unambiguous).
+                    let tint = p.tint.map(argb_i32).unwrap_or(0);
                     with_env(|env| {
                         let s = jstr(env, &p.source);
                         AHandle(make_view(
                             env,
                             "makeImage",
-                            "(Ljava/lang/String;I)Landroid/view/View;",
-                            &[JValue::Object(&s), JValue::Int(mode)],
+                            "(Ljava/lang/String;II)Landroid/view/View;",
+                            &[JValue::Object(&s), JValue::Int(mode), JValue::Int(tint)],
                         ))
                     })
                 }
@@ -1679,13 +1707,19 @@ mod imp {
                         // rows so each click listener reports its CURRENT index — stale rows
                         // shift every selection after a removed item by one and drop the last
                         // row's selection entirely.
-                        Some(NavMenuPatch::Items { items, icons, .. }) => {
+                        Some(NavMenuPatch::Items {
+                            items,
+                            icons,
+                            tints,
+                            ..
+                        }) => {
                             let joined = items.join("\u{1f}");
                             let joined_icons = icons
                                 .iter()
                                 .map(|o| o.clone().unwrap_or_default())
                                 .collect::<Vec<_>>()
                                 .join("\u{1f}");
+                            let joined_tints = nav_tints_joined(tints);
                             with_env(|env| {
                                 let s = jstr(env, &joined);
                                 let si = jstr(env, &joined_icons);
@@ -1699,6 +1733,16 @@ mod imp {
                                         JValue::Object(&si),
                                     ],
                                 );
+                                let st = jstr(env, &joined_tints);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "setNavMenuTints",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&st)],
+                                );
+                                if env.exception_check() {
+                                    env.exception_clear();
+                                }
                             });
                         }
                         // Mobile selection is transient (rows ripple, then push) — no highlight

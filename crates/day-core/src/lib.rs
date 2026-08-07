@@ -37,7 +37,8 @@ pub use toolbar::{
 };
 // The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
 pub use day_spec::resource::{
-    AssetName, FontFamily, ImageName, Resource, ResourceOpener, resource, set_resource_opener,
+    AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName, resource,
+    set_resource_opener,
 };
 pub use tree::*;
 pub use windows::{

@@ -1308,11 +1308,22 @@ mod imp {
             cell
         }
 
-        fn configure(&self, title: &NSString, image: Option<&objc2_ui_kit::UIImage>) {
+        fn configure(
+            &self,
+            title: &NSString,
+            image: Option<&objc2_ui_kit::UIImage>,
+            tint: Option<day_spec::Color>,
+        ) {
             let iv = self.ivars();
             unsafe {
                 iv.title.setText(Some(title));
                 iv.icon.setImage(image);
+                // Per-row tint (docs/vectors.md): recolor the template glyph; None keeps the
+                // neutral secondaryLabel look.
+                match tint {
+                    Some(t) => iv.icon.setTintColor(Some(&uicolor(t))),
+                    None => iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor())),
+                }
             }
             self.setNeedsLayout();
         }
@@ -1324,6 +1335,8 @@ mod imp {
     struct NavTableIvars {
         node: NodeId,
         items: RefCell<Vec<Retained<NSString>>>,
+        /// Per-row icon tint (docs/vectors.md); `None` keeps the neutral template look.
+        tints: RefCell<Vec<Option<day_spec::Color>>>,
         /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
         /// Template mode tints them with the cell's tint colour (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
@@ -1362,7 +1375,8 @@ mod imp {
                     .cloned()
                     .unwrap_or_else(|| NSString::from_str(""));
                 let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
-                cell.configure(&title, img.as_deref());
+                let tint = self.ivars().tints.borrow().get(row).copied().flatten();
+                cell.configure(&title, img.as_deref(), tint);
                 objc2::rc::Retained::into_super(cell)
             }
         }
@@ -1420,6 +1434,7 @@ mod imp {
             node: NodeId,
             items: &[String],
             icons: &[Option<String>],
+            tints: &[Option<day_spec::Color>],
         ) -> Retained<Self> {
             let resolved: Vec<Option<Retained<objc2_ui_kit::UIImage>>> = icons
                 .iter()
@@ -1436,14 +1451,21 @@ mod imp {
                 node,
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
                 icons: RefCell::new(resolved),
+                tints: RefCell::new(tints.to_vec()),
             });
             unsafe { msg_send![super(this), init] }
         }
 
         /// Data-driven rows changed (`NavMenuPatch::Items`): swap labels/icons in place.
-        fn set_items(&self, items: &[String], icons: &[Option<String>]) {
+        fn set_items(
+            &self,
+            items: &[String],
+            icons: &[Option<String>],
+            tints: &[Option<day_spec::Color>],
+        ) {
             *self.ivars().items.borrow_mut() =
                 items.iter().map(|s| NSString::from_str(s)).collect();
+            *self.ivars().tints.borrow_mut() = tints.to_vec();
             *self.ivars().icons.borrow_mut() = icons
                 .iter()
                 .map(|ic| {
@@ -2441,7 +2463,7 @@ mod imp {
                 }
                 Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    let data = DayNavTableData::new(mtm, id, &p.items, &p.icons);
+                    let data = DayNavTableData::new(mtm, id, &p.items, &p.icons, &p.tints);
                     let table = unsafe {
                         objc2_ui_kit::UITableView::initWithFrame_style(
                             objc2_ui_kit::UITableView::alloc(mtm),
@@ -2687,6 +2709,19 @@ mod imp {
                     {
                         unsafe { iv.setImage(Some(&img)) };
                     }
+                    // Vector-glyph tint (docs/vectors.md): template rendering + the view's tint —
+                    // UIKit recolors the alpha mask natively.
+                    if let Some(t) = p.tint {
+                        if let Some(img) = unsafe { iv.image() } {
+                            let templ = unsafe {
+                                img.imageWithRenderingMode(
+                                    objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                )
+                            };
+                            unsafe { iv.setImage(Some(&templ)) };
+                        }
+                        unsafe { iv.setTintColor(Some(&uicolor(t))) };
+                    }
                     view_of(iv)
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -2746,12 +2781,16 @@ mod imp {
                 }
                 // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
                 kinds::NAV_MENU => {
-                    if let Some(NavMenuPatch::Items { items, icons, .. }) =
-                        patch.downcast_ref::<NavMenuPatch>()
+                    if let Some(NavMenuPatch::Items {
+                        items,
+                        icons,
+                        tints,
+                        ..
+                    }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         NAV_MENUS.with(|m| {
                             if let Some((data, n)) = m.borrow_mut().get_mut(&ptr_of(h)) {
-                                data.set_items(items, icons);
+                                data.set_items(items, icons, tints);
                                 *n = items.len();
                                 if let Some(tv) = h.downcast_ref::<objc2_ui_kit::UITableView>() {
                                     unsafe { tv.reloadData() };

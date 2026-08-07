@@ -95,7 +95,7 @@ fn dress_button(button: &impl IsA<gtk4::Button>, item: &ToolbarItem) {
         // A bundled image: tint it to the theme foreground like the sidebar icons, so a black
         // template glyph stays visible on a dark-mode toolbar instead of rendering dark-on-dark.
         Some(Icon::Image(name)) => {
-            if let Some(img) = crate::tinted_template_icon(name) {
+            if let Some(img) = crate::tinted_template_icon(name, None) {
                 button.set_child(Some(&img));
                 dressed = true;
             }

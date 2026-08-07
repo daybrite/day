@@ -390,6 +390,22 @@ void day_ark_set_image_fit(void* n, int32_t fit) {
     it.size = 1;
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_IMAGE_OBJECT_FIT, &it);
 }
+// SVG-only recolor: NODE_IMAGE_FILL_COLOR repaints every path of an SVG src with `argb`
+// (raster sources ignore it) — how nav-row vector icons tint (docs/vectors.md).
+void day_ark_set_image_fill(void* n, uint32_t argb) { set_u32(n, NODE_IMAGE_FILL_COLOR, argb); }
+// Whether rawfile `path` (e.g. "day/home.svg") exists in the app package; 0 before the entry
+// ability registers the resource manager. Lets day-arkui prefer a vector's staged SVG over
+// the raster fallback under the same stem (docs/vectors.md).
+int32_t day_ark_rawfile_exists(const char* path) {
+    if (!g_res_mgr) return 0;
+    RawFile* f = OH_ResourceManager_OpenRawFile(g_res_mgr, path);
+    if (!f) return 0;
+    OH_ResourceManager_CloseRawFile(f);
+    return 1;
+}
+// One margin (vp) on all four sides — the nav rows gap icon from label with it (symmetric,
+// so RTL row direction needs no flip).
+void day_ark_set_margin(void* n, double vp) { set_f32(n, NODE_MARGIN, (float)vp); }
 void day_ark_set_toggle(void* n, int32_t on) {
     ArkUI_NumberValue nv;
     nv.i32 = on ? 1 : 0;

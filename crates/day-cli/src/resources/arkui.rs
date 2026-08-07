@@ -18,7 +18,19 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     let dir = harmony.join("entry/src/main/resources/rawfile/day");
     // Regenerate fresh so removed resources don't linger in the packaged rawfile tree.
     let _ = fs::remove_dir_all(&dir);
-    if set.images.is_empty() && set.data.is_empty() && fonts.is_empty() {
+    // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem —
+    // ArkUI's Image renders SVG natively and `NODE_IMAGE_FILL_COLOR` recolors it, so
+    // day-arkui probes `day/<name>.svg` first and falls back to the png.
+    let svgs: Vec<std::path::PathBuf> = super::vector_svg_dir(project)
+        .read_dir()
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
+                .collect()
+        })
+        .unwrap_or_default();
+    if set.images.is_empty() && set.data.is_empty() && fonts.is_empty() && svgs.is_empty() {
         return Ok(());
     }
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
@@ -44,6 +56,12 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     for img in &set.images {
         let dest = dir.join(format!("{}.png", sanitize_ident(&img.name)));
         fs::copy(&img.path, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
+    }
+    for svg in &svgs {
+        if let Some(name) = svg.file_name() {
+            let dest = dir.join(name);
+            fs::copy(svg, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
+        }
     }
     // Data: the rawfile opener reads `day/<name>`.
     for d in &set.data {

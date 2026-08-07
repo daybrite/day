@@ -16,6 +16,7 @@ members = [
     "crates/day-l10n",
     "crates/day-fluent",
     "crates/day-script",
+    "crates/day-vector",
     "crates/day",
     "toolkits/day-appkit",
     "toolkits/day-gtk",
@@ -75,6 +76,7 @@ default-members = [
     "crates/day-pieces",
     "crates/day-l10n",
     "crates/day-fluent",
+    "crates/day-vector",
 ]
 
 # crates.io publishing policy: for now ONLY `day-cli` and its leaf dependencies (`day-fonts`,
@@ -106,6 +108,7 @@ day-pieces = { path = "crates/day-pieces", version = "0.1.4" }
 day-l10n = { path = "crates/day-l10n", version = "0.1.4" }
 day-fluent = { path = "crates/day-fluent", version = "0.1.4" }
 day-script = { path = "crates/day-script", version = "0.1.4" }
+day-vector = { path = "crates/day-vector", version = "0.1.4" }
 day = { path = "crates/day", version = "0.1.4" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.1.4" }
 day-piece-webview = { path = "pieces/day-piece-webview", version = "0.1.4" }

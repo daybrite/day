@@ -934,6 +934,30 @@ public final class DayBridge {
         }
     }
 
+    /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted —
+     *  the row keeps its text-colour template tint). Best-effort by design: called AFTER
+     *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
+    public static void setNavMenuTints(View navMenu, String joinedTints) {
+        try {
+            if (!(navMenu instanceof android.widget.ScrollView)) return;
+            android.view.ViewGroup list =
+                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
+            if (list == null) return;
+            String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
+            for (int i = 0; i < list.getChildCount() && i < tints.length; i++) {
+                if (!(list.getChildAt(i) instanceof TextView)) continue;
+                TextView row = (TextView) list.getChildAt(i);
+                android.graphics.drawable.Drawable[] ds = row.getCompoundDrawablesRelative();
+                if (ds.length == 0 || ds[0] == null) continue;
+                long tint;
+                try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { continue; }
+                if (tint != 0) ds[0].setTint((int) tint);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu tints skipped", t);
+        }
+    }
+
     // --- imperative presentation (docs/dialogs.md) ---
     static final java.util.HashMap<Long, android.app.Dialog> presents = new java.util.HashMap<>();
 
@@ -1232,7 +1256,18 @@ public final class DayBridge {
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }
-    public static View makeImage(String name, int mode) {
+    public static View makeImage(String name, int mode, int tint) {
+        View v = makeImageInner(name, mode);
+        // Vector-glyph tint (docs/vectors.md): drawable tint keeps a VectorDrawable/PNG's alpha
+        // as the mask. 0 = untinted (a real tint always carries alpha 0xFF).
+        if (tint != 0 && v instanceof android.widget.ImageView) {
+            ((android.widget.ImageView) v).setImageTintList(
+                    android.content.res.ColorStateList.valueOf(tint));
+        }
+        return v;
+    }
+
+    private static View makeImageInner(String name, int mode) {
         android.widget.ImageView iv = new android.widget.ImageView(ctx);
         // Scaling (§18.3): 0=fit, 1=fill (crop), 2=stretch.
         iv.setScaleType(

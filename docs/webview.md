@@ -55,10 +55,25 @@ gallery.
   run it**: its `ArkWebCore.hap` carries arm64-only native libs (`bm install` answers "the Abi type
   supported by the device does not match"), so the engine loads as null and the component's surface
   wedges the window's compositor; the walkthrough skips this page there (docs/harmonyos.md).
-- **XAML**: the UWP-XAML `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), which is in the base Windows SDK
-  cppwinrt projection day-xaml already uses (no Windows App SDK / WebView2). Creation + navigation are
-  wrapped in try/catch: EdgeHTML WebView can be unavailable in an unpackaged Win32 XAML host, so it
-  degrades to a label rather than crashing.
+- **XAML**: **WebView2**, hosted windowless. The obvious choice — the UWP-XAML
+  `Windows.UI.Xaml.Controls.WebView` (EdgeHTML), already in the base SDK projection day-xaml uses —
+  does not work in Day's Win32 XAML-Islands host: it renders blank, never raises
+  `NavigationCompleted`, and crashes on navigation. A plain child HWND over the island does not work
+  either, because the island's `ContentIsland` InputSite owns pointer input for the whole surface, so
+  the web view never sees a click.
+
+  So the shim (`src/lib-xaml-shim.cpp`) boxes a transparent XAML `Border` as the day handle, renders
+  the page into a `Windows.UI.Composition` visual through a `CoreWebView2CompositionController`, and
+  splices that visual in with `ElementCompositionPreview::SetElementChildVisual`. The web view is
+  then a real node in the XAML visual tree — correct z-order, clipping, DPI, and layout, with no
+  second window to track and no airspace problem — and pointer events arrive at the Border and are
+  forwarded to `SendMouseInput`. This is the same technique the official XAML WebView2 controls use
+  internally.
+
+  `WebView2LoaderStatic.lib` is linked statically (from the Microsoft.Web.WebView2 NuGet package, not
+  the base SDK), so there is no DLL to bundle; the WebView2 Runtime itself is a system-wide install,
+  present on Windows 11 and on the CI runners. When it is absent, controller creation fails and the
+  Border's URL label stays as the fallback, so the page degrades rather than crashing.
 
 ## CI screenshots + gallery
 

@@ -76,6 +76,9 @@ pub struct LocaleEntry {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResourcePlan {
     pub images: Vec<Entry>,
+    /// `resource/vectors/` — SVG glyphs (and `.symbolset` bundles), typed as `res::vectors::…`
+    /// `VectorName` constants (docs/vectors.md).
+    pub vectors: Vec<Entry>,
     pub assets: Vec<Entry>,
     pub fonts: Vec<Entry>,
     /// Localization keys → `res::str::<key>(params…)` functions (§18.5).
@@ -97,7 +100,7 @@ pub fn generate_resources() -> Result<(), String> {
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
     // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this reliably).
-    for bucket in ["images", "assets", "fonts", "locales"] {
+    for bucket in ["images", "vectors", "assets", "fonts", "locales"] {
         println!("cargo:rerun-if-changed=resource/{bucket}");
     }
     // Typed constructors for the SwiftUI views exported by declared local SwiftPM packages
@@ -116,6 +119,7 @@ fn env(key: &str) -> Result<String, String> {
 pub fn plan_resources(root: &Path) -> Result<ResourcePlan, String> {
     Ok(ResourcePlan {
         images: plan_images(&root.join("resource/images"))?,
+        vectors: plan_vectors(&root.join("resource/vectors"))?,
         assets: plan_assets(&root.join("resource/assets"))?,
         fonts: plan_fonts(&root.join("resource/fonts"))?,
         strings: plan_strings(&root.join("resource/locales"))?,
@@ -149,6 +153,61 @@ fn list_files(dir: &Path) -> Vec<PathBuf> {
 /// a non-portable stem would silently resolve to two different names across toolkits, so it is a hard
 /// error with a rename hint. `foo.png` + `foo@2x.png` collapse to one constant; two *distinct* files
 /// claiming the same stem at the same scale collide.
+/// Vectors (docs/vectors.md): `resource/vectors/*.svg` files plus `*.symbolset` bundle
+/// directories, keyed on the stem. Same portability rule as images — every backend resolves the
+/// stem, Android/HarmonyOS re-sanitize it.
+fn plan_vectors(dir: &Path) -> Result<Vec<Entry>, String> {
+    let mut out: Vec<Entry> = Vec::new();
+    let mut names: std::collections::BTreeSet<String> = Default::default();
+    let entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    let mut sorted = entries;
+    sorted.sort();
+    for path in sorted {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if fname.starts_with('.') {
+            continue;
+        }
+        let stem = match (path.is_file(), path.is_dir()) {
+            (true, _) if fname.to_ascii_lowercase().ends_with(".svg") => path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string(),
+            (_, true) if fname.to_ascii_lowercase().ends_with(".symbolset") => {
+                fname[..fname.len() - ".symbolset".len()].to_string()
+            }
+            _ => continue,
+        };
+        let sane = sanitize_ident(&stem);
+        if sane != stem {
+            return Err(format!(
+                "day-build: vector {stem:?} ({}) is not a portable resource name — rename it so \
+                 its stem is lowercase [a-z0-9_] (e.g. `{sane}`).",
+                display(&path)
+            ));
+        }
+        if !names.insert(stem.clone()) {
+            return Err(format!(
+                "day-build: two entries map to vector {stem:?} — keep one .svg or .symbolset per name."
+            ));
+        }
+        out.push(Entry {
+            symbol: stem.clone(),
+            value: stem,
+            source: display(&path),
+        });
+    }
+    Ok(out)
+}
+
 fn plan_images(dir: &Path) -> Result<Vec<Entry>, String> {
     // stem -> (scales seen, first source path)
     let mut seen: std::collections::BTreeMap<String, (Vec<u32>, String)> = Default::default();
@@ -665,6 +724,7 @@ pub fn render(plan: &ResourcePlan) -> String {
     // crate in scope wherever it is included — the same assumption the other buckets make with
     // `day::ImageName`.
     render_bucket(&mut s, "images", "ImageName", &plan.images);
+    render_bucket(&mut s, "vectors", "VectorName", &plan.vectors);
     render_bucket(&mut s, "assets", "AssetName", &plan.assets);
     render_bucket(&mut s, "fonts", "FontFamily", &plan.fonts);
     render_strings(&mut s, &plan.strings);

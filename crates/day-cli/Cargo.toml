@@ -37,6 +37,9 @@ serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
 sha2 = "0.11"
+# The vector engine behind `day icon` and resource/vectors staging (docs/icons.md,
+# docs/vectors.md): SVG parse/raster + the platform icon-format writers.
+day-vector = { workspace = true }
 # Normalizing artifact timestamps before archiving (pack/ios.rs, §20.3). std cannot do this: its
 # `File::set_times` follows symlinks, and on Windows a directory cannot be opened at all without
 # `FILE_FLAG_BACKUP_SEMANTICS`. filetime handles both and is already in the tree via `tar`

@@ -692,6 +692,9 @@ struct NavMenuIvars {
     /// Template images tint with the source-list's selection/appearance, so they read in light,
     /// dark, and while selected — the macOS-idiomatic sidebar look (Finder/Mail).
     icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
+    /// Per-row icon tint (docs/vectors.md): recolors the template glyph via contentTintColor;
+    /// `None` keeps the source-list's neutral template tint.
+    tints: RefCell<Vec<Option<day_spec::Color>>>,
     /// Trailing accessory per item row (an unread count), `None` where a row has none.
     badges: RefCell<Vec<Option<Retained<NSString>>>>,
     /// The outline's rows, in display order: `Some(i)` is item `i`, `None` is a section
@@ -919,9 +922,15 @@ define_class!(
                     );
                 }
                 if let Some(img) = icon {
+                    let tint = self.ivars().tints.borrow().get(index).copied().flatten();
                     let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
                     unsafe {
                         iv.setImage(Some(&img));
+                        // Per-row tint (docs/vectors.md): the icons are template images, so
+                        // contentTintColor recolors the alpha mask; None keeps the neutral look.
+                        if let Some(t) = tint {
+                            iv.setContentTintColor(Some(&nscolor(t)));
+                        }
                         iv.setImageScaling(
                             objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
                         );
@@ -969,9 +978,13 @@ fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_
     icons
         .iter()
         .map(|ic| {
-            let path = ic
-                .as_deref()
-                .and_then(day_spec::resource::resolve_image_file)?;
+            let name = ic.as_deref()?;
+            // Prefer the glyph SVG (docs/vectors.md): NSImage renders it at display size.
+            let svg = std::env::var("DAY_VECTOR_SVG_ROOT").ok().and_then(|root| {
+                let p = std::path::Path::new(&root).join(format!("{name}.svg"));
+                p.is_file().then_some(p)
+            });
+            let path = svg.or_else(|| day_spec::resource::resolve_image_file(name))?;
             use objc2::AllocAnyThread as _;
             let img = unsafe {
                 objc2_app_kit::NSImage::initWithContentsOfFile(
@@ -986,6 +999,7 @@ fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_
 }
 
 impl DayNavMenuData {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         mtm: MainThreadMarker,
         node: NodeId,
@@ -993,11 +1007,13 @@ impl DayNavMenuData {
         icons: &[Option<String>],
         badges: &[Option<String>],
         sections: &[Option<String>],
+        tints: &[Option<day_spec::Color>],
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
             icons: RefCell::new(resolve_nav_icons(icons)),
+            tints: RefCell::new(tints.to_vec()),
             badges: RefCell::new(ns_badges(badges)),
             rows: RefCell::new(Vec::new()),
             row_objects: RefCell::new(Vec::new()),
@@ -1015,9 +1031,11 @@ impl DayNavMenuData {
         icons: &[Option<String>],
         badges: &[Option<String>],
         sections: &[Option<String>],
+        tints: &[Option<day_spec::Color>],
     ) {
         *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
         *self.ivars().icons.borrow_mut() = resolve_nav_icons(icons);
+        *self.ivars().tints.borrow_mut() = tints.to_vec();
         *self.ivars().badges.borrow_mut() = ns_badges(badges);
         self.rebuild_rows(items, sections);
     }
@@ -2439,7 +2457,15 @@ impl Toolkit for AppKit {
             }
             Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                let data = DayNavMenuData::new(mtm, id, &p.items, &p.icons, &p.badges, &p.sections);
+                let data = DayNavMenuData::new(
+                    mtm,
+                    id,
+                    &p.items,
+                    &p.icons,
+                    &p.badges,
+                    &p.sections,
+                    &p.tints,
+                );
                 let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
                 let col = unsafe {
                     objc2_app_kit::NSTableColumn::initWithIdentifier(
@@ -2589,10 +2615,17 @@ impl Toolkit for AppKit {
                     _ => objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
                 };
                 unsafe { iv.setImageScaling(scaling) };
-                // Resolve `image("name")` by name through the shared image-file resolver
-                // (images/ then assets/ then bundle) — macOS AppKit's native path is a bundle
-                // file loaded straight into NSImage (§18.3).
-                if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
+                // A vector glyph's SVG first (docs/vectors.md): NSImage renders SVG at display
+                // size (macOS 11+), so vectors stay vector — no build-time raster resampling.
+                // Then the shared image-file resolver (images/ then assets/ then bundle) —
+                // macOS AppKit's native path is a bundle file loaded straight into NSImage (§18.3).
+                let svg_probe = std::env::var("DAY_VECTOR_SVG_ROOT").ok().and_then(|root| {
+                    let p = std::path::Path::new(&root).join(format!("{}.svg", p.source));
+                    p.is_file().then_some(p)
+                });
+                if let Some(path) =
+                    svg_probe.or_else(|| day_spec::resource::resolve_image_file(&p.source))
+                {
                     use objc2::AllocAnyThread as _;
                     if let Some(img) = unsafe {
                         objc2_app_kit::NSImage::initWithContentsOfFile(
@@ -2600,8 +2633,16 @@ impl Toolkit for AppKit {
                             &NSString::from_str(&path.to_string_lossy()),
                         )
                     } {
+                        // Vector-glyph tint (docs/vectors.md): template rendering + the view's
+                        // content tint — AppKit recolors the alpha mask natively.
+                        if p.tint.is_some() {
+                            unsafe { img.setTemplate(true) };
+                        }
                         unsafe { iv.setImage(Some(&img)) };
                     }
+                }
+                if let Some(t) = p.tint {
+                    unsafe { iv.setContentTintColor(Some(&nscolor(t))) };
                 }
                 view_of(iv)
             }
@@ -2764,6 +2805,7 @@ impl Toolkit for AppKit {
                     icons,
                     badges,
                     sections,
+                    tints,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -2772,7 +2814,7 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
-                        data.set_items(items, icons, badges, sections);
+                        data.set_items(items, icons, badges, sections, tints);
                         data.ivars().suppress.set(true);
                         unsafe {
                             outline.reloadData();

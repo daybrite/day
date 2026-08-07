@@ -877,7 +877,19 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     // Processed images (§18.3): generate a Media.xcassets from the project's images/ into the target
     // so SwiftPM `.process` compiles it (actool) into the package's Assets.car.
     let images = crate::resources::ResourceSet::scan(project).images;
-    let has_resources = crate::resources::apple::write_media_xcassets(&sources, &images)?;
+    let vectors: Vec<(String, std::path::PathBuf)> =
+        std::fs::read_dir(crate::resources::vector_svg_dir(project))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
+            .filter_map(|p| {
+                let stem = p.file_stem()?.to_str()?.to_string();
+                Some((stem, p))
+            })
+            .collect();
+    let has_resources = crate::resources::apple::write_media_xcassets(&sources, &images, &vectors)?;
 
     // Bundled fonts (§18.4): copied VERBATIM into the target so SwiftPM `.copy`s the directory
     // into the DayPieces bundle (`DayPieces_DayPieces.bundle/fonts/…` — fonts must not be

@@ -42,9 +42,19 @@ const PLATFORM_ASSETS = [
   { id: 'harmony-arkui', match: (n) => /-harmony-arkui\.hap$/i.test(n) },
   { id: 'macos-appkit', match: (n) => /-macos-appkit\.dmg$/i.test(n) },
   { id: 'windows-xaml', match: (n) => /-windows-xaml(-setup)?\.(msix|exe)$/i.test(n) },
-  { id: 'linux-gtk', match: (n) => /-linux-gtk-.*\.(flatpak|appimage)$/i.test(n) },
-  { id: 'linux-qt', match: (n) => /-linux-qt-.*\.(flatpak|appimage)$/i.test(n) },
+  // Linux ships two formats. The card offers the AppImage — one executable carrying its own
+  // toolkit, so `chmod +x` and run is the whole procedure — and falls back to the .flatpak for a
+  // release predating the AppImage rather than showing an empty card.
+  { id: 'linux-gtk', match: linuxMatcher('linux-gtk') },
+  { id: 'linux-qt', match: linuxMatcher('linux-qt') },
 ];
+
+/** Match a Linux target's preferred package: the AppImage when the release has one, else the flatpak. */
+function linuxMatcher(target) {
+  const appimage = new RegExp(`-${target}-.*\\.appimage$`, 'i');
+  const flatpak = new RegExp(`-${target}-.*\\.flatpak$`, 'i');
+  return (name, all) => (all.some((a) => appimage.test(a)) ? appimage.test(name) : flatpak.test(name));
+}
 
 /** Fetch JSON from the GitHub API, authenticated when a token is around (CI rate limits). */
 async function api(path) {
@@ -80,9 +90,12 @@ export async function assembleDownloads(opts = {}) {
 
   const platforms = [];
   const missing = [];
+  // The whole asset-name list is passed to each matcher: a target that ships two formats has to
+  // know which ones this release actually carries before it can prefer one.
+  const names = assets.map((a) => a.name);
   for (const { id, match } of PLATFORM_ASSETS) {
     const files = assets
-      .filter((a) => match(a.name))
+      .filter((a) => match(a.name, names))
       .map((a) => ({
         name: a.name,
         bytes: a.size,

@@ -71,6 +71,14 @@ unsafe extern "C" {
     /// Set an image node's scaling (`NODE_IMAGE_OBJECT_FIT`): ArkUI_ObjectFit CONTAIN=0 / COVER=1 /
     /// FILL=3 (§18.3).
     pub fn day_ark_set_image_fit(node: *mut c_void, fit: c_int);
+    /// SVG-only recolor (`NODE_IMAGE_FILL_COLOR`): repaints every path of an SVG src with `argb`;
+    /// raster sources ignore it (docs/vectors.md).
+    pub fn day_ark_set_image_fill(node: *mut c_void, argb: u32);
+    /// Whether rawfile `path` (e.g. "day/home.svg") exists in the app package; 0 before the entry
+    /// ability registers the resource manager (docs/vectors.md).
+    pub fn day_ark_rawfile_exists(path: *const c_char) -> i32;
+    /// One margin (vp) on all four sides (`NODE_MARGIN`) — symmetric, so RTL needs no flip.
+    pub fn day_ark_set_margin(node: *mut c_void, vp: f64);
 
     /// Absolute frame (day owns layout): position + explicit size, in vp.
     pub fn day_ark_set_frame(node: *mut c_void, x: f64, y: f64, w: f64, h: f64);

@@ -144,6 +144,19 @@ fn env(key: &str) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// The staged file extension for a bare image NAME: `svg` when the name is a bundled vector
+/// glyph (docs/vectors.md — the browser then renders it at display size), `png` otherwise.
+/// The page carries the vector-name list (`window.__DAY_VECTORS`, injected at assemble) and
+/// answers through the env channel's reserved `vector:` keys, so an older host page simply
+/// answers empty and the raster fallback still resolves.
+fn image_ext(name: &str) -> &'static str {
+    if env(&format!("vector:{name}")).is_empty() {
+        "png"
+    } else {
+        "svg"
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Element kinds the shim knows how to create (shim.js `create()` mirrors this table).
 // ---------------------------------------------------------------------------
@@ -390,9 +403,15 @@ fn tabs_json(titles: &[String], selected: usize) -> String {
     json
 }
 
-/// Build the nav-menu JSON (`{items:[{title, icon?}], selected}`) the shim's `day_dom_navmenu`
-/// consumes. Shared by NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
-fn navmenu_json(items: &[String], icons: &[Option<String>], selected: Option<usize>) -> String {
+/// Build the nav-menu JSON (`{items:[{title, icon?, tint?}], selected}`) the shim's
+/// `day_dom_navmenu` consumes. Shared by NAV_MENU realize and the data-driven
+/// `NavMenuPatch::Items` rebuild.
+fn navmenu_json(
+    items: &[String],
+    icons: &[Option<String>],
+    tints: &[Option<day_spec::Color>],
+    selected: Option<usize>,
+) -> String {
     let mut json = String::from("{\"items\":[");
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
@@ -402,7 +421,24 @@ fn navmenu_json(items: &[String], icons: &[Option<String>], selected: Option<usi
         json_str(&mut json, item);
         if let Some(Some(icon)) = icons.get(i) {
             json.push_str(",\"icon\":");
-            json_str(&mut json, &format!("assets/images/{icon}.png"));
+            json_str(
+                &mut json,
+                &format!("assets/images/{icon}.{}", image_ext(icon)),
+            );
+            // The row's own icon tint (docs/vectors.md): the shim paints the mask with this
+            // instead of currentColor.
+            if let Some(Some(t)) = tints.get(i) {
+                json.push_str(",\"tint\":");
+                json_str(
+                    &mut json,
+                    &format!(
+                        "#{:02x}{:02x}{:02x}",
+                        (t.r * 255.0) as u8,
+                        (t.g * 255.0) as u8,
+                        (t.b * 255.0) as u8
+                    ),
+                );
+            }
         }
         json.push('}');
     }
@@ -633,7 +669,7 @@ impl Toolkit for Dom {
                 let src = if p.source.contains('/') {
                     p.source.clone()
                 } else {
-                    format!("assets/images/{}.png", p.source)
+                    format!("assets/images/{}.{}", p.source, image_ext(&p.source))
                 };
                 attr(el, "src", &src);
                 s(
@@ -699,7 +735,7 @@ impl Toolkit for Dom {
             Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
-                let json = navmenu_json(&p.items, &p.icons, p.selected);
+                let json = navmenu_json(&p.items, &p.icons, &p.tints, p.selected);
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 el
             }
@@ -935,11 +971,12 @@ impl Toolkit for Dom {
                 if let Some(NavMenuPatch::Items {
                     items,
                     icons,
+                    tints,
                     selected,
                     ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
-                    let json = navmenu_json(items, icons, *selected);
+                    let json = navmenu_json(items, icons, tints, *selected);
                     unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()

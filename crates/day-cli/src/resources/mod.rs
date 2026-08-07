@@ -47,10 +47,16 @@ pub struct ResourceSet {
 }
 
 impl ResourceSet {
-    /// Scan a project's `images/` and `assets/` directories.
+    /// Scan a project's `images/` and `assets/` directories — plus the vector raster cache
+    /// (docs/vectors.md): every `resource/vectors/` glyph has a build-time PNG under
+    /// `build/day/vectors/raster/`, appended here as an ordinary image so each toolkit's stager
+    /// ships it through its native image pipeline under the same name. Backends with a REAL
+    /// vector form (Android's VectorDrawable) filter these back out and stage that instead.
     pub fn scan(project: &Project) -> ResourceSet {
+        let mut images = scan_dir(&project.root.join("resource/images"), true);
+        images.extend(scan_dir(&vector_raster_dir(project), true));
         ResourceSet {
-            images: scan_dir(&project.root.join("resource/images"), true),
+            images,
             data: scan_dir(&project.root.join("resource/assets"), false),
         }
     }
@@ -262,6 +268,9 @@ pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
 pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
+    // Vectors first (docs/vectors.md): each glyph gets its raster-cache PNG, which
+    // `ResourceSet::scan` below then picks up for every toolkit's image pipeline.
+    let vectors = prepare_vectors(project)?;
     let set = ResourceSet::scan(project);
     let fonts = scan_fonts(project)?;
     if set.is_empty() && fonts.is_empty() {
@@ -272,7 +281,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         // (during build_ios), fonts as its `.copy("fonts")` bundle dir + the app's UIAppFonts;
         // data rides the existing bundle copy phase + default file opener.
         "uikit" => Ok(()),
-        "mdc" => android::stage(project, &set, &fonts),
+        "mdc" => android::stage(project, &set, &fonts, &vectors),
         "arkui" => arkui::stage(project, &set, &fonts),
         // Desktop toolkits load fonts as loose files: DAY_FONT_ROOT under `day launch`, a
         // `fonts/` dir next to the binary / in Resources when packed (§18.4).
@@ -281,6 +290,116 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         "xaml" => xaml::stage(project, &set),
         _ => Ok(()),
     }
+}
+
+/// A prepared `resource/vectors/` glyph: its resolution name and standalone SVG text (an SF
+/// Symbol template already reduced to its canonical Regular variant, a `.symbolset` bundle to
+/// its inner art).
+pub struct VectorAsset {
+    pub name: String,
+    pub glyph: String,
+}
+
+/// Where the build-time vector rasters live (probed by day-spec's `resolve_image_file` via
+/// `DAY_VECTOR_RASTER_ROOT`, and scanned into every stager's image set).
+pub fn vector_raster_dir(project: &Project) -> PathBuf {
+    project.root.join("build/day/vectors/raster")
+}
+
+/// Where the prepared glyph SVGs live (docs/vectors.md): the Apple catalogs copy these in as
+/// preserve-vector imagesets, and day-appkit's `DAY_VECTOR_SVG_ROOT` probe loads them directly
+/// (NSImage renders SVG at display size on macOS 11+).
+pub fn vector_svg_dir(project: &Project) -> PathBuf {
+    project.root.join("build/day/vectors/svg")
+}
+
+/// The raster edge for cached vector PNGs: sized for icon duty (nav rows, grids) at high-dpi.
+const VECTOR_RASTER_PX: u32 = 256;
+
+/// Scan `resource/vectors/` (plain `.svg`, SF-template `.svg`, `.symbolset/` bundles), reduce
+/// each to a standalone glyph, and (re)write the raster cache. Returns the prepared glyphs.
+pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
+    let src = project.root.join("resource/vectors");
+    let cache = vector_raster_dir(project);
+    let svgs = vector_svg_dir(project);
+    // Regenerate fresh so removed/renamed vectors don't linger in any pipeline.
+    let _ = std::fs::remove_dir_all(&cache);
+    let _ = std::fs::remove_dir_all(&svgs);
+    if !src.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(&src)
+        .map_err(|e| format!("resource/vectors: {e}"))?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    entries.sort();
+    let mut out = Vec::new();
+    for path in entries {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if fname.starts_with('.') {
+            continue;
+        }
+        let (name, svg_path) = if path.is_file() && fname.to_ascii_lowercase().ends_with(".svg") {
+            (fname[..fname.len() - 4].to_string(), path.clone())
+        } else if path.is_dir() && fname.to_ascii_lowercase().ends_with(".symbolset") {
+            // The bundle's inner template SVG (first .svg member).
+            let inner = std::fs::read_dir(&path)
+                .ok()
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
+                .ok_or_else(|| format!("{fname}: .symbolset bundle has no inner .svg"))?;
+            (fname[..fname.len() - ".symbolset".len()].to_string(), inner)
+        } else {
+            continue;
+        };
+        let text = std::fs::read_to_string(&svg_path).map_err(|e| format!("vector {name}: {e}"))?;
+        // SF Symbol templates reduce to the canonical Regular variant (the plan's
+        // "Regular only" policy) — and the Light/Bold variants ALSO stage, under
+        // `__light`/`__bold` suffixed names, which is what the piece's `.weight(…)` resolves
+        // (docs/vectors.md). Plain SVGs are the glyph as-is; their weight names alias the same
+        // art, so `.weight(…)` degrades to Regular rather than to a missing asset, everywhere.
+        let template = day_vector::classify(&text) == day_vector::SourceKind::SfTemplate;
+        std::fs::create_dir_all(&cache).map_err(|e| format!("mkdir vectors cache: {e}"))?;
+        for (suffix, weight) in [("", "Regular"), ("__light", "Light"), ("__bold", "Bold")] {
+            let glyph = if template {
+                day_vector::extract_variant(&text, weight, "M")
+                    .map_err(|e| format!("vector {name}: {e}"))?
+            } else {
+                text.clone()
+            };
+            let staged = format!("{name}{suffix}");
+            // Post-extraction check: a template's Notes/Guides carry documentation <text> that
+            // never ships; only text in the GLYPH itself is unrenderable (shaping is not
+            // compiled in — outline it).
+            if glyph.contains("<text") {
+                return Err(format!(
+                    "vector {staged}: contains <text> — outline text in your editor (docs/vectors.md)"
+                ));
+            }
+            let tree =
+                day_vector::parse(glyph.as_bytes()).map_err(|e| format!("vector {staged}: {e}"))?;
+            let png = day_vector::render_png(&tree, VECTOR_RASTER_PX)
+                .map_err(|e| format!("vector {staged}: {e}"))?;
+            std::fs::write(cache.join(format!("{staged}.png")), png)
+                .map_err(|e| format!("vector cache {staged}: {e}"))?;
+            std::fs::create_dir_all(&svgs).map_err(|e| format!("mkdir vectors svg: {e}"))?;
+            std::fs::write(svgs.join(format!("{staged}.svg")), glyph.as_bytes())
+                .map_err(|e| format!("vector svg {staged}: {e}"))?;
+            out.push(VectorAsset {
+                name: staged,
+                glyph,
+            });
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

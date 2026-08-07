@@ -245,6 +245,13 @@ fn allowed(code: &str, allow: &[String]) -> bool {
 pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     let mut findings: Vec<Finding> = Vec::new();
 
+    // --- resource/vectors/ (docs/vectors.md) ---
+    // Parse every vector source and surface the problems a device test would otherwise find
+    // first: unparseable art, glyph-embedded <text> (shaping is not compiled in), a template
+    // without its canonical Regular variant, and art outside the VectorDrawable subset (which
+    // ships as a raster fallback on Android — worth knowing, not an error).
+    lint_vectors(project, &mut findings);
+
     // --- Day.toml structure ---
     // Syntax + schema are enforced at load (a project that reaches here parsed); lint adds the
     // semantic checks: every [app] target is a known combo, and every [app.<key>] override
@@ -721,6 +728,101 @@ fn finish(n: usize, waived: usize, strict: bool) -> i32 {
     } else {
         eprintln!("{n} finding(s){waived_note}");
         if strict { 10 } else { 0 }
+    }
+}
+
+/// The `resource/vectors/` checks (docs/vectors.md).
+fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
+    let dir = project.root.join("resource/vectors");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    paths.sort();
+    for path in paths {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if fname.starts_with('.') {
+            continue;
+        }
+        let svg_path = if path.is_file() && fname.to_ascii_lowercase().ends_with(".svg") {
+            path.clone()
+        } else if path.is_dir() && fname.to_ascii_lowercase().ends_with(".symbolset") {
+            match std::fs::read_dir(&path).ok().and_then(|d| {
+                d.flatten()
+                    .map(|e| e.path())
+                    .find(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
+            }) {
+                Some(inner) => inner,
+                None => {
+                    findings.push(Finding {
+                        code: "day::lint::vector-empty-symbolset",
+                        message: format!("resource/vectors/{fname}: no inner .svg in the bundle"),
+                    });
+                    continue;
+                }
+            }
+        } else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&svg_path) else {
+            findings.push(Finding {
+                code: "day::lint::vector-unreadable",
+                message: format!("resource/vectors/{fname}: unreadable"),
+            });
+            continue;
+        };
+        let template = day_vector::classify(&text) == day_vector::SourceKind::SfTemplate;
+        let glyph = if template {
+            match day_vector::extract_variant(&text, "Regular", "M") {
+                Ok(g) => g,
+                Err(e) => {
+                    findings.push(Finding {
+                        code: "day::lint::vector-template",
+                        message: format!("resource/vectors/{fname}: {e}"),
+                    });
+                    continue;
+                }
+            }
+        } else {
+            text
+        };
+        if glyph.contains("<text") {
+            findings.push(Finding {
+                code: "day::lint::vector-text",
+                message: format!(
+                    "resource/vectors/{fname}: glyph contains <text> — outline it (docs/vectors.md)"
+                ),
+            });
+            continue;
+        }
+        match day_vector::parse(glyph.as_bytes()) {
+            Err(e) => findings.push(Finding {
+                code: "day::lint::vector-parse",
+                message: format!("resource/vectors/{fname}: {e}"),
+            }),
+            Ok(tree) => {
+                if project
+                    .manifest
+                    .app
+                    .targets
+                    .iter()
+                    .any(|t| t == "android-mdc")
+                    && let Err(why) = day_vector::to_vector_drawable(&tree)
+                {
+                    findings.push(Finding {
+                        code: "day::lint::vector-raster-fallback",
+                        message: format!(
+                            "resource/vectors/{fname}: {why} is outside the VectorDrawable \
+                             subset — Android ships a raster fallback"
+                        ),
+                    });
+                }
+            }
+        }
     }
 }
 

@@ -864,22 +864,31 @@ static QIcon day_qt_tinted_icon(const QString &path, const QColor &color) {
     p.end();
     return QIcon(tinted);
 }
-void day_qt_navlist_set_items(void *w, const char *joined, const char *icons) {
+void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
+                              const char *tints) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
     // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
-    // list is likewise split keep-empty (empty entry = no icon for that row).
+    // and tint lists are likewise split keep-empty (empty entry = no icon / no tint).
     const QStringList titles =
         QString::fromUtf8(joined).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QStringList iconPaths =
         QString::fromUtf8(icons).split(QChar(0x1f), Qt::KeepEmptyParts);
+    const QStringList tintStrs =
+        QString::fromUtf8(tints).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QColor textColor = l->palette().color(QPalette::Text);
     l->blockSignals(true);
     l->clear();
     for (int i = 0; i < titles.size(); ++i) {
         auto *item = new QListWidgetItem(titles.at(i), l);
         if (i < iconPaths.size() && !iconPaths.at(i).isEmpty()) {
-            QIcon icon = day_qt_tinted_icon(iconPaths.at(i), textColor);
+            // A row's own "#rrggbb" tint (docs/vectors.md) wins over the palette default.
+            QColor rowColor = textColor;
+            if (i < tintStrs.size() && !tintStrs.at(i).isEmpty()) {
+                QColor c(tintStrs.at(i));
+                if (c.isValid()) rowColor = c;
+            }
+            QIcon icon = day_qt_tinted_icon(iconPaths.at(i), rowColor);
             if (!icon.isNull()) item->setIcon(icon);
         }
     }

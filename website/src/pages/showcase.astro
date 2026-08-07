@@ -4,6 +4,7 @@ import { platformsById } from '../lib/platforms.mjs';
 import { site, url } from '../lib/site';
 import manifest from '../data/downloads.json';
 import PlatformIcon from '../components/PlatformIcon.astro';
+import CopyCommand from '../components/CopyCommand.astro';
 
 // The Day Showcase, packaged for every primary platform by `day pack` and attached to the latest
 // GitHub release — the release lane is where the macOS build gets signed and notarized, so these
@@ -15,6 +16,11 @@ const byId = new Map<string, ManifestFile[]>(
   (manifest.platforms ?? []).map((p: { id: string; files: ManifestFile[] }) => [p.id, p.files]),
 );
 const release = manifest.release as { tag: string; url: string; publishedAt: string } | null;
+
+// The two quick-start commands, built once so the rendered line and the string the Copy button
+// puts on the clipboard cannot drift apart.
+const unixCmdUrl = `${site.showcaseRepo}/releases/latest/download/launch.sh`;
+const winCmdUrl = `${site.showcaseRepo}/releases/latest/download/launch.ps1`;
 
 // web-dom is rendered ahead of these directly in the markup: there is nothing to download.
 const packaging = [
@@ -50,15 +56,15 @@ const packaging = [
   },
   {
     id: 'linux-gtk',
-    kind: '.flatpak',
+    kind: '.appimage',
     install:
-      'Install with `flatpak install --user ./<file>.flatpak`. flatpak asks to confirm the unsigned local bundle and offers the Freedesktop runtime if it is missing.',
+      'One self-contained executable carrying its own GTK: `chmod +x ./<file>.appimage` and run it. No package manager, no runtime download, no root. The release also carries a .flatpak for a desktop-integrated install.',
   },
   {
     id: 'linux-qt',
-    kind: '.flatpak',
+    kind: '.appimage',
     install:
-      'Same as the GTK build: `flatpak install --user ./<file>.flatpak`, confirm the unsigned local bundle, accept the runtime offer if prompted.',
+      'Same as the GNOME build, with Qt inside instead: `chmod +x ./<file>.appimage` and run it. A .flatpak is on the release too if you would rather install it properly.',
   },
 ];
 // Each card's heading and OS come from the platform table (src/lib/platforms.mjs); this page
@@ -79,7 +85,7 @@ function richInstall(text: string): (string | { code: string })[] {
   return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
 }
 ---
-<BaseLayout title="Showcase downloads" description="Open the Day Showcase web build in place, or install it natively: packaged builds for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with sizes and SHA-256 checksums." active="showcase">
+<BaseLayout title="Showcase downloads" description="Open the Day Showcase web build in place, or install it natively: packaged builds for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with approximate sizes and one-line install commands." active="showcase">
   <section class="section dl-hero">
     <div class="container">
       <p class="eyebrow">Showcase downloads</p>
@@ -109,11 +115,7 @@ function richInstall(text: string): (string | { code: string })[] {
   <section class="section dl-quick">
     <div class="container">
       <h2 class="dl-quick-title">Quick start</h2>
-      <p class="dl-quick-lead">
-        One line downloads the latest release and runs it. Nothing is installed permanently: the
-        app lands in a temporary directory, and the script tells you which one. It picks the build
-        for your system, shows you the exact URL, and asks before downloading anything.
-      </p>
+      <p class="dl-quick-lead">Downloads, unpacks, and launches the app.</p>
 
       {/* Radio inputs rather than buttons, so the tabs work with the stylesheet alone — the
           script below only moves the selection. Without JavaScript the page still switches. */}
@@ -126,33 +128,13 @@ function richInstall(text: string): (string | { code: string })[] {
         </div>
 
         <div class="qs-panel qs-panel-unix">
-          <pre class="dl-quick-cmd"><code>curl -fsSL {site.showcaseRepo}/releases/latest/download/launch.sh | bash</code></pre>
-          <p class="dl-quick-note">
-            macOS gets the signed, notarized <code>.dmg</code>; Linux gets the AppImage, which
-            carries its own GTK or Qt — so there is nothing to install either way. On Linux the
-            script reads your desktop to choose between the GNOME and KDE builds.
-          </p>
+          <CopyCommand cmd={`curl -fsSL ${unixCmdUrl} | bash`} />
         </div>
 
         <div class="qs-panel qs-panel-win">
-          <pre class="dl-quick-cmd"><code>irm {site.showcaseRepo}/releases/latest/download/launch.ps1 | iex</code></pre>
-          <p class="dl-quick-note">
-            Windows gets the per-user installer, run silently into a temporary folder rather than
-            into Program Files, so there is no admin prompt and removing it is one command the
-            script prints. It is signed with a development certificate rather than one Windows
-            trusts, so SmartScreen may warn.
-          </p>
+          <CopyCommand cmd={`irm ${winCmdUrl} | iex`} />
         </div>
       </div>
-
-      <p class="dl-quick-note">
-        Both scripts ship with each release, so the URL chooses the version: swap <code>latest</code>{' '}
-        for <code>download/v0.1.7</code> to run that one, which is how you get two versions side by
-        side. Read one first by opening the same URL —{' '}
-        <a href={`${site.showcaseRepo}/releases/latest/download/launch.sh`}>launch.sh</a> and{' '}
-        <a href={`${site.showcaseRepo}/releases/latest/download/launch.ps1`}>launch.ps1</a> are both
-        short and do nothing clever.
-      </p>
     </div>
   </section>
 
@@ -168,6 +150,32 @@ function richInstall(text: string): (string | { code: string })[] {
         var win = document.getElementById('qs-win');
         if (win) win.checked = true;
       }
+
+      // Copy to clipboard, with the button itself as the confirmation — a checkmark and "Copied",
+      // reverted after a moment. `navigator.clipboard` needs a secure context, so the whole
+      // control is REMOVED when it is unavailable rather than left to fail on click: a copy
+      // button that silently does nothing is worse than no copy button.
+      var buttons = document.querySelectorAll('.qs-copy');
+      if (!navigator.clipboard) {
+        buttons.forEach(function (b) { b.remove(); });
+        return;
+      }
+      buttons.forEach(function (button) {
+        var label = button.querySelector('.qs-copy-label');
+        var idle = label.textContent;
+        var timer;
+        button.addEventListener('click', function () {
+          navigator.clipboard.writeText(button.dataset.cmd).then(function () {
+            button.classList.add('is-copied');
+            label.textContent = 'Copied';
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+              button.classList.remove('is-copied');
+              label.textContent = idle;
+            }, 2000);
+          });
+        });
+      });
     })();
   </script>
 
@@ -242,20 +250,8 @@ function richInstall(text: string): (string | { code: string })[] {
 
   .dl-quick { padding-top: 12px; padding-bottom: 12px; }
   .dl-quick-title { font-size: 1.35rem; margin: 0 0 10px; }
-  .dl-quick-lead { margin: 0 0 14px; max-width: 68ch; }
-  /* The command is the point of the section, so it gets the accent edge the download cards use.
-     It scrolls rather than wrapping: a wrapped shell line invites a half-copied paste. */
-  .dl-quick-cmd {
-    border: 1px solid var(--border-soft);
-    border-left: 3px solid var(--brand);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 14px 16px;
-    margin: 0 0 12px;
-    overflow-x: auto;
-  }
-  .dl-quick-cmd code { white-space: pre; font-size: 0.92rem; }
-  .dl-quick-note { color: var(--faint); font-size: 0.92rem; max-width: 68ch; }
+  .dl-quick-lead { margin: 0 0 14px; max-width: 68ch; color: var(--faint); }
+  /* The command block and its Copy button style themselves (components/CopyCommand.astro). */
 
   /* The OS picker. The radios drive everything and stay in the accessibility tree — clipped
      rather than `display: none`, which would take them out of it and off the keyboard. */

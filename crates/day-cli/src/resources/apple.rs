@@ -21,8 +21,16 @@ const CATALOG_ROOT: &str = "{ \"info\" : { \"author\" : \"day\", \"version\" : 1
 /// Generate `Media.xcassets` under `sources_dir` — one `<name>.imageset` per image (grouping `@Nx`
 /// scale variants), each with a `Contents.json`. Returns `true` if any imageset was written (so the
 /// caller adds the `.process` resource to the target). SwiftPM/xcodebuild then runs `actool`.
-pub fn write_media_xcassets(sources_dir: &Path, images: &[ResourceFile]) -> Result<bool, String> {
-    if images.is_empty() {
+/// `vectors` are `(name, glyph-svg path)` pairs from `resource/vectors/` (docs/vectors.md): each
+/// becomes an SVG imageset with `"preserves-vector-representation": true` (the Xcode 12+ vector
+/// asset), so `UIImage(named:)` renders the outline at display size instead of resampling a
+/// bitmap — the raster-cache PNG of the same name is excluded here in its favour.
+pub fn write_media_xcassets(
+    sources_dir: &Path,
+    images: &[ResourceFile],
+    vectors: &[(String, std::path::PathBuf)],
+) -> Result<bool, String> {
+    if images.is_empty() && vectors.is_empty() {
         return Ok(false);
     }
     let catalog = sources_dir.join("Media.xcassets");
@@ -31,9 +39,15 @@ pub fn write_media_xcassets(sources_dir: &Path, images: &[ResourceFile]) -> Resu
     fs::create_dir_all(&catalog).map_err(|e| e.to_string())?;
     fs::write(catalog.join("Contents.json"), CATALOG_ROOT).map_err(|e| e.to_string())?;
 
-    // Group scale variants by image name.
+    // Group scale variants by image name — skipping the raster twins of names shipped below as
+    // preserve-vector SVG imagesets (same name, two imagesets would collide in the catalog).
+    let vector_names: std::collections::BTreeSet<&str> =
+        vectors.iter().map(|(n, _)| n.as_str()).collect();
     let mut by_name: BTreeMap<&str, Vec<&ResourceFile>> = BTreeMap::new();
     for img in images {
+        if vector_names.contains(img.name.as_str()) {
+            continue;
+        }
         by_name.entry(img.name.as_str()).or_default().push(img);
     }
     for (name, mut variants) in by_name {
@@ -57,6 +71,15 @@ pub fn write_media_xcassets(sources_dir: &Path, images: &[ResourceFile]) -> Resu
         let contents = format!(
             "{{\n  \"images\" : [\n{}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }}\n}}\n",
             entries.join(",\n")
+        );
+        fs::write(imageset.join("Contents.json"), contents).map_err(|e| e.to_string())?;
+    }
+    for (name, svg) in vectors {
+        let imageset = catalog.join(format!("{name}.imageset"));
+        fs::create_dir_all(&imageset).map_err(|e| e.to_string())?;
+        fs::copy(svg, imageset.join(format!("{name}.svg"))).map_err(|e| e.to_string())?;
+        let contents = format!(
+            "{{\n  \"images\" : [\n    {{ \"idiom\" : \"universal\", \"filename\" : \"{name}.svg\" }}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }},\n  \"properties\" : {{ \"preserves-vector-representation\" : true }}\n}}\n"
         );
         fs::write(imageset.join("Contents.json"), contents).map_err(|e| e.to_string())?;
     }

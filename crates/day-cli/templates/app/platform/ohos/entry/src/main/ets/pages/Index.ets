@@ -95,15 +95,17 @@ struct Index {
     // start(): a piece node can be realized during the very first tree build.
     registerDayPieces(this.getUIContext());
 
-    const d = display.getDefaultDisplaySync();
-    // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
-    nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);
-
     // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
-    // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side.
+    // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side. Before
+    // start(): the very first tree build already probes rawfile (nav-row vector icons,
+    // docs/vectors.md) and reads data resources.
     nativeEntry.registerResourceManager(
       (this.getUIContext().getHostContext() as common.UIAbilityContext).resourceManager
     );
+
+    const d = display.getDefaultDisplaySync();
+    // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
+    nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);
 
     // Bridge Day's native file open/save to the ArkTS DocumentViewPicker (docs/files.md).
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;

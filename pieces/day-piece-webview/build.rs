@@ -66,10 +66,12 @@ fn build_xaml() {
          DAY_WINDOWS_KITS_ROOT at a relocated install (docs/environment.md).",
     );
     // The system-XAML WebView (EdgeHTML) is unsupported in Day's Win32 XAML-Islands host — it renders
-    // blank and crashes on navigation. The supported engine is WebView2, hosted as a child window over
-    // the XAML content. WebView2.h + the loader ship in the Microsoft.Web.WebView2 NuGet package (NOT
-    // the base SDK); we statically link WebView2LoaderStatic.lib so there is no DLL to bundle (the
-    // WebView2 Runtime itself is a system-wide install, present on Win11 and the CI runners).
+    // blank and crashes on navigation. The supported engine is WebView2, hosted WINDOWLESS: the page
+    // renders into a composition visual spliced into the XAML tree, because a child window over the
+    // island receives no pointer input (see the header of src/lib-xaml-shim.cpp). WebView2.h + the
+    // loader ship in the Microsoft.Web.WebView2 NuGet package (NOT the base SDK); we statically link
+    // WebView2LoaderStatic.lib so there is no DLL to bundle (the WebView2 Runtime itself is a
+    // system-wide install, present on Win11 and the CI runners).
     let webview2 = webview2_sdk_root();
     let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("x86_64") => "x64",

@@ -1,0 +1,102 @@
+---
+/**
+ * A shell command with a Copy button.
+ *
+ * The command is passed in rather than read back out of the DOM: `textContent` would hand the
+ * clipboard whatever the renderer did to the whitespace, and a one-line install command is
+ * exactly the thing that must paste back byte for byte.
+ *
+ * The button is wired up by the page's inline script (`.qs-copy`), which also removes it outright
+ * where `navigator.clipboard` is unavailable — an insecure context, mostly — since a copy button
+ * that silently does nothing is worse than none.
+ */
+interface Props {
+  /** The exact text to render and to place on the clipboard. */
+  cmd: string;
+}
+
+const { cmd } = Astro.props;
+---
+
+<div class="cmd">
+  <pre><code>{cmd}</code></pre>
+  <button class="qs-copy" type="button" data-cmd={cmd} aria-label="Copy the command">
+    <svg class="ic ic-copy" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <rect x="5.75" y="5.75" width="7.5" height="8.5" rx="1.5" />
+      <path d="M10.25 3.75V3.5A1.5 1.5 0 0 0 8.75 2h-5A1.5 1.5 0 0 0 2.25 3.5v6A1.5 1.5 0 0 0 3.75 11h.5" />
+    </svg>
+    <svg class="ic ic-check" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M3 8.5 6.25 12 13 4.5" />
+    </svg>
+    <span class="qs-copy-label">Copy</span>
+  </button>
+</div>
+
+<style>
+  /* Anchors the button against the command. The command scrolls inside its own box — a wrapped
+     shell line invites a half-copied paste — and the button sits outside that scroller so it
+     stays put while the text moves under it. */
+  .cmd {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--brand);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 6px 6px 6px 16px;
+  }
+  .cmd pre {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 8px 0;
+    overflow-x: auto;
+    background: none;
+    border: 0;
+  }
+  .cmd code {
+    white-space: pre;
+    font-size: 0.92rem;
+  }
+
+  .qs-copy {
+    flex: none;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--faint);
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1;
+  }
+  .qs-copy:hover { color: inherit; }
+  .qs-copy:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  .ic {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* One icon at a time, swapped by the class the script toggles. */
+  .ic-check { display: none; }
+  .qs-copy.is-copied { color: var(--brand); border-color: var(--brand); }
+  .qs-copy.is-copied .ic-copy { display: none; }
+  .qs-copy.is-copied .ic-check { display: inline; }
+
+  /* The label is the confirmation, so it has to survive on a phone; only the padding tightens. */
+  @media (max-width: 520px) {
+    .cmd { padding-left: 12px; }
+    .qs-copy { padding: 6px 8px; }
+  }
+</style>

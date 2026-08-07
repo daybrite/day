@@ -232,8 +232,14 @@ unsafe extern "C" {
     pub fn day_qt_nav_header_update(splitter: *mut c_void, visible: c_int, title: *const c_char);
     pub fn day_qt_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     /// `joined` = row titles (U+001F-separated). `icons` = a PARALLEL list of icon file
-    /// paths (also U+001F-separated, empty entry = no icon for that row).
-    pub fn day_qt_navlist_set_items(w: *mut c_void, joined: *const c_char, icons: *const c_char);
+    /// paths (also U+001F-separated, empty entry = no icon for that row). `tints` = a
+    /// PARALLEL list of per-row "#rrggbb" icon tints (empty entry = palette text color).
+    pub fn day_qt_navlist_set_items(
+        w: *mut c_void,
+        joined: *const c_char,
+        icons: *const c_char,
+        tints: *const c_char,
+    );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     pub fn day_qt_splitter_new() -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;

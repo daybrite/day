@@ -6,6 +6,7 @@ mod cli;
 mod doctor;
 mod drive;
 mod external;
+mod icon;
 mod interactive;
 mod intl;
 mod json5;

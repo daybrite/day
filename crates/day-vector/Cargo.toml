@@ -1,0 +1,23 @@
+[package]
+name = "day-vector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Day's vector-graphics engine: SVG parsing/rasterization, SF Symbol template handling, and per-platform icon-format writers (VectorDrawable, .ico, .icns, .symbolset)"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+# The one real dependency cluster (DESIGN.md §16.5 `day icon` / docs/vectors.md): SVG parse +
+# raster. `default-features = false` matters — it drops resvg's `text` feature and with it the
+# fontdb/rustybuzz/ttf-parser text-shaping stack, roughly half of resvg's compile cost. The
+# trade: `<text>` elements in masters are NOT rendered (day-cli surfaces "outline your text"
+# instead of drawing it wrong).
+resvg = { version = "0.45", default-features = false }
+# resvg's own raster surface, depended on directly for PNG encode (`Pixmap::encode_png`) and for
+# transforming path data in the VectorDrawable emitter. Version tracks resvg's.
+tiny-skia = "0.11"
+# Raw-XML access for SF Symbol template slicing (classify.rs): usvg normalizes structure away,
+# so variant extraction cuts the original markup by byte range. Already in the tree as a usvg
+# dependency — no new compiled crate.
+roxmltree = "0.20"

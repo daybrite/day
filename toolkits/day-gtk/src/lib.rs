@@ -650,6 +650,7 @@ fn fill_nav_menu(
     icons: &[Option<String>],
     badges: &[Option<String>],
     sections: &[Option<String>],
+    tints: &[Option<day_spec::Color>],
 ) {
     for (i, item) in items.iter().enumerate() {
         let label = gtk4::Label::new(Some(item));
@@ -661,10 +662,11 @@ fn fill_nav_menu(
         // label reports a one-ellipsis minimum instead, so the list fits the pane it is given.
         label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         label.set_hexpand(true);
+        let tint = tints.get(i).copied().flatten();
         let icon = icons
             .get(i)
             .and_then(|o| o.as_deref())
-            .and_then(tinted_template_icon);
+            .and_then(|name| tinted_template_icon(name, tint));
         let badge = badges.get(i).and_then(|o| o.as_deref()).map(|text| {
             let b = gtk4::Label::new(Some(text));
             // `dim-label` is the GNOME treatment for secondary text; numeric alignment keeps a
@@ -705,13 +707,41 @@ fn fill_nav_menu(
     }
 }
 
+/// Recolor a pixbuf in place: every pixel's RGB becomes (`fr`,`fg`,`fb`), alpha untouched — the
+/// glyph's shape and antialiasing survive as the mask. Shared by the sidebar template icons and
+/// the `vector(…)` piece's tint (docs/vectors.md).
+fn recolor_pixbuf(pixbuf: &gtk4::gdk_pixbuf::Pixbuf, fr: u8, fg: u8, fb: u8) {
+    let width = pixbuf.width() as usize;
+    let height = pixbuf.height() as usize;
+    let rowstride = pixbuf.rowstride() as usize;
+    let n_channels = pixbuf.n_channels() as usize;
+    if n_channels < 4 {
+        return;
+    }
+    // SAFETY: the returned slice aliases the pixbuf's own pixel store, which we exclusively
+    // own here; we only touch bytes inside the documented rowstride/width bounds.
+    let pixels = unsafe { pixbuf.pixels() };
+    for y in 0..height {
+        let row = y * rowstride;
+        for x in 0..width {
+            let i = row + x * n_channels;
+            if i + 3 < pixels.len() {
+                pixels[i] = fr;
+                pixels[i + 1] = fg;
+                pixels[i + 2] = fb;
+                // pixels[i + 3] (alpha) is left untouched — it is the glyph mask.
+            }
+        }
+    }
+}
+
 /// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
 /// foreground so it's visible in BOTH light and dark mode — a raw black PNG vanishes on a
 /// dark-mode sidebar or toolbar. Every RGB pixel is recolored to the foreground; the source ALPHA
 /// is kept as the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage`
 /// or `None` if the name doesn't resolve / the file can't be decoded. Used by the sidebar rows and
 /// by a toolbar button whose icon is a bundled `Icon::Image` (docs/toolbars.md).
-fn tinted_template_icon(name: &str) -> Option<gtk4::Image> {
+fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk4::Image> {
     let path = day_spec::resource::resolve_image_file(name)?;
     // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template PNGs
     // normally already carry alpha; add_alpha is a cheap no-op-shaped copy otherwise).
@@ -722,38 +752,24 @@ fn tinted_template_icon(name: &str) -> Option<gtk4::Image> {
         pixbuf.add_alpha(false, 0, 0, 0).ok()?
     };
 
-    // Foreground per theme: near-white in dark mode, near-black in light mode.
-    let dark = adw::StyleManager::default().is_dark();
-    let (fr, fg, fb) = if dark {
-        (0xffu8, 0xffu8, 0xffu8)
-    } else {
-        (0x1au8, 0x1au8, 0x1au8)
-    };
-
-    let width = pixbuf.width() as usize;
-    let height = pixbuf.height() as usize;
-    let rowstride = pixbuf.rowstride() as usize;
-    let n_channels = pixbuf.n_channels() as usize;
-    // Recolor in place: overwrite each pixel's RGB with the foreground, preserving its alpha.
-    // `pixels()` hands back the live pixel buffer; scoped so the borrow ends before we hand the
-    // pixbuf to the texture.
-    if n_channels >= 4 {
-        // SAFETY: the returned slice aliases the pixbuf's own pixel store, which we exclusively
-        // own here; we only touch bytes inside the documented rowstride/width bounds.
-        let pixels = unsafe { pixbuf.pixels() };
-        for y in 0..height {
-            let row = y * rowstride;
-            for x in 0..width {
-                let i = row + x * n_channels;
-                if i + 3 < pixels.len() {
-                    pixels[i] = fr;
-                    pixels[i + 1] = fg;
-                    pixels[i + 2] = fb;
-                    // pixels[i + 3] (alpha) is left untouched — it is the glyph mask.
-                }
+    // The row's own tint when given (docs/vectors.md); else the theme foreground —
+    // near-white in dark mode, near-black in light mode.
+    let (fr, fg, fb) = match tint {
+        Some(t) => (
+            (t.r * 255.0) as u8,
+            (t.g * 255.0) as u8,
+            (t.b * 255.0) as u8,
+        ),
+        None => {
+            if adw::StyleManager::default().is_dark() {
+                (0xffu8, 0xffu8, 0xffu8)
+            } else {
+                (0x1au8, 0x1au8, 0x1au8)
             }
         }
-    }
+    };
+
+    recolor_pixbuf(&pixbuf, fr, fg, fb);
 
     let texture = gtk4::gdk::Texture::for_pixbuf(&pixbuf);
     let image = gtk4::Image::from_paintable(Some(&texture));
@@ -1550,7 +1566,14 @@ impl Toolkit for Gtk {
                 listbox.set_margin_top(4);
                 listbox.set_margin_bottom(4);
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
-                fill_nav_menu(&listbox, &p.items, &p.icons, &p.badges, &p.sections);
+                fill_nav_menu(
+                    &listbox,
+                    &p.items,
+                    &p.icons,
+                    &p.badges,
+                    &p.sections,
+                    &p.tints,
+                );
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 {
                     let suppress = suppress.clone();
@@ -1860,14 +1883,39 @@ impl Toolkit for Gtk {
                     ContentMode::Fill => gtk4::ContentFit::Cover,
                     ContentMode::Stretch => gtk4::ContentFit::Fill,
                 });
-                // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
-                let res_path = format!("/day/images/{}", p.source);
-                if gtk4::gio::resources_lookup_data(&res_path, gtk4::gio::ResourceLookupFlags::NONE)
+                // Vector-glyph tint (docs/vectors.md): recolor every pixel to the tint,
+                // keeping alpha as the mask — same recolor the sidebar template icons use.
+                let tinted = p.tint.and_then(|t| {
+                    let path = day_spec::resource::resolve_image_file(&p.source)?;
+                    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
+                    let pixbuf = if pixbuf.has_alpha() {
+                        pixbuf
+                    } else {
+                        pixbuf.add_alpha(false, 0, 0, 0).ok()?
+                    };
+                    recolor_pixbuf(
+                        &pixbuf,
+                        (t.r * 255.0) as u8,
+                        (t.g * 255.0) as u8,
+                        (t.b * 255.0) as u8,
+                    );
+                    Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
+                });
+                if let Some(texture) = tinted {
+                    pic.set_paintable(Some(&texture));
+                } else {
+                    // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
+                    let res_path = format!("/day/images/{}", p.source);
+                    if gtk4::gio::resources_lookup_data(
+                        &res_path,
+                        gtk4::gio::ResourceLookupFlags::NONE,
+                    )
                     .is_ok()
-                {
-                    pic.set_resource(Some(&res_path));
-                } else if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
-                    pic.set_filename(Some(&path));
+                    {
+                        pic.set_resource(Some(&res_path));
+                    } else if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
+                        pic.set_filename(Some(&path));
+                    }
                 }
                 pic.upcast()
             }
@@ -1954,6 +2002,7 @@ impl Toolkit for Gtk {
                     icons,
                     badges,
                     sections,
+                    tints,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -1966,7 +2015,7 @@ impl Toolkit for Gtk {
                         while let Some(row) = state.listbox.first_child() {
                             state.listbox.remove(&row);
                         }
-                        fill_nav_menu(&state.listbox, items, icons, badges, sections);
+                        fill_nav_menu(&state.listbox, items, icons, badges, sections, tints);
                         state.rows = items.len();
                         match selected {
                             Some(i) => state

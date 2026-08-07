@@ -68,11 +68,62 @@ pub fn build_web(
         .join(format!("{}.wasm", name.replace('-', "_")));
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;
-    std::fs::write(dist.join("index.html"), HOST_INDEX).map_err(|e| format!("index: {e}"))?;
     std::fs::write(dist.join("shim.js"), HOST_SHIM).map_err(|e| format!("shim: {e}"))?;
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
+    // Vector glyphs land beside the images twice over (docs/vectors.md): the raster cache PNG
+    // keeps the name contract identical across backends (and answers an older host page), and
+    // the glyph SVG itself is what day-dom actually asks for — the browser renders it at
+    // display size. The page learns which names are vectors via `window.__DAY_VECTORS`
+    // (injected into index.html below), read back through the shim's `vector:` env keys.
+    let mut vector_names: Vec<String> = Vec::new();
+    let vectors_cache = crate::resources::vector_raster_dir(project);
+    if vectors_cache.is_dir() {
+        let images = dist.join("assets/images");
+        std::fs::create_dir_all(&images).map_err(|e| format!("images dir: {e}"))?;
+        for entry in std::fs::read_dir(&vectors_cache)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            let p = entry.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("png")
+                && let Some(name) = p.file_name()
+            {
+                std::fs::copy(&p, images.join(name)).map_err(|e| format!("vector copy: {e}"))?;
+            }
+        }
+    }
+    let svg_cache = crate::resources::vector_svg_dir(project);
+    if svg_cache.is_dir() {
+        let images = dist.join("assets/images");
+        std::fs::create_dir_all(&images).map_err(|e| format!("images dir: {e}"))?;
+        for entry in std::fs::read_dir(&svg_cache)
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            let p = entry.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("svg")
+                && let (Some(name), Some(stem)) =
+                    (p.file_name(), p.file_stem().and_then(|s| s.to_str()))
+            {
+                std::fs::copy(&p, images.join(name)).map_err(|e| format!("vector copy: {e}"))?;
+                vector_names.push(stem.to_string());
+            }
+        }
+        vector_names.sort();
+    }
+    // Resource names are `[a-z0-9_]` (day-build enforces this), so plain quoting is JS-safe.
+    let vectors_json = vector_names
+        .iter()
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    std::fs::write(
+        dist.join("index.html"),
+        HOST_INDEX.replace("[/*day:vectors*/]", &format!("[{vectors_json}]")),
+    )
+    .map_err(|e| format!("index: {e}"))?;
     // Bundled images, flat under assets/images/ — the paths day-dom writes into `src` attrs.
     let images_src = project.root.join("resource/images");
     if images_src.is_dir() {

@@ -74,6 +74,23 @@ resource_name!(
     AssetName,
     "bundled-asset name"
 );
+resource_name!(
+    /// The bundled-vector name that [`vector`](crate::resource) callers resolve by (docs/vectors.md):
+    /// the stem of a `resource/vectors/` SVG (or `.symbolset` bundle). Vectors and images share one
+    /// per-backend resolution namespace — staging guarantees every vector name resolves as whatever
+    /// form that backend loads natively (a VectorDrawable, a catalog entry, a rasterized PNG).
+    VectorName,
+    "bundled-vector name"
+);
+
+/// Vector and image names resolve through the same per-backend channel (nav-item icons, the
+/// toolbar's `.image(…)`, `bar_action` — all name-based); this conversion is that shared
+/// namespace made explicit.
+impl From<VectorName> for ImageName {
+    fn from(v: VectorName) -> ImageName {
+        ImageName::dynamic(v.as_str().to_owned())
+    }
+}
 
 /// The family name of a bundled custom font, feeding `Font::custom`. Holds a `&'static str` (so
 /// `Font` stays `Copy`); generated `res::fonts::…` constants supply it. The untyped
@@ -248,7 +265,9 @@ const IMAGE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf"
 /// name through their own store and do not use this.
 pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
-    for var in ["DAY_IMAGE_ROOT", "DAY_ASSET_ROOT"] {
+    // DAY_VECTOR_RASTER_ROOT: the build-time raster cache for `resource/vectors/` (docs/vectors.md)
+    // — how the file-loading desktop backends resolve a vector name with no native vector pipeline.
+    for var in ["DAY_IMAGE_ROOT", "DAY_VECTOR_RASTER_ROOT", "DAY_ASSET_ROOT"] {
         if let Ok(v) = std::env::var(var) {
             roots.push(PathBuf::from(v));
         }

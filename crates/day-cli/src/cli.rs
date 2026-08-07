@@ -45,6 +45,18 @@ enum Cmd {
         #[arg(long, default_value = "debug")]
         profile: String,
     },
+    /// Generate every platform's app-icon set from one master (docs/icons.md)
+    Icon {
+        /// Master file (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
+        master: Option<PathBuf>,
+        /// Verify the outputs still match the master without writing anything — the CI drift
+        /// gate; exits 5 and lists the drift when they don't
+        #[arg(long)]
+        check: bool,
+        /// Limit generation to these targets' icon families (repeatable; default: all)
+        #[arg(short = 'p', long = "platform")]
+        platforms: Vec<String>,
+    },
     /// Build + launch on one or more targets (in parallel)
     Launch {
         /// Targets to launch. Omit it to launch the HOST's default desktop target — appkit on
@@ -796,6 +808,52 @@ pub fn run() -> i32 {
                 &locales,
             ),
         },
+        Cmd::Icon {
+            master,
+            check,
+            platforms,
+        } => with_project(cli.project.as_deref(), |project| {
+            let opts = crate::icon::IconOptions {
+                master,
+                check,
+                platforms,
+            };
+            match crate::icon::run(project, &opts) {
+                Ok(n) => {
+                    if cli.format == "json" {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "event": "result", "command": "icon", "ok": true, "outputs": n,
+                            })
+                        );
+                    }
+                    0
+                }
+                Err(crate::icon::IconError::Drift(lines)) => {
+                    for l in &lines {
+                        crate::ops::status("Drift", l);
+                    }
+                    crate::ops::status(
+                        "Error",
+                        "icon outputs drifted — run `day icon` to regenerate",
+                    );
+                    if cli.format == "json" {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "event": "result", "command": "icon", "ok": false, "drift": lines,
+                            })
+                        );
+                    }
+                    5
+                }
+                Err(crate::icon::IconError::Other(e)) => {
+                    crate::ops::status("Error", &e);
+                    4
+                }
+            }
+        }),
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
             for p in &platforms {

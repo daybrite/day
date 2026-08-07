@@ -436,6 +436,18 @@ pub fn launch(
             cmd.current_dir(&project.root)
                 .env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
                 .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
+                // The vector raster cache (docs/vectors.md): how the file-loading desktop
+                // backends resolve `vector(…)` names — written by resources::stage at build.
+                .env(
+                    "DAY_VECTOR_RASTER_ROOT",
+                    crate::resources::vector_raster_dir(project),
+                )
+                // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG at
+                // display size on macOS 11+), so vectors stay vector on the desktop too.
+                .env(
+                    "DAY_VECTOR_SVG_ROOT",
+                    crate::resources::vector_svg_dir(project),
+                )
                 // Bundled fonts (§18.4): the desktop backends register every file in this
                 // directory with the platform font system at startup.
                 .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));

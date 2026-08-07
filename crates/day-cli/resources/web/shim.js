@@ -285,9 +285,11 @@ const env = {
       if (item.icon) {
         // Template rendering, the iOS model: the icon is a MASK painted with currentColor,
         // so it follows the row's text color — light in dark mode, white when selected.
+        // A row's own tint (docs/vectors.md) paints the mask with that color instead.
         const icon = div('day-navmenu-icon');
         icon.style.maskImage = `url("${item.icon}")`;
         icon.style.webkitMaskImage = `url("${item.icon}")`;
+        if (item.tint) icon.style.backgroundColor = item.tint;
         row.append(icon);
       }
       const t = document.createElement('span'); t.textContent = item.title; row.append(t);
@@ -594,7 +596,14 @@ const env = {
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
-      default: v = q.get(key) ?? '';
+      default:
+        // Reserved `vector:` keys answer "is NAME a bundled vector glyph?" from the list
+        // the assemble step injects into the page (docs/vectors.md) — '1' or empty.
+        if (key.startsWith('vector:')) {
+          v = (window.__DAY_VECTORS || []).includes(key.slice(7)) ? '1' : '';
+          break;
+        }
+        v = q.get(key) ?? '';
     }
     const bytes = utf8enc.encode(v).slice(0, cap);
     mem().set(bytes, out);

@@ -51,6 +51,8 @@ the architecture-level view and the rationale.
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
+| app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
+| vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | docs/cover.md | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -308,6 +310,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
+| `day-vector` | the vector-graphics engine (docs/icons.md, docs/vectors.md): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers — consumed by day-cli (`day icon`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
@@ -662,6 +665,7 @@ text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (do
 picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
 progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
+vector(res::vectors::home)         // resource/vectors/ glyph + .tint(color) (docs/vectors.md)
 divider()   spacer()
 
 // layout containers
@@ -2370,6 +2374,15 @@ build` prepass when dependencies contribute macOS Swift, statically linked into 
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
+
+#### `day icon`
+
+`day icon [master] [--check] [-p <target>]` renders every platform's app-icon set from one
+master (`resource/icons/icon.svg` layered via `day:` group ids, or a plain svg/png) into the
+`resource/icons/` exports plus the committed `platform/` copies, writing `icons.lock.json`.
+`--check` re-renders in memory and exits 5 on drift — the CI gate. Engine: `day-vector`
+(resvg with text shaping off; `<text>` masters are refused with an outline hint). Normative:
+docs/icons.md.
 
 #### `day sign`
 

@@ -145,11 +145,21 @@ mod imp {
         static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
     }
 
-    /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — leading-aligned
-    /// label, trailing chevron, hairline separators (the HarmonyOS settings-list idiom) — not
-    /// buttons. Each row's tap becomes a synthetic click that [`day_arkui_on_event`] translates
-    /// to `SelectionChanged(index)` against `menu`.
-    fn build_nav_menu(menu: NodeId, items: &[String]) -> AHandle {
+    /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — an optional
+    /// leading icon, leading-aligned label, trailing chevron, hairline separators (the
+    /// HarmonyOS settings-list idiom) — not buttons. Each row's tap becomes a synthetic click
+    /// that [`day_arkui_on_event`] translates to `SelectionChanged(index)` against `menu`.
+    ///
+    /// Icons (docs/vectors.md): a vector name resolves to its staged rawfile SVG
+    /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors —
+    /// the row's own tint when given, else a secondary theme foreground. A raster name falls
+    /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
+    fn build_nav_menu(
+        menu: NodeId,
+        items: &[String],
+        icons: &[Option<String>],
+        tints: &[Option<day_spec::Color>],
+    ) -> AHandle {
         let scroll = new_node(K_SCROLL);
         let col = new_node(K_COLUMN);
         let mut pos: c_int = 0;
@@ -164,6 +174,33 @@ mod imp {
                 v
             });
             MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
+            let mut child: c_int = 0;
+            if let Some(Some(name)) = icons.get(i) {
+                let icon = new_node(K_IMAGE);
+                let svg = format!("day/{name}.svg");
+                let is_vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
+                unsafe {
+                    if is_vector {
+                        let src = format!("resource://RAWFILE/{svg}");
+                        ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
+                        let fill = tints
+                            .get(i)
+                            .copied()
+                            .flatten()
+                            .map(argb)
+                            .unwrap_or_else(|| theme_color(0x9900_0000, 0x99FF_FFFF));
+                        ffi::day_ark_set_image_fill(icon.0, fill);
+                    } else {
+                        let src = format!("resource://RAWFILE/day/{name}.png");
+                        ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
+                    }
+                    ffi::day_ark_set_image_fit(icon.0, 0);
+                    ffi::day_ark_set_size(icon.0, 20.0, 20.0);
+                    ffi::day_ark_set_margin(icon.0, 4.0);
+                    ffi::day_ark_insert_child(row.0, icon.0, child);
+                }
+                child += 1;
+            }
             unsafe {
                 ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
                 ffi::day_ark_set_font_size(label.0, 16.0);
@@ -172,8 +209,8 @@ mod imp {
                 ffi::day_ark_set_text(chevron.0, cstr("\u{203a}").as_ptr());
                 ffi::day_ark_set_font_size(chevron.0, 20.0);
                 ffi::day_ark_set_font_color(chevron.0, theme_color(0x4D00_0000, 0x66FF_FFFF));
-                ffi::day_ark_insert_child(row.0, label.0, 0);
-                ffi::day_ark_insert_child(row.0, chevron.0, 1);
+                ffi::day_ark_insert_child(row.0, label.0, child);
+                ffi::day_ark_insert_child(row.0, chevron.0, child + 1);
                 ffi::day_ark_style_row(row.0, 52.0);
                 ffi::day_ark_register_event(row.0, 0, synth);
                 ffi::day_ark_insert_child(col.0, row.0, pos);
@@ -762,8 +799,20 @@ mod imp {
                     // root the OpenHarmony NDK can address from native code (app.media is ArkTS-only,
                     // §18.3). The CLI stages each image uncompressed to resources/rawfile/day/<name>
                     // normalized to PNG, so a bare `source` (no extension) maps to `day/<source>.png`.
-                    let src = format!("resource://RAWFILE/day/{}.png", p.source);
-                    unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
+                    // A vector name resolves to its staged SVG instead (docs/vectors.md): ArkUI
+                    // renders it natively at display size, and `.tint(…)` recolors it via
+                    // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend).
+                    let svg = format!("day/{}.svg", p.source);
+                    if unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0 {
+                        let src = format!("resource://RAWFILE/{svg}");
+                        unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
+                        if let Some(t) = p.tint {
+                            unsafe { ffi::day_ark_set_image_fill(n.0, argb(t)) };
+                        }
+                    } else {
+                        let src = format!("resource://RAWFILE/day/{}.png", p.source);
+                        unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
+                    }
                     // Scaling (§18.3): ArkUI_ObjectFit CONTAIN=0 (fit) / COVER=1 (fill) / FILL=3.
                     let fit = match p.content_mode {
                         ContentMode::Fit => 0,
@@ -935,7 +984,7 @@ mod imp {
                 // against this menu host (via a synthetic click id, see day_arkui_on_event).
                 Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    build_nav_menu(id, &p.items)
+                    build_nav_menu(id, &p.items, &p.icons, &p.tints)
                 }
                 // Tabs: a native Swiper pager (swipe + dot indicator). Each TABS_PAGE is a Swiper
                 // child (the Swiper owns their horizontal layout, so their set_frame skips position).
