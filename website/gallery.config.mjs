@@ -20,8 +20,9 @@
 import { platforms as platformTable } from './src/lib/platforms.mjs';
 
 /** @typedef {{ id: string, label: string, os: string, toolkit: string }} Platform */
-/** `source` is the repo-relative path of the code that renders the shot (linked from the row
- *  header, e.g. `apps/showcase/src/pages/controls.rs`).
+/** `source` is the path of the code that renders the shot, relative to its SUITE's repository
+ *  (`sourceRepo`), not to this one — e.g. `src/pages/controls.rs` in daybrite/Day-Showcase.
+ *  Linked from the row header.
  *  @typedef {{ id: string, label: string, source?: string }} Shot */
 
 /** The twelve CI targets, in display order. Names and shells come from the platform table
@@ -39,7 +40,7 @@ export const platforms = /** @type {Platform[]} */ (
 /**
  * Screenshot suites. Today just the Showcase app; the shape scales to more sample apps and to
  * per-component snapshot sets (add another entry with its own `artifactPattern` + `shots`).
- * @type {{ id: string, label: string, blurb: string, artifactPattern: string,
+ * @type {{ id: string, label: string, blurb: string, artifactPattern: string, sourceRepo?: string,
  *          preferLocales: string[], platforms: string[], hero: string, shots: Shot[] }[]}
  */
 export const suites = [
@@ -48,6 +49,12 @@ export const suites = [
     label: 'Day Showcase',
     blurb:
       'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
+    // The showcase is its own repository (it used to live in this one under apps/showcase/), so
+    // its `source` paths resolve there rather than against daybrite/day. A suite whose code DOES
+    // live in this repo omits this and gets `site.repo`. Same URL as site.ts's `showcaseRepo`,
+    // spelled here because this config is also imported by plain node scripts that cannot read a
+    // .ts module.
+    sourceRepo: 'https://github.com/daybrite/Day-Showcase',
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
     // The capture variants, in display order: theme × locale (CI runs the walkthrough once per
@@ -81,44 +88,44 @@ export const suites = [
     ],
     hero: 'home',
     // ORDER: the Showcase's own top-level navigation list, which is alphabetical by English
-    // title (apps/showcase/src/lib.rs `destinations()`) — so the gallery reads in the same order
+    // title (the showcase's src/lib.rs `destinations()`) — so the gallery reads in the same order
     // as the app's sidebar. `home` leads as the hero, and the surfaces that are not their own
     // destination (a window, a modal, a filtered variant) follow the row they are reached from.
     shots: [
-      { id: 'home', label: 'Home', source: 'apps/showcase/src/lib.rs' },
-      { id: 'about', label: 'About', source: 'apps/showcase/src/pages/about.rs' },
-      { id: 'animation', label: 'Animation', source: 'apps/showcase/src/pages/animation.rs' },
-      { id: 'canvas', label: 'Canvas & shapes', source: 'apps/showcase/src/pages/canvas.rs' },
-      { id: 'controls', label: 'Controls', source: 'apps/showcase/src/pages/controls.rs' },
-      { id: 'crash', label: 'Crash reporting', source: 'apps/showcase/src/pages/crash.rs' },
-      { id: 'dates', label: 'Date & time', source: 'apps/showcase/src/pages/dates.rs' },
-      { id: 'system', label: 'Device & sensors', source: 'apps/showcase/src/pages/system.rs' },
-      { id: 'focus', label: 'Focus', source: 'apps/showcase/src/pages/focus.rs' },
-      { id: 'grid', label: 'Grid', source: 'apps/showcase/src/pages/grid.rs' },
-      { id: 'list', label: 'List', source: 'apps/showcase/src/pages/list.rs' },
-      { id: 'list-item-100', label: 'List · programmatic scrolling', source: 'apps/showcase/src/pages/list.rs' },
-      { id: 'localization', label: 'Localization', source: 'apps/showcase/src/pages/localization.rs' },
-      { id: 'media', label: 'Media playback', source: 'apps/showcase/src/pages/media.rs' },
-      { id: 'menus', label: 'Menus & dialogs', source: 'apps/showcase/src/pages/menus.rs' },
+      { id: 'home', label: 'Home', source: 'src/lib.rs' },
+      { id: 'about', label: 'About', source: 'src/pages/about.rs' },
+      { id: 'animation', label: 'Animation', source: 'src/pages/animation.rs' },
+      { id: 'canvas', label: 'Canvas & shapes', source: 'src/pages/canvas.rs' },
+      { id: 'controls', label: 'Controls', source: 'src/pages/controls.rs' },
+      { id: 'crash', label: 'Crash reporting', source: 'src/pages/crash.rs' },
+      { id: 'dates', label: 'Date & time', source: 'src/pages/dates.rs' },
+      { id: 'system', label: 'Device & sensors', source: 'src/pages/system.rs' },
+      { id: 'focus', label: 'Focus', source: 'src/pages/focus.rs' },
+      { id: 'grid', label: 'Grid', source: 'src/pages/grid.rs' },
+      { id: 'list', label: 'List', source: 'src/pages/list.rs' },
+      { id: 'list-item-100', label: 'List · programmatic scrolling', source: 'src/pages/list.rs' },
+      { id: 'localization', label: 'Localization', source: 'src/pages/localization.rs' },
+      { id: 'media', label: 'Media playback', source: 'src/pages/media.rs' },
+      { id: 'menus', label: 'Menus & dialogs', source: 'src/pages/menus.rs' },
       // The preferences singleton: a real OS window on desktop, a fullscreen cover where the
       // backend has no secondary windows — the same ids either way (docs/windows.md).
-      { id: 'preferences', label: 'Menus & dialogs · preferences window', source: 'apps/showcase/src/pages/preferences.rs' },
-      { id: 'services', label: 'Platform services', source: 'apps/showcase/src/pages/services.rs' },
-      { id: 'refresh', label: 'Refresh', source: 'apps/showcase/src/pages/refresh.rs' },
-      { id: 'resources', label: 'Resources', source: 'apps/showcase/src/pages/resources.rs' },
-      { id: 'stack-detail', label: 'Stack', source: 'apps/showcase/src/pages/stack.rs' },
+      { id: 'preferences', label: 'Menus & dialogs · preferences window', source: 'src/pages/preferences.rs' },
+      { id: 'services', label: 'Platform services', source: 'src/pages/services.rs' },
+      { id: 'refresh', label: 'Refresh', source: 'src/pages/refresh.rs' },
+      { id: 'resources', label: 'Resources', source: 'src/pages/resources.rs' },
+      { id: 'stack-detail', label: 'Stack', source: 'src/pages/stack.rs' },
       // Every backend presents the fullscreen cover — native modal on mobile, topmost child
       // elsewhere (docs/cover.md). Driven from the Stack page.
-      { id: 'cover', label: 'Stack · fullscreen cover', source: 'apps/showcase/src/pages/stack.rs' },
-      { id: 'tabs-one', label: 'Tabs', source: 'apps/showcase/src/pages/tabs.rs' },
-      { id: 'text', label: 'Text', source: 'apps/showcase/src/pages/text.rs' },
-      { id: 'textareas', label: 'Text areas', source: 'apps/showcase/src/pages/text_areas.rs' },
-      { id: 'toolbars', label: 'Toolbars', source: 'apps/showcase/src/pages/toolbars.rs' },
+      { id: 'cover', label: 'Stack · fullscreen cover', source: 'src/pages/stack.rs' },
+      { id: 'tabs-one', label: 'Tabs', source: 'src/pages/tabs.rs' },
+      { id: 'text', label: 'Text', source: 'src/pages/text.rs' },
+      { id: 'textareas', label: 'Text areas', source: 'src/pages/text_areas.rs' },
+      { id: 'toolbars', label: 'Toolbars', source: 'src/pages/toolbars.rs' },
       // The toolbar's search field filtering the sidebar by localized word-prefix — the one shot
       // that shows the nav responding to a query (docs/localization.md "Searching").
-      { id: 'toolbars-filtered', label: 'Toolbars · sidebar search', source: 'apps/showcase/src/pages/toolbars.rs' },
-      { id: 'tweaks', label: 'Tweaks', source: 'apps/showcase/src/pages/tweaks.rs' },
-      { id: 'webview', label: 'Web view', source: 'apps/showcase/src/pages/webview.rs' },
+      { id: 'toolbars-filtered', label: 'Toolbars · sidebar search', source: 'src/pages/toolbars.rs' },
+      { id: 'tweaks', label: 'Tweaks', source: 'src/pages/tweaks.rs' },
+      { id: 'webview', label: 'Web view', source: 'src/pages/webview.rs' },
     ],
   },
 ];

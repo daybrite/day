@@ -115,7 +115,7 @@ function webRoute(shotId: string): string | null {
               {shot.source && (
                 <a
                   class="row-src"
-                  href={`${site.repo}/blob/main/${shot.source}`}
+                  href={`${suite.sourceRepo ?? site.repo}/blob/main/${shot.source}`}
                   target="_blank"
                   rel="noopener"
                   title={`View the code this screen is rendered from: ${shot.source}`}

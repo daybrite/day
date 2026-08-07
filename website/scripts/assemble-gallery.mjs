@@ -122,6 +122,11 @@ export function assembleGallery(opts = {}) {
       id: suite.id,
       label: suite.label,
       blurb: suite.blurb,
+      // Which repository this suite's `source` paths are relative to; absent means this one, so
+      // the page falls back to `site.repo`. The showcase moved out to daybrite/Day-Showcase, and
+      // without carrying this through, every row header would link into a path daybrite/day no
+      // longer has.
+      sourceRepo: suite.sourceRepo ?? null,
       hero: suite.hero,
       variants: suite.variants.map(({ id, label }) => ({ id, label })),
       platforms: suitePlatforms.map((p) => ({
