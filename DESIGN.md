@@ -310,7 +310,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
-| `day-vector` | the vector-graphics engine (docs/icons.md, docs/vectors.md): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers — consumed by day-cli (`day icon`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
+| `day-vector` | the vector-graphics engine (docs/icons.md, docs/vectors.md): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day icon`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
@@ -2361,7 +2361,8 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 Interactive when run bare (`inquire` prompts: name, id, targets, locales); non-interactive with
 flags + `--no-input` for CI/agents. Templates are embedded in the CLI binary; `app`, `piece`,
 and `part` scaffolds exist — the latter two produce the [§15](#15-extensibility-pieces-parts-and-tweaks) package shapes with per-toolkit
-feature wiring.
+feature wiring. An app scaffold gets a unique generated icon (docs/icons.md#generate), seeded
+by the app id so the same id always scaffolds the same icon; `--icon-seed` overrides.
 
 #### `day build`
 
@@ -2381,7 +2382,11 @@ Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 master (`resource/icons/icon.svg` layered via `day:` group ids, or a plain svg/png) into the
 `resource/icons/` exports plus the committed `platform/` copies, writing `icons.lock.json`.
 `--check` re-renders in memory and exits 5 on drift — the CI gate. Engine: `day-vector`
-(resvg with text shaping off; `<text>` masters are refused with an outline hint). Normative:
+(resvg with text shaping off; `<text>` masters are refused with an outline hint).
+`day icon --generate [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
+pseudo-random layered master instead (`day-vector`'s `icongen`) and regenerates the outputs
+from it; `--out` is the project-less preview form (SVG + 512 px PNG at the given path).
+`day new app --icon-seed <seed>` overrides the scaffold's default (the app id). Normative:
 docs/icons.md.
 
 #### `day sign`

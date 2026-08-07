@@ -1980,6 +1980,19 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
             }
         }
     };
+    // Tabular figures. Cocoa exposes them as a whole font, not a trait, so this re-picks the
+    // system font at the resolved size/weight rather than converting — which is why it only
+    // applies to the system styles: a bundled `Font::Custom` family keeps its own figures (asking
+    // for the system's monospaced-digit face there would silently swap the typeface).
+    let base = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+        let w = spec
+            .weight
+            .map(ns_weight)
+            .unwrap_or(unsafe { NSFontWeightRegular });
+        unsafe { NSFont::monospacedDigitSystemFontOfSize_weight(base.pointSize(), w) }
+    } else {
+        base
+    };
     if spec.italic {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
         unsafe {

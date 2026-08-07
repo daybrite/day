@@ -402,8 +402,8 @@ fn xaml_group() -> Group {
         setup: "XAML builds on a Windows host with the MSVC toolchain. Install:\n\
                 • the Visual Studio 2022 C++ Build Tools (MSVC + Windows SDK)\n\
                 • the MSVC Rust toolchain: `rustup default stable-msvc`\n\
-                • the Windows App SDK runtime (for XAML Islands at launch)\n\
-                XAML cannot build off a Windows host.",
+                No runtime installer is needed: Day uses system XAML (in Windows 10/11), not\n\
+                the Windows App SDK. XAML cannot build off a Windows host.",
     }
 }
 

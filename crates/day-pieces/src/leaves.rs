@@ -21,6 +21,7 @@ pub struct Label {
     pub(crate) font: Font,
     pub(crate) weight: Option<day_spec::FontWeight>,
     pub(crate) italic: bool,
+    pub(crate) tabular: bool,
     pub(crate) color: Option<Reactive<day_spec::Color>>,
 }
 
@@ -30,6 +31,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         font: Font::Body,
         weight: None,
         italic: false,
+        tabular: false,
         color: None,
     }
 }
@@ -55,6 +57,15 @@ impl Label {
         self.italic = true;
         self
     }
+    /// Ask for TABULAR (monospaced) figures, so a changing number stops changing width.
+    ///
+    /// Pair it with [`Decorate::reserving`] for a readout beside a slider: reserving stops the box
+    /// resizing when the digit COUNT changes, tabular stops the digits shifting inside it because
+    /// `1` is narrower than `8`. See [`day_spec::FontSpec::tabular`].
+    pub fn tabular(mut self) -> Self {
+        self.tabular = true;
+        self
+    }
     /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color` — a reactive
     /// source recolors the native label when it changes (theme systems ride this).
     pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
@@ -74,6 +85,7 @@ impl Piece for Label {
                     style: self.font,
                     weight: self.weight,
                     italic: self.italic,
+                    tabular: self.tabular,
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 wraps: true,
@@ -220,6 +232,7 @@ impl Button {
             font: Font::Body,
             weight: None,
             italic: false,
+            tabular: false,
             color: s.label_color().map(Reactive::Const),
         };
         let styled = s.body(lbl.any());

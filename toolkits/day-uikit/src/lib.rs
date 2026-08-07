@@ -2240,6 +2240,19 @@ mod imp {
         } else {
             base
         };
+        // Tabular figures: UIKit exposes them as a whole font (like AppKit), so re-pick the
+        // system face at the resolved size/weight. System styles only — a bundled family keeps
+        // its own figures rather than being silently swapped for the system typeface. The result
+        // still goes through UIFontMetrics below, so Dynamic Type keeps working.
+        let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+            unsafe {
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            }
+        } else {
+            font
+        };
         unsafe {
             label.setFont(Some(&font));
             // Re-scale live when the user changes the accessibility text size (works for fonts derived

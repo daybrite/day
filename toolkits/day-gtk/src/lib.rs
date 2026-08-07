@@ -1186,6 +1186,13 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
         it.set_start_index(0);
         attrs.insert(it);
     }
+    // Tabular figures come from the OpenType feature rather than a different family, so the face
+    // is untouched and only the digits change metrics. A font without `tnum` simply ignores it.
+    if spec.tabular {
+        let mut f = pango::AttrFontFeatures::new("tnum 1");
+        f.set_start_index(0);
+        attrs.insert(f);
+    }
     if let Some(c) = color {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 65535.0).round() as u16;
         let mut fg = pango::AttrColor::new_foreground(ch(c.r), ch(c.g), ch(c.b));

@@ -107,6 +107,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
                     font: Font::Footnote,
                     weight: None,
                     italic: false,
+                    tabular: false,
                     color: None,
                 };
                 column((header, card))
@@ -161,6 +162,7 @@ pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
                 font: Font::Body,
                 weight: None,
                 italic: false,
+                tabular: false,
                 color: None,
             };
             let _ = row_label.build(cx);

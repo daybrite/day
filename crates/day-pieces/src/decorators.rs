@@ -229,6 +229,35 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Reserve at least the space `sample` needs, so this piece's size stops changing with its
+    /// content.
+    ///
+    /// For a numeric readout beside a slider: `label(move || value()).reserving("100")` keeps the
+    /// row still while the number changes, because the reservation is a real measurement of
+    /// `"100"` in this piece's own font — it scales with the platform's accessibility text size
+    /// instead of being a point value that clips when someone turns text up.
+    ///
+    /// Pass the WIDEST value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
+    /// [`Decorate::tabular_numbers`] so the digits themselves stop shifting inside the reservation.
+    /// The sample never paints and never takes hit-testing area.
+    fn reserving(self, sample: impl Into<String>) -> AnyPiece {
+        let sample = sample.into();
+        piece_fn(move |cx| {
+            let w = cx.layout_only(
+                Rc::new(day_core::ReserveLayout),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                // children[0]: the measured-but-invisible sample.
+                let _ = crate::label(sample.clone()).opacity(0.0).build(cx);
+                // children[1]: the real content.
+                let _ = self.build(cx);
+            });
+            w
+        })
+    }
+
     fn frame(self, width: f64, height: f64) -> AnyPiece {
         piece_fn(move |cx| {
             let w = cx.layout_only(

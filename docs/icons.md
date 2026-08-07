@@ -27,6 +27,33 @@ derived background colour (the composite's corner pixel; white when transparent)
 Text must be outlined: text shaping is deliberately not compiled into day (`<text>` is a hard
 error naming the fix).
 
+A reserved layer (`day:monochrome`, `day:dark`) may carry `display="none"` so plain SVG
+viewers show the master as it ships; the layer-only documents re-enable it. Generated
+masters do this.
+
+## Generate
+
+`day icon --generate` writes a seeded pseudo-random layered master (background gradient +
+foreground motif + hidden monochrome silhouette) to `resource/icons/icon.svg` and renders
+every output from it. It refuses to replace an existing master unless `--overwrite`.
+
+* `--seed <int|string>` — reproduce a specific icon (a non-integer seed is hashed; the app-id
+  convention below). Without it a fresh random seed is drawn — and always printed, so a liked
+  icon can be regenerated.
+* `--out <file.svg>` — preview mode: write the master (plus a 512 px PNG beside it) to a path
+  instead of the project, touching nothing else. No project needed; browse seeds with it.
+
+`day new app` uses the same generator for every fresh scaffold, seeded by the **app id** —
+scaffolding the same id twice yields the same icon — with `--icon-seed` as the override.
+
+The compositions are not free-form noise: a limited palette from the classic color-harmony
+schemes (analogous / complementary / split-complementary / triadic) with figure-ground
+contrast held by construction, one or two focal points in simple geometry within the masks'
+safe zone, a subtle vertical background gradient, and symmetric / rotational /
+golden-section-balanced arrangements (`day-vector/src/icongen.rs` documents the sources).
+Generated monochrome layers stay inside the VectorDrawable subset, so Android's themed icon
+ships as a true vector.
+
 ## Outputs
 
 | Family | Files |

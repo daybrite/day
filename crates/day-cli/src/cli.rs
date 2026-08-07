@@ -51,11 +51,26 @@ enum Cmd {
         master: Option<PathBuf>,
         /// Verify the outputs still match the master without writing anything — the CI drift
         /// gate; exits 5 and lists the drift when they don't
-        #[arg(long)]
+        #[arg(long, conflicts_with = "generate")]
         check: bool,
         /// Limit generation to these targets' icon families (repeatable; default: all)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
+        /// Generate a seeded pseudo-random layered master (docs/icons.md#generate), set it as
+        /// `resource/icons/icon.svg`, and regenerate every output from it
+        #[arg(long, conflicts_with = "master")]
+        generate: bool,
+        /// Seed for --generate: an integer, or any string (hashed — the `day new` app-id
+        /// convention). Default: fresh entropy; the seed used is always printed
+        #[arg(long, requires = "generate")]
+        seed: Option<String>,
+        /// Let --generate replace an existing master (otherwise it refuses)
+        #[arg(long, requires = "generate")]
+        overwrite: bool,
+        /// Preview mode for --generate: write the master SVG (plus a 512 px PNG beside it) to
+        /// this path instead of the project, touching nothing else — no project required
+        #[arg(long, requires = "generate", value_name = "FILE.svg")]
+        out: Option<PathBuf>,
     },
     /// Build + launch on one or more targets (in parallel)
     Launch {
@@ -410,6 +425,10 @@ enum NewKind {
         /// Each tag beyond `en` is applied to the fresh scaffold via `day localize add`.
         #[arg(long = "locales")]
         locales: Vec<String>,
+        /// Seed for the generated app icon (docs/icons.md#generate): an integer or any
+        /// string. Default: the app id — the same id always scaffolds the same icon.
+        #[arg(long = "icon-seed", value_name = "SEED")]
+        icon_seed: Option<String>,
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
@@ -791,6 +810,7 @@ pub fn run() -> i32 {
                 no_input,
                 no_website,
                 locales,
+                icon_seed,
             }) => crate::new::app(
                 name.as_deref(),
                 &toolkits,
@@ -806,54 +826,91 @@ pub fn run() -> i32 {
                 no_input,
                 no_website,
                 &locales,
+                icon_seed.as_deref(),
             ),
         },
         Cmd::Icon {
             master,
             check,
             platforms,
-        } => with_project(cli.project.as_deref(), |project| {
-            let opts = crate::icon::IconOptions {
-                master,
-                check,
-                platforms,
-            };
-            match crate::icon::run(project, &opts) {
-                Ok(n) => {
-                    if cli.format == "json" {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "event": "result", "command": "icon", "ok": true, "outputs": n,
-                            })
+            generate,
+            seed,
+            overwrite,
+            out,
+        } => {
+            let seed_value = generate.then(|| crate::icon::resolve_seed(seed.as_deref()));
+            // Preview mode stands alone: an SVG+PNG pair at the given path, no project.
+            if let (true, Some(path)) = (generate, out.as_ref()) {
+                let seed_value = seed_value.unwrap_or_default();
+                return match crate::icon::generate_preview(path, seed_value) {
+                    Ok(()) => {
+                        crate::ops::status(
+                            "Generated",
+                            &format!("{} (seed {seed_value})", path.display()),
                         );
+                        0
                     }
-                    0
-                }
-                Err(crate::icon::IconError::Drift(lines)) => {
-                    for l in &lines {
-                        crate::ops::status("Drift", l);
+                    Err(e) => {
+                        crate::ops::status("Error", &e);
+                        4
                     }
-                    crate::ops::status(
-                        "Error",
-                        "icon outputs drifted — run `day icon` to regenerate",
-                    );
-                    if cli.format == "json" {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "event": "result", "command": "icon", "ok": false, "drift": lines,
-                            })
-                        );
-                    }
-                    5
-                }
-                Err(crate::icon::IconError::Other(e)) => {
-                    crate::ops::status("Error", &e);
-                    4
-                }
+                };
             }
-        }),
+            with_project(cli.project.as_deref(), |project| {
+                if let Some(seed_value) = seed_value {
+                    match crate::icon::generate_master(project, seed_value, overwrite) {
+                        Ok(dest) => crate::ops::status(
+                            "Generated",
+                            &format!("{} (seed {seed_value})", dest.display()),
+                        ),
+                        Err(e) => {
+                            crate::ops::status("Error", &e);
+                            return 4;
+                        }
+                    }
+                }
+                let opts = crate::icon::IconOptions {
+                    master: master.clone(),
+                    check,
+                    platforms: platforms.clone(),
+                };
+                match crate::icon::run(project, &opts) {
+                    Ok(n) => {
+                        if cli.format == "json" {
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "event": "result", "command": "icon", "ok": true, "outputs": n,
+                                })
+                            );
+                        }
+                        0
+                    }
+                    Err(crate::icon::IconError::Drift(lines)) => {
+                        for l in &lines {
+                            crate::ops::status("Drift", l);
+                        }
+                        crate::ops::status(
+                            "Error",
+                            "icon outputs drifted — run `day icon` to regenerate",
+                        );
+                        if cli.format == "json" {
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "event": "result", "command": "icon", "ok": false, "drift": lines,
+                                })
+                            );
+                        }
+                        5
+                    }
+                    Err(crate::icon::IconError::Other(e)) => {
+                        crate::ops::status("Error", &e);
+                        4
+                    }
+                }
+            })
+        }
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
             for p in &platforms {

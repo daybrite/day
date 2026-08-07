@@ -218,6 +218,7 @@ pub fn interactive() -> i32 {
             false,
             false, // interactive scaffolds keep the website — opting out is the flag's job
             &[],   // extra locales are the flag's job too — the scaffold's own default is en
+            None,  // icon seed defaults to the app id (docs/icons.md#generate)
         ),
         1 => part(None, None, None, None, false, false, false),
         _ => piece(None, None, false, None, None, false, false, false),
@@ -526,6 +527,7 @@ pub fn app(
     no_input: bool,
     no_website: bool,
     locales: &[String],
+    icon_seed: Option<&str>,
 ) -> i32 {
     let p = Prompt::new(no_input);
     let Some(name) = resolve_name(&p, name) else {
@@ -671,6 +673,32 @@ pub fn app(
                 return 1;
             }
         }
+    }
+    // A unique generated icon per app (docs/icons.md#generate), seeded by the app id by
+    // default — the same id always scaffolds the same icon; `--icon-seed` overrides. The
+    // template's placeholder master is replaced, then every platform output is rendered from
+    // it. Best-effort: a fresh scaffold without its icon set regenerated is still a valid
+    // project (`day icon` finishes the job), so failures warn rather than abort.
+    let seed = match icon_seed {
+        Some(spec) => crate::icon::resolve_seed(Some(spec)),
+        None => day_vector::icongen::seed_from_str(&rid),
+    };
+    match crate::meta::find_project(Some(&dir)) {
+        Ok(project) => match crate::icon::generate_master(&project, seed, true) {
+            Ok(_) => {
+                ops::status("Icon", &format!("generated (seed {seed})"));
+                let opts = crate::icon::IconOptions {
+                    master: None,
+                    check: false,
+                    platforms: Vec::new(),
+                };
+                if let Err(crate::icon::IconError::Other(e)) = crate::icon::run(&project, &opts) {
+                    ops::status("Warning", &format!("icon outputs: {e} — run `day icon`"));
+                }
+            }
+            Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
+        },
+        Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
     }
     eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
     0

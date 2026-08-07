@@ -1456,12 +1456,28 @@ pub enum FontWeight {
 }
 
 /// The full font descriptor a label carries: a semantic (or custom) [`Font`] style plus an optional
-/// weight override and italic flag. Backends resolve this to one native font.
+/// weight override, an italic flag, and the tabular-figures request. Backends resolve this to one
+/// native font.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FontSpec {
     pub style: Font,
     pub weight: Option<FontWeight>,
     pub italic: bool,
+    /// Ask for TABULAR (monospaced) figures: every digit takes the same advance, so a number that
+    /// changes stops changing width.
+    ///
+    /// In a proportional system font `1` is narrower than `8`, so a readout beside a slider
+    /// wobbles as the value changes even when the digit COUNT is fixed. Every platform ships this
+    /// as a font feature, so Day asks for the platform's own rather than substituting a monospaced
+    /// family: the text keeps the system face, and only the digits change metrics.
+    ///
+    /// Reserving space ([`Decorate::reserving`]) and tabular figures solve the two halves of the
+    /// same problem — reservation stops the BOX resizing, tabular stops the GLYPHS shifting inside
+    /// it — and a numeric readout usually wants both.
+    ///
+    /// A backend whose text stack cannot express the feature ignores it (the text renders with the
+    /// stock proportional figures); see `docs/duty-matrix.md`.
+    pub tabular: bool,
 }
 
 impl Default for FontSpec {
@@ -1470,6 +1486,7 @@ impl Default for FontSpec {
             style: Font::Body,
             weight: None,
             italic: false,
+            tabular: false,
         }
     }
 }
@@ -1480,6 +1497,7 @@ impl From<Font> for FontSpec {
             style,
             weight: None,
             italic: false,
+            tabular: false,
         }
     }
 }

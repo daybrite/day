@@ -43,6 +43,72 @@ pub struct IconOptions {
     pub platforms: Vec<String>,
 }
 
+/// Resolve a `--seed` / `--icon-seed` spec: a bare integer is used as-is, anything else is
+/// hashed ([`day_vector::icongen::seed_from_str`] — how `day new` seeds from the app id),
+/// and `None` draws fresh entropy. Always tell the user the number (via the return), so a
+/// liked random icon can be reproduced.
+pub fn resolve_seed(spec: Option<&str>) -> u64 {
+    match spec {
+        Some(s) => s
+            .parse::<u64>()
+            .unwrap_or_else(|_| day_vector::icongen::seed_from_str(s)),
+        None => {
+            use std::hash::{BuildHasher as _, Hasher as _};
+            let clock = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+                .unwrap_or(0);
+            let keyed = std::collections::hash_map::RandomState::new()
+                .build_hasher()
+                .finish();
+            clock ^ keyed
+        }
+    }
+}
+
+/// `day icon --generate`: write the seeded master to `resource/icons/icon.svg`. Refuses to
+/// clobber an existing master (any discovery candidate) unless `overwrite` — a hand-drawn
+/// icon is unrecoverable. The caller then runs [`run`] to regenerate every output.
+pub fn generate_master(project: &Project, seed: u64, overwrite: bool) -> Result<PathBuf, String> {
+    if !overwrite {
+        for candidate in [
+            "resource/icons/icon.svg",
+            "resource/icons/day-icon.svg",
+            "resource/icons/icon.png",
+        ] {
+            let p = project.root.join(candidate);
+            if p.exists() {
+                return Err(format!(
+                    "a master icon already exists ({candidate}) — pass --overwrite to replace it"
+                ));
+            }
+        }
+    }
+    let dest = project.root.join("resource/icons/icon.svg");
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    }
+    std::fs::write(&dest, day_vector::icongen::generate(seed))
+        .map_err(|e| format!("write {}: {e}", dest.display()))?;
+    Ok(dest)
+}
+
+/// `day icon --generate --out <file.svg>`: preview mode — write the seeded master to an
+/// arbitrary path (no project needed, nothing else touched) plus a 512 px PNG render beside
+/// it, so seeds can be browsed before committing to one.
+pub fn generate_preview(path: &Path, seed: u64) -> Result<(), String> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    }
+    let svg = day_vector::icongen::generate(seed);
+    std::fs::write(path, &svg).map_err(|e| format!("write {}: {e}", path.display()))?;
+    let tree = day_vector::parse(svg.as_bytes())?;
+    let png = day_vector::render_png(&tree, 512)?;
+    let png_path = path.with_extension("png");
+    std::fs::write(&png_path, png).map_err(|e| format!("write {}: {e}", png_path.display()))?;
+    Ok(())
+}
+
 /// Drift lines (for exit code 5), or a hard error.
 pub enum IconError {
     Drift(Vec<String>),
@@ -458,7 +524,10 @@ impl Art {
             let mut keep = vec![&layers.background, &layers.foreground, &layers.dark];
             let bg_fg_dark: Vec<Range<usize>> =
                 keep.drain(..).flat_map(|v| v.iter().cloned()).collect();
-            Some(splice_out(text, &[&bg_fg_dark]))
+            Some(unhide_layer(
+                splice_out(text, &[&bg_fg_dark]),
+                "day:monochrome",
+            ))
         };
         Ok(Art::Svg {
             composite,
@@ -612,13 +681,17 @@ impl Art {
             if let Some(b) = day_vector::content_bbox(&tree) {
                 let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
                 let inner = inner_markup(mono)?;
+                // Safe-zone fit as an EXPLICIT transform, not a nested <svg> viewport: usvg
+                // models a nested svg as a clipped group, which is outside the
+                // VectorDrawable subset — the very conversion this document exists for. The
+                // math is `xMidYMid meet` by hand: uniform scale to the safe square,
+                // centered, then offset by the zone inset.
+                let s = SAFE_PX / b.width().max(b.height()).max(1e-3);
+                let tx = inset + (SAFE_PX - s * b.width()) / 2.0 - s * b.x();
+                let ty = inset + (SAFE_PX - s * b.height()) / 2.0 - s * b.y();
                 let doc = format!(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
-                     <svg x=\"{inset}\" y=\"{inset}\" width=\"{SAFE_PX}\" height=\"{SAFE_PX}\" viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\">{inner}</svg></svg>",
-                    b.x(),
-                    b.y(),
-                    b.width(),
-                    b.height(),
+                     <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>"
                 );
                 let boxed = day_vector::parse(doc.as_bytes())?;
                 match day_vector::to_vector_drawable(&boxed) {
@@ -759,6 +832,26 @@ fn splice_out(xml: &str, removals: &[&Vec<Range<usize>>]) -> String {
         out.replace_range(r, "");
     }
     out
+}
+
+/// Drop a `display="none"` from the named layer's OPEN TAG. A master may hide a reserved
+/// layer (`day:monochrome`, `day:dark`) so plain SVG viewers show the icon as shipped — the
+/// generated masters do — and the layer-only documents re-enable it here.
+fn unhide_layer(doc: String, id: &str) -> String {
+    let Some(at) = doc.find(&format!("id=\"{id}\"")) else {
+        return doc;
+    };
+    let Some(end) = doc[at..].find('>').map(|e| at + e) else {
+        return doc;
+    };
+    match doc[at..end].find(" display=\"none\"") {
+        Some(rel) => {
+            let mut out = doc;
+            out.replace_range(at + rel..at + rel + " display=\"none\"".len(), "");
+            out
+        }
+        None => doc,
+    }
 }
 
 /// The root `<svg>`'s viewBox, or one derived from width/height.

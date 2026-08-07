@@ -102,6 +102,9 @@ The same scripts serve several jobs:
 
 - **CI walkthroughs:** every push builds the showcase on all targets and runs the walkthrough;
   the [gallery](/gallery) is those screenshots. A content-validation step catches blank captures.
+  One launch covers the whole appearance matrix: `day launch --themes light,dark --locales
+  en,fr,ar` builds once and runs the script per theme × locale, naming each variant's
+  screenshot directory after it.
 - **Iteration:** with no hot reload, `--script goto-settings.yaml` after each relaunch puts you
   back on the screen you're editing. Cheap and surprisingly effective.
 - **Accessibility audits:** the `a11y_audit` step diffs the native accessibility tree against

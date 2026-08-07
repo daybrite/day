@@ -1,7 +1,8 @@
 //! android-mdc → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
 //! generated properties file (§17.5); the release signingConfig reads a second generated file —
-//! resolved from `signing.android` `${ENV}` refs, or a CI/dev keystore generated with keytool when
-//! unconfigured (dev tier, loud). Gradle signs both formats (apksigner cannot sign an .aab — §16.5).
+//! resolved from `signing.android` `${ENV}` refs, or the fixed dev keystore embedded in the CLI
+//! when unconfigured (dev tier, loud — fixed rather than generated so dev builds reproduce and
+//! upgrade across machines). Gradle signs both formats (apksigner cannot sign an .aab — §16.5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

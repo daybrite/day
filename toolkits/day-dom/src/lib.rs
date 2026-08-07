@@ -382,6 +382,13 @@ fn color_css(c: day_spec::Color) -> String {
 
 fn apply_font(el: u32, f: &FontSpec) {
     s(el, "font", &font_css(f));
+    // `font-variant-numeric` is a separate property from the `font` shorthand — and the shorthand
+    // RESETS it, so this has to be set after, not before.
+    s(
+        el,
+        "font-variant-numeric",
+        if f.tabular { "tabular-nums" } else { "normal" },
+    );
 }
 
 // ---------------------------------------------------------------------------

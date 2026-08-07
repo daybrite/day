@@ -1008,6 +1008,46 @@ impl Layout for MaxWidthLayout {
     }
 }
 
+/// Reserve at least the size of a SAMPLE child, then lay the content out inside it.
+///
+/// The problem it solves: a numeric readout beside a slider changes width as the value changes —
+/// `1` is narrower than `8` in a proportional font, and `9` → `10` adds a whole glyph — so the
+/// row reflows on every drag and the control you are aiming at moves. A hardcoded width "fixes"
+/// that until the reader raises their accessibility text size, at which point the number is
+/// clipped.
+///
+/// Reserving a sample measures a real piece in the real font at the real size, so the reservation
+/// scales with the text exactly as the content does. `children[0]` is the sample (built
+/// transparent by [`Decorate::reserving`], so it never paints and is placed at zero size);
+/// `children[1]` is the content, which receives the full reserved bounds and aligns itself.
+pub struct ReserveLayout;
+
+impl Layout for ReserveLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let (Some(&sample), Some(&content)) = (children.first(), children.get(1)) else {
+            return children
+                .first()
+                .map(|&c| cx.measure_child(c, p))
+                .unwrap_or(Size::ZERO);
+        };
+        let s = cx.measure_child(sample, p);
+        let c = cx.measure_child(content, p);
+        Size::new(s.width.max(c.width), s.height.max(c.height))
+    }
+
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        // The sample has done its work in `measure`; give it no area so it costs nothing to draw.
+        if let Some(&sample) = children.first() {
+            cx.place_child(sample, Rect::from_size(Size::ZERO));
+        }
+        if let Some(&content) = children.get(1) {
+            let s = cx.measure_child(content, Proposal::exact(bounds.size));
+            let _ = s;
+            cx.place_child(content, Rect::from_size(bounds.size));
+        }
+    }
+}
+
 pub struct FrameLayout {
     pub width: Option<f64>,
     pub height: Option<f64>,

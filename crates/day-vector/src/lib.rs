@@ -31,6 +31,7 @@ pub use roxmltree;
 mod classify;
 mod icns;
 mod ico;
+pub mod icongen;
 mod raster;
 mod symbolset;
 mod vd;
