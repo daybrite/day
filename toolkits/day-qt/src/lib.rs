@@ -489,10 +489,10 @@ fn qt_weight(w: day_spec::FontWeight) -> c_int {
 }
 
 /// (point size, QFont weight, italic flag) for the C++ shim.
-fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int) {
+fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
     let (pt, inherent) = qt_style(spec.style);
     let weight = qt_weight(spec.weight.unwrap_or(inherent));
-    (pt, weight, spec.italic as c_int)
+    (pt, weight, spec.italic as c_int, spec.tabular as c_int)
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,8 +1054,8 @@ impl Toolkit for Qt {
                 Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
-                    let (pt, weight, italic) = font_params(p.font);
-                    ffi::day_qt_label_set_font(w, pt, weight, italic);
+                    let (pt, weight, italic, tabular) = font_params(p.font);
+                    ffi::day_qt_label_set_font(w, pt, weight, italic, tabular);
                     apply_custom_family(w, p.font);
                     if let Some(c) = p.color {
                         ffi::day_qt_label_set_color(w, c.r, c.g, c.b, c.a, 1);
@@ -1356,8 +1356,8 @@ impl Toolkit for Qt {
                                 ffi::day_qt_label_set_text(h.0, cstr(t).as_ptr())
                             }
                             LabelPatch::Font(f) => {
-                                let (pt, weight, italic) = font_params(*f);
-                                ffi::day_qt_label_set_font(h.0, pt, weight, italic);
+                                let (pt, weight, italic, tabular) = font_params(*f);
+                                ffi::day_qt_label_set_font(h.0, pt, weight, italic, tabular);
                                 apply_custom_family(h.0, *f);
                             }
                             LabelPatch::Color(c) => match c {

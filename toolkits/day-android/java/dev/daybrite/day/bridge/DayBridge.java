@@ -423,8 +423,12 @@ public final class DayBridge {
      * `sp` size (scales with the accessibility Font Size setting), font weight (100–900), italic,
      * and an optional bundled font family (null for the system font — §18.4).
      */
-    public static void setLabelFont(View v, float sp, int weight, boolean italic, String family) {
+    public static void setLabelFont(
+            View v, float sp, int weight, boolean italic, String family, boolean tabular) {
         TextView t = (TextView) v;
+        // Tabular figures via the OpenType feature, so the typeface is untouched and only the
+        // digits change metrics. A font without `tnum` ignores the request.
+        t.setFontFeatureSettings(tabular ? "tnum" : null);
         // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size) — the Android
         // accessibility text-scale — unlike DIP which does not.
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);

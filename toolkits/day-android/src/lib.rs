@@ -1153,10 +1153,10 @@ mod imp {
     }
 
     /// (sp size, Android weight, italic) for `DayBridge.setLabelFont`.
-    fn font_params(spec: day_spec::FontSpec) -> (f32, i32, bool) {
+    fn font_params(spec: day_spec::FontSpec) -> (f32, i32, bool, bool) {
         let (sp, inherent) = font_style(spec.style);
         let weight = android_weight(spec.weight.unwrap_or(inherent));
-        (sp, weight, spec.italic)
+        (sp, weight, spec.italic, spec.tabular)
     }
 
     /// Day `Color` (0–1 floats) → a packed `0xAARRGGBB` int for `android.graphics.Color`.
@@ -1527,7 +1527,7 @@ mod imp {
                 }
                 Some(Builtin::Label) => {
                     let p = props.downcast_ref::<LabelProps>().unwrap();
-                    let (sp, weight, italic) = font_params(p.font);
+                    let (sp, weight, italic, tabular) = font_params(p.font);
                     with_env(|env| {
                         let s = jstr(env, &p.text);
                         let view = make_view(
@@ -1543,13 +1543,14 @@ mod imp {
                         let _ = env.dcall_static(
                             BRIDGE,
                             "setLabelFont",
-                            "(Landroid/view/View;FIZLjava/lang/String;)V",
+                            "(Landroid/view/View;FIZLjava/lang/String;Z)V",
                             &[
                                 JValue::Object(view.as_obj()),
                                 JValue::Float(sp),
                                 JValue::Int(weight),
                                 JValue::Bool(italic),
                                 JValue::Object(&fam),
+                                JValue::Bool(tabular),
                             ],
                         );
                         if let Some(col) = p.color {
@@ -1842,7 +1843,7 @@ mod imp {
                                 );
                             }),
                             LabelPatch::Font(f) => {
-                                let (sp, weight, italic) = font_params(*f);
+                                let (sp, weight, italic, tabular) = font_params(*f);
                                 let family = custom_family(*f);
                                 with_env(|env| {
                                     let fam = match family {
@@ -1852,13 +1853,14 @@ mod imp {
                                     let _ = env.dcall_static(
                                         BRIDGE,
                                         "setLabelFont",
-                                        "(Landroid/view/View;FIZLjava/lang/String;)V",
+                                        "(Landroid/view/View;FIZLjava/lang/String;Z)V",
                                         &[
                                             JValue::Object(h.0.as_obj()),
                                             JValue::Float(sp),
                                             JValue::Int(weight),
                                             JValue::Bool(italic),
                                             JValue::Object(&fam),
+                                            JValue::Bool(tabular),
                                         ],
                                     );
                                 });

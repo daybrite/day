@@ -322,10 +322,14 @@ mod imp {
     /// Apply a `Font::Custom` family (§18.4): the family was registered by the
     /// platform/ohos scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
     /// by name; ArkUI falls back to the default family when it doesn't.
-    fn apply_custom_family(node: *mut c_void, spec: FontSpec) {
+    fn apply_font_attrs(node: *mut c_void, spec: FontSpec) {
         if let Font::Custom(family, _) = spec.style {
             unsafe { ffi::day_ark_set_font_family(node, cstr(family).as_ptr()) };
         }
+        // Tabular figures. Set unconditionally (empty string clears it) so a label that stops
+        // asking for them goes back to proportional on the next patch.
+        let feature = if spec.tabular { "tnum 1" } else { "" };
+        unsafe { ffi::day_ark_set_font_feature(node, cstr(feature).as_ptr()) };
     }
 
     // day kind → the shim's node-kind code (see kind_map in shim.cpp).
@@ -836,7 +840,7 @@ mod imp {
                             ffi::day_ark_set_font_color(n.0, 0xE6FF_FFFF);
                         }
                     }
-                    apply_custom_family(n.0, p.font);
+                    apply_font_attrs(n.0, p.font);
                     n
                 }
                 Some(Builtin::Button) => {
@@ -1185,7 +1189,7 @@ mod imp {
                             }
                             LabelPatch::Font(f) => {
                                 unsafe { ffi::day_ark_set_font_size(h.0, font_vp(*f)) };
-                                apply_custom_family(h.0, *f);
+                                apply_font_attrs(h.0, *f);
                             }
                         }
                     }

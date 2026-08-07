@@ -41,6 +41,7 @@
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Documents.h> // Typography
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Windows.UI.Xaml.Input.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
@@ -66,6 +67,7 @@ namespace WUI = winrt::Windows::UI;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
+namespace WUXD = winrt::Windows::UI::Xaml::Documents; // Typography (numeral alignment)
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
 namespace WUXMA = winrt::Windows::UI::Xaml::Media::Animation;
 namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
@@ -1690,7 +1692,7 @@ void day_xaml_label_set_color(void* h, unsigned argb) {
     else
         tb.Foreground(brush_bits(argb));
 }
-void day_xaml_label_set_font(void* h, double pt, int weight, int italic) {
+void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tabular) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
         // FontSize scales with the OS text-scale-factor (accessibility "Text size"); XAML applies it.
         tb.FontSize(pt);
@@ -1699,6 +1701,12 @@ void day_xaml_label_set_font(void* h, double pt, int weight, int italic) {
         w.Weight = static_cast<uint16_t>(weight > 0 ? weight : 400);
         tb.FontWeight(w);
         tb.FontStyle(italic ? WUI::Text::FontStyle::Italic : WUI::Text::FontStyle::Normal);
+        // Tabular figures: XAML exposes them as the Typography attached property
+        // NumeralAlignment, not as a font swap, so the face is untouched and only the digits
+        // change metrics. Tabular == every digit on the same advance.
+        WUXD::Typography::SetNumeralAlignment(
+            tb, tabular ? WUI::Text::FontNumeralAlignment::Tabular
+                        : WUI::Text::FontNumeralAlignment::Normal);
     }
 }
 // Bundled custom font (§18.4): `spec` is a FontFamily source string of the form

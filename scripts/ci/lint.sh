@@ -144,6 +144,7 @@ drift() { # drift <generator> <generated-file>
 }
 leg "duty-matrix drift" drift scripts/ci/duty-matrix.sh docs/duty-matrix.md
 leg "coverage-matrix drift" drift scripts/ci/coverage-matrix.sh docs/coverage-matrix.md
+leg "recorder-matrix drift" drift scripts/ci/recorder-matrix.sh docs/recorder-matrix.md
 
 # ── summary ────────────────────────────────────────────────────────────────────────────────────
 printf '\n\033[1m── lint summary ──\033[0m\n'

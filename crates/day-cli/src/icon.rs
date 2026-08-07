@@ -615,14 +615,11 @@ impl Art {
                 let tree = day_vector::parse(fg.as_bytes())?;
                 let b = day_vector::content_bbox(&tree)
                     .ok_or("the day:foreground layers render no content")?;
+                let (bx, by, bw, bh) = bbox_in_viewbox_units(fg, &tree, b)?;
                 let inner = inner_markup(fg)?;
                 let doc = format!(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
-                     <svg x=\"{inset}\" y=\"{inset}\" width=\"{SAFE_PX}\" height=\"{SAFE_PX}\" viewBox=\"{} {} {} {}\" preserveAspectRatio=\"xMidYMid meet\">{inner}</svg></svg>",
-                    b.x(),
-                    b.y(),
-                    b.width(),
-                    b.height(),
+                     <svg x=\"{inset}\" y=\"{inset}\" width=\"{SAFE_PX}\" height=\"{SAFE_PX}\" viewBox=\"{bx} {by} {bw} {bh}\" preserveAspectRatio=\"xMidYMid meet\">{inner}</svg></svg>",
                 );
                 let tree = day_vector::parse(doc.as_bytes())?;
                 day_vector::render_png(&tree, ADAPTIVE_PX)
@@ -679,6 +676,7 @@ impl Art {
         {
             let tree = day_vector::parse(mono.as_bytes())?;
             if let Some(b) = day_vector::content_bbox(&tree) {
+                let (bx, by, bw, bh) = bbox_in_viewbox_units(mono, &tree, b)?;
                 let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
                 let inner = inner_markup(mono)?;
                 // Safe-zone fit as an EXPLICIT transform, not a nested <svg> viewport: usvg
@@ -686,9 +684,9 @@ impl Art {
                 // VectorDrawable subset — the very conversion this document exists for. The
                 // math is `xMidYMid meet` by hand: uniform scale to the safe square,
                 // centered, then offset by the zone inset.
-                let s = SAFE_PX / b.width().max(b.height()).max(1e-3);
-                let tx = inset + (SAFE_PX - s * b.width()) / 2.0 - s * b.x();
-                let ty = inset + (SAFE_PX - s * b.height()) / 2.0 - s * b.y();
+                let s = SAFE_PX / bw.max(bh).max(1e-3);
+                let tx = inset + (SAFE_PX - s * bw) / 2.0 - s * bx;
+                let ty = inset + (SAFE_PX - s * bh) / 2.0 - s * by;
                 let doc = format!(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
                      <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>"
@@ -855,6 +853,37 @@ fn unhide_layer(doc: String, id: &str) -> String {
 }
 
 /// The root `<svg>`'s viewBox, or one derived from width/height.
+/// A usvg content box mapped back into the document's own viewBox units.
+///
+/// usvg normalizes a parsed tree to the svg's width/height, so when a master declares e.g.
+/// `viewBox="0 0 120 120" width="1024"`, [`day_vector::content_bbox`] answers in 1024-space —
+/// while the raw inner markup the safe-zone wrappers re-parse is still in 120-space. Windowing
+/// the markup with unconverted bounds selects a region outside the art entirely (an empty
+/// adaptive foreground). Identity when the viewBox and the tree size already agree.
+fn bbox_in_viewbox_units(
+    doc: &str,
+    tree: &day_vector::usvg::Tree,
+    b: day_vector::usvg::Rect,
+) -> Result<(f32, f32, f32, f32), String> {
+    let vb = view_box(doc)?;
+    let parts: Vec<f32> = vb
+        .split_whitespace()
+        .filter_map(|p| p.parse::<f32>().ok())
+        .collect();
+    let [vx, vy, vw, vh] = parts.as_slice() else {
+        return Err(format!("unparseable viewBox {vb:?}"));
+    };
+    let size = tree.size();
+    let sx = vw / size.width().max(1e-6);
+    let sy = vh / size.height().max(1e-6);
+    Ok((
+        vx + b.x() * sx,
+        vy + b.y() * sy,
+        b.width() * sx,
+        b.height() * sy,
+    ))
+}
+
 fn view_box(xml: &str) -> Result<String, String> {
     let doc = day_vector::roxmltree::Document::parse(xml).map_err(|e| e.to_string())?;
     let root = doc.root_element();
@@ -1001,6 +1030,27 @@ mod tests {
         let fg = splice_out(LAYERED, &[&l.background, &l.monochrome, &l.dark]);
         assert!(!fg.contains("day:background"));
         assert!(fg.contains("day:foreground"));
+    }
+
+    #[test]
+    fn adaptive_foreground_survives_viewbox_size_mismatch() {
+        // A master may declare `viewBox="0 0 120 120" width="1024"`. usvg reports content
+        // bounds in 1024-space while the raw markup the safe-zone wrapper re-parses is in
+        // 120-space; unconverted bounds window a region outside the art and the adaptive
+        // foreground renders EMPTY (the Day-Showcase sunrise master, 2026-08-07).
+        let master = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 120\" \
+             width=\"1024\" height=\"1024\">\
+             <rect id=\"day:background\" width=\"120\" height=\"120\" fill=\"#123456\"/>\
+             <g id=\"day:foreground\"><circle cx=\"60\" cy=\"60\" r=\"30\" fill=\"#fff\"/></g>\
+             </svg>";
+        let art = Art::from_svg(master).unwrap();
+        let png = art.adaptive_foreground().unwrap();
+        let pm = tiny_skia::Pixmap::decode_png(&png).unwrap();
+        let visible = pm.pixels().iter().filter(|p| p.alpha() > 0).count();
+        assert!(
+            visible > 1000,
+            "adaptive foreground is (nearly) empty: {visible} visible px"
+        );
     }
 
     #[test]

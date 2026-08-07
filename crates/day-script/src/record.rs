@@ -162,10 +162,16 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 /// Map a native event to the dayscript step that reproduces it — **actions only, semantic only**.
 /// Returns `None` for everything the recorder drops.
 ///
+/// `Tap(Point)` records ONLY when the node carries an id, and then as an id-addressed `Tap` step —
+/// the coordinate is discarded. It has to: a `Button::style(…)` is not a native button but a
+/// COMPOSED piece whose action rides `Decorate::on_tap`, so it delivers `Tap` and never `Pressed`
+/// (day-pieces `leaves.rs`/`decorators.rs`), as does every tappable shape or card. Dropping it
+/// silently omitted those controls from every recording while `Step::Tap` replayed them perfectly
+/// — playback emits `Pressed` AND `Tap` for exactly that reason. A node that delivers both in one
+/// pump records once; see `on_event`.
+///
 /// DROPPED, and why:
-/// - the positional `Tap(Point)` twin of `Pressed` (and `LongPress`/`ContextMenu`): a coordinate
-///   is not portable — `Pressed` carries the id, so it is the one recorded, and the positional
-///   variant is dropped to avoid recording every tap twice;
+/// - an id-less `Tap`, and `LongPress`/`ContextMenu`: a bare coordinate is not portable;
 /// - `Drag`/`ScrollChanged`/`Pointer`/`Key`/`WindowResized`/`FrameChanged`/`Submitted`/
 ///   `FocusChanged`: gesture and low-level input, no id-addressed step;
 /// - `ValueChanged` (a slider drag): no `set_value` step is emitted — a slider re-records as a
@@ -178,7 +184,9 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 /// id there is no portable step to write.
 fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
     match ev {
-        Event::Pressed => id.map(|id| Step::Tap {
+        // Both tap shapes map to the same step: a native button's `Pressed`, and the `Tap` a
+        // composed `.on_tap` piece gets. `on_event` collapses a node that delivers both.
+        Event::Pressed | Event::Tap(_) => id.map(|id| Step::Tap {
             id: id.to_string(),
             repeat: Some(1),
         }),
@@ -203,6 +211,84 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         // not here — see `on_nav`. Mapping it here too would double-record RouteRequested.
         _ => None,
     }
+}
+
+/// What the EXECUTOR synthesizes for each step, and what the recorder must do with it.
+///
+/// The recorder and the executor are inverses, and they drifted: `Step::Tap` has always
+/// synthesized a `Pressed` AND a positional `Tap` — deliberately, because a native button ignores
+/// `Tap` and a composed `.on_tap` piece ignores `Pressed` — while `event_to_step` recognized only
+/// the first. Every styled button and tappable shape therefore replayed perfectly and recorded as
+/// nothing at all.
+///
+/// This table states the intended disposition of every event playback emits, and
+/// [`playback_and_recording_agree`] holds `event_to_step` to it. The rule that matters is
+/// [`Disposition::Records`]: EVERY event a recordable step emits must map back to that same step.
+/// One of them mapping is not enough — different piece kinds receive different ones, so an
+/// unmapped event means some class of control is silently unrecordable.
+///
+/// Adding an event to a step's emission means adding it here, which means choosing a disposition.
+/// That choice is the point: it cannot be made by omission.
+#[cfg(test)]
+const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
+    // lib.rs `Step::Tap` — both shapes, so one step drives either kind of control.
+    ("tap", &[Event::Pressed], Disposition::Records("tap")),
+    (
+        "tap",
+        &[Event::Tap(day_spec::Point::ZERO)],
+        Disposition::Records("tap"),
+    ),
+    // lib.rs `Step::Select`, and a toggle, which replays through `select`.
+    (
+        "select",
+        &[Event::SelectionChanged(1)],
+        Disposition::Records("select"),
+    ),
+    (
+        "toggle",
+        &[Event::ToggleChanged(true)],
+        Disposition::Records("select"),
+    ),
+    // lib.rs `Step::Input` paints through `day_core::synthesize_text`, which lands as this.
+    (
+        "input",
+        &[Event::TextChanged(String::new())],
+        Disposition::Records("input"),
+    ),
+    // Deliberately NOT recorded. Each is a considered omission, not an oversight:
+    (
+        "submit",
+        &[Event::Submitted],
+        Disposition::Dropped("a submit follows the input that recorded it"),
+    ),
+    (
+        "set_value",
+        &[Event::ValueChanged(0.5)],
+        Disposition::Dropped("a slider drag re-records as a storm of intermediate values"),
+    ),
+];
+
+/// A step's on-disk op name (`tap`, `select`, …) — the same tag [`step_to_entry`] writes, read back
+/// through serde so the test compares what a script would actually say.
+#[cfg(test)]
+fn step_entry_op(step: &Step) -> String {
+    match serde_json::to_value(step) {
+        Ok(serde_json::Value::Object(m)) => m
+            .get("op")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<untagged>")
+            .to_string(),
+        _ => "<unserializable>".to_string(),
+    }
+}
+
+/// The recorder's intended treatment of an emitted event.
+#[cfg(test)]
+enum Disposition {
+    /// Must map back to the named step op.
+    Records(&'static str),
+    /// Must map to nothing, for the stated reason.
+    Dropped(&'static str),
 }
 
 /// Whether appending `next` should REPLACE the last step rather than push a new one — the
@@ -243,6 +329,16 @@ struct Recorder {
     /// pump — a signal-bound remount settles one pump late, so "same pump" alone would miss it,
     /// and "any time" would wrongly swallow an unrelated earlier tap. See `on_nav`.
     input_gen: Option<u64>,
+    /// The id whose `Pressed` was just recorded, if the immediately preceding recorded event was
+    /// one. It exists to drop the `Tap` TWIN that follows: a node wearing both shapes —
+    /// `button(…).on_tap(…)`, and every playback-while-recording, since `Step::Tap` synthesizes
+    /// `Pressed` then `Tap` — would otherwise record two taps for one press.
+    ///
+    /// Keyed on "immediately preceding", not on a pump generation: the executor enqueues the two
+    /// separately and `enqueue_events` pumps between them, so the twin lands a generation later.
+    /// Adjacency is what actually holds. A composed piece sends `Tap` with no `Pressed` before it
+    /// and records normally; two real taps arrive as two pairs and record twice.
+    last_pressed: Option<String>,
     /// Per-step annotation (a control's a11y label or visible text), index-aligned with `steps`.
     /// Rendered as a trailing `# "label"` comment by [`annotate_yaml`].
     labels: Vec<Option<String>>,
@@ -303,6 +399,26 @@ pub fn version() -> Signal<u64> {
 
 fn bump_version() {
     version().update(|n| *n += 1);
+}
+
+/// Whether `ev` is the positional TWIN of the press just recorded, and so must not record a second
+/// tap for the same press.
+///
+/// One tap can deliver two events. A native `button` leaf sends `Pressed`; a piece composed from
+/// `Decorate::on_tap` — every `Button::style(…)`, every tappable shape — sends `Tap`; a node
+/// wearing both sends `Pressed` then `Tap`. So does playback: `Step::Tap` synthesizes the pair on
+/// purpose, so that one step drives either kind of control, which means recording a replay would
+/// otherwise double every tap in it.
+///
+/// The test is ADJACENCY, not a pump generation: the executor enqueues the two separately and
+/// `enqueue_events` pumps between them, so the twin usually lands a generation later. What holds is
+/// that nothing else records in between. A composed piece's `Tap` has no `Pressed` before it and
+/// records normally; two real taps arrive as two pairs and record twice.
+fn is_press_twin(ev: &Event, step: &Step, last_pressed: Option<&str>) -> bool {
+    matches!(
+        (ev, step),
+        (Event::Tap(_), Step::Tap { id, .. }) if last_pressed == Some(id.as_str())
+    )
 }
 
 /// Whether an event on `id` is excluded by `prefix` — the rule that keeps a UI's own record/stop
@@ -376,6 +492,14 @@ fn on_event(node: NodeId, ev: &Event) {
         if !rec.active || is_excluded(id.as_deref(), &rec.exclude) {
             return;
         }
+        // One press, one step: drop the positional twin that follows a `Pressed` on the same node.
+        if is_press_twin(ev, &step, rec.last_pressed.as_deref()) {
+            return;
+        }
+        rec.last_pressed = match (ev, &step) {
+            (Event::Pressed, Step::Tap { id, .. }) => Some(id.clone()),
+            _ => None,
+        };
         let is_input = matches!(step, Step::Tap { .. } | Step::Select { .. });
         echo_action(&step, label.as_deref());
         rec.push(step, label);
@@ -678,10 +802,73 @@ mod tests {
         // Navigation is NOT an event-to-step concern (the nav observer captures route changes) —
         // a RouteRequested must NOT also map to a Navigate here, or it would double-record.
         assert!(event_to_step(None, &Event::RouteRequested("home".into())).is_none());
-        // The positional tap twin, a slider value, and an id-less press are all dropped.
-        assert!(event_to_step(Some("x"), &Event::Tap(Point::new(1.0, 2.0))).is_none());
+        // A gesture `Tap` on an ID'd node records like a press: that is the ONLY event a
+        // `Button::style(…)` or any other composed `.on_tap` piece ever delivers, so dropping it
+        // left those controls out of every recording (see `event_to_step`'s doc).
+        assert!(matches!(
+            event_to_step(Some("list-shuffle"), &Event::Tap(Point::new(1.0, 2.0))),
+            Some(Step::Tap { .. })
+        ));
+        // Without an id there is still no portable step — a bare coordinate is not one.
+        assert!(event_to_step(None, &Event::Tap(Point::new(1.0, 2.0))).is_none());
         assert!(event_to_step(Some("s"), &Event::ValueChanged(0.5)).is_none());
         assert!(event_to_step(None, &Event::Pressed).is_none());
+    }
+
+    /// The guard for the whole class: playback and recording must agree about every event.
+    ///
+    /// This is what would have caught `Button::style(…)` recording as nothing. `Step::Tap` emits
+    /// `Pressed` and `Tap`; a styled button only ever receives the second; the recorder only ever
+    /// mapped the first. Each half was self-consistent, so only comparing them finds it.
+    #[test]
+    fn playback_and_recording_agree() {
+        for (step_op, events, disposition) in PLAYBACK_EMISSIONS {
+            for ev in *events {
+                let got = event_to_step(Some("probe"), ev);
+                match disposition {
+                    Disposition::Records(expected_op) => {
+                        let got = got.unwrap_or_else(|| {
+                            panic!(
+                                "playback's `{step_op}` step emits {ev:?}, but the recorder drops \
+                                 it — every control that receives only this event records as \
+                                 nothing. Map it in `event_to_step`, or declare it Dropped in \
+                                 PLAYBACK_EMISSIONS and say why."
+                            )
+                        });
+                        assert_eq!(
+                            step_entry_op(&got),
+                            *expected_op,
+                            "playback's `{step_op}` step emits {ev:?}; the recorder turns that \
+                             into a `{}` step, not the `{expected_op}` the table declares",
+                            step_entry_op(&got),
+                        );
+                    }
+                    Disposition::Dropped(why) => assert!(
+                        got.is_none(),
+                        "PLAYBACK_EMISSIONS says {ev:?} is dropped ({why}), but the recorder now \
+                         maps it to {got:?} — update the table if that is intended"
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Every id-addressed event the recorder maps must survive a round trip through the on-disk
+    /// form: a step it can produce but not re-read would record a script that will not replay.
+    #[test]
+    fn every_recorded_step_round_trips_through_yaml() {
+        let mapped: Vec<Step> = PLAYBACK_EMISSIONS
+            .iter()
+            .filter(|(_, _, d)| matches!(d, Disposition::Records(_)))
+            .flat_map(|(_, events, _)| *events)
+            .filter_map(|ev| event_to_step(Some("probe"), ev))
+            .collect();
+        assert!(
+            !mapped.is_empty(),
+            "the table declares some recordable steps"
+        );
+        let reparsed = steps_from_yaml(&steps_to_yaml(&mapped)).expect("recorded yaml re-parses");
+        assert_eq!(format!("{mapped:?}"), format!("{reparsed:?}"));
     }
 
     #[test]
@@ -735,6 +922,46 @@ mod tests {
         assert_eq!(rec.steps.len(), 3);
         assert!(matches!(&rec.steps[0], Step::Input { text: Some(t), .. } if t == "Ab"));
         assert!(matches!(&rec.steps[2], Step::Navigate { route } if route == "b"));
+    }
+
+    /// One user tap must produce one step, whatever mix of events the control delivers for it.
+    #[test]
+    fn a_press_and_its_positional_twin_record_once() {
+        use day_spec::Point;
+        let tap = |id: &str| Step::Tap {
+            id: id.into(),
+            repeat: Some(1),
+        };
+        let press = Event::Pressed;
+        let gesture = Event::Tap(Point::new(3.0, 4.0));
+
+        // A native button: `Pressed`, then the `Tap` playback pairs with it. The twin is dropped.
+        assert!(!is_press_twin(&press, &tap("inc"), None));
+        assert!(is_press_twin(&gesture, &tap("inc"), Some("inc")));
+
+        // A composed `.on_tap` piece sends ONLY the gesture — nothing pressed before it, so it
+        // records. This is the case that was silently lost.
+        assert!(!is_press_twin(&gesture, &tap("list-shuffle"), None));
+
+        // A gesture on a DIFFERENT node than the last press is its own tap, not a twin.
+        assert!(!is_press_twin(
+            &gesture,
+            &tap("list-reset"),
+            Some("list-shuffle")
+        ));
+
+        // Two real presses in a row are two taps: a `Pressed` is never anyone's twin.
+        assert!(!is_press_twin(&press, &tap("inc"), Some("inc")));
+
+        // Non-tap steps are unaffected.
+        assert!(!is_press_twin(
+            &Event::SelectionChanged(1),
+            &Step::Select {
+                id: "picker".into(),
+                index: 1
+            },
+            Some("picker")
+        ));
     }
 
     #[test]

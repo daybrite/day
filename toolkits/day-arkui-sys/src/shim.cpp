@@ -440,6 +440,17 @@ void day_ark_set_font_color(void* n, uint32_t argb) { set_u32(n, NODE_FONT_COLOR
 // platform/ohos scaffold's EntryAbility (ArkTS font.registerFont) before the native UI loads;
 // ArkUI falls back to the default family when the name isn't registered.
 void day_ark_set_font_family(void* n, const char* family) { set_str(n, NODE_FONT_FAMILY, family); }
+// Tabular figures through the OpenType feature string ArkUI's NODE_FONT_FEATURE takes, so the
+// registered face is untouched and only the digits change metrics. A font without `tnum`, or an
+// SDK predating the attribute, ignores it — the documented degradation.
+void day_ark_set_font_feature(void* n, const char* feature) {
+#ifdef NODE_FONT_FEATURE
+    set_str(n, NODE_FONT_FEATURE, feature);
+#else
+    (void)n;
+    (void)feature;
+#endif
+}
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
 
 // Determinate progress bar: ArkUI uses a value in [0, total]; day passes the 0..1 fraction, so

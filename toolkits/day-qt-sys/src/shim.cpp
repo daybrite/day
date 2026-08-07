@@ -426,7 +426,7 @@ void *day_qt_label_new(const char *text) {
 void day_qt_label_set_text(void *w, const char *text) {
     static_cast<QLabel *>(w)->setText(QString::fromUtf8(text));
 }
-void day_qt_label_set_font(void *w, double pt, int weight, int italic) {
+void day_qt_label_set_font(void *w, double pt, int weight, int italic, int tabular) {
     QLabel *l = static_cast<QLabel *>(w);
     QFont f = l->font();
     f.setPointSizeF(pt);
@@ -434,6 +434,15 @@ void day_qt_label_set_font(void *w, double pt, int weight, int italic) {
     if (weight > 0)
         f.setWeight(static_cast<QFont::Weight>(weight));
     f.setItalic(italic != 0);
+    // Tabular figures through the OpenType feature, so the face is untouched and only the digits
+    // change metrics. QFont::setFeature arrived in Qt 6.7; on older Qt the request is dropped
+    // (proportional figures), which is the documented degradation for a backend that cannot
+    // express it.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    f.setFeature(QFont::Tag("tnum"), tabular != 0 ? 1 : 0);
+#else
+    (void)tabular;
+#endif
     l->setFont(f);
 }
 // Text color via the label's palette (WindowText is the role QLabel draws with). Palette, not a

@@ -1475,8 +1475,12 @@ pub struct FontSpec {
     /// same problem — reservation stops the BOX resizing, tabular stops the GLYPHS shifting inside
     /// it — and a numeric readout usually wants both.
     ///
-    /// A backend whose text stack cannot express the feature ignores it (the text renders with the
-    /// stock proportional figures); see `docs/duty-matrix.md`.
+    /// This rides the existing label realize/patch path rather than adding a Toolkit method, so it
+    /// is NOT a backend duty and has no duty-matrix row. Every in-tree backend honors it: AppKit
+    /// and UIKit re-pick the system face (`monospacedDigitSystemFont`), GTK and Qt and ArkUI set
+    /// the `tnum` OpenType feature, Android `setFontFeatureSettings`, XAML the `Typography`
+    /// NumeralAlignment property, and web-dom `font-variant-numeric`. A font with no `tnum` table,
+    /// or an SDK predating the attribute, renders the stock proportional figures.
     pub tabular: bool,
 }
 

@@ -48,6 +48,7 @@ the architecture-level view and the rationale.
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | docs/scroll.md | [§7.6](#76-scroll) |
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | docs/duty-matrix.md | [§8.1](#81-the-toolkit-trait) |
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | docs/coverage-matrix.md | [§8.2](#82-the-open-renderer-registry) |
+| Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | docs/recorder-matrix.md | [§14.6](#146-recording) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
@@ -1985,12 +1986,27 @@ app-authored id a step would target.
 
 Scope is **actions only, and only where the step is portable**:
 
-- `Pressed` → `tap`, `TextChanged` → `input` (coalesced per field), `SelectionChanged`/
-  `ToggleChanged` → `select`, `RouteRequested` → `navigate` (coalesced), `NavBack` → `nav_back`.
-- **Dropped, deliberately:** the positional `Tap(Point)` twin of `Pressed` (a coordinate is not
-  portable — the id-carrying `Pressed` is recorded instead), gestures, `ValueChanged` (a slider
-  drag re-records as a storm of intermediate values), multi-select, and every lifecycle/menu/
-  toolbar/window event. An **id-less** action has no portable step, so it is dropped too.
+- `Pressed` **and** `Tap(Point)` → `tap`, `TextChanged` → `input` (coalesced per field),
+  `SelectionChanged`/`ToggleChanged` → `select`, `RouteRequested` → `navigate` (coalesced),
+  `NavBack` → `nav_back`.
+- **Dropped, deliberately:** gestures other than tap, `ValueChanged` (a slider drag re-records as
+  a storm of intermediate values), multi-select, and every lifecycle/menu/toolbar/window event. An
+  **id-less** action has no portable step, so it is dropped too — including a bare positional tap.
+
+Both tap shapes record because a control's shape decides which one it gets. A native `button` leaf
+delivers `Pressed`; a `Button::style(…)` is not a leaf at all but a piece COMPOSED from
+`Decorate::on_tap` ([§5.3](#53-the-piece-vocabulary)), and delivers only `Tap` — as does every
+tappable shape or card. `Step::Tap` has always synthesized both for exactly that reason, so
+recognizing one of them made every styled button replayable and unrecordable at once: it recorded
+as nothing, silently. A node that delivers both in one pump records once.
+
+That defect is the reason for two guards, because each half was self-consistent and only the
+comparison finds the gap. `playback_and_recording_agree` (day-script) pins the executor's emitted
+events against `event_to_step`: **every** event a recordable step emits must map back to that step,
+since one mapping is not enough when different piece kinds receive different events. And
+`docs/recorder-matrix.md` is generated from `day-spec`'s `Event` enum and `event_to_step`
+([§20](#20-continuous-integration)), so a new variant lands in a diff as *dropped* rather than
+falling into the catch-all unremarked.
 
 Navigation is captured off a **second seam**, not the event observer: a sidebar row, a `nav_link`,
 and a stack push change the route by calling `navigate`/`pop` from an event handler, none of which
@@ -2905,7 +2921,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 1. **Fast checks** — rustfmt, MSRV build, and the toolkit-independent clippy (host-portable
    crates + CLI/dayscript + mock-backend showcase, all `--all-targets`; the android
-   cross-*check* lint; the duty-matrix drift check). Clippy is a required status but NOT in
+   cross-*check* lint; the drift checks for all three generated tables — duty, piece-vocabulary
+   coverage, and recorder coverage). Clippy is a required status but NOT in
    the combos' `needs:`, so a lint error blocks merge without suppressing the platform
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
    failure killed the CLI artifact and with it every Linux-descended combo).

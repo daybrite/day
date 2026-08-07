@@ -90,6 +90,14 @@ jobs:
         run: |
           scripts/ci/coverage-matrix.sh
           git diff --exit-code docs/coverage-matrix.md
+      # docs/recorder-matrix.md is the same contract for the dayscript RECORDER: what it writes for
+      # every Event an app can receive. `event_to_step` ends in a catch-all, so an unmapped event
+      # is silent — a control that replays but never records — and this puts every new variant in a
+      # diff as "dropped", where someone has to agree with it (§14.6).
+      - name: Recorder-matrix drift check
+        run: |
+          scripts/ci/recorder-matrix.sh
+          git diff --exit-code docs/recorder-matrix.md
 
   # ===========================================================================
   # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
