@@ -117,8 +117,10 @@ The row set re-derives whenever a block's signal changes: rows are added/removed
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
 rows in place, static `.item`s included.
-`item(key, title).icon(name)` is the row spec, and `.immersive()` on it marks that row's pushed
-page immersive-chrome, same as the static form above. A selector used as a self-contained widget inside a
+`item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
+(docs/vectors.md), `.context_menu(vec![…])` attaches a per-row context menu (docs/menus.md),
+and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
+form above. A selector used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
@@ -215,10 +217,11 @@ state instead.
   `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
   (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
   full path.
-- Startup deep links (`DAY_DEEPLINK`) and Android warm links (`Custom("deeplink")`) route the
+- Startup deep links (`DAY_DEEPLINK`) and warm links (`Custom("deeplink")`) route the
   same way. On hosts with no process environment the platform entry records the launch route
   with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
-  (docs/web.md), so `…/#controls` opens on that section.
+  (docs/web.md), so `…/#controls` opens on that section. The OS side — scheme registration,
+  per-platform intake, and testing — is docs/deep-links.md.
 - The URL stays live both ways on web-dom: day-core reports every route change to the backend
   (`Toolkit::set_route`: the hash updates as you navigate, one history entry per step), and a
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as

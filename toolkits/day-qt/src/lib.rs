@@ -717,6 +717,25 @@ fn icon_file_path(name: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Build the nav list's per-row context menus (docs/menus.md) and hand them to the shim:
+/// one QMenu per row with entries (null where a row has none), the same
+/// [`build_qt_menu`] walk the piece decorator uses.
+fn navlist_apply_row_menus(w: *mut c_void, menus: &[Vec<day_spec::MenuItem>]) {
+    let ptrs: Vec<*mut c_void> = menus
+        .iter()
+        .map(|items| {
+            if items.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                let m = unsafe { ffi::day_qt_menu_new() };
+                build_qt_menu(m, items);
+                m
+            }
+        })
+        .collect();
+    unsafe { ffi::day_qt_navlist_set_row_menus(w, ptrs.as_ptr(), ptrs.len() as i32) };
+}
+
 /// Per-row nav icon tints as a U+001F-joined list of "#rrggbb" entries (empty entry = no
 /// row tint, the shim falls back to the palette text color), parallel to the icon list
 /// (docs/vectors.md).
@@ -1037,6 +1056,7 @@ impl Toolkit for Qt {
                         cstr(&icons_joined).as_ptr(),
                         cstr(&tints_joined).as_ptr(),
                     );
+                    navlist_apply_row_menus(w, &p.menus);
                     ffi::day_qt_navlist_set_selected(
                         w,
                         p.selected.map(|i| i as c_int).unwrap_or(-1),
@@ -1207,6 +1227,7 @@ impl Toolkit for Qt {
                         items,
                         icons,
                         tints,
+                        menus,
                         selected,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
@@ -1226,6 +1247,7 @@ impl Toolkit for Qt {
                             cstr(&icons_joined).as_ptr(),
                             cstr(&tints_joined).as_ptr(),
                         );
+                        navlist_apply_row_menus(h.0, menus);
                         ffi::day_qt_navlist_set_selected(
                             h.0,
                             selected.map(|i| i as c_int).unwrap_or(-1),

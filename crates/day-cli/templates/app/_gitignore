@@ -9,6 +9,15 @@ xcuserdata/
 DerivedData/
 **/*.xcodeproj/project.xcworkspace/
 
+# Gradle local state, the android counterpart of the above: platform/android/ is source, but
+# what Gradle generates inside it is not. Gradle writes its caches and per-module build/ trees
+# into the project it builds, so they cannot move under build/ with the rest of day's outputs;
+# `/build` at the top of this file is anchored to the repo root and never matches them. Left
+# untracked they fail the pristine check CI runs before packing an artifact.
+platform/android/.gradle/
+platform/android/**/build/
+platform/android/local.properties
+
 # The website is generated from repo data: the daysite template clone (local preview) and the
 # synthesized data files. Only website/site.toml and website/theme.css are source.
 website/.daysite/

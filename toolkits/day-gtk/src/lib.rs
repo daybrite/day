@@ -651,7 +651,20 @@ fn fill_nav_menu(
     badges: &[Option<String>],
     sections: &[Option<String>],
     tints: &[Option<day_spec::Color>],
+    menus: &[Vec<day_spec::MenuItem>],
 ) {
+    // Unparent the previous rows' context popovers first: a PopoverMenu holds its parent
+    // row, and a rebuild (locale switch, data-driven items) that drops rows without
+    // unparenting warns at dispose and leaks the pair.
+    NAV_ROW_POPOVERS.with(|m| {
+        for pop in m
+            .borrow_mut()
+            .remove(&(listbox.as_ptr() as usize))
+            .unwrap_or_default()
+        {
+            pop.unparent();
+        }
+    });
     for (i, item) in items.iter().enumerate() {
         let label = gtk4::Label::new(Some(item));
         label.set_halign(gtk4::Align::Fill);
@@ -676,7 +689,7 @@ fn fill_nav_menu(
             b.set_halign(gtk4::Align::End);
             b
         });
-        if icon.is_some() || badge.is_some() {
+        let row_widget: gtk4::Widget = if icon.is_some() || badge.is_some() {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             if let Some(image) = icon {
                 image.set_margin_start(2);
@@ -687,8 +700,21 @@ fn fill_nav_menu(
                 row.append(&b);
             }
             listbox.append(&row);
+            row.upcast()
         } else {
             listbox.append(&label);
+            label.clone().upcast()
+        };
+        // Per-row context menu (docs/menus.md): the same popover + gesture treatment as the
+        // piece decorator, on this row's widget.
+        if let Some(row_menu) = menus.get(i).filter(|m| !m.is_empty()) {
+            let pop = attach_row_context_menu(&row_widget, row_menu);
+            NAV_ROW_POPOVERS.with(|m| {
+                m.borrow_mut()
+                    .entry(listbox.as_ptr() as usize)
+                    .or_default()
+                    .push(pop);
+            });
         }
         // Section headers ride ON the row via GtkListBox's header slot, so they never become
         // rows of their own — indices stay 1:1 with day's items and selection needs no map.
@@ -705,6 +731,42 @@ fn fill_nav_menu(
             row.set_header(Some(&header));
         }
     }
+}
+
+thread_local! {
+    /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
+    /// unparented before every row rebuild so popovers never outlive their rows.
+    static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Attach a context menu to one nav row (docs/menus.md): the same gio-menu + PopoverMenu +
+/// secondary-click/long-press gestures the piece decorator uses, minus its per-widget
+/// bookkeeping (the caller owns the popover's lifetime via [`NAV_ROW_POPOVERS`]).
+fn attach_row_context_menu(w: &gtk4::Widget, items: &[day_spec::MenuItem]) -> gtk4::PopoverMenu {
+    let group = gtk4::gio::SimpleActionGroup::new();
+    let model = build_gio_menu(items, &group);
+    w.insert_action_group("daymenu", Some(&group));
+    w.set_can_target(true);
+    let popover = gtk4::PopoverMenu::from_model(Some(&model));
+    popover.set_parent(w);
+    popover.set_has_arrow(false);
+    let popup_at = {
+        let pop = popover.clone();
+        move |x: f64, y: f64| {
+            pop.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            pop.popup();
+        }
+    };
+    let click = gtk4::GestureClick::new();
+    click.set_button(3);
+    let f = popup_at.clone();
+    click.connect_pressed(move |_, _n, x, y| f(x, y));
+    w.add_controller(click);
+    let long = gtk4::GestureLongPress::new();
+    long.connect_pressed(move |_, x, y| popup_at(x, y));
+    w.add_controller(long);
+    popover
 }
 
 /// Recolor a pixbuf in place: every pixel's RGB becomes (`fr`,`fg`,`fb`), alpha untouched — the
@@ -1580,6 +1642,7 @@ impl Toolkit for Gtk {
                     &p.badges,
                     &p.sections,
                     &p.tints,
+                    &p.menus,
                 );
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 {
@@ -2010,6 +2073,7 @@ impl Toolkit for Gtk {
                     badges,
                     sections,
                     tints,
+                    menus,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -2022,7 +2086,7 @@ impl Toolkit for Gtk {
                         while let Some(row) = state.listbox.first_child() {
                             state.listbox.remove(&row);
                         }
-                        fill_nav_menu(&state.listbox, items, icons, badges, sections, tints);
+                        fill_nav_menu(&state.listbox, items, icons, badges, sections, tints, menus);
                         state.rows = items.len();
                         match selected {
                             Some(i) => state

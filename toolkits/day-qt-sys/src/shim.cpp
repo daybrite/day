@@ -1874,6 +1874,41 @@ void day_qt_menu_add_role(void *menu, const char *label, int role, const char *s
 }
 
 // Attach `menu` as `widget`'s context menu (secondary-click / long-press). A null menu clears it.
+// Per-row context menus for the nav list (docs/menus.md): `menus` is a parallel array of
+// QMenu* (null = no menu for that row). Menus are reparented to the list (freed with it /
+// on the next set), and a custom-context request maps the click to its row's menu.
+void day_qt_navlist_set_row_menus(void *w, void *const *menus, int32_t n) {
+    auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    // Drop the previous set (tracked by object name, the day_ctx_menu pattern).
+    for (QMenu *old : l->findChildren<QMenu *>(QStringLiteral("day_nav_row_menu"),
+                                               Qt::FindDirectChildrenOnly)) {
+        old->setObjectName(QString());
+        old->deleteLater();
+    }
+    QObject::disconnect(l, &QWidget::customContextMenuRequested, nullptr, nullptr);
+    auto *rows = new QVector<QMenu *>();
+    for (int32_t i = 0; i < n; ++i) {
+        QMenu *m = static_cast<QMenu *>(menus[i]);
+        if (m) {
+            m->setObjectName(QStringLiteral("day_nav_row_menu"));
+            m->setParent(l);
+        }
+        rows->append(m);
+    }
+    l->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(l, &QWidget::customContextMenuRequested, l, [l, rows](const QPoint &pos) {
+        QListWidgetItem *item = l->itemAt(pos);
+        if (!item) return;
+        int row = l->row(item);
+        if (row >= 0 && row < rows->size() && (*rows)[row])
+            (*rows)[row]->popup(l->mapToGlobal(pos));
+    });
+    // The vector dies with the connection's context object (the list) — leak-free enough for
+    // a widget that lives as long as the sidebar; the menus themselves are children of `l`.
+    QObject::connect(l, &QObject::destroyed, [rows]() { delete rows; });
+}
+
 void day_qt_set_context_menu(void *w, void *menu) {
     QWidget *widget = static_cast<QWidget *>(w);
     // Drop any previously attached context menu + its connection (tracked by object name).

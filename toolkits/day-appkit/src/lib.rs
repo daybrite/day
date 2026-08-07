@@ -697,6 +697,9 @@ struct NavMenuIvars {
     tints: RefCell<Vec<Option<day_spec::Color>>>,
     /// Trailing accessory per item row (an unread count), `None` where a row has none.
     badges: RefCell<Vec<Option<Retained<NSString>>>>,
+    /// Per-row context menu (docs/menus.md), empty = none. Built into an NSMenu and attached
+    /// to the row's cell view, so a secondary click pops it like any native sidebar menu.
+    menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
     /// The outline's rows, in display order: `Some(i)` is item `i`, `None` is a section
     /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
     /// goes through this map — a header must never shift what index 3 means.
@@ -727,6 +730,52 @@ define_class!(
         }
     }
 );
+
+define_class!(
+    #[unsafe(super(objc2_app_kit::NSOutlineView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavOutlineView"]
+    struct DayNavOutlineView;
+
+    unsafe impl NSObjectProtocol for DayNavOutlineView {}
+
+    impl DayNavOutlineView {
+        /// The clicked row's context menu (docs/menus.md): NSTableView-family views consume
+        /// right-clicks themselves, so per-row menus are served HERE — resolve the row under
+        /// the click, then build the same NSMenu the piece decorator would.
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(
+            &self,
+            event: &objc2_app_kit::NSEvent,
+        ) -> Option<Retained<NSMenu>> {
+            let point = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+            let row = unsafe { self.rowAtPoint(point) };
+            let data = NAV_OUTLINE_MENUS
+                .with(|m| m.borrow().get(&(self as *const _ as usize)).cloned());
+            // `define_class!` rewrites the return, so no early `return` — one expression.
+            match data {
+                None => None,
+                Some(d) => {
+                    let items = d
+                        .item_of_row(row)
+                        .and_then(|i| d.ivars().menus.borrow().get(i).cloned())
+                        .unwrap_or_default();
+                    if items.is_empty() {
+                        None
+                    } else {
+                        Some(build_ns_menu(d.mtm(), "", &items))
+                    }
+                }
+            }
+        }
+    }
+);
+
+thread_local! {
+    /// Outline ptr → its data source, for [`DayNavOutlineView::menu_for_event`]'s row lookup.
+    static NAV_OUTLINE_MENUS: RefCell<HashMap<usize, Retained<DayNavMenuData>>> =
+        RefCell::new(HashMap::new());
+}
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -1005,12 +1054,14 @@ impl DayNavMenuData {
         badges: &[Option<String>],
         sections: &[Option<String>],
         tints: &[Option<day_spec::Color>],
+        menus: &[Vec<day_spec::MenuItem>],
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
             node,
             items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
             icons: RefCell::new(resolve_nav_icons(icons)),
             tints: RefCell::new(tints.to_vec()),
+            menus: RefCell::new(menus.to_vec()),
             badges: RefCell::new(ns_badges(badges)),
             rows: RefCell::new(Vec::new()),
             row_objects: RefCell::new(Vec::new()),
@@ -1029,10 +1080,12 @@ impl DayNavMenuData {
         badges: &[Option<String>],
         sections: &[Option<String>],
         tints: &[Option<day_spec::Color>],
+        menus: &[Vec<day_spec::MenuItem>],
     ) {
         *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
         *self.ivars().icons.borrow_mut() = resolve_nav_icons(icons);
         *self.ivars().tints.borrow_mut() = tints.to_vec();
+        *self.ivars().menus.borrow_mut() = menus.to_vec();
         *self.ivars().badges.borrow_mut() = ns_badges(badges);
         self.rebuild_rows(items, sections);
     }
@@ -2501,8 +2554,18 @@ impl Toolkit for AppKit {
                     &p.badges,
                     &p.sections,
                     &p.tints,
+                    &p.menus,
                 );
-                let outline = unsafe { objc2_app_kit::NSOutlineView::new(mtm) };
+                // The Day subclass serves per-row context menus via menuForEvent:.
+                let outline: Retained<objc2_app_kit::NSOutlineView> = {
+                    let o: Retained<DayNavOutlineView> =
+                        unsafe { msg_send![DayNavOutlineView::alloc(mtm), init] };
+                    NAV_OUTLINE_MENUS.with(|m| {
+                        m.borrow_mut()
+                            .insert(Retained::as_ptr(&o) as usize, data.clone())
+                    });
+                    unsafe { msg_send![&*o, self] }
+                };
                 let col = unsafe {
                     objc2_app_kit::NSTableColumn::initWithIdentifier(
                         objc2_app_kit::NSTableColumn::alloc(mtm),
@@ -2838,6 +2901,7 @@ impl Toolkit for AppKit {
                     badges,
                     sections,
                     tints,
+                    menus,
                     selected,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -2846,7 +2910,7 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
-                        data.set_items(items, icons, badges, sections, tints);
+                        data.set_items(items, icons, badges, sections, tints, menus);
                         data.ivars().suppress.set(true);
                         unsafe {
                             outline.reloadData();

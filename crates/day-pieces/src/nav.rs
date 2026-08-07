@@ -417,6 +417,7 @@ type DerivedRows<K> = (
     Vec<Option<String>>,
     Vec<Option<String>>,
     Vec<Option<day_spec::Color>>,
+    Vec<Vec<day_spec::MenuItem>>,
 );
 
 struct SelItem<K> {
@@ -426,6 +427,9 @@ struct SelItem<K> {
     icon: Option<String>,
     /// Optional per-row icon tint (docs/vectors.md).
     tint: Option<day_spec::Color>,
+    /// Per-row context menu (docs/menus.md), already lowered — items carry registered
+    /// action ids. Empty = no menu.
+    menu: Vec<day_spec::MenuItem>,
     /// Trailing accessory (an unread count). A `TextSource` so a live count retitles on its
     /// own signal, and so a localized badge follows `set_locale`.
     badge: Option<TextSource>,
@@ -445,6 +449,7 @@ pub struct NavItem<K = String> {
     title: TextSource,
     icon: Option<String>,
     icon_tint: Option<day_spec::Color>,
+    menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
     section: Option<TextSource>,
     immersive: bool,
@@ -457,6 +462,7 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
     NavItem {
         key: key.into(),
         icon_tint: None,
+        menu: Vec::new(),
         title: title.into_text(),
         icon: None,
         badge: None,
@@ -476,6 +482,14 @@ impl<K> NavItem<K> {
     /// backend's neutral template tint. Backends without per-row tinting keep the neutral look.
     pub fn icon_tint(mut self, color: day_spec::Color) -> Self {
         self.icon_tint = Some(color);
+        self
+    }
+    /// Attach a context menu to this row (docs/menus.md): shown on secondary-click /
+    /// long-press, the same `menu_item`/`sub_menu` builders as everywhere else. A chosen
+    /// entry runs its action exactly like a piece context menu. Backends without per-row
+    /// menus drop it (see the matrix in docs/menus.md).
+    pub fn context_menu(mut self, entries: Vec<crate::menus::MenuEntry>) -> Self {
+        self.menu = crate::menus::lower_menu(entries);
         self
     }
     /// A trailing accessory for this row — an unread count, a status. Rendered right-aligned
@@ -521,6 +535,7 @@ enum MetaSource<K> {
 struct RowMeta {
     icon: Option<String>,
     tint: Option<day_spec::Color>,
+    menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
     section: Option<TextSource>,
 }
@@ -533,6 +548,7 @@ struct NavRows<K> {
     badges: Vec<Option<String>>,
     sections: Vec<Option<String>>,
     tints: Vec<Option<day_spec::Color>>,
+    menus: Vec<Vec<day_spec::MenuItem>>,
 }
 
 struct SelItems<K> {
@@ -557,6 +573,7 @@ impl<K: Route> SelItems<K> {
                         RowMeta {
                             icon: it.icon,
                             tint: it.tint,
+                            menu: it.menu,
                             badge: it.badge,
                             section: it.section,
                         },
@@ -587,6 +604,7 @@ impl<K: Route> SelItems<K> {
             badges: Vec::new(),
             sections: Vec::new(),
             tints: Vec::new(),
+            menus: Vec::new(),
         };
         let mut push = |k: K, title: String, m: &RowMeta| {
             r.keys.push(k);
@@ -595,6 +613,7 @@ impl<K: Route> SelItems<K> {
             r.badges.push(m.badge.as_ref().map(|b| b.resolve()));
             r.sections.push(m.section.as_ref().map(|s| s.resolve()));
             r.tints.push(m.tint);
+            r.menus.push(m.menu.clone());
         };
         for ms in self.meta.iter() {
             match ms {
@@ -604,6 +623,7 @@ impl<K: Route> SelItems<K> {
                         let m = RowMeta {
                             icon: it.icon,
                             tint: it.tint,
+                            menu: it.menu,
                             badge: it.badge,
                             section: it.section,
                         };
@@ -781,6 +801,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             title: title.into_text(),
             icon: None,
             tint: None,
+            menu: Vec::new(),
             badge: None,
             section,
             immersive: false,
@@ -805,6 +826,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             title: title.into_text(),
             icon: Some(icon.into().as_str().to_owned()),
             tint: None,
+            menu: Vec::new(),
             badge: None,
             section,
             immersive: false,
@@ -854,6 +876,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
                         title: ni.title,
                         icon: ni.icon,
                         tint: ni.icon_tint,
+                        menu: ni.menu,
                         badge: ni.badge,
                         section: ni.section,
                         immersive: ni.immersive,
@@ -1094,6 +1117,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                     badges: b,
                     sections: sc,
                     tints: tn,
+                    menus: mn,
                 } = items_e.derive();
                 (
                     k.iter().map(|x| x.key()).collect::<Vec<_>>(),
@@ -1103,11 +1127,14 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                     b,
                     sc,
                     tn,
+                    mn,
                 )
             },
-            // Tabs render neither badges nor sections; the derive carries them for the
-            // selector's sake, so they are deliberately unused here.
-            move |(key_strs, keys, ts, ics, _badges, _sections, _tints): &DerivedRows<K>| {
+            // Tabs render neither badges, sections, nor row menus; the derive carries them
+            // for the selector's sake, so they are deliberately unused here.
+            move |(key_strs, keys, ts, ics, _badges, _sections, _tints, _menus): &DerivedRows<
+                K,
+            >| {
                 // Drop pages whose key vanished (dispose scope + remove subtree).
                 pages_e.borrow_mut().retain(|(k, page, scope)| {
                     if key_strs.contains(k) {
@@ -1257,6 +1284,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
         let (badges_init, sections_init) = (rows0.badges.clone(), rows0.sections.clone());
         let tints_init = rows0.tints.clone();
+        let menus_init = rows0.menus.clone();
         let menu_piece = piece_fn(move |mcx| {
             let node = mcx.native(
                 kinds::NAV_MENU,
@@ -1266,6 +1294,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     badges: badges_init,
                     sections: sections_init,
                     tints: tints_init,
+                    menus: menus_init,
                     selected: None,
                 },
                 Rc::new(LeafLayout),
@@ -1452,6 +1481,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     badges: b,
                     sections: sc,
                     tints: tn,
+                    menus: mn,
                 } = items_e.derive();
                 (
                     k.iter().map(|x| x.key()).collect::<Vec<_>>(),
@@ -1461,9 +1491,10 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     b,
                     sc,
                     tn,
+                    mn,
                 )
             },
-            move |(key_strs, keys, ts, ics, bs, scs, tns): &DerivedRows<K>| {
+            move |(key_strs, keys, ts, ics, bs, scs, tns, mns): &DerivedRows<K>| {
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
@@ -1494,6 +1525,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                                 badges: bs.clone(),
                                 sections: scs.clone(),
                                 tints: tns.clone(),
+                                menus: mns.clone(),
                                 selected,
                             }),
                             false,

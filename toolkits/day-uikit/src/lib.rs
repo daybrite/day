@@ -1345,6 +1345,9 @@ mod imp {
         /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
         /// Template mode tints them with the cell's tint colour (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
+        /// Per-row context menu (docs/menus.md), empty = none — served through the table
+        /// delegate's row-context hook, the standard iOS long-press row menu.
+        menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
     }
 
     define_class!(
@@ -1397,6 +1400,44 @@ mod imp {
                 unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
                 emit(self.ivars().node, Event::SelectionChanged(row as i64));
             }
+
+            /// The row's context menu (docs/menus.md): the same UIMenu the piece decorator
+            /// builds, served through the table's own long-press affordance.
+            #[unsafe(method_id(tableView:contextMenuConfigurationForRowAtIndexPath:point:))]
+            fn context_menu_for_row(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+                _point: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                let row = unsafe { index_path.row() } as usize;
+                let items = self
+                    .ivars()
+                    .menus
+                    .borrow()
+                    .get(row)
+                    .cloned()
+                    .unwrap_or_default();
+                if items.is_empty() {
+                    // `define_class!` rewrites the return, so no early `return` — one expression.
+                    None
+                } else {
+                    let menu = build_ui_menu(self.mtm(), "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            Retained::into_raw(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            self.mtm(),
+                        )
+                    })
+                }
+            }
         }
     );
 
@@ -1440,6 +1481,7 @@ mod imp {
             items: &[String],
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
+            menus: &[Vec<day_spec::MenuItem>],
         ) -> Retained<Self> {
             let resolved: Vec<Option<Retained<objc2_ui_kit::UIImage>>> = icons
                 .iter()
@@ -1457,6 +1499,7 @@ mod imp {
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
                 icons: RefCell::new(resolved),
                 tints: RefCell::new(tints.to_vec()),
+                menus: RefCell::new(menus.to_vec()),
             });
             unsafe { msg_send![super(this), init] }
         }
@@ -1467,10 +1510,12 @@ mod imp {
             items: &[String],
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
+            menus: &[Vec<day_spec::MenuItem>],
         ) {
             *self.ivars().items.borrow_mut() =
                 items.iter().map(|s| NSString::from_str(s)).collect();
             *self.ivars().tints.borrow_mut() = tints.to_vec();
+            *self.ivars().menus.borrow_mut() = menus.to_vec();
             *self.ivars().icons.borrow_mut() = icons
                 .iter()
                 .map(|ic| {
@@ -2515,7 +2560,8 @@ mod imp {
                 }
                 Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    let data = DayNavTableData::new(mtm, id, &p.items, &p.icons, &p.tints);
+                    let data =
+                        DayNavTableData::new(mtm, id, &p.items, &p.icons, &p.tints, &p.menus);
                     let table = unsafe {
                         objc2_ui_kit::UITableView::initWithFrame_style(
                             objc2_ui_kit::UITableView::alloc(mtm),
@@ -2837,12 +2883,13 @@ mod imp {
                         items,
                         icons,
                         tints,
+                        menus,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         NAV_MENUS.with(|m| {
                             if let Some((data, n)) = m.borrow_mut().get_mut(&ptr_of(h)) {
-                                data.set_items(items, icons, tints);
+                                data.set_items(items, icons, tints, menus);
                                 *n = items.len();
                                 if let Some(tv) = h.downcast_ref::<objc2_ui_kit::UITableView>() {
                                     unsafe { tv.reloadData() };

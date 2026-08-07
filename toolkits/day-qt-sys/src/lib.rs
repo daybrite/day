@@ -322,4 +322,7 @@ unsafe extern "C" {
         shortcut: *const c_char,
     );
     pub fn day_qt_set_context_menu(widget: *mut c_void, menu: *mut c_void);
+    /// Per-row context menus for the nav list (docs/menus.md): a parallel array of QMenu*
+    /// (null = no menu for that row); the shim maps a custom-context request to its row.
+    pub fn day_qt_navlist_set_row_menus(w: *mut c_void, menus: *const *mut c_void, n: i32);
 }

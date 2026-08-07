@@ -157,6 +157,25 @@ resolve to the toolkit's own command instead. This keeps the crossing minimal (a
 holding native handles across the FFI boundary, and lets any backend add menu support by implementing
 just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 
+## Nav-row context menus
+
+A selector's rows can each carry their OWN context menu — `item(…).context_menu(vec![…])`
+inside the `.items` mapper (docs/navigation.md) — for the sidebar idioms every desktop app
+grows: per-feed "Mark all read", per-project "Reveal in Finder", the Showcase's per-page
+"Show Source". The entries are the same builders as everywhere else and lower through the
+same action registry, so a chosen entry dispatches identically to a piece context menu; the
+menus re-lower (re-localizing their labels) whenever the rows re-derive, exactly like the
+row titles.
+
+Per backend: AppKit serves them through the outline's `menuForEvent:` (NSTableView-family
+views consume right-clicks themselves, so a menu attached to a cell's subviews would never
+be consulted); UIKit through the table delegate's row-context hook (the standard long-press
+row menu); GTK a per-row `PopoverMenu` with secondary-click + long-press gestures; Qt one
+`QMenu` per row popped from the list's custom-context request; Android a best-effort
+`setNavRowMenus` follow-up after the nav mounts (the same off-critical-path rule as the row
+tints — docs/vectors.md). Web and ArkUI drop them for now, same as the piece decorator's
+matrix.
+
 ## Platform notes
 
 - **Nested submenus** are unlimited on the desktop backends and iOS. Android menus support a single
@@ -164,6 +183,29 @@ just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 - **Separators** render as dividers everywhere; on Android they become menu-group boundaries (dividers
   on API 28+).
 - A `context_menu(vec![])` (empty) or a later reconfigure detaches/replaces the menu on the Piece.
+
+## Future surfaces: dock, taskbar, and launcher menus
+
+The same [`MenuEntry`] tree is deliberately the right shape for the app-wide surfaces day
+does not drive yet, which differ per platform far more in ATTACHMENT than in model:
+
+- **macOS Dock menu** — an `NSMenu` from `applicationDockMenu(_:)`: literally the existing
+  builder plus one delegate hook. Shown while the app runs, so registered action ids
+  dispatch normally.
+- **Windows taskbar** — jump lists are NOT menus: pinned entries persist while the app is
+  CLOSED and must relaunch it with arguments. The model maps (label + action id), but the
+  dispatch would have to lower to a relaunch argument (`--day-action <id>` → replayed at
+  startup), and `id`s would need to be stable across runs — today they are process-unique,
+  which is the real design gap.
+- **iOS/Android/HarmonyOS launcher shortcuts** (`UIApplicationShortcutItem`, `<shortcuts>`,
+  ArkTS wants) — the same persist-while-closed model as jump lists, plus per-platform icon
+  vocabularies and hard entry-count caps (≈4).
+
+So a future `app_dock_menu(vec![MenuEntry])` costs one delegate hook on macOS and nothing
+new in the model, while the persistent surfaces (jump lists, launcher shortcuts) need one
+new concept first: durable action identities that survive a relaunch — the natural key is
+the day ROUTE rather than a closure id, which also matches what those surfaces mostly do
+(deep-link into a screen). That is the design line to draw when they land.
 
 ## Runtime language changes: `app_menu_reactive`
 

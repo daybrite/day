@@ -1853,6 +1853,11 @@ pub mod props {
         /// before that row; `None` continues the current one. Parallel to `items`, so adding a
         /// header never shifts the selection indices the rows are addressed by.
         pub sections: Vec<Option<String>>,
+        /// A per-row context menu (docs/menus.md): shown on secondary-click / long-press on
+        /// that row, the same [`crate::MenuItem`] model as everywhere else — items carry
+        /// registered action ids, so a chosen entry dispatches [`crate::Event::MenuAction`]
+        /// exactly like a piece context menu. Parallel to `items`; empty = no menu.
+        pub menus: Vec<Vec<crate::MenuItem>>,
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]
@@ -1869,6 +1874,7 @@ pub mod props {
             badges: Vec<Option<String>>,
             sections: Vec<Option<String>>,
             tints: Vec<Option<Color>>,
+            menus: Vec<Vec<crate::MenuItem>>,
             selected: Option<usize>,
         },
     }

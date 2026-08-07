@@ -1170,6 +1170,22 @@ mod imp {
             .join("\u{1f}")
     }
 
+    /// Per-row nav context menus (docs/menus.md) as one string: each row's
+    /// [`serialize_menu`] spec (empty = no menu), joined by U+001E — a separator the line
+    /// format itself never contains. Ridden best-effort AFTER makeNavMenu/updateNavMenu,
+    /// like the tints.
+    fn nav_menus_joined(menus: &[Vec<day_spec::MenuItem>]) -> String {
+        menus
+            .iter()
+            .map(|items| {
+                let mut spec = String::new();
+                serialize_menu(items, &mut spec);
+                spec
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1e}")
+    }
+
     fn argb_i32(c: day_spec::Color) -> i32 {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u32;
         ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
@@ -1500,6 +1516,7 @@ mod imp {
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let joined_tints = nav_tints_joined(&p.tints);
+                    let joined_menus = nav_menus_joined(&p.menus);
                     with_env(|env| {
                         let s = jstr(env, &joined);
                         let si = jstr(env, &joined_icons);
@@ -1518,6 +1535,14 @@ mod imp {
                             "setNavMenuTints",
                             "(Landroid/view/View;Ljava/lang/String;)V",
                             &[JValue::Object(handle.0.as_obj()), JValue::Object(&st)],
+                        );
+                        // Per-row context menus (docs/menus.md): same best-effort follow-up.
+                        let sm = jstr(env, &joined_menus);
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setNavRowMenus",
+                            "(Landroid/view/View;Ljava/lang/String;)V",
+                            &[JValue::Object(handle.0.as_obj()), JValue::Object(&sm)],
                         );
                         if env.exception_check() {
                             env.exception_clear();
@@ -1712,6 +1737,7 @@ mod imp {
                             items,
                             icons,
                             tints,
+                            menus,
                             ..
                         }) => {
                             let joined = items.join("\u{1f}");
@@ -1721,6 +1747,7 @@ mod imp {
                                 .collect::<Vec<_>>()
                                 .join("\u{1f}");
                             let joined_tints = nav_tints_joined(tints);
+                            let joined_menus = nav_menus_joined(menus);
                             with_env(|env| {
                                 let s = jstr(env, &joined);
                                 let si = jstr(env, &joined_icons);
@@ -1740,6 +1767,13 @@ mod imp {
                                     "setNavMenuTints",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
                                     &[JValue::Object(h.0.as_obj()), JValue::Object(&st)],
+                                );
+                                let sm = jstr(env, &joined_menus);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "setNavRowMenus",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&sm)],
                                 );
                                 if env.exception_check() {
                                     env.exception_clear();

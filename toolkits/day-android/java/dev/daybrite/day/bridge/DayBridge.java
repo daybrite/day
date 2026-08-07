@@ -1355,6 +1355,25 @@ public final class DayBridge {
         });
     }
 
+    /** Per-row nav context menus (docs/menus.md): one {@link #setContextMenu} spec per row,
+     *  joined by U+001E (empty entry = no menu for that row). Best-effort by design — called
+     *  AFTER makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never
+     *  abort the native tree build. */
+    public static void setNavRowMenus(View navMenu, String joinedSpecs) {
+        try {
+            if (!(navMenu instanceof android.widget.ScrollView)) return;
+            android.view.ViewGroup list =
+                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
+            if (list == null) return;
+            String[] specs = joinedSpecs.isEmpty() ? new String[0] : joinedSpecs.split("\u001e", -1);
+            for (int i = 0; i < list.getChildCount() && i < specs.length; i++) {
+                setContextMenu(list.getChildAt(i), specs[i]);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("day", "setNavRowMenus (best-effort)", t);
+        }
+    }
+
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
     public static void setContextMenu(final View v, final String spec) {
         if (spec == null || spec.isEmpty()) {

@@ -51,6 +51,7 @@ the architecture-level view and the rationale.
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | docs/recorder-matrix.md | [§14.6](#146-recording) |
 | tabs | docs/tabs.md | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
+| deep links — scheme registration, cold/warm delivery, per-platform intake (spec; ios/android/web shipped) | docs/deep-links.md | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
