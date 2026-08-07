@@ -808,11 +808,11 @@ pub fn add_toolkit(
         .filter(|t| !existing.contains(t))
         .cloned()
         .collect();
+    // Already-declared targets still MATERIALIZE below (never overwriting): that is how an
+    // app adopts a host project the scaffold gained after it was created — e.g. running
+    // `day app add-toolkit macos-appkit` on an app that predates platform/macos/.
     for already in wanted.iter().filter(|t| existing.contains(t)) {
-        eprintln!("day: {already} is already a target of this app — skipping");
-    }
-    if new_targets.is_empty() {
-        return 0;
+        eprintln!("day: {already} is already in Day.toml — materializing any missing files");
     }
 
     // The SAME context `day new app` renders with, rebuilt from the app's own Day.toml.
@@ -833,7 +833,7 @@ pub fn add_toolkit(
             return 1;
         }
     };
-    let files = crate::template::platform_files_for_targets(files, &new_targets);
+    let files = crate::template::platform_files_for_targets(files, &wanted);
     let rendered = match crate::template::render(&files, &ctx) {
         Ok(r) => r,
         Err(e) => {
@@ -862,35 +862,48 @@ pub fn add_toolkit(
     }
 
     // Day.toml: append to `[app] targets` via toml_edit — comments and formatting survive.
-    let day_toml = project.root.join("Day.toml");
-    let text = match std::fs::read_to_string(&day_toml) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("error reading {}: {e}", day_toml.display());
+    // Nothing to append when every requested target was already declared (a pure
+    // materialization run).
+    if !new_targets.is_empty() {
+        let day_toml = project.root.join("Day.toml");
+        let text = match std::fs::read_to_string(&day_toml) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("error reading {}: {e}", day_toml.display());
+                return 1;
+            }
+        };
+        let refs: Vec<&str> = new_targets.iter().map(String::as_str).collect();
+        let updated = match add_targets_to_day_toml(&text, &refs) {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return 1;
+            }
+        };
+        if let Err(e) = std::fs::write(&day_toml, updated) {
+            eprintln!("error writing {}: {e}", day_toml.display());
             return 1;
         }
-    };
-    let refs: Vec<&str> = new_targets.iter().map(String::as_str).collect();
-    let updated = match add_targets_to_day_toml(&text, &refs) {
-        Ok(u) => u,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
-    if let Err(e) = std::fs::write(&day_toml, updated) {
-        eprintln!("error writing {}: {e}", day_toml.display());
-        return 1;
     }
 
-    let list = new_targets.join(", ");
     let files_note = if skipped > 0 {
         format!("{written} file(s) added, {skipped} already present")
     } else {
         format!("{written} file(s) added")
     };
-    ops::status("Added", &format!("{list} → Day.toml ({files_note})"));
-    let first = &new_targets[0];
+    if new_targets.is_empty() {
+        ops::status(
+            "Added",
+            &format!("{} host-project files ({files_note})", wanted.join(", ")),
+        );
+    } else {
+        ops::status(
+            "Added",
+            &format!("{} → Day.toml ({files_note})", new_targets.join(", ")),
+        );
+    }
+    let first = &wanted[0];
     // `day doctor` groups by its own toolkit ids, which differ from the backend feature names
     // for the two mobile toolkits.
     let toolkit = match targets::find(first).map(|t| t.toolkit).unwrap_or_default() {

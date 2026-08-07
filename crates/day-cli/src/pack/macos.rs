@@ -19,6 +19,14 @@ pub fn pack(
 ) -> Result<Artifact, PackError> {
     let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
     let name = &project.manifest.app.name;
+    // A scaffolded app (platform/macos/, §17.4) builds as a whole `.app`; this packer still
+    // assembles its own bundle, so take the inner binary. (Packing the Xcode bundle as-is is
+    // the planned follow-up — signing/dmg/notarization stay identical either way.)
+    let built_binary = if outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app") {
+        outcome.artifact.join("Contents/MacOS").join(name)
+    } else {
+        outcome.artifact.clone()
+    };
     let title = project
         .manifest
         .app
@@ -35,7 +43,7 @@ pub fn pack(
     let res_dir = app.join("Contents/Resources");
     std::fs::create_dir_all(&macos_dir).map_err(|e| PackError::Other(e.to_string()))?;
     std::fs::create_dir_all(&res_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::copy(&outcome.artifact, macos_dir.join(name))
+    std::fs::copy(&built_binary, macos_dir.join(name))
         .map_err(|e| PackError::Other(e.to_string()))?;
     let assets = project.root.join("resource/assets");
     if assets.is_dir() {

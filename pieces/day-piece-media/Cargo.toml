@@ -96,3 +96,11 @@ permissions = ["android.permission.INTERNET"]
 # CoreMedia carries kCMTimeZero (used by the looping seek); objc2-core-media's Rust framework
 # link is ignored by xcodebuild, so the app links it here too.
 frameworks = ["AVKit", "AVFoundation", "CoreMedia"]
+
+# --- macOS backend contribution ---
+# The same frameworks for the same reason once the platform/macos/ Xcode host project drives
+# the final link (§17.4): xcodebuild reads no Rust link metadata, so the generated DayPieces
+# package declares them. The cargo-driven build keeps linking them itself; the duplicate
+# declaration is harmless there.
+[package.metadata.day.macos]
+frameworks = ["AVKit", "AVFoundation", "CoreMedia"]

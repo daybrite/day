@@ -1,0 +1,367 @@
+---
+title: Day for Electron developers
+description: "An Electron-to-Day translation guide: BrowserWindow to open_window, IPC to plain function calls, HTML/CSS to native pieces, and electron-builder to day pack — with side-by-side code."
+order: 8
+section: Coming from
+---
+
+import Compare from '../../components/Compare.astro';
+
+Electron and Day solve the same problem — one codebase, every desktop — with opposite materials.
+Electron ships a browser and a Node runtime with each app and renders your UI as a web page; Day
+compiles Rust ahead of time and builds your UI from the platform's own widgets — `NSButton` and
+`NSMenu` on macOS, GTK 4 or Qt 6 on Linux, system XAML on Windows. The result differs in what
+you write (Rust instead of HTML/CSS/JS), what you ship (a native binary instead of a bundled
+Chromium), and what the user sees (their platform's controls instead of a web page in a frame).
+
+Two structural differences drive everything in this guide. First, the process model: an Electron
+app is a Node main process and one Chromium renderer per window, talking over IPC, with a preload
+script policing the boundary; a Day app is one process, and "call the OS" is a function call.
+Second, the reach: Electron targets the three desktops, and Day's twelve targets add iOS,
+Android, HarmonyOS, and the web — the same crate compiles to WebAssembly driving real DOM
+elements — from the same repository.
+
+## Electron terms in Day
+
+| Electron | Day |
+|---|---|
+| `BrowserWindow` | `day::launch` for the main window, `open_window` for more |
+| main process / renderer / IPC | one process; a platform call is a function call |
+| `preload.js` + `contextBridge` | not needed — there is no privilege boundary to bridge |
+| HTML + CSS (+ React/Vue) | [pieces](/docs/pieces) + [signals](/docs/reactivity) + modifiers |
+| `Menu.buildFromTemplate` | `app_menu` — native menus in both, declared in Rust |
+| `new Notification({...})` | [`day-part-local-notify`](/docs/guide-notifications) |
+| `electron-store`, `localStorage` | `day::prefs` ([guide](/docs/guide-storage)) |
+| Node `fs` | `day-part-fs`, or `std::fs` — it's ordinary Rust |
+| `fetch` / Node `net` | [`day-part-http`](/docs/guide-http) — each platform's own networking stack |
+| `<webview>` / `WebContentsView` | [`day-piece-webview`](/docs/internal/webview) — the system webview |
+| native modules (N-API, node-gyp) | [parts](/docs/parts) and [pieces](/docs/extending), compiled with the app |
+| `nodeIntegration` / `contextIsolation` hardening | not applicable — no scriptable renderer exists |
+| `electron-builder` / Forge | `day pack -p <target>` |
+| `autoUpdater` (Squirrel) | none yet — ship through stores and installers |
+| Playwright / WebdriverIO | [dayscript](/docs/dayscript), the same script on every target |
+
+## The same counter in both
+
+<Compare lhs="Electron">
+
+```html
+<!-- index.html, loaded by a BrowserWindow -->
+<div style="display:flex; flex-direction:column;
+            gap:12px; padding:16px">
+  <span id="count">0 clicks</span>
+  <button id="inc">+</button>
+</div>
+<script>
+  let count = 0;
+  const label = document.getElementById('count');
+  document.getElementById('inc').onclick = () => {
+    count += 1;
+    label.textContent = `${count} clicks`;
+  };
+</script>
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+The shapes rhyme — a container, a text node, a click handler — but the right side is not a
+document. `label` is a real native text widget, `button` a real native button, and the closure
+inside `label` is a binding: when `count` changes, Day re-runs that one closure and calls one
+native setter. There is no DOM, no style recalculation, and no reconciliation pass. If your
+Electron app is React inside the renderer, the mental shift is the same one plus one more: Day
+never re-runs your component function, so there are no hooks rules and no dependency arrays.
+
+## One process, no IPC
+
+The pattern every Electron app grows: a capability lives in the main process, so the renderer
+reaches it through `ipcMain.handle`, a preload bridge, and an `invoke`. In Day the capability is
+a crate and you call it.
+
+<Compare lhs="Electron">
+
+```js
+// main.js
+ipcMain.handle('open-notes', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    filters: [{ name: 'Text', extensions: ['txt', 'md'] }],
+  });
+  if (canceled) return null;
+  return fs.promises.readFile(filePaths[0], 'utf8');
+});
+
+// preload.js
+contextBridge.exposeInMainWorld('api', {
+  openNotes: () => ipcRenderer.invoke('open-notes'),
+});
+
+// renderer.js
+const text = await window.api.openNotes();
+if (text !== null) editor.value = text;
+```
+
+```rust
+// anywhere in the app — same process, same language
+button("Open…").action(move || {
+    day::task(async move {
+        if let Some(file) = open_file()
+            .filter("Text", &["txt", "md"])
+            .await
+        {
+            if let Ok(text) = file.read_to_string() {
+                editor.set(text);
+            }
+        }
+    });
+})
+```
+
+</Compare>
+
+The three-file round trip on the left is the boundary tax: every capability needs a handler, a
+bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the battery
+is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()` — plain
+functions, typed end to end, with nothing marshalled through strings. When a capability needs
+platform code Day doesn't ship (your N-API module case), you write a [part](/docs/parts): the
+platform halves live in one crate and calls into it stay ordinary Rust.
+
+## Real widgets, not a rendered page
+
+Form controls bind two ways out of the box, and each one is the platform's own control — which
+is also where accessibility, keyboard traversal, right-to-left mirroring, and the user's text
+size come from, with no ARIA layer to maintain:
+
+```rust
+let name = Signal::new(String::new());
+let volume = Signal::new(40.0);
+let subscribed = Signal::new(false);
+let size = Signal::new(0usize);
+
+column((
+    text_field(name).placeholder("Your name"),
+    slider(volume).range(0.0..=100.0),
+    toggle(subscribed),
+    picker(["Small", "Medium", "Large"], size).segmented(),
+))
+.spacing(12.0)
+```
+
+Long lists don't need react-window: [`list`](/docs/internal/list) hands your rows to the
+platform's recycling list widget (`NSTableView`-family, `RecyclerView`), so ten thousand rows
+build only the visible cells. Styling is modifier-based (`.padding`, `.background`,
+`.corner_radius`, semantic `Font::Title`), and [Styling](/docs/styling) is explicit about the
+line Day draws: you adjust spacing, color, and typography, and the controls themselves stay
+native rather than becoming a themeable canvas. If the design brief is a fully bespoke skin on
+every pixel, a web renderer serves that better; if the brief is "a real Mac app on the Mac", the
+line is the point.
+
+## Windows, menus, and the chrome
+
+Electron's menus are already native — `Menu.buildFromTemplate` is the part of Electron closest
+to Day's model. Day extends that treatment to everything: windows are native windows you open
+directly, the Settings window is a one-call convention, and toolbars live in the real title-bar
+chrome, not a styled `div` strip.
+
+<Compare lhs="Electron">
+
+```js
+const win = new BrowserWindow({
+  width: 520, height: 420,
+  webPreferences: { preload: PRELOAD },
+});
+win.loadFile('settings.html');
+
+Menu.setApplicationMenu(Menu.buildFromTemplate([
+  { role: 'appMenu' },
+  { label: 'File', submenu: [
+    { label: 'New Note', accelerator: 'CmdOrCtrl+N',
+      click: newNote },
+  ]},
+]));
+```
+
+```rust
+day::open_window(
+    "settings",
+    WindowOptions { title: "Settings".into(),
+                    size: Size::new(520.0, 420.0),
+                    ..Default::default() },
+    WindowKind::Preferences,
+    settings_page,
+);
+
+app_menu((
+    sub_menu("File", (
+        menu_item("New Note").key("n").action(new_note),
+        menu_role(MenuRole::Quit),
+    )),
+));
+```
+
+</Compare>
+
+`register_preferences_with` goes further than the sample: registering a Settings page once puts
+the standard Settings… item (⌘, on macOS) in the right menu on every desktop, and
+platforms without windows — the same code on an iPhone — present a fullscreen cover instead.
+The [desktop guide](/docs/guide-desktop) walks all three subsystems.
+
+## What ships, and what it weighs
+
+An Electron app carries its own Chromium and Node: the quick-start app is roughly a hundred
+megabytes installed before your first line of code, every window is a renderer process, and
+each Chromium security release is yours to rebuild and redistribute. A Day app is one process
+and one native binary linking the toolkit the OS already has. For scale: the Day Showcase — 26
+pages exercising every widget, chart, and part in this documentation — packs to a 5.7 MB
+notarized `.dmg`.
+
+The security model shrinks with the payload. There is no `nodeIntegration` checklist because
+there is no scriptable renderer: your app doesn't embed a browser, so it can't be XSS'd into
+the filesystem. When you do show remote content, [`day-piece-webview`](/docs/internal/webview)
+hosts the *system* webview — WKWebView, WebView2, WebKitGTK — which the operating system keeps
+patched, on the OS's schedule instead of yours.
+
+## Your web investment still counts
+
+Two escape valves matter for a team coming from the web. Existing web screens can ride along:
+`web_view(url_signal)` embeds them natively while you migrate page by page. And the whole app runs *as*
+a website: `day build -p web-dom` compiles the same crate to WebAssembly driving real DOM
+elements — the demo-without-installing story Electron apps usually rebuild separately. For a
+team that keeps a foot in TypeScript, [`day-lite`](/docs/internal/lite) runs JS/TS miniapps on
+top of Day's native pieces, though it's a hosting layer, not a general replacement for app code.
+
+## Package configuration
+
+<Compare lhs="Electron">
+
+```jsonc
+// package.json
+{
+  "name": "field-notes",
+  "version": "1.2.0",
+  "main": "main.js",
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}
+// plus electron-builder.yml: appId, mac.category,
+// win.target, linux.target, files, asar…
+```
+
+```toml
+# Cargo.toml — the package
+[package]
+name = "field-notes"
+version = "1.2.0"
+edition = "2024"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+
+# Day.toml — the app manifest
+[app]
+id = "dev.example.fieldnotes"
+title = "Field Notes"
+build = 34
+targets = ["macos-appkit", "windows-xaml", "linux-gtk",
+           "ios-uikit", "android-mdc", "web-dom"]
+```
+
+</Compare>
+
+`Day.toml` plays electron-builder.yml's role — identity, targets, signing, permissions — with
+per-platform overrides (`[app.macos-appkit]`) instead of parallel config trees, and the same
+file covers the mobile targets Electron doesn't have.
+
+## Project structure
+
+<Compare lhs="Electron">
+
+```text
+field-notes/
+├── package.json
+├── electron-builder.yml
+├── main.js               # the Node side
+├── preload.js            # the bridge
+├── src/                  # the web app
+│   ├── index.html
+│   ├── renderer.js
+│   └── styles.css
+└── node_modules/
+```
+
+```text
+field-notes/
+├── Cargo.toml
+├── Day.toml
+├── src/
+│   ├── lib.rs            # the app: pieces, signals, routes
+│   └── main.rs           # desktop entry point
+├── resource/             # assets/ images/ vectors/ fonts/ icons/ locales/
+├── dayscript/            # UI test flows
+├── platform/             # thin mobile hosts (no app logic)
+└── build/day/            # everything generated
+```
+
+</Compare>
+
+The main/preload/renderer trio collapses into `src/`: there is one side. Resources are
+staged natively per platform and referenced through generated constants
+(`image(res::images::logo)` — a renamed file is a compile error, not a broken `src=` at
+runtime), and localization is Fluent catalogs compiled to typed functions
+([Localization](/docs/localization)).
+
+## Building and shipping
+
+| Task | Electron | Day |
+|---|---|---|
+| run in dev | `electron .` | `day launch -p macos-appkit` |
+| apply changes | reload the window | `day relaunch --all-running` |
+| macOS artifact | electron-builder → `.dmg`, notarize via config | `day pack -p macos-appkit` → notarized, stapled `.dmg` |
+| Windows artifact | NSIS / Squirrel | `day pack -p windows-xaml` → `.msix` + NSIS installer |
+| Linux artifact | AppImage / deb / snap | `day pack -p linux-gtk` → `.flatpak` + AppImage |
+| mobile | — | `day pack -p ios-uikit` / `-p android-mdc` → `.ipa`, `.apk` + `.aab` |
+| web | separate web build of the renderer code | `day build -p web-dom` — the same crate |
+| auto-update | `autoUpdater` + an update server | none yet — stores and installers carry updates |
+| UI tests | Playwright per OS | one dayscript, every target, in CI with screenshots |
+| supply chain | your Chromium/Node rebuild cadence | reproducible builds with SBOM + buildinfo sidecars per artifact ([details](/docs/reproducible-builds)) |
+
+## What you give up
+
+- **HTML, CSS, and the npm UI ecosystem.** No design-system packages, no CSS tricks, no DOM.
+  Day's widget vocabulary is deliberately small, and bespoke visuals mean `canvas` or a
+  [piece](/docs/extending), not a stylesheet.
+- **DevTools.** There is no element inspector; debugging is Rust tooling plus
+  [dayscript](/docs/dayscript) assertions and screenshots.
+- **Hot reload.** The loop is an incremental compile and relaunch, seconds on desktop, with a
+  script to put you back on the screen you were editing.
+- **Auto-update.** Electron's `autoUpdater` has no Day equivalent yet; updates travel through
+  the stores and installers `day pack` produces.
+- **Tray and global shortcuts.** No API for either yet. Menus carry per-item accelerators, but
+  there is no general key-event surface.
+- **Identical pixels everywhere.** Your app will look like a Mac app on macOS and a GTK app on
+  GNOME. That is the trade, not a bug — but if your brand requires one rendering on every OS,
+  Electron's single renderer serves it better.
+- **JavaScript.** The team writes Rust. Budget real ramp-up time; the compiler catches at build
+  time much of what you currently catch in DevTools.
+
+## Where to go next
+
+- [Getting started](/docs/getting-started) — install, scaffold, first launch.
+- [API tour](/docs/api-tour) — the whole authoring surface in one pass.
+- [Menus, toolbars, and windows](/docs/guide-desktop) — the desktop-app chrome in one guide.
+- [Why Day](/docs/benefits) — the frank comparison, including when a web renderer is the better fit.

@@ -219,6 +219,34 @@ pub fn build(
     if let Err(e) = crate::resources::stage(project, target) {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
+    // macos-appkit through the Xcode host project when the app carries one (§17.4,
+    // platform/macos/): a real bundle with identity, icon, and staged resources — the same
+    // build a developer gets pressing Run in Xcode. `DAY_MACOS_XCODE=0` opts back into the
+    // bare-cargo path (CI capture loops). Falls through to the shared artifact stamping
+    // below, so `--skip-build` reuse works on this path too.
+    let xcode_macos = target.name == "macos-appkit" && crate::mobile::macos_xcode_enabled(project);
+    let outcome = if xcode_macos {
+        crate::mobile::build_macos_xcode(project, target, profile, start)
+    } else {
+        build_native(project, target, profile, start)
+    }?;
+    // Record the artifact for `--skip-build` reuse ([`reuse_build`]). Best-effort — a failed
+    // stamp write must never fail a successful build.
+    let stamp = artifact_stamp(project, target, profile);
+    if let Some(dir) = stamp.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&stamp, outcome.artifact.display().to_string());
+    Ok(outcome)
+}
+
+/// The per-kind native build pipelines (the pre-dispatch body of [`build`]).
+fn build_native(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+    start: std::time::Instant,
+) -> Result<BuildOutcome, String> {
     let outcome = match target.kind {
         TargetKind::Desktop => {
             let mut cmd = Command::new("cargo");
@@ -236,7 +264,7 @@ pub fn build(
             // No contributions → `swift_link` is None and the cargo command below is byte-identical
             // to a plain build (no Swift toolchain needed).
             let swift_link = if target.name == "macos-appkit" {
-                match crate::pieces::write_macos_pieces(project)? {
+                match crate::pieces::write_macos_pieces(project, false)? {
                     Some(swift) => Some(crate::swift::build_day_pieces(project, profile, &swift)?),
                     None => None,
                 }
@@ -316,13 +344,6 @@ pub fn build(
         TargetKind::HarmonyOs => crate::ohos::build_ohos(project, target, profile, start),
         TargetKind::Web => crate::web::build_web(project, target, profile, start),
     }?;
-    // Record the artifact for `--skip-build` reuse ([`reuse_build`]). Best-effort — a failed
-    // stamp write must never fail a successful build.
-    let stamp = artifact_stamp(project, target, profile);
-    if let Some(dir) = stamp.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(&stamp, outcome.artifact.display().to_string());
     Ok(outcome)
 }
 
@@ -431,27 +452,51 @@ pub fn launch(
                     c.env("QT_QPA_PLATFORM", "offscreen");
                     c
                 }
-                HeadlessWrap::None => Command::new(&outcome.artifact),
+                HeadlessWrap::None => {
+                    // An Xcode-built `.app` bundle (platform/macos/, §17.4): exec its inner
+                    // binary directly. macOS resolves the adjacent Info.plist, so bundle
+                    // identity, the Dock icon (compiled appiconset), and `Contents/Resources`
+                    // are all REAL — none of the bare-binary environment below applies, and
+                    // execing (rather than `open`) keeps stdio attached for log streaming
+                    // and dayscript.
+                    if outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app") {
+                        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate
+                        // — take the bundle's single Contents/MacOS entry rather than guess.
+                        let macos_dir = outcome.artifact.join("Contents/MacOS");
+                        let bin = std::fs::read_dir(&macos_dir)
+                            .ok()
+                            .and_then(|rd| rd.flatten().map(|e| e.path()).next())
+                            .ok_or_else(|| {
+                                format!("no executable under {}", macos_dir.display())
+                            })?;
+                        Command::new(bin)
+                    } else {
+                        Command::new(&outcome.artifact)
+                    }
+                }
             };
-            cmd.current_dir(&project.root)
-                .env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
-                .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
-                // The vector raster cache (docs/vectors.md): how the file-loading desktop
-                // backends resolve `vector(…)` names — written by resources::stage at build.
-                .env(
-                    "DAY_VECTOR_RASTER_ROOT",
-                    crate::resources::vector_raster_dir(project),
-                )
-                // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG at
-                // display size on macOS 11+), so vectors stay vector on the desktop too.
-                .env(
-                    "DAY_VECTOR_SVG_ROOT",
-                    crate::resources::vector_svg_dir(project),
-                )
-                // Bundled fonts (§18.4): the desktop backends register every file in this
-                // directory with the platform font system at startup.
-                .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));
-            apply_app_identity(&mut cmd, project);
+            let bundled = outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app");
+            cmd.current_dir(&project.root);
+            if !bundled {
+                cmd.env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
+                    .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
+                    // The vector raster cache (docs/vectors.md): how the file-loading desktop
+                    // backends resolve `vector(…)` names — written by resources::stage at build.
+                    .env(
+                        "DAY_VECTOR_RASTER_ROOT",
+                        crate::resources::vector_raster_dir(project),
+                    )
+                    // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG
+                    // at display size on macOS 11+), so vectors stay vector on the desktop too.
+                    .env(
+                        "DAY_VECTOR_SVG_ROOT",
+                        crate::resources::vector_svg_dir(project),
+                    )
+                    // Bundled fonts (§18.4): the desktop backends register every file in this
+                    // directory with the platform font system at startup.
+                    .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));
+                apply_app_identity(&mut cmd, project);
+            }
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
             } else {
@@ -475,7 +520,11 @@ pub fn launch(
             }
             // App icon (§18.2): the backend applies it to the dock / taskbar at startup
             // (NSApp icon, QApplication window icon, GTK icon theme, Win32 WM_SETICON).
-            if let Some(icon) = crate::resources::app_icon(project, target.toolkit) {
+            // A bundled launch needs none of this — the compiled appiconset is the Dock icon.
+            if let Some(icon) = (!bundled)
+                .then(|| crate::resources::app_icon(project, target.toolkit))
+                .flatten()
+            {
                 cmd.env("DAY_APP_ICON", &icon);
                 if target.toolkit == "gtk" && cfg!(target_os = "linux") {
                     // GTK4 window icons are THEMED-name only: stage the icon into a hicolor

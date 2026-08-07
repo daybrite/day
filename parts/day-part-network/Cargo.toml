@@ -47,3 +47,10 @@ permissions = ["android.permission.ACCESS_NETWORK_STATE"]
 # the generated DayPieces SwiftPM package (resolve_ios scans every closure dep, part or piece).
 [package.metadata.day.ios]
 frameworks = ["SystemConfiguration"]
+
+# --- macOS backend contribution ---
+# Same story once the platform/macos/ Xcode host project drives the final link (§17.4): the
+# Rust `#[link]` attribute is honored only when cargo links, so the generated DayPieces
+# package declares the framework for xcodebuild.
+[package.metadata.day.macos]
+frameworks = ["SystemConfiguration"]

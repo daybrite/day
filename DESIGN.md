@@ -2354,7 +2354,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
-| `day app` | add platforms/toolkits to an existing app |
+| `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`) |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
@@ -2383,11 +2383,15 @@ by the app id so the same id always scaffolds the same icon; `--icon-seed` overr
 #### `day build`
 
 Per target: (1) preflight, (2) conveyance generation from `Day.toml` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)), (3) the target's
-pipeline — `xcodebuild` for ios only; `gradle` for android; hvigor for ohos; **cargo + bundle
-assembly for all cargo-driven desktop targets including `macos-appkit`** (their "scaffold" is a
-packaging recipe, not an IDE project — since 2026-08 `macos-appkit` adds a conditional `swift
-build` prepass when dependencies contribute macOS Swift, statically linked into the cargo binary;
-[§15.2](#152-package-layout-and-aggregation), docs/swiftui.md); MSBuild-free cargo + C++/WinRT shim for windows. The
+pipeline — `xcodebuild` for ios; `gradle` for android; hvigor for ohos; cargo + bundle
+assembly for the cargo-driven desktop targets; MSBuild-free cargo + C++/WinRT shim for windows.
+**`macos-appkit` is dual-mode** (2026-08): an app carrying the `platform/macos/` Xcode host
+project (scaffolded by default; adoptable via `day app add-toolkit macos-appkit`) builds through
+`xcodebuild` into a real `.app` — bundle identity, compiled appiconset, resources staged into
+`Contents/Resources` by the `day xcode-backend stage-resources` script phase — while
+`DAY_MACOS_XCODE=0` (or no scaffold) keeps the bare cargo + bundle-assembly path, whose
+conditional `swift build` prepass statically links macOS Swift contributions
+([§15.2](#152-package-layout-and-aggregation), docs/swiftui.md). The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
@@ -2416,8 +2420,11 @@ it never fails the pack; `day sign --check` reports readiness without printing a
 #### `day launch`
 
 Build (+ sign where the destination requires) + install + run + stream logs, per target, in
-parallel: desktop runs the binary/bundle; ios via `simctl` with `log stream`; android via
-`adb install` / `am start` with pid-scoped logcat; ohos via `hdc`. `--locale` moves the whole
+parallel: desktop runs the binary/bundle — for a `platform/macos/` app the xcodebuild-built
+`.app`'s own executable, exec'd directly so stdio (log streaming, dayscript) stays attached
+while macOS resolves the bundle's real identity, Dock icon, and `Contents/Resources` (none of
+the bare-binary `DAY_*`/`DAY_APP_ICON` environment applies); ios via `simctl` with
+`log stream`; android via `adb install` / `am start` with pid-scoped logcat; ohos via `hdc`. `--locale` moves the whole
 app's locale; `--env` passes app environment (on web-dom as page query parameters, read back
 through `day::env` — a browser sandbox has no process environment, docs/web.md); each
 `--script` runs via the embedded engine
@@ -2543,9 +2550,12 @@ fieldnotes/
     images/app_logo.png      # processed images (§18.3); assets/ and fonts/ join as needed
   dayscript/
     smoke.yaml               # starter script; real apps grow a walkthrough
-  platform/                  # only for declared mobile/ohos toolkits:
+  platform/                  # only for toolkits with a native host project:
     ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4)
+    macos/                   #   DayApp.xcodeproj + Runner (thin main.swift → day_main),
+                             #   same callback phase + `day xcode-backend stage-resources`;
+                             #   builds a real .app (debugger/Instruments-ready; §16.5 day build)
     android/                 #   Gradle project; committed build files read the generated
                              #   build/day/android/*.json|properties generically (§17.5)
     ohos/                    #   hvigor project (docs/harmonyos.md)

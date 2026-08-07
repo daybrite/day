@@ -1279,14 +1279,21 @@ pub struct MacosSwift {
 /// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest): the
 /// package is rebuilt by `swift build` on every `day build`, and churned mtimes would make that
 /// incremental build recompile from scratch each time (§17.5's touch-only-when-changed rule).
-pub fn write_macos_pieces(project: &Project) -> Result<Option<MacosSwift>, String> {
+/// `keep_empty`: the cargo-driven build passes `false` — no Swift contributions means no
+/// package and no `swift build` prepass at all. The Xcode host project (platform/macos/)
+/// passes `true`: its pbxproj references the package unconditionally, so an empty one must
+/// still exist for xcodebuild to resolve.
+pub fn write_macos_pieces(
+    project: &Project,
+    keep_empty: bool,
+) -> Result<Option<MacosSwift>, String> {
     let pieces = resolve_apple(project, &["appkit"], "macos").unwrap_or_else(|e| {
         eprintln!("day: macOS piece discovery failed ({e}); building without Swift contributions");
         ApplePieces::default()
     });
 
     let pkg_dir = project.root.join("build/day/macos/DayPieces");
-    if pieces.swift_dirs.is_empty() && pieces.packages.is_empty() {
+    if pieces.swift_dirs.is_empty() && pieces.packages.is_empty() && !keep_empty {
         let _ = std::fs::remove_dir_all(&pkg_dir);
         return Ok(None);
     }

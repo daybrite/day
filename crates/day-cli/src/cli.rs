@@ -755,7 +755,14 @@ pub fn run() -> i32 {
                 5
             }
         },
-        Cmd::XcodeBackend { .. } => crate::mobile::xcode_backend_build(),
+        Cmd::XcodeBackend { action } => match action.as_str() {
+            "build" => crate::mobile::xcode_backend_build(),
+            "stage-resources" => crate::mobile::xcode_backend_stage_resources(),
+            other => {
+                eprintln!("day xcode-backend: unknown action {other:?}");
+                2
+            }
+        },
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
         Cmd::New { what } => match what {
             None => crate::new::interactive(),

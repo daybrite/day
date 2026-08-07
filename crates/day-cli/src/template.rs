@@ -155,19 +155,27 @@ pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<T
         .collect()
 }
 
-/// ONLY the `platform/<os>/` subtrees belonging to `targets` — what `day app add-toolkit`
-/// adds to an existing project (the target-agnostic files already exist there).
+/// The `platform/<os>/` subtrees belonging to `targets` — what `day app add-toolkit` adds to
+/// an existing project (the target-agnostic files already exist there) — plus the `store/`
+/// listing skeleton when any of them ships to a store: an app scaffolded desktop-only never
+/// got one, and gaining its first store target is exactly when it becomes needed. (The caller
+/// never overwrites, so a project that already has `store/` keeps it untouched.)
 pub fn platform_files_for_targets(
     files: Vec<TemplateFile>,
     targets: &[String],
 ) -> Vec<TemplateFile> {
-    let platforms: Vec<&str> = targets
+    let resolved: Vec<&'static crate::targets::Target> = targets
         .iter()
-        .filter_map(|t| crate::targets::find(t).map(|t| t.os))
+        .filter_map(|t| crate::targets::find(t))
         .collect();
+    let platforms: Vec<&str> = resolved.iter().map(|t| t.os).collect();
+    let ships_to_a_store = resolved.iter().any(|t| crate::store::is_store_target(t));
     files
         .into_iter()
-        .filter(|f| file_platform(&f.path).is_some_and(|os| platforms.contains(&os)))
+        .filter(|f| {
+            file_platform(&f.path).is_some_and(|os| platforms.contains(&os))
+                || (ships_to_a_store && f.path.starts_with("store/"))
+        })
         .collect()
 }
 
@@ -276,15 +284,42 @@ mod tests {
                 .any(|f| f.path.starts_with("platform/ohos/"))
         );
         assert!(ios_only.iter().any(|f| f.path == "Day.toml")); // agnostic files stay
+        assert!(
+            !ios_only
+                .iter()
+                .any(|f| f.path.starts_with("platform/macos/"))
+        );
 
-        // Desktop targets need no platform subtree at all.
+        // macos-appkit ships the Xcode host project (platform/macos/) and nothing else's.
         let desktop = filter_for_targets(builtin_app(), &["macos-appkit".to_string()]);
-        assert!(!desktop.iter().any(|f| f.path.starts_with("platform/")));
+        assert!(
+            desktop
+                .iter()
+                .any(|f| f.path.starts_with("platform/macos/"))
+        );
+        assert!(!desktop.iter().any(|f| f.path.starts_with("platform/ios/")));
 
-        // add-toolkit's view: only the new target's subtree, nothing agnostic.
+        // The other desktop targets still need no platform subtree at all.
+        let gtk = filter_for_targets(builtin_app(), &["linux-gtk".to_string()]);
+        assert!(!gtk.iter().any(|f| f.path.starts_with("platform/")));
+
+        // add-toolkit's view: the new target's subtree plus (for a store target) the store/
+        // listing skeleton — nothing else agnostic.
         let add = platform_files_for_targets(files, &["android-mdc".to_string()]);
         assert!(!add.is_empty());
-        assert!(add.iter().all(|f| f.path.starts_with("platform/android/")));
+        assert!(
+            add.iter()
+                .all(|f| f.path.starts_with("platform/android/") || f.path.starts_with("store/"))
+        );
+        assert!(add.iter().any(|f| f.path.starts_with("store/")));
+
+        // A desktop-only addition brings no store skeleton along.
+        let add_desktop = platform_files_for_targets(builtin_app(), &["macos-appkit".to_string()]);
+        assert!(
+            add_desktop
+                .iter()
+                .all(|f| f.path.starts_with("platform/macos/"))
+        );
     }
 
     #[test]

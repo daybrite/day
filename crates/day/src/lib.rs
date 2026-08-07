@@ -337,6 +337,37 @@ macro_rules! ios_main {
     };
 }
 
+/// Expands to the `day_main` C export the macOS Runner's `main.swift` calls — the
+/// `platform/macos/` Xcode host project's entry (§17.4). The cargo-driven build keeps using
+/// the app's own `src/main.rs`; both paths call the same [`launch`], so the app behaves
+/// identically however it was built.
+///
+/// ```ignore
+/// day::macos_main!(root);            // or: day::macos_main!("My App", root);
+/// ```
+#[macro_export]
+macro_rules! macos_main {
+    ($root:expr) => {
+        $crate::macos_main!("", $root);
+    };
+    ($title:expr, $root:expr) => {
+        /// macOS entry: the Runner's main.swift calls this from the app staticlib (§17.4).
+        #[cfg(target_os = "macos")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn day_main() {
+            $crate::launch(
+                $crate::WindowOptions {
+                    title: ($title).into(),
+                    // The same desktop default the scaffold's src/main.rs uses.
+                    size: $crate::prelude::Size::new(960.0, 640.0),
+                    ..::core::default::Default::default()
+                },
+                $root,
+            );
+        }
+    };
+}
+
 /// Expands to the three JNI exports `dev.daybrite.day.bridge.DayBridge`'s natives resolve
 /// against in the app cdylib (`nativeStart`/`nativeOnEvent`/`nativeRunPosted`),
 /// wired to the given root piece.

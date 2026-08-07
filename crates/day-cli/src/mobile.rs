@@ -146,14 +146,32 @@ pub fn xcode_backend_build() -> i32 {
     } else {
         "debug"
     };
-    let triple = match platform.as_str() {
-        "iphonesimulator" => "aarch64-apple-ios-sim",
-        "iphoneos" => "aarch64-apple-ios",
-        other => {
-            eprintln!("day xcode-backend: unsupported PLATFORM_NAME {other:?}");
-            return 2;
-        }
-    };
+    // macOS builds honor Xcode's ARCHS (host arch under ONLY_ACTIVE_ARCH; both for a
+    // universal Release), lipo'd below when there is more than one.
+    let (triples, toolkit_feature, target_dir_name): (Vec<&str>, &str, &str) =
+        match platform.as_str() {
+            "iphonesimulator" => (vec!["aarch64-apple-ios-sim"], "uikit", "ios-uikit"),
+            "iphoneos" => (vec!["aarch64-apple-ios"], "uikit", "ios-uikit"),
+            "macosx" => {
+                let archs = get("ARCHS").unwrap_or_else(|| "arm64".into());
+                let mut t = Vec::new();
+                for arch in archs.split_whitespace() {
+                    match arch {
+                        "arm64" => t.push("aarch64-apple-darwin"),
+                        "x86_64" => t.push("x86_64-apple-darwin"),
+                        other => {
+                            eprintln!("day xcode-backend: unsupported ARCHS entry {other:?}");
+                            return 2;
+                        }
+                    }
+                }
+                (t, "appkit", "macos-appkit")
+            }
+            other => {
+                eprintln!("day xcode-backend: unsupported PLATFORM_NAME {other:?}");
+                return 2;
+            }
+        };
     let (cargo, bin) = match rustup_cargo() {
         Ok(v) => v,
         Err(e) => {
@@ -162,76 +180,101 @@ pub fn xcode_backend_build() -> i32 {
         }
     };
     let name = project.manifest.app.name.clone();
-    let target_dir = project.root.join("build/day/cargo/ios-uikit").join(profile);
-    let mut cmd = Command::new(&cargo);
-    // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
-    crate::intl::apply(&mut cmd, &project);
-    // Sanitize Xcode's script-phase env: SDKROOT points at the iphonesimulator SDK (poisoning
-    // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
-    // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an SDK
-    // (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via xcrun.
-    for var in [
-        "SDKROOT",
-        "LIBRARY_PATH",
-        "CPATH",
-        "IPHONEOS_DEPLOYMENT_TARGET",
-        "MACOSX_DEPLOYMENT_TARGET",
-    ] {
-        cmd.env_remove(var);
-    }
-    let home = std::env::var("HOME").unwrap_or_default();
-    cmd.current_dir(&project.root)
-        .env(
-            "PATH",
-            format!(
-                "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                bin.display()
-            ),
-        )
-        .env("CARGO_TARGET_DIR", &target_dir);
-    crate::ops::apply_app_identity(&mut cmd, &project);
-    cmd
-        // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see the
-        // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this expects.
-        // `--features` = `uikit` + every standalone piece's `<pkg>/uikit` renderer feature (Tier
-        // A.2), so the app needn't re-list per-piece features in its own Cargo.toml.
-        .args([
-            "rustc",
-            "-p",
-            &name,
-            "--lib",
-            "--crate-type",
-            "staticlib",
-            "--no-default-features",
-            "--features",
-            &crate::ops::feature_selection(&project, "uikit"),
-        ])
-        .args(["--target", triple]);
-    if profile == "release" {
-        cmd.arg("--release");
-    }
-    if run_logged(&mut cmd, "cargo (ios)").is_err() {
-        return 4;
-    }
+    let target_dir = project
+        .root
+        .join("build/day/cargo")
+        .join(target_dir_name)
+        .join(profile);
+    // One `cargo rustc` per requested arch (macOS universal Release builds ask for two).
+    let mut arch_libs: Vec<PathBuf> = Vec::new();
     // Cargo names the artifact after the crate with `-` → `_` (`hello-day` ⇒ libhello_day.a);
     // the pbxproj links `-l<ident>` with the same spelling.
     let ident = name.replace('-', "_");
-    let lib = target_dir
-        .join(triple)
-        .join(profile)
-        .join(format!("lib{ident}.a"));
+    for triple in &triples {
+        let mut cmd = Command::new(&cargo);
+        // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
+        crate::intl::apply(&mut cmd, &project);
+        // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
+        // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
+        // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
+        // SDK (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via
+        // xcrun.
+        for var in [
+            "SDKROOT",
+            "LIBRARY_PATH",
+            "CPATH",
+            "IPHONEOS_DEPLOYMENT_TARGET",
+            "MACOSX_DEPLOYMENT_TARGET",
+        ] {
+            cmd.env_remove(var);
+        }
+        let home = std::env::var("HOME").unwrap_or_default();
+        cmd.current_dir(&project.root)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                    bin.display()
+                ),
+            )
+            .env("CARGO_TARGET_DIR", &target_dir);
+        crate::ops::apply_app_identity(&mut cmd, &project);
+        cmd
+            // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see
+            // the `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this
+            // expects. `--features` = the toolkit + every standalone piece's `<pkg>/<toolkit>`
+            // renderer feature (Tier A.2), so the app needn't re-list per-piece features in its
+            // own Cargo.toml.
+            .args([
+                "rustc",
+                "-p",
+                &name,
+                "--lib",
+                "--crate-type",
+                "staticlib",
+                "--no-default-features",
+                "--features",
+                &crate::ops::feature_selection(&project, toolkit_feature),
+            ])
+            .args(["--target", triple]);
+        if profile == "release" {
+            cmd.arg("--release");
+        }
+        if run_logged(&mut cmd, "cargo (xcode)").is_err() {
+            return 4;
+        }
+        arch_libs.push(
+            target_dir
+                .join(triple)
+                .join(profile)
+                .join(format!("lib{ident}.a")),
+        );
+    }
     let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
         eprintln!("day xcode-backend: cannot create {}", out_dir.display());
         return 4;
     }
     let dest = out_dir.join(format!("lib{ident}.a"));
-    if let Err(e) = std::fs::copy(&lib, &dest) {
-        eprintln!(
-            "day xcode-backend: copy {} → {}: {e}",
-            lib.display(),
-            dest.display()
-        );
+    let staged = if arch_libs.len() == 1 {
+        std::fs::copy(&arch_libs[0], &dest)
+            .map(|_| ())
+            .map_err(|e| format!("copy {} → {}: {e}", arch_libs[0].display(), dest.display()))
+    } else {
+        // Universal: lipo the per-arch staticlibs into one (Xcode links a single file).
+        let mut lipo = Command::new("lipo");
+        lipo.arg("-create")
+            .args(&arch_libs)
+            .arg("-output")
+            .arg(&dest);
+        match lipo.status() {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(format!("lipo exited with {s}")),
+            Err(e) => Err(format!("lipo: {e}")),
+        }
+    };
+    if let Err(e) = staged {
+        eprintln!("day xcode-backend: {e}");
         return 4;
     }
     // Stage assets/ into the app bundle (§18.1's copy-phase mechanism).
@@ -252,6 +295,162 @@ pub fn xcode_backend_build() -> i32 {
     }
     eprintln!("day xcode-backend: staged {}", dest.display());
     0
+}
+
+/// `day xcode-backend stage-resources` — the macOS host project's second script phase:
+/// stage the project's images/assets/fonts and the vector trees into the bundle's
+/// `Contents/Resources`, the exact layout the packed-app probes already resolve
+/// (`../Resources/{images,assets,fonts,vectors/{svg,raster}}` — docs/vectors.md), so an
+/// Xcode-built bundle needs no `DAY_*` environment at all. Runs the vector staging first,
+/// so a build started from the Xcode IDE is self-contained.
+pub fn xcode_backend_stage_resources() -> i32 {
+    let get = |k: &str| std::env::var(k).ok();
+    let (Some(tbd), Some(res)) = (
+        get("TARGET_BUILD_DIR"),
+        get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
+    ) else {
+        eprintln!("day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)");
+        return 2;
+    };
+    let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
+    // platform/macos/ → project root two levels up.
+    let project = match find_project(Some(&project_dir.join("../.."))) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("day xcode-backend: {e}");
+            return 2;
+        }
+    };
+    // Refresh the vector caches (raster + glyph SVGs) — cheap and idempotent, and an
+    // IDE-initiated build has no earlier `day build` step to have done it.
+    if let Err(e) = crate::resources::prepare_vectors(&project) {
+        eprintln!("day xcode-backend: vectors: {e}");
+        return 4;
+    }
+    let resources = PathBuf::from(tbd).join(res);
+    let pairs: [(PathBuf, &str); 5] = [
+        (project.root.join("resource/images"), "images"),
+        (project.root.join("resource/assets"), "assets"),
+        (project.root.join("resource/fonts"), "fonts"),
+        (
+            crate::resources::vector_raster_dir(&project),
+            "vectors/raster",
+        ),
+        (crate::resources::vector_svg_dir(&project), "vectors/svg"),
+    ];
+    for (src, sub) in pairs {
+        let dst = resources.join(sub);
+        // Clear-then-copy: these subtrees are wholly day-owned, so removed sources never
+        // linger in the bundle across incremental builds.
+        let _ = std::fs::remove_dir_all(&dst);
+        if !src.is_dir() {
+            continue;
+        }
+        if let Err(e) = copy_tree_flat(&src, &dst) {
+            eprintln!("day xcode-backend: stage {sub}: {e}");
+            return 4;
+        }
+    }
+    eprintln!(
+        "day xcode-backend: staged resources → {}",
+        resources.display()
+    );
+    0
+}
+
+/// Recursive copy (dirs created as needed) — the resource trees are small and flat-ish.
+fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {e}", dst.display()))?;
+    let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in rd.flatten() {
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_tree_flat(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// macos-appkit via the Xcode host project (platform/macos/, §17.4)
+// ---------------------------------------------------------------------------
+
+/// Whether `day build`/`day launch` should drive macos-appkit through the Xcode host
+/// project: the scaffold exists and `DAY_MACOS_XCODE=0` hasn't opted out (the escape hatch
+/// CI capture loops use to stay on the faster bare-cargo path).
+pub fn macos_xcode_enabled(project: &Project) -> bool {
+    if std::env::var("DAY_MACOS_XCODE").is_ok_and(|v| v == "0") {
+        return false;
+    }
+    project
+        .root
+        .join("platform/macos/DayApp.xcodeproj")
+        .is_dir()
+}
+
+/// Build macos-appkit through the Xcode host project. Mirrors [`build_ios_for`]: stage the
+/// DayPieces package the pbxproj references (empty is fine — the reference must resolve),
+/// run xcodebuild with an absolute SYMROOT, and hand back the built `.app` bundle as the
+/// artifact (launch execs its inner binary; the bundle itself carries identity, icon, and
+/// resources, so none of the bare-binary launch tricks apply).
+pub fn build_macos_xcode(
+    project: &Project,
+    target: &'static Target,
+    profile: &str,
+    start: std::time::Instant,
+) -> Result<BuildOutcome, String> {
+    let configuration = if profile == "release" {
+        "Release"
+    } else {
+        "Debug"
+    };
+    // Absolute for the same reason as iOS (see build_ios_for): SwiftPM package products
+    // must land in the same tree as the app target's.
+    let symroot = absolute(&project.root.join("build/day/macos-appkit"))?;
+    let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
+    crate::pieces::write_macos_pieces(project, true)?;
+    status(
+        "Building",
+        &format!("{} (xcodebuild {configuration}, macosx)", target.name),
+    );
+    let mut cmd = Command::new("xcodebuild");
+    crate::ops::apply_determinism(&mut cmd);
+    cmd.current_dir(project.root.join("platform/macos"))
+        .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+        .args(["-configuration", configuration, "-sdk", "macosx"]);
+    if profile != "release" {
+        // Legacy `-target` builds have no run destination, so ONLY_ACTIVE_ARCH cannot
+        // resolve an active arch and Xcode builds UNIVERSAL — twice the disk and time for a
+        // dev loop. Pin the host arch for debug; Release stays universal.
+        let arch = match std::env::consts::ARCH {
+            "aarch64" => "arm64",
+            other => other,
+        };
+        cmd.args(["-arch", arch]);
+    }
+    cmd.arg(format!("SYMROOT={}", symroot.display()))
+        .arg(format!("DAY_BIN={}", day_bin.display()))
+        .arg("build");
+    let out = crate::ops::run_capture(&mut cmd, "xcodebuild")?;
+    if !out.status.success() {
+        return Err(format!("xcodebuild failed:\n{}", diagnose_xcodebuild(&out)));
+    }
+    // macosx products land under `<configuration>/` (no SDK suffix, unlike iOS).
+    let products = symroot.join(configuration);
+    let app = std::fs::read_dir(&products)
+        .map_err(|e| format!("reading {}: {e}", products.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
+        .ok_or_else(|| format!("no .app under {}", products.display()))?;
+    Ok(BuildOutcome {
+        target: target.name,
+        artifact: app,
+        seconds: start.elapsed().as_secs_f64(),
+    })
 }
 
 // ---------------------------------------------------------------------------
