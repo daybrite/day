@@ -4309,15 +4309,15 @@ mod imp {
                 url: &objc2_foundation::NSURL,
                 _options: *mut AnyObject,
             ) -> bool {
-                let host = unsafe { url.host() }
-                    .map(|s| s.to_string())
-                    .unwrap_or_default();
-                let path = unsafe { url.path() }
-                    .map(|s| s.to_string())
+                // The shared URL → route mapping (docs/deep-links.md): absoluteString keeps
+                // the query (route params ride it) and the original percent-encoding — the
+                // route parser decodes, not this layer.
+                let route = unsafe { url.absoluteString() }
+                    .map(|s| day_spec::route_of_url(&s.to_string()))
                     .unwrap_or_default();
                 let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
-                if let Some(node) = node {
-                    emit(node, Event::custom("deeplink", format!("{host}{path}")));
+                if let (Some(node), false) = (node, route.is_empty()) {
+                    emit(node, Event::custom("deeplink", route));
                     true
                 } else {
                     false

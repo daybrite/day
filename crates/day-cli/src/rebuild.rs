@@ -974,6 +974,24 @@ fn zero_macho_uuid(buf: &mut [u8]) -> usize {
 }
 
 /// Strip the build-path-derived metadata from a file so the comparison sees code.
+///
+/// This is where Day's reproducibility guarantee is defined, so state it plainly: a rebuild is NOT
+/// promised to be byte-identical to the original artifact. It is promised to be identical after
+/// normalization — once the parts that describe the machine and the moment, rather than the
+/// compiled program, are removed. Toolchains that embed a signature, a build id, or a path to
+/// their own scratch directory would otherwise make the check impossible to pass without pinning
+/// the build directory, which is a worse guarantee than the one being made here.
+///
+/// What comes off, and why each is irrelevant to "is this the same code":
+///
+/// * the code signature — computed OVER the bytes below, so it cannot survive their normalization,
+///   and identity/timestamp are the packager's, not the program's;
+/// * the Mach-O `LC_UUID` — a per-link build id, deliberately unique per link;
+/// * the debug map (`N_OSO` stabs) — absolute paths to the object files the linker consumed.
+///
+/// What deliberately does NOT come off is everything that decides what the program does: the text
+/// and data, the symbol table proper, the load commands, the linked libraries. A change in any of
+/// those still fails the check, which is the point.
 fn normalize(path: &Path) -> Result<(), String> {
     let Ok(head) = std::fs::read(path) else {
         return Ok(());
@@ -992,6 +1010,15 @@ fn normalize(path: &Path) -> Result<(), String> {
         .args(["--remove-signature"])
         .arg(path)
         .output();
+    // Then the debug map. ld records an ABSOLUTE path to every object file it consumed in the
+    // `N_OSO` stabs — into SYMROOT, into cargo's output, into the SwiftPM package's build dir —
+    // so two builds of one commit from two directories carry different strings AND different
+    // sizes, since the paths differ in length. That is a map of the machine that built the code,
+    // not the code, so it comes off before the comparison: `-S` drops the debug symbols and
+    // leaves everything that determines behaviour. `day build` also passes `-oso_prefix` to shrink
+    // these to project-relative paths at link time (mobile.rs), but it cannot reach the objects a
+    // SwiftPM package prelinks with `ld -r`, and this check must not depend on that.
+    let _ = Command::new("strip").arg("-S").arg(path).output();
     let mut buf = std::fs::read(path).map_err(|e| e.to_string())?;
     if zero_macho_uuid(&mut buf) > 0 {
         std::fs::write(path, &buf).map_err(|e| e.to_string())?;

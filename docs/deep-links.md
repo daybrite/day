@@ -20,6 +20,11 @@ The host + path after `://` is the day route string, verbatim. Query params ride
 and digits only, lowercased — `Field Notes` ⇒ `fieldnotes`) and writes it into every host
 project that registers schemes.
 
+URL parsers treat the first segment as a HOST and lowercase it on the component-based
+intakes (NSURL, android.net.Uri), so a deep-linked surface's first-segment keys must be
+lowercase — which day's route-key convention already is. Later segments pass through
+case-preserved.
+
 Short schemes collide: nothing stops another app from claiming `fieldnotes://`, and the OS
 resolves the tie, not day (see the per-platform notes). Apps that care should set an explicit,
 longer scheme. *Planned:* a `scheme = "…"` key under `[app]` in Day.toml, conveyed to each
@@ -48,7 +53,7 @@ However a link arrives, the behavior inside the app is the same:
 | ios-uikit | `CFBundleURLTypes` (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
 | android-mdc | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
 | web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
-| harmony-arkui | home skill only; no `uris` yet | env delivery only | — | Planned |
+| harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
 | macos-appkit | `CFBundleURLTypes` (platform/macos scaffold) | — | — | Planned |
 | windows-xaml | none | — | — | Planned |
 | linux-gtk / linux-qt | none | — | — | Planned |
@@ -78,16 +83,15 @@ Concerns:
 2. **Intent extras are not the URL.** Only the `data` URI is treated as a link; anything else
    in the intent is ignored by design — see the security note above.
 
-### HarmonyOS — Planned
+### HarmonyOS — Shipped
 
-No deep-link machinery exists yet. The module's `skills` declare only the home entity (no
-`uris` entry, so the system cannot deliver a scheme URL), and nothing sets the launch route —
-the only path today is the generic env delivery a `day launch --env DAY_DEEPLINK=…` ride-along
-provides, which is a dev tool, not OS integration. (A stale comment in the scaffold's
-Index.ets still names `DAY_DEMO_ROUTE`, a carrier that no longer exists; it goes when this
-lands.) Planned: a `uris` skill with the scheme, `set_launch_deeplink` from the cold `want`,
-and `onNewWant` forwarding as the warm path. The `want` parameter machinery is already how the
-host passes launch data, so this is wiring, not architecture.
+The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
+one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
+warm `onNewWant` one to the shim's `deepLink(uri)`, which lands in `day_core::request_route`
+— buffered until the first mount, applied on the UI thread after it. Verified on the Oniro
+emulator with `aa start -U "<scheme>://<route>"`, cold and warm. One concern: `aa start -U`
+is also the only local delivery tool — there is no system browser in the emulator image to
+exercise link-from-a-page flows.
 
 ### macOS — Planned, with one structural caveat
 
@@ -149,23 +153,21 @@ this spec comes first.
 
 ## Testing — Shipped pieces, plus a dayscript plan
 
-What works today: `DAY_DEEPLINK=route day launch …` exercises the cold path on every desktop
-backend and the simulator; `xcrun simctl openurl booted <url>` and
-`adb shell am start -a android.intent.action.VIEW -d <url>` exercise real OS delivery on the
-mobile targets; on web-dom the URL hash is the whole story and Playwright drives it.
+What works today: the dayscript step below on every backend; `DAY_DEEPLINK=route day
+launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
+`adb shell am start -a android.intent.action.VIEW -d <url>`, and
+`hdc shell aa start -U <url>` for real OS delivery on the mobile targets; on web-dom the URL
+hash is the whole story and Playwright drives it.
 
-*Planned:* two dayscript tiers, split by what they prove.
+**`deep_link: { url: "scheme://route?x=1" }` — Shipped.** An in-process step: the URL maps to
+its route through the same `day_spec::route_of_url` every platform intake uses, then
+navigates — a warm delivery minus the OS. It proves the app's routing, param handling, and
+back-stack seeding identically on every backend including mock — cheap enough for every
+app's walkthrough — and deliberately does NOT prove OS registration. `day lint` validates
+the URL's route against the app's declared keys, the same check `navigate:` gets.
 
-1. **`deep_link: { url: "scheme://route?x=1" }`** — an in-process step: the engine parses the
-   URL and injects it through the same entry warm delivery uses (`Custom("deeplink")`). It
-   proves the app's routing, param handling, and back-stack seeding, identically on every
-   backend including mock — cheap enough for every app's walkthrough. It deliberately does
-   NOT prove OS registration.
-2. **Runner-level OS delivery** — the launch runner sends the URL from outside
-   (`simctl openurl`, `am start`, `open <url>`, `hdc … aa start --uri`) and the script then
-   asserts with `assert_route`. This proves registration and intake, costs a per-platform
-   runner arm, and belongs in the per-target CI jobs rather than every walkthrough.
-
-The split matters because tier 1 failures are app bugs and tier 2 failures are packaging
-bugs; a single step that did both would leave every failure ambiguous. `day lint` already
-validates literal routes in dayscript files, and the same check extends to `deep_link:` URLs.
+*Planned:* the second tier — the launch runner delivering the URL from outside (the commands
+above) with the script asserting via `assert_route`. That proves registration and intake,
+costs a per-platform runner arm, and belongs in the per-target CI jobs rather than every
+walkthrough. The split matters because tier-1 failures are app bugs and tier-2 failures are
+packaging bugs; a single step doing both would leave every failure ambiguous.

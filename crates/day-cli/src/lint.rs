@@ -191,8 +191,9 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps in
-/// `dayscript/*.yaml` — the same route namespace `navigate()` uses (docs/navigation.md).
+/// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps — and the
+/// route inside every `deep_link:` step's `url:` (docs/deep-links.md) — in
+/// `dayscript/*.yaml`: the same route namespace `navigate()` uses (docs/navigation.md).
 fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -206,6 +207,28 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
         {
             for line in src.lines() {
                 let l = line.trim_start();
+                if l.starts_with("- deep_link:") {
+                    if let Some(i) = l.rfind("url:") {
+                        let rest = &l[i + "url:".len()..];
+                        let v = rest
+                            .split(',')
+                            .next()
+                            .unwrap_or(rest)
+                            .trim()
+                            .trim_end_matches(['}', ' '])
+                            .trim()
+                            .trim_matches(['"', '\'']);
+                        if !v.is_empty() {
+                            // The route half only — the lint checks route keys, not schemes;
+                            // params are the destination's concern. Mirrors
+                            // `day_spec::route_of_url` (day-cli doesn't link day-spec).
+                            let route = v.split_once("://").map(|(_, r)| r).unwrap_or(v);
+                            let route = route.split('?').next().unwrap_or(route);
+                            out.push(route.to_string());
+                        }
+                    }
+                    continue;
+                }
                 if !(l.starts_with("- navigate:") || l.starts_with("- assert_route:")) {
                     continue;
                 }

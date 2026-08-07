@@ -2,6 +2,9 @@
 // NAPI init. `start` mounts the Day tree; the file-picker pair bridges Day's native open/save
 // requests to the ArkTS @kit.CoreFileKit DocumentViewPicker (docs/files.md).
 export const start: (content: Object, widthVp: number, heightVp: number, density: number) => void;
+/** A deep link (docs/deep-links.md): a cold want.uri or a warm onNewWant one. Safe before
+ *  start() — buffered until the first mount. */
+export const deepLink: (uri: string) => void;
 /** Root-area change after start (keyboard RESIZE avoidance, rotation), in vp. */
 export const resized: (widthVp: number, heightVp: number) => void;
 

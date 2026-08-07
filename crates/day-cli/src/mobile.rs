@@ -391,6 +391,39 @@ pub fn macos_xcode_enabled(project: &Project) -> bool {
         .is_dir()
 }
 
+/// The `OTHER_LDFLAGS` override that keeps a linked Mach-O reproducible across build directories
+/// (DESIGN.md §20.3), the macOS counterpart of the `/Brepro` link argument the xaml build passes.
+///
+/// ld records an absolute path to every object file it consumed in the debug map — one `N_OSO`
+/// stabs entry per `.o` and per archive member, pointing into SYMROOT and into cargo's output.
+/// Those strings are the ONLY thing that differs when the same commit is linked from two
+/// directories, which is exactly what `day rebuild` compares: `build/.../Runner.build/.../main.o`
+/// under one root versus another. `-oso_prefix` strips the leading root, leaving project-relative
+/// paths that compare equal from anywhere. Stripping the binary would also remove them, but it
+/// would take the symbols crash reports symbolicate with (§13), so the debug map stays — just
+/// without the machine-specific prefix.
+///
+/// The prefix is canonicalized because ld writes the resolved path: on macOS `/tmp/...` reaches
+/// the linker as `/private/tmp/...`, and a prefix that doesn't match byte-for-byte is silently
+/// ignored. `$(inherited)` keeps whatever the pbxproj already sets — a command-line build setting
+/// otherwise replaces it for every target in the project.
+///
+/// This covers every object the FINAL link consumes, which is 12 of the 13 entries. The one it
+/// cannot reach is the SwiftPM package target: Xcode merges DayPieces' objects with `ld -r` into
+/// a relocatable `Release/DayPieces.o`, and THAT partial link writes the debug map naming
+/// `_DayPieces.o`. The final link copies it through verbatim, so a flag given to the final link
+/// arrives too late. Command-line build settings do not reach that step either — `PRELINK_FLAGS`
+/// was measured and never appears on its command line — because a package target takes its link
+/// settings from the generated Package.swift. Closing the last entry means putting the flag there
+/// (day writes that manifest, so it can), which is tracked separately.
+fn oso_prefix_setting(project_root: &Path) -> String {
+    let root = std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
+    format!(
+        "OTHER_LDFLAGS=$(inherited) -Wl,-oso_prefix,{}/",
+        root.display()
+    )
+}
+
 /// Build macos-appkit through the Xcode host project. Mirrors [`build_ios_for`]: stage the
 /// DayPieces package the pbxproj references (empty is fine — the reference must resolve),
 /// run xcodebuild with an absolute SYMROOT, and hand back the built `.app` bundle as the
@@ -438,6 +471,7 @@ pub fn build_macos_xcode(
     }
     cmd.arg(format!("SYMROOT={}", symroot.display()))
         .arg(format!("DAY_BIN={}", day_bin.display()))
+        .arg(oso_prefix_setting(&project.root))
         .arg("build");
     let out = crate::ops::run_capture(&mut cmd, "xcodebuild")?;
     if !out.status.success() {
@@ -727,7 +761,8 @@ pub fn build_ios_for(
                 "arm64",
             ])
             .arg(format!("SYMROOT={}", symroot.display()))
-            .arg(format!("DAY_BIN={}", day_bin.display()));
+            .arg(format!("DAY_BIN={}", day_bin.display()))
+            .arg(oso_prefix_setting(&project.root));
         if let Some(f) = &floor {
             cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
         }

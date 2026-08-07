@@ -1888,7 +1888,7 @@ every locale (the engine resolves the key in the app's active locale). This is w
 screenshot generator with zero per-locale script maintenance.
 
 The shipped step catalog — waiting (`wait_for`, `wait_idle`, `pause`), acting (`tap`, `input`,
-`set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `nav_back`, `assert_route`),
+`set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `deep_link`, `nav_back`, `assert_route`),
 asserting (`assert_visible`, `assert_text`, `assert_value`, `assert_focused`), dialogs
 (`assert_presented`, `respond`), evidence (`screenshot`, `a11y_audit`), and termination
 (`expect_exit` — the one step that tolerates the app dying, for crash-reporting flows,
@@ -3044,10 +3044,29 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 > `.flatpak` and RUNS the `.appimage` under xvfb (2026-08). The AppImage's claim is that it works
 > on a machine with nothing installed, and the only check for that is executing it: a GTK or Qt
 > module the bundling failed to carry crashes on launch and nowhere earlier. A rebuild check
-> compares bytes; it cannot notice a missing loader.
+> compares normalized bytes; it cannot notice a missing loader.
 
 The user-facing version of this section is `website/src/content/docs/reproducible-builds.md`,
 which carries the per-platform caveats and the manual verification recipe; keep the two in step.
+
+**What is guaranteed.** A rebuild is not promised to be byte-identical to the artifact it verifies.
+It is promised to be identical **after normalization** — once the parts that describe the machine
+and the moment, rather than the compiled program, are removed. `normalize()` in `rebuild.rs` is
+where that line is drawn, and for Mach-O it removes three things: the code signature (computed over
+the bytes below it, and carrying the packager's identity and clock), the `LC_UUID` build id (unique
+per link by design), and the debug map — the `N_OSO` stabs, in which the linker records an absolute
+path to every object file it consumed. Everything that decides what the program does is left alone:
+text and data, the symbol table proper, the load commands, the linked libraries. A change in any of
+those still fails the check.
+
+The debug map is the reason this has to be a normalized comparison rather than a byte one. Those
+paths reach into `SYMROOT`, into cargo's output, and into the build directory of any SwiftPM package
+the app links, so the same commit built from two directories differs in both content and *length*.
+`day build` passes `-oso_prefix` to shrink them to project-relative paths at link time (§16.5,
+`mobile.rs`), which removes most of them, but it cannot reach the objects a SwiftPM package prelinks
+with `ld -r` — Xcode gives that step neither `OTHER_LDFLAGS` nor `PRELINK_FLAGS`. Requiring byte
+equality would therefore mean pinning the build directory, which is a weaker claim than the one
+made here, not a stronger one.
 
 Every platform-toolkit job that runs `day pack` has a follow-up `<combo>-validate` job, and it runs
 two stages in order. **Stage 1 installs the shipped artifact and launches it** on a runner with
@@ -3815,6 +3834,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns (docs/focus.md) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll (docs/scroll.md); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root (docs/navigation.md) |
+| `deep_link` | `url` | deliver a deep-link URL in-process: the URL maps to its route through the same `day_spec::route_of_url` every platform intake uses, then navigates — a warm OS delivery minus the OS (which is the launch runner's tier; docs/deep-links.md) |
 | `nav_back` | — | pop one level, the native back path |
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |

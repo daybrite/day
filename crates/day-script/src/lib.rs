@@ -191,6 +191,13 @@ pub enum Step {
     Pause {
         secs: f64,
     },
+    /// Deliver a deep-link URL in-process (docs/deep-links.md): the URL maps to its route
+    /// through the same `day_spec::route_of_url` every platform intake uses, then navigates —
+    /// identical to a warm OS delivery. Proves routing, params, and back-stack seeding on
+    /// every backend, including mock; OS registration and intake are the runner tier's job.
+    DeepLink {
+        url: String,
+    },
     /// Navigate to a registered route (reset-to semantics; "" = root). docs/navigation.md.
     Navigate {
         route: String,
@@ -991,6 +998,17 @@ fn exec(step: Step) -> Reply {
                 // this arm if the step was somehow delivered — treat it as a no-op success.
                 let _ = within;
                 Ok(Reply::ok())
+            }
+            Step::DeepLink { url } => {
+                day_reactive::flush_sync();
+                let route = day_spec::route_of_url(&url);
+                if day_core::navigate(&route) {
+                    day_reactive::flush_sync();
+                    Ok(Reply::ok())
+                } else {
+                    // Retryable: the nav host may not have mounted yet.
+                    Err(Reply::fail(format!("no route for {url:?}"), true))
+                }
             }
             Step::Navigate { route } => {
                 day_reactive::flush_sync();

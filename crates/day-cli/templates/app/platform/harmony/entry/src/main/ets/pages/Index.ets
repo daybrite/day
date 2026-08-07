@@ -53,7 +53,7 @@ struct Index {
     }
     this.started = true;
 
-    // Wire the Navigation bridge BEFORE start(): a deep link (DAY_DEMO_ROUTE) can push during
+    // Wire the Navigation bridge BEFORE start(): a deep link (docs/deep-links.md) can push during
     // the initial tree build.
     nativeEntry.registerNav(
       (key: number, title: string): NodeContent => {

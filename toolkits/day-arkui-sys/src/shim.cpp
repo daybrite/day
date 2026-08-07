@@ -60,6 +60,9 @@ static NativeResourceManager* g_res_mgr = nullptr;
 
 // Implemented in Rust (the day-arkui backend / the app cdylib).
 extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double density);
+// Deep-link intake (docs/deep-links.md): cold and warm links land here; the app cdylib
+// buffers or navigates as appropriate.
+extern "C" void day_arkui_deeplink(const char* uri);
 extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
 
 // Event kinds — mirror of day_spec::bridge::BridgeKind (the shared wire table; same numbers as
@@ -1448,6 +1451,24 @@ static napi_value DayStart(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// `deepLink(uri)` — a cold `want.uri` or a warm `onNewWant` one (docs/deep-links.md). Safe
+// to call before `start`: the app side buffers until the first mount.
+static napi_value DayDeepLink(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    if (argc < 1) return undef;
+    size_t len = 0;
+    if (napi_get_value_string_utf8(env, argv[0], nullptr, 0, &len) != napi_ok || len == 0)
+        return undef;
+    std::string uri(len, '\0');
+    napi_get_value_string_utf8(env, argv[0], uri.data(), len + 1, &len);
+    day_arkui_deeplink(uri.c_str());
+    return undef;
+}
+
 // ArkTS registers its file picker + the app cache dir (docs/files.md): `registerFilePicker(cb,
 // cacheDir)`. `cb` is `(req, mode, name, src, filters) => void` and answers via `onFileResult`.
 static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
@@ -1910,6 +1931,8 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "windowFocused", fn);
     napi_create_function(env, "onFileResult", NAPI_AUTO_LENGTH, OnFileResult, nullptr, &fn);
     napi_set_named_property(env, exports, "onFileResult", fn);
+    napi_create_function(env, "deepLink", NAPI_AUTO_LENGTH, DayDeepLink, nullptr, &fn);
+    napi_set_named_property(env, exports, "deepLink", fn);
     napi_create_function(env, "registerResourceManager", NAPI_AUTO_LENGTH, RegisterResourceManager,
                          nullptr, &fn);
     napi_set_named_property(env, exports, "registerResourceManager", fn);

@@ -21,6 +21,18 @@ pub use resource::{
 /// unchanged for the backends while the CLI can depend on `day-fonts` alone.
 pub use day_fonts as fonts;
 
+/// The route inside a deep-link URL (docs/deep-links.md): everything after `scheme://`,
+/// query included — `notes://mail/inbox?hint=x` ⇒ `mail/inbox?hint=x`. A string with no
+/// scheme passes through unchanged (it is already a route). One definition, shared by every
+/// platform's intake and the dayscript `deep_link` step, so a URL maps to the same route
+/// bytes everywhere; percent-decoding stays with the route parser (docs/navigation.md).
+pub fn route_of_url(url: &str) -> String {
+    match url.split_once("://") {
+        Some((_, rest)) => rest.to_string(),
+        None => url.to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
@@ -2798,6 +2810,25 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         }
     }
     (nums, texts)
+}
+
+#[cfg(test)]
+mod route_of_url_tests {
+    use super::route_of_url;
+
+    #[test]
+    fn strips_the_scheme_and_keeps_route_and_params() {
+        assert_eq!(
+            route_of_url("notes://mail/inbox?hint=x"),
+            "mail/inbox?hint=x"
+        );
+        assert_eq!(route_of_url("notes://home"), "home");
+        // No scheme: already a route, unchanged.
+        assert_eq!(route_of_url("mail/inbox"), "mail/inbox");
+        assert_eq!(route_of_url(""), "");
+        // Percent-encoding passes through — the route parser decodes, not this mapping.
+        assert_eq!(route_of_url("n://a/b%2Fc?q=1%202"), "a/b%2Fc?q=1%202");
+    }
 }
 
 #[cfg(test)]

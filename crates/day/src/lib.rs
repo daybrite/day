@@ -585,6 +585,15 @@ macro_rules! arkui_main {
         ) {
             $crate::arkui::start(content, w, h, density, $root);
         }
+
+        /// Deep-link intake (docs/deep-links.md): the shim's NAPI `deepLink(uri)` calls this
+        /// from the app cdylib for cold and warm links alike — `request_route` buffers before
+        /// launch and navigates on the UI thread after.
+        #[cfg(target_env = "ohos")]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn day_arkui_deeplink(uri: *const ::core::ffi::c_char) {
+            $crate::arkui::deeplink(uri);
+        }
     };
 }
 
@@ -668,5 +677,19 @@ pub mod arkui {
             crate::WindowOptions::default(),
             root,
         );
+    }
+
+    /// A deep link from the ArkTS host (docs/deep-links.md): a cold `want.uri` (delivered
+    /// before `start`) or a warm `onNewWant` one. `request_route` makes the two the same
+    /// call — buffered until the first mount, applied on the UI thread after it.
+    pub fn deeplink(uri: *const core::ffi::c_char) {
+        if uri.is_null() {
+            return;
+        }
+        // SAFETY: the shim passes a NUL-terminated copy of the ArkTS string, valid for the call.
+        let uri = unsafe { core::ffi::CStr::from_ptr(uri) };
+        if let Ok(uri) = uri.to_str() {
+            day_core::request_route(&day_spec::route_of_url(uri));
+        }
     }
 }

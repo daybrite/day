@@ -224,10 +224,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.lifecycle(6); // DidReceiveMemoryWarning
     }
 
+    /** The route inside a deep-link URI (docs/deep-links.md): host + path + query. The query
+     *  carries the route params, ENCODED — the route parser percent-decodes, not this layer. */
     static String uriRoute(android.net.Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost();
         String path = uri.getPath() == null ? "" : uri.getPath();
-        return host + path;
+        String query = uri.getEncodedQuery();
+        return host + path + (query == null ? "" : "?" + query);
     }
 
     /** App menu (docs/menus.md): the global menu maps to the app-bar overflow (⋮). Rebuilt whenever

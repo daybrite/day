@@ -31,6 +31,11 @@
           {
             "entities": ["entity.system.home"],
             "actions": ["action.system.home"]
+          },
+          {
+            // Deep links (docs/deep-links.md): {{scheme}}://<route>
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [{ "scheme": "{{scheme}}" }]
           }
         ]
       },
