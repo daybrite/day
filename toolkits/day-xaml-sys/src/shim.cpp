@@ -1704,6 +1704,12 @@ void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tab
         // Tabular figures: XAML exposes them as the Typography attached property
         // NumeralAlignment, not as a font swap, so the face is untouched and only the digits
         // change metrics. Tabular == every digit on the same advance.
+        //
+        // FontNumeralAlignment sits in Windows.UI.Text alongside the other font primitives
+        // (FontStyle just above), NOT in Windows.UI.Xaml — Typography is the XAML-side attached
+        // property, but the value it takes is not. Naming the Xaml namespace here compiles to a
+        // cascade rather than a clear error: the enum expression fails first, so the two-argument
+        // setter is then reported as "does not take 1 arguments".
         WUXD::Typography::SetNumeralAlignment(
             tb, tabular ? WUI::Text::FontNumeralAlignment::Tabular
                         : WUI::Text::FontNumeralAlignment::Normal);
@@ -2043,7 +2049,7 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
         static bool s_forcing_layout = false;
         if ((d.Width == 0 || d.Height == 0) && !s_forcing_layout) {
             s_forcing_layout = true;
-            if (auto fe = e.try_as<FrameworkElement>()) fe.UpdateLayout();
+            if (fe) fe.UpdateLayout(); // the outer `fe` — re-querying here only shadowed it (C4456)
             s_forcing_layout = false;
             e.Measure(WF::Size{ fw, fh });
             d = e.DesiredSize();

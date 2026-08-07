@@ -1667,6 +1667,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       # Reuse the day CLI day-cli-linux already built (like every other combo) instead of a from-source
@@ -1697,6 +1698,15 @@ jobs:
         uses: ./.github/actions/showcase
         with:
           day-bin: ${{ env.DAY_BIN }}
+      # The last backend without a showcase lint. Six run in `toolkit`, arkui runs in its own job
+      # (it needs the OpenHarmony SDK set up there) — web-dom only ever *built* the app, so a lint
+      # clippy catches but rustc does not could reach main through this combo alone.
+      - name: Clippy (dom backend)
+        # `--lib` like the other non-desktop backends: wasm has no `day::launch` (desktop-only), so
+        # `src/main.rs` is not part of this build. The cargo feature is `dom`; `web-dom` is the
+        # platform name `day build` takes (Cargo.toml [features], §9).
+        working-directory: showcase-src
+        run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features dom
       - name: Build the showcase web-dom dist (release)
         working-directory: showcase-src
         run: $DAY_BIN build --platform web-dom --profile release

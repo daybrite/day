@@ -2939,7 +2939,10 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    piece/part/app for it. Feature unification is why the second exists — a `--workspace` clippy
    would link several backends into one binary and trip the one-backend-per-binary guard
    ([§3](#3-crate-architecture)). These used to run INSIDE the per-combo jobs, which made every
-   build job framework-shaped and unusable as an app pipeline; split out, they run beside it.
+   build job framework-shaped and unusable as an app pipeline; split out, they run beside it. Two
+   backends still lint from their own combo job, because that job already sets up the cross-target
+   toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
+   dom the wasm32 target.
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
    dedicated `ios-uikit` Simulator job and an Android emulator job): each checks out
    daybrite/Day-Showcase, points its day dependencies at this commit (`day patch --check`,

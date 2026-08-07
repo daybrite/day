@@ -444,12 +444,11 @@ void day_ark_set_font_family(void* n, const char* family) { set_str(n, NODE_FONT
 // registered face is untouched and only the digits change metrics. A font without `tnum`, or an
 // SDK predating the attribute, ignores it — the documented degradation.
 void day_ark_set_font_feature(void* n, const char* feature) {
-#ifdef NODE_FONT_FEATURE
+    // No #ifdef around this: NODE_FONT_FEATURE is an ENUMERATOR of ArkUI_NodeAttributeType
+    // (native_node.h), not a preprocessor macro, so `#ifdef NODE_FONT_FEATURE` is false on every
+    // SDK — including the ones that have it — and quietly compiled the feature away. day builds
+    // against API 18 (build-profile.json5's compatibleSdkVersion), where the attribute is present.
     set_str(n, NODE_FONT_FEATURE, feature);
-#else
-    (void)n;
-    (void)feature;
-#endif
 }
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
 

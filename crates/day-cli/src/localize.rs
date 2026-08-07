@@ -159,17 +159,45 @@ fn pbx_block(text: &str) -> Option<(usize, usize)> {
     Some((after, end))
 }
 
-/// The `knownRegions` entries, verbatim (Xcode spellings, `Base` included).
+/// The `knownRegions` entries as Xcode spellings, unquoted (`Base` included).
+///
+/// Xcode quotes any entry that is not a bare word, which is every hyphenated region
+/// (`"zh-Hans"`, `"pt-BR"`). The quotes are pbxproj syntax rather than part of the tag, so they
+/// come off here and go back on in [`pbx_quoted`] — otherwise a hyphenated region never compares
+/// equal to its Day tag and reads as both missing and unknown at once.
 fn pbx_entries(text: &str) -> Vec<String> {
     let Some((a, b)) = pbx_block(text) else {
         return Vec::new();
     };
     text[a..b]
         .lines()
-        .map(|l| l.trim().trim_end_matches(','))
+        .map(|l| pbx_unquote(l.trim().trim_end_matches(',')))
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// One `knownRegions` entry with its pbxproj quoting removed.
+fn pbx_unquote(entry: &str) -> &str {
+    entry
+        .strip_prefix('"')
+        .and_then(|e| e.strip_suffix('"'))
+        .unwrap_or(entry)
+}
+
+/// `region` spelled the way it must appear in the file: quoted unless it is a bare word.
+///
+/// Matches Xcode's own rule, which is what keeps the block round-trippable — the project opens
+/// without Xcode rewriting the list on save.
+fn pbx_quoted(region: &str) -> String {
+    if region
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        region.to_string()
+    } else {
+        format!("\"{region}\"")
+    }
 }
 
 /// The iOS project's regions as Day tags, or `None` when there is no iOS host project.
@@ -203,7 +231,7 @@ fn pbx_with_region(text: &str, region: &str) -> Result<Option<String>, String> {
                 indent.push('\t');
             }
             out.push_str(&indent);
-            out.push_str(region);
+            out.push_str(&pbx_quoted(region));
             out.push_str(",\n");
             state = 2;
         }
@@ -230,7 +258,7 @@ fn pbx_without_region(text: &str, region: &str) -> Option<String> {
         } else if state == 1 {
             if trimmed == ");" {
                 state = 2;
-            } else if !removed && trimmed.trim_end_matches(',') == region {
+            } else if !removed && pbx_unquote(trimmed.trim_end_matches(',')) == region {
                 removed = true;
                 continue;
             }
@@ -777,6 +805,29 @@ mod tests {
     }
 
     #[test]
+    fn hyphenated_regions_round_trip_through_xcode_quoting() {
+        // Xcode quotes every entry that is not a bare word. Reading has to take the quotes off
+        // (or `"zh-Hans"` reads as a region nobody asked for, while zh-CN reads as missing) and
+        // writing has to put them back.
+        let text =
+            "\t\t\tknownRegions = (\n\t\t\t\ten,\n\t\t\t\t\"zh-Hans\",\n\t\t\t\tBase,\n\t\t\t);\n";
+        assert_eq!(pbx_entries(text), v(&["en", "zh-Hans", "Base"]));
+        assert_eq!(pbx_quoted("zh-Hans"), "\"zh-Hans\"");
+        assert_eq!(pbx_quoted("fr"), "fr");
+
+        // Already listed under its quoted spelling, so adding it is a no-op…
+        assert_eq!(pbx_with_region(text, "zh-Hans").expect("block"), None);
+        // …and removing it finds the quoted line.
+        let removed = pbx_without_region(text, "zh-Hans").expect("listed");
+        assert_eq!(pbx_entries(&removed), v(&["en", "Base"]));
+        // Adding it back quotes it again, returning the file to where it started.
+        let added = pbx_with_region(&removed, "zh-Hans")
+            .expect("block")
+            .expect("not yet listed");
+        assert_eq!(added, text);
+    }
+
+    #[test]
     fn sync_findings_flag_drift_in_both_directions() {
         // Fluent has a locale the store lacks…
         let s = LocaleSurvey {
@@ -874,9 +925,13 @@ mod tests {
         assert!(add(&root, "fr").expect("re-add").is_empty());
 
         // Chinese takes the script-subtag spelling in the pbxproj and maps back in the survey.
+        // Hyphenated, so it lands quoted — `fr` above is a bare word and does not.
         add(&root, "zh-CN").expect("add zh-CN");
         let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
-        assert!(pbx.contains("zh-Hans,") && !pbx.contains("zh-CN,"), "{pbx}");
+        assert!(
+            pbx.contains("\"zh-Hans\",") && !pbx.contains("zh-CN,"),
+            "{pbx}"
+        );
         let s = survey(&root);
         assert_eq!(s.fluent, v(&["en", "fr", "zh-CN"]));
         assert_eq!(s.store, Some(v(&["en", "fr", "zh-CN"])));
