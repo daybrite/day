@@ -48,6 +48,38 @@ Evaluating JavaScript and reading a value back ships on **AppKit, UIKit, Qt and 
 web-dom can never have one. See [webview-eval.md](./webview-eval.md) for the per-platform research,
 the JavaScript envelope, and what each remaining arm needs.
 
+### Sessions (surviving navigation)
+
+Day rebuilds a destination's whole subtree on every navigation, so a plain `web_view` gets a fresh
+native view each visit and reloads from scratch. `.session(…)` moves the engine out of that lifetime:
+
+```rust
+web_view(url).session(WebSession::global("myapp.browser"))
+```
+
+The piece keeps the native web view alive against that id, and the next `web_view` bound to the same
+session re-attaches it with its page, scroll position, history and **JavaScript context** intact.
+This is the shape Apple settled on for the same problem — `WebPage` holds the session, `WebView`
+renders it — and it works for the same reason: a web view's content lives in the object and its
+content process, not in its attachment to a parent view.
+
+Sessions are keyed by a `&'static str` so `WebSession::global` is idempotent, which matters because
+the page function runs again on every navigation. There is deliberately no anonymous constructor: an
+id that changed per build would retain a new engine each visit and leak them all. A retained view is
+never freed — **one session is one live web view for the process's lifetime**, so use them for pages
+a user returns to, not per list item.
+
+Reactive state is a separate problem with a separate answer: signals declared in a page function are
+minted fresh per visit too, so hoist them with `Signal::global` behind a `OnceCell` (the showcase's
+`pages/webview.rs` and `pages/scripting.rs` both do this).
+
+**Per-backend.** AppKit, UIKit and GTK release a handle by *detaching* it, so the piece holding its
+own reference is all it takes. Qt is the exception — its `release` calls `deleteLater()` on the
+handle — so what the shim retains is the `QWebEngineView` *inside* the container, and `~DayWebView`
+re-parents it out before `~QWidget` deletes its children. Verified on macos-appkit and macos-qt by
+setting `window.__dayMarker` in the live page, navigating away and back, and reading it again.
+Android, XAML, ArkUI and web-dom ignore `session` and rebuild as before.
+
 ## Per-backend native realization
 
 | | AppKit | UIKit | Qt | Android | GTK | XAML |

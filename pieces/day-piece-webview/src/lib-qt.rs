@@ -16,6 +16,7 @@ unsafe extern "C" {
         url: *const c_char,
         id: u64,
         cb: extern "C" fn(u64, *const c_char),
+        session: u64,
     ) -> *mut c_void;
     fn day_webview_load(w: *mut c_void, url: *const c_char);
     fn day_webview_back(w: *mut c_void);
@@ -65,7 +66,7 @@ fn make(_backend: &mut Qt, p: &WebProps, id: NodeId) -> QtHandle {
     // carries its own node id), so register it once rather than per view.
     static EVAL_CB: std::sync::Once = std::sync::Once::new();
     EVAL_CB.call_once(|| unsafe { day_webview_set_eval_cb(on_eval) });
-    QtHandle(unsafe { day_webview_new(cstr(&p.url).as_ptr(), id.0, on_url) })
+    QtHandle(unsafe { day_webview_new(cstr(&p.url).as_ptr(), id.0, on_url, p.session) })
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &WebPatch) {

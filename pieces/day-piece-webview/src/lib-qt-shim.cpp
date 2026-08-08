@@ -11,6 +11,7 @@
 #include <QWidget>
 
 #include <cstdint>
+#include <map>
 #include <string>
 
 // A JavaScript-evaluation reply, in the 0x1F-separated form the Rust front-end decodes
@@ -35,30 +36,68 @@ static void (*g_eval_cb)(uint64_t, uint64_t, const char *) = nullptr;
 #include <QWebEnginePage>
 #include <QWebEngineView>
 
+// Session id -> the retained engine view. Qt is the one backend whose `release` DELETES the handle
+// (day_qt_delete -> deleteLater), so a second pointer to the container would dangle. What is
+// retained instead is the QWebEngineView INSIDE it: ~DayWebView re-parents it out before ~QWidget
+// deletes its children, and the next container adopts it. The page, history and JS context live in
+// the QWebEnginePage the view owns, so re-parenting is lossless.
+static std::map<uint64_t, QWebEngineView *> g_sessions;
+
 class DayWebView : public QWidget {
 public:
     QWebEngineView *view = nullptr;
     uint64_t id = 0;
+    uint64_t session = 0;
+    ~DayWebView() override {
+        // Runs BEFORE ~QWidget deletes children — the only window in which the engine view can be
+        // rescued from the container's destruction.
+        if (session != 0 && view)
+            view->setParent(nullptr);
+    }
     void load(const QString &url) {
         if (view && !url.isEmpty())
             view->load(QUrl::fromUserInput(url));
     }
 };
 
-extern "C" {
-
-void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *)) {
-    DayWebView *w = new DayWebView();
-    w->id = id;
-    QVBoxLayout *lay = new QVBoxLayout(w);
-    lay->setContentsMargins(0, 0, 0, 0);
-    QWebEngineView *v = new QWebEngineView();
+// (Re)point a view's navigation reports at the node currently showing it. A retained view outlives
+// the node that first realized it, so the old connection would report to a torn-down node.
+static void day_webview_connect_url(QWebEngineView *v, uint64_t id,
+                                    void (*cb)(uint64_t, const char *)) {
+    QObject::disconnect(v, &QWebEngineView::urlChanged, nullptr, nullptr);
     QObject::connect(v, &QWebEngineView::urlChanged, [id, cb](const QUrl &u) {
         QByteArray bytes = u.toString().toUtf8();
         cb(id, bytes.constData());
     });
+}
+
+extern "C" {
+
+void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *),
+                      uint64_t session) {
+    DayWebView *w = new DayWebView();
+    w->id = id;
+    w->session = session;
+    QVBoxLayout *lay = new QVBoxLayout(w);
+    lay->setContentsMargins(0, 0, 0, 0);
+
+    auto known = session != 0 ? g_sessions.find(session) : g_sessions.end();
+    if (known != g_sessions.end()) {
+        // Re-attach the retained engine: addWidget re-parents it. Deliberately NO load() — the
+        // point is to return to the page as it was left.
+        QWebEngineView *v = known->second;
+        day_webview_connect_url(v, id, cb);
+        lay->addWidget(v);
+        w->view = v;
+        return w;
+    }
+
+    QWebEngineView *v = new QWebEngineView();
+    day_webview_connect_url(v, id, cb);
     lay->addWidget(v);
     w->view = v;
+    if (session != 0)
+        g_sessions[session] = v;
     w->load(QString::fromUtf8(url));
     return w;
 }
@@ -132,8 +171,10 @@ public:
 
 extern "C" {
 
-void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *)) {
-    (void)cb; // no navigation to report without a real engine
+void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *),
+                      uint64_t session) {
+    (void)cb;      // no navigation to report without a real engine
+    (void)session; // nothing to retain either
     DayWebView *w = new DayWebView();
     w->id = id;
     QVBoxLayout *lay = new QVBoxLayout(w);

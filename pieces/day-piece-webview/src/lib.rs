@@ -26,6 +26,56 @@ pub const KIND: &str = "day.piece.webview";
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WebProps {
     pub url: String,
+    /// The [`WebSession`] this view belongs to, or `0` for none. A non-zero id asks the backend to
+    /// hand back the session's existing native view instead of creating one, so the loaded page
+    /// survives being navigated away from (docs/webview.md).
+    pub session: u64,
+}
+
+/// A retained browsing session — the thing that outlives the view showing it.
+///
+/// Day rebuilds a page's whole subtree on every navigation, so a plain `web_view` gets a brand-new
+/// native view each visit and reloads from scratch. A session moves the *engine* out of that
+/// lifetime: the piece keeps the native web view alive against this id, and a later `web_view`
+/// bound to the same session re-attaches it with its page, scroll position, history and JavaScript
+/// context intact.
+///
+/// This is the shape Apple settled on for the same problem — `WebPage` holds the session and
+/// `WebView` renders it — and the reason it works is the same: a web view's content lives in the
+/// object and its content process, not in its attachment to a parent view.
+///
+/// Sessions are keyed by a `&'static str`, so [`WebSession::global`] is idempotent and safe to call
+/// from a page function that runs again on every navigation. There is deliberately no way to mint an
+/// anonymous one: an id that changed per build would retain a new view each visit and leak them all.
+///
+/// The retained view is never freed — one session is one live web view for the process's lifetime.
+/// Use them for pages a user returns to, not per-item.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WebSession(u64);
+
+impl WebSession {
+    /// The session named `key`, created on first use. Calling this repeatedly with the same key
+    /// returns the same session.
+    pub fn global(key: &'static str) -> WebSession {
+        thread_local! {
+            static KEYS: RefCell<HashMap<&'static str, u64>> = RefCell::new(HashMap::new());
+            static NEXT: Cell<u64> = const { Cell::new(1) };
+        }
+        WebSession(KEYS.with(|m| {
+            *m.borrow_mut().entry(key).or_insert_with(|| {
+                NEXT.with(|c| {
+                    let v = c.get();
+                    c.set(v + 1);
+                    v
+                })
+            })
+        }))
+    }
+
+    /// The raw id, as it reaches a backend arm through [`WebProps::session`].
+    pub fn id(self) -> u64 {
+        self.0
+    }
 }
 
 /// Sparse imperative commands sent to the native view after creation.
@@ -305,6 +355,7 @@ pub struct WebView {
     stop: Option<Trigger>,
     reload: Option<Trigger>,
     js: Option<JsHandle>,
+    session: Option<WebSession>,
 }
 
 /// `web_view(url)` — a native web view showing `url`. The initial value loads on creation; call
@@ -322,6 +373,7 @@ pub fn web_view(url: Signal<String>) -> WebView {
         stop: None,
         reload: None,
         js: None,
+        session: None,
     }
 }
 
@@ -354,6 +406,11 @@ impl WebView {
     /// Bind a [`JsHandle`] so `handle.eval(…)` runs in this view (docs/webview-eval.md).
     pub fn js(mut self, handle: JsHandle) -> Self {
         self.js = Some(handle);
+        self
+    }
+    /// Show a retained [`WebSession`], so the loaded page survives navigating away and back.
+    pub fn session(mut self, session: WebSession) -> Self {
+        self.session = Some(session);
         self
     }
 }
@@ -397,9 +454,11 @@ impl Piece for WebView {
             stop,
             reload,
             js,
+            session,
         } = self;
         let initial = WebProps {
             url: url.get_untracked(),
+            session: session.map(WebSession::id).unwrap_or(0),
         };
         // A web view has no intrinsic size — it fills whatever space its container offers.
         let node = cx.leaf(

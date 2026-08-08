@@ -258,10 +258,13 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                         seed,
                         move || on.get(),
                         move |v: &bool| {
-                            day_core::patch_window_toolbar(window, ToolbarPatch::On {
-                                item: item.clone(),
-                                on: *v,
-                            });
+                            day_core::patch_window_toolbar(
+                                window,
+                                ToolbarPatch::On {
+                                    item: item.clone(),
+                                    on: *v,
+                                },
+                            );
                         },
                     );
                     (ToolbarItemKind::Toggle { on: seed }, act)
@@ -289,10 +292,13 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                         move || query.get(),
                         move |t: &String| {
                             if guard.borrow_mut().take().as_deref() != Some(t.as_str()) {
-                                day_core::patch_window_toolbar(window, ToolbarPatch::Text {
-                                    item: item.clone(),
-                                    text: t.clone(),
-                                });
+                                day_core::patch_window_toolbar(
+                                    window,
+                                    ToolbarPatch::Text {
+                                        item: item.clone(),
+                                        text: t.clone(),
+                                    },
+                                );
                             }
                         },
                     );
@@ -316,10 +322,13 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                 bind(
                     move || f(),
                     move |on: &bool| {
-                        day_core::patch_window_toolbar(window, ToolbarPatch::Enabled {
-                            item: item.clone(),
-                            on: *on,
-                        });
+                        day_core::patch_window_toolbar(
+                            window,
+                            ToolbarPatch::Enabled {
+                                item: item.clone(),
+                                on: *on,
+                            },
+                        );
                     },
                 );
             }
