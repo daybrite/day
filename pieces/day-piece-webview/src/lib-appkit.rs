@@ -152,6 +152,18 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &WebPatch) {
     }
 }
 
+/// Drop the retained navigation delegate when the view goes away.
+///
+/// Without this the map grows by one entry per realized web view, and — worse — its key is the
+/// view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// inherit the dead node's id and misroute its events.
+fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
+    let key = (&**h as *const NSView) as usize;
+    DELEGATES.with(|m| {
+        m.borrow_mut().remove(&key);
+    });
+}
+
 day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: WebProps, patch: WebPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_pieces::fill_measure, release: release);

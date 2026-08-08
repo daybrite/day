@@ -129,7 +129,9 @@ pub struct Tree<B: Toolkit> {
     windows: Vec<WindowEntry>,
     layout_dirty: bool,
     handlers: HashMap<RNode, Vec<EventHandler>>,
-    release_queue: Vec<B::Handle>,
+    // (kind, handle): the kind rides along so the drain can offer a satellite piece its
+    // `release` hook before the backend frees the handle (§15.2).
+    release_queue: Vec<(day_spec::PieceKind, B::Handle)>,
     /// Recycling-list state keyed by LIST node (docs/list.md, §10).
     lists: HashMap<RNode, crate::list::ListState>,
     /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
@@ -421,7 +423,7 @@ impl<B: Toolkit> Tree<B> {
                 // corruption on the raw-pointer backends (xaml/qt). Dropping the handle still
                 // balances whatever `adopt` retained (AppKit/UIKit/GTK/Android refcounts).
                 if data.kind != kinds::LIST_CELL {
-                    self.release_queue.push(h);
+                    self.release_queue.push((data.kind, h));
                 }
             }
             stack.extend(data.children);
@@ -451,7 +453,10 @@ impl<B: Toolkit> Tree<B> {
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
         }
         let queue = std::mem::take(&mut self.release_queue);
-        for h in queue {
+        for (kind, h) in queue {
+            // The piece's own teardown runs FIRST, while the handle is still valid: it may read
+            // the native view to unregister an observer. `release` then frees it (§15.2).
+            self.toolkit.release_piece(kind, &h);
             self.toolkit.release(h);
         }
     }

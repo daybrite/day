@@ -32,6 +32,22 @@ pub fn fill_measure<B: day_spec::Toolkit>(
 /// backend's default. One `renderer!` per module (it defines a module-level static).
 #[macro_export]
 macro_rules! renderer {
+    // …+ release: teardown for a piece that owns per-view state of its own (a retained delegate,
+    // a session map). Runs from the release queue just before the backend frees the handle.
+    ($slice:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
+     make: $make:expr, update: $update:expr, measure: $measure:expr, release: $release:expr $(,)?) => {
+        $crate::__renderer!(
+            $slice,
+            $backend,
+            $kind,
+            $props,
+            $patch,
+            $make,
+            $update,
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::Some($release)
+        );
+    };
     // props + patch + make + update (+ measure)
     ($slice:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
      make: $make:expr, update: $update:expr, measure: $measure:expr $(,)?) => {
@@ -43,7 +59,8 @@ macro_rules! renderer {
             $patch,
             $make,
             $update,
-            ::core::option::Option::Some($measure)
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::None
         );
     };
     ($slice:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
@@ -56,6 +73,7 @@ macro_rules! renderer {
             $patch,
             $make,
             $update,
+            ::core::option::Option::None,
             ::core::option::Option::None
         );
     };
@@ -70,7 +88,8 @@ macro_rules! renderer {
             (),
             $make,
             (|_b, _h, _p| {}),
-            ::core::option::Option::Some($measure)
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::None
         );
     };
     ($slice:path, $backend:ty, kind: $kind:expr, props: $props:ty, make: $make:expr $(,)?) => {
@@ -82,6 +101,7 @@ macro_rules! renderer {
             (),
             $make,
             (|_b, _h, _p| {}),
+            ::core::option::Option::None,
             ::core::option::Option::None
         );
     };
@@ -122,7 +142,8 @@ macro_rules! dom_renderer {
             $patch,
             $make,
             $update,
-            ::core::option::Option::Some($measure)
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::None
         );
     };
     ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
@@ -135,6 +156,7 @@ macro_rules! dom_renderer {
             $patch,
             $make,
             $update,
+            ::core::option::Option::None,
             ::core::option::Option::None
         );
     };
@@ -149,7 +171,8 @@ macro_rules! dom_renderer {
             (),
             $make,
             (|_b, _h, _p| {}),
-            ::core::option::Option::Some($measure)
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::None
         );
     };
     ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, make: $make:expr $(,)?) => {
@@ -161,6 +184,7 @@ macro_rules! dom_renderer {
             (),
             $make,
             (|_b, _h, _p| {}),
+            ::core::option::Option::None,
             ::core::option::Option::None
         );
     };
@@ -169,7 +193,8 @@ macro_rules! dom_renderer {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __dom_renderer {
-    ($register:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr, $measure:expr) => {
+    ($register:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr,
+     $measure:expr, $release:expr) => {
         /// Add this piece's renderer to web-dom's runtime registry. Idempotent — the registry
         /// keeps the first entry per kind, so calling it from every constructor is free.
         pub(crate) fn register() {
@@ -187,6 +212,7 @@ macro_rules! __dom_renderer {
                     }
                 },
                 measure: $measure,
+                release: $release,
             });
         }
     };
@@ -195,7 +221,8 @@ macro_rules! __dom_renderer {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __renderer {
-    ($slice:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr, $measure:expr) => {
+    ($slice:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr,
+     $measure:expr, $release:expr) => {
         #[$crate::linkme::distributed_slice($slice)]
         static __DAY_RENDERER: fn() -> $crate::Renderer<$backend> = || $crate::Renderer {
             kind: $kind,
@@ -211,6 +238,7 @@ macro_rules! __renderer {
                 }
             },
             measure: $measure,
+            release: $release,
         };
     };
 }

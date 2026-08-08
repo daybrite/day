@@ -2246,6 +2246,14 @@ pub trait Toolkit: Sized + 'static {
     );
     /// Called from the turn-boundary release queue; backends may defer destruction further.
     fn release(&mut self, h: Self::Handle);
+    /// Give a satellite piece a chance to drop its own per-view state, immediately before
+    /// [`release`](Toolkit::release) frees `h` (§15.2).
+    ///
+    /// A backend that hosts third-party pieces implements this by looking `kind` up in its renderer
+    /// registry and calling that piece's `release` hook. Defaulted to nothing: a backend with no
+    /// registry has nothing to dispatch, and one that has not wired this yet simply leaves piece
+    /// teardown unrun rather than failing to build.
+    fn release_piece(&mut self, _kind: PieceKind, _h: &Self::Handle) {}
 
     // tree
     fn insert(&mut self, parent: &Self::Handle, child: &Self::Handle, index: usize);
@@ -2571,6 +2579,16 @@ pub struct Renderer<B: Toolkit> {
     pub make: fn(&mut B, &dyn Any, NodeId) -> B::Handle,
     pub update: fn(&mut B, &B::Handle, &dyn Any),
     pub measure: Option<MeasureFn<B>>,
+    /// Teardown, run from the release queue just before [`Toolkit::release`] frees the handle.
+    ///
+    /// A piece that keeps per-view state of its own — a retained delegate, a session map, a native
+    /// observer — has no other place to drop it: `make`/`update` are the only other hooks, and a
+    /// disposed node never calls them again. Without this a piece leaks one entry per realized
+    /// view, and any map keyed by the handle's ADDRESS can go on to answer for a later view that
+    /// the allocator hands the same address.
+    ///
+    /// `None` for the pieces that own nothing (most of them).
+    pub release: Option<fn(&mut B, &B::Handle)>,
 }
 
 pub struct Registry<B: Toolkit> {

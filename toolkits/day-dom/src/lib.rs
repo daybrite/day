@@ -1115,6 +1115,15 @@ impl Toolkit for Dom {
         }
     }
 
+    /// Offer a satellite piece its teardown hook before `release` frees the handle (§15.2).
+    /// web-dom's registry is a runtime `RefCell`, so the hook is copied out before the call —
+    /// the borrow must end before a piece re-enters the registry.
+    fn release_piece(&mut self, kind: day_spec::PieceKind, h: &Self::Handle) {
+        if let Some(Some(f)) = registered(kind, |r| r.release) {
+            f(self, h);
+        }
+    }
+
     fn release(&mut self, h: DomHandle) {
         let el = h.0;
         NODE_OF.with(|m| m.borrow_mut().remove(&el));

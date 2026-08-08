@@ -1532,6 +1532,15 @@ impl Toolkit for Xaml {
         }
     }
 
+    /// Offer a satellite piece its teardown hook before `release` frees the handle (§15.2).
+    fn release_piece(&mut self, kind: day_spec::PieceKind, h: &Self::Handle) {
+        // Copy the fn pointer out first: the registry lookup borrows `self` immutably and
+        // the hook needs it mutably.
+        let f = self.registry.get(kind).and_then(|r| r.release);
+        if let Some(f) = f {
+            f(self, h);
+        }
+    }
     fn release(&mut self, h: WinHandle) {
         // A released window content = that window is gone (docs/windows.md teardown): NOW
         // destroy the whole secondary window, never before (child releases come first).

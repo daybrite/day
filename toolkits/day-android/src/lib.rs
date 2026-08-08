@@ -2057,6 +2057,15 @@ mod imp {
             }
         }
 
+        /// Offer a satellite piece its teardown hook before `release` frees the handle (§15.2).
+        fn release_piece(&mut self, kind: day_spec::PieceKind, h: &Self::Handle) {
+            // Copy the fn pointer out first: the registry lookup borrows `self` immutably and
+            // the hook needs it mutably.
+            let f = self.registry.get(kind).and_then(|r| r.release);
+            if let Some(f) = f {
+                f(self, h);
+            }
+        }
         fn release(&mut self, h: AHandle) {
             // A released window root drops its SECONDARY record (docs/windows.md teardown;
             // the activity itself already finished or is finishing).
